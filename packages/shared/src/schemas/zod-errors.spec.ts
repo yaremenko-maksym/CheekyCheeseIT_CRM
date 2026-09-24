@@ -9,6 +9,7 @@ import {
   MIN_SALARY_AMOUNT,
 } from './money'
 import { MAX_TRANSACTION_AMOUNT, COMPANY_REQUISITES_MAX } from './finance'
+import { RESUME_LIMITS } from './resume'
 import {
   ZOD_ERROR_CODES,
   ZOD_ERROR_FALLBACK_EN,
@@ -119,6 +120,16 @@ describe('numbers baked into ZOD_ERROR_MESSAGES/ZOD_ERROR_FALLBACK_EN pin the li
     const uk = en.replace(/,/g, ' ')
     expect(ZOD_ERROR_MESSAGES.REQUISITES_TOO_LONG.message).toContain(uk)
     expect(ZOD_ERROR_FALLBACK_EN.REQUISITES_TOO_LONG).toContain(en)
+  })
+
+  // fix-round 1, COPY-M-5: the "40" in RESUME_TEXT_TOO_SHORT's text is not a
+  // separate literal a copy-edit could silently drift out of sync with the
+  // schema's real threshold — it is pinned against the live constant, same
+  // as the numbers above.
+  it('RESUME_TEXT_TOO_SHORT pins RESUME_LIMITS.minExtractableChars', () => {
+    const digits = String(RESUME_LIMITS.minExtractableChars)
+    expect(ZOD_ERROR_MESSAGES.RESUME_TEXT_TOO_SHORT.message).toContain(digits)
+    expect(ZOD_ERROR_FALLBACK_EN.RESUME_TEXT_TOO_SHORT).toContain(digits)
   })
 })
 

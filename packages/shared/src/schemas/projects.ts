@@ -91,6 +91,14 @@ export type ProjectPaymentType = z.infer<typeof projectPaymentTypeSchema>
  * red the monorepo typecheck. Delete this helper (and switch both fields to
  * `projectPaymentTypeSchema` directly) once the web form/DTO types are
  * narrowed to the union end-to-end.
+ *
+ * task-i18n-stage4-task5: this message is NOT registered in `zod-errors.ts`
+ * — it is a Select-bound field (the form only ever sends one of the three
+ * enum members), so reaching this branch is a client/version-skew bug, not
+ * something a person can act on by typing something different. Left as
+ * English, log-only, same carve-out `notification-preferences.ts`'s
+ * `` `locked` must be derived from the type `` and `notifications.ts`'s
+ * `safeNotificationLinkSchema` message use for the same reason.
  */
 const paymentTypeStringSchema = z
   .string()
@@ -110,7 +118,7 @@ function refineLogoXor(
   if (data.logoDocumentId && data.logoExternalUrl) {
     ctx.addIssue({
       code: 'custom',
-      message: 'Только один из logoDocumentId / logoExternalUrl может быть задан',
+      message: 'zod.LOGO_SOURCE_XOR',
       path: ['logoExternalUrl'],
     })
   }
@@ -596,8 +604,8 @@ export const rejectProjectSchema = z.object({
   reason: z
     .string()
     .trim()
-    .min(1, 'Причина отказа обязательна')
-    .max(500, 'Причина отказа слишком длинная (максимум 500 символов)'),
+    .min(1, 'zod.REJECTION_REASON_REQUIRED')
+    .max(500, 'zod.REJECTION_REASON_TOO_LONG'),
 })
 export type RejectProjectDto = z.infer<typeof rejectProjectSchema>
 

@@ -4,6 +4,7 @@ import {
   createTeamSchema,
   teamMemberSchema,
   teamSchema,
+  teamTelegramChannelSchema,
   updateTeamSchema,
 } from './teams'
 
@@ -53,6 +54,46 @@ describe('createTeamSchema', () => {
   })
 })
 
+// task-i18n-stage4-task5: reuses `zod.TELEGRAM_CHANNEL_FORMAT` (task-i18n-
+// stage4-task4) rather than a new code — this schema had no test coverage of
+// its own message before this task.
+describe('teamTelegramChannelSchema', () => {
+  it('accepts null / undefined (optional, nullable)', () => {
+    expect(() => teamTelegramChannelSchema.parse(null)).not.toThrow()
+    expect(() => teamTelegramChannelSchema.parse(undefined)).not.toThrow()
+  })
+
+  it('accepts a bare handle and an @-prefixed handle, 5-32 chars', () => {
+    expect(() => teamTelegramChannelSchema.parse('valid_channel')).not.toThrow()
+    expect(() => teamTelegramChannelSchema.parse('@valid_channel')).not.toThrow()
+  })
+
+  it('rejects a handle under 5 chars with the TELEGRAM_CHANNEL_FORMAT code', () => {
+    const result = teamTelegramChannelSchema.safeParse('abc')
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.TELEGRAM_CHANNEL_FORMAT',
+    )
+  })
+
+  it('rejects a handle with spaces', () => {
+    expect(() => teamTelegramChannelSchema.parse('bad channel')).toThrow(
+      'zod.TELEGRAM_CHANNEL_FORMAT',
+    )
+  })
+
+  // mutation-gate closure: a mutant that drops the trailing `$` anchor from
+  // the regex still matches a VALID 5-32-char prefix followed by garbage
+  // (`.test()` only needs a match starting at index 0, not the whole
+  // string) — the two tests above never exercise a string that is valid at
+  // the START and invalid only at the END.
+  it('rejects a valid-prefix handle followed by trailing garbage (pins the end-of-string anchor)', () => {
+    expect(() => teamTelegramChannelSchema.parse('valid_channel!!!not-allowed')).toThrow(
+      'zod.TELEGRAM_CHANNEL_FORMAT',
+    )
+  })
+})
+
 describe('updateTeamSchema', () => {
   it('accepts a valid name', () => {
     expect(() => updateTeamSchema.parse({ name: 'Updated' })).not.toThrow()
@@ -76,19 +117,27 @@ describe('updateTeamSchema', () => {
     })
 
     it('accepts valid telegram URL', () => {
-      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'https://t.me/team_chat' })).not.toThrow()
+      expect(() =>
+        updateTeamSchema.parse({ name: 'Test', telegram: 'https://t.me/team_chat' }),
+      ).not.toThrow()
     })
 
     it('rejects invalid telegram URL without https://t.me/', () => {
-      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'invalid_url' })).toThrow('Ссылка должна начинаться с https://t.me/')
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'invalid_url' })).toThrow(
+        'zod.TEAM_TELEGRAM_LINK_FORMAT',
+      )
     })
 
     it('rejects telegram URL with wrong protocol', () => {
-      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'http://t.me/chat' })).toThrow('Ссылка должна начинаться с https://t.me/')
+      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'http://t.me/chat' })).toThrow(
+        'zod.TEAM_TELEGRAM_LINK_FORMAT',
+      )
     })
 
     it('rejects telegram URL with wrong domain', () => {
-      expect(() => updateTeamSchema.parse({ name: 'Test', telegram: 'https://telegram.me/chat' })).toThrow('Ссылка должна начинаться с https://t.me/')
+      expect(() =>
+        updateTeamSchema.parse({ name: 'Test', telegram: 'https://telegram.me/chat' }),
+      ).toThrow('zod.TEAM_TELEGRAM_LINK_FORMAT')
     })
   })
 })

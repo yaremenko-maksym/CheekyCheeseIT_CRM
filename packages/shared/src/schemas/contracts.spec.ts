@@ -1,10 +1,13 @@
 import { describe, it, expect } from 'vitest'
+import { createI18n } from '../i18n/catalog'
 import {
   CONTRACT_SIGN_IMPERSONATION_MESSAGE,
   CONTRACT_VARIABLE_DESCRIPTIONS,
   CONTRACT_VARIABLE_DESCRIPTIONS_BRACED,
   customVariableSchema,
   createContractTemplateSchema,
+  previewContractPdfSchema,
+  signedContractSchema,
 } from './contracts'
 
 describe('CONTRACT_VARIABLE_DESCRIPTIONS', () => {
@@ -31,13 +34,21 @@ describe('CONTRACT_VARIABLE_DESCRIPTIONS', () => {
     }
   })
 
-  it('descriptions are non-empty Russian strings', () => {
-    for (const [key, desc] of Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS)) {
-      expect(desc, `description for "${key}" should be non-empty`).toBeTruthy()
-      expect(typeof desc).toBe('string')
+  it('every descriptor has an explicit id matching contract-variable.<key> and resolves to non-empty text in both locales', () => {
+    for (const locale of ['uk', 'en'] as const) {
+      const i18n = createI18n(locale)
+      for (const [key, descriptor] of Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS)) {
+        expect(descriptor.id, `id for "${key}"`).toBe(`contract-variable.${key}`)
+        const text = i18n._(descriptor)
+        expect(text.length, `${key} (${locale})`).toBeGreaterThan(0)
+      }
     }
-    for (const [key, desc] of Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED)) {
-      expect(desc, `braced description for "${key}" should be non-empty`).toBeTruthy()
+  })
+
+  it('braced form mirrors the bare-key descriptors (same MessageDescriptor objects)', () => {
+    for (const [key, descriptor] of Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS)) {
+      const bracedKey = `{{${key}}}` as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS_BRACED
+      expect(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED[bracedKey]).toBe(descriptor)
     }
   })
 
@@ -115,9 +126,12 @@ describe('customVariableSchema', () => {
   })
 
   describe('invalid inputs', () => {
-    it('rejects key starting with a digit', () => {
+    it('rejects key starting with a digit, with the VARIABLE_KEY_FORMAT code (shared with employee-contracts.ts)', () => {
       const result = customVariableSchema.safeParse({ key: '1project', label: 'Test' })
       expect(result.success).toBe(false)
+      expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+        'zod.VARIABLE_KEY_FORMAT',
+      )
     })
 
     it('rejects key starting with underscore', () => {
@@ -147,10 +161,88 @@ describe('customVariableSchema', () => {
       expect(result.success).toBe(false)
     })
 
-    it('rejects empty label', () => {
+    it('rejects empty label, with the VARIABLE_LABEL_REQUIRED code', () => {
       const result = customVariableSchema.safeParse({ key: 'myVar', label: '' })
       expect(result.success).toBe(false)
+      expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+        'zod.VARIABLE_LABEL_REQUIRED',
+      )
     })
+  })
+})
+
+describe('createContractTemplateSchema.bodyMarkdown', () => {
+  it('rejects an empty body, with the DOCUMENT_BODY_REQUIRED code (shared with employee-contracts.ts / tos.ts)', () => {
+    const result = createContractTemplateSchema.safeParse({
+      targetRole: 'SENIOR',
+      bodyMarkdown: '',
+    })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.DOCUMENT_BODY_REQUIRED',
+    )
+  })
+})
+
+describe('previewContractPdfSchema.bodyMarkdown', () => {
+  it('accepts a non-empty body', () => {
+    expect(() =>
+      previewContractPdfSchema.parse({ bodyMarkdown: '# Preview', role: 'SENIOR' }),
+    ).not.toThrow()
+  })
+
+  it('rejects an empty body, with the DOCUMENT_BODY_REQUIRED code', () => {
+    const result = previewContractPdfSchema.safeParse({ bodyMarkdown: '', role: 'SENIOR' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.DOCUMENT_BODY_REQUIRED',
+    )
+  })
+
+  it('rejects a body over 100,000 characters', () => {
+    expect(() =>
+      previewContractPdfSchema.parse({ bodyMarkdown: 'a'.repeat(100_001), role: 'SENIOR' }),
+    ).toThrow()
+  })
+
+  it('accepts a body at exactly 100,000 characters', () => {
+    expect(() =>
+      previewContractPdfSchema.parse({ bodyMarkdown: 'a'.repeat(100_000), role: 'SENIOR' }),
+    ).not.toThrow()
+  })
+})
+
+describe('signedContractSchema.contractNumber', () => {
+  const base = {
+    id: 'a0000000-0000-4000-8000-000000000001',
+    userId: 'a0000000-0000-4000-8000-000000000002',
+    templateId: 'a0000000-0000-4000-8000-000000000003',
+    bodyMarkdownSnapshot: '# Contract',
+    variablesFilled: {},
+    signedTypedName: 'Ivan Ivanov',
+    signedIp: null,
+    signedUserAgent: null,
+    signedAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  it('accepts the new CHK-XXXXXX (6 uppercase hex) format', () => {
+    expect(() =>
+      signedContractSchema.parse({ ...base, contractNumber: 'CHK-7F3A9C' }),
+    ).not.toThrow()
+  })
+
+  it('accepts the legacy CHK-N-YYYY format', () => {
+    expect(() =>
+      signedContractSchema.parse({ ...base, contractNumber: 'CHK-1-2026' }),
+    ).not.toThrow()
+  })
+
+  it('rejects a malformed contractNumber, with the exact diagnostic message', () => {
+    const result = signedContractSchema.safeParse({ ...base, contractNumber: 'not-a-number' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'Invalid contract_number (expected CHK-XXXXXX or CHK-N-YYYY for legacy rows)',
+    )
   })
 })
 

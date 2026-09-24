@@ -86,11 +86,6 @@ msgid "<0>{received}/{total}</0> надходжень від компаній з
 msgstr "<0>{received}/{total}</0> receipts from companies this month"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED"
-msgstr "ADMIN_INCOME can only be registered for an admin-owned project"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email must not exceed 255 characters"
@@ -160,8 +155,13 @@ msgstr "A Telegram channel can only be set for a senior"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE"
-msgstr "USDT projects don't create income through this route — declare a USDT income instead, which reserves the senior's and drop's shares along with the income"
+msgid "api-error.FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH"
+msgstr "A USDT income can only be declared on a USDT project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyVat"
+msgstr "Counterparty company's VAT number"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -220,6 +220,16 @@ msgstr "Recipient administrator not found"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ADDRESS_FORMAT"
 msgstr "The USDT ERC-20 address must start with 0x and be 42 characters long"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyAddress"
+msgstr "Counterparty company's address"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.registrationAddress"
+msgstr "Registration address (sole proprietor)"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -309,6 +319,11 @@ msgstr "Only the administrator themself or an accountant can see this admin bala
 msgid "api-error.FINANCE_SENIOR_BALANCE_FORBIDDEN"
 msgstr "An administrator, an accountant, or the senior themself can see the senior's balance"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyBank"
+msgstr "Counterparty company's bank details"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "CRM side navigation — move between sections of the system."
@@ -326,6 +341,11 @@ msgstr "An accountant can't choose who receives ADMIN_INCOME"
 msgid "В активних стадіях"
 msgstr "In active stages"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT"
+msgstr "Row {rowId}: there's no share-percent snapshot on the derivative row — recalculating its amount isn't possible, and guessing isn't allowed. A manual decision is required"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Вакансії"
 msgstr "Vacancies"
@@ -342,6 +362,11 @@ msgstr "Validated this month"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
 msgstr "Only SENIOR_INCOME or DROP_INCOME can be validated"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.salaryCurrency"
+msgstr "Salary currency from the profile"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -392,6 +417,11 @@ msgstr "Enter the number in international format, e.g. +380671234567"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.AMOUNT_NOT_A_NUMBER"
 msgstr "Enter the amount as a number — e.g. 1000.50"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.LEGEND_TEXT_REQUIRED"
+msgstr "Enter the text"
 
 #. placeholder {0}: ver.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
@@ -481,6 +511,11 @@ msgid "api-error.DROP_TEAM_ID_REQUIRED"
 msgstr "Choose the drop team to add the senior to"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CONTRACT_DOCUMENT_PROJECT_REQUIRED"
+msgstr "Choose a project — a contract can't be uploaded without one"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
 msgstr "Choose a project — a contract can't be uploaded without one"
@@ -494,6 +529,11 @@ msgstr "Choose a senior"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.HR_REQUIRED_MIN"
 msgstr "Select at least one HR"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.AT_LEAST_ONE_APPROVER"
+msgstr "Select at least one approver"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
@@ -522,11 +562,6 @@ msgstr "Only an administrator can permanently delete a document"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Видалити сповіщення"
 msgstr "Delete notification"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DELETE_PAYOUT_FORBIDDEN"
-msgstr "PAYOUT transactions can't be deleted"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -560,6 +595,16 @@ msgstr "The payout isn't pending payment — it may already be confirmed"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DROP_PAYMENTS_FORBIDDEN"
 msgstr "Drop payments are available to a drop only"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DELETE_PAYOUT_FORBIDDEN"
+msgstr "PAYOUT transactions can't be deleted"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN"
+msgstr "PAYOUT transactions can't be edited"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
@@ -644,6 +689,31 @@ msgstr "Specify a sender — a transfer is only possible between two admins"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SALARY_OR_SHARE_REQUIRED"
+msgstr "Enter the salary or the senior's share — at least one of the two"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CREDENTIAL_LABEL_REQUIRED"
+msgstr "Enter a name"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_LABEL_REQUIRED"
+msgstr "Enter a display name for the variable"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CREDENTIAL_PASSWORD_REQUIRED"
+msgstr "Enter a password"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.FULL_NAME_REQUIRED"
+msgstr "Enter the full name"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_DELETE"
 msgstr "State a reason for the deletion — it goes into the audit log"
 
@@ -651,6 +721,11 @@ msgstr "State a reason for the deletion — it goes into the audit log"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSACTION_DELETE_REASON_REQUIRED"
 msgstr "Give a reason for deleting the transaction — it goes into the audit log"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.REJECTION_REASON_REQUIRED"
+msgstr "State a reason for the rejection"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -678,6 +753,11 @@ msgid "api-error.FINANCE_TX_HASH_PARAM_REQUIRED"
 msgstr "Provide exactly one txHash parameter — 0x + 64 hex or an Etherscan link"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.AT_LEAST_ONE_PREFERENCE"
+msgstr "Specify at least one setting"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
 msgstr "The specified user wasn't found or has the wrong role"
@@ -686,6 +766,11 @@ msgstr "The specified user wasn't found or has the wrong role"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
 msgstr "The file's content doesn't match its extension — re-save it and try again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_TEXT_TOO_SHORT"
+msgstr "Paste the full resume text — at least 40 characters"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Всього зароблено · за весь час"
@@ -701,6 +786,11 @@ msgid "Входимо…"
 msgstr "Logging in…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.walletUsdt"
+msgstr "USDT ERC-20 wallet (if provided)"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_WALLET_NOT_CONFIGURED"
 msgstr "The company wallet isn't configured"
@@ -708,6 +798,11 @@ msgstr "The company wallet isn't configured"
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
 msgstr "Done"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.bankUahFop"
+msgstr "Sole proprietor's UAH bank details"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -728,6 +823,11 @@ msgstr "The date must be in YYYY-MM-DD format"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DATE_FORMAT_INVALID"
 msgstr "The date must be in YYYYMMDD format"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.onboardingDate"
+msgstr "Contract signing date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -861,6 +961,21 @@ msgstr "A top-up on this row is only possible in {obligationCurrency} — the ra
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Reached the limit of {maxItems} tags"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY"
+msgstr "On a USDT project, only an administrator declares income"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE"
+msgstr "USDT projects don't create income through this route — declare a USDT income instead, which reserves the senior's and drop's shares along with the income"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED"
+msgstr "ADMIN_INCOME can only be registered for an admin-owned project"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
 msgstr "Drop income (unpaid share)"
@@ -868,11 +983,6 @@ msgstr "Drop income (unpaid share)"
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Дохід за місяць"
 msgstr "Income this month"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_INCOME_OWN_PROJECTS_ONLY"
-msgstr "You can only add income for your own projects"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід сеньйора (неоплачена частка)"
@@ -913,6 +1023,11 @@ msgstr "Drop not found"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Drops can't access interviews"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
+msgstr "Row {rowId}: the amount already paid is booked in {settledCurrency}, and the recalculated share is in {currency} — the remaining amount can't be computed for this pair, a manual reconciliation is needed"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1001,6 +1116,11 @@ msgstr "Income can only be declared for an active project"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_INCOME_OWN_PROJECTS_ONLY"
+msgstr "You can only add income for your own projects"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_REQUEST_ALREADY_PAID"
 msgstr "The payout request is already paid"
 
@@ -1059,6 +1179,11 @@ msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Only an administrator or an accountant can change the senior's share at the team level"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_VALUE_TOO_LONG"
+msgstr "Variable value must not exceed 2000 characters"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_ALREADY_CLOSED"
 msgstr "The obligation is already closed or cancelled"
@@ -1070,8 +1195,23 @@ msgstr "The drop obligation is corrupted: its currency isn't USDT — conversion
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH"
+msgstr "Row {rowId}: the obligation on the derivative row is booked in a different currency than the source amount — writing the recalculated share into it isn't possible"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_FOUND"
 msgstr "Obligation not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN"
+msgstr "This section is available to an accountant and an administrator"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN"
+msgstr "The pending accruals list is available to seniors, accountants, and administrators"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
@@ -1116,6 +1256,16 @@ msgstr "Earnings history by month"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
 msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_KEY_FORMAT"
+msgstr "Key: up to 50 characters — Latin letters, digits or _, starting with a letter"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.APPROVER_IDS_NO_DUPLICATES"
+msgstr "Each approver can be added only once"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -1229,6 +1379,11 @@ msgstr "Users"
 msgid "Користувачів не знайдено"
 msgstr "No users found"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyCountry"
+msgstr "Counterparty company's country of registration"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Країну не знайдено"
 msgstr "Country not found"
@@ -1241,6 +1396,16 @@ msgstr "The NBU exchange rate is unavailable — try again later"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
 msgstr "Legend"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.PREFERENCE_EMAIL_LOCKED"
+msgstr "Emails about confirmation and signing requests cannot be turned off"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.LOGO_SOURCE_XOR"
+msgstr "The logo is either an uploaded file or a link, not both"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Меню користувача"
@@ -1264,23 +1429,23 @@ msgstr "My project"
 msgid "Мова інтерфейсу"
 msgstr "Interface language"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TOO_MANY_CUSTOM_VARIABLES"
+msgstr "You can add up to 50 custom variables"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
 msgstr "My projects"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY"
-msgstr "On a USDT project, only an administrator declares income"
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyAuthorityBasis"
+msgstr "Basis on which the company representative acts"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
 msgstr "Navigation"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH"
-msgstr "A USDT income can only be declared on a USDT project"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"
@@ -1289,6 +1454,11 @@ msgstr "Receipts from companies this month"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Назад до умов використання"
 msgstr "Back to Terms of Service"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyName"
+msgstr "Company name (Cheeky Cheese IT)"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "назва проєкту"
@@ -1302,6 +1472,11 @@ msgstr "Hired this month"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SETTLEMENT_ALREADY_IN_OTHER_CURRENCY"
 msgstr "The accumulated payout amount on this row is already recorded in {sourceSettledCurrency} — a repeat payout in {currency} isn't possible without reconciling currencies"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
+msgstr "Settings are outdated — refresh the page"
 
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
@@ -1362,6 +1537,16 @@ msgstr "Couldn't close the obligation: the obligation's source transaction isn't
 msgid "api-error.LEGEND_UPSERT_FAILED"
 msgstr "Couldn't save the legend. Try again"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TOO_MANY_PREFERENCES"
+msgstr "Couldn't save the settings — refresh the page"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.PREFERENCE_TYPE_DUPLICATE"
+msgstr "Couldn't save the settings — refresh the page"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
@@ -1412,6 +1597,11 @@ msgstr "Couldn't recognize the selected senior — pick one from the list"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN"
+msgstr "Row {rowId}: how much has already been paid on it isn't recorded — it can't be returned to pending payout, a manual reconciliation is needed"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1532,6 +1722,11 @@ msgstr "New Terms version"
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 msgstr "The new Terms of Service version has been published. Users will see a notification."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.contractNumber"
+msgstr "Contract number — assigned at signing, e.g. CHK-7F3A9C"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Номер телефону"
 msgstr "Phone number"
@@ -1554,6 +1749,11 @@ msgstr "The income compliance overview is available to an administrator and an a
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SHARE_LEFT_PENDING_DURING_SAVE"
 msgstr "One of the shares left pending payout while saving was in progress — the edit was cancelled entirely, nothing changed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN"
+msgstr "Row {rowId} closed an obligation, but its type doesn't match any closing form — it can't be returned to pending payout"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Оновити"
@@ -1748,6 +1948,11 @@ msgstr "Recipient full name — at least 3 characters"
 msgid "zod-error.RECIPIENT_NAME_REQUIRED"
 msgstr "Recipient full name is required"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.employeeName"
+msgstr "Employee's full legal name for the contract"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Підготовка файлу…"
 msgstr "Preparing file…"
@@ -1853,6 +2058,16 @@ msgstr "Link"
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "The link must point to etherscan.io, tronscan.org or another explorer"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_LINK_PROTOCOL"
+msgstr "The link must start with https:// or mailto:"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TEAM_TELEGRAM_LINK_FORMAT"
+msgstr "The link must start with https://t.me/"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
@@ -1907,6 +2122,11 @@ msgstr "You can't assign the admin role — the pool is fixed"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY"
 msgstr "Only a document in the Receipt category can be attached to a transaction"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.REJECTION_REASON_TOO_LONG"
+msgstr "Rejection reason — 500 characters max"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -2032,13 +2252,18 @@ msgstr "Only SENIOR_INCOME transactions can be edited"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN"
-msgstr "PAYOUT transactions can't be edited"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN"
 msgstr "A transaction linked to a payout request can't be edited"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyRegNumber"
+msgstr "Counterparty company's registration number"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.requisites"
+msgstr "Payment details — filled in automatically based on the payment method"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -2056,6 +2281,11 @@ msgid "api-error.APPROVAL_ALREADY_DECIDED"
 msgstr "This approval has already been decided"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.rnokpp"
+msgstr "Employee's tax ID (RNOKPP)"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RNOKPP_REQUIRED"
 msgstr "The tax ID is required"
@@ -2064,6 +2294,11 @@ msgstr "The tax ID is required"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.WORK_EMAIL_MUST_DIFFER_FROM_PERSONAL"
 msgstr "The work email must be different from the personal email"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.employeeEmail"
+msgstr "Employee's work email"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
@@ -2086,29 +2321,9 @@ msgid "Роль"
 msgstr "Role"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN"
-msgstr "Row {rowId} closed an obligation, but its type doesn't match any closing form — it can't be returned to pending payout"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH"
-msgstr "Row {rowId}: the obligation on the derivative row is booked in a different currency than the source amount — writing the recalculated share into it isn't possible"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT"
-msgstr "Row {rowId}: there's no share-percent snapshot on the derivative row — recalculating its amount isn't possible, and guessing isn't allowed. A manual decision is required"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN"
-msgstr "Row {rowId}: how much has already been paid on it isn't recorded — it can't be returned to pending payout, a manual reconciliation is needed"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
-msgstr "Row {rowId}: the amount already paid is booked in {settledCurrency}, and the recalculated share is in {currency} — the remaining amount can't be computed for this pair, a manual reconciliation is needed"
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.role"
+msgstr "Employee's role in the company"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2175,11 +2390,6 @@ msgstr "Move the document to trash first, then delete it permanently"
 msgid "api-error.FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN"
 msgstr "The company's obligations list toward seniors is available to administrators and accountants only"
 
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN"
-msgstr "The pending accruals list is available to seniors, accountants, and administrators"
-
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співбесід"
 msgstr "Interviews"
@@ -2210,6 +2420,11 @@ msgstr "Notification not found"
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Сповіщень немає"
 msgstr "No notifications"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.preferredMethod"
+msgstr "Payment method from the profile: USDT (ERC-20) or sole proprietor (UAH)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2311,6 +2526,16 @@ msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
 msgstr "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DOCUMENT_BODY_REQUIRED"
+msgstr "The document text cannot be empty"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.phone"
+msgstr "Employee's phone"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_EXPIRED"
 msgstr "The invite has expired"
@@ -2330,11 +2555,6 @@ msgstr "Transactions in progress"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST"
-msgstr "PAYOUT transaction not found for this request"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSACTION_ALREADY_DELETED"
 msgstr "The transaction is already deleted"
 
@@ -2342,6 +2562,11 @@ msgstr "The transaction is already deleted"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSACTION_DELETED_RESTORE_FIRST"
 msgstr "The transaction is deleted — restore it before this action"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST"
+msgstr "PAYOUT transaction not found for this request"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2570,11 +2795,6 @@ msgid "Цей місяць"
 msgstr "This month"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/finance-invoices.ts
-msgid "api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN"
-msgstr "This section is available to an accountant and an administrator"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
 msgstr "This senior isn't in your teams"
@@ -2647,6 +2867,11 @@ msgstr "The drop's share from this payout didn't go through the company account 
 msgid "Частка дропа у відсотках"
 msgstr "Drop's share, percent"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companySharePercent"
+msgstr "Company's share, % (100 minus the employee's share)"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Частка невідома. Оновіть сторінку"
 msgstr "Share unknown. Refresh the page"
@@ -2658,6 +2883,11 @@ msgstr "Senior's share · all time"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка сеньйора у відсотках"
 msgstr "Senior's share, percent"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.sharePercent"
+msgstr "Employee's share, % (senior/drop)"
 
 #. placeholder {0}: summary.dropSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -2687,6 +2917,16 @@ msgstr "Awaiting decision"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Contract template not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.salary"
+msgstr "Monthly salary from the profile, with currency"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyLegalName"
+msgstr "Counterparty company's legal name"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

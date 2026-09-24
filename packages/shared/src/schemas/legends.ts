@@ -25,7 +25,7 @@ export const legendSchema = z.object({
   id: z.string().uuid(),
   projectId: z.string().uuid(),
   /** Client-facing persona full name (Cyrillic). Separate from legalFullName. */
-  fullName: z.string().min(1, 'ФИО обязательно'),
+  fullName: z.string().min(1, 'zod.FULL_NAME_REQUIRED'),
   dateOfBirth: z.string().nullable(),
   address: z.string().nullable(),
   presentedRole: z.string().nullable(),
@@ -67,11 +67,16 @@ export type LegendResponse = z.infer<typeof legendResponseSchema>
  */
 const isoDateString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата должна быть в формате ГГГГ-ММ-ДД (например, 1990-01-15)')
+  // Reuses `DATE_FORMAT_YYYYMMDD` (task-i18n-stage4-task4) rather than a new
+  // code — same rule (YYYY-MM-DD date string), no need for a second code
+  // carrying the same meaning (plan Task 5 Step 3, dedup discipline).
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
 
 export const upsertLegendSchema = z.object({
   /** Client-facing persona full name (required). */
-  fullName: z.string().min(1, 'Имя обязательно'),
+  // Same code and caption as `legendSchema.fullName` above (COPY-L-shared-17,
+  // plan Task 5 Step 3) — the two used to say "ФИО"/"Имя" for the same field.
+  fullName: z.string().min(1, 'zod.FULL_NAME_REQUIRED'),
   dateOfBirth: isoDateString.nullish(),
   address: z.string().nullish(),
   presentedRole: z.string().nullish(),
@@ -84,7 +89,7 @@ export const upsertLegendSchema = z.object({
 export type UpsertLegendDto = z.infer<typeof upsertLegendSchema>
 
 export const addLegendEntrySchema = z.object({
-  text: z.string().min(1, 'Текст обязателен').max(5000),
+  text: z.string().min(1, 'zod.LEGEND_TEXT_REQUIRED').max(5000),
   /** Optional event date (YYYY-MM-DD). Defaults to today on client, stored as-is. */
   eventDate: isoDateString.nullish(),
 })

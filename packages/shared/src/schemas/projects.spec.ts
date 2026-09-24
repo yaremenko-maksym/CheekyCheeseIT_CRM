@@ -210,6 +210,38 @@ describe('archiveImpactSchema — user/team variants carry pendingTransactions +
   })
 })
 
+// task-i18n-stage4-task5: no test existed for `refineLogoXor` before this task.
+describe('createProjectSchema — logo XOR (logoDocumentId / logoExternalUrl)', () => {
+  it('accepts neither logo field', () => {
+    expect(() => createProjectSchema.parse(baseCreate)).not.toThrow()
+  })
+
+  it('accepts logoDocumentId alone', () => {
+    expect(() =>
+      createProjectSchema.parse({
+        ...baseCreate,
+        logoDocumentId: 'a0000000-0000-4000-8000-000000000002',
+      }),
+    ).not.toThrow()
+  })
+
+  it('accepts logoExternalUrl alone', () => {
+    expect(() =>
+      createProjectSchema.parse({ ...baseCreate, logoExternalUrl: 'https://example.com/logo.png' }),
+    ).not.toThrow()
+  })
+
+  it('rejects both logo fields set, with the LOGO_SOURCE_XOR code', () => {
+    const result = createProjectSchema.safeParse({
+      ...baseCreate,
+      logoDocumentId: 'a0000000-0000-4000-8000-000000000002',
+      logoExternalUrl: 'https://example.com/logo.png',
+    })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe('zod.LOGO_SOURCE_XOR')
+  })
+})
+
 describe('task-project-draft-status — projectStatusSchema / rejectProjectSchema', () => {
   it('projectStatusSchema accepts exactly DRAFT/ACTIVE/REJECTED', () => {
     for (const s of PROJECT_STATUSES) {
@@ -225,7 +257,7 @@ describe('task-project-draft-status — projectStatusSchema / rejectProjectSchem
     expect(() => rejectProjectSchema.parse({})).toThrow()
     const result = rejectProjectSchema.safeParse({ reason: '' })
     expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
-      'Причина отказа обязательна',
+      'zod.REJECTION_REASON_REQUIRED',
     )
   })
 
@@ -244,7 +276,7 @@ describe('task-project-draft-status — projectStatusSchema / rejectProjectSchem
     expect(() => rejectProjectSchema.parse({ reason: tooLong })).toThrow()
     const result = rejectProjectSchema.safeParse({ reason: tooLong })
     expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
-      'Причина отказа слишком длинная (максимум 500 символов)',
+      'zod.REJECTION_REASON_TOO_LONG',
     )
   })
 

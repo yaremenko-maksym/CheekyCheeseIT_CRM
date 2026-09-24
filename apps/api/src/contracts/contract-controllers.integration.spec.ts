@@ -139,6 +139,14 @@ class SentinelEmployeeContractsController {
     }
     void reply.header('Content-Type', 'application/pdf').send(Buffer.from('%PDF-1.4 stub'))
   }
+
+  // fix-round 2 (FM-5 gate): mirrors real getVariables — no @Roles() override,
+  // so class-level @Roles('ADMIN') applies. Unlike get()/getPdf() this endpoint
+  // has NO owner-or-ADMIN exception — even the contract owner gets 403.
+  @Get(':id/contract/variables')
+  getVariables(@Param('id') id: string) {
+    return { ok: true, endpoint: 'GET /users/:id/contract/variables', id }
+  }
 }
 
 /** Mirrors OnboardingContractController (@Controller('onboarding') — no @Roles, self-access) */
@@ -291,6 +299,19 @@ describe('Contract controllers — real-route integration (double-prefix regress
     expect(res.headers['content-type']).toContain('application/pdf')
   })
 
+  // fix-round 2 (FM-5 gate): GET .../contract/variables → 200 for ADMIN.
+  it('GET /api/users/:id/contract/variables → 200 for ADMIN', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${targetUserId}/contract/variables`,
+      cookies: { jwt: signFor(adminUser) },
+    })
+    expect(res.statusCode).toBe(200)
+    const body = res.json() as { ok: boolean; endpoint: string }
+    expect(body.ok).toBe(true)
+    expect(body.endpoint).toBe('GET /users/:id/contract/variables')
+  })
+
   // -------------------------------------------------------------------------
   // 2. OnboardingContractController — reachable for authenticated non-ADMIN
   // -------------------------------------------------------------------------
@@ -414,6 +435,29 @@ describe('Contract controllers — real-route integration (double-prefix regress
     const res = await app.inject({
       method: 'GET',
       url: `/api/users/${targetUserId}/contract/pdf`,
+      cookies: { jwt: signFor(seniorUser) },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  // fix-round 2 (FM-5 gate): GET .../contract/variables → 403 for SENIOR on
+  // another user's contract (no owner-or-ADMIN override on this endpoint).
+  it('GET /api/users/:id/contract/variables → 403 for SENIOR accessing another user', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${targetUserId}/contract/variables`,
+      cookies: { jwt: signFor(seniorUser) },
+    })
+    expect(res.statusCode).toBe(403)
+  })
+
+  // fix-round 2 (FM-5 gate): unlike GET .../contract, this endpoint has no
+  // @Roles() override — even the contract OWNER (self) is not exempt from
+  // the class-level @Roles('ADMIN'). Pins that no owner-exception was added.
+  it('GET /api/users/:id/contract/variables → 403 for SENIOR self (no owner exception on this endpoint)', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/users/${seniorUser.id}/contract/variables`,
       cookies: { jwt: signFor(seniorUser) },
     })
     expect(res.statusCode).toBe(403)
