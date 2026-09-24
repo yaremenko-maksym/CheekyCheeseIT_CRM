@@ -548,7 +548,7 @@ describe.skipIf(!HAS_DB_URL)(
         ),
       ).rejects.toMatchObject({
         status: 400,
-        message: expect.stringMatching(/Недостаточно средств/),
+        response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
       })
       expect((await rawRow(pending.id))!.status).toBe('PENDING')
     })

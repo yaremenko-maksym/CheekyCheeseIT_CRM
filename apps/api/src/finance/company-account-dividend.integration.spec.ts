@@ -263,7 +263,11 @@ describe.skipIf(!hasDatabaseUrl())(
       const tooMuch = (await liveBalance()) + 1_000_000
       await expect(
         svc.createDividend({ amount: tooMuch, ...DIVIDEND_RECEIPT }, ADMIN),
-      ).rejects.toThrowError(/Недостаточно средств/)
+        // i18n stage 4 Task 2: assert on the api-error code, not the old
+        // Russian message text (lesson 14).
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+      })
 
       // The rejected dividend left NO row and did NOT move our contribution.
       expect(await countDividends()).toBe(dividendsBefore)
@@ -291,7 +295,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const rejected = results.filter((r) => r.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/Недостаточно средств/)
+      expect((rejected[0] as PromiseRejectedResult).reason.response.code).toBe(
+        'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS',
+      )
 
       // Exactly ONE dividend debit applied → our contribution dropped by one amount.
       expect(await myContribution()).toBe(myBefore - amount)
@@ -310,9 +316,11 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await myContribution()).toBe(myBefore - amount)
 
       // Second dividend of `amount` now exceeds the reduced balance → rejected.
-      await expect(svc.createDividend({ amount, ...DIVIDEND_RECEIPT }, ADMIN)).rejects.toThrowError(
-        /Недостаточно средств/,
-      )
+      await expect(
+        svc.createDividend({ amount, ...DIVIDEND_RECEIPT }, ADMIN),
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+      })
       expect(await myContribution()).toBe(myBefore - amount)
     }, 30_000)
   },

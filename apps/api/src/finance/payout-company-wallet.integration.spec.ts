@@ -1,5 +1,5 @@
 import { Global, Module } from '@nestjs/common'
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -383,9 +383,9 @@ describe.skipIf(!hasDatabaseUrl())(
         amountUsdt: payable * 1.005, // +0.5% — accepted BEFORE this task
       })
 
-      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrowError(
-        /точно совпадать/,
-      )
+      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_ONCHAIN_AMOUNT_MISMATCH' }),
+      })
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
         where: eq(payoutRequests.id, requestId),
       })
@@ -408,9 +408,9 @@ describe.skipIf(!hasDatabaseUrl())(
         amountUsdtMinor: (BigInt(Math.round(payable * 1_000_000)) - 1n).toString(),
       })
 
-      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrowError(
-        /точно совпадать/,
-      )
+      await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_ONCHAIN_AMOUNT_MISMATCH' }),
+      })
       expect(await balance()).toBe(before)
     })
 
@@ -630,7 +630,7 @@ describe.skipIf(!hasDatabaseUrl())(
       // SAME real hash on a DIFFERENT payout → rejected (the transfer happened once).
       await expect(
         svc.manualConfirmPayout(second.requestId, 'COMPANY_ACCOUNT', ADMIN, { txHash: REAL_HASH }),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      ).rejects.toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
 
       // Balance unchanged; the second payout stays PENDING.
       expect(await balance()).toBeCloseTo(afterFirst, 6)
@@ -684,7 +684,7 @@ describe.skipIf(!hasDatabaseUrl())(
       //   → BadRequestException (the 23505 catch in applyPayoutPaidCascade).
       await expect(
         svc.payPayoutRequest(second.requestId, REAL_HASH, SENIOR2, 'success'),
-      ).rejects.toBeInstanceOf(BadRequestException)
+      ).rejects.toMatchObject({ response: expect.objectContaining({ statusCode: 400 }) })
 
       // The aborted transaction rolled back: second payout stays PENDING and the
       // company balance is NOT doubled (still just the first transfer's credit).

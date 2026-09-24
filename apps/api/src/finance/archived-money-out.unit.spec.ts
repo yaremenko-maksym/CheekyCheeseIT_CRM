@@ -78,7 +78,7 @@ describe('AC3 — dividends to an archived ADMIN partner', () => {
         },
         ADMIN,
       ),
-    ).rejects.toThrow(/дивиденды/)
+    ).rejects.toThrow(/dividends/)
   })
 
   it('CONTROL: an active ADMIN receiver gets past the archival guard', async () => {
@@ -113,7 +113,7 @@ describe('AC3 — partner transfers to an archived ADMIN', () => {
         { receiverId: RECEIVER_ID, amount: 50, receiptExternalUrl: RECEIPT },
         ADMIN,
       ),
-    ).rejects.toThrow(/перевод невозможен/)
+    ).rejects.toThrow(/transfer can't be made/)
   })
 
   it('CONTROL: an active ADMIN receiver gets past the archival guard', async () => {

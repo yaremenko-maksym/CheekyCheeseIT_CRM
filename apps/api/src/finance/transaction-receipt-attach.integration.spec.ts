@@ -22,7 +22,7 @@
  * like "passed" with zero assertions.
  * S3: replaced with a spy-stub (no real S3-compatible backend).
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { eq } from 'drizzle-orm'
@@ -241,7 +241,9 @@ describe.skipIf(!hasDatabaseUrl())(
     it('foreign non-author (DMYTRO) attaching to ARTEM tx → 403', async () => {
       await expect(
         svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: ANY_URL }, DMYTRO),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_RECEIPT_ATTACH_FORBIDDEN' }),
+      })
     })
 
     it('author (ARTEM) attach url on own tx → ok; audit action=ATTACH', async () => {
@@ -325,7 +327,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // already bound → must fail ownership (ADMIN self-ownership check).
       await expect(
         svc.attachOrReplaceReceipt(TX_OLD, { receiptDocumentId: DOC_FILE_B }, ADMIN),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+      })
     })
 
     // ── Status matrix (replace after PAID) ───────────────────────────────────────
@@ -333,7 +337,9 @@ describe.skipIf(!hasDatabaseUrl())(
     it('author (ARTEM) replace receipt AFTER PAID → 403', async () => {
       await expect(
         svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: EXPLORER_URL }, ARTEM),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN' }),
+      })
     })
 
     it('ACCOUNTANT replace receipt AFTER PAID → ok; audit REPLACE', async () => {
@@ -360,7 +366,9 @@ describe.skipIf(!hasDatabaseUrl())(
           { receiptExternalUrl: ANY_URL },
           ADMIN,
         ),
-      ).rejects.toBeInstanceOf(NotFoundException)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+      })
     })
 
     // ── Regression: systemic / legacy receiptless rows ───────────────────────────

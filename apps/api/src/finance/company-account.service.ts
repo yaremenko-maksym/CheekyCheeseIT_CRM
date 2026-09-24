@@ -1,10 +1,4 @@
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
 import { COMPANY_REQUISITES_MAX, extractOnChainTxHash, receiptMandatoryError } from '@crm/shared'
 import type {
@@ -13,6 +7,7 @@ import type {
   DepositStatusDto,
   SessionUser,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { zodErrorBadRequest } from '../common/zod-error-exception'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -36,7 +31,6 @@ import {
   normalizeEthAddress,
   normalizeOnChainTxHash,
   settlementConsumesTransfer,
-  TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
 import { assertFoundAndVisible } from './transaction-visibility.util'
 
@@ -129,7 +123,7 @@ export class CompanyAccountService {
    */
   async getAccount(currentUser: SessionUser): Promise<CompanyAccountDto> {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
-      throw new ForbiddenException('Доступ к счёту компании: ADMIN или ACCOUNTANT')
+      throw apiError('FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     const row = await this.getRow()
     const balance = await this.computeBalance()
@@ -149,10 +143,10 @@ export class CompanyAccountService {
    */
   async updateWallet(walletAddress: string, currentUser: SessionUser): Promise<CompanyAccountDto> {
     if (currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Менять кошелёк компании может только ADMIN')
+      throw apiError('FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     if (!/^0x[a-fA-F0-9]{40}$/.test(walletAddress)) {
-      throw new BadRequestException('Некорректный адрес кошелька (ожидается 0x + 40 hex)')
+      throw apiError('FINANCE_WALLET_ADDRESS_INVALID', HttpStatus.BAD_REQUEST)
     }
 
     const row = await this.getRow()
@@ -202,12 +196,12 @@ export class CompanyAccountService {
     currentUser: SessionUser,
   ): Promise<CompanyAccountDto> {
     if (currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Менять реквизиты компании может только ADMIN')
+      throw apiError('FINANCE_COMPANY_REQUISITES_CHANGE_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     if (requisitesMarkdown.length > COMPANY_REQUISITES_MAX) {
-      throw new BadRequestException(
-        `Реквизиты не должны превышать ${COMPANY_REQUISITES_MAX} символов`,
-      )
+      throw apiError('FINANCE_COMPANY_REQUISITES_TOO_LONG', HttpStatus.BAD_REQUEST, {
+        maxChars: COMPANY_REQUISITES_MAX,
+      })
     }
 
     // Coerce empty / whitespace-only to NULL (no heading-only section later).
@@ -290,7 +284,7 @@ export class CompanyAccountService {
     currentUser: SessionUser,
   ): Promise<CompanyDepositDto> {
     if (currentUser.role !== 'SENIOR' && currentUser.role !== 'DROP') {
-      throw new ForbiddenException('Пополнять счёт компании могут SENIOR или DROP')
+      throw apiError('FINANCE_COMPANY_DEPOSIT_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // HIGH-1 (security-review PR #438): the SHARED extractor — the same rule the
@@ -300,9 +294,7 @@ export class CompanyAccountService {
     // lowercase form.
     const txHash = extractOnChainTxHash(input.txHashOrLink)
     if (!txHash) {
-      throw new BadRequestException(
-        'Не удалось извлечь hash транзакции (ожидается 0x + 64 hex или ссылка Etherscan)',
-      )
+      throw apiError('FINANCE_TX_HASH_INVALID', HttpStatus.BAD_REQUEST)
     }
 
     const account = await this.getRow()
@@ -335,7 +327,7 @@ export class CompanyAccountService {
     // below; this read is the clean early error.
     const consumed = await findConsumedTxHash(this.db.db, txHash)
     if (consumed) {
-      throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
     }
 
     const verification = await this.etherscan.verifyDeposit(
@@ -435,7 +427,7 @@ export class CompanyAccountService {
           ),
         })
         if (winner) return this.toDepositDto(winner, account.confirmationThreshold)
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
       throw err
     }
@@ -468,7 +460,7 @@ export class CompanyAccountService {
     const isOwner = tx.senderId === currentUser.id
     const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
     if (!isOwner && !isPrivileged) {
-      throw new ForbiddenException('Доступ к статусу депозита: владелец, ADMIN или ACCOUNTANT')
+      throw apiError('FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     const account = await this.getRow()
@@ -578,7 +570,7 @@ export class CompanyAccountService {
         // PENDING and uncredited, and the caller gets a clean 400 instead of a
         // 500 (never a silent credit without a registry entry).
         if (isUniqueViolation(err)) {
-          throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+          throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
         }
         throw err
       }
@@ -628,10 +620,10 @@ export class CompanyAccountService {
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
     if (currentUser.role !== 'ADMIN') {
-      throw new ForbiddenException('Выводить дивиденды может только ADMIN')
+      throw apiError('FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY', HttpStatus.FORBIDDEN)
     }
     if (!(input.amount > 0)) {
-      throw new BadRequestException('Сумма дивидендов должна быть положительной')
+      throw apiError('FINANCE_DIVIDEND_AMOUNT_MUST_BE_POSITIVE', HttpStatus.BAD_REQUEST)
     }
 
     // task-receipts-backend defense-in-depth: USDT → explorer-only, mandatory.
@@ -665,9 +657,9 @@ export class CompanyAccountService {
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, receiverId),
     })
-    if (!receiver) throw new NotFoundException('Получатель не найден')
+    if (!receiver) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (receiver.role !== 'ADMIN') {
-      throw new BadRequestException('Дивиденды можно вывести только на счёт админа')
+      throw apiError('FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN', HttpStatus.BAD_REQUEST)
     }
     // task-archived-user-completeness (AC3). A dividend is a DISCRETIONARY
     // distribution of company profit, decided now — not the settlement of a
@@ -716,7 +708,7 @@ export class CompanyAccountService {
     // `declareUsdtProjectIncome` / `confirmPayout` already carry the same
     // line for the same reason.
     if (receiver.archivedAt) {
-      throw new BadRequestException('Получатель архивирован — дивиденды не выплачиваются')
+      throw apiError('FINANCE_DIVIDEND_RECEIVER_ARCHIVED', HttpStatus.BAD_REQUEST)
     }
 
     // MED (TOCTOU + overdraw): gate-read + debit-write serialized under the
@@ -727,9 +719,7 @@ export class CompanyAccountService {
       await lockCompanyAccount(dbtx)
       const balance = await computeCompanyAccountBalanceFromLedger(dbtx)
       if (input.amount > balance) {
-        throw new BadRequestException(
-          'Недостаточно средств на счёте компании для вывода дивидендов',
-        )
+        throw apiError('FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS', HttpStatus.BAD_REQUEST)
       }
       let row: typeof transactions.$inferSelect | undefined
       try {

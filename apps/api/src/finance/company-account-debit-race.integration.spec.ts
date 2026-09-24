@@ -304,7 +304,11 @@ describe.skipIf(!hasDatabaseUrl())(
       // 2×balance but only 1×balance exists → exactly one clears, one is gated out.
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/Недостаточно средств/)
+      // i18n stage 4 Task 2: assert on the api-error code, not the old
+      // Russian message text (lesson 14).
+      expect((rejected[0] as PromiseRejectedResult).reason.response.code).toBe(
+        'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS',
+      )
 
       // OUR contribution dropped by exactly ONE `amount` debit (scoped delta is
       // robust to PARALLEL specs that mutate the global balance concurrently).
@@ -354,7 +358,9 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ADMIN,
         ),
-      ).rejects.toThrowError(/Недостаточно средств/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+      })
       // Only the first debit applied — our contribution did not drop further.
       expect(await myContribution()).toBe(myBefore - amount)
     }, 30_000)
@@ -392,7 +398,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const rejected = [first, second].filter((r) => r.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/not PENDING/)
+      expect((rejected[0] as PromiseRejectedResult).reason.response.code).toBe(
+        'FINANCE_TRANSACTION_NOT_PENDING',
+      )
 
       const row = await dbSvc.db.query.transactions.findFirst({
         where: eq(transactions.id, salary),

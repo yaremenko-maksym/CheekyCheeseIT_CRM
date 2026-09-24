@@ -340,7 +340,6 @@ describe('BalanceService.getAdminBalance', () => {
 // The helpers are pure (no async, no DB) — we just call them with the viewer
 // SessionUser and assert ForbiddenException is thrown for disallowed roles.
 
-import { ForbiddenException } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 
 function makeViewer(role: SessionUser['role'], id = `${role.toLowerCase()}-id`): SessionUser {
@@ -370,7 +369,9 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
   it('ADMIN cannot read a DIFFERENT admin balance → ForbiddenException', () => {
     const svc = makeService()
     const viewer = makeViewer('ADMIN', 'other-admin-id')
-    expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).toThrow(
+      "Only that admin or an accountant can see an admin's balance",
+    )
   })
 
   it('ACCOUNTANT can read any admin balance', () => {
@@ -383,28 +384,28 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => 
   it('SENIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('SENIOR'), TARGET_ADMIN_ID)).toThrow(
-      ForbiddenException,
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('JUNIOR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('JUNIOR'), TARGET_ADMIN_ID)).toThrow(
-      ForbiddenException,
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('HR cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('HR'), TARGET_ADMIN_ID)).toThrow(
-      ForbiddenException,
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 
   it('DROP cannot read admin balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadAdminBalance(makeViewer('DROP'), TARGET_ADMIN_ID)).toThrow(
-      ForbiddenException,
+      "Only that admin or an accountant can see an admin's balance",
     )
   })
 })
@@ -434,27 +435,29 @@ describe('R3 — BalanceService RBAC helpers: assertCanReadSeniorBalance', () =>
   it('SENIOR_B cannot read SENIOR_A balance → ForbiddenException', () => {
     const svc = makeService()
     const viewer = makeViewer('SENIOR', SENIOR_B_ID)
-    expect(() => svc.assertCanReadSeniorBalance(viewer, SENIOR_A_ID)).toThrow(ForbiddenException)
+    expect(() => svc.assertCanReadSeniorBalance(viewer, SENIOR_A_ID)).toThrow(
+      "can see a senior's balance",
+    )
   })
 
   it('JUNIOR cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('JUNIOR'), SENIOR_A_ID)).toThrow(
-      ForbiddenException,
+      "can see a senior's balance",
     )
   })
 
   it('HR cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('HR'), SENIOR_A_ID)).toThrow(
-      ForbiddenException,
+      "can see a senior's balance",
     )
   })
 
   it('DROP cannot read senior balance → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanReadSeniorBalance(makeViewer('DROP'), SENIOR_A_ID)).toThrow(
-      ForbiddenException,
+      "can see a senior's balance",
     )
   })
 })
@@ -478,19 +481,21 @@ describe('R3 — BalanceService RBAC helpers: assertCanListPendingObligations', 
   it('JUNIOR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('JUNIOR'))).toThrow(
-      ForbiddenException,
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 
   it('HR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
-    expect(() => svc.assertCanListPendingObligations(makeViewer('HR'))).toThrow(ForbiddenException)
+    expect(() => svc.assertCanListPendingObligations(makeViewer('HR'))).toThrow(
+      'Only an admin, an accountant, or a senior can see pending obligations',
+    )
   })
 
   it('DROP cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('DROP'))).toThrow(
-      ForbiddenException,
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 })
@@ -797,6 +802,23 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
     ])
     const result = await svc.getTotalEarned(DROP_ID, 'USD')
     expect(result.totalEarned).toBe(350) // 50 slice + 300 direct
+  })
+
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // stubs `users.findFirst` to always resolve a row, so the `!target` guard's
+  // FALSE branch was never exercised — `if (false) throw ...` passed every
+  // test unnoticed.
+  it('target user not found → USER_NOT_FOUND', async () => {
+    const drizzleClient = {
+      query: { users: { findFirst: async () => undefined } },
+      select: () => ({ from: async () => [] }),
+    }
+    const db = { db: drizzleClient } as never
+    const nbu = { getRates: async () => makeRates() } as never
+    const svc = new BalanceService(db, nbu)
+    await expect(svc.getTotalEarned('missing-user', 'USD')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
   })
 })
 

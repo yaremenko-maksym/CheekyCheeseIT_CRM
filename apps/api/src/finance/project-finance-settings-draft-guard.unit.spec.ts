@@ -9,7 +9,6 @@
  * legitimately configures finance settings before confirmation, the SAME
  * override `create()` already accepts on a still-DRAFT project.
  */
-import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -58,8 +57,10 @@ describe('getProjectFinanceSettings — SR-M-3: ACCOUNTANT cannot read a non-ACT
       const { db } = makeDb({ status })
       const svc = makeTransactionsService({ db: db as never })
       const err = await svc.getProjectFinanceSettings('proj-1', ACCOUNTANT).catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Project not found')
+      expect(err).toMatchObject({
+        response: { code: 'PROJECT_NOT_FOUND', statusCode: 404 },
+      })
+      expect((err as Error).message).toBe('Project not found')
     })
   }
 
@@ -84,8 +85,10 @@ describe('getProjectFinanceSettings — SR-M-3: ACCOUNTANT cannot read a non-ACT
     const { db } = makeDb(undefined)
     const svc = makeTransactionsService({ db: db as never })
     const err = await svc.getProjectFinanceSettings('proj-1', ACCOUNTANT).catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as NotFoundException).message).toBe('Project not found')
+    expect(err).toMatchObject({
+      response: { code: 'PROJECT_NOT_FOUND', statusCode: 404 },
+    })
+    expect((err as Error).message).toBe('Project not found')
   })
 
   it('ACCOUNTANT succeeds on an ACTIVE project (positive control — the gate is not blanket-refusing)', async () => {
@@ -111,10 +114,29 @@ describe('upsertProjectFinanceSettings — SR-M-3: ACCOUNTANT cannot write a non
       const err = await svc
         .upsertProjectFinanceSettings('proj-1', { seniorSharePercentOverride: 30 }, ACCOUNTANT)
         .catch((e: unknown) => e)
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Project not found')
+      expect(err).toMatchObject({
+        response: { code: 'PROJECT_NOT_FOUND', statusCode: 404 },
+      })
+      expect((err as Error).message).toBe('Project not found')
     })
   }
+
+  // Mutation gate (i18n stage 4 Task 2): the DRAFT/REJECTED loop above always
+  // resolves a project row (just with a non-ACTIVE status), so the earlier
+  // `!project` branch (id refers to nothing at all) was never exercised here
+  // — unlike the sibling `getProjectFinanceSettings` describe, which already
+  // has this case.
+  it('ACCOUNTANT refused with NotFoundException when the project does not exist at all', async () => {
+    const { db } = makeDb(undefined)
+    const svc = makeTransactionsService({ db: db as never })
+    const err = await svc
+      .upsertProjectFinanceSettings('proj-1', { seniorSharePercentOverride: 30 }, ACCOUNTANT)
+      .catch((e: unknown) => e)
+    expect(err).toMatchObject({
+      response: { code: 'PROJECT_NOT_FOUND', statusCode: 404 },
+    })
+    expect((err as Error).message).toBe('Project not found')
+  })
 
   it('ADMIN reaches the write (transaction) on a DRAFT project — the gate does not block ADMIN', async () => {
     const { db } = makeDb({ status: 'DRAFT' })

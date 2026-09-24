@@ -309,7 +309,9 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ADMIN,
         ),
-      ).rejects.toThrowError(/Недостаточно средств/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS' }),
+      })
       const row = await dbSvc.db.query.transactions.findFirst({
         where: eq(transactions.id, pending.id),
       })
@@ -366,7 +368,9 @@ describe.skipIf(!hasDatabaseUrl())(
           },
           ADMIN,
         ),
-      ).rejects.toThrowError(/ADMIN/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN' }),
+      })
     })
 
     // ── #222 invariant preserved at creation ───────────────────────────────────
@@ -375,7 +379,9 @@ describe.skipIf(!hasDatabaseUrl())(
       await cleanup()
       await expect(
         svc.createSalary({ receiverId: ADMIN2.id, amount: 100, salaryMonth: '2026-06' }, ADMIN),
-      ).rejects.toThrowError(/ADMIN не получает зарплату/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_ADMIN_NO_SALARY' }),
+      })
     })
 
     it('sanity: company-funded rows are queryable by funding_source filter', async () => {

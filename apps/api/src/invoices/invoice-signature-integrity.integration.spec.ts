@@ -88,7 +88,6 @@
 import { randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { ConflictException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
@@ -312,7 +311,11 @@ describe.skipIf(!hasDatabaseUrl())(
 
       // Public verify must be honest: no document, no confirmation of
       // ANY amount — not the old one, not a live one.
-      await expect(invoices.verifyInvoice(txId)).rejects.toThrow(NotFoundException)
+      // i18n stage 4 Task 2: apiError() throws a base HttpException, not a
+      // NotFoundException instance — assert on the code (lesson 14).
+      await expect(invoices.verifyInvoice(txId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVOICE_NOT_GENERATED_YET' }),
+      })
 
       // ---- 3. Simulate task-3's amount edit landing on the now-voided row
       // (any means — direct SQL here, exactly per AC4's "external
@@ -337,7 +340,9 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(notYetSigned.status).toBe('PENDING')
       expect(notYetSigned.amount).toBe('1500.000000')
 
-      await expect(invoices.verifyInvoice(txId)).rejects.toThrow(NotFoundException)
+      await expect(invoices.verifyInvoice(txId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVOICE_NOT_FOUND' }),
+      })
 
       // security-review round 2 (PR #600, MED-4): listInvoices' status
       // filter is computed via a `voided_at IS NULL`-scoped EXISTS on
@@ -978,10 +983,9 @@ describe.skipIf(!hasDatabaseUrl())(
         .set({ deletedAt: new Date() })
         .where(eq(transactions.id, incomeTxId))
 
-      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(ConflictException)
-      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toThrow(
-        'Не удалось подтвердить сумму этого инвойса',
-      )
+      await expect(invoices.verifyInvoice(payoutTxId)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'INVOICE_AMOUNT_VERIFICATION_FAILED' }),
+      })
 
       // Undo the soft-delete so afterAll's plain `transactions` delete
       // (not `nonDeletedTransactions`-scoped) still finds and removes this
@@ -1030,7 +1034,7 @@ describe.skipIf(!hasDatabaseUrl())(
           txId,
           fakeReq('203.0.113.50'),
         ),
-      ).rejects.toThrow(ConflictException)
+      ).rejects.toMatchObject({ response: expect.objectContaining({ code: 'INVOICE_VOIDED' }) })
 
       // The reissue's FRESH invoiceDocumentId must survive completely
       // untouched — the losing signInvoice call must not have repointed
@@ -1193,7 +1197,9 @@ describe.skipIf(!hasDatabaseUrl())(
         // post-void state, and correctly refuses — the SAME assertion
         // MED-1 makes, but this time reached through PROVEN genuine lock
         // contention rather than a pre-committed void or scheduling luck.
-        await expect(signPromise).rejects.toThrow(ConflictException)
+        await expect(signPromise).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'INVOICE_VOIDED' }),
+        })
       } finally {
         releaseVoid()
         await voidPromise.catch(() => {})

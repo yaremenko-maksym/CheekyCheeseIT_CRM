@@ -45,7 +45,6 @@
  *   - backfillSalaryMonth re-invokes createMonthlySalaries (idempotent insert
  *     path is exercised) and returns the post-backfill gap.
  */
-import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -232,9 +231,9 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
         },
       }
       const svc = makeTransactionsService({ db: throwingDb as never })
-      await expect(svc.getSalaryMonthGapReport(user(role), MONTH)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(svc.getSalaryMonthGapReport(user(role), MONTH)).rejects.toMatchObject({
+        response: { code: 'FINANCE_SALARY_MONTH_GAP_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 
@@ -242,7 +241,7 @@ describe('getSalaryMonthGapReport — RBAC guard', () => {
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.getSalaryMonthGapReport(user('SENIOR'), MONTH)).rejects.toThrow(
-      'Access denied: salary month gap report requires ADMIN or ACCOUNTANT role',
+      'Only an admin or an accountant can see the missed salary months report',
     )
   })
 
@@ -274,9 +273,9 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
         },
       }
       const svc = makeTransactionsService({ db: throwingDb as never })
-      await expect(svc.backfillSalaryMonth(user(role), MONTH)).rejects.toBeInstanceOf(
-        ForbiddenException,
-      )
+      await expect(svc.backfillSalaryMonth(user(role), MONTH)).rejects.toMatchObject({
+        response: { code: 'FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN', statusCode: 403 },
+      })
     })
   }
 
@@ -284,7 +283,7 @@ describe('backfillSalaryMonth — RBAC guard (ADMIN only, narrower than the repo
     const throwingDb = { db: { query: { users: { findMany: () => [] } } } }
     const svc = makeTransactionsService({ db: throwingDb as never })
     await expect(svc.backfillSalaryMonth(user('ACCOUNTANT'), MONTH)).rejects.toThrow(
-      'Access denied: salary month backfill requires ADMIN role',
+      'Only an admin can fill in missed salary months',
     )
   })
 

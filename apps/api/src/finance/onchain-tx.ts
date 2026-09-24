@@ -153,9 +153,14 @@ export interface ConsumeTxHashResult {
   reclaimedAfterRelease: boolean
 }
 
-/** Uniform 400 message for a hash already spent by ANY path. */
-export const TX_HASH_ALREADY_CONSUMED_MESSAGE =
-  'Этот хеш транзакции уже использован (выплата или пополнение счёта компании)'
+// task-i18n-stage4-task2: the uniform "hash already spent" refusal used to
+// live here as a raw Russian string (`TX_HASH_ALREADY_CONSUMED_MESSAGE`),
+// shared by every claim-site across `transactions.service.ts` and
+// `company-account.service.ts`. It is now `apiError('FINANCE_TX_HASH_
+// ALREADY_CONSUMED', …)` at each of those 9 call sites — see
+// `packages/shared/src/schemas/api-errors/finance-invoices.ts`. Removed
+// here rather than kept as a dead export: nothing in `apps/api` referenced
+// it for any purpose other than that one message.
 
 /**
  * A settlement that may consume an on-chain transfer, discriminated by the

@@ -35,7 +35,7 @@
  *   vitest uses esbuild which strips TS decorator metadata — explicit useFactory
  *   resolves DI correctly (mirrors PR-2 integration spec pattern).
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { eq } from 'drizzle-orm'
@@ -49,7 +49,6 @@ import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { CompressionService } from '../documents/compression.service'
 import type { HrAccessService } from '../common/hr-access.service'
-import { InvoicesService } from '../invoices/invoices.service'
 import { documents, transactions } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
@@ -511,7 +510,9 @@ describe.skipIf(!hasDatabaseUrl())(
           { receiptDocumentId: DOC_C_ID }, // DOC_C belongs to DMYTRO, not ARTEM
           ARTEM,
         ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+      })
 
       // Verify doc C was NOT touched — still exists under DMYTRO's ownership
       const docC = await db.query.documents.findFirst({ where: eq(documents.id, DOC_C_ID) })
@@ -535,7 +536,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // Step 1 — bind attempt (must be blocked)
       await expect(
         transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_C_ID }, ARTEM),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+      })
 
       // Step 2 — even attempting a second resubmit with own doc must not delete DOC_C
       // (confirm by checking DOC_C is still present and owned by DMYTRO)
@@ -574,7 +577,9 @@ describe.skipIf(!hasDatabaseUrl())(
             { receiptDocumentId: SCAN_DOC_ID },
             ARTEM,
           ),
-        ).rejects.toBeInstanceOf(BadRequestException)
+        ).rejects.toMatchObject({
+          response: { code: 'FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY', statusCode: 400 },
+        })
       } finally {
         await db
           .delete(documents)
@@ -587,7 +592,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const FAKE_ID = 'f0000001-0000-4000-a000-000000000099'
       await expect(
         transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: FAKE_ID }, ARTEM),
-      ).rejects.toBeInstanceOf(NotFoundException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_FOUND', statusCode: 404 },
+      })
     })
 
     it('HIGH-1 — ARTEM can bind their own RECEIPT doc (happy path)', async () => {

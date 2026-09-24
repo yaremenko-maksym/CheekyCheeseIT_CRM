@@ -338,7 +338,12 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           },
           ADMIN_A,
         ),
-      ).rejects.toThrow(/архивирован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DIVIDEND_RECEIVER_ARCHIVED',
+          statusCode: 400,
+        }),
+      })
 
       const after = await dbSvc.db
         .select({ id: transactions.id })
@@ -367,7 +372,12 @@ describe.skipIf(!hasDatabaseUrl())('archived user — money-out vs settlement (r
           { receiverId: ADMIN_B_ID, amount: 50, receiptExternalUrl: `${EXPLORER_RECEIPT}tr` },
           ADMIN_A,
         ),
-      ).rejects.toThrow(/архивирован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_TRANSFER_RECEIVER_ARCHIVED',
+          statusCode: 400,
+        }),
+      })
     })
 
     it('CONTROL: an archived SENDER may still hand money back', async () => {

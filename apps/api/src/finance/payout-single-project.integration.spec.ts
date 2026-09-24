@@ -1,5 +1,4 @@
 import { Global, Module } from '@nestjs/common'
-import { BadRequestException } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { inArray } from 'drizzle-orm'
@@ -256,9 +255,9 @@ describe.skipIf(!hasDatabaseUrl())(
     it('DROP bundling DROP_INCOME from TWO projects → BadRequest (400)', async () => {
       const a = await seedValidatedDropIncome(PROJECT_A, '500')
       const b = await seedValidatedDropIncome(PROJECT_B, '300')
-      await expect(svc.createPayoutRequest([a, b], DROP)).rejects.toBeInstanceOf(
-        BadRequestException,
-      )
+      await expect(svc.createPayoutRequest([a, b], DROP)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYOUT_SINGLE_PROJECT_ONLY' }),
+      })
       // No payout_request must have been created.
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
         where: (tbl, { eq }) => eq(tbl.seniorId, DROP.id),

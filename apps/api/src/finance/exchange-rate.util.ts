@@ -22,6 +22,9 @@
  * growing a second copy — see the schema.ts column comment on
  * `transactions.exchangeRate` for the invariant this protects.
  */
+import { HttpStatus } from '@nestjs/common'
+import { apiError } from '../common/api-error'
+
 export const EXCHANGE_RATE_MAX_EXCLUSIVE = 1e10
 export const EXCHANGE_RATE_MIN = 1e-8
 
@@ -50,11 +53,49 @@ export function isStorableExchangeRate(rate: number): boolean {
  * flipped row's `amount` column is left untouched) nor for `paySalary`
  * (a $0 salary payment is not a case that flow needs to support).
  */
-export function settledAmountError(value: number, maxAmount: number): string | null {
-  if (!Number.isFinite(value)) return 'Сумма выплаты должна быть числом'
-  if (value < 0) return 'Сумма выплаты не может быть отрицательной'
+/**
+ * task-i18n-stage4-task2: was a raw Russian message string, thrown verbatim
+ * as an `apiError`-incompatible `BadRequestException` body. Returns an
+ * api-error CODE (+ `maxAmount` for the ceiling branch) instead — the two
+ * call sites (`pending-settlement.service.ts`) route it through `apiError()`
+ * via `throwSettledAmountError` below. `.toLocaleString('ru-RU')` formatting
+ * of the ceiling is dropped: money discipline for this task (task file
+ * "Уточнения оркестратора" §4) keeps amount formatting on the client, not
+ * baked into a server string.
+ */
+export type SettledAmountErrorResult =
+  | { code: 'FINANCE_SETTLED_AMOUNT_NOT_NUMBER' }
+  | { code: 'FINANCE_SETTLED_AMOUNT_NEGATIVE' }
+  | { code: 'FINANCE_SETTLED_AMOUNT_OVER_LIMIT'; maxAmount: number }
+
+export function settledAmountError(
+  value: number,
+  maxAmount: number,
+): SettledAmountErrorResult | null {
+  if (!Number.isFinite(value)) return { code: 'FINANCE_SETTLED_AMOUNT_NOT_NUMBER' }
+  if (value < 0) return { code: 'FINANCE_SETTLED_AMOUNT_NEGATIVE' }
   if (value > maxAmount) {
-    return `Сумма не может превышать ${maxAmount.toLocaleString('ru-RU')}`
+    return { code: 'FINANCE_SETTLED_AMOUNT_OVER_LIMIT', maxAmount }
   }
   return null
+}
+
+/**
+ * Throws the `apiError` matching a `settledAmountError` result — a `switch`
+ * rather than a generic `apiError(result.code, status, result)` call because
+ * `ParamsFor<C>` is keyed on a LITERAL code (see `api-errors/index.ts`'s doc
+ * comment): with `result.code` typed as a union, TS cannot narrow which
+ * `params` shape applies without this per-branch dispatch.
+ */
+export function throwSettledAmountError(result: SettledAmountErrorResult): never {
+  switch (result.code) {
+    case 'FINANCE_SETTLED_AMOUNT_OVER_LIMIT':
+      throw apiError('FINANCE_SETTLED_AMOUNT_OVER_LIMIT', HttpStatus.BAD_REQUEST, {
+        maxAmount: result.maxAmount,
+      })
+    case 'FINANCE_SETTLED_AMOUNT_NOT_NUMBER':
+      throw apiError('FINANCE_SETTLED_AMOUNT_NOT_NUMBER', HttpStatus.BAD_REQUEST)
+    case 'FINANCE_SETTLED_AMOUNT_NEGATIVE':
+      throw apiError('FINANCE_SETTLED_AMOUNT_NEGATIVE', HttpStatus.BAD_REQUEST)
+  }
 }
