@@ -777,7 +777,7 @@ msgstr "Долучити до команди дропа можна лише се
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ACCOUNT_DISABLED"
-msgstr "Ваш обліковий запис вимкнено. Зверніться до адміністратора"
+msgstr "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору"
 
 #: apps/web/app/routes/login.tsx
 msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."

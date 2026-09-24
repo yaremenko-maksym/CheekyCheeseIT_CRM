@@ -781,7 +781,7 @@ msgstr "Your access to the CRM has been turned off. If this is a mistake, contac
 
 #: apps/web/app/routes/login.tsx
 msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
-msgstr "Access to the CRM is closed. If this is a mistake, contact your administrator."
+msgstr "Your access to the CRM has been turned off. If this is a mistake, contact an admin."
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
