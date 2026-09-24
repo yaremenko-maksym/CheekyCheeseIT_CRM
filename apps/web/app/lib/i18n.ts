@@ -121,3 +121,83 @@ export function useLocale(): Locale {
   const { i18n: instance } = useLingui()
   return (instance.locale as Locale) ?? DEFAULT_LOCALE
 }
+
+/**
+ * fix-round 2 (CI-2, task-i18n-stage3a Task 7 — CR-M-1 regression): two
+ * module-level markers, NOT React state — they must survive the
+ * `<Fragment key={locale}>` remount `routes/__root.tsx`'s `LocaleScopedApp`
+ * performs on every `activateLocale()` call, which recreates every
+ * component below it (including `AuthProvider` and `LanguageSection`) with
+ * fresh `useState`/`useRef`. A plain module-level binding is the only thing
+ * that lives across that remount.
+ *
+ * The bug: `LanguageSection.choose()` (`components/user-profile/
+ * LanguageSection.tsx`) calls `activateLocale(locale)` mid-flight — that
+ * synchronously flips `i18n.locale`, which `LocaleScopedApp` reads via
+ * `useLocale()` and remounts the whole authenticated tree on, INCLUDING
+ * `AuthProvider` (`context/auth.tsx`). `AuthProvider`'s own session-locale-
+ * sync effect then runs fresh on THAT remount and reads the `['auth','me']`
+ * query's STILL-STALE cached `data.locale` — the `/users/me` PATCH that just
+ * persisted the new locale server-side has not been reflected by a refetch
+ * yet (that only happens once `choose()` calls `invalidate()`, AFTER
+ * `activateLocale()` — and even then only once the network round-trip
+ * resolves). The effect cannot tell that mismatch apart from a genuine
+ * cross-device drift, so it "corrects" `i18n.locale` right back to the stale
+ * value, undoing the switch and remounting again. `document.documentElement
+ * .lang` and every reactive `aria-checked` settle on the OLD locale.
+ */
+let confirmedUserLocale: Locale | null = null
+
+/** Called by `LanguageSection.choose()` once the PATCH that persists `locale` server-side has succeeded. */
+export function markLocaleConfirmedByUser(locale: Locale): void {
+  confirmedUserLocale = locale
+}
+
+/**
+ * Read by `AuthProvider`'s session-locale-sync effect. Deliberately NOT
+ * consumed/cleared on a matching read (an earlier revision was — and broke
+ * under React `<StrictMode>`, which double-invokes every effect in
+ * development: the FIRST of the two invocations would consume the marker
+ * and correctly skip, leaving the SECOND to see it already gone and
+ * reactivate anyway — verified against a real dev-mode run, see fix-round 2
+ * PR discussion). `clearConfirmedUserLocaleIfSettled` below is the one
+ * legitimate place the marker goes away.
+ */
+export function isLocaleConfirmedByUser(locale: Locale): boolean {
+  return confirmedUserLocale === locale
+}
+
+/**
+ * Called by `AuthProvider`'s effect once `data.locale` genuinely CATCHES UP
+ * to `i18n.locale` (the `invalidate()` refetch `choose()` triggers finally
+ * came back with the persisted value) — the marker has done its job and
+ * clearing it here (rather than never) is what lets a LATER, genuine drift
+ * (e.g. a real cross-device correction on a future login) be corrected
+ * instead of silently swallowed by a marker left over from an earlier
+ * switch. No-op if `locale` is not the currently marked one.
+ */
+export function clearConfirmedUserLocaleIfSettled(locale: Locale): void {
+  if (confirmedUserLocale === locale) confirmedUserLocale = null
+}
+
+/**
+ * A `key`-driven remount unmounts the OLD button (the one that had DOM
+ * focus) and mounts a BRAND NEW one — the browser does not auto-focus a
+ * freshly created element, so without this, UX-M-3 (focus stays on the
+ * clicked language option) breaks the instant `LocaleScopedApp` remounts
+ * `LanguageSection`. `choose()` records which locale the user just picked
+ * BEFORE that remount can happen; `LanguageSection`'s own mount effect
+ * consumes the request once and, if it matches the locale it is now
+ * rendering, re-focuses that option's button.
+ */
+let pendingFocusLocale: Locale | null = null
+
+export function requestLocaleSwitchFocus(locale: Locale): void {
+  pendingFocusLocale = locale
+}
+
+export function consumeLocaleSwitchFocus(): Locale | null {
+  const locale = pendingFocusLocale
+  pendingFocusLocale = null
+  return locale
+}

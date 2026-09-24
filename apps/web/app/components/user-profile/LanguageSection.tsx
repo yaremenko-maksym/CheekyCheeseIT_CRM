@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
 import { toast } from 'sonner'
 import { LOCALES, type Locale } from '@crm/shared'
@@ -6,7 +6,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
-import { activateLocale } from '@/lib/i18n'
+import {
+  activateLocale,
+  consumeLocaleSwitchFocus,
+  markLocaleConfirmedByUser,
+  requestLocaleSwitchFocus,
+} from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 
 /**
@@ -43,6 +48,25 @@ export function LanguageSection({ current }: { current: Locale }) {
   // relying on the JS-level guard below keeps the click landing ON the
   // button, so focus never has anywhere else to go.
   const [pending, setPending] = useState(false)
+  // fix-round 2 (CI-2, UX-M-3 regression) — see `lib/i18n.ts`'s doc comment
+  // on `consumeLocaleSwitchFocus`: `LocaleScopedApp` remounts this whole
+  // component on a locale change, recreating the button `choose` below just
+  // gave focus to. `wrapperRef` lets the mount effect below re-find that
+  // button by testid in the FRESH DOM once it exists.
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  // Mount-only (not per-render): a remount IS a fresh mount, and this must
+  // fire exactly once per one — re-focusing on every re-render would steal
+  // focus back from wherever the user moved it to since. (Intentionally
+  // omits `current` from deps — react-hooks/exhaustive-deps is not
+  // configured in this project's eslint, same precedent as UserDialog.tsx.)
+  useEffect(() => {
+    const wanted = consumeLocaleSwitchFocus()
+    if (wanted === null || wanted !== current) return
+    wrapperRef.current
+      ?.querySelector<HTMLButtonElement>(`[data-testid="locale-option-${wanted}"]`)
+      ?.focus()
+  }, [])
 
   async function choose(locale: Locale) {
     // `pending` half is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
@@ -69,6 +93,11 @@ export function LanguageSection({ current }: { current: Locale }) {
     setPending(true)
     try {
       await api.patch('/users/me', { locale })
+      // Both markers below MUST be set before `activateLocale` — that call
+      // is what flips `i18n.locale` and triggers `LocaleScopedApp`'s remount
+      // (see `lib/i18n.ts` doc comments on both functions).
+      markLocaleConfirmedByUser(locale)
+      requestLocaleSwitchFocus(locale)
       await activateLocale(locale)
       invalidate()
     } catch {
@@ -103,6 +132,7 @@ export function LanguageSection({ current }: { current: Locale }) {
             through a different mechanism. Clicks stay routed to the
             button; re-entry is guarded in `choose` above instead. */}
         <div
+          ref={wrapperRef}
           aria-busy={pending}
           data-testid="locale-switcher-wrapper"
           className={cn(pending && 'opacity-60')}
