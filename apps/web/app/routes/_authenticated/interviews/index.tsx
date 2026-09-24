@@ -104,8 +104,9 @@ const searchSchema = z.object({
 })
 
 // task-hide-job-sourcing-button (owner, 2026-09-24): job-sourcing is paused
-// since 2026-08-23 pending the i18n rework of its next iteration. The
-// module itself (apps/web/app/components/job-sourcing/**,
+// since 2026-08-23; the owner plans a different approach, to start after
+// the CRM i18n project is finished — a time dependency, not an i18n rework
+// of this module. The module itself (apps/web/app/components/job-sourcing/**,
 // apps/web/app/hooks/use-job-sourcing.ts, apps/api/src/job-sourcing/**)
 // stays intact — only this board's entry point is hidden. Flip back to
 // `true` to restore the button + dialog in one edit.
