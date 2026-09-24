@@ -1500,7 +1500,9 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.getByTestId('pending-share-reject-reason').fill('договаривались на 30%')
     await page.getByTestId('pending-share-reject-confirm').click()
 
-    await expect(page.getByText('Предложение отклонено', { exact: false })).toBeVisible()
+    // task-i18n-stage3a (Task 2) — use-user-profile.ts's toast is now uk
+    // (source locale) via useLingui(), not the pre-i18n Russian literal.
+    await expect(page.getByText('Пропозицію відхилено', { exact: false })).toBeVisible()
   })
 })
 

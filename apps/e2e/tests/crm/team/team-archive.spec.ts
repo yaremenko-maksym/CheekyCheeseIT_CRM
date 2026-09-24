@@ -107,7 +107,9 @@ test.describe('Team archive — list page tab', () => {
     await page.getByTestId('team-unarchive-button').click()
     await unarchived
     // Toast confirms pair-unarchive happened
-    await expect(page.getByText(/Команда и синьор восстановлены/)).toBeVisible({ timeout: 3000 })
+    // task-i18n-stage3a (Task 2) — use-archive.ts's toast is now uk (source
+    // locale) via useLingui(), not the pre-i18n Russian literal.
+    await expect(page.getByText(/Команду та сеньйора відновлено/)).toBeVisible({ timeout: 3000 })
   })
 })
 
