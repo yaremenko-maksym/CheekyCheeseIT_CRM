@@ -386,6 +386,29 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
     expect(captured[0]!.senderId).toBe(ADMIN_A_ID)
   })
 
+  // Mutation gate (i18n stage 4 Task 2): every test in this describe passes a
+  // `receiverId` present in `userMap`, so the `!receiver` NOT_FOUND guard's
+  // FALSE branch was never exercised.
+  it('receiver row not found → USER_NOT_FOUND', async () => {
+    const captured: Array<{ senderId: string }> = []
+    const svc = makeAdminTransferService(userMap, captured)
+    const caller = makeViewer('ADMIN', ADMIN_A_ID)
+
+    await expect(
+      svc.createAdminTransfer(
+        {
+          receiverId: 'cccccccc-0000-0000-0000-000000000003',
+          amount: 100,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+        },
+        caller,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'USER_NOT_FOUND', statusCode: 404 },
+    })
+  })
+
   // fix-round 1 (mutation-gate closure): every test in this describe supplies
   // `receiptExternalUrl`, so the mandatory-receipt gate itself —
   // `if (receiptErr) throw zodErrorBadRequest(receiptErr)`, which runs AFTER

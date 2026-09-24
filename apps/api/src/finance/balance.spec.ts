@@ -803,6 +803,23 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
     const result = await svc.getTotalEarned(DROP_ID, 'USD')
     expect(result.totalEarned).toBe(350) // 50 slice + 300 direct
   })
+
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // stubs `users.findFirst` to always resolve a row, so the `!target` guard's
+  // FALSE branch was never exercised — `if (false) throw ...` passed every
+  // test unnoticed.
+  it('target user not found → USER_NOT_FOUND', async () => {
+    const drizzleClient = {
+      query: { users: { findFirst: async () => undefined } },
+      select: () => ({ from: async () => [] }),
+    }
+    const db = { db: drizzleClient } as never
+    const nbu = { getRates: async () => makeRates() } as never
+    const svc = new BalanceService(db, nbu)
+    await expect(svc.getTotalEarned('missing-user', 'USD')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'USER_NOT_FOUND' }),
+    })
+  })
 })
 
 // ── C-1 (mega-audit wave 2): getTotalEarned/computeDropAggregate parity ───────

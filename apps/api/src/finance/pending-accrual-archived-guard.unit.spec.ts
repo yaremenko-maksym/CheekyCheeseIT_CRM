@@ -364,6 +364,18 @@ describe('createSeniorIncome — AC1: an archived senior is refused before any I
     )
   })
 
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // passes a real senior object, so the `!senior` NOT_FOUND guard's FALSE
+  // branch (the session's own user row deleted mid-request) was never
+  // exercised.
+  it('current session user row not found → SENIOR_NOT_FOUND', async () => {
+    const { svc } = makeService(SENIOR_PROJECT, undefined)
+
+    await expect(svc.createSeniorIncome(payload, CURRENT_SENIOR_SESSION)).rejects.toMatchObject({
+      response: { code: 'SENIOR_NOT_FOUND', statusCode: 404 },
+    })
+  })
+
   // fix-round 1 (mutation-gate closure): same ACTIVE-senior harness as the
   // test above, minus the receipt — proves
   // `if (seniorIncomeReceiptErr) throw zodErrorBadRequest(seniorIncomeReceiptErr)`
@@ -777,6 +789,28 @@ describe('updateDropIncome — AC1/MED-1: an archived receiver is refused before
     await expect(
       svc.updateDropIncome(REJECTED_DROP_INCOME.id, {}, CURRENT_DROP_SESSION),
     ).rejects.toThrow('REPLACE REACHED')
+  })
+
+  // Mutation gate (i18n stage 4 Task 2): `makeService` above always stubs
+  // `transactions.findFirst` to resolve `REJECTED_DROP_INCOME`, so the
+  // earlier `!tx` NOT_FOUND guard (the transaction id itself, not the
+  // receiver row) never saw its FALSE branch.
+  it('transaction row not found → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const db = {
+      db: {
+        query: {
+          transactions: { findFirst: vi.fn().mockResolvedValue(undefined) },
+          users: { findFirst: vi.fn().mockResolvedValue(ACTIVE_DROP) },
+        },
+      },
+    } as never
+    const svc = makeTransactionsService({ db })
+
+    await expect(
+      svc.updateDropIncome('missing-tx-id', {}, CURRENT_DROP_SESSION),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it("queries the CALLER's own row (WHERE eq(users.id, currentUser.id)), not an empty read", async () => {

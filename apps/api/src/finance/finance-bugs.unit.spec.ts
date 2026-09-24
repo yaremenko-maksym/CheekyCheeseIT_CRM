@@ -162,8 +162,14 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         payerAdminId: ADMIN_ID,
         currency: 'UAH',
       }),
+      // Mutation gate (i18n stage 4 Task 2): pins the `params` payload —
+      // without `params`, `{ currency }` mutates to `{}` unnoticed.
     ).rejects.toMatchObject({
-      response: { code: 'FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED', statusCode: 400 },
+      response: {
+        code: 'FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED',
+        statusCode: 400,
+        params: { currency: 'UAH' },
+      },
     })
   })
 

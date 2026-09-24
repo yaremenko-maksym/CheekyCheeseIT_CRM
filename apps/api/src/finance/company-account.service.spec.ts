@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { inspect } from 'util'
 import { Logger } from '@nestjs/common'
+import { COMPANY_REQUISITES_MAX } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { CompanyAccountService } from './company-account.service'
 import type { DatabaseService } from '../database/database.service'
@@ -700,6 +701,28 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     })
   })
 
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // stubs `users.findFirst` to always resolve a row, so the `!receiver`
+  // guard's FALSE branch was never exercised.
+  it('receiver row not found → USER_NOT_FOUND', async () => {
+    const db = makeDb({
+      query: {
+        companyAccount: { findFirst: vi.fn() },
+        transactions: { findFirst: vi.fn() },
+        users: { findFirst: vi.fn().mockResolvedValue(undefined) },
+      },
+    })
+    const svc = makeService(db)
+    await expect(
+      svc.createDividend(
+        { amount: 100, adminId: 'missing', receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+        ADMIN,
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'USER_NOT_FOUND', statusCode: 404 },
+    })
+  })
+
   // fix-round 1 (mutation-gate closure): no existing test in this describe
   // omits the receipt entirely — every call above passes a
   // `receiptExternalUrl`, so the `receiptMandatoryError` guard itself
@@ -840,7 +863,13 @@ describe('CompanyAccountService.updateRequisites (ADMIN only)', () => {
     const { db } = makeRequisitesDb(null)
     const svc = makeService(db)
     await expect(svc.updateRequisites('a'.repeat(10001), ADMIN)).rejects.toMatchObject({
-      response: { code: 'FINANCE_COMPANY_REQUISITES_TOO_LONG', statusCode: 400 },
+      response: {
+        code: 'FINANCE_COMPANY_REQUISITES_TOO_LONG',
+        statusCode: 400,
+        // Mutation gate (i18n stage 4 Task 2): pins the `params` payload —
+        // without this, `{ maxChars: ... }` mutates to `{}` unnoticed.
+        params: { maxChars: COMPANY_REQUISITES_MAX },
+      },
     })
   })
 

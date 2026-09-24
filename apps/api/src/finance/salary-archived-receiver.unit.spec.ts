@@ -343,6 +343,19 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
       svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
     ).rejects.toThrow('INSERT REACHED')
   })
+
+  // Mutation gate (i18n stage 4 Task 2): both tests above stub `users.findFirst`
+  // to always resolve a row, so the earlier `!receiver` NOT_FOUND guard's
+  // FALSE branch was never exercised.
+  it('receiver row not found → USER_NOT_FOUND', async () => {
+    const svc = makeSalaryService(undefined)
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: 'missing-user' }, ADMIN_USER),
+    ).rejects.toMatchObject({
+      response: { code: 'USER_NOT_FOUND', statusCode: 404 },
+    })
+  })
 })
 
 // ── AC2: paySalary refuses a row whose receiver is archived ─────────────────

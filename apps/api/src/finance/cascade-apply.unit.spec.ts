@@ -506,6 +506,19 @@ describe('AC1: BIZ-18 narrowed surgically', () => {
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, SENIOR_USER),
     ).rejects.toBeInstanceOf(ForbiddenException)
   })
+
+  // Mutation gate (i18n stage 4 Task 2): every other test in this describe
+  // has `transactions.findFirst` resolve a real row, so the `!tx` NOT_FOUND
+  // guard's FALSE branch was never exercised.
+  it('transaction row not found → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const { db } = makeDouble({ sourceReads: [undefined] })
+    const svc = makeTransactionsService({ db })
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -637,7 +650,15 @@ describe('AC4: blocking conditions', () => {
     // wholesale and the specific refusal did not exist yet.
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/share-percent snapshot/i)
+      // Mutation gate (i18n stage 4 Task 2): assert code + params.rowId, not
+      // a message regex — pins the `{ rowId }` payload against `{}`.
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT',
+        statusCode: 400,
+        params: { rowId: SENIOR_DERIV_ID },
+      },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -650,7 +671,13 @@ describe('AC4: blocking conditions', () => {
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/currency/i)
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
+        statusCode: 400,
+        params: { rowId: SENIOR_DERIV_ID },
+      },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -2527,7 +2554,15 @@ describe('refusal messages', () => {
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/doesn't match any closing form/)
+      // Mutation gate (i18n stage 4 Task 2): assert code + params.rowId, not
+      // a message regex — pins the `{ rowId }` payload against `{}`.
+    ).rejects.toMatchObject({
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN',
+        statusCode: 400,
+        params: { rowId: SENIOR_DERIV_ID },
+      },
+    })
     expect(derivativeWrites(ops)).toHaveLength(0)
   })
 
@@ -2991,8 +3026,13 @@ describe('AC9: a derivative whose accumulator is unknown is never reverted', () 
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
+      // Mutation gate (i18n stage 4 Task 2): pins params.rowId against {}.
     ).rejects.toMatchObject({
-      response: { code: 'FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN', statusCode: 400 },
+      response: {
+        code: 'FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN',
+        statusCode: 400,
+        params: { rowId: SENIOR_DERIV_ID },
+      },
     })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })

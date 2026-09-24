@@ -618,6 +618,11 @@ describe('PendingSettlementService.settleByCompany', () => {
     // The pre-existing `amount` column is left completely untouched too —
     // same invariant, the mirror of the DROP-side assertion elsewhere.
     expect('amount' in flips[0]!).toBe(false)
+    // Mutation gate (i18n stage 4 Task 2): pins the ledger note text — a
+    // deliberate direct-uk literal, NOT routed through the api-errors
+    // catalog (Task 2 plan Step 7: internal bookkeeping text, not a
+    // user-facing HTTP response).
+    expect(flips[0]?.['notes']).toBe(`Закриття зобов’язання сеньйора (${OBLIGATION_COMPANY})`)
     // MONEY-CRITICAL: the share snapshot is nulled so getSeniorBalance treats the
     // flipped SENIOR_INCOME amount as NET (already the share), not GROSS. Keeping
     // seniorSharePercent=26 would under-count the senior by ~26× (NET × 26%).
@@ -1602,6 +1607,10 @@ describe('PendingSettlementService.settleByCompany', () => {
         expect(row['amount']).toBe('100.000000')
         expect(row['settledCurrency']).toBe('USDT')
         expect(row['currency']).toBe('USDT')
+        // Mutation gate (i18n stage 4 Task 2): pins the DROP-branch ledger
+        // note text (deliberate direct-uk literal, not api-errors-routed —
+        // Task 2 plan Step 7).
+        expect(row['notes']).toBe(`Закриття зобов’язання дропа (${DROP_OBLIGATION_ID})`)
       })
 
       it('and re-stamps the payment fact onto the closure as a whole', async () => {
