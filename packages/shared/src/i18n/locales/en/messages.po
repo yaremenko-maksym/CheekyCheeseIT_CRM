@@ -13,10 +13,59 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid " · архів"
+msgstr " · archived"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid " · Сеньйор: "
+msgstr " · Senior: "
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid " · усі"
+msgstr " · all"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "— оберіть бухгалтера —"
+msgstr "— select an accountant —"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "— оберіть команду —"
+msgstr "— select a team —"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "— оберіть сеньйора —"
+msgstr "— select a senior —"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "· Сеньйора не призначено"
+msgstr "· No senior assigned"
+
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
 msgstr "{0, plural, one {# income entry is waiting for your review} other {# income entries are waiting for your review}}"
+
+#. placeholder {0}: vacantDropTeams.length
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "{0, plural, one {Доступна # команда.} few {Доступно # команди.} many {Доступно # команд.} other {Доступно # команди.}}"
+msgstr "{0, plural, one {# team available.} other {# teams available.}}"
+
+#. placeholder {0}: impact.role
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "{0, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
+msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
+
+#. placeholder {0}: impact.role
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
+msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
+
+#. placeholder {0}: filtered.length
+#. placeholder {1}: users?.length ?? 0
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "{0} з {1}"
+msgstr "{0} of {1}"
 
 #. placeholder {0}: filtered.length
 #. placeholder {1}: users?.length ?? 0
@@ -24,18 +73,23 @@ msgstr "{0, plural, one {# income entry is waiting for your review} other {# inc
 msgid "{0} із {1}"
 msgstr "{0} of {1}"
 
+#. placeholder {0}: team.members.length
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "{0} уч."
+msgstr "{0} members"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "{activeProjects, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
+msgstr "{activeProjects, plural, one {# project} other {# projects}}"
+
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "{archivedRole, select, SENIOR {Сеньйора й команду архівовано} DROP {Дропа й команду архівовано} other {Користувача архівовано}}"
+msgstr "{archivedRole, select, SENIOR {Senior and team archived} DROP {Drop and team archived} other {User archived}}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# obligation} other {# obligations}}"
-
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
-msgstr "{role, select, SENIOR {senior} DROP {drop} other {employee}}"
-
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
-msgstr "{role, select, SENIOR {senior's} DROP {drop's} other {employee's}}"
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -49,37 +103,11 @@ msgstr "+{0} this month"
 msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "<0>{0}</0> and its senior <1>{1}</1> are a linked pair — you cannot remove just one. Archiving covers: the senior's profile, the team and all its projects ({2, plural, one {# project} other {# projects}}{projectNamesSuffix})."
 
-#. placeholder {0}: impact.projectsCount ?? 0
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# активний проєкт} few {# активні проєкти} many {# активних проєктів} other {# активних проєктів}}</1>. Самі проєкти залишаться активними."
-msgstr "<0>{entityName}</0> will be archived and removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves will remain active."
-
-#. placeholder {0}: impact.teamsCount ?? 0
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (бухгалтерська роль). Самі команди залишаться активними."
-msgstr "<0>{entityName}</0> will be archived and removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves will remain active."
-
-#. placeholder {0}: impact.teamsCount ?? 0
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований і прибраний з <1>{0, plural, one {# команда} few {# команди} many {# команд} other {# команд}}</1> (роль HR). Самі команди залишаться активними."
-msgstr "<0>{entityName}</0> will be archived and removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves will remain active."
-
-#. placeholder {0}: impact.projectsCount ?? 0
-#. placeholder {1}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований разом із усіма своїми проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{1})."
-msgstr "<0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{1})."
-
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> буде архівований. Нічого пов’язаного архівувати не треба."
-msgstr "<0>{entityName}</0> will be archived. Nothing else is affected."
-
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
-#. placeholder {2}: projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{2})."
-msgstr "<0>{entityName}</0> and the team “<1>{0}</1>” are a linked pair; you cannot remove just one. Archiving covers: the {roleGenitive} profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{2})."
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
+msgstr "<0>{entityName}</0> and team «<1>{0}</1>» are a linked pair — they can't be removed one at a time. Archived together: the {roleGenitive}'s profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{namesSuffix})."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -99,8 +127,14 @@ msgid "ERC-20, прив’язаний до долара"
 msgstr "ERC-20, pegged to the dollar"
 
 #: apps/web/app/components/ui/role-select.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR"
 msgstr "HR"
+
+#. placeholder {0}: selected.length
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "HR (обрано: {0})"
+msgstr "HR (selected: {0})"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -112,6 +146,21 @@ msgstr "HR can only add a senior to their own drop team"
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR can only create seniors"
 
+#. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "HR: {0}"
+msgstr "HR: {0}"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "HR: немає"
+msgstr "HR: none"
+
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди й проєктів їх не стосується."
+msgstr "HR/accountants on the team ({0, plural, one {# HR/accountant} other {# HR/accountants}}) and juniors on these projects ({1, plural, one {# junior} other {# juniors}}) stay active members and keep getting paid — archiving the team and projects doesn't affect them."
+
 #. placeholder {0}: impact.membersAffected
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується."
@@ -122,12 +171,6 @@ msgstr "HR/accountants on the team ({0, plural, one {# HR/accountant} other {# H
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація їх не стосується. Це еквівалентно архівації сеньйора <0>{1}</0>."
 msgstr "HR/accountants on the team ({0, plural, one {# HR/accountant} other {# HR/accountants}}) remain active members and keep getting paid — archiving it does not affect them. This is equivalent to archiving senior <0>{1}</0>."
-
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтерів}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніорів}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди/проєктів їх не стосується."
-msgstr "HR/accountants on the team ({0, plural, one {# HR/accountant} other {# HR/accountants}}) and juniors on these projects ({1, plural, one {# junior} other {# juniors}}) remain active members and keep getting paid — archiving the team/projects does not affect them."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново."
@@ -143,6 +186,10 @@ msgstr "Enter the IBAN: UA + 27 digits (29 characters)"
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN is required"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Override задано. Застосовується до всіх проєктів команди (пріоритет нижче за project override, вище за user default)."
+msgstr "Override is set. Applies to all of the team's projects (lower priority than a project override, higher than the user default)."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_PDF_MODIFIED_AFTER_SIGNATURE"
@@ -151,6 +198,10 @@ msgstr "The PDF was modified after the first signature — contact an admin"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — up to {MAX_MB} MB. The file is uploaded to secure storage."
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Telegram-канал"
+msgstr "Telegram channel"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -176,6 +227,11 @@ msgstr "Counterparty company's VAT number"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
 msgstr "You can only upload an avatar to your own profile"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "авто"
+msgstr "auto"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
@@ -244,11 +300,19 @@ msgstr "Registration address (sole proprietor)"
 msgid "активна"
 msgstr "active"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Активна"
+msgstr "Active"
+
 #. placeholder {0}: activeVersion.version
 #. placeholder {1}: format(new Date(activeVersion.createdAt), 'dd.MM.yyyy')
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Активна версія: v{0} · оновлена {1}"
 msgstr "Active version: v{0} · updated {1}"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Активний"
+msgstr "Active"
 
 #. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -269,9 +333,15 @@ msgstr "An active contract template for this role already exists"
 msgid "Активних проєктів"
 msgstr "Active projects"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Активні"
+msgstr "Active"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Активні проєкти"
 msgstr "Active projects"
 
@@ -288,6 +358,11 @@ msgstr "There is no active senior on the team."
 msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
 msgstr "Active member not found in the project"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Архів"
+msgstr "Archived"
+
 #. placeholder {0}: displayedVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "архів v{0}"
@@ -298,7 +373,16 @@ msgstr "archive v{0}"
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Only an admin can archive a drop"
 
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Архівування користувача"
+msgstr "Archiving a user"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Архівувати"
 msgstr "Archive"
 
@@ -311,12 +395,18 @@ msgid "Архівувати команду дропа"
 msgstr "Archive drop team"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 msgid "Архівувати користувача"
 msgstr "Archive user"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Архівувати проєкт"
 msgstr "Archive project"
+
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Архівуємо…"
+msgstr "Archiving…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -337,7 +427,14 @@ msgstr "Counterparty company's bank details"
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "CRM side navigation — move between sections of the system."
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
+msgstr "A senior account will be created and a team formed with you as HR."
+
 #: apps/web/app/components/ui/role-select.tsx
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Бухгалтер"
 msgstr "Accountant"
 
@@ -349,6 +446,40 @@ msgstr "An accountant can't choose who receives admin income"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "In active stages"
+
+#. placeholder {0}: impact.projectsCount ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
+msgstr "The profile of <0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{namesSuffix})."
+
+#. placeholder {0}: impact.projectsCount ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними."
+msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves stay active."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними."
+msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves stay active."
+
+#. placeholder {0}: impact.teamsCount ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними."
+msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves stay active."
+
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба."
+msgstr "The profile of <0>{entityName}</0> will be archived. Nothing related needs archiving."
+
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "В архіві"
+msgstr "Archived"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "в команді"
+msgstr "on the team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -452,6 +583,15 @@ msgstr "Enter the text"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Версія v{0}"
 msgstr "Version v{0}"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "вже є сеньйор"
+msgstr "already has a senior"
+
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Ви"
+msgstr "You"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -569,6 +709,14 @@ msgstr "Select at least one HR"
 msgid "zod-error.AT_LEAST_ONE_APPROVER"
 msgstr "Select at least one approver"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Вибір команди"
+msgstr "Choose a team"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Вибір користувачів для додавання до складу команди."
+msgstr "Choose users to add to the team."
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Choose a file"
@@ -577,6 +725,11 @@ msgstr "Choose a file"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Only an admin can withdraw dividends"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Видалити {0}"
+msgstr "Remove {0}"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Видалити {tag}"
@@ -610,6 +763,10 @@ msgstr "A transaction that is the source of a company obligation can't be delete
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Вийти"
 msgstr "Log out"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Виключити"
+msgstr "Remove"
 
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Виняток видалено"
@@ -669,9 +826,18 @@ msgstr "No open obligation found for this transaction"
 msgid "Відкрити меню"
 msgstr "Open menu"
 
+#. placeholder {0}: user.displayName
+#: apps/web/app/components/users/UserRow.tsx
+msgid "Відкрити профіль {0}"
+msgstr "Open {0}'s profile"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
 msgstr "Open interviews"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Відновити"
+msgstr "Restore"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити все"
@@ -682,13 +848,22 @@ msgstr "Restore all"
 msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
 msgstr "Only an administrator can restore a document"
 
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+msgid "Відновити з архіву"
+msgstr "Restore from archive"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновити пов’язане"
 msgstr "Restore linked items"
 
-#: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "Відновлення можливе — пара «{pairWord}+команда» повернеться, але проєкти відновлювати окремо."
 msgstr "Restoring is possible — the “{pairWord}+team” pair will come back, but projects must be restored separately."
+
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "Відновлення можливе — профіль повернеться, але проєкти відновлювати окремо."
+msgstr "Restoring is possible — the profile comes back, but projects must be restored separately."
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Відновлення проєкту разом із пов’язаними командою і профілем."
@@ -817,6 +992,10 @@ msgstr "The specified user wasn't found or has the wrong role"
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
 msgstr "The file's content doesn't match its extension — re-save it and try again"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Внутрішні замітки…"
+msgstr "Internal notes…"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RESUME_TEXT_TOO_SHORT"
@@ -857,6 +1036,10 @@ msgstr "Done"
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.bankUahFop"
 msgstr "Sole proprietor's UAH bank details"
+
+#: apps/web/app/components/users/CreateWizardStepper.tsx
+msgid "Дані"
+msgstr "Data"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -901,6 +1084,14 @@ msgstr "Junior"
 msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "The junior is already an active member of another project"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Джуніора не прикріплено"
+msgstr "No junior attached"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Джуніора призначено"
+msgstr "Junior assigned"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
@@ -934,6 +1125,11 @@ msgstr "To restore the project <0>{projectName}</0> you also need to restore the
 msgid "Для підтвердження введіть {confirmInputLabel}:"
 msgstr "To confirm, enter the {confirmInputLabel}:"
 
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Для підтвердження введіть ім’я:"
+msgstr "To confirm, type the name:"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
@@ -948,6 +1144,25 @@ msgstr "Back to active version"
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "Only a junior, an HR, or an accountant can be added to a project"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Додати"
+msgstr "Add"
+
+#. placeholder {0}: selectedUserIds.size
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Додати ({0})"
+msgstr "Add ({0})"
+
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Додати HR"
+msgstr "Add HR"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Додати в команду дропа"
+msgstr "Add to the drop's team"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати дохід"
 msgstr "Add income"
@@ -956,6 +1171,10 @@ msgstr "Add income"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
 msgstr "Only an administrator can add a senior to a team"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Додати учасника"
+msgstr "Add member"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1041,6 +1260,10 @@ msgstr "Your access to the CRM has been turned off. If this is a mistake, contac
 msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
 msgstr "Your access to the CRM has been turned off. If this is a mistake, contact an admin."
 
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Доступ лише для адміністратора"
+msgstr "Admin access only"
+
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Reached the limit of {maxItems} tags"
@@ -1093,6 +1316,14 @@ msgstr "Income in validation and queued payouts"
 msgid "Дроп"
 msgstr "Drop"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Дроп не призначений"
+msgstr "No drop assigned"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Дроп:"
+msgstr "Drop:"
+
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "дропа"
 msgstr "drop"
@@ -1112,10 +1343,34 @@ msgstr "Drop not found"
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Drops can't access interviews"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "є проєкт"
+msgstr "has a project"
+
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Єдиний HR у системі"
+msgstr "The only HR in the system"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Єдиний бухгалтер у системі"
+msgstr "The only accountant in the system"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "За датою додавання"
+msgstr "By date added"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "За ім’ям"
+msgstr "By name"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
 msgstr "One of the shares was already paid in {settledCurrency} and its new amount is in {currency} — a manual reconciliation is needed"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "За роллю"
+msgstr "By role"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1159,6 +1414,10 @@ msgstr "Close"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN"
 msgstr "Only an admin or an accountant can replace a receipt after payment"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Замітки"
+msgstr "Notes"
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Запис додано"
@@ -1236,9 +1495,23 @@ msgstr "The payout request is already paid"
 msgid "api-error.FINANCE_PAYOUT_REQUEST_NOT_FOUND"
 msgstr "Payout request not found"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Зберегти"
+msgstr "Save"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Збереження…"
+msgstr "Saving…"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Збережено"
 msgstr "Saved"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Зберігаємо…"
+msgstr "Saving…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1269,6 +1542,10 @@ msgstr "Only an admin or an accountant can see the missed salary months report"
 msgid "Згорнути"
 msgstr "Collapse"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
+msgstr "Change or assign the team's senior. The current senior will be detached."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW"
@@ -1278,6 +1555,11 @@ msgstr "Changing a paid transaction's amount recalculates shares and obligations
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Зміни збережено"
 msgstr "Changes saved"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Змінити"
+msgstr "Change"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1293,6 +1575,11 @@ msgstr "Only an admin can change the company details"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ROLE_CHANGE_VIA_DEDICATED_ENDPOINT"
 msgstr "The role can't be changed to drop this way"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Змінити сеньйора"
+msgstr "Change senior"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1343,6 +1630,10 @@ msgstr "Only an admin, an accountant, or a senior can see pending obligations"
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "External link to an image (https://…)"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Іваненко Іван Іванович"
+msgstr "Ivan Ivanenko"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я"
 msgstr "name"
@@ -1359,6 +1650,10 @@ msgstr "drop's name"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я сеньйора"
 msgstr "senior's name"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Ім’я та прізвище"
+msgstr "Full name"
 
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Ім’я: А–Я"
@@ -1401,8 +1696,13 @@ msgstr "Key: up to 50 characters — Latin letters, digits or _, starting with a
 msgid "zod-error.APPROVER_IDS_NO_DUPLICATES"
 msgstr "Each approver can be added only once"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Команд поки немає"
+msgstr "No teams yet"
+
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Команда"
 msgstr "Team"
 
@@ -1411,6 +1711,15 @@ msgstr "Team"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Team <0>{0}</0> and its drop <1>{dropName}</1> are a linked pair — you cannot remove just one. Archiving covers: the drop's <2>profile</2>, the team and all its drop projects ({1, plural, one {# project} other {# projects}}{projectNamesSuffix})."
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Команда дропа"
+msgstr "Drop's team"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Команди створюються автоматично при додаванні сеньйора в систему"
+msgstr "Teams are created automatically when a senior is added to the system"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -1426,10 +1735,19 @@ msgstr "The team is already archived"
 msgid "api-error.TEAM_NOT_ARCHIVED"
 msgstr "The team isn't archived"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Команду не знайдено"
+msgstr "Team not found"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_NOT_FOUND"
 msgstr "Team not found"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Команду оновлено"
+msgstr "Team updated"
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Команду та сеньйора відновлено"
@@ -1457,6 +1775,10 @@ msgstr "The company has already booked this amount but has not transferred it ye
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_COMPANY_SIGNATURE_MISSING"
 msgstr "The company hasn't signed the invoice yet — contact an admin"
+
+#: apps/web/app/components/users/CreateWizardStepper.tsx
+msgid "Контракт"
+msgstr "Contract"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1535,6 +1857,10 @@ msgstr "Users"
 msgid "Користувачів не знайдено"
 msgstr "No users found"
 
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Користувачів поки немає"
+msgstr "No users yet"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyCountry"
@@ -1543,6 +1869,10 @@ msgstr "Counterparty company's country of registration"
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Країну не знайдено"
 msgstr "Country not found"
+
+#: apps/web/app/components/users/CreateWizardStepper.tsx
+msgid "Кроки створення користувача"
+msgstr "User creation steps"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1589,6 +1919,10 @@ msgstr "My project"
 msgid "Мова інтерфейсу"
 msgstr "Interface language"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Можливо, у вас немає доступу до цієї команди"
+msgstr "You may not have access to this team"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TOO_MANY_CUSTOM_VARIABLES"
@@ -1615,6 +1949,18 @@ msgstr "Receipts from companies this month"
 msgid "Назад до умов використання"
 msgstr "Back to Terms of Service"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Назва"
+msgstr "Name"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Назва A→Z"
+msgstr "Name A→Z"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Назва команди"
+msgstr "Team name"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyName"
@@ -1633,11 +1979,23 @@ msgstr "Hired this month"
 msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Settings are outdated — refresh the page"
 
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Напрямок сортування: за зростанням"
+msgstr "Sort direction: ascending"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Напрямок сортування: за спаданням"
+msgstr "Sort direction: descending"
+
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Наступна версія: v{0} (поточна — v{1})"
 msgstr "Next version: v{0} (current — v{1})"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Натисніть «Створити сеньйора», щоб сформувати першу команду"
+msgstr "Click “Create senior” to form the first team"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Натисніть ще раз, щоб повторити завантаження."
@@ -1652,6 +2010,10 @@ msgstr "No more than 2 decimals — otherwise the amount is rounded"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS"
 msgstr "No more than 6 decimals — otherwise the amount is rounded"
+
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Не вдалося архівувати користувача — спробуйте ще раз"
+msgstr "Could not archive the user — try again"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося видалити вакансію. Спробуйте ще раз"
@@ -1706,6 +2068,10 @@ msgstr "Could not add the entry. Try again"
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Не вдалося додати пароль. Спробуйте ще раз"
 msgstr "Could not add the password. Try again"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Не вдалося додати учасника — спробуйте ще раз"
+msgstr "Could not add the member — try again"
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Не вдалося заархівувати. Спробуйте ще раз"
@@ -1775,6 +2141,10 @@ msgstr "Could not change the interface language. Try again"
 msgid "Не вдалося змінити особисту адресу. Спробуйте ще раз"
 msgstr "Could not change the personal email. Try again"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Не вдалося змінити сеньйора — спробуйте ще раз"
+msgstr "Could not change the senior — try again"
+
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося змінити статус відгуку. Спробуйте ще раз"
 msgstr "Could not change the application status. Try again"
@@ -1796,6 +2166,10 @@ msgstr "Couldn't process this file — it may be damaged. Try a different one"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося оновити вакансію. Спробуйте ще раз"
 msgstr "Could not update the vacancy. Try again"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Не вдалося оновити команду — спробуйте ще раз"
+msgstr "Could not update the team — try again"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося оновити реквізити. Спробуйте ще раз"
@@ -1841,6 +2215,10 @@ msgstr "Couldn't return to your own account. Sign in again"
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Could not return: {errMessage}"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
+msgstr "Could not join the team — try again"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
@@ -1850,14 +2228,27 @@ msgstr "Couldn't recognize the selected senior — pick one from the list"
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
 msgstr "Could not create the vacancy. Try again"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Не вдалося створити команду — спробуйте ще раз"
+msgstr "Could not create the team — try again"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Не задано — використовується значення сеньйора (26% за замовчуванням). Пересуньте повзунок, щоб задати override."
+msgstr "Not set — uses the senior's value (26% by default). Move the slider to set an override."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN"
 msgstr "How much was already paid on one of the shares isn't recorded — a manual reconciliation is needed"
+
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+msgid "Не можна архівувати себе"
+msgstr "Can't archive yourself"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1908,6 +2299,7 @@ msgid "api-error.FINANCE_TX_HASH_INVALID"
 msgstr "Invalid transaction hash — paste an Etherscan link or 0x followed by 64 hex characters"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Немає активних проєктів"
 msgstr "No active projects"
 
@@ -1919,6 +2311,19 @@ msgstr "No active contract template for this role. Add one under Contracts"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "There is no active Terms of Service version. Create the first one."
+
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Немає вільних HR — створіть HR у розділі «Команда»"
+msgstr "No HR available — create one in the Team section"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»"
+msgstr "No accountants available — create one in the Team section"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Немає доступних команд дропа."
+msgstr "No drop teams available."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1961,6 +2366,14 @@ msgstr "No connection to the server. Check your internet connection and try agai
 msgid "Немає зобов’язань"
 msgstr "No obligations"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Немає команд дропа без активного сеньйора."
+msgstr "No drop teams without an active senior."
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Немає користувачів, яких можна додати"
+msgstr "No users available to add"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_OWNED"
@@ -1971,19 +2384,49 @@ msgstr "You don't have permission to attach this receipt document"
 msgid "api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN"
 msgstr "You don't have permission to attach a receipt to this transaction"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Немає сеньйорів без активної команди"
+msgstr "No seniors without an active team"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Немає транзакцій у роботі. Додайте дохід, щоб почати."
 msgstr "No transactions in progress. Add income to get started."
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Немає учасників"
+msgstr "No members"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_FORMAT"
 msgstr "Telegram handle: 5–32 characters — Latin letters, digits or _"
 
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Нікого не обрано"
+msgstr "No one selected"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Нічого не знайдено"
+msgstr "No results"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Нічого не знайдено — скиньте фільтри"
+msgstr "No matches — clear the filters"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нова версія умов"
 msgstr "New Terms version"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Нова команда. Оберіть склад нижче."
+msgstr "A new team. Choose its composition below."
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Новий сеньйор"
+msgstr "New senior"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
@@ -2002,10 +2445,18 @@ msgstr "Phone number"
 msgid "Нотатку збережено"
 msgstr "Note saved"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
+msgstr "Choose a senior with no active team. The drop and other team members stay."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
 msgstr "This Google account doesn't match the email the invite was sent to"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Обрати бухгалтера"
+msgstr "Choose an accountant"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Обробка…"
@@ -2156,6 +2607,10 @@ msgstr "Layout updated"
 msgid "Очистити"
 msgstr "Clear"
 
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Очистити бухгалтера"
+msgstr "Clear the accountant"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити зображення"
 msgstr "Clear image"
@@ -2205,6 +2660,11 @@ msgstr "Viewing archived version v{0}"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "You can only view your own contract"
+
+#. placeholder {0}: team.name
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Перейти до команди {0}"
+msgstr "Go to {0}'s team"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
@@ -2266,6 +2726,14 @@ msgstr "Signed contract not found"
 msgid "Підтверджені доходи, які ви ще не перерахували"
 msgstr "Confirmed income you have not transferred yet"
 
+#: apps/web/app/components/users/CreateWizardStepper.tsx
+msgid "Підтвердження"
+msgstr "Confirmation"
+
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+msgid "Підтвердження архівації користувача. Введіть ім’я для підтвердження."
+msgstr "Confirm archiving the user. Type the name to confirm."
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Archive confirmation. Enter the name to confirm the action."
@@ -2303,6 +2771,10 @@ msgstr "Only a senior can rejoin a team"
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернутися до свого профілю"
 msgstr "Return to your profile"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Повернутися до списку"
+msgstr "Back to the list"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
@@ -2371,10 +2843,18 @@ msgstr "The link must point to etherscan.io, tronscan.org or another explorer"
 msgid "zod-error.RESUME_LINK_PROTOCOL"
 msgstr "The link must start with https:// or mailto:"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Посилання має починатися з https://t.me/"
+msgstr "The link must start with https://t.me/"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TEAM_TELEGRAM_LINK_FORMAT"
 msgstr "The link must start with https://t.me/"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Посилання на Telegram-чат команди"
+msgstr "Link to the team's Telegram chat"
 
 #: apps/web/app/routes/login.tsx
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
@@ -2383,6 +2863,11 @@ msgstr "This link doesn't work. Open the link from the latest email — if there
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
+
+#. placeholder {0}: activeSenior.displayName
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
+msgstr "The current senior “{0}” will be detached. The new senior must have no active team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2402,9 +2887,26 @@ msgstr "You need to sign in again."
 msgid "Почніть вводити технологію…"
 msgstr "Start typing a technology…"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Почніть вводити: React, Node.js…"
+msgstr "Start typing: React, Node.js…"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Пошук за ім’ям або email…"
+msgstr "Search by name or email…"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Пошук за ім’ям, email, telegram, технологіями…"
+msgstr "Search by name, email, telegram, technologies…"
+
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Пошук за іменем, email, telegram…"
 msgstr "Search by name, email, telegram…"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Пошук за назвою…"
+msgstr "Search by name…"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Пошук і виконання команд"
@@ -2424,10 +2926,19 @@ msgstr "The senior can't be removed from a team — delete the team instead"
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Призначити"
+msgstr "Assign"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "You can't assign the admin role — the pool is fixed"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Призначити сеньйора"
+msgstr "Assign senior"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2441,8 +2952,8 @@ msgstr "Rejection reason — 500 characters max"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
-msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unlinked. The senior and team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
+msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, рахунки) залишається доступною."
+msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be detached. The senior and team will <2>not</2> be archived. Financial history (transactions, invoices) stays available."
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Проєкт відновлено"
@@ -2470,6 +2981,10 @@ msgstr "The project is already archived"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
 msgstr "Projects"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Проєкти ↓"
+msgstr "Projects ↓"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2560,6 +3075,20 @@ msgstr "The invoice is already signed"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_GENERATED_YET"
 msgstr "The invoice hasn't been generated yet — try again later"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Редагування назви, Telegram-посилання та заміток команди."
+msgstr "Edit the team's name, Telegram link and notes."
+
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Редагувати"
+msgstr "Edit"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Редагувати команду"
+msgstr "Edit team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2695,6 +3224,14 @@ msgstr "senior"
 msgid "api-error.SENIOR_NOT_FOUND"
 msgstr "Senior not found"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Сеньйора оновлено"
+msgstr "Senior updated"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Сеньйора створено, команду сформовано"
+msgstr "Senior created, team formed"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Сеньйора та команду відновлено"
 msgstr "Senior and team restored"
@@ -2706,8 +3243,15 @@ msgstr "Simulation: the transaction isn't confirmed"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Скасувати"
 msgstr "Cancel"
 
@@ -2720,6 +3264,15 @@ msgstr "Only an admin can cancel a share proposal"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
 msgstr "Only an admin or an accountant can cancel a share proposal"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Скинути"
+msgstr "Reset"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Сортування"
+msgstr "Sort by"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2800,6 +3353,23 @@ msgstr "Only the person who made the deposit, an admin, or an accountant can see
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Only an admin can create a drop"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створення нового акаунта сеньйора та формування команди з HR."
+msgstr "Creating a new senior account and forming a team with HR."
+
+#. placeholder {0}: formatDate(team.createdAt, locale, 'long')
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Створено {0}"
+msgstr "Created {0}"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створити"
+msgstr "Create"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Створити або обрати команду"
+msgstr "Create or choose a team"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CREATION_FORBIDDEN"
@@ -2814,6 +3384,19 @@ msgstr "Create payout"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT"
 msgstr "A drop can't be created this way"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Створити свою команду"
+msgstr "Create your own team"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створити сеньйора"
+msgstr "Create senior"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створюємо…"
+msgstr "Creating…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2889,6 +3472,10 @@ msgstr "The document text cannot be empty"
 msgid "Текст прийнято, розпізнаємо резюме"
 msgstr "Text received, parsing the resume"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Телефон"
+msgstr "Phone"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.phone"
@@ -2902,6 +3489,10 @@ msgstr "The invite has expired"
 #: apps/web/app/routes/login.tsx
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "The invitation has expired. Ask an admin to send it again."
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Технології"
+msgstr "Technologies"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
@@ -2973,6 +3564,10 @@ msgstr "Events about your projects, money and documents will appear here"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_NO_ACTIVE_TEAM"
 msgstr "You don't have an active team"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "У вас немає активної команди. Створіть свою або приєднайтеся до команди дропа."
+msgstr "You don't have an active team. Create your own or join a drop's team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -3079,10 +3674,32 @@ msgstr "Terms of Service"
 msgid "Усе, що чекає рішення"
 msgstr "Everything awaiting a decision"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Усі"
+msgstr "All"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Усі ролі"
+msgstr "All roles"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_MEMBER_NOT_FOUND"
 msgstr "Team member not found"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Учасники ↓"
+msgstr "Members ↓"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Учасники команди"
+msgstr "Team members"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Учасників додано"
+msgstr "Members added"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Файл"
@@ -3115,6 +3732,14 @@ msgstr "No file was received — choose a file and try again"
 msgid "api-error.DOCUMENT_FILE_FIELD_MISSING"
 msgstr "No file was received — choose a file and try again"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Фільтр команд"
+msgstr "Team filter"
+
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Фільтр користувачів"
+msgstr "User filter"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Фінальний вигляд документа «Умови використання» — як PDF."
 msgstr "Final look of the “Terms of Service” document — as a PDF."
@@ -3122,6 +3747,10 @@ msgstr "Final look of the “Terms of Service” document — as a PDF."
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Фінанси"
 msgstr "Finance"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Фінанси та команда"
+msgstr "Finance and team"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3299,6 +3928,14 @@ msgstr "Company's share, % (100 minus the employee's share)"
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Частка невідома. Оновіть сторінку"
 msgstr "Share unknown. Refresh the page"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Частка сеньйора (%)"
+msgstr "Senior's share (%)"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Частка сеньйора (override для команди)"
+msgstr "Senior's share (team override)"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Частка сеньйора за весь час"
