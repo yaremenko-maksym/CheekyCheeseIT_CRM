@@ -1,4 +1,5 @@
 import { Clock } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 
 /**
  * ContractWaitScreen — A3-4 Task 5.
@@ -27,13 +28,17 @@ export function ContractWaitScreen() {
       </div>
 
       <div className="max-w-sm space-y-1.5">
-        <h3 className="text-base font-semibold">Контракт готовится</h3>
+        <h3 className="text-base font-semibold">
+          <Trans>Контракт готується</Trans>
+        </h3>
         <p className="text-sm text-muted-foreground">
-          Ваш персональный контракт ещё не готов к подписанию. Администратор заполнит его в
-          ближайшее время.
+          <Trans>
+            Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його
+            найближчим часом
+          </Trans>
         </p>
         <p className="text-xs text-muted-foreground/70">
-          Эта страница обновляется автоматически каждые 15 секунд.
+          <Trans>Сторінка оновиться сама, щойно контракт буде готовий</Trans>
         </p>
       </div>
     </div>

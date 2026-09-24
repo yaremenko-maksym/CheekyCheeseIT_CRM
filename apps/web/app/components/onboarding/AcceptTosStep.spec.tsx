@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { i18n } from '@lingui/core'
+import { I18nProvider } from '@lingui/react'
 
 /**
  * Fix-раунд 3 (task-680, SR-M-3). Same shape as `SignContractStep.spec.tsx`'s
@@ -37,7 +39,7 @@ vi.mock('@/context/auth', () => ({
 }))
 
 // Import AFTER vi.mock declarations so hoisting resolves correctly.
-import { TOS_ACCEPT_IMPERSONATION_MESSAGE } from '@crm/shared'
+import { API_ERROR_MESSAGES } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { AcceptTosStep } from './AcceptTosStep'
 
@@ -45,11 +47,20 @@ import { AcceptTosStep } from './AcceptTosStep'
 // Helpers
 // ---------------------------------------------------------------------------
 
+beforeEach(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
+
 function wrapper({ children }: { children: React.ReactNode }) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  return (
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </I18nProvider>
+  )
 }
 
 const TOS_VERSION = { id: 'tos-1', version: 1, bodyMarkdown: '# Terms', isActive: true }
@@ -87,7 +98,7 @@ describe('AcceptTosStep', () => {
       expect(button).toHaveAttribute('aria-describedby', 'accept-tos-explain-impersonating')
 
       const banner = screen.getByTestId('accept-tos-impersonating-banner')
-      expect(banner).toHaveTextContent(`${TOS_ACCEPT_IMPERSONATION_MESSAGE}.`)
+      expect(banner).toHaveTextContent(i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION))
       expect(banner).toHaveAttribute('id', 'accept-tos-explain-impersonating')
 
       // Even checking the confirm box (the only other gate) must not enable
