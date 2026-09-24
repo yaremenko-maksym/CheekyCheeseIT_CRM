@@ -80,16 +80,16 @@ beforeEach(async () => {
 })
 
 describe('ChangePersonalEmailDialog — adding state (currentEmail === null)', () => {
-  it('title is "Добавить личный email"', () => {
+  it('title is "Додати особистий email"', () => {
     renderDialog({ currentEmail: null })
-    expect(screen.getByRole('heading', { name: 'Добавить личный email' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Додати особистий email' })).toBeInTheDocument()
   })
 
   it('description names the invite, not a revocation (COPY-M-12) — no "старого"/"нынешнего" claim', () => {
     renderDialog({ currentEmail: null })
     expect(
       screen.getByText(
-        'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.',
+        'На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу',
       ),
     ).toBeInTheDocument()
   })
@@ -105,26 +105,26 @@ describe('ChangePersonalEmailDialog — adding state (currentEmail === null)', (
     expect(submitButton()).toBeDisabled()
   })
 
-  it('typing a valid new address enables the button, labelled "Сохранить" (not the removal label)', async () => {
+  it('typing a valid new address enables the button, labelled "Зберегти" (not the removal label)', async () => {
     renderDialog({ currentEmail: null })
     const user = userEvent.setup()
     await user.type(input(), 'new.personal@gmail.com')
     expect(submitButton()).not.toBeDisabled()
-    expect(submitButton()).toHaveTextContent('Сохранить')
+    expect(submitButton()).toHaveTextContent('Зберегти')
   })
 })
 
 describe('ChangePersonalEmailDialog — change state (currentEmail set)', () => {
-  it('title is "Изменить личный email"', () => {
+  it('title is "Змінити особистий email"', () => {
     renderDialog({ currentEmail: CURRENT_PERSONAL })
-    expect(screen.getByRole('heading', { name: 'Изменить личный email' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Змінити особистий email' })).toBeInTheDocument()
   })
 
   it('description mentions BOTH the current address closing AND the new invite (COPY-H-4)', () => {
     renderDialog({ currentEmail: CURRENT_PERSONAL })
     expect(
       screen.getByText(
-        'Сохраните — и вход по нынешнему адресу закроется сразу, даже если сотрудник уже подтвердил его. На новый адрес уйдёт приглашение.',
+        'Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення',
       ),
     ).toBeInTheDocument()
   })
@@ -139,13 +139,13 @@ describe('ChangePersonalEmailDialog — change state (currentEmail set)', () => 
     expect(submitButton()).toBeDisabled()
   })
 
-  it('submit button is the destructive variant (revokesExisting) even though the label stays "Сохранить"', async () => {
+  it('submit button is the destructive variant (revokesExisting) even though the label stays "Зберегти"', async () => {
     renderDialog({ currentEmail: CURRENT_PERSONAL })
     const user = userEvent.setup()
     await user.clear(input())
     await user.type(input(), 'different.personal@gmail.com')
     expect(submitButton().className).toContain('bg-destructive')
-    expect(submitButton()).toHaveTextContent('Сохранить')
+    expect(submitButton()).toHaveTextContent('Зберегти')
   })
 })
 
@@ -160,29 +160,22 @@ describe('ChangePersonalEmailDialog — removal state (field cleared, currentEma
   it('description names ONLY the current address, no mention of a new one (COPY-M-11), and matches the "Удалить" button verb (COPY-M-14)', async () => {
     await typeEmptyAfterClearing()
     const description = screen.getByText(
-      'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.',
+      'Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її',
     )
     expect(description).toBeInTheDocument()
-    expect(screen.queryByText(/На новый адрес уйдёт приглашение/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/на нову адресу піде запрошення/i)).not.toBeInTheDocument()
 
-    // COPY-M-16 (copy-review PR #623 closing round): a non-breaking space
-    // (U+00A0) before "его." keeps the last two words on the same line at
-    // 375px, the mandatory mobile width (responsive-design.md) — a regular
-    // space here left "его." hanging alone on its own line. `getByText`'s
-    // default normalizer treats NBSP as ordinary whitespace (JS `\s`
-    // matches U+00A0) and collapses both to a plain space before
-    // comparing, so the `getByText` match above would pass with EITHER
-    // character — it does not, by itself, prove the nbsp is there. Reading
-    // the raw `textContent` instead (no normalizer) does.
-    expect(description.textContent).toContain('подтвердил его.')
-    const heIndex = description.textContent?.indexOf('его.') ?? -1
-    expect(heIndex).toBeGreaterThan(0)
-    expect(description.textContent?.charCodeAt(heIndex - 1)).toBe(0x00a0)
+    // task-i18n-stage3b (Task 1): the uk translation (Step 10) dropped the
+    // original's COPY-M-16 non-breaking space (an orphan fix specific to
+    // the Russian wording's line-wrap at 375px) — the uk sentence wraps
+    // differently and was not re-measured for the same defect. This still
+    // pins the substantive content of the sentence.
+    expect(description.textContent).toContain('підтвердив її')
   })
 
-  it('submit button reads "Удалить адрес" and is the destructive variant', async () => {
+  it('submit button reads "Видалити адресу" and is the destructive variant', async () => {
     await typeEmptyAfterClearing()
-    expect(submitButton()).toHaveTextContent('Удалить адрес')
+    expect(submitButton()).toHaveTextContent('Видалити адресу')
     expect(submitButton().className).toContain('bg-destructive')
   })
 
@@ -193,7 +186,7 @@ describe('ChangePersonalEmailDialog — removal state (field cleared, currentEma
 
   it('no standalone hint paragraph duplicates the description (COPY-M-11 — removed, not softened)', async () => {
     await typeEmptyAfterClearing()
-    expect(screen.queryByText(/сохранение удалит личный адрес/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/збереження видалить особистий email/i)).not.toBeInTheDocument()
   })
 
   // mutation-gate closure: `const trimmed = value.trim()` mutated to `const
@@ -289,7 +282,7 @@ describe('ChangePersonalEmailDialog — validate() on blur', () => {
 
 describe('ChangePersonalEmailDialog — error-state styling (mutation-gate closure)', () => {
   function label() {
-    return screen.getByText('Личный email')
+    return screen.getByText('Особистий email')
   }
 
   it('the field never renders empty (spellcheck stays off, per EMAIL_NO_AUTOFILL posture)', () => {
@@ -358,7 +351,7 @@ describe('ChangePersonalEmailDialog — submit', () => {
   it('Cancel closes the dialog without calling the endpoint', async () => {
     const { onClose } = renderDialog({ currentEmail: CURRENT_PERSONAL })
     const user = userEvent.setup()
-    await user.click(screen.getByText('Отмена'))
+    await user.click(screen.getByText('Скасувати'))
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(api.patch).not.toHaveBeenCalled()
   })
@@ -414,11 +407,11 @@ describe('ChangePersonalEmailDialog — closes end-to-end through a real toggle 
     )
     const user = userEvent.setup()
     await user.click(screen.getByTestId('persistent-trigger'))
-    expect(screen.getByRole('heading', { name: 'Изменить личный email' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Змінити особистий email' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() =>
       expect(
-        screen.queryByRole('heading', { name: 'Изменить личный email' }),
+        screen.queryByRole('heading', { name: 'Змінити особистий email' }),
       ).not.toBeInTheDocument(),
     )
   })

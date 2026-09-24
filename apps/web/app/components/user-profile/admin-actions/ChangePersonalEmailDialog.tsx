@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { z } from 'zod'
+import { Trans } from '@lingui/react/macro'
 import {
   Dialog,
   DialogContent,
@@ -183,11 +184,22 @@ export function ChangePersonalEmailDialog({
   // 325px measure, not an orphan. The same nbsp there changes nothing
   // (measured: 4 lines with it, 4 without — `text-wrap: wrap` is greedy, so
   // an nbsp can only hold the line count or raise it, never lower it).
-  const description = isAdding
-    ? 'На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес.'
-    : isRemoval
-      ? 'Удалите — и вход по этому адресу закроется сразу, даже если сотрудник уже подтвердил его.'
-      : 'Сохраните — и вход по нынешнему адресу закроется сразу, даже если сотрудник уже подтвердил его. На новый адрес уйдёт приглашение.'
+  const description = isAdding ? (
+    <Trans>
+      На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як
+      підтвердить адресу
+    </Trans>
+  ) : isRemoval ? (
+    <Trans>
+      Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив
+      її
+    </Trans>
+  ) : (
+    <Trans>
+      Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже
+      підтвердив її — на нову адресу піде запрошення
+    </Trans>
+  )
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -196,7 +208,13 @@ export function ChangePersonalEmailDialog({
           {/* COPY-M-10: title names the ACTION (matches ArchiveUserDialog's
               own house style), not the field — the field already has its
               own <Label> 40px below, and repeating it there was the finding. */}
-          <DialogTitle>{isAdding ? 'Добавить личный email' : 'Изменить личный email'}</DialogTitle>
+          <DialogTitle>
+            {isAdding ? (
+              <Trans>Додати особистий email</Trans>
+            ) : (
+              <Trans>Змінити особистий email</Trans>
+            )}
+          </DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
@@ -211,7 +229,7 @@ export function ChangePersonalEmailDialog({
               red error line sat directly under it. Matched to the sibling's
               exact classes, not invented fresh. */}
           <Label htmlFor="change-personal-email-input" className={cn(error && 'text-destructive')}>
-            Личный email
+            <Trans>Особистий email</Trans>
           </Label>
           <Input
             id="change-personal-email-input"
@@ -253,7 +271,7 @@ export function ChangePersonalEmailDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             variant={
@@ -285,7 +303,7 @@ export function ChangePersonalEmailDialog({
                 instead of the neutral "Сохранить" — the last word the admin
                 reads before an irreversible revoke must not be the softest
                 one in the dialog (ArchiveUserDialog's own precedent). */}
-            {isRemoval ? 'Удалить адрес' : 'Сохранить'}
+            {isRemoval ? <Trans>Видалити адресу</Trans> : <Trans>Зберегти</Trans>}
           </Button>
         </DialogFooter>
       </DialogContent>
