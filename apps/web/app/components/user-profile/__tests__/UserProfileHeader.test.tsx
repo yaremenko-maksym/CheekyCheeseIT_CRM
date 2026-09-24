@@ -162,6 +162,41 @@ describe('UserProfileHeader — personalEmail (§4.4)', () => {
     const workLink = screen.getByRole('link', { name: 'ivan@work.com' })
     expect(workLink).toHaveAttribute('href', 'mailto:ivan@work.com')
   })
+
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — the personal-email
+  // link's own `title` attribute had zero unit assertion.
+  it('the personal-email link carries the exact "особистий email" title', () => {
+    render(<UserProfileHeader user={makeUser({ personalEmail: 'ivan.personal@gmail.com' })} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.getByRole('link', { name: 'ivan.personal@gmail.com' })).toHaveAttribute(
+      'title',
+      'особистий email',
+    )
+  })
+})
+
+// task-i18n-stage3b (Task 1), mutation-gate coverage — the "Дата
+// реєстрації: {date}" line (`showCreatedAt` — default true) had zero unit
+// assertion.
+describe('UserProfileHeader — registration date line', () => {
+  it('shows "Дата реєстрації:" with a formatted date when showCreatedAt is true', () => {
+    render(
+      <UserProfileHeader user={makeUser({ createdAt: new Date('2026-03-15T00:00:00.000Z') })} />,
+      {
+        wrapper: I18nTestProvider,
+      },
+    )
+    expect(screen.getByText(/Дата реєстрації:/)).toBeInTheDocument()
+    expect(screen.getByText(/2026/)).toBeInTheDocument()
+  })
+
+  it('renders nothing when showCreatedAt is false', () => {
+    render(<UserProfileHeader user={makeUser()} showCreatedAt={false} />, {
+      wrapper: I18nTestProvider,
+    })
+    expect(screen.queryByText(/Дата реєстрації:/)).not.toBeInTheDocument()
+  })
 })
 
 // task-user-emails-invite (spec §5): the "не підтверджено" status badge next

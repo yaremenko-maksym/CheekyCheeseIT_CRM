@@ -334,6 +334,26 @@ describe('NotificationSettingsTab — AC3 locked rows', () => {
   })
 })
 
+// task-i18n-stage3b (Task 1), mutation-gate coverage — the desktop table's
+// own column headers and the locked-row "always on" email-column text had
+// zero unit assertion pinning their resolved text.
+describe('NotificationSettingsTab — desktop table column headers + locked-row email cell', () => {
+  it('renders the three column headers with their own exact text', () => {
+    render(<NotificationSettingsTab />)
+    const desktop = within(screen.getByTestId('notification-settings-desktop'))
+    const headers = desktop.getAllByRole('columnheader')
+    expect(headers.map((h) => h.textContent)).toEqual(['Тип сповіщення', 'У застосунку', 'Лист'])
+  })
+
+  it('a locked row shows "Завжди" in the email column instead of a second switch', () => {
+    render(<NotificationSettingsTab />)
+    const row = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
+      'notification-row-desktop-PROJECT_CONFIRM_REQUIRED',
+    )
+    expect(within(row).getByText('Завжди')).toBeInTheDocument()
+  })
+})
+
 describe('NotificationSettingsTab — AC4 toggling a regular type', () => {
   it('clicking an unlocked switch calls the mutation with exactly that type', () => {
     render(<NotificationSettingsTab />)

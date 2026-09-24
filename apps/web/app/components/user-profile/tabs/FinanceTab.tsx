@@ -97,10 +97,22 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   // "Опасность: карты финансов"), only the derived array now lives inside the
   // component so a future locale-aware `TYPE_LABELS` doesn't need a module-
   // level freeze here.
+  // Stryker disable next-line ArrowFunction,ArrayDeclaration: the derived
+  // list is only observable by OPENING the Radix Select and enumerating its
+  // portalled `SelectItem`s — Radix listens for real pointer-capture events
+  // (`pointerdown` + `hasPointerCapture`) to open, which happy-dom does not
+  // implement; `userEvent.click`/`fireEvent.pointerDown` on the trigger both
+  // leave `data-state="closed"` in this test environment (verified: every
+  // `*.test.tsx` in this repo that touches a Radix `<Select>` only ever
+  // asserts the CLOSED trigger's text/disabled state, never an opened
+  // option list). The `[]` deps mutant is additionally unobservable on
+  // first render regardless (useMemo always computes once on mount).
   const TYPE_OPTIONS = useMemo(
     () => Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })),
     [],
   )
+  // Stryker disable next-line ArrowFunction,ArrayDeclaration: same reasoning
+  // as TYPE_OPTIONS above.
   const STATUS_OPTIONS = useMemo(
     () => Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
     [],
@@ -198,6 +210,11 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
+                {/* Stryker disable next-line StringLiteral: unreachable —
+                    `typeFilter` is initialised to 'all' and that value always
+                    has a matching SelectItem, so Radix shows the item's own
+                    label, never this placeholder (only shown for an unmatched
+                    /empty value, which this filter never enters). */}
                 <SelectValue placeholder={t`Усі типи`} />
               </SelectTrigger>
               <SelectContent>
@@ -213,6 +230,10 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
+                {/* Stryker disable next-line StringLiteral: same reasoning
+                    as the type filter's placeholder above — `statusFilter`
+                    is initialised to 'all', which always has a matching
+                    SelectItem. */}
                 <SelectValue placeholder={t`Усі статуси`} />
               </SelectTrigger>
               <SelectContent>

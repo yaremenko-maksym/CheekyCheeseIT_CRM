@@ -327,6 +327,7 @@ export function AvatarUploadDialog({
                     <input
                       ref={fileRef}
                       type="file"
+                      data-testid="avatar-file-input"
                       accept="image/png,image/jpeg,image/gif,image/webp"
                       className="hidden"
                       onChange={(e) => {

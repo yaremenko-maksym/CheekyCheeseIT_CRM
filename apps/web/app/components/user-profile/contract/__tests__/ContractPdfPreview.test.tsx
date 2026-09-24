@@ -100,6 +100,34 @@ describe('ContractPdfPreview', () => {
     expect(mockToastError).not.toHaveBeenCalled()
   })
 
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — `aria-label` and
+  // `title` share the same `t` literal but are two separate JSX attribute
+  // expressions (two separate mutants); the existing test above only ever
+  // read `title` via `getByTitle`.
+  it('the iframe carries the same text as BOTH title and aria-label', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    renderPreview()
+    await waitFor(() => {
+      const iframe = screen.getByTitle('Попередній перегляд контракту')
+      expect(iframe).toHaveAttribute('aria-label', 'Попередній перегляд контракту')
+    })
+  })
+
+  // The `<object>` fallback content (native browser fallback for iframe
+  // unsupported cases) is a static child of the SAME `blobUrl && !hasError`
+  // block as the iframe itself — React renders it regardless of whether a
+  // real browser would show it, so it's reachable straight from a normal
+  // successful load, no separate `hasError` state needed.
+  it('renders the <object> fallback text and download link with the shared filename', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    renderPreview()
+    await waitFor(() => {
+      expect(screen.getByText(/Вбудований перегляд PDF недоступний/)).toBeInTheDocument()
+    })
+    const link = screen.getByRole('link', { name: 'Завантажити контракт' })
+    expect(link).toHaveAttribute('download', 'Контракт — попередній перегляд.pdf')
+  })
+
   it('shows error state and generic toast on non-429 fetch failure', async () => {
     mockFetch.mockRejectedValue(new Error('Network Error'))
 
@@ -134,6 +162,44 @@ describe('ContractPdfPreview', () => {
     await waitFor(() => {
       expect(screen.getByTestId('contract-pdf-refresh-btn')).toBeDisabled()
     })
+  })
+
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — `isDirty &&
+  // <TooltipContent>` had no assertion on EITHER side of the conditional:
+  // present when dirty, absent when clean. The Radix `TooltipContent`
+  // renders into the DOM immediately in this codebase's test setup (no
+  // hover/portal timing needed — same pattern already relied on elsewhere
+  // in this file's own `TooltipProvider` wrapper).
+  it('isDirty=true renders the "save first" tooltip content on hover', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    const user = userEvent.setup()
+    renderPreview(true /* isDirty */)
+    await waitFor(() => expect(screen.getByTestId('contract-pdf-refresh-btn')).toBeDisabled())
+    // Radix Tooltip only mounts TooltipContent once open (hover/focus) —
+    // `userEvent.hover` fires pointer-enter on the target AND its ancestor
+    // chain (including the wrapping `<span>` TooltipTrigger), so hovering
+    // the button itself is enough even though it's disabled.
+    await user.hover(screen.getByTestId('contract-pdf-refresh-btn'))
+    // Radix renders the tooltip text TWICE (visible content + a visually-
+    // hidden `role="tooltip"` span for screen readers) — assert via the
+    // unambiguous role instead of `getByText`.
+    await waitFor(
+      () => {
+        expect(screen.getByRole('tooltip')).toHaveTextContent(
+          'Спочатку збережіть, щоб оновити перегляд',
+        )
+      },
+      { timeout: 3000 },
+    )
+  })
+
+  it('isDirty=false renders no "save first" tooltip content at all', async () => {
+    mockFetch.mockResolvedValue({ blobUrl: FAKE_BLOB_URL, revoke: mockRevoke })
+    renderPreview(false /* isDirty */)
+    await waitFor(() => {
+      expect(screen.getByTestId('contract-pdf-refresh-btn')).toBeEnabled()
+    })
+    expect(screen.queryByText('Спочатку збережіть, щоб оновити перегляд')).not.toBeInTheDocument()
   })
 
   it('refresh button is enabled when isDirty=false (clean)', async () => {

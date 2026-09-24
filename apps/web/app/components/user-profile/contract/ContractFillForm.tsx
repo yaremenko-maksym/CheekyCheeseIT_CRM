@@ -31,7 +31,14 @@ const SOURCE_LABEL: Record<ContractVariableInfo['source'], MessageDescriptor> = 
   user: msg`Картка співробітника`,
   company: msg`Константи компанії`,
   auto: msg`Авто`,
+  // Stryker disable next-line StringLiteral: unreachable in the current UI —
+  // `autoVariables` (the only caller of the `AutoFilledRow` that reads this
+  // map) filters `v.source !== 'custom' && v.source !== 'unknown'`, so a
+  // 'custom'-sourced variable never reaches this lookup. Kept in the map for
+  // `Record<ContractVariableInfo['source'], …>` exhaustiveness (the union
+  // has 5 members), not because it is displayed.
   custom: msg`Кастомна`,
+  // Stryker disable next-line StringLiteral: same reasoning as 'custom' above.
   unknown: msg`Невідомо`,
 } satisfies Record<ContractVariableInfo['source'], MessageDescriptor>
 

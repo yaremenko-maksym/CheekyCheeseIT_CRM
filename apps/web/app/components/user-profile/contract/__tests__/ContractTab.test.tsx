@@ -273,6 +273,82 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
 // through to the descriptor's `message` (the Ukrainian source text), which
 // is exactly what a real app run does before `pnpm i18n:compile` output for
 // a NEW string exists.
+// ─── task-i18n-stage3b (Task 1), mutation-gate coverage — STATUS_LABELS /
+// FROZEN_BANNERS resolve to their own exact uk text, never a neighbour's or
+// an empty string. Uses the read-only path (canEdit=false) since it renders
+// the badge without pulling in the full editor/action-bar tree, and is
+// exercised for all 4 statuses (the previous tests only ever fixture READY_
+// TO_SIGN, so DRAFT/SIGNED/CANCELLED had zero unit coverage). ────────────────
+describe('ContractTab — STATUS_LABELS badge text, per status', () => {
+  it.each([
+    ['DRAFT', 'Чернетка'],
+    ['READY_TO_SIGN', 'Готовий до підписання'],
+    ['SIGNED', 'Підписаний'],
+    ['CANCELLED', 'Скасований'],
+  ])('status=%s renders badge text %s', (status, expectedText) => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: { id: 'contract-uuid', status, bodyMarkdown: '# Contract', customValues: {} },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+    } as any)
+    renderWithProvider(<ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />)
+    expect(screen.getByTestId('contract-status-badge')).toHaveTextContent(expectedText)
+  })
+})
+
+describe('ContractTab — FROZEN_BANNERS text, per frozen status (canEdit=true, readOnly editor)', () => {
+  it.each([
+    [
+      'READY_TO_SIGN',
+      'Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку',
+    ],
+    [
+      'SIGNED',
+      'Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг',
+    ],
+  ])(
+    'status=%s shows its own frozen-banner text, not the other status’s',
+    (status, expectedText) => {
+      vi.mocked(useQuery).mockReturnValueOnce({
+        data: { id: 'contract-uuid', status, bodyMarkdown: '# Contract', customValues: {} },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+      renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+      expect(screen.getByTestId('contract-editor-frozen-banner')).toHaveTextContent(expectedText)
+    },
+  )
+
+  it('DRAFT (not frozen) renders no frozen-banner at all', () => {
+    // DRAFT is the one status where ContractFillForm ALSO mounts (Screen 2:
+    // `contract.status === 'DRAFT' && !isDirty`) and makes its OWN useQuery
+    // call for contract variables — a second queued return is needed or its
+    // `useMemo` crashes on `data.variables` being undefined.
+    vi.mocked(useQuery)
+      .mockReturnValueOnce({
+        data: {
+          id: 'contract-uuid',
+          status: 'DRAFT',
+          bodyMarkdown: '# Contract',
+          customValues: {},
+        },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+      .mockReturnValueOnce({
+        data: { variables: [], customVariables: [] },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    expect(screen.queryByTestId('contract-editor-frozen-banner')).not.toBeInTheDocument()
+  })
+})
+
 describe('ContractTab — SR-L-1: generic error renders the Ukrainian catalog text, not the English envelope fallback', () => {
   beforeEach(() => {
     i18n.load('uk', {})
