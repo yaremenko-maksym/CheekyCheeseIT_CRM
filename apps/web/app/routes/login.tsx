@@ -71,7 +71,7 @@ export const ERROR_MESSAGES = {
   // invite-accept branch when the target was archived AFTER the invite was
   // issued — same code, same text, same "nothing to retry" framing.
   account_disabled: msg`Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору.`,
-} as const satisfies Record<string, MessageDescriptor>
+} satisfies Record<string, MessageDescriptor>
 
 /** Non-empty tuple `z.enum` requires — derived from `ERROR_MESSAGES`'s own
  * keys so the two can never diverge (see the doc above). */
@@ -322,7 +322,9 @@ function LoginPage() {
             {/* COPY-M-7 (copy-review PR #623 round 4): "войти им" read badly;
                 "теперь вы можете" was three words of nothing. */}
             <span>
-              <Trans>Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу.</Trans>
+              <Trans>
+                Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу.
+              </Trans>
             </span>
           </motion.div>
         )}
