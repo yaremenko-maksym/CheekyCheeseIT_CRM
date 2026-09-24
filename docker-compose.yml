@@ -28,45 +28,46 @@ services:
   # S3-compatible object storage for documents (PHASE 6).
   # Dev only. Prod uses AWS S3 in eu-central-1.
   # Console: http://localhost:9001 (login: minioadmin / minioadmin).
-  # Pinned quay.io: MinIO stopped publishing Docker Hub / quay.io images on
-  # 2025-10-15 (source-only + Community-Edition freeze), and Docker Hub's
-  # `minio/minio` repo now 404s anonymous pulls entirely ("pull access
-  # denied ... repository does not exist"). This is the last tag quay.io
-  # published before the freeze — still pullable anonymously (verified
-  # 2026-09-11); `latest` is not an option here.
+  # Pinned quay.io images went unreachable ~2026-09-24 13:09 UTC
+  # (quay.io/api/v1/repository/minio/minio -> 401, manifest pulls -> 401;
+  # other quay.io repos still 200 — not a quay.io-wide outage). Docker Hub's
+  # `minio/minio` / `minio/mc` repos 404 anonymous pulls, and dl.min.io's
+  # binary archive returns 410 Gone for every past release — upstream MinIO
+  # has no anonymously-pullable source left. `bitnamilegacy/minio` is the
+  # last Bitnami build before the 2025-08-19 image freeze — same MinIO
+  # engine, still pullable anonymously, multi-arch (amd64+arm64). Pinned by
+  # digest (the manifest-list index, not a single-arch layer); tag
+  # 2025.7.23-debian-12-r5, verified 2026-09-24.
+  #
+  # No `command:` override here (unlike the previous image): the Bitnami
+  # entrypoint only runs its init step (root user/password + default bucket)
+  # when invoked via its own bundled run.sh, so overriding the command with
+  # e.g. `server /data ...` would silently skip bucket creation. Also note
+  # the data dir moved from `/data` (old image) to the Bitnami default
+  # `/bitnami/minio/data` — the volume mount below follows that; mounting a
+  # fresh Docker-managed volume at `/data` instead fails with
+  # "Permission denied" because that path isn't owned by the image's
+  # non-root user (confirmed locally).
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data --console-address ":9001"
+    image: bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
     ports:
       - '9000:9000' # S3 API
       - '9001:9001' # Web console
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: crm-documents
+      # Bitnami defaults the web console to off (upstream MinIO defaults it
+      # on) — set explicitly to keep the console usable, per the comment above.
+      MINIO_BROWSER: 'on'
     volumes:
-      - minio_data:/data
+      - minio_data:/bitnami/minio/data
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
-
-  # One-shot bootstrap: creates bucket `crm-documents` on first compose-up.
-  # Exits 0 immediately after — re-runs are idempotent (`mb --ignore-existing`).
-  # Pinned quay.io/minio/mc for the same reason as the minio image above.
-  minio-bootstrap:
-    image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z
-    depends_on:
-      minio:
-        condition: service_healthy
-    entrypoint: >
-      /bin/sh -c "
-        mc alias set local http://minio:9000 minioadmin minioadmin &&
-        mc mb --ignore-existing local/crm-documents &&
-        echo 'MinIO bucket crm-documents ready' &&
-        exit 0
-      "
 
 volumes:
   postgres_data:

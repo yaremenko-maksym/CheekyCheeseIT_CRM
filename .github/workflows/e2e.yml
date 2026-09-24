@@ -103,30 +103,37 @@ jobs:
 
       - name: Start MinIO + bucket
         run: |
-          # Pinned quay.io: MinIO stopped publishing Docker Hub / quay.io images
-          # on 2025-10-15 (source-only + Community-Edition freeze), and Docker
-          # Hub's `minio/minio` repo now 404s anonymous pulls entirely ("pull
-          # access denied ... repository does not exist"). These are the last
-          # tags quay.io published before the freeze — still pullable
-          # anonymously (verified 2026-09-11); `latest` is not an option here.
+          # Pinned quay.io images went unreachable ~2026-09-24 13:09 UTC:
+          # quay.io/api/v1/repository/minio/minio -> 401, manifest pulls -> 401
+          # (other quay.io repos return 200 — not a quay.io-wide outage).
+          # Docker Hub's `minio/minio` / `minio/mc` repos 404 anonymous pulls,
+          # and dl.min.io's binary archive returns 410 Gone for every past
+          # release — upstream MinIO has no anonymously-pullable source left.
+          # `bitnamilegacy/minio` is the last Bitnami build before the
+          # 2025-08-19 image freeze — same MinIO engine, still pullable
+          # anonymously, multi-arch (amd64+arm64). Pinned by digest (the
+          # manifest-list index, not a single-arch layer); tag
+          # 2025.7.23-debian-12-r5, verified 2026-09-24.
+          #
+          # No command args after the image: passing e.g. `server /data ...`
+          # would bypass Bitnami's entrypoint setup.sh (it only runs init when
+          # invoked via its own run.sh) and MINIO_DEFAULT_BUCKETS would then
+          # NOT create the bucket. Confirmed locally — see PR body.
           docker run -d --name minio \
             --network host \
             -e MINIO_ROOT_USER=minioadmin \
             -e MINIO_ROOT_PASSWORD=minioadmin \
-            quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z server /data --console-address ":9001"
-          # Wait for healthy
+            -e MINIO_DEFAULT_BUCKETS=crm-documents \
+            bitnamilegacy/minio@sha256:6dabb4a2088c9a79908de3bc05f4586c23ad2182c8908e7e3acbf61c1467fb20
+          # Wait for healthy. The image creates MINIO_DEFAULT_BUCKETS during
+          # its own setup step, before the server starts listening — by the
+          # time health/live succeeds, the bucket already exists (confirmed
+          # locally), so no separate `mc mb` container is needed here anymore.
           for i in {1..30}; do
             if curl -sf http://localhost:9000/minio/health/live; then echo "MinIO ready"; break; fi
             echo "Waiting for MinIO... ($i/30)"
             sleep 2
           done
-          # Bootstrap bucket (mc image entrypoint is `mc`, override with /bin/sh).
-          # Pinned quay.io/minio/mc for the same reason as the server image above.
-          docker run --rm --network host --entrypoint /bin/sh quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z -c "
-            mc alias set local http://localhost:9000 minioadmin minioadmin &&
-            mc mb --ignore-existing local/crm-documents &&
-            echo 'MinIO bucket crm-documents ready (CI)'
-          "
 
       - uses: actions/cache@v4
         with:
