@@ -1,5 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 /**
  * task-drop-profile-rbac-r2 (Finding B2) + task-drop-profile-lockdown: a DROP
@@ -53,15 +54,17 @@ function make404(): unknown {
 function renderShell() {
   return render(
     <UserProfileShell mode="view" userId="target-1" tab="overview" onTabChange={() => {}} />,
+    { wrapper: I18nTestProvider },
   )
 }
 
 describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     navigateMock.mockReset()
     viewerRole = 'DROP'
     queryError = null
     isErrorFlag = false
+    await loadCatalog('uk')
   })
 
   afterEach(() => {
@@ -76,7 +79,7 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     renderShell()
 
     expect(navigateMock).toHaveBeenCalledWith({ to: '/', replace: true })
-    expect(screen.queryByText('Нет доступа')).toBeNull()
+    expect(screen.queryByText('Немає доступу до профілю')).toBeNull()
   })
 
   it('SENIOR + 403 → shows "Нет доступа", does NOT redirect', () => {
@@ -87,7 +90,7 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     renderShell()
 
     expect(navigateMock).not.toHaveBeenCalled()
-    expect(screen.getByText('Нет доступа')).toBeInTheDocument()
+    expect(screen.getByText('Немає доступу до профілю')).toBeInTheDocument()
   })
 
   it('HR + 403 → shows "Нет доступа", does NOT redirect', () => {
@@ -98,7 +101,7 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     renderShell()
 
     expect(navigateMock).not.toHaveBeenCalled()
-    expect(screen.getByText('Нет доступа')).toBeInTheDocument()
+    expect(screen.getByText('Немає доступу до профілю')).toBeInTheDocument()
   })
 
   it('DROP + 404 (not 403) → does NOT redirect, shows "Профиль не найден"', () => {
@@ -109,7 +112,7 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     renderShell()
 
     expect(navigateMock).not.toHaveBeenCalled()
-    expect(screen.getByText('Профиль не найден')).toBeInTheDocument()
+    expect(screen.getByText('Профіль не знайдено')).toBeInTheDocument()
   })
 
   it('ACCOUNTANT + 403 → shows "Нет доступа", does NOT redirect', () => {
@@ -120,6 +123,6 @@ describe('UserProfileShell — DROP 403 redirect (Finding B2)', () => {
     renderShell()
 
     expect(navigateMock).not.toHaveBeenCalled()
-    expect(screen.getByText('Нет доступа')).toBeInTheDocument()
+    expect(screen.getByText('Немає доступу до профілю')).toBeInTheDocument()
   })
 })
