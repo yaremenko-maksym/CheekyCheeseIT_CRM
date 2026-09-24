@@ -150,12 +150,27 @@ export function useLocale(): Locale {
  * in `choose()` was tried as a replacement for this marker and reverted —
  * `invalidate()`'s refetch does not just close the synchronous remount
  * window above, it can ALSO come back with a value that still disagrees
- * with what was just activated (proven directly: `locale-switcher.spec.ts`'s
- * mocked `/auth/me` handler always echoes the ORIGINAL session object,
- * exactly the shape a genuinely stale read — a lagging replica, a request
- * that raced the PATCH — would also produce). A cache write only protects
- * against the FIRST read; it cannot tell a later, still-stale refetch apart
- * from a genuine cross-device correction the way this marker does. Kept.
+ * with what was just activated. This marker protects against that: it lets
+ * `AuthProvider`'s effect recognize a STALE `/auth/me` response and skip
+ * "correcting" `i18n.locale` back to it.
+ *
+ * fix-round 4 (CR-M-4, PR #706): what is proven directly is narrower than
+ * the earlier wording of this comment claimed. `locale-switcher.spec.ts`'s
+ * `/auth/me` mock (`mockAuthAs`, `apps/e2e/tests/fixtures.ts`) is a
+ * Playwright `page.route` handler — it always echoes the same session
+ * object it was given, independent of any PATCH the test sent, so THAT
+ * refetch is unconditionally stale by construction. That is a property of
+ * the E2E mock, not evidence about the real backend: the real `GET
+ * /auth/me` (`apps/api/src/auth/auth.controller.ts`) re-reads the user row
+ * from the DB on every call and does not go stale the way the mock does.
+ * In production the window this marker closes is narrower — an in-flight
+ * refetch that started before the locale PATCH committed can still resolve
+ * with the pre-PATCH value once it lands. A cache write only protects
+ * against the FIRST read; it cannot tell a later, still-stale refetch
+ * (mocked or real-but-racing) apart from a genuine cross-device correction
+ * the way this marker does. Kept. (The marker is unconditionally cleared on
+ * logout via `resetLocaleConfirmation` below, so this staleness window
+ * never crosses a session boundary.)
  */
 let confirmedUserLocale: Locale | null = null
 

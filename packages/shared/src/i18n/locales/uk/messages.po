@@ -659,6 +659,7 @@ msgstr "Виплачено за місяць"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Відгук видалено"
 msgstr "Відгук видалено"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
@@ -996,6 +997,7 @@ msgstr "Документ не знайдено"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Документ переміщено в кошик"
 msgstr "Документ переміщено в кошик"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_DOCUMENT_NOT_FOUND"
@@ -1153,13 +1155,14 @@ msgstr "Закривати зобов’язання компанії можут
 msgid "Закрити"
 msgstr "Закрити"
 
-#: apps/web/app/hooks/use-legend.ts
-msgid "Запис додано"
-msgstr "Запис додано"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN"
 msgstr "Замінити чек після оплати можуть лише адміністратор або бухгалтер"
+
+#: apps/web/app/hooks/use-legend.ts
+msgid "Запис додано"
+msgstr "Запис додано"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Запитувані дані не знайдено."
@@ -1218,10 +1221,6 @@ msgstr "Зарплату можна створити лише для джуні�
 msgid "api-error.PROJECT_NOT_ACTIVE"
 msgstr "Заявити дохід можна лише за активним проєктом"
 
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Збережено"
-msgstr "Збережено"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_INCOME_OWN_PROJECTS_ONLY"
@@ -1236,6 +1235,10 @@ msgstr "Заявку на виплату вже оплачено"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_REQUEST_NOT_FOUND"
 msgstr "Заявку на виплату не знайдено"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Збережено"
+msgstr "Збережено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1266,15 +1269,15 @@ msgstr "Звіт про пропущені місяці зарплати бач�
 msgid "Згорнути"
 msgstr "Згорнути"
 
-#: apps/web/app/hooks/use-credentials.ts
-#: apps/web/app/hooks/use-credentials.ts
-msgid "Зміни збережено"
-msgstr "Зміни збережено"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW"
 msgstr "Зміна суми оплаченої транзакції перераховує частки й зобов’язання — спершу відкрийте попередній перегляд"
+
+#: apps/web/app/hooks/use-credentials.ts
+#: apps/web/app/hooks/use-credentials.ts
+msgid "Зміни збережено"
+msgstr "Зміни збережено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1797,6 +1800,7 @@ msgstr "Не вдалося оновити вакансію. Спробуйте 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося оновити реквізити. Спробуйте ще раз"
 msgstr "Не вдалося оновити реквізити. Спробуйте ще раз"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_USER_DATA_FETCH_FAILED"
@@ -1819,14 +1823,14 @@ msgstr "Не вдалося підтвердити вхід через Google. �
 msgid "Не вдалося підтвердити вхід через Google. Спробуйте ще раз."
 msgstr "Не вдалося підтвердити вхід через Google. Спробуйте ще раз."
 
-#: apps/web/app/hooks/use-user-profile.ts
-msgid "Не вдалося підтвердити. Спробуйте ще раз"
-msgstr "Не вдалося підтвердити. Спробуйте ще раз"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_AMOUNT_VERIFICATION_FAILED"
 msgstr "Не вдалося підтвердити суму цього рахунку — зверніться до адміністратора"
+
+#: apps/web/app/hooks/use-user-profile.ts
+msgid "Не вдалося підтвердити. Спробуйте ще раз"
+msgstr "Не вдалося підтвердити. Спробуйте ще раз"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2313,6 +2317,7 @@ msgstr "Повторити спробу"
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Позначено: відгукнулися"
 msgstr "Позначено: відгукнулися"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
@@ -2522,10 +2527,6 @@ msgstr "Рахуємо, що зміниться…"
 msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
 msgstr "Рахунки створює система — завантажити їх вручну не можна"
 
-#: apps/web/app/hooks/use-invoices.ts
-msgid "Рахунок підписано"
-msgstr "Рахунок підписано"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_VOIDED"
@@ -2545,6 +2546,10 @@ msgstr "Рахунок не знайдено"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
 msgstr "Рахунок не передбачений для цього типу транзакції"
+
+#: apps/web/app/hooks/use-invoices.ts
+msgid "Рахунок підписано"
+msgstr "Рахунок підписано"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2693,6 +2698,7 @@ msgstr "Сеньйора не знайдено"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Сеньйора та команду відновлено"
 msgstr "Сеньйора та команду відновлено"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SIMULATION_TX_NOT_CONFIRMED"
@@ -3267,6 +3273,7 @@ msgstr "Частка в проєкті «{projectName}»: пропозицію �
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
 msgstr "Частка в проєкті тепер {percent}%"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT"
