@@ -16,7 +16,7 @@
                                                  ├── postgres:5432 (внутренний)
                                                  └── redis:6379   (внутренний)
 
-Документы: Cloudflare R2 (или self-hosted MinIO через --profile selfhosted-s3)
+Документы: Cloudflare R2
 ```
 
 | Сервис     | Образ                                                     | Доступен снаружи              |
@@ -187,7 +187,7 @@ chmod 600 ~/.ssh/authorized_keys
 >   отсутствие заголовка — корректно и безопасно. В `deploy.yml` это значение **захардкожено `false`**
 >   (не секрет). `true` ставить только при миграции на AWS S3.
 > - `S3_FORCE_PATH_STYLE=false` — R2 (как и AWS S3) использует virtual-hosted-style URL
->   (`bucket.host/key`). `true` — **только** для локального MinIO (path-style `host/bucket/key`).
+>   (`bucket.host/key`). `true` — **только** для локального dev/CI S3-стенда (path-style `host/bucket/key`).
 > - `S3_REGION=auto` для R2 (`eu-central-1` — это для AWS S3).
 >
 > Код уже поддерживает оба провайдера через флаг `S3_USE_SSE` (см. PR #292: `s3.service.ts`
@@ -435,7 +435,7 @@ docker compose version   # должно показать Compose plugin v2.x
 | `S3_ENDPOINT`                | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint)                                                                  |
 | `S3_REGION`                  | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                                                                                      |
 | `S3_BUCKET`                  | `crm-documents-prod` (документы — **НЕ** `crm-backups`, см. врезку ниже)                                                                                                          |
-| `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                                                                                              |
+| `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный dev/CI S3-стенд                                                                                    |
 | `AWS_ACCESS_KEY_ID`          | **Documents token** Access Key ID (§1.5) — скоуп ТОЛЬКО `crm-documents-prod`, или AWS IAM ключ                                                                                    |
 | `AWS_SECRET_ACCESS_KEY`      | **Documents token** Secret (§1.5) — тот же скоуп, что и выше, или AWS IAM секрет                                                                                                  |
 | `TURNSTILE_SECRET_KEY`       | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.                                                                      |

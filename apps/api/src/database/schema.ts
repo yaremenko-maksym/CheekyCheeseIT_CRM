@@ -1776,10 +1776,10 @@ export const pendingObligations = pgTable(
 // ---------------------------------------------------------------------------
 //
 // Storage layer for all uploaded files (resumes, scans, contracts, receipts,
-// avatars, logos). The file bytes live in S3/MinIO; this table only tracks
-// metadata + the immutable `s3_key`. Soft delete is two-stage: owner/ADMIN
-// soft-delete sets `deletedAt` + `deletedBy`; ADMIN-only hard delete then
-// removes the S3 object and the DB row.
+// avatars, logos). The file bytes live in S3 (RustFS in dev/CI, R2 in prod);
+// this table only tracks metadata + the immutable `s3_key`. Soft delete is
+// two-stage: owner/ADMIN soft-delete sets `deletedAt` + `deletedBy`;
+// ADMIN-only hard delete then removes the S3 object and the DB row.
 //
 // FK references from `users.avatar_document_id`, `projects.logo_document_id`,
 // `transactions.receipt_document_id` are added in subsequent migrations

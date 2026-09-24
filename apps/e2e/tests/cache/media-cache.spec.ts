@@ -28,7 +28,7 @@
  *
  * For AC4 (real network first-load caching): tested via the sw-smoke.spec.ts
  * AC3 test which navigates to team/profile pages with real cross-origin images
- * from the seed data (when MinIO is running).
+ * from the seed data (when the local S3-compatible stand is running).
  */
 import { test, expect } from '@playwright/test'
 import {

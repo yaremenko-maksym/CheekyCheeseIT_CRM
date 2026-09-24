@@ -20,7 +20,7 @@
  * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
  * unreachable throws in beforeAll (reports FAILED) — neither case can look
  * like "passed" with zero assertions.
- * S3: replaced with a spy-stub (no real MinIO).
+ * S3: replaced with a spy-stub (no real S3-compatible backend).
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'

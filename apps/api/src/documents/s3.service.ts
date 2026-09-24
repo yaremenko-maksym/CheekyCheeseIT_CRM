@@ -27,10 +27,12 @@
  *
  * SSE: Controlled by S3_USE_SSE env flag (default false).
  *   S3_USE_SSE=true  — AWS S3: sends ServerSideEncryption: AES256 on every PutObject.
- *   S3_USE_SSE=false — MinIO (dev) and Cloudflare R2 (prod): header is omitted.
- *     MinIO ignores SSE-S3 without a KMS backend; R2 rejects the header entirely
- *     because it does not implement the SSE-S3 protocol. Both providers encrypt
- *     data at rest by default, so omitting the header is safe and correct.
+ *   S3_USE_SSE=false — local S3-compatible stand (dev/CI) and Cloudflare R2
+ *     (prod): header is omitted. The dev/CI stand has no KMS backend
+ *     configured, so requesting AES256 without one fails; R2 rejects the
+ *     header entirely because it does not implement the SSE-S3 protocol. Both
+ *     encrypt data at rest by default, so omitting the header is safe and
+ *     correct.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
@@ -219,7 +221,8 @@ export class S3Service {
    *
    * LIVE-VERIFIED (security-review round 2, 2026-08-03): this is not just an
    * assertion that the SDK command carries the param — an object was PUT
-   * against local MinIO with the stale `public, max-age=31536000, immutable`
+   * against the local S3-compatible stand with the stale `public,
+   * max-age=31536000, immutable`
    * header (simulating a pre-§3 object), a presigned GET was generated with
    * `ResponseCacheControl: 'private, no-store'`, and a REAL HTTP GET against
    * that URL returned `200` (signed request accepted, not rejected) with
@@ -338,7 +341,7 @@ export class S3Service {
         }),
       )
     } catch (err) {
-      // S3 / MinIO already return 204 for missing keys, so a thrown error
+      // S3-compatible backends already return 204 for missing keys, so a thrown error
       // here is usually transport-level. Log and swallow — the DB delete
       // still proceeds. ADMIN can re-run hard-delete which will exit early
       // (row already gone) without retrying S3.
@@ -359,8 +362,8 @@ export class S3Service {
    * `delete()`'s "log and swallow" contract can never signal that failure to
    * a caller, which is exactly the bug this method fixes for that call site.
    *
-   * Still idempotent for the missing-key case (S3/MinIO return 204/succeed
-   * for a DeleteObject on a key that no longer exists) — only genuine
+   * Still idempotent for the missing-key case (S3-compatible backends return
+   * 204/succeed for a DeleteObject on a key that no longer exists) — only genuine
    * transport/API errors reject.
    */
   async deleteOrThrow(key: string): Promise<void> {

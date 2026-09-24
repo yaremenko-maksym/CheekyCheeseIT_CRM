@@ -117,8 +117,8 @@ const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000
  *
  * MIMIC_DELAY_TARGET_MS chosen with real margin above the round-3 review's
  * own genuine-minimal-PDF measurement (~60–150ms) — this repo's prod
- * backend is Cloudflare R2 over a real network, not loopback MinIO, so
- * production latency for even a minimal upload sits meaningfully higher
+ * backend is Cloudflare R2 over a real network, not the loopback dev/CI S3
+ * stand, so production latency for even a minimal upload sits meaningfully higher
  * than that local number, and a realistic multi-page resume higher still.
  * 500ms leaves headroom for both without being a noticeably slow UX for a
  * one-off form submission.

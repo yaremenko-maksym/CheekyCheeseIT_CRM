@@ -143,11 +143,11 @@ describe('SW cache: контракт не попадает в media-cache', () =
     expect(mediaUrlPattern(contractUrl, 'GET', '')).toBe(false)
 
     // cross-origin S3 PDF → матчит
-    const s3PdfUrl = new URL('http://minio:9000/crm-documents/some-key.pdf?X-Amz-Signature=abc')
+    const s3PdfUrl = new URL('http://s3.local:9000/crm-documents/some-key.pdf?X-Amz-Signature=abc')
     expect(mediaUrlPattern(s3PdfUrl, 'GET', '')).toBe(true)
 
     // cross-origin S3 image → матчит
-    const s3ImgUrl = new URL('http://minio:9000/crm-documents/thumbnail.jpg?X-Amz-Signature=abc')
+    const s3ImgUrl = new URL('http://s3.local:9000/crm-documents/thumbnail.jpg?X-Amz-Signature=abc')
     expect(mediaUrlPattern(s3ImgUrl, 'GET', 'image')).toBe(true)
 
     // same-origin API GET → НЕ матчит

@@ -20,7 +20,7 @@
  *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * S3 STRATEGY:
- *   S3Service is replaced with a spy-stub. This avoids needing a real MinIO
+ *   S3Service is replaced with a spy-stub. This avoids needing a real S3-compatible backend
  *   while still verifying that delete() is called with the correct key.
  *
  * SEED data:

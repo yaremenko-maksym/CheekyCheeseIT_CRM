@@ -333,7 +333,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('Image receipt renders inline inside TransactionDetailDialog (no download triggered)', async ({
     asAdmin,
   }) => {
-    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt-img.png?sig=abc'
+    const PRESIGNED_URL = 'https://s3.example.com/crm-documents/uploads/receipt-img.png?sig=abc'
     // Intercept the receipt fetch so the image actually loads in the test
     // browser (a plain test URL would 404 and the onError handler would set
     // display:none, hiding the proof that inline rendering is wired up).
@@ -389,7 +389,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('PDF receipt renders as inline <object> (browser PDF viewer, not download)', async ({
     asAdmin,
   }) => {
-    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt-doc.pdf?sig=abc'
+    const PRESIGNED_URL = 'https://s3.example.com/crm-documents/uploads/receipt-doc.pdf?sig=abc'
 
     const txWithPdfReceipt = makeSeniorIncome({
       id: 'pay-flow-tx-pdf',
@@ -427,7 +427,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('Uploaded receipt (documentId) resolves to a presigned URL and renders inline', async ({
     asAdmin,
   }) => {
-    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt.png?sig=abc'
+    const PRESIGNED_URL = 'https://s3.example.com/crm-documents/uploads/receipt.png?sig=abc'
 
     const txWithUploadedReceipt = makeSeniorIncome({
       id: 'pay-flow-tx-uploaded',

@@ -32,13 +32,13 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 function makeConfig(overrides: Record<string, unknown> = {}): ConfigService {
   const env: Record<string, unknown> = {
-    S3_ENDPOINT: 'http://minio:9000',
+    S3_ENDPOINT: 'http://s3.local:9000',
     S3_REGION: 'us-east-1',
     S3_BUCKET: 'crm-documents',
     S3_FORCE_PATH_STYLE: true,
     S3_USE_SSE: true,
-    AWS_ACCESS_KEY_ID: 'minioadmin',
-    AWS_SECRET_ACCESS_KEY: 'minioadmin',
+    AWS_ACCESS_KEY_ID: 'crmdevaccesskey',
+    AWS_SECRET_ACCESS_KEY: 'crmdevsecretkey',
     ...overrides,
   }
   return {
@@ -68,7 +68,7 @@ describe('S3Service.upload', () => {
     expect(cmd.input.ServerSideEncryption).toBe('AES256')
   })
 
-  it('omits SSE when S3_USE_SSE=false (dev/MinIO opt-out)', async () => {
+  it('omits SSE when S3_USE_SSE=false (dev/CI opt-out)', async () => {
     const service = new S3Service(makeConfig({ S3_USE_SSE: false }))
     sendSpy.mockResolvedValue(undefined)
 

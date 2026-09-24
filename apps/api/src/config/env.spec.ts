@@ -40,8 +40,8 @@ const BASE_DEV = {
   JWT_SECRET: 'jwt-secret-at-least-32-chars-000000',
   SESSION_SECRET: 'session-secret-at-least-32-chars-0',
   FRONTEND_URL: 'http://localhost:3000',
-  AWS_ACCESS_KEY_ID: 'minioadmin',
-  AWS_SECRET_ACCESS_KEY: 'minioadmin',
+  AWS_ACCESS_KEY_ID: 'crmdevaccesskey',
+  AWS_SECRET_ACCESS_KEY: 'crmdevsecretkey',
 }
 
 // Valid 64-char hex (32 bytes) — passes the min(32) check and has no placeholder prefix.
@@ -242,6 +242,166 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
   it("S3_FORCE_PATH_STYLE='false' string is parsed as boolean false (R2/AWS prod)", () => {
     const env = validateEnv({ ...BASE_DEV, S3_FORCE_PATH_STYLE: 'false' })
     expect(env.S3_FORCE_PATH_STYLE).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Section I — AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY fail-closed
+// (task-remove-minio-app): the dev/CI default points at the local S3-compatible
+// stand (RustFS — PR #709); production must override both. The pre-migration
+// MinIO-era default ('minioadmin') is guarded too, so a stale .env carried
+// over from before PR #709 still fails closed.
+//   39. throws in production when AWS_ACCESS_KEY_ID is the current dev/CI default
+//   40. throws in production when AWS_SECRET_ACCESS_KEY is the current dev/CI default
+//   41. throws in production when AWS_ACCESS_KEY_ID is the legacy 'minioadmin' value
+//   42. throws in production when AWS_SECRET_ACCESS_KEY is the legacy 'minioadmin' value
+//   43. allows real AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY values in production
+//   44. defaults to the current dev/CI credentials when omitted in development
+//
+// security-review fix-round 1 (SR-L-1/SR-L-2, task-remove-minio-app): the
+// four refine()s above used to compare with a plain `===`, so a dev default
+// carried over with different case/whitespace slipped past the guard.
+//   45. throws when AWS_ACCESS_KEY_ID matches the dev default with different case/whitespace
+//   46. throws when AWS_SECRET_ACCESS_KEY matches the dev default with different case/whitespace
+//   47. throws when AWS_ACCESS_KEY_ID matches the legacy minioadmin value with different case
+//   48. throws when AWS_SECRET_ACCESS_KEY matches the legacy minioadmin value with different case
+//   49. throws when AWS_ACCESS_KEY_ID is omitted in production (falls back to the dev default)
+//   50. throws when AWS_SECRET_ACCESS_KEY is omitted in production (falls back to the dev default)
+//   51. allows AWS_ACCESS_KEY_ID='minioadmin' in development (the legacy guard is production-only)
+//   52. allows AWS_SECRET_ACCESS_KEY='minioadmin' in development (the legacy guard is production-only)
+// ---------------------------------------------------------------------------
+
+describe('validateEnv — AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY fail-closed (Section I)', () => {
+  it('throws in production when AWS_ACCESS_KEY_ID is the current dev/CI default', () => {
+    // Exact substring (path prefix + full message), not a loose field-name
+    // regex — a bare /AWS_ACCESS_KEY_ID/ still matches if either the `path`
+    // array or the `message` text is mutated away (mutation-gate: 4
+    // surviving mutants on this refine before this assertion was tightened).
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_ACCESS_KEY_ID: 'crmdevaccesskey',
+      }),
+    ).toThrow(
+      'AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID must be overridden in production (the crmdevaccesskey value is the dev/CI default)',
+    )
+  })
+
+  it('throws in production when AWS_SECRET_ACCESS_KEY is the current dev/CI default', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_SECRET_ACCESS_KEY: 'crmdevsecretkey',
+      }),
+    ).toThrow(
+      'AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY must be overridden in production (the crmdevsecretkey value is the dev/CI default)',
+    )
+  })
+
+  it('throws in production when AWS_ACCESS_KEY_ID is the legacy minioadmin value', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_ACCESS_KEY_ID: 'minioadmin',
+      }),
+    ).toThrow(
+      'AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID must be overridden in production (a legacy dev-only default was detected)',
+    )
+  })
+
+  it('throws in production when AWS_SECRET_ACCESS_KEY is the legacy minioadmin value', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_SECRET_ACCESS_KEY: 'minioadmin',
+      }),
+    ).toThrow(
+      'AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY must be overridden in production (a legacy dev-only default was detected)',
+    )
+  })
+
+  it('allows real AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY values in production', () => {
+    expect(() => validateEnv({ ...BASE_PROD_CREDS })).not.toThrow()
+  })
+
+  it('throws in production when AWS_ACCESS_KEY_ID matches the dev default with different case/whitespace', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_ACCESS_KEY_ID: '  CRMDEVACCESSKEY ',
+      }),
+    ).toThrow(
+      'AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID must be overridden in production (the crmdevaccesskey value is the dev/CI default)',
+    )
+  })
+
+  it('throws in production when AWS_SECRET_ACCESS_KEY matches the dev default with different case/whitespace', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_SECRET_ACCESS_KEY: '  CRMDEVSECRETKEY ',
+      }),
+    ).toThrow(
+      'AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY must be overridden in production (the crmdevsecretkey value is the dev/CI default)',
+    )
+  })
+
+  it('throws in production when AWS_ACCESS_KEY_ID matches the legacy minioadmin value with different case', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_ACCESS_KEY_ID: 'MinioAdmin',
+      }),
+    ).toThrow(
+      'AWS_ACCESS_KEY_ID: AWS_ACCESS_KEY_ID must be overridden in production (a legacy dev-only default was detected)',
+    )
+  })
+
+  it('throws in production when AWS_SECRET_ACCESS_KEY matches the legacy minioadmin value with different case', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        AWS_SECRET_ACCESS_KEY: 'MinioAdmin',
+      }),
+    ).toThrow(
+      'AWS_SECRET_ACCESS_KEY: AWS_SECRET_ACCESS_KEY must be overridden in production (a legacy dev-only default was detected)',
+    )
+  })
+
+  it('throws in production when AWS_ACCESS_KEY_ID is omitted (falls back to the dev default)', () => {
+    const { AWS_ACCESS_KEY_ID: _omit, ...rest } = BASE_PROD_CREDS as Record<string, unknown>
+    expect(() => validateEnv(rest)).toThrow(/AWS_ACCESS_KEY_ID/)
+  })
+
+  it('throws in production when AWS_SECRET_ACCESS_KEY is omitted (falls back to the dev default)', () => {
+    const { AWS_SECRET_ACCESS_KEY: _omit, ...rest } = BASE_PROD_CREDS as Record<string, unknown>
+    expect(() => validateEnv(rest)).toThrow(/AWS_SECRET_ACCESS_KEY/)
+  })
+
+  it("allows AWS_ACCESS_KEY_ID='minioadmin' in development (the legacy guard is production-only)", () => {
+    // Pins that the 'minioadmin' refine's NODE_ENV check is load-bearing, not
+    // redundant with the isDevCredentialMatch() call it short-circuits: every
+    // other dev-mode test in this file uses the CURRENT dev default
+    // ('crmdevaccesskey'), never the legacy 'minioadmin' value, so without
+    // this test a mutant that drops the short-circuit (`env.NODE_ENV !==
+    // 'production' || …` → `false || …`) went unnoticed — it only throws once
+    // AWS_ACCESS_KEY_ID is EXACTLY 'minioadmin', a value no other test uses.
+    expect(() => validateEnv({ ...BASE_DEV, AWS_ACCESS_KEY_ID: 'minioadmin' })).not.toThrow()
+  })
+
+  it("allows AWS_SECRET_ACCESS_KEY='minioadmin' in development (the legacy guard is production-only)", () => {
+    expect(() => validateEnv({ ...BASE_DEV, AWS_SECRET_ACCESS_KEY: 'minioadmin' })).not.toThrow()
+  })
+
+  it('defaults to the current dev/CI credentials when omitted in development', () => {
+    const {
+      AWS_ACCESS_KEY_ID: _a,
+      AWS_SECRET_ACCESS_KEY: _s,
+      ...rest
+    } = BASE_DEV as Record<string, unknown>
+    const env = validateEnv(rest)
+    expect(env.AWS_ACCESS_KEY_ID).toBe('crmdevaccesskey')
+    expect(env.AWS_SECRET_ACCESS_KEY).toBe('crmdevsecretkey')
   })
 })
 
