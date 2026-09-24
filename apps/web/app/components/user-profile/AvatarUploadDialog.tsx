@@ -15,6 +15,7 @@ import { useCallback, useRef, useState } from 'react'
 import Cropper, { type Area } from 'react-easy-crop'
 import { ArrowLeft, ImagePlus, Link2, Trash2, Upload, ZoomIn, ZoomOut } from 'lucide-react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,9 +32,14 @@ import { useUpdateMe } from '@/hooks/use-user-profile'
 import { useUploadDocument } from '@/hooks/use-documents'
 import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { cn } from '@/lib/utils'
+import { formatBytes } from '@/lib/format-bytes'
+import { useLocale } from '@/lib/i18n'
 import { getCroppedDataUrl } from './cropImage'
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
+// task-i18n-stage3b (Task 1), Step 9 — the size the file-size check compares
+// against, so the error message formats the SAME number it validated on
+// instead of a second hardcoded "5 MB" that could drift from it.
+const AVATAR_MAX_BYTES = 5 * 1024 * 1024 // 5 MB raw input — the cropper re-encodes
 const ALLOWED_MIME_TYPES = new Set([
   'image/png',
   'image/jpeg',
@@ -76,6 +82,8 @@ export function AvatarUploadDialog({
   avatarDocumentId,
   avatarUrl,
 }: AvatarUploadDialogProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const [step, setStep] = useState<Step>('source')
   const [tab, setTab] = useState<'file' | 'url'>('file')
   const [sourceImage, setSourceImage] = useState<string | null>(null)
@@ -123,11 +131,13 @@ export function AvatarUploadDialog({
 
   function handleFile(file: File) {
     if (!ALLOWED_MIME_TYPES.has(file.type)) {
-      setError('Разрешены только PNG, JPEG, GIF, WebP')
+      setError(t`Дозволено лише PNG, JPEG, GIF, WebP`)
       return
     }
-    if (file.size > MAX_FILE_BYTES) {
-      setError(`Файл ${(file.size / 1024).toFixed(0)} KB — максимум 5 MB`)
+    if (file.size > AVATAR_MAX_BYTES) {
+      const size = formatBytes(file.size, locale)
+      const limit = formatBytes(AVATAR_MAX_BYTES, locale)
+      setError(t`Файл ${size} — максимум ${limit}, виберіть менший`)
       return
     }
     progress.prepare()
@@ -140,7 +150,7 @@ export function AvatarUploadDialog({
     }
     fr.onerror = () => {
       progress.reset()
-      setError('Не удалось прочитать файл')
+      setError(t`Не вдалося прочитати файл`)
     }
     fr.readAsDataURL(file)
   }
@@ -170,17 +180,17 @@ export function AvatarUploadDialog({
   function handleUrlContinue() {
     const trimmed = url.trim()
     if (!trimmed) {
-      setError('Введите ссылку на изображение')
+      setError(t`Введіть посилання на зображення`)
       return
     }
     try {
       const u = new URL(trimmed)
       if (u.protocol !== 'https:') {
-        setError('Ссылка должна быть https://')
+        setError(t`Посилання має починатися з https://`)
         return
       }
     } catch {
-      setError('Некорректный URL')
+      setError(t`Некоректний URL`)
       return
     }
     startCrop(trimmed)
@@ -192,7 +202,7 @@ export function AvatarUploadDialog({
 
   async function handleSaveCrop() {
     if (!sourceImage || !croppedAreaPixels) {
-      setError('Сначала выберите область')
+      setError(t`Спочатку виберіть область`)
       return
     }
     setSaving(true)
@@ -218,18 +228,21 @@ export function AvatarUploadDialog({
         {
           onSuccess: () => {
             progress.success()
-            toast.success('Аватар обновлён')
+            toast.success(t`Аватар оновлено`)
             handleClose()
           },
           onError: () => {
             setSaving(false)
-            progress.error('Не удалось сохранить аватар')
+            progress.error(t`Не вдалося зберегти аватар`)
           },
         },
       )
-    } catch (err) {
+    } catch {
+      // cropImage.ts throws its own English, dev-facing Error messages
+      // (canvas/image-load failures) — never shown to the user; this is the
+      // single client-facing text for any crop/encode failure.
       setSaving(false)
-      progress.error(err instanceof Error ? err.message : 'Не удалось обрезать изображение')
+      progress.error(t`Не вдалося обрізати зображення`)
     }
   }
 
@@ -238,10 +251,10 @@ export function AvatarUploadDialog({
       { avatarDocumentId: null },
       {
         onSuccess: () => {
-          toast.success('Аватар сброшен на стандартный')
+          toast.success(t`Аватар скинуто на стандартний`)
           handleClose()
         },
-        onError: () => setError('Не удалось очистить аватар'),
+        onError: () => setError(t`Не вдалося очистити аватар`),
       },
     )
   }
@@ -265,15 +278,24 @@ export function AvatarUploadDialog({
       >
         {dragOver && !isCropStep && (
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-primary bg-primary/10 text-sm font-medium text-primary">
-            Отпустите изображение
+            <Trans>Відпустіть зображення</Trans>
           </div>
         )}
         <DialogHeader>
-          <DialogTitle>{isCropStep ? 'Кадрирование' : 'Аватар профиля'}</DialogTitle>
+          <DialogTitle>
+            {isCropStep ? <Trans>Кадрування</Trans> : <Trans>Аватар профілю</Trans>}
+          </DialogTitle>
           <DialogDescription>
-            {isCropStep
-              ? 'Перетащите изображение и используйте слайдер для масштабирования. Кадр сохраняется кругом 512×512.'
-              : 'Загрузите файл (PNG, JPEG, GIF, WebP, до 5 МБ) или укажите прямую https-ссылку.'}
+            {isCropStep ? (
+              <Trans>
+                Перетягніть зображення і скористайтеся повзунком для масштабування — кадр
+                зберігається колом 512×512
+              </Trans>
+            ) : (
+              <Trans>
+                Завантажте файл (PNG, JPEG, GIF, WebP, до 5 МБ) або вкажіть пряме https-посилання
+              </Trans>
+            )}
           </DialogDescription>
         </DialogHeader>
 
@@ -281,8 +303,8 @@ export function AvatarUploadDialog({
           (() => {
             type SourceTab = 'file' | 'url'
             const sourceTabs: ReadonlyArray<SegmentedToggleOption<SourceTab>> = [
-              { value: 'file', label: 'Файл', icon: Upload },
-              { value: 'url', label: 'Ссылка', icon: Link2 },
+              { value: 'file', label: t`Файл`, icon: Upload },
+              { value: 'url', label: t`Посилання`, icon: Link2 },
             ]
             return (
               <>
@@ -293,7 +315,7 @@ export function AvatarUploadDialog({
                     setError(null)
                   }}
                   options={sourceTabs}
-                  ariaLabel="Источник изображения"
+                  ariaLabel={t`Джерело зображення`}
                   variant="tabs"
                   size="sm"
                   layoutId="avatar-source-tabs"
@@ -321,18 +343,18 @@ export function AvatarUploadDialog({
                       disabled={progress.state.phase === 'preparing'}
                     >
                       <ImagePlus className="h-4 w-4" />
-                      Выбрать изображение
+                      <Trans>Вибрати зображення</Trans>
                     </Button>
                     {progress.state.phase === 'preparing' ? (
                       <UploadProgress
                         state={progress.state}
                         size="sm"
-                        label="Чтение файла…"
+                        label={t`Читання файлу…`}
                         testId="avatar-upload-read-progress"
                       />
                     ) : (
                       <p className="text-xs text-muted-foreground">
-                        Перетащите файл в окно или нажмите кнопку выше.
+                        <Trans>Перетягніть файл у вікно або натисніть кнопку вище</Trans>
                       </p>
                     )}
                   </div>
@@ -364,7 +386,7 @@ export function AvatarUploadDialog({
                       onClick={handleUrlContinue}
                       disabled={!url.trim()}
                     >
-                      Продолжить
+                      <Trans>Продовжити</Trans>
                     </Button>
                   </div>
                 )}
@@ -373,7 +395,7 @@ export function AvatarUploadDialog({
                   <div className="flex justify-center rounded-md border bg-muted/20 p-3">
                     <img
                       src={avatarUrl}
-                      alt="Текущий аватар"
+                      alt={t`Поточний аватар`}
                       className="max-h-32 w-auto rounded-full object-cover opacity-70"
                     />
                   </div>
@@ -412,7 +434,7 @@ export function AvatarUploadDialog({
                 step={0.01}
                 value={zoom}
                 onChange={(e) => setZoom(Number(e.target.value))}
-                aria-label="Масштаб"
+                aria-label={t`Масштаб`}
                 className="h-2 w-full cursor-pointer appearance-none rounded-full bg-muted accent-primary"
               />
               <ZoomIn className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
@@ -444,7 +466,7 @@ export function AvatarUploadDialog({
               disabled={isPending}
             >
               <Trash2 className="h-4 w-4" />
-              Сбросить к стандартному
+              <Trans>Скинути на стандартний</Trans>
             </Button>
           )}
           <div className="flex gap-2 sm:ml-auto">
@@ -461,19 +483,19 @@ export function AvatarUploadDialog({
                   className="gap-1.5"
                 >
                   <ArrowLeft className="h-4 w-4" />
-                  Назад
+                  <Trans>Назад</Trans>
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSaveCrop}
                   disabled={isPending || !croppedAreaPixels}
                 >
-                  {isPending ? 'Сохранение…' : 'Сохранить'}
+                  {isPending ? <Trans>Збереження…</Trans> : <Trans>Зберегти</Trans>}
                 </Button>
               </>
             ) : (
               <Button type="button" variant="outline" onClick={handleClose} disabled={isPending}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
             )}
           </div>

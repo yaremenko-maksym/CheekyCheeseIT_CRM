@@ -19,7 +19,10 @@ export async function getCroppedDataUrl(
   canvas.width = outputSize
   canvas.height = outputSize
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Не удалось создать canvas context')
+  // task-i18n-stage3b (Task 1), Step 9 — dev-facing only (never shown to the
+  // user; `AvatarUploadDialog.tsx`'s catch block shows its own `t` text
+  // instead of `err.message`), so this stays English.
+  if (!ctx) throw new Error('canvas 2d context unavailable')
 
   ctx.imageSmoothingEnabled = true
   ctx.imageSmoothingQuality = 'high'
@@ -43,7 +46,7 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.addEventListener('load', () => resolve(img))
-    img.addEventListener('error', () => reject(new Error('Не удалось загрузить изображение')))
+    img.addEventListener('error', () => reject(new Error('image failed to load')))
     // crossOrigin needed for canvas.toDataURL on remote URLs — silently dropped for data: URIs.
     img.crossOrigin = 'anonymous'
     img.src = src
