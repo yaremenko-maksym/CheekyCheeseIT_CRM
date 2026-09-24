@@ -1,6 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { del as idbDel } from 'idb-keyval'
 import { api } from '@/lib/axios'
+import { resetLocaleConfirmation } from '@/lib/i18n'
 
 /**
  * Полный логаут: серверная сессия + все клиентские данные пользователя.
@@ -15,6 +16,14 @@ export function useLogout(): () => void {
       .post('/auth/logout')
       .catch(() => {})
       .finally(async () => {
+        // CR-M-3 (fix-round 3, PR #706): drop any `lib/i18n.ts` locale-switch
+        // marker BEFORE the hard navigation below — belt-and-suspenders, not
+        // load-bearing today (the reload already resets every module-level
+        // binding), but removes the reliance on logout always staying a hard
+        // navigation. See that function's doc comment for the scenario this
+        // guards against.
+        resetLocaleConfirmation()
+
         // 1. Сбросить TanStack Query in-memory кеш
         queryClient.clear()
 

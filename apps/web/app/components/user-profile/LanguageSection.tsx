@@ -60,13 +60,28 @@ export function LanguageSection({ current }: { current: Locale }) {
   // focus back from wherever the user moved it to since. (Intentionally
   // omits `current` from deps — react-hooks/exhaustive-deps is not
   // configured in this project's eslint, same precedent as UserDialog.tsx.)
-  useEffect(() => {
-    const wanted = consumeLocaleSwitchFocus()
-    if (wanted === null || wanted !== current) return
-    wrapperRef.current
-      ?.querySelector<HTMLButtonElement>(`[data-testid="locale-option-${wanted}"]`)
-      ?.focus()
-  }, [])
+  useEffect(
+    () => {
+      const wanted = consumeLocaleSwitchFocus()
+      // `current`'s type is `Locale` (never `null`), so `wanted !== current`
+      // alone already excludes `wanted === null` — that extra disjunct would
+      // be a genuinely equivalent mutant (unkillable by any correctly-typed
+      // test, fix-round 3 mutation-gate run) if it were still written out.
+      if (wanted !== current) return
+      // Stryker disable next-line OptionalChaining: wrapperRef.current is always attached by the time a mount effect runs, and once the guard above returns wanted===current, one of SegmentedToggle's two always-rendered buttons — both null checks are unreachable through this component's own render logic, not merely hard to reach through a test.
+      // (Longer version: `wrapperRef.current` is always attached by the time a
+      // mount effect runs — React sets refs before effects fire — and once the
+      // guard above returns, `wanted === current`, one of the two buttons
+      // `SegmentedToggle` always renders (`options={LOCALES.map(...)}` in the
+      // JSX below), so `.querySelector(...)` always finds it. Fix-round 3
+      // mutation-gate run.)
+      wrapperRef.current
+        ?.querySelector<HTMLButtonElement>(`[data-testid="locale-option-${wanted}"]`)
+        ?.focus()
+    },
+    // Stryker disable next-line ArrayDeclaration: this dependency array is compared by VALUE not reference, so any constant-literal replacement behaves identically to [] — a primitive element is Object.is-equal to itself across every render, genuinely equivalent, not merely hard to reach.
+    [],
+  )
 
   async function choose(locale: Locale) {
     // `pending` half is back (PR #696 fix-round 2, UX-M-2) — fix-round 1
@@ -101,6 +116,13 @@ export function LanguageSection({ current }: { current: Locale }) {
       await activateLocale(locale)
       invalidate()
     } catch {
+      // CR-M-3 follow-up ("точка 3", PR #706 fix-round 3 review): if
+      // `activateLocale` throws after a successful PATCH, the focus request
+      // queued above would otherwise sit unconsumed and steal focus on some
+      // LATER, unrelated mount of this component. Discard it here — a no-op
+      // when nothing was queued (e.g. the PATCH itself failed, before this
+      // line ever ran).
+      consumeLocaleSwitchFocus()
       // Fixed catalog string, NOT `getApiErrorMessage(err)` — that helper
       // can surface a Russian `STATUS_MESSAGES` string or backend message
       // (copy-review COPY-H-1, PR #696 fix-round 1). This toast has exactly

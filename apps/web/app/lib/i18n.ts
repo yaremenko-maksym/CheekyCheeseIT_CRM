@@ -145,6 +145,17 @@ export function useLocale(): Locale {
  * cross-device drift, so it "corrects" `i18n.locale` right back to the stale
  * value, undoing the switch and remounting again. `document.documentElement
  * .lang` and every reactive `aria-checked` settle on the OLD locale.
+ *
+ * fix-round 3 (CR-M-2, PR #706): an optimistic `['auth','me']` cache write
+ * in `choose()` was tried as a replacement for this marker and reverted —
+ * `invalidate()`'s refetch does not just close the synchronous remount
+ * window above, it can ALSO come back with a value that still disagrees
+ * with what was just activated (proven directly: `locale-switcher.spec.ts`'s
+ * mocked `/auth/me` handler always echoes the ORIGINAL session object,
+ * exactly the shape a genuinely stale read — a lagging replica, a request
+ * that raced the PATCH — would also produce). A cache write only protects
+ * against the FIRST read; it cannot tell a later, still-stale refetch apart
+ * from a genuine cross-device correction the way this marker does. Kept.
  */
 let confirmedUserLocale: Locale | null = null
 
@@ -161,7 +172,9 @@ export function markLocaleConfirmedByUser(locale: Locale): void {
  * and correctly skip, leaving the SECOND to see it already gone and
  * reactivate anyway — verified against a real dev-mode run, see fix-round 2
  * PR discussion). `clearConfirmedUserLocaleIfSettled` below is the one
- * legitimate place the marker goes away.
+ * legitimate place the marker goes away on a MATCHING read;
+ * `resetLocaleConfirmation` below is the other — an unconditional one, for
+ * session boundaries rather than a settled refetch.
  */
 export function isLocaleConfirmedByUser(locale: Locale): boolean {
   return confirmedUserLocale === locale
@@ -181,6 +194,25 @@ export function clearConfirmedUserLocaleIfSettled(locale: Locale): void {
 }
 
 /**
+ * CR-M-3 (fix-round 3, PR #706): unconditionally clears the marker,
+ * independent of what it is currently set to. `confirmedUserLocale`'s
+ * correctness relies on ONE invariant — logout/login is always a hard
+ * `window.location.href` navigation (`lib/use-logout.ts`, the Google OAuth
+ * `<a href>`, and every dev-login path all reload the page, which resets
+ * every module-level binding in this file for free). If a future refactor
+ * ever turns logout into an in-SPA `navigate()` to save the reload, THIS
+ * marker would otherwise survive across users in the SAME tab: user A
+ * switches to `en`, logs out before the settle-refetch above ever runs, and
+ * user B logs in — `isLocaleConfirmedByUser(i18n.locale)` would still see
+ * A's confirmation and silently block B's own session-locale sync. Wiring
+ * this into `useLogout()` removes the reliance on hard-navigation instead of
+ * merely documenting it; see `use-logout.spec.ts` for the pinning test.
+ */
+export function resetLocaleConfirmation(): void {
+  confirmedUserLocale = null
+}
+
+/**
  * A `key`-driven remount unmounts the OLD button (the one that had DOM
  * focus) and mounts a BRAND NEW one — the browser does not auto-focus a
  * freshly created element, so without this, UX-M-3 (focus stays on the
@@ -189,6 +221,12 @@ export function clearConfirmedUserLocaleIfSettled(locale: Locale): void {
  * BEFORE that remount can happen; `LanguageSection`'s own mount effect
  * consumes the request once and, if it matches the locale it is now
  * rendering, re-focuses that option's button.
+ *
+ * fix-round 3 (CR-M-3 follow-up, PR #706): if `activateLocale()` itself
+ * throws after a successful PATCH, `choose()`'s `catch` calls
+ * `consumeLocaleSwitchFocus()` to discard the request it just queued —
+ * otherwise it would sit here and steal focus on some LATER, unrelated
+ * mount of `LanguageSection` instead of the interrupted one.
  */
 let pendingFocusLocale: Locale | null = null
 

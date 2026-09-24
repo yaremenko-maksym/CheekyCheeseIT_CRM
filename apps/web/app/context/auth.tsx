@@ -82,7 +82,9 @@ export function AuthProvider({ children, skip }: { children: ReactNode; skip?: b
   // (the refetch `choose()` triggers via `invalidate()` has not resolved
   // yet), so without the guard this "corrects" `i18n.locale` straight back
   // to the stale value it is about to stop being true. See `lib/i18n.ts`'s
-  // doc comment on `isLocaleConfirmedByUser` for the full mechanism.
+  // doc comment on `isLocaleConfirmedByUser` for the full mechanism —
+  // including why fix-round 3 (CR-M-2, PR #706) evaluated and REJECTED
+  // replacing this guard with an optimistic cache write.
   useEffect(() => {
     if (!data?.locale) return
     if (data.locale === i18n.locale) {
