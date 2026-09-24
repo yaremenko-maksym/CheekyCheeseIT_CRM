@@ -833,6 +833,11 @@ msgstr "Document not found"
 msgid "api-error.INVOICE_DOCUMENT_NOT_FOUND"
 msgstr "The invoice document was not found"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_FOUND"
+msgstr "Receipt document not found"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
 msgstr "Documents"
@@ -1496,6 +1501,11 @@ msgstr "No obligations"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_OWNED"
+msgstr "You don't have permission to attach this receipt document"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN"
 msgstr "You don't have permission to attach a receipt to this transaction"
 
@@ -1892,6 +1902,11 @@ msgstr "Only a senior can be added to a drop team"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "You can't assign the admin role — the pool is fixed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY"
+msgstr "Only a document in the Receipt category can be attached to a transaction"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx

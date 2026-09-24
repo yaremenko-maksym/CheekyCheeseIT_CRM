@@ -16,7 +16,7 @@
  *   8. deleteS3Keys NOT called when there is no old doc to replace.
  *   9. Uses a DB transaction (atomic) for the receipt replace.
  */
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -437,7 +437,9 @@ describe('HIGH-1 IDOR guard — assertReceiptDocumentBindable (unit)', () => {
 
     await expect(
       h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'victim-doc-id' }, SENIOR),
-    ).rejects.toBeInstanceOf(ForbiddenException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+    })
 
     // FK write must not have happened (dbtx.delete = proxy for whether transaction ran)
     expect(h.dbtxDelete).not.toHaveBeenCalled()
@@ -460,7 +462,9 @@ describe('HIGH-1 IDOR guard — assertReceiptDocumentBindable (unit)', () => {
 
     await expect(
       h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'scan-doc-id' }, SENIOR),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY', statusCode: 400 },
+    })
   })
 
   it('blocks: cannot bind a nonexistent document (NotFoundException)', async () => {
@@ -472,7 +476,9 @@ describe('HIGH-1 IDOR guard — assertReceiptDocumentBindable (unit)', () => {
 
     await expect(
       h.service.updateSeniorIncome('tx-idor', { receiptDocumentId: 'ghost-doc-id' }, SENIOR),
-    ).rejects.toBeInstanceOf(NotFoundException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_FOUND', statusCode: 404 },
+    })
   })
 
   it('allows: SENIOR can bind their own RECEIPT (no exception)', async () => {

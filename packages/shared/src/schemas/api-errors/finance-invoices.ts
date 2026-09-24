@@ -87,6 +87,9 @@ export const FINANCE_INVOICES_ERROR_CODES = [
   // receipts
   'FINANCE_RECEIPT_ATTACH_FORBIDDEN',
   'FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN',
+  'FINANCE_RECEIPT_DOCUMENT_NOT_FOUND',
+  'FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY',
+  'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED',
   // edit/delete restrictions
   'FINANCE_EDIT_PAYOUT_FORBIDDEN',
   'FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN',
@@ -239,6 +242,9 @@ export const FINANCE_INVOICES_ERROR_PARAMS = {
   FINANCE_ADMIN_NO_SALARY: [],
   FINANCE_RECEIPT_ATTACH_FORBIDDEN: [],
   FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN: [],
+  FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: [],
+  FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY: [],
+  FINANCE_RECEIPT_DOCUMENT_NOT_OWNED: [],
   FINANCE_EDIT_PAYOUT_FORBIDDEN: [],
   FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN: [],
   FINANCE_DELETE_PAYOUT_FORBIDDEN: [],
@@ -514,6 +520,18 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN',
       message: 'Замінити чек після оплати можуть лише адміністратор або бухгалтер',
+    },
+    FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: /* i18n */ {
+      id: 'api-error.FINANCE_RECEIPT_DOCUMENT_NOT_FOUND',
+      message: 'Документ чека не знайдено',
+    },
+    FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY: /* i18n */ {
+      id: 'api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY',
+      message: 'Прикріпити до транзакції можна лише документ категорії «Чек»',
+    },
+    FINANCE_RECEIPT_DOCUMENT_NOT_OWNED: /* i18n */ {
+      id: 'api-error.FINANCE_RECEIPT_DOCUMENT_NOT_OWNED',
+      message: 'Немає прав прикріпити цей документ чека',
     },
     FINANCE_EDIT_PAYOUT_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN',
@@ -971,6 +989,10 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     "You don't have permission to attach a receipt to this transaction",
   FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN:
     'Only an administrator or an accountant can replace a receipt after payment',
+  FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: 'Receipt document not found',
+  FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY:
+    'Only a document in the Receipt category can be attached to a transaction',
+  FINANCE_RECEIPT_DOCUMENT_NOT_OWNED: "You don't have permission to attach this receipt document",
   FINANCE_EDIT_PAYOUT_FORBIDDEN: "PAYOUT transactions can't be edited",
   FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN:
     "A transaction linked to a payout request can't be edited",

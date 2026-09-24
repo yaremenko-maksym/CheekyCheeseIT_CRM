@@ -22,7 +22,7 @@
  * like "passed" with zero assertions.
  * S3: replaced with a spy-stub (no real MinIO).
  */
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { BadRequestException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { eq } from 'drizzle-orm'
@@ -327,7 +327,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // already bound → must fail ownership (ADMIN self-ownership check).
       await expect(
         svc.attachOrReplaceReceipt(TX_OLD, { receiptDocumentId: DOC_FILE_B }, ADMIN),
-      ).rejects.toBeInstanceOf(ForbiddenException)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_RECEIPT_DOCUMENT_NOT_OWNED', statusCode: 403 },
+      })
     })
 
     // ── Status matrix (replace after PAID) ───────────────────────────────────────

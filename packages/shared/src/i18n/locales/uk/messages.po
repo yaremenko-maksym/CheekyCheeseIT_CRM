@@ -833,6 +833,11 @@ msgstr "Документ не знайдено"
 msgid "api-error.INVOICE_DOCUMENT_NOT_FOUND"
 msgstr "Документ рахунку не знайдено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_FOUND"
+msgstr "Документ чека не знайдено"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Документи"
 msgstr "Документи"
@@ -1496,6 +1501,11 @@ msgstr "Немає зобов’язань"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_OWNED"
+msgstr "Немає прав прикріпити цей документ чека"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN"
 msgstr "Немає прав прикріпити чек до цієї транзакції"
 
@@ -1892,6 +1902,11 @@ msgstr "Приєднати до команди дропа можна лише с
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "Призначити роль адміністратора не можна — пул фіксований"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY"
+msgstr "Прикріпити до транзакції можна лише документ категорії «Чек»"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
