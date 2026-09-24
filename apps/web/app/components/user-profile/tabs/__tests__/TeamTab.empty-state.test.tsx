@@ -14,10 +14,11 @@
  * itself could drift from what's actually rendered without either test or
  * reviewer noticing.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const getMock = vi.fn()
 
@@ -46,8 +47,11 @@ function renderTab(userId: string) {
     <QueryClientProvider client={qc}>
       <TeamTab userId={userId} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
+
+beforeEach(() => loadCatalog('uk'))
 
 describe('TeamTab — honest empty state', () => {
   afterEach(() => {
@@ -59,7 +63,7 @@ describe('TeamTab — honest empty state', () => {
     renderTab('u-1')
 
     await waitFor(() => {
-      expect(screen.getByText('Нет данных о составе команды')).toBeInTheDocument()
+      expect(screen.getByText('Немає даних про склад команди')).toBeInTheDocument()
     })
 
     // The old wording claimed a fact ("not on a team") that a masked-but-real
@@ -72,7 +76,7 @@ describe('TeamTab — honest empty state', () => {
     renderTab('u-2')
 
     await waitFor(() => {
-      expect(screen.getByText('Нет данных о составе команды')).toBeInTheDocument()
+      expect(screen.getByText('Немає даних про склад команди')).toBeInTheDocument()
     })
   })
 
@@ -93,6 +97,55 @@ describe('TeamTab — honest empty state', () => {
     await waitFor(() => {
       expect(screen.getByText('Ivan Petrenko')).toBeInTheDocument()
     })
-    expect(screen.queryByText('Нет данных о составе команды')).not.toBeInTheDocument()
+    expect(screen.queryByText('Немає даних про склад команди')).not.toBeInTheDocument()
+  })
+
+  it('shows role labels from ROLE_LABEL_MESSAGES on uk/en, not the raw enum', async () => {
+    getMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'm-1',
+          displayName: 'Anna Senior',
+          role: 'SENIOR',
+          avatarUrl: null,
+          avatarDocumentId: null,
+        },
+        {
+          id: 'm-2',
+          displayName: 'Boris Junior',
+          role: 'JUNIOR',
+          avatarUrl: null,
+          avatarDocumentId: null,
+        },
+        { id: 'm-3', displayName: 'Olha HR', role: 'HR', avatarUrl: null, avatarDocumentId: null },
+      ],
+    })
+    renderTab('u-4')
+
+    await waitFor(() => {
+      expect(screen.getByText('Сеньйор')).toBeInTheDocument()
+    })
+    expect(screen.getByText('Джуніор')).toBeInTheDocument()
+    expect(screen.getByText('HR')).toBeInTheDocument()
+  })
+
+  it('shows role labels in en when the en catalog is active', async () => {
+    await loadCatalog('en')
+    getMock.mockResolvedValueOnce({
+      data: [
+        {
+          id: 'm-1',
+          displayName: 'Anna Senior',
+          role: 'SENIOR',
+          avatarUrl: null,
+          avatarDocumentId: null,
+        },
+      ],
+    })
+    renderTab('u-5')
+
+    await waitFor(() => {
+      expect(screen.getByText('Senior')).toBeInTheDocument()
+    })
   })
 })

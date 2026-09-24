@@ -2,7 +2,13 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuery } from '@tanstack/react-query'
 import { i18n } from '@lingui/core'
+import { I18nProvider } from '@lingui/react'
 import { API_ERROR_MESSAGES } from '@crm/shared'
+
+beforeEach(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // Test the ADMIN-only tab visibility logic via the helper function
 // (full UserProfileShell render requires complex multi-provider mocking;
@@ -127,7 +133,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 function renderWithProvider(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  return render(
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </I18nProvider>,
+  )
 }
 
 describe('ContractTab', () => {
@@ -219,10 +229,11 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     } as any)
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.getByTestId('contract-tab-no-template')).toBeInTheDocument()
-    // COPY-M-7 (PR #694 fix-round 4): the empty state shows the role's Russian
-    // label ("Синьор"), never the raw enum ("SENIOR") — role-select.tsx's map.
-    expect(screen.getByText('Нет шаблона контракта для роли Синьор')).toBeInTheDocument()
-    expect(screen.queryByText(/для роли SENIOR/)).not.toBeInTheDocument()
+    // COPY-M-7 (PR #694 fix-round 4, migrated task-i18n-stage3b): the empty
+    // state shows the role's uk label ("Сеньйор") from `ROLE_LABEL_MESSAGES`,
+    // never the raw enum ("SENIOR").
+    expect(screen.getByText('Немає шаблону контракту для ролі «Сеньйор»')).toBeInTheDocument()
+    expect(screen.queryByText(/ролі «SENIOR»/)).not.toBeInTheDocument()
   })
 
   it('does NOT show the no-template empty state for prose without a code (falls to the generic error state)', () => {
@@ -237,7 +248,7 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     expect(screen.getByTestId('contract-tab-error')).toBeInTheDocument()
   })
 
-  it('renders the own Russian fallback text when there is no error AND no contract (the other half of the `error || !contract` guard, `getApiErrorMessage`’s own fallback path)', () => {
+  it('renders the own uk fallback text when there is no error AND no contract (the other half of the `error || !contract` guard, `getApiErrorMessage`’s own fallback path)', () => {
     vi.mocked(useQuery).mockReturnValueOnce({
       data: undefined,
       isLoading: false,
@@ -246,7 +257,7 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     } as any)
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.getByTestId('contract-tab-error')).toHaveTextContent(
-      'Не удалось загрузить контракт.',
+      'Не вдалося завантажити контракт',
     )
   })
 })
