@@ -1019,13 +1019,15 @@ describe('EmployeeContractsService', () => {
     })
   })
 
-  // ─── getContractVariables — label renders on the EMPLOYEE's locale ───────────
-  // task-i18n-stage4-task5: `CONTRACT_VARIABLE_DESCRIPTIONS` became
-  // `MessageDescriptor`s — `label` is resolved through
-  // `createI18n(user.locale)`, not read as a plain string. This is the one
-  // server-side consumer that reaches a non-admin employee (filling in their
-  // own contract's variables), so it renders on THEIR locale, not a fixed one.
-  describe('getContractVariables — label locale (task-i18n-stage4-task5)', () => {
+  // ─── getContractVariables — label renders on the VIEWER's locale ─────────────
+  // task-i18n-stage4-task5, fix-round 1 (COPY-H-3/CR-H-1): `CONTRACT_-
+  // VARIABLE_DESCRIPTIONS` became `MessageDescriptor`s — `label` is resolved
+  // through `createI18n(viewerLocale)`, not read as a plain string. The
+  // endpoint is `@Roles('ADMIN')` on the whole controller — the reader is
+  // always the admin filling in Screen 2 for an employee's contract, never
+  // the employee themselves — so `label` follows the VIEWER's (the
+  // requesting admin's) locale, not `user.locale` (the employee's own).
+  describe('getContractVariables — label locale (fix-round 1, COPY-H-3/CR-H-1)', () => {
     const baseUser = {
       id: 'user-uuid',
       role: 'SENIOR' as const,
@@ -1065,25 +1067,25 @@ describe('EmployeeContractsService', () => {
       return service
     }
 
-    it('renders the uk label for a user with locale=uk', async () => {
-      const service = makeLabelService({ locale: 'uk' })
-      const result = await service.getContractVariables('user-uuid')
+    it('admin viewer=uk + employee.locale=en → uk label (viewer wins, not the employee)', async () => {
+      const service = makeLabelService({ locale: 'en' })
+      const result = await service.getContractVariables('user-uuid', 'uk')
       const v = result.variables.find((x) => x.key === 'employeeName')
-      expect(v?.label).toBe('Повне ім’я співробітника')
+      expect(v?.label).toBe('ПІБ співробітника для контракту (юридичне ім’я)')
     })
 
-    it('renders the en label for a user with locale=en (proves the ternary actually branches)', async () => {
+    it('admin viewer=en + employee.locale=uk → en label (the reverse pairing)', async () => {
+      const service = makeLabelService({ locale: 'uk' })
+      const result = await service.getContractVariables('user-uuid', 'en')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe("Employee's full legal name for the contract")
+    })
+
+    it('defaults to uk when no viewerLocale argument is passed (defensive default, not the real caller path)', async () => {
       const service = makeLabelService({ locale: 'en' })
       const result = await service.getContractVariables('user-uuid')
       const v = result.variables.find((x) => x.key === 'employeeName')
-      expect(v?.label).toBe("Employee's full name")
-    })
-
-    it('falls back to uk when locale is absent from the row (defensive, not the live schema default)', async () => {
-      const service = makeLabelService({ locale: undefined })
-      const result = await service.getContractVariables('user-uuid')
-      const v = result.variables.find((x) => x.key === 'employeeName')
-      expect(v?.label).toBe('Повне ім’я співробітника')
+      expect(v?.label).toBe('ПІБ співробітника для контракту (юридичне ім’я)')
     })
   })
 })

@@ -224,10 +224,13 @@ export interface ContractTemplateRow {
  * `contract-variable.<key>` id namespace (not `zod-error.*` — this is not a
  * validation message). Two consumers resolve it, both added by this task:
  * `VariablesPanel.tsx` (client, admin hint panel — `useLingui()`) and
- * `EmployeeContractsService.getContractVariables` (server,
- * `createI18n(user.locale)` — the ONE consumer where these values reach a
- * non-admin employee, filling in their own contract's variables on
- * `/api/users/:id/contract/variables`). Every other consumer
+ * `EmployeeContractsService.getContractVariables` (server, `GET
+ * /api/users/:id/contract/variables`). Fix-round 1 (COPY-H-3/CR-H-1): that
+ * endpoint is `@Roles('ADMIN')` on the whole controller — an employee never
+ * calls it for their own contract, an ADMIN does, filling in Screen 2 for
+ * that employee. So the server resolves these descriptions on the VIEWER's
+ * (the requesting admin's) locale via `@RequestLocale()`, not
+ * `user.locale` (the employee whose contract it is). Every other consumer
  * (`AddCustomVariableDialog.tsx`, `contractTokenHighlight.ts`,
  * `use-contract-tokens.ts`, `contracts.$role.tsx`, `contract-variables.ts`)
  * reads only `Object.keys(...)` for the known-key set — unaffected by the
@@ -237,24 +240,47 @@ export interface ContractTemplateRow {
 export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   employeeName: /* i18n */ {
     id: 'contract-variable.employeeName',
-    message: 'Повне ім’я співробітника',
+    // fix-round 1 (COPY-M-7): the value resolved here is `legalFullName` —
+    // the glossary's «юридичне ім'я» (the admin-set full legal name used on
+    // documents), not the in-system display name. Naming that distinction
+    // matters because both exist on the same user.
+    message: 'ПІБ співробітника для контракту (юридичне ім’я)',
   },
   employeeEmail: /* i18n */ {
     id: 'contract-variable.employeeEmail',
-    message: 'Email співробітника',
+    // fix-round 1 (COPY-M-8): resolved value is `user.email` (the work
+    // email) — the user also has a personal email
+    // (`PERSONAL_EMAIL_MUST_DIFFER` keeps the two distinct), so "email" alone
+    // does not say which one ends up in the contract.
+    message: 'Робочий email співробітника',
   },
   role: /* i18n */ {
     id: 'contract-variable.role',
-    message: 'Роль (Адміністратор / HR / Сеньйор / Джуніор / Дроп / Бухгалтер)',
+    // fix-round 1 (COPY-M-9): `ROLE_LABELS` substitutes the ENGLISH role
+    // word (Senior/Admin/…), not the Ukrainian list this used to enumerate —
+    // listing values here promised text that never appears in the document.
+    // ADMIN also never has an employee contract (`api-error`: "An
+    // administrator can't have an employee contract"), so it never belonged
+    // in the list either.
+    message: 'Роль співробітника в компанії',
   },
   onboardingDate: /* i18n */ {
     id: 'contract-variable.onboardingDate',
     message: 'Дата підписання контракту',
   },
-  salary: /* i18n */ { id: 'contract-variable.salary', message: 'Щомісячна ставка (з профілю)' },
+  salary: /* i18n */ {
+    id: 'contract-variable.salary',
+    // fix-round 1 (COPY-M-1): «зарплата» — the one glossary term for this
+    // concept (not «ставка», reserved for a share percentage), matching the
+    // already-existing `zod-error.SALARY_OR_SHARE_REQUIRED` wording.
+    message: 'Щомісячна зарплата з профілю разом із валютою',
+  },
   salaryCurrency: /* i18n */ {
     id: 'contract-variable.salaryCurrency',
-    message: 'Валюта ставки (USD / EUR / UAH)',
+    // fix-round 1 (COPY-M-1): the previous text enumerated USD/EUR/UAH, but
+    // `currencyEnumSchema` also allows USDT — an incomplete list. Not
+    // enumerating at all is both shorter and cannot drift out of sync again.
+    message: 'Валюта зарплати з профілю',
   },
   sharePercent: /* i18n */ {
     id: 'contract-variable.sharePercent',
@@ -311,11 +337,18 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   },
   bankUahFop: /* i18n */ {
     id: 'contract-variable.bankUahFop',
-    message: 'Банківські реквізити UAH (ФОП)',
+    // fix-round 1 (COPY-L-6): «UAH» — a currency code sitting inside a
+    // Ukrainian phrase; «гривневі» says the same thing in the language it's
+    // written in.
+    message: 'Гривневі банківські реквізити ФОП',
   },
   preferredMethod: /* i18n */ {
     id: 'contract-variable.preferredMethod',
-    message: 'Бажаний спосіб оплати (crypto / fop)',
+    // fix-round 1 (COPY-H-2): the previous text named non-existent values
+    // ("crypto / fop") — neither the enum (`USDT_ERC20`/`BANK_UAH_FOP`) nor
+    // the actual substitution (`METHOD_LABELS`: "USDT (ERC-20)"/"ФОП (UAH)")
+    // uses those identifiers. Name the real values instead.
+    message: 'Спосіб оплати з профілю: USDT (ERC-20) або ФОП (UAH)',
   },
   /**
    * Smart composite: shows the relevant payment requisites based on paymentMethod.
@@ -327,11 +360,18 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
    */
   requisites: /* i18n */ {
     id: 'contract-variable.requisites',
-    message: 'Реквізити оплати (визначаються за методом оплати автоматично)',
+    // fix-round 1 (COPY-M-10): «спосіб оплати» — same panel, same word as
+    // `preferredMethod` above (was «метод оплати», a second word for one
+    // concept).
+    message: 'Реквізити для оплати — підставляються автоматично за способом оплати',
   },
   contractNumber: /* i18n */ {
     id: 'contract-variable.contractNumber',
-    message: 'Номер контракту (генерується автоматично, CHK-N-YYYY)',
+    // fix-round 1 (COPY-M-6): `generateUniqueContractNumber` produces
+    // `CHK-<6 hex>` (e.g. `CHK-7F3A9C`), not `CHK-N-YYYY` — the previous
+    // format was never accurate. The number is also assigned at signing, not
+    // at preview time (the preview shows «—»).
+    message: 'Номер контракту — присвоюється під час підписання, напр. CHK-7F3A9C',
   },
 } as const satisfies Record<string, MessageDescriptor>
 

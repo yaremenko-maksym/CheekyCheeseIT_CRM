@@ -361,19 +361,19 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   AT_LEAST_ONE_APPROVER: /* i18n */ {
     id: 'zod-error.AT_LEAST_ONE_APPROVER',
-    message: 'Потрібен щонайменше один підтверджуючий',
+    message: 'Виберіть щонайменше одну людину, яка має підтвердити',
   },
   APPROVER_IDS_NO_DUPLICATES: /* i18n */ {
     id: 'zod-error.APPROVER_IDS_NO_DUPLICATES',
-    message: 'Список підтверджуючих не повинен містити повторів',
+    message: 'Кожну людину можна додати до підтвердження лише один раз',
   },
   REJECTION_REASON_REQUIRED: /* i18n */ {
     id: 'zod-error.REJECTION_REASON_REQUIRED',
-    message: 'Причина відмови обов’язкова',
+    message: 'Вкажіть причину відмови',
   },
   REJECTION_REASON_TOO_LONG: /* i18n */ {
     id: 'zod-error.REJECTION_REASON_TOO_LONG',
-    message: 'Причина відмови занадто довга (максимум 500 символів)',
+    message: 'Причина відмови — не більше 500 символів',
   },
   LOGO_SOURCE_XOR: /* i18n */ {
     id: 'zod-error.LOGO_SOURCE_XOR',
@@ -381,19 +381,19 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   CREDENTIAL_LABEL_REQUIRED: /* i18n */ {
     id: 'zod-error.CREDENTIAL_LABEL_REQUIRED',
-    message: 'Назва обов’язкова',
+    message: 'Вкажіть назву',
   },
   CREDENTIAL_PASSWORD_REQUIRED: /* i18n */ {
     id: 'zod-error.CREDENTIAL_PASSWORD_REQUIRED',
-    message: 'Пароль обов’язковий',
+    message: 'Вкажіть пароль',
   },
   FULL_NAME_REQUIRED: /* i18n */ {
     id: 'zod-error.FULL_NAME_REQUIRED',
-    message: 'ПІБ обов’язкове',
+    message: 'Вкажіть ПІБ',
   },
   LEGEND_TEXT_REQUIRED: /* i18n */ {
     id: 'zod-error.LEGEND_TEXT_REQUIRED',
-    message: 'Текст обов’язковий',
+    message: 'Введіть текст',
   },
   NOTIFICATION_TYPE_UNKNOWN: /* i18n */ {
     id: 'zod-error.NOTIFICATION_TYPE_UNKNOWN',
@@ -409,11 +409,16 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   TOO_MANY_PREFERENCES: /* i18n */ {
     id: 'zod-error.TOO_MANY_PREFERENCES',
-    message: 'Забагато налаштувань в одному запиті',
+    // fix-round 1 (COPY-L-4): the set of types is collected by the client,
+    // not by anything the reader chose — the API-terms wording ("in one
+    // request") described a request, not a situation a person recognizes.
+    // Same reader-facing text as PREFERENCE_TYPE_DUPLICATE below (the only
+    // actionable response to either branch is a reload).
+    message: 'Не вдалося зберегти налаштування — оновіть сторінку',
   },
   PREFERENCE_TYPE_DUPLICATE: /* i18n */ {
     id: 'zod-error.PREFERENCE_TYPE_DUPLICATE',
-    message: 'Кожен тип сповіщення можна вказати лише один раз',
+    message: 'Не вдалося зберегти налаштування — оновіть сторінку',
   },
   PREFERENCE_EMAIL_LOCKED: /* i18n */ {
     id: 'zod-error.PREFERENCE_EMAIL_LOCKED',
@@ -425,11 +430,14 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   RESUME_TEXT_TOO_SHORT: /* i18n */ {
     id: 'zod-error.RESUME_TEXT_TOO_SHORT',
-    message: 'Текст резюме занадто короткий',
+    // fix-round 1 (COPY-M-5): the threshold (`RESUME_LIMITS.minExtractableChars`)
+    // is baked in as a literal digit, pinned by a test in zod-errors.spec.ts —
+    // same pattern as the money.ts/finance.ts amounts above.
+    message: 'Вставте повний текст резюме — щонайменше 40 символів',
   },
   VARIABLE_KEY_FORMAT: /* i18n */ {
     id: 'zod-error.VARIABLE_KEY_FORMAT',
-    message: 'Ключ: лише латиниця, починається з літери, макс 50 символів',
+    message: 'Ключ: до 50 символів — латиниця, цифри або _, на початку літера',
   },
   VARIABLE_VALUE_TOO_LONG: /* i18n */ {
     id: 'zod-error.VARIABLE_VALUE_TOO_LONG',
@@ -437,11 +445,11 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   TOO_MANY_CUSTOM_VARIABLES: /* i18n */ {
     id: 'zod-error.TOO_MANY_CUSTOM_VARIABLES',
-    message: 'Не більше 50 користувацьких змінних',
+    message: 'Можна додати не більше 50 власних змінних',
   },
   VARIABLE_LABEL_REQUIRED: /* i18n */ {
     id: 'zod-error.VARIABLE_LABEL_REQUIRED',
-    message: 'Мітка обов’язкова',
+    message: 'Вкажіть назву змінної для форми',
   },
   DOCUMENT_BODY_REQUIRED: /* i18n */ {
     id: 'zod-error.DOCUMENT_BODY_REQUIRED',
@@ -449,7 +457,11 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   CONTRACT_DOCUMENT_PROJECT_REQUIRED: /* i18n */ {
     id: 'zod-error.CONTRACT_DOCUMENT_PROJECT_REQUIRED',
-    message: 'Виберіть проєкт для документа категорії «Контракт»',
+    // fix-round 1 (COPY-M-4): same rule as `api-error.DOCUMENT_PROJECT_ID_-
+    // REQUIRED` — one situation, the same text in both locales so the reader
+    // never sees two different phrasings depending on which layer refuses
+    // first.
+    message: 'Виберіть проєкт — без нього контракт завантажити не можна',
   },
   TEAM_TELEGRAM_LINK_FORMAT: /* i18n */ {
     id: 'zod-error.TEAM_TELEGRAM_LINK_FORMAT',
@@ -457,7 +469,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   SALARY_OR_SHARE_REQUIRED: /* i18n */ {
     id: 'zod-error.SALARY_OR_SHARE_REQUIRED',
-    message: 'Вкажіть оклад або частку сеньйора — хоча б одне значення',
+    message: 'Вкажіть зарплату або частку сеньйора — хоча б одне з двох',
   },
 }
 
@@ -517,30 +529,31 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   TELEGRAM_CHANNEL_FORMAT: 'Telegram channel: 5–32 characters — Latin letters, digits or _',
   SHARE_PERCENT_RANGE_1_100: 'Enter a value from 1 to 100',
   SHARE_PERCENT_RANGE_0_100: 'Enter a value from 0 to 100',
-  AT_LEAST_ONE_APPROVER: 'At least one approver is required',
-  APPROVER_IDS_NO_DUPLICATES: 'The list of approvers must not contain duplicates',
-  REJECTION_REASON_REQUIRED: 'A reason for the rejection is required',
-  REJECTION_REASON_TOO_LONG: 'The rejection reason is too long (500 characters max)',
+  AT_LEAST_ONE_APPROVER: 'Select at least one approver',
+  APPROVER_IDS_NO_DUPLICATES: 'Each approver can be added only once',
+  REJECTION_REASON_REQUIRED: 'State a reason for the rejection',
+  REJECTION_REASON_TOO_LONG: 'Rejection reason — 500 characters max',
   LOGO_SOURCE_XOR: 'The logo is either an uploaded file or a link, not both',
-  CREDENTIAL_LABEL_REQUIRED: 'Name is required',
-  CREDENTIAL_PASSWORD_REQUIRED: 'Password is required',
-  FULL_NAME_REQUIRED: 'Full name is required',
-  LEGEND_TEXT_REQUIRED: 'Text is required',
+  CREDENTIAL_LABEL_REQUIRED: 'Enter a name',
+  CREDENTIAL_PASSWORD_REQUIRED: 'Enter a password',
+  FULL_NAME_REQUIRED: 'Enter the full name',
+  LEGEND_TEXT_REQUIRED: 'Enter the text',
   NOTIFICATION_TYPE_UNKNOWN: 'Settings are outdated — refresh the page',
   AT_LEAST_ONE_PREFERENCE: 'Specify at least one setting',
-  TOO_MANY_PREFERENCES: 'Too many settings in one request',
-  PREFERENCE_TYPE_DUPLICATE: 'Each notification type can be specified only once',
+  TOO_MANY_PREFERENCES: "Couldn't save the settings — refresh the page",
+  PREFERENCE_TYPE_DUPLICATE: "Couldn't save the settings — refresh the page",
   PREFERENCE_EMAIL_LOCKED: 'Emails about confirmation and signing requests cannot be turned off',
   RESUME_LINK_PROTOCOL: 'The link must start with https:// or mailto:',
-  RESUME_TEXT_TOO_SHORT: 'The resume text is too short',
-  VARIABLE_KEY_FORMAT: 'Key: Latin letters only, must start with a letter, 50 characters max',
+  RESUME_TEXT_TOO_SHORT: 'Paste the full resume text — at least 40 characters',
+  VARIABLE_KEY_FORMAT:
+    'Key: up to 50 characters — Latin letters, digits or _, starting with a letter',
   VARIABLE_VALUE_TOO_LONG: 'Variable value must not exceed 2000 characters',
-  TOO_MANY_CUSTOM_VARIABLES: 'No more than 50 custom variables',
-  VARIABLE_LABEL_REQUIRED: 'Label is required',
+  TOO_MANY_CUSTOM_VARIABLES: 'You can add up to 50 custom variables',
+  VARIABLE_LABEL_REQUIRED: 'Enter a display name for the variable',
   DOCUMENT_BODY_REQUIRED: 'The document text cannot be empty',
-  CONTRACT_DOCUMENT_PROJECT_REQUIRED: 'Select a project for a Contract-category document',
+  CONTRACT_DOCUMENT_PROJECT_REQUIRED: "Choose a project — a contract can't be uploaded without one",
   TEAM_TELEGRAM_LINK_FORMAT: 'The link must start with https://t.me/',
-  SALARY_OR_SHARE_REQUIRED: "Provide the salary or the senior's share — at least one value",
+  SALARY_OR_SHARE_REQUIRED: "Enter the salary or the senior's share — at least one of the two",
 }
 
 /**
