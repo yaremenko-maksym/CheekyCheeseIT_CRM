@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useAuth } from '@/context/auth'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
 import {
   Bitcoin,
   Building2,
@@ -80,9 +82,14 @@ function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () =>
       <div className="flex items-start gap-3">
         <Wallet className="h-5 w-5 shrink-0 mt-0.5 text-destructive" aria-hidden="true" />
         <div className="space-y-0.5">
-          <p className="text-sm font-medium">Реквизиты не заполнены</p>
+          <p className="text-sm font-medium">
+            <Trans>Реквізити не заповнено</Trans>
+          </p>
           <p className="text-xs text-muted-foreground">
-            Без реквизитов невозможен роутинг платежей. Укажите USDT кошелёк или банковский счёт.
+            <Trans>
+              Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський
+              рахунок
+            </Trans>
           </p>
         </div>
       </div>
@@ -92,7 +99,7 @@ function RequisitesMissingBanner({ onGoToRequisites }: { onGoToRequisites: () =>
         data-testid="drop-requisites-missing-cta"
         className="shrink-0"
       >
-        Заполнить реквизиты
+        <Trans>Заповнити реквізити</Trans>
       </Button>
     </div>
   )
@@ -120,6 +127,7 @@ function PendingBaseShareBanner({
   currentPercent: number
   pending: NonNullable<UserProfileDto['pendingSeniorShare']>
 }) {
+  const { t } = useLingui()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
   const approveMutation = useApproveSeniorShareChange('user', userId)
@@ -145,10 +153,12 @@ function PendingBaseShareBanner({
           decides by comparing "сейчас" against "предлагают", and until now
           only one of the two was on screen. */}
       <p className="text-sm">
-        Вашу долю по умолчанию предлагают изменить: сейчас{' '}
-        <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
-        <span className="font-medium tabular-nums">{pending.percent}%</span>. Пока вы не
-        подтвердите, действует {currentPercent}%.
+        <Trans>
+          Вашу частку за замовчуванням пропонують змінити: зараз{' '}
+          <span className="font-medium tabular-nums">{currentPercent}%</span>, пропонують{' '}
+          <span className="font-medium tabular-nums">{pending.percent}%</span>. Поки ви не
+          підтвердите, діє {currentPercent}%
+        </Trans>
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -161,7 +171,7 @@ function PendingBaseShareBanner({
           {/* task-648-fix-round-1 (COPY-M-9): in-flight state names itself,
               same convention as the other 8 process-labels in the repo
               («Сохранение…», «Публикация…», …). */}
-          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          {approveMutation.isPending ? <Trans>Підтвердження…</Trans> : <Trans>Підтвердити</Trans>}
         </Button>
         <Button
           size="sm"
@@ -171,7 +181,7 @@ function PendingBaseShareBanner({
           disabled={approveMutation.isPending}
           data-testid="pending-base-share-reject-button"
         >
-          Отклонить
+          <Trans>Відхилити</Trans>
         </Button>
       </div>
 
@@ -182,7 +192,9 @@ function PendingBaseShareBanner({
                 being rejected — it stays exactly where it was, which is what
                 this dialog's own toast says one line later. What is rejected
                 is the proposal to change it. */}
-            <DialogTitle>Отклонить предложение</DialogTitle>
+            <DialogTitle>
+              <Trans>Відхилити пропозицію</Trans>
+            </DialogTitle>
             {/* CR-M-3 (#667 code review round 2): «Админ», the word the
                 toast this very dialog fires already uses, and the word its
                 twin on /pending (`SeniorShareApprovalActions`) says —
@@ -190,9 +202,9 @@ function PendingBaseShareBanner({
                 proposal through the same hook; one action must not name the
                 same role two ways in two consecutive replies. The
                 obligation of the reason is already carried by the «Причина
-                отказа *» label and the disabled confirm button. */}
+                відмови *» label and the disabled confirm button. */}
             <DialogDescription>
-              Админ увидит причину и сможет предложить другой процент.
+              <Trans>Адміністратор побачить причину і зможе запропонувати іншу частку</Trans>
             </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
@@ -200,13 +212,13 @@ function PendingBaseShareBanner({
                 the first keystroke and never reads as a field name —
                 mirrors ProjectApprovalActions.tsx's (#646) identical fix. */}
             <Label htmlFor="pending-base-share-reject-reason" className="text-xs">
-              Причина отказа *
+              <Trans>Причина відмови *</Trans>
             </Label>
             <Textarea
               id="pending-base-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Например: договаривались на 30%"
+              placeholder={t`Наприклад: домовлялися на 30%`}
               maxLength={500}
               rows={3}
               data-testid="pending-base-share-reject-reason"
@@ -217,7 +229,7 @@ function PendingBaseShareBanner({
           </CrmDialogBody>
           <CrmDialogFooter>
             <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               variant="destructive"
@@ -228,7 +240,7 @@ function PendingBaseShareBanner({
             >
               {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention
                   as the approve button above. */}
-              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
+              {rejectMutation.isPending ? <Trans>Відхилення…</Trans> : <Trans>Відхилити</Trans>}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -245,10 +257,11 @@ function DropRequisitesSnippet({
   user: UserProfileDto
   onGoToRequisites: () => void
 }) {
+  const { t } = useLingui()
   const isUsdt = user.paymentMethod === 'USDT_ERC20'
   const isBank = user.paymentMethod === 'BANK_UAH_FOP'
 
-  const methodLabel = isUsdt ? 'USDT ERC-20' : isBank ? 'Банк UAH (ФОП)' : null
+  const methodLabel = isUsdt ? 'USDT (ERC-20)' : isBank ? t`ФОП (UAH)` : null
   if (!methodLabel) return null
 
   const walletValue = isUsdt ? user.walletUsdtErc20 : user.bankUahIban
@@ -262,7 +275,9 @@ function DropRequisitesSnippet({
           ) : (
             <Landmark className="h-4 w-4 text-primary" aria-hidden="true" />
           )}
-          <span className="text-sm font-semibold">Реквизиты для выплат</span>
+          <span className="text-sm font-semibold">
+            <Trans>Реквізити для виплат</Trans>
+          </span>
           <Badge variant="outline" className="text-xs">
             {methodLabel}
           </Badge>
@@ -275,7 +290,7 @@ function DropRequisitesSnippet({
           className="h-8 gap-1.5"
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
-          Изменить
+          <Trans>Змінити</Trans>
         </Button>
       </CardHeader>
       <CardContent className="px-5 pb-4 space-y-2">
@@ -285,9 +300,15 @@ function DropRequisitesSnippet({
               <Wallet className="h-4 w-4" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">USDT кошелёк</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                <Trans>Гаманець USDT</Trans>
+              </p>
               <p className="truncate text-sm font-mono">
-                {walletValue ?? <span className="italic text-muted-foreground">не указано</span>}
+                {walletValue ?? (
+                  <span className="italic text-muted-foreground">
+                    <Trans>не вказано</Trans>
+                  </span>
+                )}
               </p>
             </div>
           </div>
@@ -299,10 +320,14 @@ function DropRequisitesSnippet({
                 <UserIcon className="h-4 w-4" aria-hidden="true" />
               </div>
               <div className="min-w-0">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Получатель</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  <Trans>Отримувач</Trans>
+                </p>
                 <p className="truncate text-sm">
                   {user.bankUahRecipient ?? (
-                    <span className="italic text-muted-foreground">не указано</span>
+                    <span className="italic text-muted-foreground">
+                      <Trans>не вказано</Trans>
+                    </span>
                   )}
                 </p>
               </div>
@@ -315,7 +340,9 @@ function DropRequisitesSnippet({
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">IBAN</p>
                 <p className="truncate text-sm font-mono">
                   {user.bankUahIban ?? (
-                    <span className="italic text-muted-foreground">не указано</span>
+                    <span className="italic text-muted-foreground">
+                      <Trans>не вказано</Trans>
+                    </span>
                   )}
                 </p>
               </div>
@@ -326,7 +353,9 @@ function DropRequisitesSnippet({
                   <IdCard className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">РНОКПП</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <Trans>РНОКПП</Trans>
+                  </p>
                   <p className="truncate text-sm font-mono">{user.bankUahRnokpp}</p>
                 </div>
               </div>
@@ -337,7 +366,9 @@ function DropRequisitesSnippet({
                   <Building2 className="h-4 w-4" aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">Банк</p>
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                    <Trans>Банк</Trans>
+                  </p>
                   <p className="truncate text-sm">{user.bankUahBankName}</p>
                 </div>
               </div>
@@ -380,6 +411,8 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
   // already learned once (UI perf pass, PR #304–#309) that a hook placed
   // after any early return crashes on Rules of Hooks in a way only a live
   // browser catches.
+  const { t } = useLingui()
+  const locale = useLocale()
   const { user: me } = useAuth()
   const overview = (data.overview ?? {}) as OverviewData
   const techStack = user.techStack ?? []
@@ -464,7 +497,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           {showSalary && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase text-muted-foreground">Зарплата</CardTitle>
+                <CardTitle className="text-xs uppercase text-muted-foreground">
+                  <Trans>Зарплата</Trans>
+                </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
@@ -476,7 +511,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           {showShare && (
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs uppercase text-muted-foreground">Доля</CardTitle>
+                <CardTitle className="text-xs uppercase text-muted-foreground">
+                  <Trans>Частка</Trans>
+                </CardTitle>
               </CardHeader>
               <CardContent className="space-y-1.5">
                 <div className="text-2xl font-bold">
@@ -527,14 +564,14 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                                 says a base-share proposal is always a concrete
                                 percent — but it is read through the resolved
                                 field anyway so both halves read identically. */}
-                            {`Предложено ${user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent}%`}
+                            {t`Запропоновано ${user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent}%`}
                           </Badge>
                         </TooltipTrigger>
                         {/* task-648-fix-round-2 (UX-M-3(r2)): width-capped and
                             wrapping. Measured at 468–709px against a 320px
                             viewport before this cap. */}
                         <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
-                          Действует прежний процент, пока новый не подтверждён.
+                          <Trans>Діє попередній відсоток, поки новий не підтверджено</Trans>
                         </TooltipContent>
                       </Tooltip>
                       {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): the
@@ -546,13 +583,15 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                           non-focusable `div`). Both facts are now plain text,
                           on every device, no hover required. */}
                       <p className="text-xs text-muted-foreground break-words">
-                        Подтверждает {user.pendingSeniorShare.approverName} — пока действует{' '}
                         {/* `seniorSharePercent` is a non-nullable `number`
                             on `UserProfileDto` — no `?? 0` fallback, it
                             would be unreachable. (The KPI card above needs
                             one because it also renders `dropSharePercent`,
                             which IS nullable.) */}
-                        <span className="tabular-nums">{user.seniorSharePercent}%</span>
+                        <Trans>
+                          Підтверджує {user.pendingSeniorShare.approverName} — поки діє{' '}
+                          <span className="tabular-nums">{user.seniorSharePercent}%</span>
+                        </Trans>
                       </p>
                     </div>
                     {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw
@@ -578,15 +617,15 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
             <Card>
               <CardHeader className="pb-2">
                 <CardTitle className="text-xs uppercase text-muted-foreground">
-                  Способ выплат
+                  <Trans>Спосіб виплати</Trans>
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
                   {user.paymentMethod === 'USDT_ERC20'
-                    ? 'USDT ERC-20'
+                    ? 'USDT (ERC-20)'
                     : user.paymentMethod === 'BANK_UAH_FOP'
-                      ? 'UAH ФОП'
+                      ? t`ФОП (UAH)`
                       : '—'}
                 </div>
               </CardContent>
@@ -605,16 +644,20 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
       {permissions.fields.techStack !== false && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Технологии</CardTitle>
+            <CardTitle className="text-base">
+              <Trans>Технології</Trans>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {techStack.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Не указано</p>
+              <p className="text-sm text-muted-foreground">
+                <Trans>не вказано</Trans>
+              </p>
             ) : (
               <div className="flex flex-wrap gap-2">
-                {techStack.map((t) => (
-                  <Badge key={t} variant="outline">
-                    {t}
+                {techStack.map((tech) => (
+                  <Badge key={tech} variant="outline">
+                    {tech}
                   </Badge>
                 ))}
               </div>
@@ -629,7 +672,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
             <CardTitle className="flex items-center justify-between gap-2 text-base">
               <span className="flex items-center gap-2">
                 <StickyNote className="h-4 w-4" />
-                Заметка администратора
+                <Trans>Нотатка адміністратора</Trans>
               </span>
               {adminNote ? (
                 <Button
@@ -639,7 +682,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                   className="h-8 gap-1.5"
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  Изменить
+                  <Trans>Редагувати</Trans>
                 </Button>
               ) : (
                 <Button
@@ -649,7 +692,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                   className="h-8 gap-1.5"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  Добавить
+                  <Trans>Додати</Trans>
                 </Button>
               )}
             </CardTitle>
@@ -658,7 +701,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
             {adminNote ? (
               <p className="whitespace-pre-wrap text-sm text-foreground">{adminNote}</p>
             ) : (
-              <p className="text-sm italic text-muted-foreground">Заметок нет</p>
+              <p className="text-sm italic text-muted-foreground">
+                <Trans>не вказано</Trans>
+              </p>
             )}
           </CardContent>
         </Card>
@@ -667,7 +712,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
       {mode === 'self' && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Личные данные</CardTitle>
+            <CardTitle className="text-base">
+              <Trans>Особисті дані</Trans>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ProfileEditFields user={user} />
@@ -687,23 +734,18 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
               <ShieldCheck className="h-4 w-4 text-green-500" />
-              Пользовательское соглашение
+              <Trans>Умови використання</Trans>
             </CardTitle>
           </CardHeader>
           <CardContent>
             {tosAcceptedAt ? (
               <p className="text-sm text-foreground" data-testid="tos-accepted-text">
-                Принято:{' '}
-                {new Date(tosAcceptedAt).toLocaleDateString('ru-RU', {
-                  day: '2-digit',
-                  month: '2-digit',
-                  year: 'numeric',
-                })}
+                <Trans>Прийнято: {formatDate(tosAcceptedAt, locale, 'short')}</Trans>
                 {tosVersion != null ? `, v${tosVersion}` : ''}
               </p>
             ) : (
               <p className="text-sm text-muted-foreground" data-testid="tos-not-accepted-text">
-                Не принято
+                <Trans>Не прийнято</Trans>
               </p>
             )}
           </CardContent>

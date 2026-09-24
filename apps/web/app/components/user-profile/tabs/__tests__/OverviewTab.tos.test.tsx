@@ -15,9 +15,12 @@
  */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { OverviewTab } from '../OverviewTab'
+
+beforeEach(() => loadCatalog('uk'))
 
 // OverviewTab renders AdminNoteDialog conditionally — it imports a mutation
 // hook internally. Mock the hook to prevent fetch calls in unit tests.
@@ -82,6 +85,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     // Card heading
@@ -107,6 +111,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     expect(screen.getByTestId('tos-acceptance-card')).toBeInTheDocument()
@@ -128,6 +133,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     expect(screen.queryByTestId('tos-acceptance-card')).not.toBeInTheDocument()
