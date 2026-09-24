@@ -517,39 +517,79 @@ function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, un
 }
 
 /**
- * Локализованное «не задана» / `N%` — COPY-H-3: единственный вызывающий,
- * `SHARE_CONFIRM_REQUIRED`, то есть «этот контекст» и есть весь контракт
- * функции.
+ * Реестр «мелких» сообщений реестра — единый Record по той же причине, что
+ * `DETAIL_MESSAGES`/`ACTION_LABELS` ниже: `pnpm i18n:extract` (babel-плагин
+ * Lingui) реально видит `/* i18n *\/`-помеченный объект только как значение
+ * СВОЙСТВА в объектном литерале, а НЕ как инициализатор одиночной
+ * `const X = /* i18n *\/ {…} satisfies MessageDescriptor` — проверено
+ * эмпирически на этом самом файле (10 таких деклараций не извлеклись, пока
+ * их не собрали сюда).
  */
-const PERCENT_TEXT = /* i18n */ {
-  id: 'notification.percentText',
-  message: '{value, select, null {не задана} other {{value}%}}',
-} satisfies MessageDescriptor
+const MISC_MESSAGES = {
+  percentText: /* i18n */ {
+    id: 'notification.percentText',
+    message: '{value, select, null {не задана} other {{value}%}}',
+  },
+  // COPY-H-3: «базова частка» — тот же принятый термин, что и `CONTEXT.md`
+  // («Доля синьора» → «базова частка за замовчуванням»), «базов*» вычищено з
+  // `apps/web` на #648, цей реєстр не повинен повернути його знову.
+  subjectPhrase: /* i18n */ {
+    id: 'notification.subjectPhrase',
+    message:
+      '{kind, select, ' +
+      'PROJECT {проєкт {name, select, null {без назви} other {{name}}}} ' +
+      'PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} ' +
+      'other {частка за замовчуванням}}',
+  },
+  // COPY-M-1: подпись кнопки для «админу» — зависит от вида объекта решения.
+  actionApprovalProject: /* i18n */ {
+    id: 'notification.action.approval.project',
+    message: 'Відкрити проєкт',
+  },
+  actionApprovalProfile: /* i18n */ {
+    id: 'notification.action.approval.profile',
+    message: 'Відкрити профіль',
+  },
+  subjectMissingFallback: /* i18n */ {
+    id: 'notification.subjectMissing.fallback',
+    message: 'Цього більше немає в CRM',
+  },
+  subjectArchivedFallback: /* i18n */ {
+    id: 'notification.subjectArchived.fallback',
+    message: 'Це прибрано в архів',
+  },
+  // ORCH-2 (fix-раунд 6, #664). COPY-M-9 (круг 3): «Решение больше не
+  // требуется» / «Решение уже принято» — не «отозвано»: состояние выводится
+  // из «живой строки согласования для ЭТОГО подтверждающего больше нет», а
+  // туда ведут четыре пути, и два из них — не отзыв.
+  approvalSuperseded: /* i18n */ {
+    id: 'notification.approvalSuperseded',
+    message: 'Рішення більше не потрібне',
+  },
+  approvalDecided: /* i18n */ {
+    id: 'notification.approvalDecided',
+    message: 'Рішення вже прийнято',
+  },
+  open: /* i18n */ {
+    id: 'notification.action.open',
+    message: 'Відкрити',
+  },
+  documentSignUnavailable: /* i18n */ {
+    id: 'notification.action.documentSignUnavailable',
+    message: 'Підпис більше не потрібен',
+  },
+} satisfies Record<string, MessageDescriptor>
 
 function percentText(value: number | null, i18n: I18n): string {
-  return t(i18n, PERCENT_TEXT, { value })
+  return t(i18n, MISC_MESSAGES.percentText, { value })
 }
-
-/**
- * COPY-H-3: «базова частка» — тот же принятый термин, что и `CONTEXT.md`
- * («Доля синьора» → «базова частка за замовчуванням»), «базов*» вычищено из
- * `apps/web` на #648, этот реестр не должен возвращать его снова.
- */
-const SUBJECT_PHRASE = /* i18n */ {
-  id: 'notification.subjectPhrase',
-  message:
-    '{kind, select, ' +
-    'PROJECT {проєкт {name, select, null {без назви} other {{name}}}} ' +
-    'PROJECT_SHARE {частка за проєктом {name, select, null {без назви} other {{name}}}} ' +
-    'other {частка за замовчуванням}}',
-} satisfies MessageDescriptor
 
 function subjectPhrase(
   kind: 'PROJECT' | 'PROJECT_SHARE' | 'BASE_SHARE',
   name: string | null,
   i18n: I18n,
 ): string {
-  return t(i18n, SUBJECT_PHRASE, { kind, name })
+  return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, name })
 }
 
 const DETAIL_MESSAGES = {
@@ -813,15 +853,6 @@ const ACTION_LABELS: Record<
   },
 }
 
-const ACTION_LABEL_APPROVAL_PROJECT = /* i18n */ {
-  id: 'notification.action.approval.project',
-  message: 'Відкрити проєкт',
-} satisfies MessageDescriptor
-const ACTION_LABEL_APPROVAL_PROFILE = /* i18n */ {
-  id: 'notification.action.approval.profile',
-  message: 'Відкрити профіль',
-} satisfies MessageDescriptor
-
 /**
  * Подпись кнопки для «админу» — зависит от вида объекта решения (COPY-M-1):
  * USER — решение по базовой доле сотрудника, ведёт в его профиль; всё
@@ -835,7 +866,9 @@ function actionLabelFor(
   if (type === 'APPROVAL_CONFIRMED' || type === 'APPROVAL_REJECTED') {
     return t(
       i18n,
-      subjectType === 'USER' ? ACTION_LABEL_APPROVAL_PROFILE : ACTION_LABEL_APPROVAL_PROJECT,
+      subjectType === 'USER'
+        ? MISC_MESSAGES.actionApprovalProfile
+        : MISC_MESSAGES.actionApprovalProject,
     )
   }
   return t(
@@ -863,14 +896,9 @@ const SUBJECT_MISSING_LABELS: Record<NotificationSubjectType, MessageDescriptor>
     message: 'Контракт видалено',
   },
 }
-const SUBJECT_MISSING_FALLBACK = /* i18n */ {
-  id: 'notification.subjectMissing.fallback',
-  message: 'Цього більше немає в CRM',
-} satisfies MessageDescriptor
-
 function subjectMissingLabel(subjectType: NotificationSubjectType | null, i18n: I18n): string {
   return subjectType === null
-    ? t(i18n, SUBJECT_MISSING_FALLBACK)
+    ? t(i18n, MISC_MESSAGES.subjectMissingFallback)
     : t(i18n, SUBJECT_MISSING_LABELS[subjectType])
 }
 
@@ -894,14 +922,9 @@ const SUBJECT_ARCHIVED_LABELS: Record<NotificationSubjectType, MessageDescriptor
     message: 'Контракт в архіві',
   },
 }
-const SUBJECT_ARCHIVED_FALLBACK = /* i18n */ {
-  id: 'notification.subjectArchived.fallback',
-  message: 'Це прибрано в архів',
-} satisfies MessageDescriptor
-
 function subjectArchivedLabel(subjectType: NotificationSubjectType | null, i18n: I18n): string {
   return subjectType === null
-    ? t(i18n, SUBJECT_ARCHIVED_FALLBACK)
+    ? t(i18n, MISC_MESSAGES.subjectArchivedFallback)
     : t(i18n, SUBJECT_ARCHIVED_LABELS[subjectType])
 }
 
@@ -947,25 +970,6 @@ export type RenderableNotification = {
  * подтверждающего больше нет», а туда ведут четыре пути, и два из них — не
  * отзыв.
  */
-const APPROVAL_SUPERSEDED_LABEL = /* i18n */ {
-  id: 'notification.approvalSuperseded',
-  message: 'Рішення більше не потрібне',
-} satisfies MessageDescriptor
-const APPROVAL_DECIDED_LABEL = /* i18n */ {
-  id: 'notification.approvalDecided',
-  message: 'Рішення вже прийнято',
-} satisfies MessageDescriptor
-
-const OPEN_LABEL = /* i18n */ {
-  id: 'notification.action.open',
-  message: 'Відкрити',
-} satisfies MessageDescriptor
-
-const DOCUMENT_SIGN_UNAVAILABLE_LABEL = /* i18n */ {
-  id: 'notification.action.documentSignUnavailable',
-  message: 'Підпис більше не потрібен',
-} satisfies MessageDescriptor
-
 export function notificationActions(
   n: RenderableNotification,
   locale: Locale,
@@ -980,7 +984,7 @@ export function notificationActions(
     // COPY-M-8 (circle 2): «статус ≠ READY_TO_SIGN» ведёт к ТРЁМ переходам —
     // сказано ровно то, что известно.
     if (n.type === 'DOCUMENT_SIGN_REQUIRED') {
-      return [{ label: t(i18n, DOCUMENT_SIGN_UNAVAILABLE_LABEL), href: null, disabled: true }]
+      return [{ label: t(i18n, MISC_MESSAGES.documentSignUnavailable), href: null, disabled: true }]
     }
     return [{ label: subjectMissingLabel(n.subjectType, i18n), href: null, disabled: true }]
   }
@@ -990,10 +994,10 @@ export function notificationActions(
   }
   // ORCH-2 (fix-раунд 6): ПОСЛЕ объекта (missing/archived) и отдельно от него.
   if (n.approvalDecided === true) {
-    return [{ label: t(i18n, APPROVAL_DECIDED_LABEL), href: null, disabled: true }]
+    return [{ label: t(i18n, MISC_MESSAGES.approvalDecided), href: null, disabled: true }]
   }
   if (n.approvalSuperseded === true) {
-    return [{ label: t(i18n, APPROVAL_SUPERSEDED_LABEL), href: null, disabled: true }]
+    return [{ label: t(i18n, MISC_MESSAGES.approvalSuperseded), href: null, disabled: true }]
   }
   if (isNewNotificationType(n.type) && n.subjectType !== null && n.subjectId !== null) {
     return [
@@ -1006,7 +1010,7 @@ export function notificationActions(
   }
   // Старые типы (и любой тип из будущего) ведут по сохранённой ссылке.
   if (n.link !== null) {
-    return [{ label: t(i18n, OPEN_LABEL), href: n.link, disabled: false }]
+    return [{ label: t(i18n, MISC_MESSAGES.open), href: n.link, disabled: false }]
   }
   return []
 }

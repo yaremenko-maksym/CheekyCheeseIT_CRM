@@ -24,10 +24,54 @@ msgstr "{0, plural, one {# income entry is waiting for your review} other {# inc
 msgid "{0} із {1}"
 msgstr "{0} of {1}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_CONFIRMED.detail"
+msgstr "{approverName} — {subjectPhrase}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.noReason"
+msgstr "{approverName} — {subjectPhrase}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.project"
+msgstr "{change} · project {projectName, select, null {untitled} other {{projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectPhrase"
+msgstr "{kind, select, PROJECT {project {name, select, null {untitled} other {{name}}}} PROJECT_SHARE {share on project {name, select, null {untitled} other {{name}}}} other {default share}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_NEW_MEMBER.detail"
+msgstr "{memberName} · team {teamName}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# obligation} other {# obligations}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.detail"
+msgstr "{projectName, select, null {{money}} other {{money} · project {projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.withReason"
+msgstr ""
+"{quote}\n"
+"{approverName} — {subjectPhrase}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason"
+msgstr ""
+"{quote}\n"
+"Rejected: {money}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "{role, select, SENIOR {сеньйор} DROP {дроп} other {співробітник}}"
@@ -36,6 +80,11 @@ msgstr "{role, select, SENIOR {senior} DROP {drop} other {employee}}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{role, select, SENIOR {senior's} DROP {drop's} other {employee's}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.percentText"
+msgstr "{value, select, null {not set} other {{value}%}}"
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -359,6 +408,11 @@ msgstr "One of the shares has no saved percentage — it can only be recalculate
 msgid "Вакансії"
 msgstr "Vacancies"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.VACANCY_APPLICATION.detail"
+msgstr "Vacancy “{vacancyTitle}”"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
 msgstr "Income validation"
@@ -366,6 +420,11 @@ msgstr "Income validation"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Validated this month"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.validated"
+msgstr "Validated: {money}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -383,9 +442,24 @@ msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "{currency} can't be converted to USDT"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.title"
+msgstr "A transaction was added for you"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_MEMBER_ADDED.title"
+msgstr "You were added to a team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_MEMBER_ADDED.title"
+msgstr "You were added to a project"
 
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -637,9 +711,69 @@ msgstr "Paid out this month"
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "No open obligation found for this transaction"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.open"
+msgstr "Open"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.VACANCY_APPLICATION"
+msgstr "Open vacancy"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TEAM_MEMBER_ADDED"
+msgstr "Open team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TEAM_NEW_MEMBER"
+msgstr "Open team"
+
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
 msgstr "Open menu"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.approval.project"
+msgstr "Open project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.PROJECT_MEMBER_ADDED"
+msgstr "Open project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.PROJECT_CONFIRM_REQUIRED"
+msgstr "Open project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.SHARE_CONFIRM_REQUIRED"
+msgstr "Open proposal"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.approval.profile"
+msgstr "Open profile"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.INVOICE_SIGNED"
+msgstr "Open invoice"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TRANSACTION_ADDED"
+msgstr "Open finances"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TRANSACTION_STATUS_CHANGED"
+msgstr "Open finances"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
@@ -679,6 +813,11 @@ msgstr "Sender and receiver cannot be the same"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN"
 msgstr "The sender must be an admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
+msgstr "Rejected: {money}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1322,11 +1461,21 @@ msgstr "Each approver can be added only once"
 msgid "Команда"
 msgstr "Team"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_MEMBER_ADDED.detail"
+msgstr "Team {teamName}"
+
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Team <0>{0}</0> and its drop <1>{dropName}</1> are a linked pair — you cannot remove just one. Archiving covers: the drop's <2>profile</2>, the team and all its drop projects ({1, plural, one {# project} other {# projects}}{projectNamesSuffix})."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.TEAM"
+msgstr "Team archived"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -1336,6 +1485,11 @@ msgstr "Command menu"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ALREADY_ARCHIVED"
 msgstr "The team is already archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.TEAM"
+msgstr "Team deleted"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1375,6 +1529,21 @@ msgstr "This contract can no longer be edited"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_NOT_DRAFT"
 msgstr "This contract is no longer a draft — refresh the page"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.EMPLOYEE_CONTRACT"
+msgstr "Contract archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.EMPLOYEE_CONTRACT"
+msgstr "Contract deleted"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
+msgstr "Contract to sign"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1781,6 +1950,11 @@ msgstr "Telegram handle: 5–32 characters — Latin letters, digits or _"
 msgid "Нова версія умов"
 msgstr "New Terms version"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.VACANCY_APPLICATION.title"
+msgstr "New vacancy application"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 msgstr "The new Terms of Service version has been published. Users will see a notification."
@@ -2034,9 +2208,24 @@ msgid "Підготовка файлу…"
 msgstr "Preparing file…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.documentSignUnavailable"
+msgstr "Signature no longer needed"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Signed contract not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.DOCUMENT_SIGN_REQUIRED"
+msgstr "Sign contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.INVOICE_SIGN_REQUIRED"
+msgstr "Sign invoice"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Підтверджені доходи, які ви ще не перерахували"
@@ -2211,10 +2400,30 @@ msgstr "Only a document in the Receipt category can be attached to a transaction
 msgid "zod-error.REJECTION_REASON_TOO_LONG"
 msgstr "Rejection reason — 500 characters max"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_MEMBER_ADDED.detail"
+msgstr "Project {projectName}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.detail"
+msgstr "Project {projectName}"
+
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, інвойси) залишається доступною."
 msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unlinked. The senior and team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.PROJECT"
+msgstr "Project archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.PROJECT"
+msgstr "Project deleted"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2225,6 +2434,11 @@ msgstr "The project is not archived"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_NOT_FOUND"
 msgstr "Project not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
+msgstr "Project awaiting decision"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2256,6 +2470,21 @@ msgstr "Your projects as senior"
 msgid "Проєктів не оплачено цього місяця"
 msgstr "Projects unpaid this month"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.title"
+msgstr "Proposal rejected"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_CONFIRMED.title"
+msgstr "Proposal accepted"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.title"
+msgstr "Share proposal"
+
 #. placeholder {0}: item.proposedBy
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Пропонує {0}"
@@ -2265,6 +2494,16 @@ msgstr "Proposed by {0}"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Profile"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.USER"
+msgstr "Profile archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.USER"
+msgstr "Profile deleted"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"
@@ -2302,6 +2541,16 @@ msgstr "Invoice not found"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
 msgstr "An invoice isn't issued for this transaction type"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGN_REQUIRED.title"
+msgstr "Invoice awaiting signature"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.title"
+msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2352,6 +2601,21 @@ msgstr "Company details must not exceed {maxChars, number} characters"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Company details must not exceed 10,000 characters"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.approvalSuperseded"
+msgstr "Decision no longer needed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.approvalDecided"
+msgstr "Decision already made"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.title"
+msgstr "Decision on income"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2638,6 +2902,11 @@ msgid "api-error.FINANCE_TRANSACTION_ALREADY_DELETED"
 msgstr "The transaction is already deleted"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.TRANSACTION"
+msgstr "Transaction deleted"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSACTION_DELETED_RESTORE_FIRST"
 msgstr "The transaction is deleted — restore it first"
@@ -2661,6 +2930,11 @@ msgstr "The transaction was paid or deleted while you were editing it — refres
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_NOT_CONFIRMED_ONCHAIN"
 msgstr "The transaction isn't confirmed on-chain yet — try again later"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.TRANSACTION"
+msgstr "Transaction archived"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2705,6 +2979,11 @@ msgstr "The team must keep at least one accountant"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE"
 msgstr "The team has no active senior, so it can't be archived"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_NEW_MEMBER.title"
+msgstr "New team member"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2861,6 +3140,11 @@ msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "This isn't a company obligation"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.fallback"
+msgstr "Moved to archive"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.AVATAR_DOCUMENT_WRONG_OWNER"
 msgstr "This document belongs to another user"
@@ -2917,6 +3201,11 @@ msgstr "This transaction hash has already been used for another payout"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "This transaction hash has already been used for a payout or a company account deposit"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.fallback"
+msgstr "No longer in the CRM"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2978,6 +3267,11 @@ msgstr "The drop's share from this payout didn't go through the company account 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка дропа у відсотках"
 msgstr "Drop's share, percent"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.base"
+msgstr "Default share: {change}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
