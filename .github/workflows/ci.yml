@@ -682,6 +682,35 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+    # No explicit ceiling existed here before task-mutation-gate-dryrun-timeout
+    # (2026-09-24) — the job silently ran under GitHub's own 360min (6h)
+    # per-job default, an implicit number this file never stated anywhere.
+    # 75 is a REASONED ceiling, not "large enough it can never fire" (the same
+    # standard the "Mutation gate (changed code only)" step's own comment,
+    # below, already holds MUTATION_BUDGET_SECONDS to):
+    #   ~10 min  setup margin (checkout, pnpm/node setup, actions/cache, Typst
+    #            install, `pnpm install --frozen-lockfile`, `pnpm build`) —
+    #            measured 54s-63s on a cache hit across several recent runs
+    #            (`gh run view <id> --json jobs` on this job's own steps), this
+    #            is generous headroom for a cold Typst-cache miss or a loaded
+    #            runner, not the observed figure itself.
+    #   60 min   MUTATION_BUDGET_SECONDS=3600 below — the gate's OWN external
+    #            kill switch for the whole per-package Stryker run (dry run +
+    #            mutation testing together), unchanged by this task. Stryker's
+    #            OWN internal dryRunTimeoutMinutes (20, mutation-gate.mjs
+    #            default post-task-mutation-gate-dryrun-timeout) bounds just
+    #            the initial dry-run PHASE and is NESTED inside this 60,
+    #            never additive to it — a run whose dry run alone needed the
+    #            full 20 still has 40 min left for the mutation phase before
+    #            the outer 60-min kill fires.
+    #   ~2 min   report upload + label step + job teardown margin.
+    # 75 keeps a real, bounded ceiling (a value that could not go red is
+    # useless the same way a budget that quietly passes under load is, per
+    # mutation-gate.mjs's own TIME BUDGET section) while leaving > 30% margin
+    # over the reasoned 72min sum above for exactly the runner-contention
+    # variance already measured and documented on the step's budget below
+    # (2.7x spread from host load alone, PR #613).
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
