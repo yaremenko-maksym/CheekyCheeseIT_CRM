@@ -792,6 +792,25 @@ describe('notificationActions — крайние случаи', () => {
     ).toEqual([{ label: 'Відкрити команду', href: '/team', disabled: false }])
   })
 
+  // COPY-M-3 / `actionLabelForLink`: APPROVAL_CONFIRMED/APPROVAL_REJECTED не
+  // входят в `ACTION_LABELS` (у них своя подпись через `actionLabelFor` на
+  // ВЕРХНЕЙ ветке — subjectType/subjectId), но если malformed-запись всё же
+  // попадёт на ветку «по ссылке» (subjectType/subjectId не заданы — то, чего
+  // реальный продюсер не делает, но тип этого не запрещает), `actionLabelForLink`
+  // обязан вернуть общее «Відкрити», а не `ACTION_LABELS['APPROVAL_CONFIRMED']`
+  // (которого в карте нет вовсе — обращение бросило бы).
+  it.each(['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'] as const)(
+    '%s без вида объекта на ссылке — общее «Відкрити», не падение',
+    (type) => {
+      expect(
+        notificationActions(
+          { ...base, type, subjectType: null, subjectId: null, link: '/pending', data: null },
+          UK,
+        ),
+      ).toEqual([{ label: 'Відкрити', href: '/pending', disabled: false }])
+    },
+  )
+
   it('исчезнувший объект гасит кнопку даже у типа со ссылкой', () => {
     expect(
       notificationActions(

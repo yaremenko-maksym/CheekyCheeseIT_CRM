@@ -643,6 +643,7 @@ function subjectPhrase(
 ): string {
   // SR-L-1: `hasName` selects the branch, `name` is substitution-only — see
   // the doc comment on `MISC_MESSAGES.subjectPhrase`.
+  // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED's hasProject — ICU only branches on hasName === 'no'.
   return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, hasName: name === null ? 'no' : 'yes', name })
 }
 
@@ -741,6 +742,7 @@ export function describeNotification<T extends NewNotificationType>(
       const d = data as NotificationDataByType['TRANSACTION_ADDED']
       return t(i18n, DETAIL_MESSAGES.TRANSACTION_ADDED, {
         money: money(d, locale),
+        // Stryker disable next-line StringLiteral: the ICU template only branches on hasProject === 'no' vs anything else — any non-'no' value is unobservable, mutating 'yes' cannot change rendered output.
         hasProject: d.projectName === null ? 'no' : 'yes',
         projectName: d.projectName,
       })
@@ -798,6 +800,7 @@ export function describeNotification<T extends NewNotificationType>(
         ? t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_BASE, { change })
         : t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_PROJECT, {
             change,
+            // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED above — ICU only branches on hasProject === 'no'.
             hasProject: d.projectName === null ? 'no' : 'yes',
             projectName: d.projectName,
           })
