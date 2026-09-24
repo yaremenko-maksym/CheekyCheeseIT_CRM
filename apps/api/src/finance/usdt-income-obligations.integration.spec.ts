@@ -1054,7 +1054,9 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
 
       await expect(
         svc.manualConfirmPayout(pr.id, 'COMPANY_ACCOUNT', ADMIN_MAKSYM, { txHash: REAL_HASH }),
-      ).rejects.toThrowError(/уже использован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+      })
 
       const after = await dbSvc.db.query.payoutRequests.findFirst({
         where: eq(payoutRequests.id, pr.id),
