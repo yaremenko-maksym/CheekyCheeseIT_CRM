@@ -104,6 +104,17 @@ describe('useArchiveEntity — error toast', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
   })
 
+  it('a response with NO data at all does not throw reading .message off it — falls back cleanly', async () => {
+    // Distinct from the `data: {}` case above: `{}.message` never touches
+    // the `data?.` link at all (a defined object's missing key is
+    // `undefined` already) — only `data` itself being absent exercises
+    // THAT specific optional-chaining link.
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue({ response: {} })
+    renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
+    await userEvent.click(screen.getByTestId('fire'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося заархівувати'))
+  })
+
   it('a rejection value that is not an object at all does not throw — falls back cleanly', async () => {
     ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(null)
     renderProbe(() => useArchiveEntity('project', 'e-1'), undefined)
