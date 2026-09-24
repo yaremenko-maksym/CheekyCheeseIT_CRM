@@ -1,4 +1,5 @@
 import { setupI18n, type I18n } from '@lingui/core'
+import { compileMessage } from '@lingui/message-utils/compileMessage'
 import type { Locale } from './locales'
 
 /**
@@ -47,8 +48,23 @@ function loadMessages(locale: Locale): Record<string, unknown> {
   }
 }
 
-/** One instance per request / per recipient — never activate a global singleton on the server. */
+/**
+ * One instance per request / per recipient — never activate a global singleton on the server.
+ *
+ * task-i18n-stage4-task6 (Уточнения оркестратора п.1, same fix as `apps/api/src/common/api-
+ * error.ts`'s `interpolate()`, SR-M-1 PR #704 fix-round 1): `@lingui/core`'s `I18n` constructor
+ * only self-registers `compileMessage` as the message compiler when
+ * `process.env.NODE_ENV !== 'production'` — the compiled catalog (`lingui compile --typescript`)
+ * ships its messages as an already-parsed array form that needs no runtime compiler, but any
+ * `i18n._(id, params, { message })` call whose `id` is missing from the compiled catalog (a
+ * drifted `pnpm i18n:extract`, or a caller that only ever uses the inline fallback) falls back to
+ * the RAW ICU `message` string — which on prod (`NODE_ENV=production`) would render verbatim
+ * (braces and all) instead of being parsed, exactly the defect #704 found in `api-error.ts`.
+ * Registering the compiler explicitly, unconditionally, makes every `createI18n()` instance behave
+ * identically in dev/test and prod regardless of that env-gated default.
+ */
 export function createI18n(locale: Locale): I18n {
   const i18n = setupI18n({ locale, messages: { [locale]: loadMessages(locale) } })
+  i18n.setMessagesCompiler(compileMessage)
   return i18n
 }
