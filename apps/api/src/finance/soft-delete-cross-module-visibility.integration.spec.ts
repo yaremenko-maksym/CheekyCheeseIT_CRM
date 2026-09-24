@@ -56,7 +56,6 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -330,9 +329,9 @@ describe.skipIf(!hasDatabaseUrl())(
         await txSvc.adminDeleteTransaction(SENIOR_INCOME_TX_ID, 'HIGH-1 regression proof', ADMIN_1)
 
         const svc = makeInvoicesSvc()
-        await expect(svc.getInvoice(SENIOR_1, SENIOR_INCOME_TX_ID)).rejects.toThrow(
-          NotFoundException,
-        )
+        await expect(svc.getInvoice(SENIOR_1, SENIOR_INCOME_TX_ID)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+        })
         const adminView = await svc.getInvoice(ADMIN_1, SENIOR_INCOME_TX_ID)
         expect(adminView.transactionId).toBe(SENIOR_INCOME_TX_ID)
       })
@@ -353,8 +352,8 @@ describe.skipIf(!hasDatabaseUrl())(
 
         const svc = makeInvoicesSvc()
         const fakeReq = { ip: '1.2.3.4', headers: {} } as never
-        await expect(svc.signInvoice(SENIOR_1, SENIOR_INCOME_TX_ID, fakeReq)).rejects.toThrow(
-          NotFoundException,
+        await expect(svc.signInvoice(SENIOR_1, SENIOR_INCOME_TX_ID, fakeReq)).rejects.toMatchObject(
+          { response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }) },
         )
         expect(pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
         expect(documentsService.uploadInternal).not.toHaveBeenCalled()
@@ -385,7 +384,9 @@ describe.skipIf(!hasDatabaseUrl())(
         const fakeReq = { ip: '1.2.3.4', headers: {} } as never
         await expect(
           svc.signInvoice(ACCOUNTANT_1, PRIVILEGED_SALARY_TX_ID, fakeReq),
-        ).rejects.toThrow(BadRequestException)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_DELETED_RESTORE_FIRST' }),
+        })
         expect(pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
         expect(documentsService.uploadInternal).not.toHaveBeenCalled()
         expect(s3.getObject).not.toHaveBeenCalled()
@@ -413,7 +414,9 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(verified.transactionId).toBe(SENIOR_INCOME_TX_ID)
 
         await txSvc.adminDeleteTransaction(SENIOR_INCOME_TX_ID, 'HIGH-1 verify regression', ADMIN_1)
-        await expect(svc.verifyInvoice(SENIOR_INCOME_TX_ID)).rejects.toThrow(NotFoundException)
+        await expect(svc.verifyInvoice(SENIOR_INCOME_TX_ID)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'INVOICE_NOT_FOUND' }),
+        })
 
         await db
           .delete(schema.invoiceSignatures)
@@ -431,9 +434,9 @@ describe.skipIf(!hasDatabaseUrl())(
 
       it('a non-owner, non-privileged stranger gets 403 while the row is active (RBAC sanity check)', async () => {
         const svc = makeCompanyAccountSvc()
-        await expect(svc.getDepositStatus(DEPOSIT_TX_ID, JUNIOR_STRANGER)).rejects.toThrow(
-          ForbiddenException,
-        )
+        await expect(svc.getDepositStatus(DEPOSIT_TX_ID, JUNIOR_STRANGER)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN' }),
+        })
       })
 
       it('owner sees the still-PENDING deposit while active (scripted Etherscan never confirms it)', async () => {
@@ -446,9 +449,9 @@ describe.skipIf(!hasDatabaseUrl())(
         await txSvc.adminDeleteTransaction(DEPOSIT_TX_ID, 'HIGH-2 regression proof', ADMIN_1)
 
         const svc = makeCompanyAccountSvc()
-        await expect(svc.getDepositStatus(DEPOSIT_TX_ID, SENIOR_1)).rejects.toThrow(
-          NotFoundException,
-        )
+        await expect(svc.getDepositStatus(DEPOSIT_TX_ID, SENIOR_1)).rejects.toMatchObject({
+          response: expect.objectContaining({ code: 'FINANCE_TRANSACTION_NOT_FOUND' }),
+        })
       })
 
       it('ADMIN still gets a real PENDING status back — NOT a 400 (the MED this round fixed)', async () => {
