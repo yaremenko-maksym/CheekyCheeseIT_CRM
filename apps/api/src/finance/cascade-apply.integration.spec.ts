@@ -578,7 +578,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: stale.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/no longer applies/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_CASCADE_PREVIEW_STALE',
+        statusCode: 409,
+      }),
+    })
 
     // Not one row moved — including the SOURCE, whose own edit is inside the
     // same transaction.
@@ -706,7 +711,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2500, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/currency/i)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
+        statusCode: 400,
+      }),
+    })
 
     const after = await derivativeFor(SENIOR.id)
     expect(after.row.amount).toBe((await derivativeFor(SENIOR.id)).row.amount)
@@ -963,7 +973,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xcascadetopup',
       }),
-    ).rejects.toThrow(/must come from the same source/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
 
     // Nothing moved. Without the guard the row would have dropped out of term
     // 7 (funding_source no longer COMPANY_ACCOUNT) AND out of term 9 (status
@@ -1001,9 +1016,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     await editWithPreview(source.id, 2000)
 
     const reopened = await derivativeFor(SENIOR.id)
-    await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toThrow(
-      /must come from the same source/,
-    )
+    await expect(settleSvc.settleByCompany(reopened.obligation.id, ADMIN)).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('risk 23 (SR-M-5): a top-up by a DIFFERENT admin partner is refused, same pot or not', async () => {
@@ -1039,7 +1057,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         currency: 'USDT',
         receiptExternalUrl: 'https://etherscan.io/tx/0xadmintwo',
       }),
-    ).rejects.toThrow(/must come from the same source/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
 
     expect((await derivativeFor(SENIOR.id)).row.senderId).toBe(ADMIN.id)
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PENDING')
@@ -1302,7 +1325,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/a manual reconciliation is needed/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
+        statusCode: 400,
+      }),
+    })
 
     // Zero writes — including on the SENIOR derivative, which was perfectly
     // fine. The cascade is all-or-nothing.
@@ -1337,7 +1365,12 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/a manual reconciliation is needed/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
+        statusCode: 400,
+      }),
+    })
 
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)

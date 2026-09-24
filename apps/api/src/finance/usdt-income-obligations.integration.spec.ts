@@ -487,7 +487,12 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         },
         DROP,
       ),
-    ).rejects.toThrow(/USDT project/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY',
+        statusCode: 403,
+      }),
+    })
     await expect(
       svc.createSeniorIncome(
         {
@@ -498,7 +503,12 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         },
         SENIOR,
       ),
-    ).rejects.toThrow(/USDT project/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY',
+        statusCode: 403,
+      }),
+    })
 
     // FOP project: DROP declares fine (returns the created income).
     // task-receipts-backend (review round 1): currency='USDT' now requires a
@@ -545,7 +555,12 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
         { projectId: FOP_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       ),
-    ).rejects.toThrow(/USDT project/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH',
+        statusCode: 400,
+      }),
+    })
   })
 
   it('AC10: receiver=ADMIN X → ADMIN_INCOME(funding=null, receiverId=X)', async () => {
@@ -647,7 +662,12 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
     await settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
     await expect(
       settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
-    ).rejects.toThrow(/already closed/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_OBLIGATION_ALREADY_CLOSED',
+        statusCode: 400,
+      }),
+    })
     // Exactly one PAYOUT_DROP settlement row.
     expect(await txsOfType('PAYOUT_DROP')).toHaveLength(1)
   })
@@ -804,7 +824,12 @@ describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle
 
     await expect(
       settle(seniorObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
-    ).rejects.toThrow(/isn't in pending-payout status/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING',
+        statusCode: 400,
+      }),
+    })
 
     // The whole transaction rolled back — the obligation claim is UNDONE, not
     // left half-closed. If this were only a mock we could not observe this; on

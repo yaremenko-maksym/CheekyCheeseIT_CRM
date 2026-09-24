@@ -938,13 +938,21 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1001',
         }),
-      ).rejects.toThrow(/didn't go through the company account/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // Legacy no-funding call ALSO defaults to COMPANY_ACCOUNT for a COMPANY
       // debt (useCompanyAccount=isCompanyDebt) — the guard covers this branch too.
-      await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toThrow(
-        /didn't go through the company account/,
-      )
+      await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched — the rejected attempts are pure no-ops.
       expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
@@ -1017,7 +1025,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1r3001',
         }),
-      ).rejects.toThrow(/didn't go through the company account/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched.
       expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
@@ -1054,7 +1067,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4001',
         }),
-      ).rejects.toThrow(/didn't go through the company account/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT',
+          statusCode: 400,
+        }),
+      })
 
       // No money moved, obligation untouched by the rejected attempt.
       expect(await displayBalance()).toBeCloseTo(before, 6)

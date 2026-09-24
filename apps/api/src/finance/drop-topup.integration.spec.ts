@@ -517,7 +517,12 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
         currency: 'UAH',
         receiptExternalUrl: 'https://drive.google.com/file/uah-topup-receipt',
       }),
-    ).rejects.toThrow(/only possible in/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY',
+        statusCode: 400,
+      }),
+    })
 
     const after = await derivativeFor(DROP.id)
     expect(after.obligation.status).toBe('PENDING')
@@ -608,7 +613,12 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
         currency: 'USDT',
         receiptExternalUrl: SECOND_RECEIPT,
       }),
-    ).rejects.toThrow(/must come from the same source/)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({
+        code: 'FINANCE_SETTLEMENT_FUNDING_SOURCE_MUST_MATCH',
+        statusCode: 400,
+      }),
+    })
 
     // Nothing moved: without the guard the row would drop out of term 7 (its
     // funding marker gone) AND out of term 9 (no longer PENDING_PAYMENT), and

@@ -236,7 +236,11 @@ describe.skipIf(!hasDatabaseUrl())(
       const rejected = results.filter((r) => r.status === 'rejected')
       expect(fulfilled).toHaveLength(1)
       expect(rejected).toHaveLength(1)
-      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already paid/)
+      const reason = (rejected[0] as PromiseRejectedResult).reason as {
+        response?: { code?: string; statusCode?: number }
+      }
+      expect(reason.response?.code).toBe('FINANCE_PAYOUT_REQUEST_ALREADY_PAID')
+      expect(reason.response?.statusCode).toBe(400)
 
       // The payout flipped to PAID exactly once.
       const pr = await dbSvc.db.query.payoutRequests.findFirst({

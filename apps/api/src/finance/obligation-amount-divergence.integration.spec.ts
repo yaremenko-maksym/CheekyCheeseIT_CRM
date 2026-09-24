@@ -423,7 +423,12 @@ describe.skipIf(!hasDatabaseUrl())(
           fundingSource: 'COMPANY_ACCOUNT',
           receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencespec',
         }),
-      ).rejects.toThrow(/Insufficient funds/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({
+          code: 'FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS',
+          statusCode: 400,
+        }),
+      })
 
       // No partial debit — the rejected settle changed nothing on the ledger.
       expect(await gateBalance()).toBeCloseTo(afterDeclare, 6)
@@ -577,7 +582,12 @@ describe.skipIf(!hasDatabaseUrl())(
             fundingSource: 'COMPANY_ACCOUNT',
             receiptExternalUrl: 'https://etherscan.io/tx/0xobligationdivergencedropspec',
           }),
-        ).rejects.toThrow(/changed after loading/)
+        ).rejects.toMatchObject({
+          response: expect.objectContaining({
+            code: 'FINANCE_OBLIGATION_AMOUNT_CHANGED',
+            statusCode: 400,
+          }),
+        })
       } finally {
         svcAsPrivate.loadObligation = originalLoadObligation
       }
