@@ -81,6 +81,17 @@ describe('teamTelegramChannelSchema', () => {
       'zod.TELEGRAM_CHANNEL_FORMAT',
     )
   })
+
+  // mutation-gate closure: a mutant that drops the trailing `$` anchor from
+  // the regex still matches a VALID 5-32-char prefix followed by garbage
+  // (`.test()` only needs a match starting at index 0, not the whole
+  // string) — the two tests above never exercise a string that is valid at
+  // the START and invalid only at the END.
+  it('rejects a valid-prefix handle followed by trailing garbage (pins the end-of-string anchor)', () => {
+    expect(() => teamTelegramChannelSchema.parse('valid_channel!!!not-allowed')).toThrow(
+      'zod.TELEGRAM_CHANNEL_FORMAT',
+    )
+  })
 })
 
 describe('updateTeamSchema', () => {

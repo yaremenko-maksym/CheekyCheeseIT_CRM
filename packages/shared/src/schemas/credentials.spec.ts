@@ -38,6 +38,10 @@ describe('createCredentialSchema', () => {
   it('accepts optional login/url/notes as absent', () => {
     expect(() => createCredentialSchema.parse(valid)).not.toThrow()
   })
+
+  it('rejects a label over 200 characters', () => {
+    expect(() => createCredentialSchema.parse({ ...valid, label: 'a'.repeat(201) })).toThrow()
+  })
 })
 
 describe('updateCredentialSchema', () => {
@@ -55,5 +59,30 @@ describe('updateCredentialSchema', () => {
     expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
       'zod.CREDENTIAL_LABEL_REQUIRED',
     )
+  })
+
+  it('accepts a label at exactly 200 characters', () => {
+    expect(() => updateCredentialSchema.parse({ label: 'a'.repeat(200) })).not.toThrow()
+  })
+
+  it('rejects a label over 200 characters', () => {
+    expect(() => updateCredentialSchema.parse({ label: 'a'.repeat(201) })).toThrow()
+  })
+
+  it('accepts label omitted entirely (leave unchanged)', () => {
+    expect(() => updateCredentialSchema.parse({ login: 'x' })).not.toThrow()
+  })
+
+  it('rejects a whitespace-only label (trimmed before the min-length check)', () => {
+    const result = updateCredentialSchema.safeParse({ label: '   ' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.CREDENTIAL_LABEL_REQUIRED',
+    )
+  })
+
+  it('trims surrounding whitespace from an accepted label', () => {
+    const result = updateCredentialSchema.parse({ label: '  Prod DB  ' })
+    expect(result.label).toBe('Prod DB')
   })
 })

@@ -1018,4 +1018,72 @@ describe('EmployeeContractsService', () => {
       expect(v?.isEmpty).toBe(false)
     })
   })
+
+  // ─── getContractVariables — label renders on the EMPLOYEE's locale ───────────
+  // task-i18n-stage4-task5: `CONTRACT_VARIABLE_DESCRIPTIONS` became
+  // `MessageDescriptor`s — `label` is resolved through
+  // `createI18n(user.locale)`, not read as a plain string. This is the one
+  // server-side consumer that reaches a non-admin employee (filling in their
+  // own contract's variables), so it renders on THEIR locale, not a fixed one.
+  describe('getContractVariables — label locale (task-i18n-stage4-task5)', () => {
+    const baseUser = {
+      id: 'user-uuid',
+      role: 'SENIOR' as const,
+      seniorSharePercent: 26,
+      dropSharePercent: null,
+      email: 'test@example.com',
+      displayName: 'Test User',
+      legalFullName: null,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      paymentMethod: null,
+      monthlySalary: null,
+      salaryCurrency: null,
+      phone: null,
+      registrationAddress: null,
+    }
+
+    function makeLabelService(userOverrides: Record<string, unknown> = {}) {
+      const contract = makeContract({ bodyMarkdown: '{{employeeName}}', customValues: {} })
+      const { service, db } = makeService(
+        {},
+        { id: 'template-uuid', bodyMarkdown: '{{employeeName}}', customVariables: [] },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue({ ...baseUser, ...userOverrides })
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ customVariables: [] }]),
+          }),
+        }),
+      })
+      return service
+    }
+
+    it('renders the uk label for a user with locale=uk', async () => {
+      const service = makeLabelService({ locale: 'uk' })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe('Повне ім’я співробітника')
+    })
+
+    it('renders the en label for a user with locale=en (proves the ternary actually branches)', async () => {
+      const service = makeLabelService({ locale: 'en' })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe("Employee's full name")
+    })
+
+    it('falls back to uk when locale is absent from the row (defensive, not the live schema default)', async () => {
+      const service = makeLabelService({ locale: undefined })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.label).toBe('Повне ім’я співробітника')
+    })
+  })
 })

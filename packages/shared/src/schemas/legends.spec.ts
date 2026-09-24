@@ -63,6 +63,28 @@ describe('upsertLegendSchema', () => {
   it('accepts a null dateOfBirth', () => {
     expect(() => upsertLegendSchema.parse({ ...valid, dateOfBirth: null })).not.toThrow()
   })
+
+  // mutation-gate closure: `.test()`/`.regex()` without the `^` anchor would
+  // still match a VALID YYYY-MM-DD substring anywhere in the string (not
+  // just at position 0); without the `$` anchor it would still match a
+  // valid PREFIX followed by trailing garbage. '15/01/1990' (the existing
+  // malformed-date test above) has no valid substring at all, so it cannot
+  // distinguish either anchor from a no-op.
+  it('rejects a date with a valid YYYY-MM-DD substring NOT at the start (pins the start-of-string anchor)', () => {
+    const result = upsertLegendSchema.safeParse({ ...valid, dateOfBirth: 'x1990-01-15' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.DATE_FORMAT_YYYYMMDD',
+    )
+  })
+
+  it('rejects a valid-prefix date followed by trailing garbage (pins the end-of-string anchor)', () => {
+    const result = upsertLegendSchema.safeParse({ ...valid, dateOfBirth: '1990-01-15x' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.DATE_FORMAT_YYYYMMDD',
+    )
+  })
 })
 
 describe('addLegendEntrySchema', () => {
