@@ -231,8 +231,12 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
         { data: { simulateResult: 'success' } },
       )
       expect(res.status()).toBe(400)
-      const body = await res.text()
-      expect(body).toMatch(/Sum of senior\+drop shares exceeds 100%/i)
+      // i18n stage 4 Task 2: assert on the api-error code, not a message
+      // regex — the catalog wording no longer matches this literal (was
+      // "Sum of senior+drop shares exceeds 100%", now the api-errors
+      // registry text via FINANCE_SHARES_SUM_EXCEEDS_100).
+      const body = (await res.json()) as { code?: string }
+      expect(body.code).toBe('FINANCE_SHARES_SUM_EXCEEDS_100')
 
       // Sanity: no DROP_PENDING_PAYOUT / PAYOUT_DROP / PAYOUT_ADMIN rows were
       // inserted (the whole cascade runs in ONE DB transaction — the
