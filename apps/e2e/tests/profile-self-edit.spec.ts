@@ -5,7 +5,10 @@
  *
  * Pattern: mock-based (no live server needed). The profile shell calls
  * GET /users/me → UserWithPermissionsResponse. PATCH /users/me fires after
- * 800 ms debounce and triggers the "Сохранено" toast on success.
+ * 800 ms debounce and triggers the "Збережено" toast on success (uk —
+ * fix-round 1, task-i18n-stage3a Task 2, CI-1: `useUpdateMe`'s toast moved
+ * from the Russian literal to the catalog; assert through
+ * `assertInCatalog`/`loadMessages`, not a hardcoded literal).
  *
  * Note: ProfileEditFields lives inside OverviewTab (mode === 'self'). The
  * Telegram / Имя / Phone / Технологии inputs are direct children of the
@@ -13,13 +16,14 @@
  */
 
 import { test, expect, USERS, mockAuthAs, buildSelfView, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Debounced autosave — telegram field
 // ---------------------------------------------------------------------------
 
 test.describe('Profile self-edit — debounced autosave', () => {
-  test('editing Telegram fires PATCH /users/me after debounce and shows "Сохранено" toast', async ({
+  test('editing Telegram fires PATCH /users/me after debounce and shows the "Збережено" toast', async ({
     page,
   }) => {
     await mockAuthAs(page, USERS.junior)
@@ -42,8 +46,10 @@ test.describe('Profile self-edit — debounced autosave', () => {
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body.telegram).toBe('@e2e_test_handle')
 
-    // Toast appears after successful PATCH (mock returns 200)
-    await expect(page.getByText('Сохранено')).toBeVisible()
+    // Toast appears after successful PATCH (mock returns 200) — text comes
+    // from the uk catalog now (useUpdateMe), not a hardcoded Russian literal.
+    const uk = await loadMessages('uk')
+    await expect(page.getByText(assertInCatalog(uk, 'Збережено'))).toBeVisible()
   })
 
   test('clearing Telegram sends null in PATCH payload', async ({ page }) => {
