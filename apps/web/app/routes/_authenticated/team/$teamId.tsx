@@ -18,10 +18,14 @@ import {
   Users,
 } from 'lucide-react'
 import { useMemo, useState } from 'react'
-import type { ProjectDto, TeamDto } from '@crm/shared'
+import type { ProjectDto, Role, TeamDto } from '@crm/shared'
+import { compareNames, formatDate } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { hasRealPhone } from '@/lib/format-phone'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -55,18 +59,10 @@ import { toast } from 'sonner'
 import { tgUrl, tgDisplay } from '@/lib/tg-url'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { useUnarchiveEntity } from '@/hooks/use-archive'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 export const Route = createFileRoute('/_authenticated/team/$teamId')({
   component: TeamDetailPage,
 })
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-  DROP: 'Дроп',
-}
 
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'> = {
   ADMIN: 'admin',
@@ -115,6 +111,8 @@ const item = {
 }
 
 function TeamDetailPage() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
   const { teamId } = Route.useParams()
@@ -150,13 +148,12 @@ function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      toast.success('Синьор обновлён')
+      toast.success(t`Сеньйора оновлено`)
       setRotateSeniorOpen(false)
       setNewSeniorId('')
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Не удалось сменить синьора')
+      toast.error(getApiErrorMessage(err, t`Не вдалося змінити сеньйора — спробуйте ще раз`))
     },
   })
 
@@ -213,8 +210,8 @@ function TeamDetailPage() {
     )
     return allUsers
       .filter((u) => u.role === 'SENIOR' && !seniorsInActiveTeam.has(u.id))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName))
-  }, [allUsers, allTeamsForRotate])
+      .sort((a, b) => compareNames(locale)(a.displayName, b.displayName))
+  }, [allUsers, allTeamsForRotate, locale])
 
   // Edit form
   // task-team-senior-share-override. `seniorSharePercentOverride` is a
@@ -254,9 +251,10 @@ function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['team', teamId] })
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       setShowEdit(false)
-      toast.success('Команда обновлена')
+      toast.success(t`Команду оновлено`)
     },
-    onError: () => toast.error('Не удалось обновить команду'),
+    onError: (err: unknown) =>
+      toast.error(getApiErrorMessage(err, t`Не вдалося оновити команду — спробуйте ще раз`)),
   })
 
   // Add member logic
@@ -269,8 +267,7 @@ function TeamDetailPage() {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
     },
     onError: (err: unknown) => {
-      const msg = (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-      toast.error(msg ?? 'Ошибка добавления')
+      toast.error(getApiErrorMessage(err, t`Не вдалося додати учасника — спробуйте ще раз`))
     },
   })
 
@@ -363,16 +360,18 @@ function TeamDetailPage() {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <Users className="h-10 w-10 text-muted-foreground/30" />
-        <p className="mt-4 text-sm font-medium">Команда не найдена</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Возможно, у вас нет доступа к этой команде
+        <p className="mt-4 text-sm font-medium">
+          <Trans>Команду не знайдено</Trans>
         </p>
-        {/* «Вернуться к списку» скрыто для DROP: им некуда возвращаться. */}
+        <p className="mt-1 text-xs text-muted-foreground">
+          <Trans>Можливо, у вас немає доступу до цієї команди</Trans>
+        </p>
+        {/* the back-to-list button is hidden for DROP: nowhere to go back to. */}
         {user?.role !== 'DROP' && (
           <Button asChild variant="outline" size="sm" className="mt-4">
             <Link to="/team">
               <ArrowLeft className="h-4 w-4 mr-1.5" />
-              Вернуться к списку
+              <Trans>Повернутися до списку</Trans>
             </Link>
           </Button>
         )}
@@ -399,17 +398,17 @@ function TeamDetailPage() {
   const candidateUsers: CandidateUser[] = (allUsers || [])
     .filter((u: UserOption) => u.role !== 'ADMIN')
     .map((u: UserOption): CandidateUser => {
-      if (memberUserIds.has(u.id)) return { ...u, disabledReason: 'в команде' }
-      if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: 'уже есть синьор' }
+      if (memberUserIds.has(u.id)) return { ...u, disabledReason: t`в команді` }
+      if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: t`вже є сеньйор` }
       if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id))
-        return { ...u, disabledReason: 'есть проект' }
+        return { ...u, disabledReason: t`є проєкт` }
       return u
     })
     .sort((a: CandidateUser, b: CandidateUser) => {
       const aDisabled = !!a.disabledReason
       const bDisabled = !!b.disabledReason
       if (aDisabled !== bDisabled) return aDisabled ? 1 : -1
-      return a.displayName.localeCompare(b.displayName)
+      return compareNames(locale)(a.displayName, b.displayName)
     })
 
   async function handleAddMembers() {
@@ -418,7 +417,7 @@ function TeamDetailPage() {
     }
     setSelectedUserIds(new Set())
     setShowAddMember(false)
-    toast.success('Участники добавлены')
+    toast.success(t`Учасників додано`)
   }
 
   // tgUrl / tgDisplay imported from @/lib/tg-url
@@ -435,9 +434,9 @@ function TeamDetailPage() {
         <motion.div variants={item} className="flex items-start justify-between gap-4">
           <div className="flex items-center gap-3">
             {/* Back button hidden for SENIOR, JUNIOR, and DROP.
-              SENIOR/JUNIOR: они не видят список команд (нет пункта «Команда» в nav).
-              DROP: редиректится на свою единственную команду — возвращаться некуда,
-              кнопка «назад» вела бы в петлю. */}
+              SENIOR/JUNIOR: they don't see the team list (no "Team" nav item).
+              DROP: redirected to their one team — nowhere to go back to, the
+              back button would loop. */}
             {user?.role !== 'SENIOR' && user?.role !== 'JUNIOR' && user?.role !== 'DROP' && (
               <Button
                 asChild
@@ -454,12 +453,12 @@ function TeamDetailPage() {
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-2xl font-bold tracking-tight">{team.name}</h1>
-                {/* Drop role - phase 1 (AC5): DROP badge + «Команда дропа»
+                {/* Drop role - phase 1 (AC5): DROP badge + "drop's team"
                   caption surface the team type. Senior-teams render no
                   extra badge, header rendering 1:1 as before. */}
                 {isDropTeam && (
                   <Badge variant="drop" data-testid="team-drop-badge">
-                    Команда дропа
+                    <Trans>Команда дропа</Trans>
                   </Badge>
                 )}
                 {team.archivedAt ? (
@@ -468,23 +467,23 @@ function TeamDetailPage() {
                     className="border-amber-500/30 bg-amber-500/10 text-amber-500"
                     data-testid="team-archived-badge"
                   >
-                    В архиве
+                    <Trans>В архіві</Trans>
                   </Badge>
                 ) : (
                   <Badge
                     variant="outline"
                     className="border-emerald-500/30 bg-emerald-500/10 text-emerald-500"
                   >
-                    Активна
+                    <Trans>Активна</Trans>
                   </Badge>
                 )}
               </div>
               {/* AC5: drop owner link under the title — quick navigation to
-                the drop's profile, mirrors the «синьор» bookmark on senior
+                the drop's profile, mirrors the "senior" bookmark on senior
                 teams. */}
               {isDropTeam && dropOwner && (
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Дроп:{' '}
+                  <Trans>Дроп:</Trans>{' '}
                   <ProfileNameLink
                     userId={dropOwner.userId}
                     viewerRole={user?.role ?? 'JUNIOR'}
@@ -494,7 +493,7 @@ function TeamDetailPage() {
                   </ProfileNameLink>
                   {activeSenior ? (
                     <>
-                      {' · Синьор: '}
+                      <Trans> · Сеньйор: </Trans>
                       <ProfileNameLink
                         userId={activeSenior.userId}
                         viewerRole={user?.role ?? 'JUNIOR'}
@@ -504,21 +503,18 @@ function TeamDetailPage() {
                       </ProfileNameLink>
                     </>
                   ) : (
-                    <span className="ml-1 text-amber-500/80">· Синьор не назначен</span>
+                    <span className="ml-1 text-amber-500/80">
+                      <Trans>· Сеньйора не призначено</Trans>
+                    </span>
                   )}
                 </p>
               )}
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <div className="flex items-center gap-1.5">
                   <Calendar className="h-3.5 w-3.5" />
-                  Создана{' '}
-                  {new Date(team.createdAt).toLocaleDateString('ru-RU', {
-                    day: 'numeric',
-                    month: 'long',
-                    year: 'numeric',
-                  })}
+                  <Trans>Створено {formatDate(team.createdAt, locale, 'long')}</Trans>
                 </div>
-                {/* TG-канал hidden from JUNIOR viewer per task #11 */}
+                {/* TG channel hidden from JUNIOR viewer per task #11 */}
                 {team.telegram && user?.role !== 'JUNIOR' && (
                   <a
                     href={tgUrl(team.telegram)}
@@ -528,13 +524,13 @@ function TeamDetailPage() {
                     data-testid="team-telegram-link"
                   >
                     <Send className="h-3 w-3" />
-                    Telegram-канал
+                    <Trans>Telegram-канал</Trans>
                   </a>
                 )}
               </div>
             </div>
           </div>
-          {/* ut-39b: «Действия» dropdown replaced with explicit Archive /
+          {/* ut-39b: "Actions" dropdown replaced with explicit Archive /
             Unarchive buttons (matches ut-28 project detail pattern).
             Add / Edit remain side-by-side; archive controls are admin-only. */}
           <div className="flex shrink-0 gap-2 flex-wrap justify-end">
@@ -549,7 +545,7 @@ function TeamDetailPage() {
                 data-testid="team-rotate-senior-button"
               >
                 <RefreshCw className="h-4 w-4" />
-                {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+                {activeSenior ? t`Змінити сеньйора` : t`Призначити сеньйора`}
               </Button>
             )}
             {canManage && !team.archivedAt && (
@@ -562,7 +558,7 @@ function TeamDetailPage() {
                   data-testid="team-add-member-button"
                 >
                   <UserPlus className="h-4 w-4" />
-                  Добавить
+                  <Trans>Додати</Trans>
                 </Button>
                 <Button
                   variant="outline"
@@ -584,7 +580,7 @@ function TeamDetailPage() {
                   }}
                 >
                   <Pencil className="h-4 w-4" />
-                  Редактировать
+                  <Trans>Редагувати</Trans>
                 </Button>
               </>
             )}
@@ -597,7 +593,7 @@ function TeamDetailPage() {
                 data-testid="team-archive-button"
               >
                 <Archive className="h-4 w-4" />
-                Архивировать
+                <Trans>Архівувати</Trans>
               </Button>
             )}
             {user?.role === 'ADMIN' && team.archivedAt && (
@@ -612,7 +608,7 @@ function TeamDetailPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  Участники команды
+                  <Trans>Учасники команди</Trans>
                   <Badge variant="outline" className="ml-auto">
                     {team.members.length}
                   </Badge>
@@ -674,7 +670,7 @@ function TeamDetailPage() {
                                   variant={ROLE_VARIANT[member.role] ?? 'junior'}
                                   className="text-[9px] shrink-0"
                                 >
-                                  {ROLE_LABELS[member.role] ?? member.role}
+                                  {i18n._(ROLE_LABEL_MESSAGES[member.role])}
                                 </Badge>
                               </div>
                               {Array.isArray(member.techStack) && member.techStack.length > 0 && (
@@ -746,7 +742,7 @@ function TeamDetailPage() {
                                   variant="ghost"
                                   size="icon"
                                   className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                                  title="Исключить"
+                                  title={t`Виключити`}
                                   onClick={() => removeMemberMutation.mutate(member.userId)}
                                 >
                                   <UserMinus className="h-3.5 w-3.5" />
@@ -757,7 +753,9 @@ function TeamDetailPage() {
                       ))}
                       {visibleMembers.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-12 text-center col-span-2">
-                          <p className="mt-3 text-sm font-medium">Нет участников</p>
+                          <p className="mt-3 text-sm font-medium">
+                            <Trans>Немає учасників</Trans>
+                          </p>
                         </div>
                       )}
                     </div>
@@ -777,7 +775,7 @@ function TeamDetailPage() {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Briefcase className="h-5 w-5" />
-                    Активные проекты
+                    <Trans>Активні проєкти</Trans>
                     {visibleProjects.length > 0 && (
                       <Badge className="ml-auto bg-emerald-500/15 text-emerald-400 border-emerald-500/25 hover:bg-emerald-500/20">
                         {visibleProjects.length}
@@ -788,7 +786,7 @@ function TeamDetailPage() {
                 <CardContent>
                   {visibleProjects.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-4 text-center">
-                      Нет активных проектов
+                      <Trans>Немає активних проєктів</Trans>
                     </p>
                   ) : (
                     <div className="space-y-2">
@@ -846,14 +844,16 @@ function TeamDetailPage() {
                               ) : juniorMember && !showJuniorIdentity ? (
                                 // SENIOR viewer: slot occupied but identity hidden
                                 <p className="text-xs text-muted-foreground/60 mt-1">
-                                  Джун назначен
+                                  <Trans>Джуніора призначено</Trans>
                                 </p>
                               ) : (
-                                <p className="text-xs text-destructive mt-1">Джун не прикреплён</p>
+                                <p className="text-xs text-destructive mt-1">
+                                  <Trans>Джуніора не прикріплено</Trans>
+                                </p>
                               )}
                             </div>
                             <Badge className="shrink-0 bg-emerald-500/15 text-emerald-400 border-emerald-500/25 text-[10px]">
-                              Активный
+                              <Trans>Активний</Trans>
                             </Badge>
                           </Link>
                         )
@@ -870,9 +870,11 @@ function TeamDetailPage() {
         <Dialog open={showEdit} onOpenChange={setShowEdit}>
           <CrmDialogContent>
             <CrmDialogHeader>
-              <DialogTitle>Редактировать команду</DialogTitle>
+              <DialogTitle>
+                <Trans>Редагувати команду</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Редактирование названия, Telegram-ссылки и заметок команды.
+                <Trans>Редагування назви, Telegram-посилання та заміток команди.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <form
@@ -886,13 +888,13 @@ function TeamDetailPage() {
                   {(field) => (
                     <div className="grid gap-1.5">
                       <Label htmlFor="edit-name">
-                        Название <span className="text-destructive">*</span>
+                        <Trans>Назва</Trans> <span className="text-destructive">*</span>
                       </Label>
                       <Input
                         id="edit-name"
                         value={field.state.value}
                         onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="Название команды"
+                        placeholder={t`Назва команди`}
                       />
                       {field.state.meta.errors[0] && (
                         <p className="text-xs text-destructive">{field.state.meta.errors[0]}</p>
@@ -905,7 +907,7 @@ function TeamDetailPage() {
                   validators={{
                     onChange: ({ value }) => {
                       if (value && !value.startsWith('https://t.me/')) {
-                        return 'Ссылка должна начинаться с https://t.me/'
+                        return t`Посилання має починатися з https://t.me/`
                       }
                       return undefined
                     },
@@ -930,7 +932,7 @@ function TeamDetailPage() {
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
-                        Ссылка на Telegram-чат команды
+                        <Trans>Посилання на Telegram-чат команди</Trans>
                       </p>
                     </div>
                   )}
@@ -938,12 +940,14 @@ function TeamDetailPage() {
                 <editForm.Field name="notes">
                   {(field) => (
                     <div className="grid gap-1.5">
-                      <Label htmlFor="edit-notes">Заметки</Label>
+                      <Label htmlFor="edit-notes">
+                        <Trans>Замітки</Trans>
+                      </Label>
                       <Textarea
                         id="edit-notes"
                         value={field.state.value}
                         onChange={(e) => field.handleChange(e.target.value)}
-                        placeholder="Внутренние заметки…"
+                        placeholder={t`Внутрішні замітки…`}
                         className="min-h-20"
                       />
                     </div>
@@ -954,7 +958,7 @@ function TeamDetailPage() {
                 SENIOR's share percent. Empty string = "no override → fall
                 through to project / user default". ShareSlider replaces the
                 plain number input (UT #9). Default shown when no override is
-                set. «Сбросить» clears back to empty (no override).
+                set. The reset button clears back to empty (no override).
               */}
                 <editForm.Field name="seniorSharePercentOverride">
                   {(field) => {
@@ -965,7 +969,9 @@ function TeamDetailPage() {
                     return (
                       <div className="grid gap-1.5">
                         <div className="flex items-center justify-between">
-                          <Label>Доля синьора (override для команды)</Label>
+                          <Label>
+                            <Trans>Частка сеньйора (override для команди)</Trans>
+                          </Label>
                           {hasOverride && (
                             <Button
                               type="button"
@@ -975,7 +981,7 @@ function TeamDetailPage() {
                               onClick={() => field.handleChange('')}
                               data-testid="team-edit-senior-share-override-reset"
                             >
-                              Сбросить
+                              <Trans>Скинути</Trans>
                             </Button>
                           )}
                         </div>
@@ -988,9 +994,17 @@ function TeamDetailPage() {
                           inputTestId="team-edit-senior-share-override-input"
                         />
                         <p className="text-xs text-muted-foreground">
-                          {hasOverride
-                            ? 'Override задан. Применяется ко всем проектам команды (приоритет ниже project override, выше user default).'
-                            : 'Не задано — используется значение синьора (26% по умолчанию). Передвиньте слайдер чтобы задать override.'}
+                          {hasOverride ? (
+                            <Trans>
+                              Override задано. Застосовується до всіх проєктів команди (пріоритет
+                              нижче за project override, вище за user default).
+                            </Trans>
+                          ) : (
+                            <Trans>
+                              Не задано — використовується значення сеньйора (26% за замовчуванням).
+                              Пересуньте повзунок, щоб задати override.
+                            </Trans>
+                          )}
                         </p>
                       </div>
                     )
@@ -999,10 +1013,10 @@ function TeamDetailPage() {
               </CrmDialogBody>
               <CrmDialogFooter>
                 <Button type="button" variant="outline" onClick={() => setShowEdit(false)}>
-                  Отмена
+                  <Trans>Скасувати</Trans>
                 </Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
-                  {updateMutation.isPending ? 'Сохранение…' : 'Сохранить'}
+                  {updateMutation.isPending ? t`Зберігаємо…` : t`Зберегти`}
                 </Button>
               </CrmDialogFooter>
             </form>
@@ -1019,16 +1033,18 @@ function TeamDetailPage() {
         >
           <CrmDialogContent>
             <CrmDialogHeader>
-              <DialogTitle>Добавить участника</DialogTitle>
+              <DialogTitle>
+                <Trans>Додати учасника</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Выбор пользователей для добавления в состав команды.
+                <Trans>Вибір користувачів для додавання до складу команди.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
               <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
                 {candidateUsers.length === 0 && (
                   <p className="py-4 text-center text-sm text-muted-foreground">
-                    Нет доступных пользователей
+                    <Trans>Немає користувачів, яких можна додати</Trans>
                   </p>
                 )}
                 {candidateUsers.map((u, idx) => {
@@ -1088,7 +1104,7 @@ function TeamDetailPage() {
                         </Avatar>
                         <span className="flex-1 truncate text-sm">{u.displayName}</span>
                         <Badge variant="outline" className="text-[10px] shrink-0">
-                          {ROLE_LABELS[u.role] ?? u.role}
+                          {i18n._(ROLE_LABEL_MESSAGES[u.role as Role])}
                         </Badge>
                         {u.disabledReason && (
                           <span className="text-[10px] text-muted-foreground shrink-0">
@@ -1109,13 +1125,13 @@ function TeamDetailPage() {
                   setSelectedUserIds(new Set())
                 }}
               >
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 disabled={selectedUserIds.size === 0 || addMemberMutation.isPending}
                 onClick={() => void handleAddMembers()}
               >
-                Добавить{selectedUserIds.size > 0 ? ` (${selectedUserIds.size})` : ''}
+                {selectedUserIds.size > 0 ? t`Додати (${selectedUserIds.size})` : t`Додати`}
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
@@ -1146,28 +1162,32 @@ function TeamDetailPage() {
             <CrmDialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <RefreshCw className="h-4 w-4" />
-                {activeSenior ? 'Сменить синьора' : 'Назначить синьора'}
+                {activeSenior ? t`Змінити сеньйора` : t`Призначити сеньйора`}
               </DialogTitle>
               <DialogDescription className="sr-only">
-                Смена или назначение синьора в команде. Текущий синьор будет откреплён.
+                <Trans>
+                  Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено.
+                </Trans>
               </DialogDescription>
               <p className="text-xs text-muted-foreground mt-1">
                 {activeSenior
-                  ? `Текущий синьор «${activeSenior.displayName}» будет откреплён. Новый синьор должен быть без активной команды.`
-                  : 'Выберите синьора без активной команды. Дроп и остальные участники команды остаются.'}
+                  ? t`Поточний сеньйор «${activeSenior.displayName}» буде відкріплений. Новий сеньйор має бути без активної команди.`
+                  : t`Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються.`}
               </p>
             </CrmDialogHeader>
             <CrmDialogBody className="space-y-3">
               <div className="grid gap-1.5">
-                <Label>Новый синьор</Label>
+                <Label>
+                  <Trans>Новий сеньйор</Trans>
+                </Label>
                 {vacantSeniors.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">
-                    Нет синьоров без активной команды
+                    <Trans>Немає сеньйорів без активної команди</Trans>
                   </p>
                 ) : (
                   <Select value={newSeniorId} onValueChange={setNewSeniorId}>
                     <SelectTrigger data-testid="team-rotate-senior-select">
-                      <SelectValue placeholder="— выберите синьора —" />
+                      <SelectValue placeholder={t`— оберіть сеньйора —`} />
                     </SelectTrigger>
                     <SelectContent>
                       {vacantSeniors.map((s) => (
@@ -1197,7 +1217,7 @@ function TeamDetailPage() {
                   setNewSeniorId('')
                 }}
               >
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 disabled={!newSeniorId || rotateSeniorMutation.isPending}
@@ -1205,10 +1225,10 @@ function TeamDetailPage() {
                 data-testid="team-rotate-senior-submit"
               >
                 {rotateSeniorMutation.isPending
-                  ? 'Сохранение...'
+                  ? t`Зберігаємо…`
                   : activeSenior
-                    ? 'Сменить'
-                    : 'Назначить'}
+                    ? t`Змінити`
+                    : t`Призначити`}
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
@@ -1235,7 +1255,7 @@ function TeamUnarchiveHeaderButton({ teamId }: { teamId: string }) {
       data-testid="team-unarchive-button"
     >
       <ArchiveRestore className="h-4 w-4" />
-      Восстановить
+      <Trans>Відновити</Trans>
     </Button>
   )
 }

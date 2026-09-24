@@ -10,13 +10,14 @@ import { isValidPhoneNumber } from 'react-phone-number-input'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import { z } from 'zod'
 import type { CreateUserDto, ProjectDto, TeamDto, UserProfileDto } from '@crm/shared'
-import { createUserSchema, updateProfileSchema } from '@crm/shared'
-import type { AxiosError } from 'axios'
+import { compareNames, createUserSchema, updateProfileSchema } from '@crm/shared'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
-import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
+import { getApiErrorMessage, translateZodCode, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -148,6 +149,7 @@ function HrCreateSeniorDialog({
   onClose: () => void
   hrUserId: string
 }) {
+  const { t } = useLingui()
   const queryClient = useQueryClient()
 
   const { data: allUsers } = useQuery({
@@ -175,12 +177,12 @@ function HrCreateSeniorDialog({
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('Синьор создан, команда сформирована')
+      toast.success(t`Сеньйора створено, команду сформовано`)
       onClose()
       form.reset()
     },
-    onError: (err: AxiosError<{ message: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Ошибка при создании')
+    onError: (err: unknown) => {
+      toast.error(getApiErrorMessage(err, t`Не вдалося створити команду — спробуйте ще раз`))
     },
   })
 
@@ -235,13 +237,13 @@ function HrCreateSeniorDialog({
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="h-4 w-4" />
-            Создать синьора
+            <Trans>Створити сеньйора</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Создание нового аккаунта синьора и формирование команды с HR.
+            <Trans>Створення нового акаунта сеньйора та формування команди з HR.</Trans>
           </DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
-            Будет создан аккаунт синьора и сформирована команда с вами в роли HR.
+            <Trans>Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR.</Trans>
           </p>
         </CrmDialogHeader>
         <CrmDialogBody>
@@ -294,9 +296,9 @@ function HrCreateSeniorDialog({
                   ? (field.state.meta.errors[0] as string | undefined)
                   : undefined
                 return (
-                  <Field label="Имя и фамилия" error={err} required>
+                  <Field label={t`Ім’я та прізвище`} error={err} required>
                     <Input
-                      placeholder="Иван Иванов"
+                      placeholder={t`Іваненко Іван Іванович`}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -312,12 +314,12 @@ function HrCreateSeniorDialog({
             {/* Tech Stack */}
             <form.Field name="techStack">
               {(field) => (
-                <Field label="Технологии">
+                <Field label={t`Технології`}>
                   <TechAutocompleteInput
                     value={field.state.value}
                     onChange={field.handleChange}
                     onBlur={field.handleBlur}
-                    placeholder="Начните вводить технологию..."
+                    placeholder={t`Почніть вводити: React, Node.js…`}
                   />
                 </Field>
               )}
@@ -373,7 +375,7 @@ function HrCreateSeniorDialog({
                   ? (field.state.meta.errors[0] as string | undefined)
                   : undefined
                 return (
-                  <Field label="Телефон" error={err}>
+                  <Field label={t`Телефон`} error={err}>
                     <PhoneInput
                       value={field.state.value as PhoneValue | undefined}
                       onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
@@ -387,7 +389,9 @@ function HrCreateSeniorDialog({
 
             {/* Financials + team */}
             <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
-              <p className="text-xs font-medium text-muted-foreground">Финансы и команда</p>
+              <p className="text-xs font-medium text-muted-foreground">
+                <Trans>Фінанси та команда</Trans>
+              </p>
 
               {/* Share % */}
               <form.Field
@@ -407,7 +411,7 @@ function HrCreateSeniorDialog({
                     ? (field.state.meta.errors[0] as string | undefined)
                     : undefined
                   return (
-                    <Field label="Доля синьора (%)" error={err} required>
+                    <Field label={t`Частка сеньйора (%)`} error={err} required>
                       <ShareSlider
                         value={val}
                         onChange={(v) => field.handleChange(v)}
@@ -420,28 +424,38 @@ function HrCreateSeniorDialog({
               </form.Field>
 
               {/* HR — auto (current user) */}
-              <Field label="HR">
+              <Field label={t`HR`}>
                 <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
                   <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                  <span>Вы</span>
-                  <span className="text-xs text-muted-foreground ml-auto">авто</span>
+                  <span>
+                    <Trans>Ви</Trans>
+                  </span>
+                  <span className="text-xs text-muted-foreground ml-auto">
+                    <Trans>авто</Trans>
+                  </span>
                 </div>
               </Field>
 
               {/* Accountant */}
-              <Field label="Бухгалтер">
+              <Field label={t`Бухгалтер`}>
                 {accountantUsers.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">Нет доступных бухгалтеров</p>
+                  <p className="text-xs text-muted-foreground italic">
+                    <Trans>
+                      Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»
+                    </Trans>
+                  </p>
                 ) : accountantUsers.length === 1 ? (
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
                     <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
                     <span>{accountantUsers[0]!.displayName}</span>
-                    <span className="text-xs text-muted-foreground ml-auto">авто</span>
+                    <span className="text-xs text-muted-foreground ml-auto">
+                      <Trans>авто</Trans>
+                    </span>
                   </div>
                 ) : (
                   <Select value={selectedAccountantId} onValueChange={setSelectedAccountantId}>
                     <SelectTrigger>
-                      <SelectValue placeholder="— выберите бухгалтера —" />
+                      <SelectValue placeholder={t`— оберіть бухгалтера —`} />
                     </SelectTrigger>
                     <SelectContent>
                       {accountantUsers.map((u) => (
@@ -458,10 +472,10 @@ function HrCreateSeniorDialog({
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button variant="ghost" onClick={handleClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={mutation.isPending}>
-            {mutation.isPending ? 'Создание...' : 'Создать'}
+            {mutation.isPending ? t`Створюємо…` : t`Створити`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
@@ -472,6 +486,8 @@ function HrCreateSeniorDialog({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function TeamPage() {
+  const { t } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -556,7 +572,7 @@ function TeamPage() {
     }
 
     result.sort((a, b) => {
-      if (sortBy === 'name') return a.name.localeCompare(b.name)
+      if (sortBy === 'name') return compareNames(locale)(a.name, b.name)
       if (sortBy === 'members') return b.members.length - a.members.length
       if (sortBy === 'projects') {
         const seniorA = a.members.find((m) => m.role === 'SENIOR')
@@ -569,7 +585,7 @@ function TeamPage() {
     })
 
     return result
-  }, [teams, activeProjectCountByTeamSenior, search, sortBy])
+  }, [teams, activeProjectCountByTeamSenior, search, sortBy, locale])
 
   // Rules of Hooks: moved here — after every hook above — instead of
   // between `useSearch` and the ~10 hooks that follow it (useState/
@@ -581,15 +597,15 @@ function TeamPage() {
   // this remains defense-in-depth, not the only guard.
   if (denied) return null
 
-  // ut-25 + ut-33 + ut-44: tabs for teams page — «Все | Активные | Архив»
+  // ut-25 + ut-33 + ut-44: tabs for teams page — "All | Active | Archived"
   // for ADMIN, unified through SegmentedToggle so the gold-pill animation
-  // lives in one place. The «Все» tab fetches with `archived=all`; the
-  // «Архив» tab keeps the legacy `archived=true` query param + URL state.
+  // lives in one place. The "All" tab fetches with `archived=all`; the
+  // "Archived" tab keeps the legacy `archived=true` query param + URL state.
   type TeamTab = 'ALL' | 'ACTIVE' | 'ARCHIVED'
   const teamTabs: ReadonlyArray<SegmentedToggleOption<TeamTab>> = [
-    { value: 'ALL', label: 'Все' },
-    { value: 'ACTIVE', label: 'Активные' },
-    { value: 'ARCHIVED', label: 'Архив', testId: 'toggle-archived-teams', icon: Archive },
+    { value: 'ALL', label: t`Усі` },
+    { value: 'ACTIVE', label: t`Активні` },
+    { value: 'ARCHIVED', label: t`Архів`, testId: 'toggle-archived-teams', icon: Archive },
   ]
   const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : teamFilter
   const handleTeamTabChange = (next: TeamTab) => {
@@ -618,13 +634,13 @@ function TeamPage() {
             {isHr && (
               <Button onClick={() => setShowCreateSenior(true)} size="sm" className="gap-1.5">
                 <Plus className="h-4 w-4" />
-                Создать синьора
+                <Trans>Створити сеньйора</Trans>
               </Button>
             )}
           </div>
         </div>
 
-        {/* ut-25 + ut-26 + ut-33: Tabs row replacing the «Показать архивных» button.
+        {/* ut-25 + ut-26 + ut-33: Tabs row replacing the "show archived" button.
             Only ADMIN sees the Archive tab; for other roles tabs aren't needed
             since they don't have access to archived teams. */}
         {isAdmin && (
@@ -632,7 +648,7 @@ function TeamPage() {
             value={currentTeamTab}
             onChange={handleTeamTabChange}
             options={teamTabs}
-            ariaLabel="Фильтр команд"
+            ariaLabel={t`Фільтр команд`}
             variant="tabs"
             size="sm"
             layoutId="team-status-tabs"
@@ -648,7 +664,7 @@ function TeamPage() {
               <Input
                 type="search"
                 enterKeyHint="search"
-                placeholder="Поиск по названию…"
+                placeholder={t`Пошук за назвою…`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="pl-9"
@@ -656,12 +672,12 @@ function TeamPage() {
             </div>
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as typeof sortBy)}>
               <SelectTrigger className="w-40">
-                <SelectValue placeholder="Сортування" />
+                <SelectValue placeholder={t`Сортування`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="name">Название A→Z</SelectItem>
-                <SelectItem value="members">Участники ↓</SelectItem>
-                <SelectItem value="projects">Проекты ↓</SelectItem>
+                <SelectItem value="name">{t`Назва A→Z`}</SelectItem>
+                <SelectItem value="members">{t`Учасники ↓`}</SelectItem>
+                <SelectItem value="projects">{t`Проєкти ↓`}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -676,11 +692,15 @@ function TeamPage() {
           {!isLoading && teams && teams.length === 0 && (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
               <Users className="h-10 w-10 text-muted-foreground/30" />
-              <p className="mt-4 text-sm font-medium">Команд пока нет</p>
+              <p className="mt-4 text-sm font-medium">
+                <Trans>Команд поки немає</Trans>
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                {isHr
-                  ? 'Нажмите «Создать синьора» чтобы сформировать первую команду'
-                  : 'Команды создаются автоматически при добавлении синьора в систему'}
+                {isHr ? (
+                  <Trans>Натисніть «Створити сеньйора», щоб сформувати першу команду</Trans>
+                ) : (
+                  <Trans>Команди створюються автоматично при додаванні сеньйора в систему</Trans>
+                )}
               </p>
             </div>
           )}
@@ -696,7 +716,9 @@ function TeamPage() {
                 <Skeleton key={i} className="h-14 rounded-lg" />
               ))}
             {!isLoading && filteredTeams.length === 0 && (teams?.length ?? 0) > 0 && (
-              <p className="py-8 text-center text-sm text-muted-foreground">Ничего не найдено</p>
+              <p className="py-8 text-center text-sm text-muted-foreground">
+                <Trans>Нічого не знайдено — скиньте фільтри</Trans>
+              </p>
             )}
             {filteredTeams.map((team) => {
               // ut-39a: per-card management controls removed — all team CRUD is
@@ -729,7 +751,7 @@ function TeamPage() {
                       to="/team/$teamId"
                       params={{ teamId: team.id }}
                       className="absolute inset-0 z-10"
-                      title={`Перейти до команди ${team.name}`}
+                      title={t`Перейти до команди ${team.name}`}
                     />
 
                     {/* Avatars */}
@@ -773,7 +795,11 @@ function TeamPage() {
                         )}
                       </div>
                       <p className="truncate text-xs text-muted-foreground overflow-hidden whitespace-nowrap">
-                        HR: {hrMembers.map((m) => m.displayName).join(', ') || 'Без HR'}
+                        {hrMembers.length > 0 ? (
+                          <Trans>HR: {hrMembers.map((m) => m.displayName).join(', ')}</Trans>
+                        ) : (
+                          <Trans>HR: немає</Trans>
+                        )}
                       </p>
                     </div>
 
@@ -784,7 +810,7 @@ function TeamPage() {
                           variant="outline"
                           className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[11px]"
                         >
-                          В архиве
+                          <Trans>В архіві</Trans>
                         </Badge>
                       )}
                       {team.telegram && (
@@ -800,7 +826,7 @@ function TeamPage() {
                         </a>
                       )}
                       <Badge variant="outline" className="text-[11px] tabular-nums">
-                        {team.members.length} уч.
+                        <Trans>{team.members.length} уч.</Trans>
                       </Badge>
                       <Badge
                         variant="outline"
@@ -811,12 +837,13 @@ function TeamPage() {
                             : 'text-muted-foreground',
                         )}
                       >
-                        {activeProjects}{' '}
-                        {activeProjects === 1
-                          ? 'проект'
-                          : activeProjects < 5
-                            ? 'проекта'
-                            : 'проектов'}
+                        <Plural
+                          value={activeProjects}
+                          one="# проєкт"
+                          few="# проєкти"
+                          many="# проєктів"
+                          other="# проєкту"
+                        />
                       </Badge>
                     </div>
 

@@ -74,7 +74,7 @@ describe('UserArchiveImpact', () => {
 
   it('COPY-L-31: the SENIOR/DROP branch without a team still says it can be restored', async () => {
     await loadCatalog('uk')
-    render(<UserArchiveImpact entityName="Олена" impact={cases[1][1]} />, {
+    render(<UserArchiveImpact entityName="Олена" impact={cases[1]![1]} />, {
       wrapper: I18nTestProvider,
     })
     expect(screen.getByTestId('archive-warning-senior')).toHaveTextContent('Відновлення можливе')
