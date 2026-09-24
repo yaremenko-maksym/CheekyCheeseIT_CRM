@@ -22,6 +22,7 @@
  *   B4: Real mode in dev — submit stays disabled even with a valid hash.
  */
 import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
+import { loadMessages } from '../fixtures/catalog'
 
 // Origin-agnostic prefix — matches any host/port (dev proxy on :3000,
 // direct :3001, preview :3010). Mirrors the API_GLOB pattern from fixtures.ts.
@@ -170,16 +171,23 @@ function setupPayoutMocks(
         ),
       })
     }
-    // simulate=error path — NestJS BadRequestException
-    return r.fulfill({
-      status: 400,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        statusCode: 400,
-        message: 'Симуляция: транзакция не подтверждена',
-        error: 'Bad Request',
+    // simulate=error path — `apiError('FINANCE_SIMULATION_TX_NOT_CONFIRMED', ...)`
+    // (i18n stage 4, Track A Task 2). Envelope shape matches
+    // `apiErrorEnvelopeSchema` (`code`/`message`/`statusCode`), and `message`
+    // is loaded from the compiled uk catalog rather than hardcoded, so a
+    // copy-review wording change cannot silently desync the mock from the
+    // real backend response (same rationale as `assertInCatalog`).
+    return loadMessages('uk').then((messages) =>
+      r.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          statusCode: 400,
+          code: 'FINANCE_SIMULATION_TX_NOT_CONFIRMED',
+          message: messages['api-error.FINANCE_SIMULATION_TX_NOT_CONFIRMED']!,
+        }),
       }),
-    })
+    )
   })
 
   void page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
@@ -252,8 +260,15 @@ test.describe('Flow B — Payout payment simulate radio (PR #56)', () => {
 
     // Inline error message rendered under input. Toast text is rendered into
     // sonner's portal which lives outside the dialog — assert directly on
-    // the page so we don't depend on Radix portal placement.
-    await expect(asSenior.getByText('Симуляция: транзакция не подтверждена').first()).toBeVisible()
+    // the page so we don't depend on Radix portal placement. Text comes from
+    // the shared api-errors catalog (`FINANCE_SIMULATION_TX_NOT_CONFIRMED`,
+    // i18n stage 4 Task 2) — assert against the compiled uk catalog entry,
+    // not a hardcoded Russian literal that drifts the moment copy-review
+    // changes the wording (same pattern as finance-senior-flow.spec.ts).
+    const messages = await loadMessages('uk')
+    await expect(
+      asSenior.getByText(messages['api-error.FINANCE_SIMULATION_TX_NOT_CONFIRMED']!).first(),
+    ).toBeVisible()
     // Dialog stays open so the user can switch mode and retry.
     await expect(dialog).toBeVisible()
 
