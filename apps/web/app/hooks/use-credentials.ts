@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import {
   createCredentialSchema,
   projectCredentialSchema,
@@ -52,6 +53,7 @@ export function useCredentials(projectId: string | undefined, enabled = true) {
 
 export function useCreateCredential(projectId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (data: CreateCredentialDto) => {
       const dto = createCredentialSchema.parse(data)
@@ -61,14 +63,15 @@ export function useCreateCredential(projectId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
-      toast.success('Пароль добавлен')
+      toast.success(t`Пароль додано`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося додати пароль: ${e.message}`),
   })
 }
 
 export function useUpdateCredential(projectId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateCredentialDto }) => {
       const dto = updateCredentialSchema.parse(data)
@@ -78,21 +81,22 @@ export function useUpdateCredential(projectId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
-      toast.success('Изменения сохранены')
+      toast.success(t`Зміни збережено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося зберегти пароль: ${e.message}`),
   })
 }
 
 export function useDeleteCredential(projectId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (id: string) => api.delete(`/projects/${projectId}/credentials/${id}`),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: credentialsKey(projectId) })
-      toast.success('Пароль удалён')
+      toast.success(t`Пароль видалено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося видалити пароль: ${e.message}`),
   })
 }
 
@@ -146,6 +150,7 @@ export function useUserCredentials(userId: string | undefined, enabled = true) {
 
 export function useUpdateUserCredential(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateCredentialDto }) => {
       const dto = updateCredentialSchema.parse(data)
@@ -155,9 +160,9 @@ export function useUpdateUserCredential(userId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: userCredentialsKey(userId) })
-      toast.success('Изменения сохранены')
+      toast.success(t`Зміни збережено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося зберегти пароль: ${e.message}`),
   })
 }
 

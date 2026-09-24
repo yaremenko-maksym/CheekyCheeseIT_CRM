@@ -15,6 +15,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+// task-i18n-stage3a (Task 2) — both hooks now call `useLingui()` for their
+// toasts, which needs an `I18nProvider` in the tree or `useLingui()` throws
+// before the mutation callbacks even run.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), post: vi.fn(), delete: vi.fn(), patch: vi.fn() },
@@ -61,9 +65,11 @@ function renderProbe<TVariables>(
   })
   const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
   render(
-    <QueryClientProvider client={qc}>
-      <MutationProbe hook={hook} arg={arg} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <MutationProbe hook={hook} arg={arg} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { qc, invalidateSpy }
 }
@@ -71,7 +77,8 @@ function renderProbe<TVariables>(
 const PROJECT_ID = 'a0000000-0000-4000-8000-00000000c001'
 const USER_ID = 'a0000000-0000-4000-8000-00000000c002'
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadCatalog('uk')
   vi.clearAllMocks()
 })
 
@@ -90,7 +97,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'),
     )
   })
 
@@ -104,7 +111,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Доля по проекту «TechFlow» теперь 41%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом «TechFlow» тепер 41%'),
     )
   })
 
@@ -114,7 +121,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
   })
 
   it('invalidates the PROJECT + pending queries, never the user-profile ones', async () => {
@@ -140,7 +147,7 @@ describe('useApproveSeniorShareChange — scope: "project" (never exercised via 
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь null%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер %'),
     )
   })
 })
@@ -151,7 +158,7 @@ describe('useApproveSeniorShareChange — scope: "user" (a response with no `use
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь null%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка за замовчуванням тепер %'),
     )
   })
 
@@ -163,7 +170,7 @@ describe('useApproveSeniorShareChange — scope: "user" (a response with no `use
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь null%'),
+      expect(toast.success).toHaveBeenCalledWith('Частка за замовчуванням тепер %'),
     )
   })
 
@@ -234,7 +241,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     mockPost.mockResolvedValue({ data: { user: { seniorSharePercent: 30 } } })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за замовчуванням тепер 30%'))
   })
 
   it('COPY-M-9: project scope, reject — the object comes first, and the object is the SHARE, not the project', async () => {
@@ -248,7 +255,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     // проекту «X» теперь 30%») already names it that way.
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Доля по проекту «TechFlow»: предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Частка за проєктом «TechFlow»: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
       ),
     )
   })
@@ -259,7 +266,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
       ),
     )
   })
@@ -268,14 +275,14 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: 123 } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
   })
 
   it('an EMPTY project name is ignored as well — «Доля по проекту «» теперь 41%» is worse than saying nothing', async () => {
     mockPost.mockResolvedValue({ data: { effectiveSeniorSharePercent: 41, companyName: '' } })
     renderProbe(() => useApproveSeniorShareChange('project', PROJECT_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 41%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за проєктом тепер 41%'))
   })
 
   it('a user-scope response carrying a stray `companyName` never leaks it into the base-share sentence', async () => {
@@ -284,7 +291,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     })
     renderProbe(() => useApproveSeniorShareChange('user', USER_ID), undefined)
     await userEvent.click(screen.getByTestId('fire'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по умолчанию теперь 30%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка за замовчуванням тепер 30%'))
   })
 
   it('COPY-M-9: user scope, reject — «Доля по умолчанию: …», not «по доле по умолчанию» with two «по» in a row', async () => {
@@ -293,7 +300,7 @@ describe('COPY-L-1 — the toast names the object of the decision, not just the 
     await userEvent.click(screen.getByTestId('fire'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Доля по умолчанию: предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Частка за замовчуванням: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
       ),
     )
   })

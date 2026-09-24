@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import {
   jobExclusionListSchema,
   jobExclusionSchema,
@@ -98,6 +99,7 @@ export function useJobExclusions(seniorId: string | undefined, enabled = true) {
  */
 export function useUpdateJobSuggestionStatus(seniorId: string | undefined) {
   const queryClient = useQueryClient()
+  const { t } = useLingui()
 
   return useMutation<JobSuggestionDto, unknown, { id: string; status: JobSuggestionStatus }>({
     mutationFn: async ({ id, status }) => {
@@ -106,7 +108,7 @@ export function useUpdateJobSuggestionStatus(seniorId: string | undefined) {
     },
     onSuccess: (updated) => {
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success(updated.status === 'APPLIED' ? 'Отмечено: откликнулись' : 'Вакансия скрыта')
+      toast.success(updated.status === 'APPLIED' ? t`Позначено: відгукнулися` : t`Вакансію приховано`)
     },
     onError: (error) => {
       toast.error(getUserFacingErrorMessage(error))
@@ -116,6 +118,7 @@ export function useUpdateJobSuggestionStatus(seniorId: string | undefined) {
 
 export function useCreateJobExclusion(seniorId: string | undefined) {
   const queryClient = useQueryClient()
+  const { t } = useLingui()
 
   return useMutation<JobExclusionDto, unknown, CreateJobExclusionDto>({
     mutationFn: async (dto) => {
@@ -125,17 +128,17 @@ export function useCreateJobExclusion(seniorId: string | undefined) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobExclusionsQueryKey(seniorId) })
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success('Исключение добавлено')
+      toast.success(t`Виняток додано`)
     },
     onError: (error) => {
-      // Surface the server's own words (e.g. "Выберите синьора…") instead of a
+      // Surface the server's own words (e.g. "Оберіть сеньйора…") instead of a
       // generic failure — design review round 3: a refusal the user cannot act
       // on is barely better than the silent no-op it replaced.
       //
       // `getUserFacingErrorMessage`, not `getApiErrorMessage`: the latter falls
-      // through to axios's raw `.message`, so a dropped connection showed a
-      // Russian-speaking user the string "Network Error" (caught by the test
-      // for this handler). This one maps every non-backend case to a Russian
+      // through to axios's raw `.message`, so a dropped connection showed the
+      // English string "Network Error" verbatim (caught by the test for this
+      // handler). This one maps every non-backend case to a localized
       // sentence and still passes a real backend message through untouched.
       toast.error(getUserFacingErrorMessage(error))
     },
@@ -144,6 +147,7 @@ export function useCreateJobExclusion(seniorId: string | undefined) {
 
 export function useDeleteJobExclusion(seniorId: string | undefined) {
   const queryClient = useQueryClient()
+  const { t } = useLingui()
 
   return useMutation<void, unknown, string>({
     mutationFn: async (id) => {
@@ -152,7 +156,7 @@ export function useDeleteJobExclusion(seniorId: string | undefined) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: jobExclusionsQueryKey(seniorId) })
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
-      toast.success('Исключение удалено')
+      toast.success(t`Виняток видалено`)
     },
     onError: (error) => {
       toast.error(getUserFacingErrorMessage(error))

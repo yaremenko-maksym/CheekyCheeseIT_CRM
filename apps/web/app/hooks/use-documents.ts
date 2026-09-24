@@ -28,6 +28,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { AxiosProgressEvent } from 'axios'
 import type {
   Document,
@@ -223,6 +224,7 @@ export function useUploadDocument(): UseMutationResult<
   UploadDocumentInput
 > {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<Document, Error, UploadDocumentInput>({
     mutationFn: async ({ file, category, projectId, ownerId, onProgress }) => {
       const form = new FormData()
@@ -247,10 +249,10 @@ export function useUploadDocument(): UseMutationResult<
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      toast.success('Документ загружен')
+      toast.success(t`Документ завантажено`)
     },
     onError: (e: Error) => {
-      toast.error(`Ошибка загрузки: ${e.message}`)
+      toast.error(t`Не вдалося завантажити документ: ${e.message}`)
     },
   })
 }
@@ -261,15 +263,16 @@ export function useUploadDocument(): UseMutationResult<
 
 export function useDeleteDocument(): UseMutationResult<void, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
       await api.delete(`/documents/${id}`)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      toast.success('Документ перемещён в корзину')
+      toast.success(t`Документ переміщено в кошик`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося видалити документ: ${e.message}`),
   })
 }
 
@@ -279,6 +282,7 @@ export function useDeleteDocument(): UseMutationResult<void, Error, string> {
 
 export function useRestoreDocument(): UseMutationResult<Document, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<Document, Error, string>({
     mutationFn: async (id: string) => {
       const res = await api.post<Document>(`/documents/${id}/restore`)
@@ -286,9 +290,9 @@ export function useRestoreDocument(): UseMutationResult<Document, Error, string>
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      toast.success('Документ восстановлен')
+      toast.success(t`Документ відновлено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося відновити документ: ${e.message}`),
   })
 }
 
@@ -298,6 +302,7 @@ export function useRestoreDocument(): UseMutationResult<Document, Error, string>
 
 export function useHardDeleteDocument(): UseMutationResult<void, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
       await api.delete(`/documents/${id}/hard`)
@@ -309,8 +314,8 @@ export function useHardDeleteDocument(): UseMutationResult<void, Error, string> 
       // of invalidating (no need to refetch a 404).
       qc.removeQueries({ queryKey: documentUrlQueryKey(id) })
       qc.removeQueries({ queryKey: documentThumbnailUrlQueryKey(id) })
-      toast.success('Документ удалён навсегда')
+      toast.success(t`Документ видалено назавжди`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося видалити документ: ${e.message}`),
   })
 }

@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { ResumeContent, ResumeLayoutOptions, SeniorResumeResponse } from '@crm/shared'
 import { api } from '@/lib/axios'
 
@@ -136,6 +137,7 @@ export function useResumePdfBlob(
 
 export function useSaveResumeLayout(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['save-senior-resume-layout', userId],
     mutationFn: (layout: ResumeLayoutOptions) =>
@@ -143,7 +145,7 @@ export function useSaveResumeLayout(userId: string) {
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
-      toast.success('Оформление обновлено')
+      toast.success(t`Оформлення оновлено`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -151,6 +153,7 @@ export function useSaveResumeLayout(userId: string) {
 
 export function useSaveResumeContent(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['save-senior-resume', userId],
     mutationFn: (content: ResumeContent) =>
@@ -162,7 +165,7 @@ export function useSaveResumeContent(userId: string) {
       // `updatedBy` are correct immediately, then revalidate.
       qc.setQueryData(resumeQueryKey(userId), data)
       void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
-      toast.success('Резюме сохранено')
+      toast.success(t`Резюме збережено`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -170,6 +173,7 @@ export function useSaveResumeContent(userId: string) {
 
 export function useUploadResumeSource(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['upload-senior-resume', userId],
     mutationFn: (file: File) => {
@@ -187,7 +191,7 @@ export function useUploadResumeSource(userId: string) {
     },
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
-      toast.success('Файл загружен, распознаём резюме')
+      toast.success(t`Файл завантажено, розпізнаємо резюме`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -195,6 +199,7 @@ export function useUploadResumeSource(userId: string) {
 
 export function useIngestResumeText(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['ingest-senior-resume-text', userId],
     mutationFn: (text: string) =>
@@ -203,7 +208,7 @@ export function useIngestResumeText(userId: string) {
         .then((r) => r.data),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
-      toast.success('Текст принят, распознаём резюме')
+      toast.success(t`Текст прийнято, розпізнаємо резюме`)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -219,6 +224,7 @@ export function useIngestResumeText(userId: string) {
  */
 export function useDeleteResume(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['delete-senior-resume', userId],
     mutationFn: () =>
@@ -226,7 +232,7 @@ export function useDeleteResume(userId: string) {
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       qc.removeQueries({ queryKey: ['senior-resume-source', userId] })
-      toast.success('Резюме удалено')
+      toast.success(t`Резюме видалено`)
     },
     onError: (e: Error) => toast.error(e.message),
   })

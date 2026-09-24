@@ -197,7 +197,7 @@ describe('SeniorShareApprovalActions', () => {
     }
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
     expect(
-      screen.getByText('Решение по этому предложению уже принято. Обновите страницу.'),
+      screen.getByText('Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.'),
     ).toBeInTheDocument()
   })
 
@@ -263,7 +263,7 @@ describe('SeniorShareApprovalActions', () => {
     rerender(<SeniorShareApprovalActions scope="user" id={ID} />)
     expect(
       screen.getByText(
-        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.',
       ),
     ).toBeInTheDocument()
   })

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { AxiosError } from 'axios'
 import type { ArchiveImpact } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -28,6 +29,7 @@ export function useArchiveImpact(entityType: EntityType, entityId: string | unde
 
 export function useArchiveEntity(entityType: EntityType, entityId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: () => api.delete(`/${ENDPOINTS[entityType]}/${entityId}`).then((r) => r.data),
     onSuccess: () => {
@@ -43,14 +45,14 @@ export function useArchiveEntity(entityType: EntityType, entityId: string) {
         qc.invalidateQueries({ queryKey: ['projects'] })
       }
       const labels: Record<EntityType, string> = {
-        user: 'Пользователь архивирован',
-        team: 'Команда и синьор архивированы',
-        project: 'Проект архивирован',
+        user: t`Користувача заархівовано`,
+        team: t`Команду та сеньйора заархівовано`,
+        project: t`Проєкт заархівовано`,
       }
       toast.success(labels[entityType])
     },
     onError: (err: AxiosError<{ message?: string }>) => {
-      toast.error(err?.response?.data?.message ?? 'Не удалось архивировать')
+      toast.error(err?.response?.data?.message ?? t`Не вдалося заархівувати`)
     },
   })
 }
@@ -65,6 +67,7 @@ export type UnarchiveError = {
 
 export function useUnarchiveEntity(entityType: EntityType, entityId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: ({ cascade }: { cascade?: boolean } = {}) =>
       api
@@ -87,11 +90,11 @@ export function useUnarchiveEntity(entityType: EntityType, entityId: string) {
         }
       }
       const labels: Record<EntityType, string> = {
-        user: 'Пользователь восстановлен',
-        team: 'Команда и синьор восстановлены',
+        user: t`Користувача відновлено`,
+        team: t`Команду та сеньйора відновлено`,
         project: variables?.cascade
-          ? 'Восстановлено: проект, синьор, команда'
-          : 'Проект восстановлен',
+          ? t`Відновлено: проєкт, сеньйор, команда`
+          : t`Проєкт відновлено`,
       }
       toast.success(labels[entityType])
     },
@@ -99,8 +102,8 @@ export function useUnarchiveEntity(entityType: EntityType, entityId: string) {
       // 409 cascade-required is rethrown — caller handles modal.
       const status = err.response?.status
       if (status === 409) return
-      const msg = (err.response?.data as { message?: string } | undefined)?.message
-      toast.error(msg ?? 'Не удалось восстановить')
+      const errMessage = (err.response?.data as { message?: string } | undefined)?.message
+      toast.error(errMessage ?? t`Не вдалося відновити`)
     },
   })
 }

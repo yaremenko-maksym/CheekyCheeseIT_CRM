@@ -122,7 +122,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     await withdraw(user, 'user')
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.',
       ),
     )
     // QA-MED-5's lesson: refetch on FAILURE too, or a proposal resolved

@@ -107,6 +107,17 @@ describe('format', () => {
   it('formatNumber uses locale separators', () => {
     expect(formatNumber(1000000, 'en')).toBe('1,000,000')
   })
+  // task-i18n-stage3a (Task 2) — pins the optional `options` param added for
+  // `format-bytes.ts`'s fixed one-decimal display; the two-argument call
+  // above stays byte-identical (options === undefined).
+  it('formatNumber passes through Intl.NumberFormatOptions when given', () => {
+    expect(formatNumber(1, 'en', { minimumFractionDigits: 1, maximumFractionDigits: 1 })).toBe(
+      '1.0',
+    )
+    expect(formatNumber(2.2, 'uk', { minimumFractionDigits: 1, maximumFractionDigits: 1 })).toBe(
+      '2,2',
+    )
+  })
 
   describe('formatRelativeTime', () => {
     it('renders "X minutes ago" per locale', () => {

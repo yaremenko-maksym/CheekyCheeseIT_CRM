@@ -8,6 +8,13 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ActionKey, UserProfileDto } from '@crm/shared'
+// task-i18n-stage3a (Task 2) — `useResendPersonalEmailInvite` now calls
+// `useLingui()` for its toasts, which needs an `I18nProvider` in the tree.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -73,9 +80,11 @@ const ALL_ACTIONS: ActionKey[] = [
 function renderMenu(user: UserProfileDto, actions: ActionKey[] = ALL_ACTIONS) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <AdminActionsMenu userId={user.id} user={user} actions={actions} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <AdminActionsMenu userId={user.id} user={user} actions={actions} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 

@@ -21,6 +21,13 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { VacancyApplication } from '@crm/shared'
+// task-i18n-stage3a (Task 2) — `useUpdateVacancyApplication` now calls
+// `useLingui()`, which needs an `I18nProvider` in the tree.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -71,9 +78,11 @@ function makeApplication(overrides: Partial<VacancyApplication> = {}): VacancyAp
 function renderCard(application: VacancyApplication) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <CandidateCard vacancyId="vac-1" application={application} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <CandidateCard vacancyId="vac-1" application={application} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 

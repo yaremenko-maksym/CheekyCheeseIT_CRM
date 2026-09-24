@@ -14,6 +14,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PendingItem } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { PendingPage, focusSelectorsAfterActing } from '../index'
+// task-i18n-stage3a (Task 2) — a SHARE_APPROVAL row mounts
+// `SeniorShareApprovalActions`, which now calls `useLingui()`
+// (`useApproveSeniorShareChange`/`useRejectSeniorShareChange`) — needs an
+// `I18nProvider` in the tree or `useLingui()` throws before render reaches
+// this file's own assertions.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const mockPost = api.post as ReturnType<typeof vi.fn>
 
@@ -118,9 +128,11 @@ function item(overrides: ItemOverrides): PendingItem {
 function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <PendingPage />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <PendingPage />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -436,9 +448,11 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <PendingPage />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <PendingPage />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
 
     await act(async () => {
@@ -450,9 +464,11 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     // invited approver, say). The dismissal must survive: p1 stays hidden.
     mockState = { ...mockState, dataUpdatedAt: 2 }
     rerender(
-      <QueryClientProvider client={qc}>
-        <PendingPage />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <PendingPage />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(screen.queryByText('Acme Corp')).not.toBeInTheDocument()
     expect(screen.getByText('Globex')).toBeInTheDocument()
@@ -467,9 +483,11 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const { rerender } = render(
-      <QueryClientProvider client={qc}>
-        <PendingPage />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <PendingPage />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
 
     await act(async () => {
@@ -481,9 +499,11 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     // pruned. It then comes back under a NEW id-colliding proposal.
     mockState = { ...mockState, mine: [], dataUpdatedAt: 2 }
     rerender(
-      <QueryClientProvider client={qc}>
-        <PendingPage />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <PendingPage />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     mockState = {
       ...mockState,
@@ -491,9 +511,11 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
       dataUpdatedAt: 3,
     }
     rerender(
-      <QueryClientProvider client={qc}>
-        <PendingPage />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <PendingPage />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
   })

@@ -41,6 +41,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { formatBytes } from '@/lib/format-bytes'
 import {
   useDeleteDocument,
@@ -68,6 +69,9 @@ function shortId(id: string): string {
 }
 
 export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
+  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
+  // `locale`; this file otherwise stays Russian (wave e migrates it).
+  const locale = useLocale()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -135,7 +139,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
           {displayName}
         </button>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes) : '—'}</span>
+          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes, locale) : '—'}</span>
           <span aria-hidden="true">·</span>
           <span title={doc.createdAt}>{relativeDate}</span>
           <span aria-hidden="true">·</span>

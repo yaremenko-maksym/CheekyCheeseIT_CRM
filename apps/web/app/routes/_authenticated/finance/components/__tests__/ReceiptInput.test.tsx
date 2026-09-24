@@ -17,8 +17,16 @@
  */
 import { useState } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+// task-i18n-stage3a (Task 2) — `ReceiptInput` mounts the shared
+// `UploadProgress`/`useUploadDocument`-adjacent surface which now calls
+// `useLingui()`, which needs an `I18nProvider` in the tree.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // The "file already selected" harness below seeds a documentId, which makes
 // `useDocumentDownloadUrl` (inside ReceiptInput) fire — mock the API boundary
@@ -51,9 +59,11 @@ function Harness({ initialExplorerOnly = false }: { initialExplorerOnly?: boolea
 function renderHarness(initialExplorerOnly = false) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <Harness initialExplorerOnly={initialExplorerOnly} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <Harness initialExplorerOnly={initialExplorerOnly} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -91,9 +101,11 @@ describe('ReceiptInput — explorerOnly rendering', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const state = emptyReceiptState()
     render(
-      <QueryClientProvider client={qc}>
-        <ReceiptInput state={state} onChange={() => {}} explorerOnly error="Неверный домен" />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ReceiptInput state={state} onChange={() => {}} explorerOnly error="Неверный домен" />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(screen.getByTestId('receipt-input-url-field')).toHaveClass('border-destructive')
   })
@@ -128,9 +140,11 @@ describe('ReceiptInput — explorerOnly auto-normalization (file → url)', () =
     }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
-      <QueryClientProvider client={qc}>
-        <FileHarness />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <FileHarness />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(screen.getByTestId('mode-probe')).toHaveTextContent('file')
     fireEvent.click(screen.getByTestId('force-explorer'))

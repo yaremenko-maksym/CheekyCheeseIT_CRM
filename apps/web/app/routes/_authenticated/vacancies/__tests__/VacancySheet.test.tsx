@@ -19,6 +19,13 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Vacancy } from '@crm/shared'
 import { toast } from 'sonner'
+// task-i18n-stage3a (Task 2) — `useCreateVacancy`/`useUpdateVacancy` now
+// call `useLingui()`, which needs an `I18nProvider` in the tree.
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -46,9 +53,11 @@ import { VacancySheet } from '../components/VacancySheet'
 function renderSheet(vacancy: Vacancy | null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <VacancySheet vacancy={vacancy} open onClose={() => {}} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <VacancySheet vacancy={vacancy} open onClose={() => {}} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -135,9 +144,11 @@ describe('VacancySheet — form resets between two consecutive create sessions (
   it('typing a title + closing + reopening for a new create session starts blank with auto-slug active again', () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     const tree = (open: boolean) => (
-      <QueryClientProvider client={qc}>
-        <VacancySheet vacancy={null} open={open} onClose={() => {}} />
-      </QueryClientProvider>
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <VacancySheet vacancy={null} open={open} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>
     )
     const { rerender } = render(tree(true))
 

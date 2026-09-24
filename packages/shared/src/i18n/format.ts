@@ -35,8 +35,20 @@ export function formatDate(
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }
 
-export function formatNumber(n: number, locale: Locale): string {
-  return new Intl.NumberFormat(INTL_TAG[locale]).format(n)
+/**
+ * task-i18n-stage3a (Task 2) — added an optional third `options` param
+ * (`Intl.NumberFormatOptions`, e.g. `{ minimumFractionDigits: 1 }`):
+ * `format-bytes.ts` needs a fixed one-decimal display ("1.0 KB", not "1 KB")
+ * that `Intl.NumberFormat`'s own locale defaults don't provide. Additive
+ * only (optional, defaults to `undefined` = byte-identical to the
+ * zero-argument call every existing caller already makes).
+ */
+export function formatNumber(
+  n: number,
+  locale: Locale,
+  options?: Intl.NumberFormatOptions,
+): string {
+  return new Intl.NumberFormat(INTL_TAG[locale], options).format(n)
 }
 
 /** Money is always `<amount> <CODE>` — USDT has no Intl currency, so the code is appended uniformly. */

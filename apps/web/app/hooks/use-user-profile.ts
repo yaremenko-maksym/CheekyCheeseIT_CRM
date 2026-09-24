@@ -1,5 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
+import { useLingui } from '@lingui/react/macro'
 import type {
   PaymentRequisites,
   ProjectDetailDto,
@@ -46,20 +49,33 @@ import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
  * reader who pressed «Отменить предложение» was answered «Подтверждение
  * недоступно» — one object, two words, one gesture apart.
  */
+// task-i18n-stage3a (Task 2) — a plain function, called from mutation
+// `onError` callbacks (this file) AND from event handlers in
+// `cancel-pending-share.tsx` / `SeniorShareApprovalActions.tsx` /
+// `$projectId.tsx` (wave b/c, out of this PR's perimeter — see the task
+// file's "Граница с параллельными задачами") that are NOT guaranteed to run
+// during render, so it cannot call `useLingui()` (React Hook rule). Reads
+// the global `i18n` singleton (`@lingui/core`, the same one `translateApiError`
+// in `axios-utils.ts` already uses for the identical reason) instead. The
+// `fallback` parameter itself stays an opaque `string`, untranslated by this
+// function — it is supplied by callers outside this PR's perimeter and
+// still Russian there; `useApproveSeniorShareChange`/
+// `useRejectSeniorShareChange` below (inside this file, hooks) pass an
+// already-`t`-resolved fallback.
 export function seniorShareErrorMessage(err: unknown, fallback?: string): string {
   const status = getAxiosStatus(err)
   if (status === 404) {
-    return 'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
+    return i18n._(msg`Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.`)
   }
   if (status === 409) {
-    return 'Решение по этому предложению уже принято. Обновите страницу.'
+    return i18n._(msg`Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.`)
   }
   // task-648-fix-round-2 (COPY-L-6): merging four call sites onto one helper
   // in round 1 also merged their four named fallbacks into one anonymous
-  // "Не удалось выполнить действие". The 404/409 mapping is genuinely shared;
-  // the last-resort wording is not — each caller knows which action it was
-  // attempting and now says so.
-  return getApiErrorMessage(err, fallback ?? 'Не удалось выполнить действие')
+  // fallback. The 404/409 mapping is genuinely shared; the last-resort
+  // wording is not — each caller knows which action it was attempting and
+  // now says so.
+  return getApiErrorMessage(err, fallback ?? i18n._(msg`Не вдалося виконати дію`))
 }
 
 export function useUser(userId: string | undefined, enabled = true) {
@@ -84,6 +100,7 @@ export function useMe(enabled = true) {
 
 export function useUpdateMe() {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['update-me'],
     mutationFn: (data: UpdateProfileDto) =>
@@ -92,47 +109,50 @@ export function useUpdateMe() {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
       // Refresh /auth/me — avatar / displayName feed the global header dropdown.
       qc.invalidateQueries({ queryKey: ['auth', 'me'] })
-      toast.success('Сохранено')
+      toast.success(t`Збережено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося зберегти: ${e.message}`),
   })
 }
 
 export function useUpdateMeRequisites() {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationKey: ['update-me-requisites'],
     mutationFn: (data: PaymentRequisites) =>
       api.patch('/users/me/requisites', data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      toast.success('Реквизиты обновлены')
+      toast.success(t`Реквізити оновлено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося оновити реквізити: ${e.message}`),
   })
 }
 
 export function useAdminSetNote(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (data: SetNoteDto) =>
       api.patch(`/users/${userId}/note`, data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      toast.success('Заметка сохранена')
+      toast.success(t`Нотатку збережено`)
     },
   })
 }
 
 export function useArchiveUser(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: () => api.delete(`/users/${userId}`).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['users'] })
       qc.invalidateQueries({ queryKey: ['users-admin'] })
-      toast.success('Пользователь архивирован')
+      toast.success(t`Користувача заархівовано`)
     },
   })
 }
@@ -147,6 +167,7 @@ export function useArchiveUser(userId: string) {
  */
 export function useResendPersonalEmailInvite(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: () =>
       api
@@ -157,15 +178,15 @@ export function useResendPersonalEmailInvite(userId: string) {
       // COPY-M-1 (copy-review PR #623 round 4): the API now reports whether
       // the mail actually left the process — `sendInvite` swallows delivery
       // failures (no API key, exhausted retries) and used to unconditionally
-      // return `{ ok: true }`, so this toast claimed «отправлено повторно»
+      // return `{ ok: true }`, so this toast claimed the mail was resent
       // even when nothing was sent.
       if (data.delivered) {
-        toast.success('Письмо отправлено на личный адрес')
+        toast.success(t`Лист надіслано на особисту адресу`)
       } else {
-        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+        toast.error(t`Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин.`)
       }
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося надіслати лист: ${e.message}`),
   })
 }
 
@@ -178,6 +199,7 @@ export function useResendPersonalEmailInvite(userId: string) {
  */
 export function useChangePersonalEmail(userId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (personalEmail: string | null) =>
       api
@@ -191,17 +213,17 @@ export function useChangePersonalEmail(userId: string) {
         // COPY-M-13 (copy-review PR #623 round 5): this branch's own comment
         // already says a no-op resubmit can't reach here — the submit button
         // is disabled on `isNoop` (`ChangePersonalEmailDialog`) — so in
-        // practice this IS the removal branch, and the generic "Сохранено"
+        // practice this IS the removal branch, and a generic "saved" toast
         // (the same word an admin-note edit gets) said nothing about the
         // access that was just revoked.
-        toast.success('Личный адрес удалён — вход по нему больше не работает.')
+        toast.success(t`Особисту адресу видалено — вхід по ній більше не працює.`)
       } else if (data.delivered) {
-        toast.success('Письмо отправлено на личный адрес')
+        toast.success(t`Лист надіслано на особисту адресу`)
       } else {
-        toast.error('Письмо не ушло — почтовый сервис не ответил. Попробуйте ещё раз через пару минут.')
+        toast.error(t`Лист не пішов — поштовий сервіс не відповів. Спробуйте ще раз за кілька хвилин.`)
       }
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося зберегти: ${e.message}`),
   })
 }
 
@@ -266,6 +288,7 @@ function confirmedPercentOf(scope: PendingShareScope, data: unknown): number | n
  */
 export function useApproveSeniorShareChange(scope: PendingShareScope, id: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   const invalidate = () => {
     if (scope === 'user') {
       qc.invalidateQueries({ queryKey: ['user-profile', id] })
@@ -299,17 +322,17 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
       const projectName = projectNameOf(data)
       toast.success(
         scope === 'user'
-          ? `Доля по умолчанию теперь ${percent}%`
+          ? t`Частка за замовчуванням тепер ${percent}%`
           : projectName !== null
-            ? `Доля по проекту «${projectName}» теперь ${percent}%`
-            : `Доля по проекту теперь ${percent}%`,
+            ? t`Частка за проєктом «${projectName}» тепер ${percent}%`
+            : t`Частка за проєктом тепер ${percent}%`,
       )
     },
     // task-648-fix-round-1 (QA-MED-5): refetch on failure too — a stale
     // banner/row from a proposal already resolved elsewhere (409/404) must
     // not stay clickable, showing a number that no longer means anything.
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e, 'Не удалось подтвердить'))
+      toast.error(seniorShareErrorMessage(e, t`Не вдалося підтвердити`))
       invalidate()
     },
   })
@@ -318,6 +341,7 @@ export function useApproveSeniorShareChange(scope: PendingShareScope, id: string
 /** Rejection counterpart of `useApproveSeniorShareChange` — reason required (design spec §3 decision 3). Same `scope` generalization, same reasoning. */
 export function useRejectSeniorShareChange(scope: PendingShareScope, id: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   const invalidate = () => {
     if (scope === 'user') {
       qc.invalidateQueries({ queryKey: ['user-profile', id] })
@@ -344,28 +368,28 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
       // COPY-L-1 (fix-round 3): on `/pending` the subject is no longer
       // implied — the reject endpoint returns the updated `ProjectDetailDto`,
       // so the project can be named from the same response. The tail
-      // («действует прежний процент. Админ увидит причину») is unchanged.
+      // ("previous percentage applies, admin will see the reason") is
+      // unchanged in meaning (task-i18n-stage3a, Task 2 — translated to uk).
       const projectName = projectNameOf(data)
-      const tail = 'отклонено — действует прежний процент. Админ увидит причину'
+      const tail = t`відхилено — діє попередній відсоток. Адміністратор побачить причину`
       // COPY-M-9 (fix-round 4): the OBJECT leads, and the object is the
-      // share — «Предложение по проекту «X» отклонено» announced a rejected
-      // PROJECT, which is a different decision living one section above on
-      // the same screen with a toast of its own («Проект отклонён, админ
-      // увидит причину»). The confirming half of this pair already names it
-      // correctly («Доля по проекту «X» теперь 30%»), so the pair was
-      // asymmetric on top of being wrong. The user-scope form also loses its
-      // «по доле по умолчанию» (two «по» in one noun phrase). The unnamed
-      // fallback is untouched — that sentence is #648's and still true.
+      // share — a project-level "proposal rejected" phrasing announced a
+      // rejected PROJECT, which is a different decision living one section
+      // above on the same screen with a toast of its own. The confirming
+      // half of this pair already names the object first
+      // («Частка за проєктом «X» тепер 30%»), so the pair was asymmetric on
+      // top of being wrong. The unnamed fallback is untouched — that
+      // sentence is #648's and still true.
       toast.success(
         scope === 'user'
-          ? `Доля по умолчанию: предложение ${tail}`
+          ? t`Частка за замовчуванням: пропозицію ${tail}`
           : projectName !== null
-            ? `Доля по проекту «${projectName}»: предложение ${tail}`
-            : `Предложение ${tail}`,
+            ? t`Частка за проєктом «${projectName}»: пропозицію ${tail}`
+            : t`Пропозицію ${tail}`,
       )
     },
     onError: (e: unknown) => {
-      toast.error(seniorShareErrorMessage(e, 'Не удалось отклонить'))
+      toast.error(seniorShareErrorMessage(e, t`Не вдалося відхилити`))
       invalidate()
     },
   })
@@ -373,6 +397,10 @@ export function useRejectSeniorShareChange(scope: PendingShareScope, id: string)
 
 export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) {
   const qc = useQueryClient()
+  // Local binding named `t`/`msg` would shadow the `@lingui/react/macro` `t`
+  // and `@lingui/core/macro` `msg` imports used elsewhere in this file —
+  // `toastMessage` instead.
+  const { t } = useLingui()
   return useMutation({
     mutationFn: () => api.post(`/users/${userId}/unarchive`).then((r) => r.data),
     onSuccess: () => {
@@ -382,11 +410,11 @@ export function useUnarchiveUser(userId: string, opts?: { isSenior?: boolean }) 
       if (opts?.isSenior) {
         qc.invalidateQueries({ queryKey: ['teams'] })
       }
-      const msg = opts?.isSenior
-        ? 'Синьор и команда восстановлены'
-        : 'Пользователь восстановлен из архива'
-      toast.success(msg)
+      const toastMessage = opts?.isSenior
+        ? t`Сеньйора та команду відновлено`
+        : t`Користувача відновлено з архіву`
+      toast.success(toastMessage)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося відновити: ${e.message}`),
   })
 }

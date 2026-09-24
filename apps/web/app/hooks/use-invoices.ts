@@ -19,6 +19,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type {
   InvoiceDto,
   InvoiceListFilters,
@@ -130,6 +131,7 @@ export function useInvoice(
  */
 export function useSignInvoice(): UseMutationResult<InvoiceDto, Error, string> {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<InvoiceDto, Error, string>({
     mutationFn: async (transactionId: string) => {
       const res = await api.post<InvoiceDto>(`/invoices/${transactionId}/sign`, {})
@@ -140,10 +142,10 @@ export function useSignInvoice(): UseMutationResult<InvoiceDto, Error, string> {
       void qc.invalidateQueries({ queryKey: invoiceDetailQueryKey(transactionId) })
       void qc.invalidateQueries({ queryKey: ['notifications'] })
       void qc.invalidateQueries({ queryKey: ['documents'] })
-      toast.success('Счёт подписан')
+      toast.success(t`Рахунок підписано`)
     },
     onError: (err: Error) => {
-      toast.error(`Не удалось подписать счёт: ${err.message}`)
+      toast.error(t`Не вдалося підписати рахунок: ${err.message}`)
     },
   })
 }

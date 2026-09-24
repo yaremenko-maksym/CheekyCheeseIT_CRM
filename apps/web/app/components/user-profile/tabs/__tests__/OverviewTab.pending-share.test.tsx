@@ -437,7 +437,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
       expect(api.post).toHaveBeenCalledWith(`/users/${USER_ID}/senior-share/approve`),
     )
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith(`Доля по умолчанию теперь ${CONFIRMED_PERCENT}%`),
+      expect(toast.success).toHaveBeenCalledWith(
+        `Частка за замовчуванням тепер ${CONFIRMED_PERCENT}%`,
+      ),
     )
   })
 
@@ -466,7 +468,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(screen.getByTestId('pending-base-share-reject-reason'), 'нет')
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось отклонить'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відхилити'))
   })
 
   it("approve: an error with neither .response nor a string .message falls through to seniorShareErrorMessage's own fallback text", async () => {
@@ -480,7 +482,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     // task-648-fix-round-2 (COPY-L-6): the fallback names the action again.
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подтвердить'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося підтвердити'))
   })
 
   it('approve: a 404 (stale/foreign proposal) shows the friendly "устарело" message, not the raw backend text', async () => {
@@ -498,7 +500,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Предложение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+        'Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.',
       ),
     )
     // QA-MED-5: a stale banner (proposal already resolved elsewhere) must
@@ -649,7 +651,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
         // процент", is what got rejected.
         // COPY-M-9 (#667 fix-round 4): and the object leads the sentence,
         // as it does in the confirming half and in the row itself.
-        'Доля по умолчанию: предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Частка за замовчуванням: пропозицію відхилено — діє попередній відсоток. Адміністратор побачить причину',
       ),
     )
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['user-profile', USER_ID] })
@@ -689,7 +691,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-confirm'))
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
-        'Решение по этому предложению уже принято. Обновите страницу.',
+        'Рішення щодо цієї пропозиції вже прийнято. Оновіть сторінку.',
       ),
     )
     // QA-MED-5: same refetch-on-failure fix as the approve test above — a

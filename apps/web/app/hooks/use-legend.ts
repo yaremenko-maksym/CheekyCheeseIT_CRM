@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import {
   addLegendEntrySchema,
   legendResponseSchema,
@@ -46,6 +47,7 @@ export function useLegend(projectId: string | undefined, enabled = true) {
 
 export function useUpsertLegend(projectId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (data: UpsertLegendDto) => {
       const dto = upsertLegendSchema.parse(data)
@@ -55,14 +57,15 @@ export function useUpsertLegend(projectId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['legend', projectId] })
-      toast.success('Легенда сохранена')
+      toast.success(t`Легенду збережено`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося зберегти легенду: ${e.message}`),
   })
 }
 
 export function useAddLegendEntry(projectId: string) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation({
     mutationFn: (data: AddLegendEntryDto) => {
       const dto = addLegendEntrySchema.parse(data)
@@ -72,8 +75,8 @@ export function useAddLegendEntry(projectId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['legend', projectId] })
-      toast.success('Запись добавлена')
+      toast.success(t`Запис додано`)
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(t`Не вдалося додати запис: ${e.message}`),
   })
 }

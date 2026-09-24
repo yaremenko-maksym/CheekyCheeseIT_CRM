@@ -48,6 +48,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { formatBytes } from '@/lib/format-bytes'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import {
@@ -88,6 +89,9 @@ function shortId(id: string): string {
 }
 
 export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
+  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
+  // `locale`; this file otherwise stays Russian (wave e migrates it).
+  const locale = useLocale()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -211,7 +215,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         </TooltipProvider>
 
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes) : '—'}</span>
+          <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes, locale) : '—'}</span>
           <span aria-hidden="true">·</span>
           <span title={doc.createdAt}>{relativeDate}</span>
         </div>

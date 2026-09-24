@@ -44,8 +44,22 @@ vi.mock('@/lib/axios', () => ({
 // (`totalEarnedSchema`) with a passthrough parser so the test is hermetic and
 // resolution-independent (worktree local AND CI alike). Types are erased at
 // compile time so they need no mock.
+// task-i18n-stage3a (Task 2): FinanceTab's `formatAmount` (`@/lib/format-amount`)
+// now routes through `resolveLocale`/`formatMoney` from `@crm/shared` — this
+// mock needs both, hermetic same as `totalEarnedSchema` above (real
+// `Intl`-backed implementations, not a passthrough, since the test asserts
+// on the rendered amount text).
 vi.mock('@crm/shared', () => ({
   totalEarnedSchema: { parse: (x: unknown) => x },
+  resolveLocale: () => 'uk' as const,
+  formatMoney: (amount: number | string, currency: string) => {
+    const n = Number(amount)
+    const body = new Intl.NumberFormat('uk-UA', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n)
+    return `${body} ${currency}`
+  },
 }))
 
 // financeApi.getTransactions is only used on the non-privileged branch; stub it
