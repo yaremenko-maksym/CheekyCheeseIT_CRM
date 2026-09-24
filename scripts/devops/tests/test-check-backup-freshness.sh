@@ -177,7 +177,7 @@ assert_red_signal "config file present but missing required vars -> not_configur
 
 # REGRESSION, found by this very test on the CI runner (2026-08-07): the
 # `quality` job exports AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_ENDPOINT
-# for the API's MinIO config, and the guard read the process environment after
+# for the API's S3 config, and the guard read the process environment after
 # sourcing the config file — so an incomplete /etc/crm-backup.env was reported
 # as fully configured and the S3 query ran with credentials for a different
 # bucket entirely. The guard now unsets those vars before sourcing; this case

@@ -114,7 +114,7 @@ else
   # implementation simply did not match its own documented contract. It surfaced
   # when the new test ran on the GitHub Actions runner, where the calling job
   # exports AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_ENDPOINT for the API's
-  # MinIO config: a deliberately-incomplete config file was reported as fully
+  # S3 config: a deliberately-incomplete config file was reported as fully
   # configured, and the script went on to call `aws` with credentials belonging
   # to an entirely different bucket.
   #
