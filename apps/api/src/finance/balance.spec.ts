@@ -481,21 +481,21 @@ describe('R3 — BalanceService RBAC helpers: assertCanListPendingObligations', 
   it('JUNIOR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('JUNIOR'))).toThrow(
-      'This section is available to an accountant and an administrator',
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 
   it('HR cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('HR'))).toThrow(
-      'This section is available to an accountant and an administrator',
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 
   it('DROP cannot list pending obligations → ForbiddenException', () => {
     const svc = makeService()
     expect(() => svc.assertCanListPendingObligations(makeViewer('DROP'))).toThrow(
-      'This section is available to an accountant and an administrator',
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 })

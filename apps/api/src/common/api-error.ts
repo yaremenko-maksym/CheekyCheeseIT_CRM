@@ -1,5 +1,6 @@
 import { HttpException, type HttpStatus } from '@nestjs/common'
 import { setupI18n } from '@lingui/core'
+import { compileMessage } from '@lingui/message-utils/compileMessage'
 import {
   API_ERROR_FALLBACK_EN,
   API_ERROR_MESSAGES,
@@ -36,9 +37,24 @@ import {
  * `packages/shared/src/i18n/catalog.ts`) is cheap to construct, and this
  * mirrors that function's own "one instance per request" rule for the same
  * reason (no shared mutable i18n state across concurrent requests).
+ *
+ * SR-M-1 (PR #704 fix-round 1): `@lingui/core`'s `I18n` constructor only
+ * self-registers `compileMessage` as the message compiler when
+ * `process.env.NODE_ENV !== 'production'` (`dist/index.cjs`) — a dev/test
+ * convenience, not something this call site can rely on, since the prod API
+ * runs with `NODE_ENV=production`. Without a compiler, `i18n._()` cannot
+ * parse the raw ICU fallback template at all: it returns it VERBATIM
+ * (`"Row {rowId}: …"`, braces and all) and logs a multi-line
+ * `console.warn('Uncompiled message detected! …')` on every single
+ * `apiError()` call, params or not — on prod this silently undid the
+ * `interpolate`→`@lingui/core` rewrite above for every refusal. Registering
+ * the compiler explicitly on every instance (constant, imported once at
+ * module scope, not re-required per call) makes rendering identical in
+ * dev/test and prod.
  */
 function interpolate(code: ApiErrorCode, params?: Record<string, string | number>): string {
   const i18n = setupI18n({ locale: 'en', messages: { en: {} } })
+  i18n.setMessagesCompiler(compileMessage)
   // `API_ERROR_MESSAGES[code].id` (a member expression), not a template
   // literal built from `code` — `lingui extract`'s babel plugin tries to
   // statically resolve the id argument of every `i18n._()` call and warns

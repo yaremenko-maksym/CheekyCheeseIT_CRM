@@ -200,7 +200,7 @@ describe('assertCanListPendingObligations', () => {
   })
   it.each([juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanListPendingObligations(user)).toThrow(
-      'This section is available to an accountant and an administrator',
+      'Only an admin, an accountant, or a senior can see pending obligations',
     )
   })
 })

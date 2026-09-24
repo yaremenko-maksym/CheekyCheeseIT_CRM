@@ -251,11 +251,11 @@ export const FINANCE_INVOICES_ERROR_PARAMS = {
   FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN: [],
   FINANCE_DELETE_SOURCE_OF_OBLIGATION_FORBIDDEN: [],
   FINANCE_PAY_SALARY_ONLY: [],
-  FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT: ['rowId'],
-  FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH: ['rowId'],
-  FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN: ['rowId'],
-  FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE: ['rowId', 'settledCurrency', 'currency'],
-  FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN: ['rowId'],
+  FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT: [],
+  FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH: [],
+  FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN: [],
+  FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE: ['settledCurrency', 'currency'],
+  FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN: [],
   FINANCE_SALARY_ROLE_NOT_ELIGIBLE: [],
   FINANCE_SALARY_RECEIVER_ARCHIVED: [],
   FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH: [],
@@ -377,7 +377,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_ROW_AMOUNT_MISMATCH: /* i18n */ {
       id: 'api-error.FINANCE_ROW_AMOUNT_MISMATCH',
       message:
-        'Сума рядка і фактичні виплати розходяться — правка недоступна. Повідомте номер рядка адміністратору',
+        'Сума однієї з часток не збігається з уже виплаченим — правку заблоковано до ручної звірки',
     },
     FINANCE_ROW_STATE_CHANGED_WHILE_EDITING: /* i18n */ {
       id: 'api-error.FINANCE_ROW_STATE_CHANGED_WHILE_EDITING',
@@ -457,15 +457,15 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_INCOME_OWN_PROJECTS_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_INCOME_OWN_PROJECTS_ONLY',
-      message: 'Дохід можна додавати лише для власних проєктів',
+      message: 'Заявити дохід можна лише за власним проєктом',
     },
     FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED: /* i18n */ {
       id: 'api-error.FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED',
-      message: 'ADMIN_INCOME можна реєструвати лише для проєкту, яким володіє адміністратор',
+      message: 'Дохід адміністратора можна заявити лише за проєктом адміністратора',
     },
     FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT: /* i18n */ {
       id: 'api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT',
-      message: 'Бухгалтер не обирає, хто отримує ADMIN_INCOME',
+      message: 'Бухгалтер не обирає, хто отримує дохід адміністратора',
     },
     FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN: /* i18n */ {
       id: 'api-error.FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN',
@@ -474,15 +474,15 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE: /* i18n */ {
       id: 'api-error.FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE',
       message:
-        'USDT-проєкти не створюють дохід через цей маршрут — оголосіть USDT-надходження, яке бронює частки сеньйора і дропа разом із доходом',
+        'Дохід USDT-проєкту заявляється як USDT-дохід — тоді одразу враховуються частки сеньйора й дропа',
     },
     FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH: /* i18n */ {
       id: 'api-error.FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH',
-      message: 'Надходження в USDT можна оголосити лише на USDT-проєкті',
+      message: 'USDT-дохід можна заявити лише за USDT-проєктом',
     },
     FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY',
-      message: 'На USDT-проєкті надходження оголошує адміністратор',
+      message: 'Дохід USDT-проєкту заявляє лише адміністратор',
     },
     FINANCE_INCOME_RECEIVER_ARCHIVED: /* i18n */ {
       id: 'api-error.FINANCE_INCOME_RECEIVER_ARCHIVED',
@@ -494,7 +494,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_EDIT_SENIOR_INCOME_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_SENIOR_INCOME_ONLY',
-      message: 'Редагувати можна лише транзакції SENIOR_INCOME',
+      message: 'Редагувати можна лише дохід сеньйора',
     },
     FINANCE_EDIT_REJECTED_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_REJECTED_ONLY',
@@ -502,16 +502,15 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_EDIT_DROP_INCOME_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_DROP_INCOME_ONLY',
-      message: 'Редагувати можна лише транзакції DROP_INCOME',
+      message: 'Редагувати можна лише дохід дропа',
     },
     FINANCE_VALIDATE_WRONG_TYPE: /* i18n */ {
       id: 'api-error.FINANCE_VALIDATE_WRONG_TYPE',
-      message: 'Валідувати можна лише SENIOR_INCOME або DROP_INCOME',
+      message: 'Валідувати можна лише дохід сеньйора або дропа',
     },
     FINANCE_ADMIN_NO_SALARY: /* i18n */ {
       id: 'api-error.FINANCE_ADMIN_NO_SALARY',
-      message:
-        'Адміністратор не отримує зарплату — дохід розподіляється через частки (ADMIN_INCOME)',
+      message: 'Адміністратор не отримує зарплату — його дохід іде через частки',
     },
     FINANCE_RECEIPT_ATTACH_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN',
@@ -535,7 +534,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_EDIT_PAYOUT_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN',
-      message: 'Редагувати транзакції PAYOUT не можна',
+      message: 'Виплату редагувати не можна',
     },
     FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN',
@@ -543,7 +542,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_DELETE_PAYOUT_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_DELETE_PAYOUT_FORBIDDEN',
-      message: 'Видаляти транзакції PAYOUT не можна',
+      message: 'Виплату видалити не можна',
     },
     FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN',
@@ -555,32 +554,30 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_PAY_SALARY_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_PAY_SALARY_ONLY',
-      message: 'Оплатити можна лише транзакції SALARY',
+      message: 'Оплатити можна лише зарплату',
     },
     FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT: /* i18n */ {
       id: 'api-error.FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT',
-      message:
-        'Рядок {rowId}: немає знімка відсотка частки по похідному рядку — перерахувати суму неможливо, а вгадувати не можна. Потрібне ручне рішення',
+      message: 'В однієї з часток не збережено відсоток — перерахувати її можна лише вручну',
     },
     FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH: /* i18n */ {
       id: 'api-error.FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
       message:
-        'Рядок {rowId}: зобов’язання по похідному рядку враховано в іншій валюті, ніж сума джерела — записати в нього перераховану частку не можна',
+        'Зобов’язання за однією з часток записане в іншій валюті — перерахувати його не можна',
     },
     FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN: /* i18n */ {
       id: 'api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN',
-      message:
-        'Рядок {rowId}: скільки по ньому вже виплачено, не записано — повернути його в очікування виплати не можна, потрібна ручна звірка',
+      message: 'Не записано, скільки вже виплачено за однією з часток — потрібна ручна звірка',
     },
     FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE: /* i18n */ {
       id: 'api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
       message:
-        'Рядок {rowId}: уже виплачене обліковане в {settledCurrency}, а перерахована частка — в {currency}. Залишок до доплати в такій парі не обчислюється, потрібна ручна звірка',
+        'За однією з часток уже виплачено в {settledCurrency}, а нова сума в {currency} — потрібна ручна звірка',
     },
     FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN: /* i18n */ {
       id: 'api-error.FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN',
       message:
-        'Рядок {rowId} закривав зобов’язання, але його тип не відповідає жодній формі закриття — повернути його в очікування виплати не можна',
+        'Одну з часток закрила транзакція нетипового виду — повернути її до очікування виплати не можна',
     },
     FINANCE_SALARY_ROLE_NOT_ELIGIBLE: /* i18n */ {
       id: 'api-error.FINANCE_SALARY_ROLE_NOT_ELIGIBLE',
@@ -660,11 +657,11 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_CONFIRM_PAYOUT_ONLY: /* i18n */ {
       id: 'api-error.FINANCE_CONFIRM_PAYOUT_ONLY',
-      message: 'Підтвердити можна лише транзакції PAYOUT',
+      message: 'Підтвердити можна лише виплату',
     },
     FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST: /* i18n */ {
       id: 'api-error.FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST',
-      message: 'Транзакцію PAYOUT для цієї заявки не знайдено',
+      message: 'Транзакцію виплати за цією заявкою не знайдено',
     },
     FINANCE_SENIOR_NOT_FOUND_ON_DROP_PROJECT: /* i18n */ {
       id: 'api-error.FINANCE_SENIOR_NOT_FOUND_ON_DROP_PROJECT',
@@ -724,7 +721,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_PENDING_OBLIGATIONS_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN',
-      message: 'Цей розділ доступний бухгалтеру та адміністратору',
+      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор',
     },
     FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN',
@@ -777,7 +774,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN',
-      message: 'Список очікуваних надходжень доступний сеньйорам, бухгалтерам і адміністраторам',
+      message: 'Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор',
     },
     FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN: /* i18n */ {
       id: 'api-error.FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN',
@@ -858,7 +855,7 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
     },
     FINANCE_SETTLED_AMOUNT_NEGATIVE: /* i18n */ {
       id: 'api-error.FINANCE_SETTLED_AMOUNT_NEGATIVE',
-      message: 'Сума виплати не може бути відʼємною',
+      message: 'Сума виплати не може бути від’ємною',
     },
     FINANCE_SETTLED_AMOUNT_OVER_LIMIT: /* i18n */ {
       id: 'api-error.FINANCE_SETTLED_AMOUNT_OVER_LIMIT',
@@ -935,7 +932,7 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     'Give a reason for restoring the transaction — it goes into the audit log',
   FINANCE_REJECTION_REASON_REQUIRED: 'Give a reason for the rejection',
   FINANCE_ROW_AMOUNT_MISMATCH:
-    "The row amount and the actual payouts don't match — editing is unavailable. Tell the administrator the row number",
+    "One of the shares doesn't match what was already paid — the edit is blocked until a manual reconciliation",
   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING:
     'The row changed while you were editing it (it was paid or deleted) — refresh the page and try again',
   FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW:
@@ -966,52 +963,50 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED:
     'Unsupported currency for USDT conversion: {currency}',
   FINANCE_SHARES_SUM_EXCEEDS_100: "The senior and drop shares' sum exceeds 100%",
-  FINANCE_INCOME_OWN_PROJECTS_ONLY: 'You can only add income for your own projects',
+  FINANCE_INCOME_OWN_PROJECTS_ONLY: 'You can only declare income for your own project',
   FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED:
-    'ADMIN_INCOME can only be registered for an admin-owned project',
+    "Admin income can only be declared for an admin's project",
   FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT:
-    "An accountant can't choose who receives ADMIN_INCOME",
-  FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN: 'The recipient must be an active administrator',
+    "An accountant can't choose who receives admin income",
+  FINANCE_INCOME_RECEIVER_MUST_BE_ACTIVE_ADMIN: 'The recipient must be an active admin',
   FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE:
-    "USDT projects don't create income through this route — declare a USDT income instead, which reserves the senior's and drop's shares along with the income",
-  FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH: 'A USDT income can only be declared on a USDT project',
-  FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY:
-    'On a USDT project, only an administrator declares income',
+    "Declare income on a USDT project as USDT income so the senior's and drop's shares are booked with it",
+  FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH: 'USDT income can only be declared for a USDT project',
+  FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY: 'Only an admin declares income on a USDT project',
   FINANCE_INCOME_RECEIVER_ARCHIVED: "The user is archived — income can't be declared",
   FINANCE_NOT_YOUR_DROP_PROJECT: "This isn't your drop project",
-  FINANCE_EDIT_SENIOR_INCOME_ONLY: 'Only SENIOR_INCOME transactions can be edited',
+  FINANCE_EDIT_SENIOR_INCOME_ONLY: 'Only senior income can be edited',
   FINANCE_EDIT_REJECTED_ONLY: 'Only rejected transactions can be edited',
-  FINANCE_EDIT_DROP_INCOME_ONLY: 'Only DROP_INCOME transactions can be edited',
-  FINANCE_VALIDATE_WRONG_TYPE: 'Only SENIOR_INCOME or DROP_INCOME can be validated',
-  FINANCE_ADMIN_NO_SALARY:
-    "An administrator doesn't receive a salary — income is distributed through shares (ADMIN_INCOME)",
+  FINANCE_EDIT_DROP_INCOME_ONLY: 'Only drop income can be edited',
+  FINANCE_VALIDATE_WRONG_TYPE: 'Only senior or drop income can be validated',
+  FINANCE_ADMIN_NO_SALARY: "An admin doesn't get a salary — admin income comes through shares",
   FINANCE_RECEIPT_ATTACH_FORBIDDEN:
     "You don't have permission to attach a receipt to this transaction",
   FINANCE_RECEIPT_REPLACE_AFTER_PAID_FORBIDDEN:
-    'Only an administrator or an accountant can replace a receipt after payment',
+    'Only an admin or an accountant can replace a receipt after payment',
   FINANCE_RECEIPT_DOCUMENT_NOT_FOUND: 'Receipt document not found',
   FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY:
     'Only a document in the Receipt category can be attached to a transaction',
   FINANCE_RECEIPT_DOCUMENT_NOT_OWNED: "You don't have permission to attach this receipt document",
-  FINANCE_EDIT_PAYOUT_FORBIDDEN: "PAYOUT transactions can't be edited",
+  FINANCE_EDIT_PAYOUT_FORBIDDEN: "A payout can't be edited",
   FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN:
     "A transaction linked to a payout request can't be edited",
-  FINANCE_DELETE_PAYOUT_FORBIDDEN: "PAYOUT transactions can't be deleted",
+  FINANCE_DELETE_PAYOUT_FORBIDDEN: "A payout can't be deleted",
   FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN:
     "A transaction linked to a payout request can't be deleted",
   FINANCE_DELETE_SOURCE_OF_OBLIGATION_FORBIDDEN:
     "A transaction that is the source of a company obligation can't be deleted",
-  FINANCE_PAY_SALARY_ONLY: 'Only SALARY transactions can be paid',
+  FINANCE_PAY_SALARY_ONLY: 'Only a salary can be paid',
   FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT:
-    "Row {rowId}: there's no share-percent snapshot on the derivative row — recalculating its amount isn't possible, and guessing isn't allowed. A manual decision is required",
+    'One of the shares has no saved percentage — it can only be recalculated manually',
   FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH:
-    "Row {rowId}: the obligation on the derivative row is booked in a different currency than the source amount — writing the recalculated share into it isn't possible",
+    "The obligation for one of the shares is in another currency — it can't be recalculated",
   FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN:
-    "Row {rowId}: how much has already been paid on it isn't recorded — it can't be returned to pending payout, a manual reconciliation is needed",
+    "How much was already paid on one of the shares isn't recorded — a manual reconciliation is needed",
   FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE:
-    "Row {rowId}: the amount already paid is booked in {settledCurrency}, and the recalculated share is in {currency} — the remaining amount can't be computed for this pair, a manual reconciliation is needed",
+    'One of the shares was already paid in {settledCurrency} and its new amount is in {currency} — a manual reconciliation is needed',
   FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN:
-    "Row {rowId} closed an obligation, but its type doesn't match any closing form — it can't be returned to pending payout",
+    "One of the shares was closed by an unusual transaction type — it can't return to pending payout",
   FINANCE_SALARY_ROLE_NOT_ELIGIBLE:
     'Salary can only be created for a junior, HR, an accountant, a senior, or a drop',
   FINANCE_SALARY_RECEIVER_ARCHIVED: "The recipient is archived — salary isn't accrued",
@@ -1022,8 +1017,8 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN: 'The personal payer account must belong to an administrator',
   FINANCE_TRANSFER_SENDER_ID_REQUIRED:
     'Specify a sender — a transfer is only possible between two admins',
-  FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN: 'The sender must be an administrator',
-  FINANCE_TRANSFER_RECIPIENT_MUST_BE_ADMIN: 'You can only transfer to another administrator',
+  FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN: 'The sender must be an admin',
+  FINANCE_TRANSFER_RECIPIENT_MUST_BE_ADMIN: 'You can only transfer to another admin',
   FINANCE_TRANSFER_RECEIVER_ARCHIVED: "The recipient is archived — the transfer isn't possible",
   FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE:
     'Some of the transactions are already included in a payout or unavailable',
@@ -1032,13 +1027,13 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_NBU_RATE_UNAVAILABLE: 'The NBU exchange rate is unavailable — try again later',
   FINANCE_PAYOUT_REQUEST_NOT_FOUND: 'Payout request not found',
   FINANCE_PAYOUT_REQUEST_ALREADY_PAID: 'The payout request is already paid',
-  FINANCE_RECIPIENT_ADMIN_NOT_FOUND: 'Recipient administrator not found',
-  FINANCE_RECIPIENT_MUST_BE_ADMIN: 'The recipient must be an administrator',
+  FINANCE_RECIPIENT_ADMIN_NOT_FOUND: 'Recipient admin not found',
+  FINANCE_RECIPIENT_MUST_BE_ADMIN: 'The recipient must be an admin',
   FINANCE_RECIPIENT_ADMIN_ARCHIVED: 'The recipient administrator is archived',
   FINANCE_PAYOUT_NOT_PENDING_PAYMENT:
     "The payout isn't pending payment — it may already be confirmed",
-  FINANCE_CONFIRM_PAYOUT_ONLY: 'Only PAYOUT transactions can be confirmed',
-  FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST: 'PAYOUT transaction not found for this request',
+  FINANCE_CONFIRM_PAYOUT_ONLY: 'Only a payout can be confirmed',
+  FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST: 'No payout transaction found for this request',
   FINANCE_SENIOR_NOT_FOUND_ON_DROP_PROJECT: 'Senior not found on the drop project',
   FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS: 'Insufficient funds in the company account',
   FINANCE_DROP_SUMMARY_FORBIDDEN: 'The drop summary is available to a drop only',
@@ -1063,10 +1058,10 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_TOTAL_EARNED_FORBIDDEN:
     'Only an administrator and an accountant can see the “total earned” figure',
   FINANCE_PENDING_OBLIGATIONS_FORBIDDEN:
-    'This section is available to an accountant and an administrator',
+    'Only an admin, an accountant, or a senior can see pending obligations',
   FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN:
     'Only an administrator and an accountant can see the company account',
-  FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY: 'Only an administrator can change the company wallet',
+  FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY: 'Only an admin can change the company wallet',
   FINANCE_WALLET_ADDRESS_INVALID: 'Invalid wallet address — expected 0x + 40 hex',
   FINANCE_COMPANY_REQUISITES_CHANGE_ADMIN_ONLY:
     'Only an administrator can change the company requisites',
@@ -1074,23 +1069,22 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   FINANCE_COMPANY_DEPOSIT_FORBIDDEN: 'Only a senior or a drop can top up the company account',
   FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN:
     'The deposit status is visible to its owner, an administrator, or an accountant',
-  FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY: 'Only an administrator can withdraw dividends',
+  FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY: 'Only an admin can withdraw dividends',
   FINANCE_DIVIDEND_AMOUNT_MUST_BE_POSITIVE: 'The dividend amount must be positive',
-  FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN:
-    "Dividends can only be withdrawn to an administrator's account",
+  FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN: "Dividends can only be withdrawn to an admin's account",
   FINANCE_DIVIDEND_RECEIVER_ARCHIVED: "The recipient is archived — dividends aren't paid out",
   FINANCE_USDT_OBLIGATION_CLOSE_CURRENCY_UNSUPPORTED:
     'Closing a USDT obligation in {currency} without converting the amount is not supported. Use USD or USDT',
   FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN:
-    'The pending accruals list is available to seniors, accountants, and administrators',
+    'Only an admin, an accountant, or a senior can see pending obligations',
   FINANCE_COMPANY_OBLIGATIONS_LIST_FORBIDDEN:
     "The company's obligations list toward seniors is available to administrators and accountants only",
   FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN:
-    'Only an administrator or an accountant can close a company obligation',
+    'Only an admin or an accountant can close a company obligation',
   FINANCE_OBLIGATION_NOT_COMPANY_TYPE: "This obligation isn't closed by the company",
   FINANCE_OBLIGATION_ALREADY_CLOSED: 'The obligation is already closed or cancelled',
   FINANCE_DROP_SHARE_NOT_VIA_COMPANY_ACCOUNT:
-    "The drop's share from this payout didn't go through the company account — choose the administrator's personal account",
+    "The drop's share from this payout didn't go through the company account — choose an admin's personal account",
   FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY:
     "The drop obligation is corrupted: its currency isn't USDT — conversion isn't possible",
   FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY:
@@ -1123,10 +1117,9 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
   INVOICE_COMPANY_SIGNATURE_MISSING: "The company's signature is missing",
   INVOICE_DOCUMENT_NOT_FOUND: 'The invoice document was not found',
   INVOICE_PDF_MODIFIED_AFTER_SIGNATURE:
-    'The PDF was modified after the first signature — contact an administrator',
+    'The PDF was modified after the first signature — contact an admin',
   INVOICE_USER_DATA_FETCH_FAILED: "Couldn't fetch user data",
-  INVOICE_AMOUNT_VERIFICATION_FAILED:
-    "Couldn't verify this invoice's amount — contact an administrator",
+  INVOICE_AMOUNT_VERIFICATION_FAILED: "Couldn't verify this invoice's amount — contact an admin",
   INVOICE_VOIDED: 'The invoice was voided — refresh the page',
   INVOICE_NOT_FOUND: 'Invoice not found',
   INVOICE_ACCESS_DENIED: "You don't have access to this invoice",

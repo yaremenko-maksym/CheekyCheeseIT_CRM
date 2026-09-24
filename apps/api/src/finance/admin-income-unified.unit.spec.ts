@@ -152,7 +152,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ACCOUNTANT,
         ),
-      ).rejects.toThrow("An accountant can't choose who receives ADMIN_INCOME")
+      ).rejects.toThrow("An accountant can't choose who receives admin income")
       expect(state.inserts).toHaveLength(0)
     })
 
@@ -240,7 +240,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow('The recipient must be an active administrator')
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
       // The mock's `findFirst` returns the next queued row regardless of
       // ARGS — without this, a mutant that drops the `where` clause entirely
@@ -264,7 +264,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow('The recipient must be an active administrator')
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
       expect(state.usersFindFirstArgs[0]).toHaveProperty('where')
     })
@@ -285,7 +285,7 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow('The recipient must be an active administrator')
+      ).rejects.toThrow('The recipient must be an active admin')
       expect(state.inserts).toHaveLength(0)
     })
 

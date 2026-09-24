@@ -78,4 +78,32 @@ describe('apiError', () => {
       warnSpy.mockRestore()
     }
   })
+
+  // SR-M-1 (PR #704 fix-round 1): `@lingui/core`'s `I18n` constructor only
+  // self-registers `compileMessage` as the message compiler when
+  // `process.env.NODE_ENV !== 'production'` — the prod API runs with
+  // `NODE_ENV=production`, so without `interpolate()` calling
+  // `setMessagesCompiler` explicitly, `i18n._()` could not parse the raw
+  // ICU fallback template at all: it would return it VERBATIM (braces and
+  // all) and log a `console.warn('Uncompiled message detected! …')` on
+  // every single `apiError()` call. Regression-guards both symptoms at
+  // once, with `NODE_ENV` switched for the duration of the call — the
+  // compiler is selected when the `I18n` instance is constructed, and
+  // `interpolate()` constructs a fresh instance on every call, so toggling
+  // the env var per-test is enough (no process restart needed).
+  it('interpolates params into the English fallback even under NODE_ENV=production, without an "Uncompiled message" warning (SR-M-1)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const originalNodeEnv = process.env.NODE_ENV
+    process.env.NODE_ENV = 'production'
+    try {
+      const e = apiError('DOCUMENT_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, { maxMb: 10 })
+      const response = e.getResponse() as { message: string }
+      expect(response.message).toBe('The file is larger than 10 MB')
+      expect(response.message).not.toMatch(/[{}]/)
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv
+      warnSpy.mockRestore()
+    }
+  })
 })

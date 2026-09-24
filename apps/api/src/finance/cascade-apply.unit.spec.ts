@@ -644,22 +644,29 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     // The message must name THIS reason — otherwise the test would also pass
     // on the pre-change behaviour, where BIZ-18 refused every PAID amount edit
     // wholesale and the specific refusal did not exist yet.
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      // Mutation gate (i18n stage 4 Task 2): assert code + params.rowId, not
-      // a message regex — pins the `{ rowId }` payload against `{}`.
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only (see `this.logger.warn`
+      // at the throw site), so the envelope carries no params for this code.
     ).rejects.toMatchObject({
       response: {
         code: 'FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT',
         statusCode: 400,
-        params: { rowId: SENIOR_DERIV_ID },
+        params: undefined,
       },
     })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content —
+    // this is the ONLY remaining place the row id is diagnosable from.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Derivative row ${SENIOR_DERIV_ID}: no share-percent snapshot`),
+    )
   })
 
   it('OBLIGATION_CURRENCY_MISMATCH refuses the whole edit (backlog 95)', async () => {
@@ -668,6 +675,7 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
@@ -675,10 +683,16 @@ describe('AC4: blocking conditions', () => {
       response: {
         code: 'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
         statusCode: 400,
-        params: { rowId: SENIOR_DERIV_ID },
+        params: undefined,
       },
     })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: obligation currency mismatch with source`,
+      ),
+    )
   })
 
   it('ONE bad derivative blocks the OTHER, healthy one too — the cascade is all-or-nothing', async () => {
@@ -701,7 +715,7 @@ describe('AC4: blocking conditions', () => {
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/share-percent snapshot/i)
+    ).rejects.toThrow(/no saved percentage/i)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -724,11 +738,19 @@ describe('AC4: blocking conditions', () => {
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/can't be computed for this pair/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content —
+    // both currencies, not just the code path.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: currency pair unresolvable (settled=USD, new=USDT)`,
+      ),
+    )
   })
 
   /**
@@ -771,10 +793,15 @@ describe('AC4: blocking conditions', () => {
     const { db } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
     ).rejects.toThrow(/UNKNOWN/)
+    // Mutation gate (COPY-H-2, fix-round 1): the log line has its OWN
+    // `?? 'UNKNOWN'` fallback (independent of the one in `apiError`'s
+    // `params`) — pin it too, or a mutant there survives unnoticed.
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('settled=UNKNOWN'))
   })
 
   it('AC15: the dead-end checks apply ONLY to a revert — an OPEN obligation with a foreign accumulator still updates', async () => {
@@ -2507,7 +2534,7 @@ describe('refusal messages', () => {
     }
     const message = (caught as Error).message
     expect(message).toBe(
-      "The row amount and the actual payouts don't match — editing is unavailable. Tell the administrator the row number",
+      "One of the shares doesn't match what was already paid — the edit is blocked until a manual reconciliation",
     )
     // task-i18n-stage4-task2 Step 1 (COPY-H-api-4): the divergence detail
     // (row id, both figures, the #598 pointer) lives in the log now, not the
@@ -2549,21 +2576,29 @@ describe('refusal messages', () => {
     const { db, ops } = makeDouble({ derivatives: derivativeRows, obligations: obligationRows })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(
       snapshotFrom({ derivatives: derivativeRows, obligations: obligationRows }),
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      // Mutation gate (i18n stage 4 Task 2): assert code + params.rowId, not
-      // a message regex — pins the `{ rowId }` payload against `{}`.
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only, so the envelope carries
+      // no params for this code.
     ).rejects.toMatchObject({
       response: {
         code: 'FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN',
         statusCode: 400,
-        params: { rowId: SENIOR_DERIV_ID },
+        params: undefined,
       },
     })
     expect(derivativeWrites(ops)).toHaveLength(0)
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `Derivative row ${SENIOR_DERIV_ID}: closed by unusual type SALARY, can't reopen`,
+      ),
+    )
   })
 
   it('refuses when the row disappears between the pre-read and the locked re-read', async () => {
@@ -2985,7 +3020,7 @@ describe('task 3b: a paid DROP derivative is revertible', () => {
     )
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-    ).rejects.toThrow(/can't be computed for this pair/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 })
@@ -3023,18 +3058,25 @@ describe('AC9: a derivative whose accumulator is unknown is never reverted', () 
     const { db, ops } = makeDouble({ derivatives, obligations })
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000, cascadeVersion: version }, ADMIN),
-      // Mutation gate (i18n stage 4 Task 2): pins params.rowId against {}.
+      // COPY-H-2 (PR #704 fix-round 1): the row id used to travel in
+      // `params.rowId` — it is now server-log-only, so the envelope carries
+      // no params for this code.
     ).rejects.toMatchObject({
       response: {
         code: 'FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN',
         statusCode: 400,
-        params: { rowId: SENIOR_DERIV_ID },
+        params: undefined,
       },
     })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
+    // Mutation gate (COPY-H-2, fix-round 1): pins the log message content.
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`Derivative row ${SENIOR_DERIV_ID}: settled amount unknown`),
+    )
   })
 
   it('says WHY — "not recorded", and that a human has to reconcile it', async () => {
@@ -3050,13 +3092,12 @@ describe('AC9: a derivative whose accumulator is unknown is never reverted', () 
       caught = e
     }
     const message = (caught as Error).message
-    // task-i18n-stage4-task2: `message` is the English fallback of
-    // `FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN` now, not the original
-    // Russian literal — same facts (not recorded, can't reopen, manual
-    // reconciliation), shorter wording (copy conventions, one sentence).
+    // COPY-H-2 (PR #704 fix-round 1): `message` is the English fallback of
+    // `FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN` — one sentence, no
+    // cascade jargon ("returned to pending payout" dropped as internal
+    // language; the user-facing fact is "not recorded, needs a human").
     expect(message).toContain("isn't recorded")
-    expect(message).toContain("can't be returned to pending payout")
-    expect(message).toContain('manual reconciliation is needed')
+    expect(message).toContain('a manual reconciliation is needed')
     // A gap in the record, not a fault — the wording must not accuse.
     expect(message).not.toMatch(/error/i)
     expect(message).not.toMatch(/corrupt/i)

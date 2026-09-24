@@ -1302,7 +1302,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/can't be computed for this pair/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
 
     // Zero writes — including on the SENIOR derivative, which was perfectly
     // fine. The cascade is all-or-nothing.
@@ -1337,7 +1337,7 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 2000, cascadeVersion: preview.version! },
         ADMIN,
       ),
-    ).rejects.toThrow(/can't be computed for this pair/)
+    ).rejects.toThrow(/a manual reconciliation is needed/)
 
     expect((await derivativeFor(SENIOR.id)).obligation.status).toBe('PAID')
     expect((await sourceIncome(PROJECT_SENIOR)).amount).toBe(source.amount)

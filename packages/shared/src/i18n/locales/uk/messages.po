@@ -156,7 +156,7 @@ msgstr "Telegram-канал можна вказати лише сеньйору"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_INCOME_PROJECT_TYPE_MISMATCH"
-msgstr "Надходження в USDT можна оголосити лише на USDT-проєкті"
+msgstr "USDT-дохід можна заявити лише за USDT-проєктом"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -199,7 +199,7 @@ msgstr "Адміністратор не може мати трудовий ко�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_ADMIN_NO_SALARY"
-msgstr "Адміністратор не отримує зарплату — дохід розподіляється через частки (ADMIN_INCOME)"
+msgstr "Адміністратор не отримує зарплату — його дохід іде через частки"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -335,7 +335,7 @@ msgstr "Бухгалтер"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
-msgstr "Бухгалтер не обирає, хто отримує ADMIN_INCOME"
+msgstr "Бухгалтер не обирає, хто отримує дохід адміністратора"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
@@ -344,7 +344,7 @@ msgstr "В активних стадіях"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT"
-msgstr "Рядок {rowId}: немає знімка відсотка частки по похідному рядку — перерахувати суму неможливо, а вгадувати не можна. Потрібне ручне рішення"
+msgstr "В однієї з часток не збережено відсоток — перерахувати її можна лише вручну"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Вакансії"
@@ -361,7 +361,7 @@ msgstr "Валідовано за місяць"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
-msgstr "Валідувати можна лише SENIOR_INCOME або DROP_INCOME"
+msgstr "Валідувати можна лише дохід сеньйора або дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -599,12 +599,12 @@ msgstr "Виплати дропа доступні лише дропу"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DELETE_PAYOUT_FORBIDDEN"
-msgstr "Видаляти транзакції PAYOUT не можна"
+msgstr "Виплату видалити не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN"
-msgstr "Редагувати транзакції PAYOUT не можна"
+msgstr "Виплату редагувати не можна"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
@@ -964,17 +964,17 @@ msgstr "Досягнуто ліміт {maxItems} тегів"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY"
-msgstr "На USDT-проєкті надходження оголошує адміністратор"
+msgstr "Дохід USDT-проєкту заявляє лише адміністратор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE"
-msgstr "USDT-проєкти не створюють дохід через цей маршрут — оголосіть USDT-надходження, яке бронює частки сеньйора і дропа разом із доходом"
+msgstr "Дохід USDT-проєкту заявляється як USDT-дохід — тоді одразу враховуються частки сеньйора й дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED"
-msgstr "ADMIN_INCOME можна реєструвати лише для проєкту, яким володіє адміністратор"
+msgstr "Дохід адміністратора можна заявити лише за проєктом адміністратора"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
@@ -1027,7 +1027,7 @@ msgstr "Дропам недоступні співбесіди"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
-msgstr "Рядок {rowId}: уже виплачене обліковане в {settledCurrency}, а перерахована частка — в {currency}. Залишок до доплати в такій парі не обчислюється, потрібна ручна звірка"
+msgstr "За однією з часток уже виплачено в {settledCurrency}, а нова сума в {currency} — потрібна ручна звірка"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1117,7 +1117,7 @@ msgstr "Заявити дохід можна лише за активним пр
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_INCOME_OWN_PROJECTS_ONLY"
-msgstr "Дохід можна додавати лише для власних проєктів"
+msgstr "Заявити дохід можна лише за власним проєктом"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1196,7 +1196,7 @@ msgstr "Зобов’язання дропа пошкоджено: валюта 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH"
-msgstr "Рядок {rowId}: зобов’язання по похідному рядку враховано в іншій валюті, ніж сума джерела — записати в нього перераховану частку не можна"
+msgstr "Зобов’язання за однією з часток записане в іншій валюті — перерахувати його не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1206,12 +1206,12 @@ msgstr "Зобов’язання не знайдено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PENDING_OBLIGATIONS_FORBIDDEN"
-msgstr "Цей розділ доступний бухгалтеру та адміністратору"
+msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN"
-msgstr "Список очікуваних надходжень доступний сеньйорам, бухгалтерам і адміністраторам"
+msgstr "Зобов’язання, що очікують виплати, бачать лише адміністратор, бухгалтер і сеньйор"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
@@ -1601,7 +1601,7 @@ msgstr "Не вдалося увійти: {errMessage}"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN"
-msgstr "Рядок {rowId}: скільки по ньому вже виплачено, не записано — повернути його в очікування виплати не можна, потрібна ручна звірка"
+msgstr "Не записано, скільки вже виплачено за однією з часток — потрібна ручна звірка"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1753,7 +1753,7 @@ msgstr "Одна з часток вийшла з очікування випла
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN"
-msgstr "Рядок {rowId} закривав зобов’язання, але його тип не відповідає жодній формі закриття — повернути його в очікування виплати не можна"
+msgstr "Одну з часток закрила транзакція нетипового виду — повернути її до очікування виплати не можна"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Оновити"
@@ -1784,7 +1784,7 @@ msgstr "Оплатити"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAY_SALARY_ONLY"
-msgstr "Оплатити можна лише транзакції SALARY"
+msgstr "Оплатити можна лише зарплату"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -1978,7 +1978,7 @@ msgstr "Підтвердження не знайдено або вже закр�
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_CONFIRM_PAYOUT_ONLY"
-msgstr "Підтвердити можна лише транзакції PAYOUT"
+msgstr "Підтвердити можна лише виплату"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2243,12 +2243,12 @@ msgstr "Редагувати можна лише відхилені транза
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_EDIT_DROP_INCOME_ONLY"
-msgstr "Редагувати можна лише транзакції DROP_INCOME"
+msgstr "Редагувати можна лише дохід дропа"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_EDIT_SENIOR_INCOME_ONLY"
-msgstr "Редагувати можна лише транзакції SENIOR_INCOME"
+msgstr "Редагувати можна лише дохід сеньйора"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2473,7 +2473,7 @@ msgstr "Сума виплати має бути числом"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SETTLED_AMOUNT_NEGATIVE"
-msgstr "Сума виплати не може бути відʼємною"
+msgstr "Сума виплати не може бути від’ємною"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2513,7 +2513,7 @@ msgstr "Сума не може перевищувати 500 000"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_ROW_AMOUNT_MISMATCH"
-msgstr "Сума рядка і фактичні виплати розходяться — правка недоступна. Повідомте номер рядка адміністратору"
+msgstr "Сума однієї з часток не збігається з уже виплаченим — правку заблоковано до ручної звірки"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2566,7 +2566,7 @@ msgstr "Транзакцію видалено — відновіть її пер
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_TRANSACTION_NOT_FOUND_FOR_REQUEST"
-msgstr "Транзакцію PAYOUT для цієї заявки не знайдено"
+msgstr "Транзакцію виплати за цією заявкою не знайдено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

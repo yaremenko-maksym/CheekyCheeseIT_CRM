@@ -3969,18 +3969,20 @@ export class TransactionsService {
       const snap = snapshotById.get(derivativePlan.id)!
 
       if (derivativePlan.newAmount === null) {
-        throw apiError('FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT', HttpStatus.BAD_REQUEST, {
-          rowId: derivativePlan.id,
-        })
+        // COPY-H-2 (PR #704 fix-round 1): the row id is a UUID the user
+        // cannot act on — it stays server-side, for whoever reads the log
+        // to find the row that failed.
+        this.logger.warn(`Derivative row ${derivativePlan.id}: no share-percent snapshot`)
+        throw apiError('FINANCE_DERIVATIVE_ROW_NO_SHARE_SNAPSHOT', HttpStatus.BAD_REQUEST)
       }
 
       if (derivativePlan.warnings.some((w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH')) {
+        this.logger.warn(
+          `Derivative row ${derivativePlan.id}: obligation currency mismatch with source`,
+        )
         throw apiError(
           'FINANCE_DERIVATIVE_ROW_OBLIGATION_CURRENCY_MISMATCH',
           HttpStatus.BAD_REQUEST,
-          {
-            rowId: derivativePlan.id,
-          },
         )
       }
 
@@ -4042,9 +4044,8 @@ export class TransactionsService {
       // than trusted (addendum §3.1): break any link and the system says so out
       // loud, on real data, instead of paying twice.
       if (derivativePlan.needsReconfirm && snap.settledAmount === null) {
-        throw apiError('FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN', HttpStatus.BAD_REQUEST, {
-          rowId: derivativePlan.id,
-        })
+        this.logger.warn(`Derivative row ${derivativePlan.id}: settled amount unknown`)
+        throw apiError('FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN', HttpStatus.BAD_REQUEST)
       }
 
       // AC15 / addendum §1.14 (security-review SR-M-3, SR-M-4) — the cascade
@@ -4087,11 +4088,14 @@ export class TransactionsService {
         // top-up works"; for drop it does not, so the premise went and the
         // conclusion with it (addendum §1.14).
         if (derivativePlan.warnings.some((w) => w.code === 'NON_USDT_CURRENCY')) {
+          this.logger.warn(
+            `Derivative row ${derivativePlan.id}: currency pair unresolvable ` +
+              `(settled=${derivativePlan.settledCurrency ?? 'UNKNOWN'}, new=${derivativePlan.currency})`,
+          )
           throw apiError(
             'FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE',
             HttpStatus.BAD_REQUEST,
             {
-              rowId: derivativePlan.id,
               settledCurrency: derivativePlan.settledCurrency ?? 'UNKNOWN',
               currency: derivativePlan.currency,
             },
@@ -4187,13 +4191,10 @@ export class TransactionsService {
               ? 'DROP_PENDING_PAYOUT'
               : null
         if (revertedType === null) {
-          throw apiError(
-            'FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN',
-            HttpStatus.BAD_REQUEST,
-            {
-              rowId: derivativePlan.id,
-            },
+          this.logger.warn(
+            `Derivative row ${derivativePlan.id}: closed by unusual type ${String(snap.type)}, can't reopen`,
           )
+          throw apiError('FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN', HttpStatus.BAD_REQUEST)
         }
 
         await dbtx
