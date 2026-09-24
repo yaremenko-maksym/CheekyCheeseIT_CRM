@@ -103,6 +103,14 @@ const searchSchema = z.object({
   seniorId: z.string().optional(),
 })
 
+// task-hide-job-sourcing-button (owner, 2026-09-24): job-sourcing is paused
+// since 2026-08-23 pending the i18n rework of its next iteration. The
+// module itself (apps/web/app/components/job-sourcing/**,
+// apps/web/app/hooks/use-job-sourcing.ts, apps/api/src/job-sourcing/**)
+// stays intact — only this board's entry point is hidden. Flip back to
+// `true` to restore the button + dialog in one edit.
+const JOB_SOURCING_ENTRY_ENABLED = false
+
 export const Route = createFileRoute('/_authenticated/interviews/')({
   validateSearch: searchSchema,
   component: InterviewsPage,
@@ -363,8 +371,9 @@ function InterviewsPage() {
             Lives next to «Новая карточка» because it feeds the same board: a
             vacancy the senior applies to becomes the next interview card.
             Same audience as the board itself (ADMIN / HR / SENIOR).
+            Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
           */}
-          {canCreate && (
+          {JOB_SOURCING_ENTRY_ENABLED && canCreate && (
             <Button
               size="sm"
               variant="outline"
@@ -474,8 +483,9 @@ function InterviewsPage() {
         Job sourcing queue (task-job-sourcing-slice1). A SENIOR passes no
         seniorId — the API resolves it to themselves and ignores anything else,
         so the board's senior-picker cannot be used to peek at someone else.
+        Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
       */}
-      {jobSourcingOpen && (
+      {JOB_SOURCING_ENTRY_ENABLED && jobSourcingOpen && (
         <JobSuggestionDialog
           open={jobSourcingOpen}
           onClose={() => setJobSourcingOpen(false)}
