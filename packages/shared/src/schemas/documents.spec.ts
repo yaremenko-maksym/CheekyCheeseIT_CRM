@@ -164,7 +164,7 @@ describe('presignedDownloadSchema', () => {
   it('accepts a valid url + expiresAt pair', () => {
     expect(() =>
       presignedDownloadSchema.parse({
-        url: 'https://minio.local/bucket/key?sig=abc',
+        url: 'https://s3.example.com/bucket/key?sig=abc',
         expiresAt: datetime,
       }),
     ).not.toThrow()

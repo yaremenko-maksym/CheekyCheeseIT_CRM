@@ -8,7 +8,7 @@
  * Compared to the pre-PHASE 6 flow this dialog no longer stores the avatar
  * as a base64 blob on users.avatar_override. Instead the cropped JPEG is
  * POSTed through useUploadDocument({ category: 'AVATAR' }) which streams
- * the bytes into S3/MinIO, and the returned document id is persisted on
+ * the bytes into S3, and the returned document id is persisted on
  * users.avatar_document_id.
  */
 import { useCallback, useRef, useState } from 'react'

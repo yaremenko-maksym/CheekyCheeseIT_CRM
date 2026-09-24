@@ -11,16 +11,16 @@
  * Fastify HTTP pipeline.
  *
  * F1 (CI red fix, task-fix-pr-390): the CI `Integration Tests (Postgres)`
- * job (`.github/workflows/ci.yml`) runs Postgres only — MinIO is only
- * started for the separate `e2e` job — so this spec CANNOT depend on a real
- * R2/MinIO endpoint. Established precedent for THIS exact job:
- * `documents-unified.integration.spec.ts` stubs `S3Service` rather than
+ * job (`.github/workflows/ci.yml`) runs Postgres only — the local S3-compatible
+ * stand (RustFS) is only started for the separate `e2e` job — so this spec
+ * CANNOT depend on a real R2/S3 endpoint. Established precedent for THIS exact
+ * job: `documents-unified.integration.spec.ts` stubs `S3Service` rather than
  * hitting a live endpoint. This spec follows the same pattern — an
- * in-memory key→buffer store stands in for R2/MinIO, so AC6/AC10 assert
+ * in-memory key→buffer store stands in for R2/S3, so AC6/AC10 assert
  * "upload really persisted the right key/bytes" and "delete really removes
  * what getObject can see" without a live object store. Real-R2 behavioral
- * coverage (actual PutObject/GetObject/DeleteObject against MinIO) is
- * exercised locally against `docker-compose up -d` MinIO + manual-qa on the
+ * coverage (actual PutObject/GetObject/DeleteObject against the local S3-compatible
+ * stand) is exercised locally against `docker-compose up -d` + manual-qa on the
  * real upload/download flow, not by this CI-run spec.
  *
  * Covers: AC3 (admin CRUD + status transitions + delete guards +
@@ -173,7 +173,7 @@ const DISALLOWED = [SENIOR, JUNIOR, ACCOUNTANT, DROP]
 // ---------------------------------------------------------------------------
 // Fake ConfigService — Turnstile dummy "always passes" secret only (F1: S3
 // config is no longer needed — S3Service itself is stubbed below, not
-// constructed from real S3/MinIO env). Avoids requiring the full app
+// constructed from a real S3 env). Avoids requiring the full app
 // validateEnv() (GOOGLE_CLIENT_ID etc are irrelevant here and not present in
 // the vitest worker env).
 // ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as C
 
 // ---------------------------------------------------------------------------
 // Stub S3Service (F1 / sec CI-red fix) — see the file-header comment for the
-// full rationale. An in-memory key→buffer Map stands in for R2/MinIO:
+// full rationale. An in-memory key→buffer Map stands in for R2/S3:
 //   - upload()  stores the buffer under its key
 //   - getObject() returns the stored buffer, or rejects if the key is absent
 //     (mirrors S3Service.getObject's real "throws on missing key" contract)
@@ -323,7 +323,7 @@ class TestDatabaseModule {}
     // here would leave `reflector` undefined inside RolesGuard at request time).
     { provide: ConfigService, useValue: fakeConfigService },
     // F1: stubbed, in-memory S3Service (see the stub's own comment above) —
-    // the CI `integration` job has Postgres but NOT MinIO.
+    // the CI `integration` job has Postgres but no S3-compatible stand.
     { provide: S3Service, useValue: stubS3 },
     { provide: CompressionService, useFactory: () => new CompressionService() },
     {

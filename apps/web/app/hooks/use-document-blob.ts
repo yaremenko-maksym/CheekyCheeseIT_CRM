@@ -72,7 +72,7 @@ export function useDocumentBlob(
       try {
         const response = await fetch(url, {
           signal: controller.signal,
-          // CORS fetch к presigned S3 URL — MinIO dev ок, prod требует CORS bucket policy.
+          // CORS fetch к presigned S3 URL — локальный S3-стенд (dev) ок, prod требует CORS bucket policy.
           mode: 'cors',
         })
 

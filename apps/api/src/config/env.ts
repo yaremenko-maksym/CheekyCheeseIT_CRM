@@ -37,6 +37,17 @@ export const GIT_COMMIT_SHAPE = /^[0-9a-f]{7,40}$/i
 // Stryker disable next-line StringLiteral: unreachable message text — see GIT_COMMIT's own field comment for why
 const GIT_COMMIT_REGEX_MESSAGE = 'GIT_COMMIT must be a short or full hex commit SHA'
 
+/**
+ * Dev/CI default credentials for the local S3-compatible stand (RustFS,
+ * PR #709). Not secrets: identical values are checked into
+ * `docker-compose.yml` and every CI job that needs S3. The `.refine()`
+ * guards below reject both these AND the pre-migration MinIO default
+ * ('minioadmin') in production, so a stale `.env` carried over from
+ * before PR #709 still fails closed (task-remove-minio-app).
+ */
+const DEV_S3_ACCESS_KEY_ID = 'crmdevaccesskey'
+const DEV_S3_SECRET_ACCESS_KEY = 'crmdevsecretkey'
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -102,13 +113,15 @@ const envSchema = z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
 
-    // S3 / MinIO / Cloudflare R2 (PHASE 6 — Documents).
-    // Dev defaults point to local MinIO.
-    // AWS_* defaults to 'minioadmin' for local convenience; production safety
-    // enforced via refine() below (NODE_ENV=production + minioadmin → throw).
+    // S3 / Cloudflare R2 (PHASE 6 — Documents).
+    // Dev/CI defaults point to the local S3-compatible stand (RustFS, PR #709;
+    // see docker-compose.yml).
+    // AWS_* defaults to DEV_S3_ACCESS_KEY_ID/DEV_S3_SECRET_ACCESS_KEY for local
+    // convenience; production safety enforced via refine() below
+    // (NODE_ENV=production + a known dev default → throw).
     //
     // Provider matrix:
-    //   MinIO (dev)          — endpoint=http://localhost:9000, force-path-style=true,  SSE=false
+    //   RustFS (dev/CI)      — endpoint=http://localhost:9000, force-path-style=true,  SSE=false
     //   AWS S3 (prod)        — endpoint omit (AWS default),   force-path-style=false, SSE=true
     //   Cloudflare R2 (prod) — endpoint=https://<id>.r2.cloudflarestorage.com,
     //                          force-path-style=false, SSE=false
@@ -118,9 +131,9 @@ const envSchema = z
     //
     // Prod: see docs/runbooks/s3-storage.md.
     S3_ENDPOINT: z.string().url().default('http://localhost:9000'),
-    // S3_FORCE_PATH_STYLE: true for local MinIO (path-style URLs like
-    // http://localhost:9000/bucket/key). AWS S3 and Cloudflare R2 use
-    // virtual-hosted style (bucket.host/key) → set to false in prod.
+    // S3_FORCE_PATH_STYLE: true for the local S3-compatible stand (path-style
+    // URLs like http://localhost:9000/bucket/key). AWS S3 and Cloudflare R2
+    // use virtual-hosted style (bucket.host/key) → set to false in prod.
     S3_FORCE_PATH_STYLE: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(true),
@@ -128,17 +141,17 @@ const envSchema = z
     S3_BUCKET: z.string().default('crm-documents'),
     // S3_USE_SSE: controls whether PutObject carries the SSE-S3 (AES256) header.
     //   true  — AWS S3: enables server-side encryption via SDK header (free tier).
-    //   false — MinIO (dev): MinIO returns `NotImplemented: KMS not configured`
-    //           when AES256 is requested without a KMS backend.
+    //   false — local S3-compatible stand (dev/CI): no KMS backend configured,
+    //           so requesting AES256 server-side encryption fails.
     //         — Cloudflare R2 (prod): R2 does not support the SSE-S3 protocol
     //           header and returns an error when it is present. R2 encrypts data
     //           at rest by default, so omitting this header is correct for R2.
-    // Default false — safe for both dev/MinIO and R2 prod. Set true only for AWS S3.
+    // Default false — safe for both dev/CI and R2 prod. Set true only for AWS S3.
     S3_USE_SSE: z
       .preprocess((v) => (typeof v === 'string' ? v.toLowerCase() === 'true' : v), z.boolean())
       .default(false),
-    AWS_ACCESS_KEY_ID: z.string().min(1).default('minioadmin'),
-    AWS_SECRET_ACCESS_KEY: z.string().min(1).default('minioadmin'),
+    AWS_ACCESS_KEY_ID: z.string().min(1).default(DEV_S3_ACCESS_KEY_ID),
+    AWS_SECRET_ACCESS_KEY: z.string().min(1).default(DEV_S3_SECRET_ACCESS_KEY),
 
     // task-vacancies-api: Cloudflare Turnstile secret used to verify the
     // public vacancy-apply endpoint. Default is Cloudflare's documented
@@ -300,14 +313,29 @@ const envSchema = z
       z.string().min(1).optional(),
     ),
   })
+  .refine(
+    (env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== DEV_S3_ACCESS_KEY_ID,
+    {
+      message: `AWS_ACCESS_KEY_ID must be overridden in production (the ${DEV_S3_ACCESS_KEY_ID} value is the dev/CI default)`,
+      path: ['AWS_ACCESS_KEY_ID'],
+    },
+  )
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:
-      'AWS_ACCESS_KEY_ID must be overridden in production (minioadmin default is for dev/MinIO only)',
+      'AWS_ACCESS_KEY_ID must be overridden in production (a legacy dev-only default was detected)',
     path: ['AWS_ACCESS_KEY_ID'],
   })
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== DEV_S3_SECRET_ACCESS_KEY,
+    {
+      message: `AWS_SECRET_ACCESS_KEY must be overridden in production (the ${DEV_S3_SECRET_ACCESS_KEY} value is the dev/CI default)`,
+      path: ['AWS_SECRET_ACCESS_KEY'],
+    },
+  )
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== 'minioadmin', {
     message:
-      'AWS_SECRET_ACCESS_KEY must be overridden in production (minioadmin default is for dev/MinIO only)',
+      'AWS_SECRET_ACCESS_KEY must be overridden in production (a legacy dev-only default was detected)',
     path: ['AWS_SECRET_ACCESS_KEY'],
   })
   .refine(
