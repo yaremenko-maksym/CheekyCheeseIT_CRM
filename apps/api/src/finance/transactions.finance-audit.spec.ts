@@ -418,6 +418,55 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     receiptExternalUrl: 'https://drive.google.com/f/receipt',
   }
 
+  // Mutation gate (i18n stage 4 Task 2): `makeSvc` always resolves a
+  // SALARY/PENDING row for the PRE-check read, so paySalary's own
+  // `!tx`/`type!=='SALARY'`/`status!=='PENDING'` guards (BEFORE the atomic
+  // UPDATE the rest of this describe tests) never saw their FALSE branch —
+  // distinct from "loser of the race" below, which exercises the POST-update
+  // 0-rows-returned check instead.
+  function makeSvcWithTx(tx: Record<string, unknown> | undefined) {
+    const invoiceSpy = vi.fn().mockResolvedValue(undefined)
+    const dbStub = {
+      db: {
+        query: {
+          transactions: { findFirst: () => Promise.resolve(tx) },
+          users: {
+            findFirst: () =>
+              Promise.resolve({ id: 'admin-1', role: 'ADMIN', displayName: 'Admin' }),
+          },
+        },
+        update: () => ({
+          set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'sal-1' }]) }) }),
+        }),
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
+      invoiceSpy
+    return { svc, invoiceSpy }
+  }
+
+  it('transaction row not found (pre-check) → FINANCE_TRANSACTION_NOT_FOUND', async () => {
+    const { svc } = makeSvcWithTx(undefined)
+    await expect(svc.paySalary('missing-id', payData, admin())).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_FOUND', statusCode: 404 },
+    })
+  })
+
+  it('non-SALARY type (pre-check) → FINANCE_PAY_SALARY_ONLY', async () => {
+    const { svc } = makeSvcWithTx({ id: 'sal-1', type: 'EXPENSE', status: 'PENDING', notes: null })
+    await expect(svc.paySalary('sal-1', payData, admin())).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAY_SALARY_ONLY', statusCode: 400 },
+    })
+  })
+
+  it('non-PENDING status (pre-check) → FINANCE_TRANSACTION_NOT_PENDING', async () => {
+    const { svc } = makeSvcWithTx({ id: 'sal-1', type: 'SALARY', status: 'PAID', notes: null })
+    await expect(svc.paySalary('sal-1', payData, admin())).rejects.toMatchObject({
+      response: { code: 'FINANCE_TRANSACTION_NOT_PENDING', statusCode: 400 },
+    })
+  })
+
   it('winner (1 row flipped) → fires exactly one invoice', async () => {
     const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
     await expect(svc.paySalary('sal-1', payData, admin())).resolves.toBeDefined()

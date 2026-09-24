@@ -854,6 +854,47 @@ describe('InvoicesService', () => {
       expect(h.state.sigs.filter((s) => s.signerRole === 'COUNTERPARTY').length).toBe(0)
     })
 
+    // Mutation gate (i18n stage 4 Task 2): `findByIdInternal` is a shared
+    // module-level mock that every other test in this file lets resolve a
+    // real document row, so the `!doc` CONFLICT guard right after the
+    // COMPANY-signature check (same setup as the test above, minus the
+    // tampered PDF) never saw its FALSE branch.
+    it('throws ConflictException when the invoice document row itself is missing', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-1',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-company',
+            transactionId: 'tx-1',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date(),
+          },
+        ],
+        users: [],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.sigQueueRoles = ['COUNTERPARTY', 'COMPANY']
+      h.findByIdInternal.mockResolvedValueOnce(undefined)
+
+      await expect(h.svc.signInvoice(SENIOR, 'tx-1', mkReq())).rejects.toMatchObject({
+        response: { code: 'INVOICE_DOCUMENT_NOT_FOUND', statusCode: 409 },
+      })
+    })
+
     // security-review round 6 (PR #600, MED-H): these two PAYOUT-branch
     // refusals were genuinely UNREACHED by any suite before this round — the
     // three tests above all use SENIOR_INCOME fixtures and throw well

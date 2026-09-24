@@ -121,6 +121,23 @@ describe('upsertProjectFinanceSettings — SR-M-3: ACCOUNTANT cannot write a non
     })
   }
 
+  // Mutation gate (i18n stage 4 Task 2): the DRAFT/REJECTED loop above always
+  // resolves a project row (just with a non-ACTIVE status), so the earlier
+  // `!project` branch (id refers to nothing at all) was never exercised here
+  // — unlike the sibling `getProjectFinanceSettings` describe, which already
+  // has this case.
+  it('ACCOUNTANT refused with NotFoundException when the project does not exist at all', async () => {
+    const { db } = makeDb(undefined)
+    const svc = makeTransactionsService({ db: db as never })
+    const err = await svc
+      .upsertProjectFinanceSettings('proj-1', { seniorSharePercentOverride: 30 }, ACCOUNTANT)
+      .catch((e: unknown) => e)
+    expect(err).toMatchObject({
+      response: { code: 'PROJECT_NOT_FOUND', statusCode: 404 },
+    })
+    expect((err as Error).message).toBe('Project not found')
+  })
+
   it('ADMIN reaches the write (transaction) on a DRAFT project — the gate does not block ADMIN', async () => {
     const { db } = makeDb({ status: 'DRAFT' })
     const svc = makeTransactionsService({ db: db as never })
