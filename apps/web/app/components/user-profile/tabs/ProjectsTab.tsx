@@ -1,10 +1,13 @@
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectLogo } from '@/components/projects/ProjectLogo'
 import { api } from '@/lib/axios'
+import { useLocale } from '@/lib/i18n'
 
 interface ProjectListItem {
   id: string
@@ -45,11 +48,15 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Текущий проект</CardTitle>
+          <CardTitle className="text-base">
+            <Trans>Поточний проєкт</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {current === null ? (
-            <p className="text-sm text-muted-foreground">Сейчас не назначен на проект</p>
+            <p className="text-sm text-muted-foreground">
+              <Trans>Зараз не призначено на проєкт</Trans>
+            </p>
           ) : (
             <ProjectRow p={current} />
           )}
@@ -62,11 +69,15 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Активные ({active.length})</CardTitle>
+          <CardTitle className="text-base">
+            <Trans>Активні ({active.length})</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {active.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет активных проектов</p>
+            <p className="text-sm text-muted-foreground">
+              <Trans>Немає активних проєктів</Trans>
+            </p>
           ) : (
             <div className="space-y-2">
               {active.map((p) => (
@@ -78,11 +89,15 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">История ({archived.length})</CardTitle>
+          <CardTitle className="text-base">
+            <Trans>Історія ({archived.length})</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           {archived.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет завершённых проектов</p>
+            <p className="text-sm text-muted-foreground">
+              <Trans>Немає завершених проєктів</Trans>
+            </p>
           ) : (
             <div className="space-y-2">
               {archived.map((p) => (
@@ -97,6 +112,8 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
 }
 
 function ProjectRow({ p }: { p: ProjectListItem }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const isArchived = p.archivedAt !== null
   return (
     <Link
@@ -115,10 +132,8 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
         <p className="truncate text-xs text-muted-foreground">
           {p.companyName}
           {p.domain ? ` · ${p.domain}` : ''}
-          {` · ${new Date(p.startDate).toLocaleDateString('ru-RU')}`}
-          {isArchived && p.archivedAt
-            ? `–${new Date(p.archivedAt).toLocaleDateString('ru-RU')}`
-            : ''}
+          {` · ${formatDate(p.startDate, locale, 'short')}`}
+          {isArchived && p.archivedAt ? `–${formatDate(p.archivedAt, locale, 'short')}` : ''}
         </p>
       </div>
       <div className="shrink-0 text-right">
@@ -126,7 +141,7 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
           {p.rate} {p.currency}
         </p>
         <Badge variant={isArchived ? 'outline' : 'default'} className="mt-1 text-xs">
-          {isArchived ? 'В архиве' : 'Активен'}
+          {isArchived ? t`В архіві` : t`Активний`}
         </Badge>
       </div>
     </Link>
