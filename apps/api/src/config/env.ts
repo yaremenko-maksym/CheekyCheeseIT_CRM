@@ -48,6 +48,25 @@ const GIT_COMMIT_REGEX_MESSAGE = 'GIT_COMMIT must be a short or full hex commit 
 const DEV_S3_ACCESS_KEY_ID = 'crmdevaccesskey'
 const DEV_S3_SECRET_ACCESS_KEY = 'crmdevsecretkey'
 
+/**
+ * Normalized equality for the prod S3-credential guards below (security-review,
+ * task-remove-minio-app fix-round 1, SR-L-1). A plain `===` only catches an
+ * EXACT copy of the known dev/CI default — a `.env` carried over with
+ * incidental whitespace or a different case (`CRMDEVACCESSKEY`, `
+ * crmdevaccesskey `, `MinioAdmin`) compares unequal and sails straight past
+ * the guard into production. `value` (the actual env var) is trimmed and
+ * lower-cased so any casing/whitespace variant of a known dev default is
+ * still caught; `devValue` is not, because every caller passes one of a
+ * fixed, hardcoded set of constants (DEV_S3_ACCESS_KEY_ID,
+ * DEV_S3_SECRET_ACCESS_KEY, the literal 'minioadmin') that are already
+ * lower-case with no whitespace — normalizing an operand that can only ever
+ * be one of those three literals would be unobservable by any test
+ * (confirmed: the mutation gate flags `.trim().toLowerCase()` on that side
+ * as a surviving no-op mutant).
+ */
+const isDevCredentialMatch = (value: string, devValue: string): boolean =>
+  value.trim().toLowerCase() === devValue
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -314,30 +333,42 @@ const envSchema = z
     ),
   })
   .refine(
-    (env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== DEV_S3_ACCESS_KEY_ID,
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      !isDevCredentialMatch(env.AWS_ACCESS_KEY_ID, DEV_S3_ACCESS_KEY_ID),
     {
       message: `AWS_ACCESS_KEY_ID must be overridden in production (the ${DEV_S3_ACCESS_KEY_ID} value is the dev/CI default)`,
       path: ['AWS_ACCESS_KEY_ID'],
     },
   )
-  .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
-    message:
-      'AWS_ACCESS_KEY_ID must be overridden in production (a legacy dev-only default was detected)',
-    path: ['AWS_ACCESS_KEY_ID'],
-  })
   .refine(
     (env) =>
-      env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== DEV_S3_SECRET_ACCESS_KEY,
+      env.NODE_ENV !== 'production' || !isDevCredentialMatch(env.AWS_ACCESS_KEY_ID, 'minioadmin'),
+    {
+      message:
+        'AWS_ACCESS_KEY_ID must be overridden in production (a legacy dev-only default was detected)',
+      path: ['AWS_ACCESS_KEY_ID'],
+    },
+  )
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      !isDevCredentialMatch(env.AWS_SECRET_ACCESS_KEY, DEV_S3_SECRET_ACCESS_KEY),
     {
       message: `AWS_SECRET_ACCESS_KEY must be overridden in production (the ${DEV_S3_SECRET_ACCESS_KEY} value is the dev/CI default)`,
       path: ['AWS_SECRET_ACCESS_KEY'],
     },
   )
-  .refine((env) => env.NODE_ENV !== 'production' || env.AWS_SECRET_ACCESS_KEY !== 'minioadmin', {
-    message:
-      'AWS_SECRET_ACCESS_KEY must be overridden in production (a legacy dev-only default was detected)',
-    path: ['AWS_SECRET_ACCESS_KEY'],
-  })
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      !isDevCredentialMatch(env.AWS_SECRET_ACCESS_KEY, 'minioadmin'),
+    {
+      message:
+        'AWS_SECRET_ACCESS_KEY must be overridden in production (a legacy dev-only default was detected)',
+      path: ['AWS_SECRET_ACCESS_KEY'],
+    },
+  )
   .refine(
     (env) =>
       env.NODE_ENV !== 'production' ||
