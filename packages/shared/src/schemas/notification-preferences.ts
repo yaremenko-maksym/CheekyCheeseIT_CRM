@@ -169,24 +169,3 @@ export const notificationPreferencesResponseClientSchema = z.object({
 export type NotificationPreferencesResponseClient = z.infer<
   typeof notificationPreferencesResponseClientSchema
 >
-
-/**
- * Бэклог 205. Один литерал на СЕРВЕРНЫЙ отказ `PUT /notifications/preferences`
- * под «войти как» (`notifications.controller.ts`, `ForbiddenException`) —
- * а не два переписанных текста на двух концах (COPY-M-1, copy-review PR #678
- * круг 2). Без точки: конвенция сообщений исключений `apps/api` («Инвойс уже
- * подписан», «Нет доступа к легенде проекта») — там точку не ставят нигде.
- *
- * Слово «уведомлений», не «каналов»: единственный канал этой вкладки —
- * почта, «каналы» нигде в видимом словаре экрана не встречается (весь текст
- * вкладки — «уведомления»/«письма»/«настройки»), и читатель отказа —
- * человек, который только что видел заголовок вкладки, а не код
- * (`CHANNEL_OFF`/`channel preferences` — имена внутри кода, не для читателя).
- *
- * `NotificationSettingsTab.tsx` (`IMPERSONATION_EXPLANATION`) строит СВОЙ
- * текст добавлением точки к этому — клиентское объяснение живёт в прозе
- * карточки рядом с двумя другими предложениями, которые точку ставят,
- * серверный текст остаётся отказом API.
- */
-export const NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE =
-  'Настройки уведомлений меняет сам сотрудник — под «войти как» они только для просмотра'

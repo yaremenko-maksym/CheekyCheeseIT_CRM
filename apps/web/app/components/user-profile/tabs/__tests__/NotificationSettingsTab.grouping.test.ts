@@ -10,7 +10,8 @@
  * render-only test cannot tell "correctly omitted" from "included but
  * invisible").
  */
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
+import { i18n } from '@lingui/core'
 import {
   groupPreferences,
   isMoneyType,
@@ -21,6 +22,17 @@ import {
   rowTitle,
   type PreferenceRow,
 } from '../NotificationSettingsTab'
+
+// task-i18n-stage3b (Task 1) — group titles/row copy now resolve through the
+// shared `i18n` singleton (`@/lib/i18n`, re-exported from `@lingui/core`
+// itself — see `apps/web/app/lib/i18n.ts`) rather than a hardcoded Russian
+// literal; a pure-function test needs a locale activated on it same as any
+// other spec reading translated text (`ContractTab.test.tsx`'s identical
+// setup).
+beforeEach(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 function row(type: string, over: Partial<PreferenceRow> = {}): PreferenceRow {
   return { type, emailEnabled: true, locked: false, ...over }
@@ -52,12 +64,12 @@ describe('groupPreferences', () => {
     const groups = groupPreferences(items, false)
     const money = groups.find((g) => g.key === 'money')
     const team = groups.find((g) => g.key === 'team')
-    expect(money?.title).toBe('Деньги')
+    expect(money?.title).toBe('Гроші')
     expect(money?.rows.map((r) => r.type)).toEqual([
       'TRANSACTION_ADDED',
       'TRANSACTION_STATUS_CHANGED',
     ])
-    expect(team?.title).toBe('Команда и проекты')
+    expect(team?.title).toBe('Команда та проєкти')
     expect(team?.rows.map((r) => r.type)).toEqual([
       'TEAM_MEMBER_ADDED',
       'PROJECT_MEMBER_ADDED',
@@ -69,7 +81,7 @@ describe('groupPreferences', () => {
     const items = [row('PROJECT_CONFIRM_REQUIRED', { locked: true }), row('TRANSACTION_ADDED')]
     const groups = groupPreferences(items, false)
     const ar = groups.find((g) => g.key === 'action-required')
-    expect(ar?.title).toBe('Требуют ответа')
+    expect(ar?.title).toBe('Потребують відповіді')
     expect(ar?.rows.map((r) => r.type)).toEqual(['PROJECT_CONFIRM_REQUIRED'])
   })
 
@@ -83,7 +95,7 @@ describe('groupPreferences', () => {
     const items = [row('APPROVAL_CONFIRMED'), row('APPROVAL_REJECTED')]
     const groups = groupPreferences(items, true)
     const admin = groups.find((g) => g.key === 'admin')
-    expect(admin?.title).toBe('Ваши предложения')
+    expect(admin?.title).toBe('Ваші пропозиції')
     expect(admin?.rows.map((r) => r.type)).toEqual(['APPROVAL_CONFIRMED', 'APPROVAL_REJECTED'])
   })
 
@@ -116,14 +128,14 @@ describe('rowTitle', () => {
   // table column headed "Тип уведомления"; the one thing this label needs
   // to add is that the type is new.
   it('unknown type → the "Новый тип" label, not the raw type string', () => {
-    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Новый тип')
+    expect(rowTitle(row('FUTURE_TYPE_XYZ'))).toBe('Новий тип сповіщень')
   })
 })
 
 describe('rowExplanation', () => {
   it('locked row → the fixed "cannot disable" text, even for a nominally-unknown type', () => {
     expect(rowExplanation(row('PROJECT_CONFIRM_REQUIRED', { locked: true }))).toBe(
-      'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.',
+      'Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться',
     )
   })
 
@@ -133,7 +145,7 @@ describe('rowExplanation', () => {
   // right above this sentence.
   it('unlocked unknown type → the "new type" text', () => {
     expect(rowExplanation(row('FUTURE_TYPE_XYZ'))).toBe(
-      'Настройка появится после обновления приложения.',
+      'Налаштування з’явиться після оновлення застосунку',
     )
   })
 
