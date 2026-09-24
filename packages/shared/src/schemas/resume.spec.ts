@@ -113,9 +113,11 @@ describe('isSafeResumeUrl (AC7 — injected content)', () => {
     })
   })
 
-  it('rejects unsafe links at the schema level too', () => {
-    expect(resumeLinkSchema.safeParse({ label: 'CV', url: 'javascript:alert(1)' }).success).toBe(
-      false,
+  it('rejects unsafe links at the schema level too, with the RESUME_LINK_PROTOCOL code', () => {
+    const result = resumeLinkSchema.safeParse({ label: 'CV', url: 'javascript:alert(1)' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.RESUME_LINK_PROTOCOL',
     )
     expect(resumeLinkSchema.safeParse({ label: 'CV', url: 'https://ok.dev' }).success).toBe(true)
   })
@@ -174,8 +176,12 @@ describe('write payloads', () => {
     )
   })
 
-  it('ingestResumeTextSchema rejects text below the extractable minimum', () => {
-    expect(ingestResumeTextSchema.safeParse({ text: 'короткий' }).success).toBe(false)
+  it('ingestResumeTextSchema rejects text below the extractable minimum, with the RESUME_TEXT_TOO_SHORT code', () => {
+    const result = ingestResumeTextSchema.safeParse({ text: 'короткий' })
+    expect(result.success).toBe(false)
+    expect(result.success ? undefined : result.error.issues[0]?.message).toBe(
+      'zod.RESUME_TEXT_TOO_SHORT',
+    )
     expect(
       ingestResumeTextSchema.safeParse({ text: 'a'.repeat(RESUME_LIMITS.minExtractableChars) })
         .success,

@@ -8,7 +8,7 @@ import type {
   CustomVariable,
   SessionUser,
 } from '@crm/shared'
-import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES } from '@crm/shared'
+import { CONTRACT_VARIABLE_DESCRIPTIONS, NOTIFICATION_TITLES, createI18n } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import { NotificationsService } from '../notifications/notifications.service'
@@ -665,6 +665,14 @@ export class EmployeeContractsService {
     // signed yet; the value is shown as a preview (not stored).
     const resolvedMap = buildContractVariableMap(user, new Date())
 
+    // task-i18n-stage4-task5: `CONTRACT_VARIABLE_DESCRIPTIONS` values are now
+    // `MessageDescriptor`s — this endpoint is the one server-side consumer
+    // that renders them to an actual employee (filling in their own
+    // contract's variables), so it renders on THEIR locale, not the
+    // caller's. Falls back to 'uk' (the column's own DB default) for a mock
+    // /partial row that omits `locale` rather than throwing.
+    const labelsI18n = createI18n(user.locale === 'en' ? 'en' : 'uk')
+
     const variables: ContractVariableInfo[] = orderedKeys.map((key) => {
       let source: ContractVariableSource
       if (USER_KEYS.has(key)) source = 'user'
@@ -675,7 +683,9 @@ export class EmployeeContractsService {
 
       const label =
         key in CONTRACT_VARIABLE_DESCRIPTIONS
-          ? CONTRACT_VARIABLE_DESCRIPTIONS[key as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS]
+          ? labelsI18n._(
+              CONTRACT_VARIABLE_DESCRIPTIONS[key as keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS],
+            )
           : (templateCustomVars.find((cv) => cv.key === key)?.label ?? key)
 
       let value = ''

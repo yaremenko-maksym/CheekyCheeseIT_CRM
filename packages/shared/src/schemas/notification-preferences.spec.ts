@@ -115,7 +115,7 @@ describe('updateNotificationPreferencesSchema', () => {
     // Иначе исход зависит от порядка применения, и пользователь не знает,
     // какая из двух записей победила.
     expect(result.success).toBe(false)
-    expect(issueMessages(result)).toContain('Каждый тип уведомления можно указать только один раз')
+    expect(issueMessages(result)).toContain('zod.PREFERENCE_TYPE_DUPLICATE')
   })
 
   it('отвергает пачку, где ХОТЯ БЫ ОДИН запертый тип выключают', () => {
@@ -131,25 +131,25 @@ describe('updateNotificationPreferencesSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('отказ называет причину ПО-РУССКИ, а не отвергает молча', () => {
-    // Сообщение — часть контракта: его читает 7b, чтобы показать человеку,
-    // почему переключатель не поддался. Пустой текст отказа неотличим от
-    // поломки сервера, английский — от отладочного вывода (SPEC-H-5 / CR-H-5 /
-    // COPY-H-3: `ZodExceptionFilter` отдаёт эту строку клиенту дословно).
+  it('отказ называет код, а не отвергает молча', () => {
+    // Сообщение — часть контракта: `ZodExceptionFilter` переводит этот код в
+    // английский fallback на HTTP-конверте, клиент — в текст локали через
+    // `translateZodError` (task-i18n-stage4-task5, тот же механизм, что и
+    // остальной реестр — было отдельной русской строкой прямо в конверте до
+    // этой задачи, SPEC-H-5 / CR-H-5 / COPY-H-3).
     const result = updateNotificationPreferencesSchema.safeParse({
       items: [{ type: 'SHARE_CONFIRM_REQUIRED', emailEnabled: false }],
     })
-    expect(issueMessages(result)).toContain(
-      'Письма о запросах на подтверждение и подпись отключить нельзя',
-    )
+    expect(issueMessages(result)).toContain('zod.PREFERENCE_EMAIL_LOCKED')
   })
 
-  it('все четыре отказа обходятся без латиницы и без ссылок на внутренние документы', () => {
-    // Проверяется свойство, а не вторая копия строки: латиница в
-    // пользовательском тексте — то, чем отличался круг 1, а «(spec §3)»
-    // читателю интерфейса не сообщает ничего. Расширено на границы длины
-    // массива (COPY-L-6, copy-review PR #673 круг 2) — те же ветки, что и
-    // `.refine()`, только раньше их в цепочке.
+  it('все четыре отказа — коды реестра, а не прозвольный текст или дефолт Zod', () => {
+    // Свойство, унаследованное от круга 1 (там проверялось «без латиницы» —
+    // до task-i18n-stage4-task5, когда сами тексты ехали в конверте). Теперь
+    // конверт несёт СТАБИЛЬНЫЙ КОД (латиница по конструкции — `zod.<CODE>`),
+    // и это ровно то новое свойство, которое стоит проверять: каждый issue
+    // — известный код реестра, не голый дефолт Zod («Too small: expected
+    // array to have >=1 items») и не текст на удачу.
     const duplicate = updateNotificationPreferencesSchema.safeParse({
       items: [
         { type: 'TRANSACTION_ADDED', emailEnabled: false },
@@ -172,31 +172,29 @@ describe('updateNotificationPreferencesSchema', () => {
       ...issueMessages(empty),
       ...issueMessages(tooMany),
     ]) {
-      expect(message).not.toMatch(/[A-Za-z]/)
-      expect(message).not.toContain('§')
+      expect(message).toMatch(/^zod\.[A-Z_]+$/)
     }
   })
 
-  it('неизвестный тип отвергается русским текстом, а не дефолтом Zod', () => {
+  it('неизвестный тип отвергается кодом NOTIFICATION_TYPE_UNKNOWN, а не дефолтом Zod', () => {
     // Дефолт перечисляет допустимые значения по-английски — а именно это и
     // увидит человек, если 7b пошлёт устаревший тип из старого бандла.
     const result = updateNotificationPreferencesSchema.safeParse({
       items: [{ type: 'NOT_A_REAL_TYPE', emailEnabled: true }],
     })
     expect(result.success).toBe(false)
-    expect(issueMessages(result)).toContain('Неизвестный тип уведомления')
+    expect(issueMessages(result)).toContain('zod.NOTIFICATION_TYPE_UNKNOWN')
   })
 
-  it('отвергает пустой список текстом, а не тишиной', () => {
+  it('отвергает пустой список кодом, а не тишиной', () => {
     // COPY-L-6: `.min(1)` без своего сообщения отдавал дефолт Zod
-    // («Too small: expected array to have >=1 items») — английский и прямо
-    // клиенту, тем же каналом, что и COPY-H-3.
+    // («Too small: expected array to have >=1 items»).
     const result = updateNotificationPreferencesSchema.safeParse({ items: [] })
     expect(result.success).toBe(false)
-    expect(issueMessages(result)).toContain('Укажите хотя бы одну настройку')
+    expect(issueMessages(result)).toContain('zod.AT_LEAST_ONE_PREFERENCE')
   })
 
-  it('отвергает пачку длиннее списка типов текстом, а не тишиной', () => {
+  it('отвергает пачку длиннее списка типов кодом, а не тишиной', () => {
     // COPY-L-6: `.max(...)` без своего сообщения отдавал дефолт Zod
     // («Too big: expected array to have <=10 items»).
     const result = updateNotificationPreferencesSchema.safeParse({
@@ -206,7 +204,7 @@ describe('updateNotificationPreferencesSchema', () => {
       })),
     })
     expect(result.success).toBe(false)
-    expect(issueMessages(result)).toContain('Слишком много настроек в одном запросе')
+    expect(issueMessages(result)).toContain('zod.TOO_MANY_PREFERENCES')
   })
 })
 

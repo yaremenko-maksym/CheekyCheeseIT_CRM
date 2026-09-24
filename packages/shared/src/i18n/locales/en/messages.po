@@ -90,6 +90,11 @@ msgstr "<0>{received}/{total}</0> receipts from companies this month"
 msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email must not exceed 255 characters"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.employeeEmail"
+msgstr "Employee's email"
+
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив’язаний до долара"
 msgstr "ERC-20, pegged to the dollar"
@@ -149,6 +154,11 @@ msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "A Telegram channel can only be set for a senior"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyVat"
+msgstr "VAT number of the counterparty company"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
 msgstr "You can only upload an avatar to your own profile"
@@ -190,6 +200,16 @@ msgstr "An administrator doesn't sign a contract — there's nothing to sign"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ADDRESS_FORMAT"
 msgstr "The USDT ERC-20 address must start with 0x and be 42 characters long"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyAddress"
+msgstr "Address of the counterparty company"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.registrationAddress"
+msgstr "Registration address (sole proprietor)"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -269,6 +289,21 @@ msgstr "Archive user"
 msgid "Архівувати проєкт"
 msgstr "Archive project"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.preferredMethod"
+msgstr "Preferred payment method (crypto / fop)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.bankUahFop"
+msgstr "UAH bank details (sole proprietor)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyBank"
+msgstr "Bank details of the counterparty company"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "CRM side navigation — move between sections of the system."
@@ -292,6 +327,11 @@ msgstr "Income validation"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Validated this month"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.salaryCurrency"
+msgstr "Rate currency (USD / EUR / UAH)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -431,6 +471,11 @@ msgid "api-error.DOCUMENT_PROJECT_ID_REQUIRED"
 msgstr "Choose a project — a contract can't be uploaded without one"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CONTRACT_DOCUMENT_PROJECT_REQUIRED"
+msgstr "Select a project for a Contract-category document"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
 msgstr "Choose a senior"
@@ -534,6 +579,11 @@ msgstr "Enter a value from 1 to 100"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.SALARY_OR_SHARE_REQUIRED"
+msgstr "Provide the salary or the senior's share — at least one value"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_DELETE"
 msgstr "State a reason for the deletion — it goes into the audit log"
 
@@ -541,6 +591,11 @@ msgstr "State a reason for the deletion — it goes into the audit log"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_RESTORE"
 msgstr "State a reason for the restoration — it goes into the audit log"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.AT_LEAST_ONE_PREFERENCE"
+msgstr "Specify at least one setting"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -565,6 +620,11 @@ msgstr "Total: {0}"
 msgid "Входимо…"
 msgstr "Logging in…"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.walletUsdt"
+msgstr "USDT ERC-20 wallet (if provided)"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
 msgstr "Done"
@@ -573,6 +633,11 @@ msgstr "Done"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_FORMAT_YYYYMMDD"
 msgstr "The date must be in YYYY-MM-DD format"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.onboardingDate"
+msgstr "Contract signing date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -723,6 +788,11 @@ msgstr "Drops can't access interviews"
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Too many requests in a row. Wait a bit and try again"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TOO_MANY_PREFERENCES"
+msgstr "Too many settings in one request"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Завантажений файл"
 msgstr "Uploaded file"
@@ -788,6 +858,11 @@ msgstr "The role can't be changed to drop this way"
 msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Only an administrator or an accountant can change the senior's share at the team level"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_VALUE_TOO_LONG"
+msgstr "Variable value must not exceed 2000 characters"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "External link to an image (https://…)"
@@ -831,6 +906,16 @@ msgstr "Earnings history by month"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
 msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_KEY_FORMAT"
+msgstr "Key: Latin letters only, must start with a letter, 50 characters max"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.PREFERENCE_TYPE_DUPLICATE"
+msgstr "Each notification type can be specified only once"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
@@ -939,6 +1024,11 @@ msgstr "Users"
 msgid "Користувачів не знайдено"
 msgstr "No users found"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyCountry"
+msgstr "Country of registration of the counterparty company"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Країну не знайдено"
 msgstr "Country not found"
@@ -946,6 +1036,16 @@ msgstr "Country not found"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
 msgstr "Legend"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.PREFERENCE_EMAIL_LOCKED"
+msgstr "Emails about confirmation and signing requests cannot be turned off"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.LOGO_SOURCE_XOR"
+msgstr "The logo is either an uploaded file or a link, not both"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Меню користувача"
@@ -964,6 +1064,11 @@ msgstr "My balance (share)"
 msgid "Мій проєкт"
 msgstr "My project"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.VARIABLE_LABEL_REQUIRED"
+msgstr "Label is required"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
@@ -972,6 +1077,11 @@ msgstr "Interface language"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
 msgstr "My projects"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyAuthorityBasis"
+msgstr "Basis on which the company representative acts"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
@@ -985,6 +1095,16 @@ msgstr "Receipts from companies this month"
 msgid "Назад до умов використання"
 msgstr "Back to Terms of Service"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyName"
+msgstr "Company name (Cheeky Cheese IT)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CREDENTIAL_LABEL_REQUIRED"
+msgstr "Name is required"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "назва проєкту"
 msgstr "project name"
@@ -992,6 +1112,11 @@ msgstr "project name"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
 msgstr "Hired this month"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
+msgstr "Settings are outdated — refresh the page"
 
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
@@ -1007,6 +1132,11 @@ msgstr "Click again to retry the upload."
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SALARY_AMOUNT_TOO_MANY_DECIMALS"
 msgstr "No more than 2 decimals — otherwise the amount is rounded"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TOO_MANY_CUSTOM_VARIABLES"
+msgstr "No more than 50 custom variables"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1172,6 +1302,11 @@ msgstr "New Terms version"
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 msgstr "The new Terms of Service version has been published. Users will see a notification."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.contractNumber"
+msgstr "Contract number (generated automatically, CHK-N-YYYY)"
+
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Номер телефону"
 msgstr "Phone number"
@@ -1276,6 +1411,11 @@ msgstr "Awaiting validation"
 msgid "Очікують виплати"
 msgstr "Awaiting payout"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.CREDENTIAL_PASSWORD_REQUIRED"
+msgstr "Password is required"
+
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Перевірити доходи ({0})"
@@ -1312,6 +1452,11 @@ msgstr "First version"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.LEGAL_FULL_NAME_MIN"
 msgstr "Full name — at least 5 characters"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.FULL_NAME_REQUIRED"
+msgstr "Full name is required"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1369,6 +1514,11 @@ msgstr "Only a senior can rejoin a team"
 msgid "Повернутися до свого профілю"
 msgstr "Return to your profile"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.employeeName"
+msgstr "Employee's full name"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
@@ -1413,6 +1563,16 @@ msgstr "Link"
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "The link must point to etherscan.io, tronscan.org or another explorer"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_LINK_PROTOCOL"
+msgstr "The link must start with https:// or mailto:"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.TEAM_TELEGRAM_LINK_FORMAT"
+msgstr "The link must start with https://t.me/"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
@@ -1426,6 +1586,11 @@ msgstr "This action needs {expectedRole, select, ADMIN {an administrator} SENIOR
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "At least one HR is required"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.AT_LEAST_ONE_APPROVER"
+msgstr "At least one approver is required"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
@@ -1457,6 +1622,16 @@ msgstr "Only a senior can be added to a drop team"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_ROLE_ASSIGNMENT_FORBIDDEN"
 msgstr "You can't assign the admin role — the pool is fixed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.REJECTION_REASON_TOO_LONG"
+msgstr "The rejection reason is too long (500 characters max)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.REJECTION_REASON_REQUIRED"
+msgstr "A reason for the rejection is required"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -1531,14 +1706,29 @@ msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
 msgstr "Invoices are generated by the system and can't be uploaded manually"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyRegNumber"
+msgstr "Registration number of the counterparty company"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Company details must not exceed 10,000 characters"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.requisites"
+msgstr "Payment details (determined automatically by the payment method)"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_ALREADY_DECIDED"
 msgstr "This approval has already been decided"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.rnokpp"
+msgstr "Employee's tax ID (RNOKPP)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1569,6 +1759,11 @@ msgstr "Full detail is available in the income table below"
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Роль"
 msgstr "Role"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.role"
+msgstr "Role (administrator / HR / senior / junior / drop / accountant)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1619,6 +1814,11 @@ msgstr "Only an admin or an accountant can cancel a share proposal"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
 msgstr "Move the document to trash first, then delete it permanently"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.APPROVER_IDS_NO_DUPLICATES"
+msgstr "The list of approvers must not contain duplicates"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співбесід"
@@ -1699,6 +1899,26 @@ msgstr "Amount cannot exceed 500,000"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
 msgstr "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DOCUMENT_BODY_REQUIRED"
+msgstr "The document text cannot be empty"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.LEGEND_TEXT_REQUIRED"
+msgstr "Text is required"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.RESUME_TEXT_TOO_SHORT"
+msgstr "The resume text is too short"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.phone"
+msgstr "Employee's phone"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1952,6 +2172,11 @@ msgstr "Share"
 msgid "Частка дропа у відсотках"
 msgstr "Drop's share, percent"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companySharePercent"
+msgstr "Company's share, % (100 minus the employee's share)"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Частка невідома. Оновіть сторінку"
 msgstr "Share unknown. Refresh the page"
@@ -1963,6 +2188,11 @@ msgstr "Senior's share · all time"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка сеньйора у відсотках"
 msgstr "Senior's share, percent"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.sharePercent"
+msgstr "Employee's share, % (senior/drop)"
 
 #. placeholder {0}: summary.dropSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
@@ -1992,6 +2222,16 @@ msgstr "Awaiting decision"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Contract template not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.salary"
+msgstr "Monthly rate (from profile)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/contracts.ts
+msgid "contract-variable.companyLegalName"
+msgstr "Legal name of the counterparty company"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

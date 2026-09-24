@@ -33,9 +33,9 @@ export type ProjectCredential = z.infer<typeof projectCredentialSchema>
  * accepted as absent / empty here for ergonomic forms.
  */
 export const createCredentialSchema = z.object({
-  label: z.string().trim().min(1, 'Название обязательно').max(200),
+  label: z.string().trim().min(1, 'zod.CREDENTIAL_LABEL_REQUIRED').max(200),
   login: z.string().trim().max(200).optional().nullable(),
-  password: z.string().min(1, 'Пароль обязателен').max(1024),
+  password: z.string().min(1, 'zod.CREDENTIAL_PASSWORD_REQUIRED').max(1024),
   url: z.string().trim().max(500).optional().nullable(),
   notes: z.string().trim().max(2000).optional().nullable(),
 })
@@ -48,7 +48,7 @@ export type CreateCredentialDto = z.infer<typeof createCredentialSchema>
  * re-encryption). `password` present (non-empty) → re-encrypted.
  */
 export const updateCredentialSchema = z.object({
-  label: z.string().trim().min(1, 'Название обязательно').max(200).optional(),
+  label: z.string().trim().min(1, 'zod.CREDENTIAL_LABEL_REQUIRED').max(200).optional(),
   login: z.string().trim().max(200).optional().nullable(),
   // Empty string is treated as "do not change" by the backend (same as absent).
   password: z.string().max(1024).optional(),

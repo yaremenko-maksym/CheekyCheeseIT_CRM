@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { useLingui } from '@lingui/react/macro'
 import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import type { CustomVariable } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -279,13 +280,19 @@ export function VariablesPanel({
   const [addOpen, setAddOpen] = useState(false)
   const [prefillKey, setPrefillKey] = useState('')
   const [systemCollapsed, setSystemCollapsed] = useState(true)
+  const { i18n } = useLingui()
 
   const { tokensInText, systemUsed, orphanedCustom, unknownInText } = useContractTokens(
     body,
     customVariables,
   )
 
-  const systemEntries = Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS)
+  // task-i18n-stage4-task5: `CONTRACT_VARIABLE_DESCRIPTIONS` values are now
+  // `MessageDescriptor`s, not plain strings — resolved here against the
+  // active locale (re-renders on locale switch, same as `useRoleLabel`).
+  const systemEntries = Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS).map(
+    ([key, descriptor]) => [key, i18n._(descriptor)] as const,
+  )
   const existingCustomKeys = customVariables.map((v) => v.key)
 
   // ── Handlers ──────────────────────────────────────────────────────────────

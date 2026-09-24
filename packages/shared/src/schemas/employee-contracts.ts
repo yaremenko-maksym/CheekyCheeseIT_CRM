@@ -28,16 +28,11 @@ export const employeeContractStatusSchema = z.enum([
  */
 export const boundedCustomValuesSchema = z
   .record(
-    z
-      .string()
-      .regex(
-        /^[a-zA-Z][a-zA-Z0-9_]{0,49}$/,
-        'Ключ: только латиница, начинается с буквы, макс 50 символов',
-      ),
-    z.string().max(2000, 'Значение переменной не может превышать 2000 символов'),
+    z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,49}$/, 'zod.VARIABLE_KEY_FORMAT'),
+    z.string().max(2000, 'zod.VARIABLE_VALUE_TOO_LONG'),
   )
   .refine((rec) => Object.keys(rec).length <= 50, {
-    message: 'Не более 50 кастомных переменных',
+    message: 'zod.TOO_MANY_CUSTOM_VARIABLES',
   })
 
 export const employeeContractSchema = z.object({
@@ -58,7 +53,7 @@ export const employeeContractSchema = z.object({
  * Only allowed when status is DRAFT or READY_TO_SIGN.
  */
 export const updateEmployeeContractSchema = z.object({
-  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым').max(100_000), // BIZ-14
+  bodyMarkdown: z.string().min(1, 'zod.DOCUMENT_BODY_REQUIRED').max(100_000), // BIZ-14
 })
 
 export type EmployeeContractStatus = z.infer<typeof employeeContractStatusSchema>

@@ -29,14 +29,16 @@ describe('documentCategorySchema', () => {
 })
 
 describe('createDocumentMetadataSchema', () => {
-  it('rejects CONTRACT without projectId', () => {
-    expect(() => createDocumentMetadataSchema.parse({ category: 'CONTRACT' })).toThrow()
+  it('rejects CONTRACT without projectId, with the CONTRACT_DOCUMENT_PROJECT_REQUIRED code', () => {
+    expect(() => createDocumentMetadataSchema.parse({ category: 'CONTRACT' })).toThrow(
+      'zod.CONTRACT_DOCUMENT_PROJECT_REQUIRED',
+    )
   })
 
   it('rejects CONTRACT with null projectId', () => {
     expect(() =>
       createDocumentMetadataSchema.parse({ category: 'CONTRACT', projectId: null }),
-    ).toThrow()
+    ).toThrow('zod.CONTRACT_DOCUMENT_PROJECT_REQUIRED')
   })
 
   it('accepts CONTRACT with valid projectId', () => {

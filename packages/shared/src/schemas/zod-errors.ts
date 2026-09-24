@@ -98,6 +98,52 @@ export const ZOD_ERROR_CODES = [
   // `dropSharePercent`'s (0–100).
   'SHARE_PERCENT_RANGE_1_100',
   'SHARE_PERCENT_RANGE_0_100',
+  // task-i18n-stage4-task5 (wave B2, remaining 13 schema files).
+  // approvals.ts / pending-share.ts / projects.ts — one reason-required pair
+  // shared by all three reject-with-reason endpoints (same exact literal
+  // text existed in all three before this task).
+  'AT_LEAST_ONE_APPROVER',
+  'APPROVER_IDS_NO_DUPLICATES',
+  'REJECTION_REASON_REQUIRED',
+  'REJECTION_REASON_TOO_LONG',
+  // projects.ts
+  'LOGO_SOURCE_XOR',
+  // credentials.ts
+  'CREDENTIAL_LABEL_REQUIRED',
+  'CREDENTIAL_PASSWORD_REQUIRED',
+  // legends.ts — `legendSchema.fullName` ('ФИО обязательно') and
+  // `upsertLegendSchema.fullName` ('Имя обязательно') consolidated to one
+  // code/caption (COPY-L-shared-17, plan Task 5 Step 3). `isoDateString`
+  // reuses `DATE_FORMAT_YYYYMMDD` (Task 4) instead of a new code — same rule.
+  'FULL_NAME_REQUIRED',
+  'LEGEND_TEXT_REQUIRED',
+  // notification-preferences.ts
+  'NOTIFICATION_TYPE_UNKNOWN',
+  'AT_LEAST_ONE_PREFERENCE',
+  'TOO_MANY_PREFERENCES',
+  'PREFERENCE_TYPE_DUPLICATE',
+  'PREFERENCE_EMAIL_LOCKED',
+  // resume.ts
+  'RESUME_LINK_PROTOCOL',
+  'RESUME_TEXT_TOO_SHORT',
+  // employee-contracts.ts / contracts.ts — shared variable-editing rules
+  // (identical literal text in both files before this task) plus one
+  // document-body-required code shared by employee-contracts.ts,
+  // contracts.ts (×2) and tos.ts (same `// BIZ-14` rule, three near-identical
+  // literals differing only in "контракта"/"ToS" before this task).
+  'VARIABLE_KEY_FORMAT',
+  'VARIABLE_VALUE_TOO_LONG',
+  'TOO_MANY_CUSTOM_VARIABLES',
+  'VARIABLE_LABEL_REQUIRED',
+  'DOCUMENT_BODY_REQUIRED',
+  // documents.ts
+  'CONTRACT_DOCUMENT_PROJECT_REQUIRED',
+  // teams.ts — `updateTeamSchema.telegram`'s link-format refine.
+  // `teamTelegramChannelSchema` reuses `TELEGRAM_CHANNEL_FORMAT` (Task 4)
+  // instead of a new code — same regex, same field shape, same rule.
+  'TEAM_TELEGRAM_LINK_FORMAT',
+  // admin-actions.ts
+  'SALARY_OR_SHARE_REQUIRED',
 ] as const
 export type ZodErrorCode = (typeof ZOD_ERROR_CODES)[number]
 
@@ -313,6 +359,106 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
     id: 'zod-error.SHARE_PERCENT_RANGE_0_100',
     message: 'Вкажіть від 0 до 100',
   },
+  AT_LEAST_ONE_APPROVER: /* i18n */ {
+    id: 'zod-error.AT_LEAST_ONE_APPROVER',
+    message: 'Потрібен щонайменше один підтверджуючий',
+  },
+  APPROVER_IDS_NO_DUPLICATES: /* i18n */ {
+    id: 'zod-error.APPROVER_IDS_NO_DUPLICATES',
+    message: 'Список підтверджуючих не повинен містити повторів',
+  },
+  REJECTION_REASON_REQUIRED: /* i18n */ {
+    id: 'zod-error.REJECTION_REASON_REQUIRED',
+    message: 'Причина відмови обов’язкова',
+  },
+  REJECTION_REASON_TOO_LONG: /* i18n */ {
+    id: 'zod-error.REJECTION_REASON_TOO_LONG',
+    message: 'Причина відмови занадто довга (максимум 500 символів)',
+  },
+  LOGO_SOURCE_XOR: /* i18n */ {
+    id: 'zod-error.LOGO_SOURCE_XOR',
+    message: 'Логотип — це файл або посилання, не обидва одночасно',
+  },
+  CREDENTIAL_LABEL_REQUIRED: /* i18n */ {
+    id: 'zod-error.CREDENTIAL_LABEL_REQUIRED',
+    message: 'Назва обов’язкова',
+  },
+  CREDENTIAL_PASSWORD_REQUIRED: /* i18n */ {
+    id: 'zod-error.CREDENTIAL_PASSWORD_REQUIRED',
+    message: 'Пароль обов’язковий',
+  },
+  FULL_NAME_REQUIRED: /* i18n */ {
+    id: 'zod-error.FULL_NAME_REQUIRED',
+    message: 'ПІБ обов’язкове',
+  },
+  LEGEND_TEXT_REQUIRED: /* i18n */ {
+    id: 'zod-error.LEGEND_TEXT_REQUIRED',
+    message: 'Текст обов’язковий',
+  },
+  NOTIFICATION_TYPE_UNKNOWN: /* i18n */ {
+    id: 'zod-error.NOTIFICATION_TYPE_UNKNOWN',
+    // Not a literal translation on purpose (plan Task 5 Step 3, COPY-M-
+    // shared-14): the enum rejects only a STALE cached client bundle sending
+    // a type this server build no longer knows — the actionable message for
+    // that reader is "reload", not "unknown type".
+    message: 'Налаштування застаріли — оновіть сторінку',
+  },
+  AT_LEAST_ONE_PREFERENCE: /* i18n */ {
+    id: 'zod-error.AT_LEAST_ONE_PREFERENCE',
+    message: 'Вкажіть щонайменше одне налаштування',
+  },
+  TOO_MANY_PREFERENCES: /* i18n */ {
+    id: 'zod-error.TOO_MANY_PREFERENCES',
+    message: 'Забагато налаштувань в одному запиті',
+  },
+  PREFERENCE_TYPE_DUPLICATE: /* i18n */ {
+    id: 'zod-error.PREFERENCE_TYPE_DUPLICATE',
+    message: 'Кожен тип сповіщення можна вказати лише один раз',
+  },
+  PREFERENCE_EMAIL_LOCKED: /* i18n */ {
+    id: 'zod-error.PREFERENCE_EMAIL_LOCKED',
+    message: 'Листи про запити на підтвердження та підпис вимкнути не можна',
+  },
+  RESUME_LINK_PROTOCOL: /* i18n */ {
+    id: 'zod-error.RESUME_LINK_PROTOCOL',
+    message: 'Посилання має починатися з https:// або mailto:',
+  },
+  RESUME_TEXT_TOO_SHORT: /* i18n */ {
+    id: 'zod-error.RESUME_TEXT_TOO_SHORT',
+    message: 'Текст резюме занадто короткий',
+  },
+  VARIABLE_KEY_FORMAT: /* i18n */ {
+    id: 'zod-error.VARIABLE_KEY_FORMAT',
+    message: 'Ключ: лише латиниця, починається з літери, макс 50 символів',
+  },
+  VARIABLE_VALUE_TOO_LONG: /* i18n */ {
+    id: 'zod-error.VARIABLE_VALUE_TOO_LONG',
+    message: 'Значення змінної не може перевищувати 2000 символів',
+  },
+  TOO_MANY_CUSTOM_VARIABLES: /* i18n */ {
+    id: 'zod-error.TOO_MANY_CUSTOM_VARIABLES',
+    message: 'Не більше 50 користувацьких змінних',
+  },
+  VARIABLE_LABEL_REQUIRED: /* i18n */ {
+    id: 'zod-error.VARIABLE_LABEL_REQUIRED',
+    message: 'Мітка обов’язкова',
+  },
+  DOCUMENT_BODY_REQUIRED: /* i18n */ {
+    id: 'zod-error.DOCUMENT_BODY_REQUIRED',
+    message: 'Текст документа не може бути порожнім',
+  },
+  CONTRACT_DOCUMENT_PROJECT_REQUIRED: /* i18n */ {
+    id: 'zod-error.CONTRACT_DOCUMENT_PROJECT_REQUIRED',
+    message: 'Виберіть проєкт для документа категорії «Контракт»',
+  },
+  TEAM_TELEGRAM_LINK_FORMAT: /* i18n */ {
+    id: 'zod-error.TEAM_TELEGRAM_LINK_FORMAT',
+    message: 'Посилання має починатися з https://t.me/',
+  },
+  SALARY_OR_SHARE_REQUIRED: /* i18n */ {
+    id: 'zod-error.SALARY_OR_SHARE_REQUIRED',
+    message: 'Вкажіть оклад або частку сеньйора — хоча б одне значення',
+  },
 }
 
 /**
@@ -371,6 +517,30 @@ export const ZOD_ERROR_FALLBACK_EN: Record<ZodErrorCode, string> = {
   TELEGRAM_CHANNEL_FORMAT: 'Telegram channel: 5–32 characters — Latin letters, digits or _',
   SHARE_PERCENT_RANGE_1_100: 'Enter a value from 1 to 100',
   SHARE_PERCENT_RANGE_0_100: 'Enter a value from 0 to 100',
+  AT_LEAST_ONE_APPROVER: 'At least one approver is required',
+  APPROVER_IDS_NO_DUPLICATES: 'The list of approvers must not contain duplicates',
+  REJECTION_REASON_REQUIRED: 'A reason for the rejection is required',
+  REJECTION_REASON_TOO_LONG: 'The rejection reason is too long (500 characters max)',
+  LOGO_SOURCE_XOR: 'The logo is either an uploaded file or a link, not both',
+  CREDENTIAL_LABEL_REQUIRED: 'Name is required',
+  CREDENTIAL_PASSWORD_REQUIRED: 'Password is required',
+  FULL_NAME_REQUIRED: 'Full name is required',
+  LEGEND_TEXT_REQUIRED: 'Text is required',
+  NOTIFICATION_TYPE_UNKNOWN: 'Settings are outdated — refresh the page',
+  AT_LEAST_ONE_PREFERENCE: 'Specify at least one setting',
+  TOO_MANY_PREFERENCES: 'Too many settings in one request',
+  PREFERENCE_TYPE_DUPLICATE: 'Each notification type can be specified only once',
+  PREFERENCE_EMAIL_LOCKED: 'Emails about confirmation and signing requests cannot be turned off',
+  RESUME_LINK_PROTOCOL: 'The link must start with https:// or mailto:',
+  RESUME_TEXT_TOO_SHORT: 'The resume text is too short',
+  VARIABLE_KEY_FORMAT: 'Key: Latin letters only, must start with a letter, 50 characters max',
+  VARIABLE_VALUE_TOO_LONG: 'Variable value must not exceed 2000 characters',
+  TOO_MANY_CUSTOM_VARIABLES: 'No more than 50 custom variables',
+  VARIABLE_LABEL_REQUIRED: 'Label is required',
+  DOCUMENT_BODY_REQUIRED: 'The document text cannot be empty',
+  CONTRACT_DOCUMENT_PROJECT_REQUIRED: 'Select a project for a Contract-category document',
+  TEAM_TELEGRAM_LINK_FORMAT: 'The link must start with https://t.me/',
+  SALARY_OR_SHARE_REQUIRED: "Provide the salary or the senior's share — at least one value",
 }
 
 /**
