@@ -1128,9 +1128,9 @@ describe.skipIf(!hasDatabaseUrl())(
       const incomeBId = await seedValidatedDropIncome(DROP_PROJECT_B, DROP_B, '500')
       // DROP A tries to bundle DROP B's income — the receiverId filter excludes it,
       // count-mismatch guard throws.
-      await expect(svc.createPayoutRequest([incomeBId], DROP_A)).rejects.toThrow(
-        'Часть транзакций уже включена в выплату или недоступна',
-      )
+      await expect(svc.createPayoutRequest([incomeBId], DROP_A)).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE' }),
+      })
     })
 
     // ── RBAC: settleByCompany only ADMIN/ACCOUNTANT

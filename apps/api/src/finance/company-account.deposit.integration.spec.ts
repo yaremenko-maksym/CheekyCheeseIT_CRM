@@ -384,9 +384,12 @@ describe.skipIf(!hasDatabaseUrl())(
         amountUsdtMinor: '999000000',
       })
 
-      await expect(svc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toThrowError(
-        /уже использован/,
-      )
+      await expect(
+        svc.submitDeposit({ txHashOrLink: HASH }, SENIOR),
+        // i18n stage 4 Task 2: assert on the api-error code (lesson 14).
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_ALREADY_CONSUMED' }),
+      })
       // No deposit row, no credit.
       const rows = await dbSvc.db
         .select({ id: transactions.id })

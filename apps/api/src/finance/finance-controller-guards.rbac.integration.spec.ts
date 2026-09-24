@@ -453,7 +453,8 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(res.statusCode).toBe(400)
         // Positive assert: this 400 comes from the duplicated-param guard
         // specifically, not from some other 400 source down the stack.
-        expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
+        // i18n stage 4 Task 2: assert on the api-error code (lesson 14).
+        expect(JSON.parse(res.payload).code).toBe('FINANCE_TX_HASH_PARAM_REQUIRED')
       })
 
       it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {

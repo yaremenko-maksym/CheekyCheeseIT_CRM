@@ -258,9 +258,12 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(prFirst?.status).toBe('PAID')
 
       // Second confirm with the SAME real hash on a COMPANY_ACCOUNT payout → rejected.
+      // i18n stage 4 Task 2: assert on the api-error code (lesson 14).
       await expect(
         svc.manualConfirmPayout(second, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash }),
-      ).rejects.toThrowError(/уже использован/)
+      ).rejects.toMatchObject({
+        response: expect.objectContaining({ code: 'FINANCE_TX_HASH_USED_FOR_OTHER_PAYOUT' }),
+      })
 
       // The second payout stays PENDING (no double credit).
       const prSecond = await dbSvc.db.query.payoutRequests.findFirst({
