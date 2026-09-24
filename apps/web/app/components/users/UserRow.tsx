@@ -1,14 +1,16 @@
 import { Link } from '@tanstack/react-router'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { ArchiveRestore, Pencil, Trash2 } from 'lucide-react'
 import type { UserProfileDto } from '@crm/shared'
+import { formatRelativeTime } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { hasRealPhone } from '@/lib/format-phone'
 import { safeTelegramHref } from '@/lib/tg-url'
-import { ROLE_LABELS, ROLE_VARIANT } from './constants'
+import { useLocale } from '@/lib/i18n'
+import { useRoleLabel } from '@/components/ui/role-select'
+import { ROLE_VARIANT } from './constants'
 import { UserAvatar } from './UserAvatar'
 
 export type UserRowProps = {
@@ -38,10 +40,13 @@ export type UserRowProps = {
  *  - self:   trailing actions always 1.0, primary-tinted background, delete disabled
  *  - admin (not-self): both edit (Pencil) and archive (Trash2) buttons hidden —
  *                       ADMIN cannot edit or archive another ADMIN (ut-2 + ut-10)
- *  - archived: opacity-50, badge «В архиве», single ArchiveRestore button
+ *  - archived: opacity-50, "archived" badge, single ArchiveRestore button
  *              instead of Pencil/Trash, in the same trailing column
  */
 export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRowProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
+  const roleLabel = useRoleLabel(user.role)
   const isArchived = !!user.archivedAt
   const techStack = Array.isArray(user.techStack) ? user.techStack : []
   // ut-10: ADMIN cannot edit or archive another ADMIN — hide both Pencil and
@@ -85,7 +90,7 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
               <Link
                 to="/profile/$userId"
                 params={{ userId: user.id }}
-                aria-label={`Открыть профиль ${user.displayName}`}
+                aria-label={t`Відкрити профіль ${user.displayName}`}
                 className={cn(
                   'text-sm font-medium truncate cursor-pointer hover:underline',
                   // Stretched-link pattern: ::before fills the closest
@@ -98,7 +103,7 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
               </Link>
               {isSelf && (
                 <span className="text-[10px] uppercase tracking-wide text-primary font-semibold relative z-[2]">
-                  Вы
+                  <Trans>Ви</Trans>
                 </span>
               )}
             </div>
@@ -179,13 +184,13 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 variant="outline"
                 className="text-[10px] border-muted-foreground/40 text-muted-foreground"
               >
-                В архиве
+                <Trans>В архіві</Trans>
               </Badge>
             )}
-            <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{ROLE_LABELS[user.role]}</Badge>
+            <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{roleLabel}</Badge>
           </div>
           <span className="text-[11px] text-muted-foreground/70">
-            {formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: ru })}
+            {formatRelativeTime(user.createdAt, locale)}
           </span>
         </div>
 
@@ -212,8 +217,8 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
             data-testid={`user-row-unarchive-${user.id}`}
             variant="ghost"
             size="icon"
-            aria-label="Восстановить из архива"
-            title="Восстановить из архива"
+            aria-label={t`Відновити з архіву`}
+            title={t`Відновити з архіву`}
             className="h-7 w-7"
             onClick={(e) => {
               e.preventDefault()
@@ -233,8 +238,8 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 data-testid={`user-row-edit-${user.id}`}
                 variant="ghost"
                 size="icon"
-                aria-label="Редактировать"
-                title="Редактировать"
+                aria-label={t`Редагувати`}
+                title={t`Редагувати`}
                 className="h-7 w-7"
                 onClick={(e) => {
                   e.preventDefault()
@@ -253,8 +258,8 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 data-testid={`user-row-archive-${user.id}`}
                 variant="ghost"
                 size="icon"
-                aria-label={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
-                title={isSelf ? 'Нельзя архивировать себя' : 'Архивировать'}
+                aria-label={isSelf ? t`Не можна архівувати себе` : t`Архівувати`}
+                title={isSelf ? t`Не можна архівувати себе` : t`Архівувати`}
                 className="h-7 w-7 text-destructive hover:text-destructive disabled:opacity-30"
                 disabled={isSelf}
                 onClick={(e) => {

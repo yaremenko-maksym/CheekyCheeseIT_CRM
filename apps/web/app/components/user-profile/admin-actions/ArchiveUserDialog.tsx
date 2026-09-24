@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   CrmDialogBody,
   CrmDialogContent,
@@ -14,7 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import type { UserProfileDto } from '@crm/shared'
 import { useArchiveUser } from '@/hooks/use-user-profile'
 import { useArchiveImpact } from '@/hooks/use-archive'
-import { ImpactWarning } from '@/components/users/ArchiveConfirmDialog'
+import { UserArchiveImpact } from '@/components/archive/UserArchiveImpact'
 import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 
 /**
@@ -23,7 +24,7 @@ import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePend
  * was the one archive entry point that never surfaced what archiving this
  * person would actually do. Now fetches the same `GET /users/:id/archive-
  * impact` the other two archive dialogs use and reuses their exact copy
- * (`ImpactWarning`, exported from `components/users/ArchiveConfirmDialog`)
+ * (`UserArchiveImpact`, exported from `components/archive/UserArchiveImpact`)
  * plus the shared pending-transactions warning — one rule, three surfaces,
  * not three copies of it.
  *
@@ -34,8 +35,8 @@ import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePend
  * BOTH footer buttons at once (this was the worse of the two broken
  * dialogs — this one never even had scrollable impact text before this
  * fix). `CrmDialogContent`/`CrmDialogBody`/`CrmDialogFooter` (same pattern
- * `components/users/ArchiveConfirmDialog.tsx` already used correctly) fixes
- * it: max-h-[90dvh], scrollable body, header/footer pinned.
+ * `components/users/ArchiveUserConfirmDialog.tsx` already used correctly)
+ * fixes it: max-h-[90dvh], scrollable body, header/footer pinned.
  */
 export function ArchiveUserDialog({
   user,
@@ -44,6 +45,7 @@ export function ArchiveUserDialog({
   user: UserProfileDto
   onClose: () => void
 }) {
+  const { t } = useLingui()
   const mutation = useArchiveUser(user.id)
   const { data: impact, isLoading } = useArchiveImpact('user', user.id)
   const [typed, setTyped] = useState('')
@@ -57,9 +59,11 @@ export function ArchiveUserDialog({
         onCloseAutoFocus={(e) => e.preventDefault()}
       >
         <CrmDialogHeader>
-          <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
+          <DialogTitle className="text-destructive">
+            <Trans>Архівувати користувача</Trans>
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Подтверждение архивации пользователя. Введите имя для подтверждения.
+            <Trans>Підтвердження архівації користувача. Введіть ім’я для підтвердження.</Trans>
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
@@ -71,14 +75,16 @@ export function ArchiveUserDialog({
               </>
             ) : (
               <>
-                <ImpactWarning user={user} impact={impact} />
+                {impact?.type === 'user' && (
+                  <UserArchiveImpact entityName={user.displayName} impact={impact} />
+                )}
                 {impact?.type === 'user' && (
                   <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
                 )}
               </>
             )}
             <p>
-              Для подтверждения введите имя:{' '}
+              <Trans>Для підтвердження введіть ім’я:</Trans>{' '}
               <strong className="text-foreground">{user.displayName}</strong>
             </p>
             <Input
@@ -91,7 +97,7 @@ export function ArchiveUserDialog({
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             data-testid="archive-confirm-submit"
@@ -102,7 +108,7 @@ export function ArchiveUserDialog({
               onClose()
             }}
           >
-            Архивировать
+            {t`Архівувати`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

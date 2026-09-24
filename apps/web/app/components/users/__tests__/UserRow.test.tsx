@@ -7,9 +7,10 @@
  * pin before/while changing an existing render path).
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { ReactNode } from 'react'
 import type { UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { UserRow } from '../UserRow'
 
 // Stub TanStack Router Link — no router context available in unit tests.
@@ -63,10 +64,15 @@ function renderRow(user: UserProfileDto) {
       onArchive={vi.fn()}
       onUnarchive={vi.fn()}
     />,
+    { wrapper: I18nTestProvider },
   )
 }
 
 describe('UserRow — telegram link (code-review round 2)', () => {
+  beforeEach(async () => {
+    await loadCatalog('uk')
+  })
+
   // Queried by role rather than by walking up from the text with `closest('a')`
   // (task-lint-teeth). `getByRole('link', { name })` asserts the same thing —
   // this handle IS a link — and asserts it the way a user and a screen reader

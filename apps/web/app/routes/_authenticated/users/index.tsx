@@ -5,6 +5,7 @@ import { Archive, ArrowDown, ArrowUp, Plus, Search } from 'lucide-react'
 import { useMemo, useRef, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { UserProfileDto } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { Button } from '@/components/ui/button'
@@ -19,16 +20,11 @@ import {
 } from '@/components/ui/select'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ArchiveConfirmDialog } from '@/components/users/ArchiveConfirmDialog'
+import { ArchiveUserConfirmDialog } from '@/components/users/ArchiveUserConfirmDialog'
 import { UserDialog } from '@/components/users/UserDialog'
 import { UserRow } from '@/components/users/UserRow'
-import {
-  ROLE_LABELS,
-  ROLES,
-  type Role,
-  type SortDir,
-  type SortKey,
-} from '@/components/users/constants'
+import { ROLES, type Role, type SortDir, type SortKey } from '@/components/users/constants'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { UnarchiveButton } from '@/components/users/UnarchiveButton'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
@@ -71,7 +67,7 @@ function UsersPage() {
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
             <p className="text-sm font-medium text-muted-foreground">
-              Доступ только для администратора
+              <Trans>Доступ лише для адміністратора</Trans>
             </p>
           </div>
         </div>
@@ -104,6 +100,7 @@ function UsersPageContent({
   showArchived: boolean
   onToggleArchived: (next: boolean) => void
 }) {
+  const { t, i18n } = useLingui()
   const [searchQuery, setSearchQuery] = useState('')
   const [roleFilter, setRoleFilter] = useState<Role | 'ALL'>('ALL')
   const [sortKey, setSortKey] = useState<SortKey>('displayName')
@@ -150,9 +147,9 @@ function UsersPageContent({
   }
 
   const statusTabs: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
-    { value: 'ALL', label: 'Все' },
-    { value: 'ACTIVE', label: 'Активные' },
-    { value: 'ARCHIVED', label: 'Архив', testId: 'users-toggle-archived', icon: Archive },
+    { value: 'ALL', label: t`Усі` },
+    { value: 'ACTIVE', label: t`Активні` },
+    { value: 'ARCHIVED', label: t`Архів`, testId: 'users-toggle-archived', icon: Archive },
   ]
 
   const filtered = useMemo(() => {
@@ -197,10 +194,11 @@ function UsersPageContent({
   // ut-18: sort moved from column headers to the filter bar.
   // `sortKey` choices exclude 'email' — admins rarely re-order by it.
   const sortKeyOptions: Array<{ value: SortKey; label: string }> = [
-    { value: 'displayName', label: 'По имени' },
-    { value: 'role', label: 'По роли' },
-    { value: 'createdAt', label: 'По дате добавления' },
+    { value: 'displayName', label: t`За ім’ям` },
+    { value: 'role', label: t`За роллю` },
+    { value: 'createdAt', label: t`За датою додавання` },
   ]
+  const hasActiveFilters = searchQuery.trim() !== '' || roleFilter !== 'ALL'
 
   return (
     <div className="flex flex-col h-full">
@@ -208,9 +206,15 @@ function UsersPageContent({
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <p className="text-sm text-muted-foreground">
-              {isLoading ? '...' : `${filtered.length} из ${users?.length ?? 0}`}
-              {currentStatusTab === 'ARCHIVED' && ' · архив'}
-              {currentStatusTab === 'ALL' && ' · все'}
+              {isLoading ? (
+                '…'
+              ) : (
+                <Trans>
+                  {filtered.length} з {users?.length ?? 0}
+                </Trans>
+              )}
+              {currentStatusTab === 'ARCHIVED' && <Trans> · архів</Trans>}
+              {currentStatusTab === 'ALL' && <Trans> · усі</Trans>}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -227,7 +231,7 @@ function UsersPageContent({
               data-testid="users-create-button"
             >
               <Plus className="mr-2 h-4 w-4" />
-              Добавить
+              <Trans>Додати</Trans>
             </Button>
           </div>
         </div>
@@ -235,15 +239,15 @@ function UsersPageContent({
 
       <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
         <div className="space-y-4">
-          {/* ut-44: status tabs row — «Все | Активные | Архив». Replaces the
-              legacy «Показать архивных» checkbox; the archive tab keeps the
+          {/* ut-44: status tabs row — "All | Active | Archived". Replaces the
+              legacy "show archived" checkbox; the archive tab keeps the
               `users-toggle-archived` testid so existing E2E (and admin URL
               deep-links via ?archived=true) continue to work. */}
           <SegmentedToggle<StatusTab>
             value={currentStatusTab}
             onChange={handleStatusTabChange}
             options={statusTabs}
-            ariaLabel="Фильтр пользователей"
+            ariaLabel={t`Фільтр користувачів`}
             variant="tabs"
             size="sm"
             layoutId="users-status-tabs"
@@ -266,7 +270,7 @@ function UsersPageContent({
                   <Input
                     type="search"
                     enterKeyHint="search"
-                    placeholder="Поиск по имени, email, telegram, технологии..."
+                    placeholder={t`Пошук за ім’ям, email, telegram, технологіями…`}
                     className="pl-8"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -274,13 +278,13 @@ function UsersPageContent({
                 </div>
                 <Select value={roleFilter} onValueChange={(v) => setRoleFilter(v as Role | 'ALL')}>
                   <SelectTrigger className="w-44">
-                    <SelectValue placeholder="Все роли" />
+                    <SelectValue placeholder={t`Усі ролі`} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="ALL">Все роли</SelectItem>
+                    <SelectItem value="ALL">{t`Усі ролі`}</SelectItem>
                     {ROLES.map((r) => (
                       <SelectItem key={r} value={r}>
-                        {ROLE_LABELS[r]}
+                        {i18n._(ROLE_LABEL_MESSAGES[r])}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -292,7 +296,7 @@ function UsersPageContent({
                 <div className="hidden h-6 w-px bg-border sm:block" aria-hidden />
                 <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
                   <SelectTrigger className="w-52" data-testid="users-sort-key">
-                    <SelectValue placeholder="Сортировка" />
+                    <SelectValue placeholder={t`Сортування`} />
                   </SelectTrigger>
                   <SelectContent>
                     {sortKeyOptions.map((opt) => (
@@ -307,9 +311,11 @@ function UsersPageContent({
                   variant="ghost"
                   size="icon"
                   onClick={() => setSortDir((d: SortDir) => (d === 'asc' ? 'desc' : 'asc'))}
-                  aria-label={`Направление сортировки: ${
-                    sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'
-                  }`}
+                  aria-label={
+                    sortDir === 'asc'
+                      ? t`Напрямок сортування: за зростанням`
+                      : t`Напрямок сортування: за спаданням`
+                  }
                   data-testid="users-sort-direction"
                   data-dir={sortDir}
                   className="h-9 w-9"
@@ -333,8 +339,8 @@ function UsersPageContent({
             <Card>
               <CardContent className="p-3 space-y-2">
                 {/* ut-19: column headers removed — rows are self-describing
-                    (avatar / name+email, role badge, дата). Sort controls
-                    остаются в filter bar выше. */}
+                    (avatar / name+email, role badge, date). Sort controls
+                    stay in the filter bar above. */}
                 {isLoading ? (
                   <div className="space-y-2">
                     {Array.from({ length: 6 }).map((_, i) => (
@@ -358,7 +364,13 @@ function UsersPageContent({
                 ) : filtered.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
                     <Search className="h-8 w-8 opacity-30" />
-                    <p className="text-sm">Пользователи не найдены</p>
+                    <p className="text-sm">
+                      {hasActiveFilters ? (
+                        <Trans>Нічого не знайдено — скиньте фільтри</Trans>
+                      ) : (
+                        <Trans>Користувачів поки немає</Trans>
+                      )}
+                    </p>
                   </div>
                 ) : (
                   <motion.div className="space-y-1" data-testid="users-list">
@@ -409,7 +421,7 @@ function UsersPageContent({
         }}
       />
       <UserDialog mode="edit" user={editUser} onClose={() => setEditUser(null)} />
-      <ArchiveConfirmDialog user={archiveUser} onClose={() => setArchiveUser(null)} />
+      <ArchiveUserConfirmDialog user={archiveUser} onClose={() => setArchiveUser(null)} />
     </div>
   )
 }
