@@ -12,11 +12,15 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeAll, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { i18n } from '@lingui/core'
 
 // task-i18n-stage4-task4: `validate()` now translates its zod.<CODE> results
 // through `translateZodMessage` (`i18n._` under the hood) — an activated
 // locale is required, same pattern as `axios-utils.spec.ts`'s own tests.
+// Runs once as a baseline (empty catalog, falls back to source text); the
+// per-test `beforeEach` below re-activates 'uk' with the REAL compiled
+// catalog for the `I18nTestProvider`-rendered assertions.
 beforeAll(() => {
   i18n.load('uk', {})
   i18n.activate('uk')
@@ -45,14 +49,16 @@ function renderDialog(overrides: { currentEmail: string | null; onClose?: () => 
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const onClose = overrides.onClose ?? vi.fn()
   render(
-    <QueryClientProvider client={qc}>
-      <ChangePersonalEmailDialog
-        userId="u-1"
-        currentEmail={overrides.currentEmail}
-        workEmail={WORK_EMAIL}
-        onClose={onClose}
-      />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <ChangePersonalEmailDialog
+          userId="u-1"
+          currentEmail={overrides.currentEmail}
+          workEmail={WORK_EMAIL}
+          onClose={onClose}
+        />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { onClose }
 }
@@ -65,11 +71,12 @@ function submitButton() {
   return screen.getByTestId('change-personal-email-submit')
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   ;(api.patch as ReturnType<typeof vi.fn>).mockResolvedValue({
     data: { ok: true, delivered: true },
   })
+  await loadCatalog('uk')
 })
 
 describe('ChangePersonalEmailDialog — adding state (currentEmail === null)', () => {
@@ -399,9 +406,11 @@ describe('ChangePersonalEmailDialog — closes end-to-end through a real toggle 
   it('Escape closes the dialog when a real parent unmounts it on onClose (unlike renderDialog above, which cannot)', async () => {
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
-      <QueryClientProvider client={qc}>
-        <TogglingDialog />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <TogglingDialog />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     const user = userEvent.setup()
     await user.click(screen.getByTestId('persistent-trigger'))

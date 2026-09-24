@@ -21,6 +21,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { SeniorSummaryDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const useSeniorSummaryMock = vi.fn()
 const getTransactionsMock = vi.fn()
@@ -149,15 +150,22 @@ function makeTx(overrides: Partial<TransactionDto>): TransactionDto {
 
 function renderDashboard() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  // task-i18n-stage3a (Task 1) blast-radius: `SeniorDashboard` renders the
+  // shared `InProgressPanel`/`EarningsSparkline` (`routing/components/`),
+  // which now call `useLingui()` — outside this file's own perimeter
+  // (`_authenticated/finance/**` migrates in a later wave).
   const wrapper = ({ children }: { children: ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return render(<SeniorDashboard />, { wrapper })
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   useSeniorSummaryMock.mockReset()
   getTransactionsMock.mockReset()
+  await loadCatalog('uk')
   createDialogSpy.mockReset()
   payoutDialogSpy.mockReset()
   payoutDetailDialogSpy.mockReset()
@@ -176,7 +184,7 @@ describe('SeniorDashboard', () => {
     useSeniorSummaryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     renderDashboard()
     expect(screen.getByTestId('senior-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити зведення')).toBeInTheDocument()
   })
 
   describe('KPI cards', () => {
@@ -199,21 +207,47 @@ describe('SeniorDashboard', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-active-projects')
       expect(cardEl).toHaveTextContent('2')
-      expect(cardEl).toHaveTextContent('Активные проекты')
+      expect(cardEl).toHaveTextContent('Активні проєкти')
+      // Mutation gate (StringLiteral): the card's `sub` had no assertion.
+      expect(cardEl).toHaveTextContent('Проєкти, де ви сеньйор')
     })
 
     it('shows income this month + total sub-label (senior-share aggregate stays USD)', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-senior-income')
-      expect(cardEl).toHaveTextContent('$1,200.00')
-      expect(cardEl).toHaveTextContent('Всего: $5,500.00')
+      // Mutation gate (StringLiteral): the card's `title` had no assertion.
+      expect(cardEl).toHaveTextContent('Дохід за місяць')
+      // Independent of the component's own implementation — computed straight
+      // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
+      // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
+      // `toHaveTextContent` normalizes ALL whitespace in the rendered DOM
+      // text — including uk-UA's U+00A0 grouping separator — to a plain
+      // space, so the expected string is normalized the same way here.
+      const uk2dp = (n: number) =>
+        new Intl.NumberFormat('uk-UA', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+          .format(n)
+          .replace(/\s/g, ' ')
+      expect(cardEl).toHaveTextContent(`${uk2dp(1200)} USD`)
+      expect(cardEl).toHaveTextContent(`Всього: ${uk2dp(5500)} USD`)
     })
 
     it('shows pending-payouts count + amount', () => {
       renderDashboard()
       const cardEl = screen.getByTestId('kpi-pending-payouts')
+      // Mutation gate (StringLiteral): the card's `title` had no assertion.
+      expect(cardEl).toHaveTextContent('Очікують виплати')
+      const uk2dp = (n: number) =>
+        new Intl.NumberFormat('uk-UA', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })
+          .format(n)
+          .replace(/\s/g, ' ')
       expect(cardEl).toHaveTextContent('3')
-      expect(cardEl).toHaveTextContent('$2,400.00')
+      expect(cardEl).toHaveTextContent(`${uk2dp(2400)} USD`)
     })
   })
 
@@ -239,7 +273,9 @@ describe('SeniorDashboard', () => {
         isError: false,
       })
       renderDashboard()
-      expect(screen.getByTestId('senior-projects-empty')).toHaveTextContent('Нет активных проектов')
+      expect(screen.getByTestId('senior-projects-empty')).toHaveTextContent(
+        'Немає активних проєктів',
+      )
     })
   })
 
@@ -337,11 +373,11 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('earnings-sparkline-empty')).not.toBeInTheDocument()
     })
 
-    it('shows the «+$X этот месяц» badge when this-month income > 0', () => {
+    it('shows the «+$X цього місяця» badge when this-month income > 0', () => {
       mountWith()
       const badge = screen.getByTestId('earnings-total-month-badge')
       expect(badge).toHaveTextContent('$1,200.00')
-      expect(badge).toHaveTextContent('этот месяц')
+      expect(badge).toHaveTextContent('цього місяця')
     })
 
     it('hides the month badge when this-month income is 0', () => {
@@ -357,19 +393,39 @@ describe('SeniorDashboard', () => {
       expect(screen.getByTestId('earnings-projects-tile')).toBeInTheDocument()
     })
 
-    it('renders «Этот месяц» with the X/N arrival progress bar (NO money expected)', () => {
+    it('renders «Цей місяць» with the X/N arrival progress bar (NO money expected)', () => {
       mountWith()
       const tile = screen.getByTestId('earnings-this-month-tile')
-      expect(tile).toHaveTextContent('Этот месяц')
-      expect(tile).toHaveTextContent('Июнь 2026')
+      expect(tile).toHaveTextContent('Цей місяць')
+      // Independent of the component's own implementation — computed straight
+      // from `Intl`, the same source-of-truth `format.spec.ts` uses, not by
+      // re-deriving the value the same way the component does. Last history
+      // entry is '2026-06' (June), see `monthlyHistory` above.
+      expect(tile).toHaveTextContent(
+        new Intl.DateTimeFormat('uk-UA', {
+          month: 'long',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(Date.UTC(2026, 5, 1))),
+      )
       expect(screen.getByTestId('earnings-this-month-value')).toHaveTextContent('$1,200.00')
       // Progress: received 1 / total 2 → «1/2 ... 50%».
       expect(screen.getByTestId('earnings-progress-fraction')).toHaveTextContent('1/2')
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(
-        'приходов от компаний',
+        'надходжень від компаній',
       )
+      // Mutation gate (StringLiteral): the `{' '}` between the fraction span
+      // and "надходжень…" had no assertion strict enough to require the
+      // space itself — a plain substring match still finds "надходжень…"
+      // even with the space removed, since the missing space sits BEFORE
+      // it. A regex requiring at least one whitespace char between "1/2"
+      // and "надходжень" distinguishes "1/2надходжень" (mutant) from
+      // "1/2 надходжень" (real behavior).
+      expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent(/1\/2\s+надходжень/)
       expect(screen.getByTestId('earnings-company-progress')).toHaveTextContent('50%')
-      const bar = screen.getByRole('progressbar', { name: 'Приходы от компаний за этот месяц' })
+      const bar = screen.getByRole('progressbar', {
+        name: 'Надходження від компаній за цей місяць',
+      })
       expect(bar).toHaveAttribute('aria-valuenow', '1')
       expect(bar).toHaveAttribute('aria-valuemax', '2')
     })
@@ -441,6 +497,28 @@ describe('SeniorDashboard', () => {
       expect(screen.queryByTestId('senior-in-progress-row-paid-1')).not.toBeInTheDocument()
     })
 
+    // Mutation gate (InProgressPanel.tsx's `t.projectName ?? '—'` row title):
+    // no test previously asserted the row's actual displayed project name —
+    // `?? '—'` and `&& '—'` produce IDENTICAL results only when
+    // `projectName` is falsy; with a real name they diverge (`??` keeps the
+    // name, `&&` would show the em-dash instead).
+    it('shows the transaction project name (not the em-dash fallback) when present', async () => {
+      getTransactionsMock.mockResolvedValue([makeTx({ id: 'pending-1', status: 'PENDING' })])
+      renderDashboard()
+      const row = await screen.findByTestId('senior-in-progress-row-pending-1')
+      expect(row).toHaveTextContent('Acme Migration')
+    })
+
+    it('falls back to an em-dash when a non-payout row has no project name', async () => {
+      getTransactionsMock.mockResolvedValue([
+        makeTx({ id: 'pending-noname', status: 'PENDING', projectName: null }),
+      ])
+      renderDashboard()
+      const row = await screen.findByTestId('senior-in-progress-row-pending-noname')
+      expect(row).toHaveTextContent('—')
+      expect(row).not.toHaveTextContent('Acme Migration')
+    })
+
     it('renders «Создать выплату» ONLY on VALIDATED rows without a payout', async () => {
       getTransactionsMock.mockResolvedValue([
         makeTx({ id: 'pending-1', status: 'PENDING' }),
@@ -491,7 +569,7 @@ describe('SeniorDashboard', () => {
       renderDashboard()
       expect(await screen.findByTestId('senior-in-progress-row-payout-1')).toBeInTheDocument()
       expect(screen.getByTestId('senior-pay-payout-payout-1')).toBeInTheDocument()
-      expect(screen.getByTestId('senior-pay-payout-payout-1')).toHaveTextContent('Оплатить')
+      expect(screen.getByTestId('senior-pay-payout-payout-1')).toHaveTextContent('Оплатити')
     })
 
     it('«Оплатить» on a PAYOUT row opens PayoutDetailDialog with correct payoutRequestId', async () => {

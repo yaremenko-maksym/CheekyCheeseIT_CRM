@@ -14,6 +14,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ActionKey, UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -78,9 +79,11 @@ const ALL_ACTIONS: ActionKey[] = [
 function renderMenu(user: UserProfileDto, actions: ActionKey[] = ALL_ACTIONS) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <AdminActionsMenu userId={user.id} user={user} actions={actions} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <AdminActionsMenu userId={user.id} user={user} actions={actions} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -90,8 +93,9 @@ async function openMenu() {
   return user
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  await loadCatalog('uk')
 })
 
 describe('AdminActionsMenu — change-personal-email label (COPY-M-12)', () => {

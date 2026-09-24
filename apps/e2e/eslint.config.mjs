@@ -13,7 +13,7 @@ export default [
     ignores: ['dist/**', 'playwright-report/**', 'test-results/**'],
   },
   {
-    files: ['tests/**/*.ts', 'scripts/**/*.ts', 'playwright.config.ts'],
+    files: ['tests/**/*.ts', 'scripts/**/*.ts', 'fixtures/**/*.ts', 'playwright.config.ts'],
     plugins: {
       '@typescript-eslint': tseslint,
     },

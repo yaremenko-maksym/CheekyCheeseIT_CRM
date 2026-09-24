@@ -13,10 +13,17 @@
  * `showOutsideDays` (default true) renders leading/trailing days from the
  * ADJACENT month too, so a locator matching just the day NUMBER is ambiguous
  * (August's grid also shows a September "4" as an outside cell). Each day
- * button's own `aria-label` is the FULL localized date (e.g. "вторник, 4
- * августа 2026 г."), so matching on "<day> августа" — scoped to the open
- * popover panel via `within` — is both unambiguous AND a proper Testing
- * Library semantic query (no raw node access).
+ * button's own `aria-label` is the FULL localized date (e.g. "вівторок,
+ * 4-е серпня 2026 р." — react-day-picker's `labelDayButton` formats with
+ * date-fns' `'PPPP'` token against the active `date-fns/locale`), so
+ * matching on "<day>-е серпня" — scoped to the open popover panel via
+ * `within` — is both unambiguous AND a proper Testing Library semantic
+ * query (no raw node access).
+ *
+ * task-i18n-stage3a (Task 1): `date-picker.tsx` now calls `useLingui()` and
+ * picks its `date-fns` locale (`uk`/`enGB`) from the active catalog locale
+ * — every render needs an `I18nProvider` ancestor + `loadCatalog('uk')`
+ * (SPEC-H-1), and the month-name / day-label assertions below are uk text.
  *
  * Frozen "today" (2026-09-01 incident): this whole file used to run with the
  * REAL system clock. Every fixture below is dated August 2026, and the suite
@@ -45,15 +52,21 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { DatePickerField } from '@/components/ui/date-picker'
+
+function renderPicker(props: Parameters<typeof DatePickerField>[0]) {
+  return render(<DatePickerField {...props} />, { wrapper: I18nTestProvider })
+}
 
 // Deliberately NOT August (the fixtures' month) and NOT the real "today" —
 // see file docstring. Individual tests/cases may re-freeze to a different
 // month via `vi.setSystemTime()`; `afterEach` always restores the real clock.
 const FROZEN_TODAY = new Date(2026, 11, 25, 12, 0, 0) // December 25, 2026
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.setSystemTime(FROZEN_TODAY)
+  await loadCatalog('uk')
 })
 
 afterEach(() => {
@@ -63,90 +76,84 @@ afterEach(() => {
 describe('DatePickerField — minDate/maxDate bounds (owner addendum, 2026-08)', () => {
   it('a day BEFORE minDate is disabled in the open calendar', async () => {
     const user = userEvent.setup({ delay: null })
-    render(
-      <DatePickerField
-        value="2026-08-07"
-        onChange={() => {}}
-        minDate="2026-08-05"
-        maxDate="2026-08-10"
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    expect(panel.getByRole('button', { name: /, 4 августа 2026/ })).toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 4-е серпня 2026/ })).toBeDisabled()
   })
 
   it('a day AFTER maxDate is disabled in the open calendar', async () => {
     const user = userEvent.setup({ delay: null })
-    render(
-      <DatePickerField
-        value="2026-08-07"
-        onChange={() => {}}
-        minDate="2026-08-05"
-        maxDate="2026-08-10"
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    expect(panel.getByRole('button', { name: /, 11 августа 2026/ })).toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 11-е серпня 2026/ })).toBeDisabled()
   })
 
   it('a day WITHIN [minDate, maxDate] (inclusive of both bounds) is NOT disabled', async () => {
     const user = userEvent.setup({ delay: null })
-    render(
-      <DatePickerField
-        value="2026-08-07"
-        onChange={() => {}}
-        minDate="2026-08-05"
-        maxDate="2026-08-10"
-      />,
-    )
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({
+      value: '2026-08-07',
+      onChange: () => {},
+      minDate: '2026-08-05',
+      maxDate: '2026-08-10',
+    })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
     // The bounds themselves are inclusive (before/after are exclusive matchers).
-    expect(panel.getByRole('button', { name: /, 5 августа 2026/ })).not.toBeDisabled()
-    expect(panel.getByRole('button', { name: /, 10 августа 2026/ })).not.toBeDisabled()
-    expect(panel.getByRole('button', { name: /, 7 августа 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 5-е серпня 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 10-е серпня 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 7-е серпня 2026/ })).not.toBeDisabled()
   })
 
   it('with NEITHER minDate NOR maxDate passed (every pre-existing caller), no day is disabled', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<DatePickerField value="2026-08-07" onChange={() => {}} />)
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
     // Far in the past AND far in the future — unrestricted either direction.
-    expect(panel.getByRole('button', { name: /, 1 августа 2026/ })).not.toBeDisabled()
-    expect(panel.getByRole('button', { name: /, 29 августа 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 1-е серпня 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 29-е серпня 2026/ })).not.toBeDisabled()
   })
 
   it('with ONLY minDate passed, there is no upper bound', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<DatePickerField value="2026-08-07" onChange={() => {}} minDate="2026-08-05" />)
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({ value: '2026-08-07', onChange: () => {}, minDate: '2026-08-05' })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    expect(panel.getByRole('button', { name: /, 4 августа 2026/ })).toBeDisabled()
-    expect(panel.getByRole('button', { name: /, 29 августа 2026/ })).not.toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 4-е серпня 2026/ })).toBeDisabled()
+    expect(panel.getByRole('button', { name: /, 29-е серпня 2026/ })).not.toBeDisabled()
   })
 })
 
 describe('DatePickerField — calendar opens on the SELECTED month, not "today" (regression, 2026-09-01)', () => {
   it('opens on the VALUE month even though "today" is frozen to a different month (December)', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<DatePickerField value="2026-08-07" onChange={() => {}} />)
-    await user.click(screen.getByRole('button', { name: /07 авг/i }))
+    renderPicker({ value: '2026-08-07', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /07 серп/i }))
     const panel = within(screen.getByRole('dialog'))
-    expect(panel.getByText('Август')).toBeInTheDocument()
+    expect(panel.getByText('серпень')).toBeInTheDocument()
     expect(panel.getByText('2026')).toBeInTheDocument()
     // Frozen "today" (December) must NOT be what's showing.
-    expect(panel.queryByText('Декабрь')).not.toBeInTheDocument()
+    expect(panel.queryByText('грудень')).not.toBeInTheDocument()
   })
 
   it('with NO value, opens on "today" — with no value there is nothing else to follow', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<DatePickerField value="" onChange={() => {}} />)
-    await user.click(screen.getByRole('button', { name: /Выберите дату/i }))
+    renderPicker({ value: '', onChange: () => {} })
+    await user.click(screen.getByRole('button', { name: /Виберіть дату/i }))
     const panel = within(screen.getByRole('dialog'))
-    expect(panel.getByText('Декабрь')).toBeInTheDocument()
+    expect(panel.getByText('грудень')).toBeInTheDocument()
     expect(panel.getByText('2026')).toBeInTheDocument()
   })
 
@@ -155,16 +162,16 @@ describe('DatePickerField — calendar opens on the SELECTED month, not "today" 
   // unrelated frozen months (not just the one above) so this suite cannot
   // pass by coincidence the way the pre-fix version did for a year.
   it.each([
-    { frozen: new Date(2026, 7, 15, 12, 0, 0), monthLabel: 'Август', year: '2026' },
-    { frozen: new Date(2026, 11, 25, 12, 0, 0), monthLabel: 'Декабрь', year: '2026' },
-    { frozen: new Date(2027, 0, 5, 12, 0, 0), monthLabel: 'Январь', year: '2027' },
+    { frozen: new Date(2026, 7, 15, 12, 0, 0), monthLabel: 'серпень', year: '2026' },
+    { frozen: new Date(2026, 11, 25, 12, 0, 0), monthLabel: 'грудень', year: '2026' },
+    { frozen: new Date(2027, 0, 5, 12, 0, 0), monthLabel: 'січень', year: '2027' },
   ])(
     'with NO value, opens on $monthLabel $year when that is the frozen "today"',
     async ({ frozen, monthLabel, year }) => {
       vi.setSystemTime(frozen)
       const user = userEvent.setup({ delay: null })
-      render(<DatePickerField value="" onChange={() => {}} />)
-      await user.click(screen.getByRole('button', { name: /Выберите дату/i }))
+      renderPicker({ value: '', onChange: () => {} })
+      await user.click(screen.getByRole('button', { name: /Виберіть дату/i }))
       const panel = within(screen.getByRole('dialog'))
       expect(panel.getByText(monthLabel)).toBeInTheDocument()
       expect(panel.getByText(year)).toBeInTheDocument()

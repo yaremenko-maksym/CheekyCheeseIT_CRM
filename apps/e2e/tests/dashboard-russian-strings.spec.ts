@@ -13,12 +13,16 @@
  * surfaces and are excluded here (DROP/JUNIOR redirect off /crm; ACCOUNTANT hub
  * is covered by accountant-dashboard.spec).
  *
- * Per project policy (CLAUDE.md «Язык UI: Русский»), all interface text
- * must be Russian. A reverted translation slips silently because the
- * placeholder cards render fine — only a human spot-check catches it.
+ * task-i18n-stage3a (Task 1) — file name/docstring kept for history
+ * (task-e2e-fragile-points-audit), but the ASSERTIONS below no longer check
+ * for Russian: `apps/web` (this module) migrated to `uk`/`en` catalogs
+ * (docs/superpowers/specs/2026-09-19-crm-i18n-design.md). The app's default
+ * / source locale is `uk`, so a fresh unauthenticated session renders
+ * Ukrainian — the tokens below are the CURRENT `uk` catalog text for each
+ * dashboard, not a Russian-language requirement.
  *
  * This spec asserts, for each covered role on `/`:
- *   1. The Russian dashboard labels are present.
+ *   1. The Ukrainian dashboard labels are present.
  *   2. None of the pages contain «Active Candidates», «Recent Candidates»,
  *      «Connect DB», or other English leftovers.
  *
@@ -32,6 +36,7 @@
 
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const ENGLISH_BLOCKLIST = [
   /Active Candidates/i,
@@ -42,7 +47,7 @@ const ENGLISH_BLOCKLIST = [
   /Average time to hire/i,
   /Active Projects/i,
   /Employees/i,
-  /Transactions/i, // EN noun; RU equivalent is «Транзакций»
+  /Transactions/i, // EN noun; uk equivalent is «Транзакції»
   /Welcome to/i, // catches «Welcome to CheekyCheeseIT»
 ]
 
@@ -51,31 +56,35 @@ const ENGLISH_BLOCKLIST = [
 // child), so it is intentionally NOT asserted here — scoping it to <main> was a
 // latent bug that passed only while the sidebar briefly lived inside <main>.
 
-// ADMIN renders AdminDashboard («центр действий») on /crm — 4 neutral KPI cards
-// + «Активные транзакции» panel. The old generic placeholder («Транзакций»,
-// «Последние транзакции») was replaced by the real-data dashboard, so assert its
-// current RU labels instead.
-const RU_ADMIN_DASHBOARD_TOKENS = [
-  'Активных проектов',
-  'Сотрудников',
-  'Проектов не оплачено в этом месяце',
-  'Собеседований',
-  'Активные транзакции',
+// ADMIN renders AdminDashboard («центр дій») on /crm — 4 neutral KPI cards
+// + «Активні транзакції» panel. The old generic placeholder («Транзакцій»,
+// «Останні транзакції») was replaced by the real-data dashboard, so assert its
+// current uk labels instead.
+const UK_ADMIN_DASHBOARD_TOKENS = [
+  'Активних проєктів',
+  'Співробітників',
+  'Проєктів не оплачено цього місяця',
+  'Співбесід',
+  'Активні транзакції',
 ]
 
-// SENIOR renders SeniorDashboard (рабочий хаб) on /crm — its own RU copy.
-const RU_SENIOR_DASHBOARD_TOKENS = ['Активные проекты', 'Доход за месяц', 'Ожидают выплаты']
+// SENIOR renders SeniorDashboard (робочий хаб) on /crm — its own uk copy.
+const UK_SENIOR_DASHBOARD_TOKENS = ['Активні проєкти', 'Дохід за місяць', 'Очікують виплати']
 
 // HR renders HRDashboard (рекрутинг хаб) on /crm instead of the generic
-// dashboard — assert its own RU copy. Russian-only + checked against the same
-// English blocklist below.
-const RU_HR_DASHBOARD_TOKENS = ['Открытые собеседования', 'Нанято за месяц', 'Активные проекты']
+// dashboard — assert its own uk copy. Checked against the same English
+// blocklist below.
+const UK_HR_DASHBOARD_TOKENS = ['Відкриті співбесіди', 'Найнято за місяць', 'Активні проєкти']
 
 /**
- * Navigate to /crm, assert all expected RU tokens are visible and no English
+ * Navigate to /crm, assert all expected uk tokens are visible and no English
  * leftover from the blocklist appears in the dashboard <main>.
  */
-async function assertDashboardRu(page: Page, role: string, expectedTokens: string[]) {
+async function assertDashboardUk(page: Page, role: string, expectedTokens: string[]) {
+  // task-i18n-stage3a (Task 1), SPEC-H-1: confirm each token is still a real
+  // `uk` catalog entry before using it — a stale one now fails loudly here
+  // instead of a confusing Playwright visibility timeout below.
+  const uk = await loadMessages('uk')
   await page.goto('/')
   // HRDashboard renders its own nested <main data-testid="hr-dashboard-hub">,
   // so scope to the OUTER layout <main> (.first()) — it contains the hub too.
@@ -84,8 +93,8 @@ async function assertDashboardRu(page: Page, role: string, expectedTokens: strin
 
   for (const token of expectedTokens) {
     await expect(
-      main.getByText(token, { exact: false }).first(),
-      `Expected RU token «${token}» on /crm for ${role}`,
+      main.getByText(assertInCatalog(uk, token), { exact: false }).first(),
+      `Expected uk token «${token}» on /crm for ${role}`,
     ).toBeVisible({ timeout: 6_000 })
   }
 
@@ -100,16 +109,18 @@ async function assertDashboardRu(page: Page, role: string, expectedTokens: strin
   }
 }
 
-test.describe('Dashboard — Russian-only copy (consolidated /crm root)', () => {
-  test('/crm for ADMIN has Russian copy and NO English leftovers', async ({ asAdmin: page }) => {
-    await assertDashboardRu(page, 'ADMIN', RU_ADMIN_DASHBOARD_TOKENS)
+test.describe('Dashboard — Ukrainian copy (consolidated /crm root)', () => {
+  test('/crm for ADMIN has Ukrainian copy and NO English leftovers', async ({ asAdmin: page }) => {
+    await assertDashboardUk(page, 'ADMIN', UK_ADMIN_DASHBOARD_TOKENS)
   })
 
-  test('/crm for SENIOR has Russian copy and NO English leftovers', async ({ asSenior: page }) => {
-    await assertDashboardRu(page, 'SENIOR', RU_SENIOR_DASHBOARD_TOKENS)
+  test('/crm for SENIOR has Ukrainian copy and NO English leftovers', async ({
+    asSenior: page,
+  }) => {
+    await assertDashboardUk(page, 'SENIOR', UK_SENIOR_DASHBOARD_TOKENS)
   })
 
-  test('/crm for HR has Russian copy and NO English leftovers', async ({ asHr: page }) => {
-    await assertDashboardRu(page, 'HR', RU_HR_DASHBOARD_TOKENS)
+  test('/crm for HR has Ukrainian copy and NO English leftovers', async ({ asHr: page }) => {
+    await assertDashboardUk(page, 'HR', UK_HR_DASHBOARD_TOKENS)
   })
 })

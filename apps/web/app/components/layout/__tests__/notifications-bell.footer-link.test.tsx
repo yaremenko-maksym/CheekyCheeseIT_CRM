@@ -13,7 +13,7 @@
  * fix-round-3 screenshots.
  */
 import { render, screen, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -21,6 +21,7 @@ import {
   createRootRoute,
   createRouter,
 } from '@tanstack/react-router'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { NotificationsBell } from '../notifications-bell'
 
 vi.mock('@/hooks/use-notifications-api', () => ({
@@ -34,9 +35,11 @@ async function renderBellOpen() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const rootRoute = createRootRoute({
     component: () => (
-      <QueryClientProvider client={qc}>
-        <NotificationsBell />
-      </QueryClientProvider>
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <NotificationsBell />
+        </QueryClientProvider>
+      </I18nTestProvider>
     ),
   })
   const router = createRouter({
@@ -46,12 +49,16 @@ async function renderBellOpen() {
   render(<RouterProvider router={router} />)
 
   // Radix opens the dropdown on pointerdown, not click.
-  const trigger = await screen.findByRole('button', { name: /уведомления/i })
+  const trigger = await screen.findByTestId('notifications-bell-trigger')
   trigger.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0 }))
   trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
 
   return screen.findByTestId('notifications-bell-footer-pending-link')
 }
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 describe('NotificationsBell — UX-M-1: the footer link is the hit box, not the footer around it', () => {
   it('carries its own ≥44px vertical floor (min-h-11) and the vertical padding, on the <a> itself', async () => {

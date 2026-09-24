@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
-import { kyivToday } from '@crm/shared'
+import { Trans } from '@lingui/react/macro'
+import { kyivToday, formatDate, formatMoney } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -25,17 +27,22 @@ function toUsd(amount: number, currency: Currency, rates: ExchangeRates): number
   return amount
 }
 
-function fmtRateDate(date: string): string {
-  // Backend (nbu-currency.service.ts) returns YYYYMMDD compact format
-  // (e.g. "20260522") because that's what the NBU API uses. JS Date()
-  // constructor doesn't parse this — convert to ISO YYYY-MM-DD first.
+/**
+ * task-i18n-stage3a (Task 1), COPY-M-core (pattern F) — replaces the
+ * hardcoded `toLocaleDateString('uk-UA', ...)` with the shared, locale-aware
+ * `formatDate`. Backend (nbu-currency.service.ts) returns YYYYMMDD compact
+ * format (e.g. "20260522") because that's what the NBU API uses; JS
+ * `Date()` doesn't parse it — converted to ISO YYYY-MM-DD first, same as
+ * before.
+ */
+function fmtRateDate(date: string, locale: Parameters<typeof formatDate>[1]): string {
   if (!date) return ''
   const iso = /^\d{8}$/.test(date)
     ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
     : date
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  return d.toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return formatDate(d, locale)
 }
 
 export function AmountCurrencyInput({
@@ -43,8 +50,8 @@ export function AmountCurrencyInput({
   currency,
   onAmountChange,
   onCurrencyChange,
-  label = 'Сумма',
-  currencyLabel = 'Валюта',
+  label,
+  currencyLabel,
   placeholder = '0.00',
   inputClassName,
   disabled,
@@ -83,6 +90,18 @@ export function AmountCurrencyInput({
   /** data-testid for the error <p> (caller-supplied for E2E). */
   errorTestId?: string | undefined
 }) {
+  const locale = useLocale()
+  // task-i18n-stage3a (Task 1) — `label`/`currencyLabel` DEFAULTS deliberately
+  // stay the pre-migration Russian literals: `_authenticated/finance/**`
+  // (three consumers — EditSeniorIncomeDialog.tsx, AdminEditTransactionDialog.tsx,
+  // CreateTransactionDialog.tsx — omit both props and rely on this default)
+  // is explicitly OUT of this wave's perimeter (plan Допущение 1). Swapping
+  // the default to a `msg`-resolved value would silently change THEIR
+  // rendered text ahead of their own migration wave — same reasoning as
+  // `ROLE_LABELS` in `role-select.tsx`. A caller inside this wave's
+  // perimeter that wants a translated label passes one explicitly.
+  const resolvedLabel = label ?? 'Сумма'
+  const resolvedCurrencyLabel = currencyLabel ?? 'Валюта'
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'
 
   // ut-20: cache key is the **calendar day** (YYYY-MM-DD) — so when the
@@ -112,7 +131,7 @@ export function AmountCurrencyInput({
     <div className="space-y-2">
       <div className="grid grid-cols-[1fr_110px] gap-3">
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">{label}</Label>
+          <Label className="text-xs text-muted-foreground">{resolvedLabel}</Label>
           <Input
             value={amount}
             onChange={(e) => onAmountChange(normalizeDecimalInput(e.target.value))}
@@ -126,7 +145,7 @@ export function AmountCurrencyInput({
           />
         </div>
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">{currencyLabel}</Label>
+          <Label className="text-xs text-muted-foreground">{resolvedCurrencyLabel}</Label>
           <Select
             value={currency}
             onValueChange={(v) => onCurrencyChange(v as Currency)}
@@ -156,7 +175,9 @@ export function AmountCurrencyInput({
       {currency === 'USDT' && (
         <div className="flex items-center gap-2 rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
           <span className="font-medium">1 USDT = 1 USD</span>
-          <span className="text-muted-foreground">· ERC-20, привязан к доллару</span>
+          <span className="text-muted-foreground">
+            · <Trans>ERC-20, прив’язаний до долара</Trans>
+          </span>
         </div>
       )}
 
@@ -173,7 +194,9 @@ export function AmountCurrencyInput({
           ) : rates ? (
             <>
               {convertedUsd && currency !== 'USD' && (
-                <span className="font-medium">≈ ${convertedUsd} USD&nbsp;·&nbsp;</span>
+                <span className="font-medium">
+                  ≈ {formatMoney(convertedUsd, 'USD', locale)}&nbsp;·&nbsp;
+                </span>
               )}
               <span className={currency !== 'USD' ? 'text-muted-foreground' : 'font-medium'}>
                 {currency === 'EUR'
@@ -182,7 +205,9 @@ export function AmountCurrencyInput({
                     ? '1 USD = 1 USD'
                     : `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`}
               </span>
-              <span className="ml-auto text-muted-foreground/60">{fmtRateDate(rates.date)}</span>
+              <span className="ml-auto text-muted-foreground/60">
+                {fmtRateDate(rates.date, locale)}
+              </span>
             </>
           ) : null}
         </div>

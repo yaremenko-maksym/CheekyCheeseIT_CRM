@@ -3,7 +3,16 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { UploadDocumentDialog } from '../upload-document-dialog'
+
+// task-i18n-stage3a (Task 1) blast-radius: this dialog renders the shared
+// `UploadProgress` (`components/ui/`), which now calls `useLingui()` —
+// outside this file's own perimeter (`components/documents/**` migrates in
+// a later wave), so only the render wrapper changes here.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // Mock the upload hook so the dialog doesn't try to hit the network during
 // interaction tests. We assert on the props passed in by the dialog.
@@ -21,14 +30,12 @@ function renderDialog(open = true) {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   const utils = render(
-    <QueryClientProvider client={qc}>
-      <Toaster />
-      <UploadDocumentDialog
-        open={open}
-        onOpenChange={onOpenChange}
-        defaultCategory="RESUME"
-      />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <Toaster />
+        <UploadDocumentDialog open={open} onOpenChange={onOpenChange} defaultCategory="RESUME" />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
   return { ...utils, onOpenChange }
 }
@@ -66,11 +73,9 @@ describe('UploadDocumentDialog', () => {
   it('rejects an oversized file (> 10 MB) without enabling submit', async () => {
     renderDialog()
     const input = screen.getByTestId('upload-file-input') as HTMLInputElement
-    const big = new File(
-      [new Uint8Array(11 * 1024 * 1024)],
-      'huge.pdf',
-      { type: 'application/pdf' },
-    )
+    const big = new File([new Uint8Array(11 * 1024 * 1024)], 'huge.pdf', {
+      type: 'application/pdf',
+    })
     await userEvent.upload(input, big)
     // Submit must remain disabled — the file was rejected at the client gate.
     expect(screen.getByTestId('upload-submit')).toBeDisabled()

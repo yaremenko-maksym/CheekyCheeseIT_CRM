@@ -1,21 +1,40 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
-import { DayPicker, useDayPicker, type DayPickerProps, type MonthCaptionProps } from 'react-day-picker'
+import {
+  DayPicker,
+  useDayPicker,
+  type DayPickerProps,
+  type MonthCaptionProps,
+} from 'react-day-picker'
+import type { Locale } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { buttonVariants } from '@/components/ui/button'
+import { useLocale } from '@/lib/i18n'
 
 export type CalendarProps = DayPickerProps
 
-const MONTHS_SHORT = ['Янв','Фев','Мар','Апр','Май','Июн','Июл','Авг','Сен','Окт','Ноя','Дек']
-const MONTHS_FULL  = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь']
+// task-i18n-stage3a (Task 1), Step 2/A/F: month names generated from
+// `Intl.DateTimeFormat` for the active locale instead of a hardcoded
+// Russian array — same `<locale>-<REGION>` tags `packages/shared/src/i18n/
+// format.ts`'s own `INTL_TAG` uses (not imported from there — that map is
+// private to the module and this is the only other place that needs it).
+const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
+
+function monthNames(locale: Locale, style: 'short' | 'long'): string[] {
+  const fmt = new Intl.DateTimeFormat(INTL_TAG[locale], { month: style, timeZone: 'UTC' })
+  return Array.from({ length: 12 }, (_, i) => fmt.format(new Date(Date.UTC(2000, i, 1))))
+}
 
 type Picker = 'month' | 'year' | null
 
 function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
   const { goToMonth, previousMonth, nextMonth } = useDayPicker()
   const [picker, setPicker] = useState<Picker>(null)
+  const locale = useLocale()
+  const monthsShort = useMemo(() => monthNames(locale, 'short'), [locale])
+  const monthsFull = useMemo(() => monthNames(locale, 'long'), [locale])
 
   const date = calendarMonth.date
   const year = date.getFullYear()
@@ -68,16 +87,16 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
         {/* Month button */}
         <button
           type="button"
-          onClick={() => setPicker(p => p === 'month' ? null : 'month')}
+          onClick={() => setPicker((p) => (p === 'month' ? null : 'month'))}
           className="text-sm font-medium hover:opacity-70 transition-opacity cursor-pointer"
         >
-          {MONTHS_FULL[monthIndex]}
+          {monthsFull[monthIndex]}
         </button>
 
         {/* Year button */}
         <button
           type="button"
-          onClick={() => setPicker(p => p === 'year' ? null : 'year')}
+          onClick={() => setPicker((p) => (p === 'year' ? null : 'year'))}
           className="text-sm font-medium hover:opacity-70 transition-opacity cursor-pointer"
         >
           {year}
@@ -87,14 +106,15 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
         {picker === 'month' && (
           <div className="absolute top-full mt-1 left-0 z-50 bg-popover border border-border rounded-md shadow-md p-2 w-48">
             <div className="grid grid-cols-3 gap-1">
-              {MONTHS_SHORT.map((name, idx) => (
+              {monthsShort.map((name, idx) => (
                 <button
                   key={name}
                   type="button"
                   onClick={() => selectMonth(idx)}
                   className={cn(
                     'text-xs rounded py-1.5 hover:bg-accent hover:text-accent-foreground transition-colors text-center',
-                    idx === monthIndex && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+                    idx === monthIndex &&
+                      'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
                   )}
                 >
                   {name}
@@ -115,7 +135,8 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
                   onClick={() => selectYear(y)}
                   className={cn(
                     'text-xs rounded py-1.5 hover:bg-accent hover:text-accent-foreground transition-colors text-center',
-                    y === year && 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
+                    y === year &&
+                      'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground',
                   )}
                 >
                   {y}
@@ -139,7 +160,12 @@ function CustomMonthCaption({ calendarMonth }: MonthCaptionProps) {
   )
 }
 
-export function Calendar({ className, classNames, showOutsideDays = true, ...props }: CalendarProps) {
+export function Calendar({
+  className,
+  classNames,
+  showOutsideDays = true,
+  ...props
+}: CalendarProps) {
   return (
     <DayPicker
       showOutsideDays={showOutsideDays}
@@ -160,9 +186,11 @@ export function Calendar({ className, classNames, showOutsideDays = true, ...pro
           'h-9 w-9 p-0 font-normal aria-selected:opacity-100',
         ),
         range_end: 'day-range-end',
-        selected: 'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground',
+        selected:
+          'bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground focus:bg-primary focus:text-primary-foreground',
         today: 'bg-accent text-accent-foreground',
-        outside: 'day-outside text-muted-foreground aria-selected:bg-accent/50 aria-selected:text-muted-foreground',
+        outside:
+          'day-outside text-muted-foreground aria-selected:bg-accent/50 aria-selected:text-muted-foreground',
         disabled: 'text-muted-foreground opacity-50',
         range_middle: 'aria-selected:bg-accent aria-selected:text-accent-foreground',
         hidden: 'invisible',

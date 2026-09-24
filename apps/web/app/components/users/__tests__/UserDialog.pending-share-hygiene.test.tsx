@@ -23,10 +23,31 @@
  * real-`useMutation` pass-through) so both files exercise the identical
  * submit lifecycle.
  */
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import {
+  render as rtlRender,
+  screen,
+  waitFor,
+  fireEvent,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { UserProfileDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `UserDialog` renders the shared
+// `TechAutocompleteInput`/`PhoneInput` (`components/ui/`), which now call
+// `useLingui()` — outside this file's own perimeter (`components/users/**`
+// migrates in a later wave). Shadowing `render` wraps every call site with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('@/context/auth', () => ({
   useAuth: () => ({ user: { id: 'admin-1', role: 'ADMIN', displayName: 'Admin' } }),
@@ -180,7 +201,9 @@ describe('UserDialog — SR-M-5/QA-HIGH-3: an untouched share % never reaches th
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
-    const shareInput = await screen.findByRole('spinbutton', { name: 'Доля синьора в процентах' })
+    const shareInput = await screen.findByRole('spinbutton', {
+      name: 'Частка сеньйора у відсотках',
+    })
     fireEvent.change(shareInput, { target: { value: '40' } })
     fireEvent.blur(shareInput)
 
@@ -216,7 +239,9 @@ describe('UserDialog — COPY-H-6: saving a share change says the change is not 
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
 
-    const shareInput = await screen.findByRole('spinbutton', { name: 'Доля синьора в процентах' })
+    const shareInput = await screen.findByRole('spinbutton', {
+      name: 'Частка сеньйора у відсотках',
+    })
     fireEvent.change(shareInput, { target: { value: '40' } })
     fireEvent.blur(shareInput)
 
@@ -354,7 +379,7 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
     // Wait for the share field itself so "absent" is a real absence, not a
     // race against the dialog rendering at all.
-    await screen.findByRole('spinbutton', { name: 'Доля синьора в процентах' })
+    await screen.findByRole('spinbutton', { name: 'Частка сеньйора у відсотках' })
     expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
   })
 
@@ -367,7 +392,9 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     // is what puts the share field on screen with no `editingUser` behind it.
     render(<UserDialog mode="create" open={true} hrOnly onClose={vi.fn()} />)
     await screen.findByTestId('user-dialog-name')
-    expect(screen.getByRole('spinbutton', { name: 'Доля синьора в процентах' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('spinbutton', { name: 'Частка сеньйора у відсотках' }),
+    ).toBeInTheDocument()
     expect(screen.queryByTestId('pending-share-edit-notice-user')).toBeNull()
   })
 })

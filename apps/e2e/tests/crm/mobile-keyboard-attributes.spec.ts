@@ -36,7 +36,7 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
 
     // PHONE — no <label htmlFor>, target by the PhoneInput's own placeholder
     // (same selector profile-self-edit.spec.ts already uses).
-    const phoneInput = page.getByPlaceholder('Номер телефона')
+    const phoneInput = page.getByPlaceholder('Номер телефону')
     await expect(phoneInput).toHaveAttribute('type', 'tel')
   })
 

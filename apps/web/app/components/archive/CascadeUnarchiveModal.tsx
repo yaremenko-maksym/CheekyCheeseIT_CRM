@@ -1,4 +1,7 @@
 import { User, Users } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Dialog,
   DialogContent,
@@ -10,9 +13,9 @@ import {
 import { Button } from '@/components/ui/button'
 import type { UnarchiveCascadeEntity } from '@/hooks/use-archive'
 
-const ENTITY_LABELS: Record<UnarchiveCascadeEntity['type'], string> = {
-  user: 'Пользователь (синьор)',
-  team: 'Команда',
+const ENTITY_LABEL_MESSAGES: Record<UnarchiveCascadeEntity['type'], MessageDescriptor> = {
+  user: msg`Користувач (сеньйор)`,
+  team: msg`Команда`,
 }
 
 const ENTITY_ICONS: Record<UnarchiveCascadeEntity['type'], React.ReactNode> = {
@@ -37,19 +40,24 @@ export function CascadeUnarchiveModal({
   onCancel: () => void
   isPending?: boolean
 }) {
+  const { i18n } = useLingui()
   return (
     <Dialog open onOpenChange={(o) => !o && onCancel()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Восстановить связанные сущности</DialogTitle>
+          <DialogTitle>
+            <Trans>Відновити пов’язане</Trans>
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Восстановление проекта вместе со связанными сущностями.
+            <Trans>Відновлення проєкту разом із пов’язаними командою і профілем.</Trans>
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p className="text-muted-foreground">
-            Для восстановления проекта <strong className="text-foreground">{projectName}</strong>{' '}
-            требуется также восстановить пару:
+            <Trans>
+              Для відновлення проєкту <strong className="text-foreground">{projectName}</strong>{' '}
+              потрібно також відновити пару:
+            </Trans>
           </p>
           <div className="space-y-2">
             {entities.map((e) => (
@@ -60,22 +68,26 @@ export function CascadeUnarchiveModal({
               >
                 {ENTITY_ICONS[e.type]}
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-muted-foreground">{ENTITY_LABELS[e.type]}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {i18n._(ENTITY_LABEL_MESSAGES[e.type])}
+                  </p>
                   <p className="truncate text-sm font-medium">{e.name}</p>
                 </div>
               </div>
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            HR/бухгалтеры команды после восстановления остаются отвязанными — добавьте их заново.
+            <Trans>
+              HR/бухгалтери команди після відновлення залишаються відв’язаними — додайте їх заново.
+            </Trans>
           </p>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onCancel} disabled={isPending}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={onConfirm} disabled={isPending} data-testid="cascade-unarchive-confirm">
-            {isPending ? 'Восстановление…' : 'Восстановить всё'}
+            {isPending ? <Trans>Відновлення…</Trans> : <Trans>Відновити все</Trans>}
           </Button>
         </DialogFooter>
       </DialogContent>

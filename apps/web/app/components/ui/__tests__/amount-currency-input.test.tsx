@@ -11,11 +11,22 @@ import { useState } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
+// task-i18n-stage3a (Task 1) blast-radius: `AmountCurrencyInput` now calls
+// `useLocale()` (`useLingui()` under the hood) for its date/money
+// formatting — every render needs an `I18nTestProvider` ancestor.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
+const mockApiGet = vi.fn<(...args: unknown[]) => Promise<{ data: unknown }>>(() =>
+  Promise.reject(new Error('not used by default — currency=USDT needs no rate')),
+)
 vi.mock('@/lib/axios', () => ({
-  api: { get: vi.fn(() => Promise.reject(new Error('not used — currency=USDT needs no rate'))) },
+  api: { get: (...args: unknown[]) => mockApiGet(...args) },
 }))
 
 /**
@@ -46,6 +57,7 @@ function renderInput(onAmountChange: (v: string) => void) {
     <QueryClientProvider client={queryClient}>
       <AmountHarness onAmountChange={onAmountChange} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
@@ -104,5 +116,45 @@ describe('AmountCurrencyInput — task-mobile-keyboards.md', () => {
     expect(calls).not.toContain('1.000')
     expect(calls).not.toContain('1')
     expect(calls).not.toContain('1000')
+  })
+
+  // MUT-1 (fix-round 2): the `label`/`currencyLabel` DEFAULTS (`?? 'Сумма'`
+  // / `?? 'Валюта'`) are deliberately kept as pre-migration Russian
+  // literals (out of this wave's perimeter — see the source's own comment)
+  // — but nothing pinned them at all, so either could have been mutated to
+  // empty (or the `??` flipped to `&&`, which also produces empty for a
+  // non-empty amount) with no test noticing.
+  it('falls back to the (deliberately untranslated) default labels when label/currencyLabel are omitted', () => {
+    renderInput(() => {})
+    expect(screen.getByText('Сумма')).toBeInTheDocument()
+    expect(screen.getByText('Валюта')).toBeInTheDocument()
+  })
+})
+
+describe('AmountCurrencyInput — USD conversion notice (MUT-1, fix-round 2)', () => {
+  // Only StringLiteral/ObjectLiteral mutants on the conversion line itself —
+  // `formatMoney(convertedUsd, 'USD', locale)` — none of the tests above
+  // ever render a non-USD currency WITH a resolved exchange rate (the only
+  // path that reaches this line at all).
+  it('shows the converted USD amount, prefixed with "≈", for a non-USD currency once rates resolve', async () => {
+    const mockRates = { usdUah: '41.5', usdtUah: '41.5', eurUah: '45.0', date: '20260101' }
+    mockApiGet.mockResolvedValueOnce({ data: mockRates })
+
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <AmountCurrencyInput
+          amount="10"
+          currency="EUR"
+          onAmountChange={() => {}}
+          onCurrencyChange={() => {}}
+        />
+      </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
+    )
+
+    // 10 EUR * (45.0 / 41.5) = 10.84 USD; uk locale renders it "10,84".
+    const converted = await screen.findByText(/≈/)
+    expect(converted).toHaveTextContent('≈ 10,84 USD')
   })
 })

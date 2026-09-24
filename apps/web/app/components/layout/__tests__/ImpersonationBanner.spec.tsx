@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 /**
  * Unit tests for ImpersonationBanner component (admin-impersonation feature).
@@ -56,7 +57,11 @@ function wrapper({ children }: { children: React.ReactNode }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
-  return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+  return (
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
+  )
 }
 
 const MOCK_USER: SessionUser = {
@@ -77,13 +82,14 @@ const MOCK_USER: SessionUser = {
 // ---------------------------------------------------------------------------
 
 describe('ImpersonationBanner', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
     // Reset window.location.href assignments
     Object.defineProperty(window, 'location', {
       writable: true,
       value: { href: '/' },
     })
+    await loadCatalog('uk')
   })
 
   it('B1. renders the banner with correct testid', () => {
@@ -94,14 +100,14 @@ describe('ImpersonationBanner', () => {
   it('B2. shows impersonated user displayName and role label', () => {
     render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
     expect(screen.getByText(/«Иван Старший»/)).toBeInTheDocument()
-    expect(screen.getByText(/Синьор/)).toBeInTheDocument()
+    expect(screen.getByText(/Сеньйор/)).toBeInTheDocument()
   })
 
   it('B3. shows return button with correct testid and aria-label', () => {
     render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
     const btn = screen.getByTestId('impersonation-banner-return')
     expect(btn).toBeInTheDocument()
-    expect(btn).toHaveAttribute('aria-label', 'Вернуться в свой профиль')
+    expect(btn).toHaveAttribute('aria-label', 'Повернутися до свого профілю')
   })
 
   it('B4. calls POST /auth/stop-impersonating when return button clicked', async () => {
@@ -123,7 +129,7 @@ describe('ImpersonationBanner', () => {
     await user.click(screen.getByTestId('impersonation-banner-return'))
 
     expect(screen.getByTestId('impersonation-banner-return')).toBeDisabled()
-    expect(screen.getByText('Возврат...')).toBeInTheDocument()
+    expect(screen.getByText('Повернення…')).toBeInTheDocument()
   })
 
   it('B6. shows error toast on stop-impersonating failure', async () => {
@@ -136,6 +142,34 @@ describe('ImpersonationBanner', () => {
 
     expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('Network error'))
     expect(onStopped).toHaveBeenCalled()
+  })
+
+  // MUT-1 (fix-round 2): the button's VISIBLE text (line 76) is a SEPARATE
+  // `t\`...\`` call from its `aria-label` (line 71, already pinned by B3) —
+  // same literal, different AST node. B5 only pins the PENDING branch's
+  // text ("Повернення…"); nothing pinned the non-pending branch's own text.
+  it('button shows the non-pending label as its own visible text (not just aria-label)', () => {
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+    expect(screen.getByTestId('impersonation-banner-return')).toHaveTextContent(
+      'Повернутися до свого профілю',
+    )
+  })
+
+  // MUT-1 (fix-round 2): pins the `{' '}` JSX-whitespace expression between
+  // the bolded display name and the role span — a mutant collapsing it to
+  // `{""}` would run "Старший»(Сеньйор)" together with no gap.
+  it('keeps a space between the quoted display name and the role label', () => {
+    render(<ImpersonationBanner user={MOCK_USER} onStopped={vi.fn()} />, { wrapper })
+    // Function matcher targets the OUTER <span> (the whole <Trans> sentence)
+    // by its full concatenated text — avoids DOM-navigation APIs
+    // (testing-library/no-node-access) while still pinning the `{' '}`
+    // JSX-whitespace boundary between the bolded name and the role span.
+    const outer = screen.getByText(
+      (_content, element) =>
+        element?.tagName === 'SPAN' &&
+        element.textContent === 'Ви увійшли як «Иван Старший» (Сеньйор)',
+    )
+    expect(outer).toBeInTheDocument()
   })
 
   it('B7. banner has role=alert for accessibility', () => {

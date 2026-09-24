@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion'
 import { Briefcase, Clock, UserCheck } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/_authenticated/finance/components/KpiCards'
@@ -29,6 +30,7 @@ const card = {
 
 export function HRDashboard() {
   const { data: summary, isLoading, isError } = useHrSummary()
+  const { t } = useLingui()
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
@@ -42,9 +44,11 @@ export function HRDashboard() {
         ) : isError || !summary ? (
           <Card data-testid="hr-kpi-error">
             <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
-              <p className="text-sm text-destructive">Не удалось загрузить сводку</p>
+              <p className="text-sm text-destructive">
+                <Trans>Не вдалося завантажити зведення</Trans>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Обновите страницу или попробуйте позже
+                <Trans>Оновіть сторінку або спробуйте пізніше</Trans>
               </p>
             </CardContent>
           </Card>
@@ -60,9 +64,9 @@ export function HRDashboard() {
             >
               <motion.div variants={card} data-testid="kpi-open-interviews">
                 <KpiCard
-                  title="Открытые собеседования"
+                  title={t`Відкриті співбесіди`}
                   value={String(summary.openInterviews)}
-                  sub="В активных стадиях"
+                  sub={t`В активних стадіях`}
                   icon={<Clock className="h-5 w-5" />}
                   color="blue"
                 />
@@ -70,9 +74,9 @@ export function HRDashboard() {
 
               <motion.div variants={card} data-testid="kpi-hired-month">
                 <KpiCard
-                  title="Нанято за месяц"
+                  title={t`Найнято за місяць`}
                   value={String(summary.hiredThisMonth)}
-                  sub="Перешли в «Нанят»"
+                  sub={t`Перейшли в «Найнято»`}
                   icon={<UserCheck className="h-5 w-5" />}
                   color="green"
                 />
@@ -80,9 +84,9 @@ export function HRDashboard() {
 
               <motion.div variants={card} data-testid="kpi-active-projects">
                 <KpiCard
-                  title="Активные проекты"
+                  title={t`Активні проєкти`}
                   value={String(summary.activeProjects)}
-                  sub="Проекты синьоров команд"
+                  sub={t`Проєкти сеньйорів команд`}
                   icon={<Briefcase className="h-5 w-5" />}
                   color="default"
                 />

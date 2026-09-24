@@ -1,30 +1,46 @@
 import React from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { TechAutocompleteInput } from '../tech-autocomplete-input'
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Controlled wrapper so state updates propagate correctly. */
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
+/**
+ * Controlled wrapper so state updates propagate correctly.
+ *
+ * task-i18n-stage3a (Task 1): wraps with `I18nTestProvider` here (not at
+ * every `render()` call site below) — `TechAutocompleteInput` now calls
+ * `useLingui()` (SPEC-H-1).
+ */
 function Controlled({
   initial = [] as string[],
   onChange,
+  maxItems,
 }: {
   initial?: string[]
   onChange?: (v: string[]) => void
+  maxItems?: number
 }) {
   const [value, setValue] = React.useState<string[]>(initial)
   return (
-    <TechAutocompleteInput
-      value={value}
-      onChange={(next) => {
-        setValue(next)
-        onChange?.(next)
-      }}
-    />
+    <I18nTestProvider>
+      <TechAutocompleteInput
+        value={value}
+        onChange={(next) => {
+          setValue(next)
+          onChange?.(next)
+        }}
+        {...(maxItems !== undefined ? { maxItems } : {})}
+      />
+    </I18nTestProvider>
   )
 }
 
@@ -205,5 +221,27 @@ describe('TechAutocompleteInput — chip interactions', () => {
     await user.keyboard('{Backspace}')
 
     expect(onChange).toHaveBeenCalledWith(['React'])
+  })
+})
+
+// MUT-1 (fix-round 2): placeholder text and the per-chip remove button's
+// aria-label had no assertions at all before this round.
+describe('TechAutocompleteInput — placeholder + chip remove button labels', () => {
+  it('shows the default placeholder when no chips are entered', () => {
+    render(<Controlled />)
+    expect(getInput()).toHaveAttribute('placeholder', 'Почніть вводити технологію…')
+  })
+
+  it('shows the limit-reached placeholder (and disables the input) once maxItems is hit', () => {
+    render(<Controlled initial={['React']} maxItems={1} />)
+    const input = getInput()
+    expect(input).toHaveAttribute('placeholder', 'Досягнуто ліміт 1 тегів')
+    expect(input).toBeDisabled()
+  })
+
+  it('each chip’s remove button names the specific chip in aria-label', () => {
+    render(<Controlled initial={['React', 'TypeScript']} />)
+    expect(screen.getByLabelText('Видалити React')).toBeInTheDocument()
+    expect(screen.getByLabelText('Видалити TypeScript')).toBeInTheDocument()
   })
 })

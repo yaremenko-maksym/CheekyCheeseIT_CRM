@@ -15,6 +15,7 @@
  */
 
 import { test, expect, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
 const CRM_ROOT = /\/?$/
@@ -25,12 +26,15 @@ test.describe('A. ACCOUNTANT dashboard dispatch', () => {
   test('ACCOUNTANT on /crm sees the accountant hub (not general dashboard)', async ({
     asAccountant: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/')
     await expect(page).toHaveURL(CRM_ROOT, { timeout: 8_000 })
 
     const hub = page.getByTestId('accountant-dashboard-hub')
     await expect(hub).toBeVisible({ timeout: 8_000 })
-    await expect(hub.getByRole('heading', { level: 1 })).toContainText('Дашборд')
+    await expect(hub.getByRole('heading', { level: 1 })).toContainText(
+      assertInCatalog(uk, 'Дашборд'),
+    )
 
     // DROP hub testid must NOT appear for ACCOUNTANT.
     await expect(page.getByTestId('drop-routing-hub')).toHaveCount(0)
@@ -70,6 +74,7 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
   test('CTA shows the pending count and opens ValidateDialog queue (AC3)', async ({
     asAccountant: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Seed a PENDING SENIOR_INCOME tx so validateQueue is non-empty when CTA is clicked.
     // AccountantDashboard calls GET /api/transactions to build the queue.
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
@@ -116,7 +121,18 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
 
     const cta = page.getByTestId('accountant-validate-cta')
     await expect(cta).toBeVisible({ timeout: 8_000 })
-    await expect(cta).toContainText('Валидировать ожидающие (4)')
+    // COPY-M-14 (copy review round 1): "Валідувати очікуючі" -> "Перевірити
+    // доходи". Not run through `assertInCatalog` (exact-match only) — this
+    // message carries an interpolated count, so the compiled catalog's flat
+    // value is the literal template with the placeholder's name substituted
+    // in ("Перевірити доходи (0)"), not the rendered "(4)". Confirm the
+    // static prefix is a REAL catalog value (not a stale guess) via a
+    // prefix check against the loaded catalog directly, then assert the
+    // interpolated render separately.
+    const hasPrefix = Object.values(uk).some((v) => v.startsWith('Перевірити доходи ('))
+    expect(hasPrefix, 'catalog no longer has a "Перевірити доходи (…)" entry').toBe(true)
+    await expect(cta).toContainText('Перевірити доходи')
+    await expect(cta).toContainText('(4)')
 
     await cta.click()
 

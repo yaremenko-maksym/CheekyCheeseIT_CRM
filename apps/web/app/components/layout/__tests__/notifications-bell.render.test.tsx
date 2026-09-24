@@ -16,6 +16,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { Notification } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { NotificationsBell } from '../notifications-bell'
 
 const mockNavigate = vi.fn()
@@ -76,13 +77,18 @@ function makeNotification(over: Partial<Notification>): Notification {
 }
 
 async function openBell() {
-  render(<NotificationsBell />)
+  render(
+    <I18nTestProvider>
+      <NotificationsBell />
+    </I18nTestProvider>,
+  )
   await userEvent.click(screen.getByTestId('notifications-bell-trigger'))
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockNavigate.mockClear()
   mockDelete.mockClear()
+  await loadCatalog('uk')
 })
 
 describe('попап рисует строку по типу', () => {
@@ -232,7 +238,7 @@ describe('пустое состояние отражает актуальный 
     await openBell()
 
     expect(screen.getByTestId('notifications-empty')).toHaveTextContent(
-      'Здесь появятся события по вашим проектам, деньгам и документам',
+      'Тут з’являться події за вашими проєктами, грошима та документами',
     )
     expect(screen.getByTestId('notifications-empty')).not.toHaveTextContent('инвойс')
   })
@@ -373,6 +379,36 @@ describe('непрочитанное отличается от прочитан�
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-delete`)).toBeTruthy()
+  })
+
+  // MUT-1 (fix-round 2): `aria-label`/`title` on the delete button are two
+  // SEPARATE `t\`Видалити сповіщення\`` call sites (same literal, different
+  // AST nodes) — neither was ever asserted before this round.
+  it('кнопка удаления называет своё действие в aria-label и title', async () => {
+    items = [makeNotification({})]
+    await openBell()
+
+    const deleteBtn = screen.getByTestId(`notification-item-${UUID}-delete`)
+    expect(deleteBtn).toHaveAttribute('aria-label', 'Видалити сповіщення')
+    expect(deleteBtn).toHaveAttribute('title', 'Видалити сповіщення')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Колокольчик-триггер называет своё действие (MUT-1, fix-round 2)
+// ---------------------------------------------------------------------------
+
+describe('колокольчик-триггер', () => {
+  it('называет своё действие в aria-label', () => {
+    render(
+      <I18nTestProvider>
+        <NotificationsBell />
+      </I18nTestProvider>,
+    )
+    expect(screen.getByTestId('notifications-bell-trigger')).toHaveAttribute(
+      'aria-label',
+      'Сповіщення',
+    )
   })
 })
 

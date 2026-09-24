@@ -34,6 +34,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import type { CascadeEditPreviewResponse, TransactionDto } from '@crm/shared'
 
@@ -146,6 +147,7 @@ function renderDialog(tx: TransactionDto = PAID_TX) {
     <QueryClientProvider client={qc}>
       <AdminEditTransactionDialog tx={tx} onClose={() => {}} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
@@ -159,11 +161,16 @@ function typeAmount(value: string) {
   fireEvent.change(input, { target: { value } })
 }
 
-beforeEach(() => {
+// task-i18n-stage3a (Task 1) blast-radius: `AdminEditTransactionDialog`
+// renders the shared `AmountCurrencyInput` (`components/ui/`), which now
+// calls `useLocale()`/`useLingui()` — outside this file's own perimeter
+// (`_authenticated/finance/**` migrates in a later wave).
+beforeEach(async () => {
   vi.clearAllMocks()
   vi.useRealTimers()
   getEditCascadePreviewMock.mockResolvedValue(planWith([SENIOR_SHARE]))
   adminUpdateTransactionMock.mockResolvedValue({})
+  await loadCatalog('uk')
 })
 
 describe('cascade preview — the client half of the loop', () => {
@@ -525,6 +532,7 @@ describe('cascade preview — the client half of the loop', () => {
       <QueryClientProvider client={qc}>
         <AdminEditTransactionDialog tx={PAID_TX} onClose={() => {}} />
       </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
     )
 
     typeAmount('25000')

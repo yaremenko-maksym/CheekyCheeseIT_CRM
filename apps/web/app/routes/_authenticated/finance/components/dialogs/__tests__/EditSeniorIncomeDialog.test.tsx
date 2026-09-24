@@ -19,6 +19,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 
@@ -60,12 +61,21 @@ const LEGACY_HTTP_TX = {
   projectName: 'AI Platform v2',
 } as unknown as TransactionDto
 
+// task-i18n-stage3a (Task 1) blast-radius: `EditSeniorIncomeDialog` renders
+// the shared `AmountCurrencyInput` (`components/ui/`), which now calls
+// `useLocale()`/`useLingui()` — outside this file's own perimeter
+// (`_authenticated/finance/**` migrates in a later wave).
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderDialog(tx: TransactionDto | null) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
       <EditSeniorIncomeDialog tx={tx} onClose={() => {}} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 

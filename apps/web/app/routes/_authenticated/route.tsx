@@ -1,5 +1,6 @@
 import { createFileRoute, Link, Outlet, useNavigate, useRouterState } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { AuthProvider } from '@/context/auth'
 import { NotificationsProvider } from '@/context/notifications'
 import { useOnboardingGate } from '@/context/onboarding'
@@ -49,6 +50,7 @@ function CrmLayout() {
   const { user, isLoading } = useAuth()
   const navigate = useNavigate()
   const handleLogout = useLogout()
+  const { t } = useLingui()
   const location = useRouterState({ select: (s) => s.location })
   const [collapsed, setCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -182,7 +184,7 @@ function CrmLayout() {
               variant="ghost"
               size="icon"
               className="h-11 w-11 shrink-0 cursor-pointer md:hidden"
-              aria-label="Открыть меню"
+              aria-label={t`Відкрити меню`}
               onClick={() => setMobileOpen(true)}
             >
               <Menu />
@@ -235,7 +237,7 @@ function CrmLayout() {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  aria-label="Меню пользователя"
+                  aria-label={t`Меню користувача`}
                   data-testid="header-user-menu-trigger"
                   className="ml-1 inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-8 sm:w-8"
                 >
@@ -288,7 +290,7 @@ function CrmLayout() {
                     data-testid="header-user-menu-profile"
                   >
                     <UserCircle className="h-4 w-4" />
-                    Профиль
+                    <Trans>Профіль</Trans>
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
@@ -299,7 +301,7 @@ function CrmLayout() {
                     onClick={handleLogout}
                   >
                     <LogOut className="h-4 w-4" />
-                    Выйти
+                    <Trans>Вийти</Trans>
                   </button>
                 </DropdownMenuItem>
               </DropdownMenuContent>

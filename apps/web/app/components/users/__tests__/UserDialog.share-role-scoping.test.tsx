@@ -11,9 +11,24 @@
  *     `salaryCurrency` for a DROP target (DROP has no salary field in the
  *     Finance section — the payload now mirrors what's actually rendered).
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as rtlRender, screen, waitFor, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `UserDialog` renders the shared
+// `TechAutocompleteInput`/`PhoneInput` (`components/ui/`), which now call
+// `useLingui()` — outside this file's own perimeter (`components/users/**`
+// migrates in a later wave). Shadowing `render` wraps every call site with
+// `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
@@ -189,9 +204,9 @@ describe('UserDialog — DROP role-scoped share/salary fields (LOW findings PR #
     render(<UserDialog mode="edit" user={dropProfile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    const inputs = screen.getAllByLabelText('Доля дропа в процентах')
+    const inputs = screen.getAllByLabelText('Частка дропа у відсотках')
     const rangeInput = inputs.find((el) => el.getAttribute('type') === 'range')
     const numberInput = inputs.find((el) => el.getAttribute('type') === 'number')
     expect(rangeInput).toHaveAttribute('min', '0')
@@ -286,9 +301,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка сеньйора у відсотках').length).toBeGreaterThan(0)
     })
-    const input = numberInputByAriaLabel('Доля синьора в процентах')
+    const input = numberInputByAriaLabel('Частка сеньйора у відсотках')
     await blurWithoutTouching(input)
     expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
 
@@ -315,9 +330,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля синьора в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка сеньйора у відсотках').length).toBeGreaterThan(0)
     })
-    await blurWithoutTouching(numberInputByAriaLabel('Доля синьора в процентах'))
+    await blurWithoutTouching(numberInputByAriaLabel('Частка сеньйора у відсотках'))
 
     expect(await screen.findByText('Вкажіть від 1 до 100')).toBeInTheDocument()
   })
@@ -336,9 +351,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    const input = numberInputByAriaLabel('Доля дропа в процентах')
+    const input = numberInputByAriaLabel('Частка дропа у відсотках')
     await blurWithoutTouching(input)
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
 
@@ -365,9 +380,9 @@ describe('UserDialog — share-percent range validators, out-of-range fixture va
     render(<UserDialog mode="edit" user={profile as never} onClose={vi.fn()} />)
 
     await waitFor(() => {
-      expect(screen.getAllByLabelText('Доля дропа в процентах').length).toBeGreaterThan(0)
+      expect(screen.getAllByLabelText('Частка дропа у відсотках').length).toBeGreaterThan(0)
     })
-    await blurWithoutTouching(numberInputByAriaLabel('Доля дропа в процентах'))
+    await blurWithoutTouching(numberInputByAriaLabel('Частка дропа у відсотках'))
 
     expect(await screen.findByText('Вкажіть від 0 до 100')).toBeInTheDocument()
   })

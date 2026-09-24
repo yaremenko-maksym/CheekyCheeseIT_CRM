@@ -2,7 +2,10 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, CheckCircle2, Clock, Send, Users, Wallet } from 'lucide-react'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
+import { formatMoney } from '@crm/shared'
 import type { TransactionDto } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -36,17 +39,11 @@ const card = {
   show: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.1, 0.25, 1] as const } },
 }
 
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
 export function AccountantDashboard() {
   const { data: summary, isLoading, isError } = useAccountantSummary()
+  const { t } = useLingui()
+  const locale = useLocale()
+  const fmtUsd = (value: number) => formatMoney(value, 'USD', locale)
 
   // AC3: для открытия ValidateDialog из CTA нужны реальные pending-транзакции.
   // Загружаем их lazily (enabled только когда компонент смонтирован для ACCOUNTANT/ADMIN).
@@ -86,9 +83,11 @@ export function AccountantDashboard() {
         ) : isError || !summary ? (
           <Card data-testid="accountant-kpi-error">
             <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
-              <p className="text-sm text-destructive">Не удалось загрузить финансовую сводку</p>
+              <p className="text-sm text-destructive">
+                <Trans>Не вдалося завантажити фінансове зведення</Trans>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Обновите страницу или попробуйте позже
+                <Trans>Оновіть сторінку або спробуйте пізніше</Trans>
               </p>
             </CardContent>
           </Card>
@@ -104,7 +103,7 @@ export function AccountantDashboard() {
             >
               <motion.div variants={card} data-testid="kpi-pending-validation">
                 <KpiCard
-                  title="Ожидают валидации"
+                  title={t`Очікують валідації`}
                   value={String(summary.pendingValidation.count)}
                   sub={fmtUsd(summary.pendingValidation.amount)}
                   icon={<Clock className="h-5 w-5" />}
@@ -114,7 +113,7 @@ export function AccountantDashboard() {
 
               <motion.div variants={card} data-testid="kpi-validated-month">
                 <KpiCard
-                  title="Валидировано за месяц"
+                  title={t`Валідовано за місяць`}
                   value={String(summary.validatedThisMonth.count)}
                   sub={fmtUsd(summary.validatedThisMonth.amount)}
                   icon={<CheckCircle2 className="h-5 w-5" />}
@@ -124,7 +123,7 @@ export function AccountantDashboard() {
 
               <motion.div variants={card} data-testid="kpi-paid-month">
                 <KpiCard
-                  title="Выплачено за месяц"
+                  title={t`Виплачено за місяць`}
                   value={fmtUsd(summary.paidThisMonth.amount)}
                   icon={<Send className="h-5 w-5" />}
                   color="blue"
@@ -133,7 +132,7 @@ export function AccountantDashboard() {
 
               <motion.div variants={card} data-testid="kpi-recipient-count">
                 <KpiCard
-                  title="Получателей"
+                  title={t`Отримувачів`}
                   value={String(summary.recipientCount)}
                   icon={<Users className="h-5 w-5" />}
                   color="purple"
@@ -150,11 +149,25 @@ export function AccountantDashboard() {
                       <Wallet className="h-5 w-5" aria-hidden="true" />
                     </div>
                     <div>
-                      <p className="text-sm font-semibold">Валидация выплат</p>
+                      {/* COPY-H-core-3: was «Валидация выплат» — this CTA
+                          validates INCOMING transactions (SENIOR_INCOME /
+                          DROP_INCOME), not payouts; corrected, not just
+                          translated. */}
+                      <p className="text-sm font-semibold">
+                        <Trans>Валідація доходів</Trans>
+                      </p>
                       <p className="text-xs text-muted-foreground">
-                        {summary.pendingValidation.count > 0
-                          ? `${summary.pendingValidation.count} приходов ждут вашей проверки`
-                          : 'Нет приходов, ожидающих валидации'}
+                        {summary.pendingValidation.count > 0 ? (
+                          <Plural
+                            value={summary.pendingValidation.count}
+                            one="# дохід чекає на вашу перевірку"
+                            few="# доходи чекають на вашу перевірку"
+                            many="# доходів чекають на вашу перевірку"
+                            other="# доходу чекає на вашу перевірку"
+                          />
+                        ) : (
+                          <Trans>Немає доходів, що очікують валідації</Trans>
+                        )}
                       </p>
                     </div>
                   </div>
@@ -164,7 +177,7 @@ export function AccountantDashboard() {
                     className="gap-1.5 sm:flex-none"
                     data-testid="accountant-validate-cta"
                   >
-                    Валидировать ожидающие ({summary.pendingValidation.count})
+                    <Trans>Перевірити доходи ({summary.pendingValidation.count})</Trans>
                     <ArrowRight className="h-4 w-4" aria-hidden="true" />
                   </Button>
                 </CardContent>

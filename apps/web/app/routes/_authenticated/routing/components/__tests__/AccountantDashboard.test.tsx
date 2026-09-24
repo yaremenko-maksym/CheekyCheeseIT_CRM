@@ -13,8 +13,17 @@
  * component renders in isolation (no real QueryClient / router needed).
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type { AccountantSummaryDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3a (Task 1) blast-radius: `AccountantDashboard` now calls
+// `useLingui()`/`useLocale()` directly. Shadowing `render` wraps every call
+// site with `I18nTestProvider` in one place.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 const useAccountantSummaryMock = vi.fn()
 const useQueryMock = vi.fn()
@@ -89,11 +98,12 @@ function makePendingTx(id: string): TransactionDto {
   } as unknown as TransactionDto
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   useAccountantSummaryMock.mockReset()
   useQueryMock.mockReset()
   // Default: transactions query returns empty list
   useQueryMock.mockReturnValue({ data: [] })
+  await loadCatalog('uk')
 })
 
 describe('AccountantDashboard', () => {
@@ -108,7 +118,7 @@ describe('AccountantDashboard', () => {
     useAccountantSummaryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true })
     render(<AccountantDashboard />)
     expect(screen.getByTestId('accountant-kpi-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить финансовую сводку')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити фінансове зведення')).toBeInTheDocument()
   })
 
   describe('KPI cards', () => {
@@ -128,34 +138,45 @@ describe('AccountantDashboard', () => {
       expect(screen.getByTestId('kpi-recipient-count')).toBeInTheDocument()
     })
 
+    // Independent of the component's own implementation — computed straight
+    // from `Intl`, the same source `format.spec.ts` uses (formatMoney is
+    // `<amount> <CODE>`, not the old $-prefixed toLocaleString). jest-dom's
+    // `toHaveTextContent` normalizes ALL whitespace in the rendered DOM text
+    // — including uk-UA's U+00A0 grouping separator — to a plain space, so
+    // the expected string is normalized the same way here.
+    const ukMoney = (n: number) =>
+      new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        .format(n)
+        .replace(/\s/g, ' ') + ' USD'
+
     it('shows pending validation count and amount', () => {
       render(<AccountantDashboard />)
       const card = screen.getByTestId('kpi-pending-validation')
       expect(card).toHaveTextContent('4')
-      expect(card).toHaveTextContent('$15,000.00')
-      expect(card).toHaveTextContent('Ожидают валидации')
+      expect(card).toHaveTextContent(ukMoney(15000))
+      expect(card).toHaveTextContent('Очікують валідації')
     })
 
     it('shows validated-this-month count and amount', () => {
       render(<AccountantDashboard />)
       const card = screen.getByTestId('kpi-validated-month')
       expect(card).toHaveTextContent('1')
-      expect(card).toHaveTextContent('$1,000.00')
-      expect(card).toHaveTextContent('Валидировано за месяц')
+      expect(card).toHaveTextContent(ukMoney(1000))
+      expect(card).toHaveTextContent('Валідовано за місяць')
     })
 
     it('shows paid-this-month amount', () => {
       render(<AccountantDashboard />)
       const card = screen.getByTestId('kpi-paid-month')
-      expect(card).toHaveTextContent('$0.00')
-      expect(card).toHaveTextContent('Выплачено за месяц')
+      expect(card).toHaveTextContent(ukMoney(0))
+      expect(card).toHaveTextContent('Виплачено за місяць')
     })
 
     it('shows recipient count', () => {
       render(<AccountantDashboard />)
       const card = screen.getByTestId('kpi-recipient-count')
       expect(card).toHaveTextContent('3')
-      expect(card).toHaveTextContent('Получателей')
+      expect(card).toHaveTextContent('Отримувачів')
     })
   })
 
@@ -168,8 +189,23 @@ describe('AccountantDashboard', () => {
       })
       render(<AccountantDashboard />)
       expect(screen.getByTestId('accountant-validate-cta')).toHaveTextContent(
-        'Валидировать ожидающие (4)',
+        'Перевірити доходи (4)',
       )
+    })
+
+    // Mutation gate (ConditionalExpression, AccountantDashboard.tsx's
+    // `pendingValidation.count > 0 ? <Plural> : <Trans>` branch) — the
+    // TRUE branch (count > 0) had no assertion on its own rendered text;
+    // only the count=0 branch below did.
+    it('shows the pluralized «N доходи чекають на вашу перевірку» sub-label when pending > 0', () => {
+      useAccountantSummaryMock.mockReturnValue({
+        data: makeSummary({ pendingValidation: { count: 4, amount: 15000 } }),
+        isLoading: false,
+        isError: false,
+      })
+      render(<AccountantDashboard />)
+      // uk CLDR 'few' for N=4 (n%10 in 2-4, n%100 not 12-14).
+      expect(screen.getByText('4 доходи чекають на вашу перевірку')).toBeInTheDocument()
     })
 
     it('opens ValidateDialog on CTA click when pending transactions exist (AC3)', () => {
@@ -207,7 +243,7 @@ describe('AccountantDashboard', () => {
         isError: false,
       })
       render(<AccountantDashboard />)
-      expect(screen.getByText('Нет приходов, ожидающих валидации')).toBeInTheDocument()
+      expect(screen.getByText('Немає доходів, що очікують валідації')).toBeInTheDocument()
       expect(screen.getByTestId('accountant-validate-cta')).toBeDisabled()
     })
   })
