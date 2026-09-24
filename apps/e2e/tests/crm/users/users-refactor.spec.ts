@@ -52,7 +52,7 @@ test.describe('Users page refactor (PR 2)', () => {
     test('self-row marked with "Вы" label', async ({ asAdmin: page }) => {
       await page.goto('/users')
       const row = page.getByTestId(`user-row-${USERS.admin.id}`)
-      await expect(row.getByText('Вы', { exact: true })).toBeVisible()
+      await expect(row.getByText('Ви', { exact: true })).toBeVisible()
     })
 
     test('archive button is disabled on own row (cannot archive self)', async ({

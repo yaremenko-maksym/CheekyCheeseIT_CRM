@@ -128,7 +128,7 @@ test.describe('Users management page', () => {
     test('marks current user with "Вы" label', async ({ asAdmin: page }) => {
       await page.goto('/users')
       const adminRow = page.getByTestId(`user-row-${USERS.admin.id}`)
-      await expect(adminRow.getByText('Вы', { exact: true })).toBeVisible()
+      await expect(adminRow.getByText('Ви', { exact: true })).toBeVisible()
     })
 
     test('shows "Добавить" button', async ({ asAdmin: page }) => {
@@ -136,11 +136,11 @@ test.describe('Users management page', () => {
       await expect(page.getByTestId('users-create-button')).toBeVisible()
     })
 
-    test(`shows total count "${ALL_USERS.length} из ${ALL_USERS.length}" in header`, async ({
+    test(`shows total count "${ALL_USERS.length} з ${ALL_USERS.length}" in header`, async ({
       asAdmin: page,
     }) => {
       await page.goto('/users')
-      await expect(page.getByText(new RegExp(`из ${ALL_USERS.length}`))).toBeVisible()
+      await expect(page.getByText(new RegExp(`з ${ALL_USERS.length}`))).toBeVisible()
     })
   })
 
@@ -190,7 +190,7 @@ test.describe('Users management page', () => {
     test('no results shows reduced count', async ({ asAdmin: page }) => {
       await page.goto('/users')
       await page.getByPlaceholder(/пошук за ім.ям/i).fill('zzznomatch')
-      await expect(page.getByText(/0 из/)).toBeVisible()
+      await expect(page.getByText(/0 з/)).toBeVisible()
     })
   })
 
