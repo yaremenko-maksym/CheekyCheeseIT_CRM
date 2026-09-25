@@ -90,6 +90,10 @@ function renderShell(mode: 'self' | 'view', tab: string, onTabChange = vi.fn()) 
 
 beforeEach(async () => {
   queryData = undefined
+  // task-i18n-stage3b (PR2) blast-radius: `RejoinTeamDialog` (rendered
+  // unconditionally on a self profile, see docblock above) now calls
+  // `useLingui()` — this shell mount requires an active catalog even though
+  // this test file's own AC doesn't touch i18n text.
   await loadCatalog('uk')
 })
 

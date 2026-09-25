@@ -262,8 +262,8 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     expect(await screen.findByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
     const dialog = await screen.findByRole('dialog')
     const dialogText = dialog.textContent ?? ''
-    expect(dialogText).toContain('1 активний проєкт')
-    expect(dialogText).not.toContain('пов’язана пара, прибрати по одному не можна')
+    expect(dialogText).toContain('1 активного проєкту')
+    expect(dialogText).not.toContain('пов’язана пара, архівувати окремо не можна')
   })
 
   // task-archive-pending-modal (AC7/AC9). `role === 'SENIOR' || role ===
@@ -301,7 +301,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
       const dialog = await screen.findByRole('dialog')
       const dialogText = dialog.textContent ?? ''
-      expect(dialogText).toContain('пов’язана пара, прибрати по одному не можна')
+      expect(dialogText).toContain('пов’язана пара, архівувати окремо не можна')
       expect(dialogText).toContain(role === 'SENIOR' ? 'профіль сеньйора' : 'профіль дропа')
       // Named projects, joined with ", " — not a coincidence of a single item.
       expect(dialogText).toContain('Project A, Project B')
@@ -309,7 +309,12 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       // The two "third parties stay active" counts.
       expect(dialogText).toContain('3')
       expect(dialogText).toContain('4')
-      expect(dialogText).toContain('залишаються активними учасниками')
+      // COPY-M-4 (fix-round A): reworded away from ambiguous "залишаються
+      // активними учасниками" (read as "stay team members", contradicted by
+      // CascadeUnarchiveModal) to an explicit "profiles stay active, keep
+      // getting paid, re-add after restore" statement.
+      expect(dialogText).toContain('їхні профілі залишаються активними')
+      expect(dialogText).toContain('доведеться додати в команду заново')
       // The closing sentence's role-specific pair word — pinned inside the
       // guillemets «...» (`select()`-produced uk word, matches the canon
       // role-name spelling from role-select.tsx's `ROLE_LABEL_MESSAGES`).

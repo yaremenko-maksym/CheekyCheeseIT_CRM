@@ -1,5 +1,5 @@
 /**
- * ArchiveUserDialog (profile page "Действия" → «Архивировать») — interaction
+ * ArchiveUserDialog (profile page "Дії" → «Архівувати») — interaction
  * tests.
  *
  * task-archive-pending-modal (round 2). This directory previously had ZERO
@@ -7,10 +7,17 @@
  * `user-profile/admin-actions: 0.00% covered, 21 no-coverage` even though
  * this component was rewritten in this task (signature change from
  * `{userId, userName}` to `{user: UserProfileDto}`, new archive-impact
- * fetch + `ImpactWarning`/`ArchivePendingTransactionsList` reuse, migration
- * from the overflowing bare `DialogContent` to `CrmDialogContent` — see the
- * design-fidelity BLOCK this round fixed). Brought up to test-coverage
- * parity with the other two archive dialogs.
+ * fetch + `UserArchiveImpact`/`ArchivePendingTransactionsList` reuse,
+ * migration from the overflowing bare `DialogContent` to `CrmDialogContent`
+ * — see the design-fidelity BLOCK this round fixed). Brought up to
+ * test-coverage parity with the other two archive dialogs.
+ *
+ * task-i18n-stage3b (Task 2 / PR2): the per-role impact TEXT this file used
+ * to own via `ImpactWarning` moved verbatim into
+ * `components/archive/UserArchiveImpact.tsx` — that file's own suite now
+ * owns per-role/locale text coverage. What THIS dialog still owns: its own
+ * fetch/mutation wiring, the confirm-by-typing-name mechanic, and
+ * delegating to `UserArchiveImpact` with the right props.
  */
 
 import { render, screen, within } from '@testing-library/react'
@@ -100,9 +107,27 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     renderDialog(makeUser({ role: 'JUNIOR' }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).getByText('Архивировать пользователя')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Отмена' })).toBeInTheDocument()
+    expect(within(dialog).getByText('Архівувати користувача')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Скасувати' })).toBeInTheDocument()
     expect(screen.getByTestId('archive-confirm-submit')).toBeInTheDocument()
+  })
+
+  it('COPY-L-10: the sr-only accessible description names the user being archived', async () => {
+    // CI Mutation Gate (@crm/web) survivor, PR #718 round D (COPY-L-10):
+    // this description reuses the same consequence msgid round C added to
+    // components/users/ArchiveUserConfirmDialog.tsx, but Stryker instruments
+    // each source occurrence separately — that file's own test does not
+    // cover this one.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ displayName: 'Oleksiy Kovalenko' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        'Oleksiy Kovalenko більше не зможе увійти в CRM. Профіль можна відновити з архіву.',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('fetches the archive-impact for THIS user (not an empty/mistyped entity type)', async () => {
@@ -124,6 +149,7 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
 
     const submit = await screen.findByTestId('archive-confirm-submit')
     expect(submit).toBeDisabled()
+    expect(submit).toHaveTextContent('Архівувати')
 
     const input = screen.getByTestId('archive-confirm-name-input')
     await user.type(input, 'wrong name')
@@ -132,6 +158,22 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     await user.clear(input)
     await user.type(input, 'Oleksiy Kovalenko')
     expect(submit).toBeEnabled()
+  })
+
+  it('SR-M-2: the button stays disabled while the impact is not yet ready, even with a correctly typed name', async () => {
+    // security-review SR-M-2 (fix-round D) — same fix/rationale as the
+    // identical gate in components/users/ArchiveUserConfirmDialog.test.tsx.
+    // A never-resolving promise reproduces TanStack Query v5's offline
+    // `fetchStatus: 'paused'` shape: `impact` stays `undefined` forever,
+    // never settling into either `isLoading` or `isError`.
+    ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, 'Oleksiy Kovalenko')
+    expect(submit).toBeDisabled()
   })
 
   it('trims WHITESPACE ON THE TYPED VALUE before comparing — padded input still matches', async () => {
@@ -165,7 +207,7 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     expect(submit).toBeEnabled()
   })
 
-  it('Отмена closes without calling DELETE', async () => {
+  it('Скасувати closes without calling DELETE', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { type: 'user', role: 'ADMIN', noDependencies: true },
     })
@@ -173,26 +215,25 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     const { onClose } = renderDialog(makeUser({ role: 'ADMIN' }))
 
     await screen.findByRole('dialog')
-    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
 
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(api.delete).not.toHaveBeenCalled()
   })
 })
 
-describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pending list', () => {
+describe('ArchiveUserDialog (profile page) — delegates impact text to UserArchiveImpact + AC2 pending list', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
   it.each(['SENIOR', 'DROP'] as const)(
-    'renders the FULL cascade-pair copy for %s (AC7/AC9) — names team, projects, third-party counts',
+    '%s: renders UserArchiveImpact with the fetched team/projects, AND the pending-transactions warning alongside it (AC2/AC8)',
     async (role) => {
       ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
         data: {
           type: 'user',
           role,
-          isPaired: true,
           teamName: 'Alpha Team',
           projectsCount: 2,
           projectNames: ['Project A', 'Project B'],
@@ -213,46 +254,44 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
       renderDialog(makeUser({ role, displayName: 'Oleksiy Kovalenko' }))
 
       // Wait for the ACTUAL content, not just the dialog shell — see the same
-      // note in users/ArchiveConfirmDialog.test.tsx for why this matters.
-      await screen.findByTestId('archive-warning-senior')
-      const dialog = screen.getByRole('dialog')
-      const text = dialog.textContent ?? ''
-      expect(text).toContain('связанная пара')
-      expect(text).toContain('Alpha Team')
-      expect(text).toContain('Project A, Project B')
-      expect(text).toContain('остаются активными членами')
+      // note in users/ArchiveUserConfirmDialog.test.tsx for why this matters.
+      const dialog = await screen.findByRole('dialog')
+      const block = await within(dialog).findByTestId('archive-warning-senior')
+      expect(within(block).getByTestId('archive-confirm-user-name')).toHaveTextContent(
+        'Oleksiy Kovalenko',
+      )
+      expect(block.textContent).toContain('Alpha Team')
+      expect(block.textContent).toContain('Project A, Project B')
 
       // AC2/AC8: the pending-transactions warning renders alongside the
       // cascade copy — this dialog previously showed NEITHER.
       expect(within(dialog).getByTestId('archive-pending-transactions-warning')).toBeInTheDocument()
-      expect(text).toContain('4')
     },
   )
 
-  it('JUNIOR: shows projects-removed copy (no cascade wording)', async () => {
-    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: { type: 'user', role: 'JUNIOR', projectsCount: 1, pendingTransactions: [] },
-    })
-    renderDialog(makeUser({ role: 'JUNIOR' }))
+  it.each([
+    ['JUNIOR', 'archive-warning-junior'],
+    ['ADMIN', 'archive-warning-admin'],
+  ] as const)(
+    '%s: renders UserArchiveImpact with its own testid, no pending list when the payload has none',
+    async (role, testId) => {
+      ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+        data: {
+          type: 'user',
+          role,
+          projectsCount: 1,
+          noDependencies: true,
+          pendingTransactions: [],
+        },
+      })
+      renderDialog(makeUser({ role }))
 
-    await screen.findByTestId('archive-warning-junior')
-    const dialog = screen.getByRole('dialog')
-    expect(dialog.textContent ?? '').toContain('активных проектов')
-    expect(dialog.textContent ?? '').not.toContain('связанная пара')
-    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
-  })
+      await screen.findByTestId(testId)
+      expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+    },
+  )
 
-  it('ADMIN: no cascade, no pending list', async () => {
-    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
-      data: { type: 'user', role: 'ADMIN', noDependencies: true },
-    })
-    renderDialog(makeUser({ role: 'ADMIN' }))
-
-    await screen.findByTestId('archive-warning-admin')
-    expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
-  })
-
-  it('SENIOR: the archive-impact query FAILING does not crash — no pending list, cascade copy falls back to defaults', async () => {
+  it('SENIOR: the archive-impact query FAILING does not crash — no warning block, no pending list', async () => {
     // security-review PR #584 round 2 (mutation-gate survivor, OptionalChaining
     // on `impact?.type`). `isLoading: false` does not guarantee `impact` is
     // defined — a query ERROR also settles isLoading to false with data
@@ -263,8 +302,32 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
     renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
 
     const dialog = await screen.findByRole('dialog')
-    await vi.waitFor(() => expect(dialog.textContent ?? '').toContain('команда синьора'))
+    // Waits for the SKELETON to go away, not just for the always-present
+    // name input to appear (that renders on the FIRST paint, before the
+    // query has any chance to settle — a false-negative race that let a
+    // real mutant survive: `queryByTestId(...).not.toBeInTheDocument()`
+    // trivially passes while still loading, mutated guard or not).
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
+    expect(within(dialog).queryByTestId('archive-warning-senior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
+  it('SR-M-1: a failed archive-impact fetch shows an explicit error and keeps the cascade unconfirmable', async () => {
+    // security-review SR-M-1 (fix-round A) — see the identical fix/rationale
+    // in components/users/ArchiveUserConfirmDialog.test.tsx.
+    ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByTestId('archive-impact-error')).toHaveTextContent(
+      'Не вдалося порахувати наслідки архівації',
+    )
+
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    expect(screen.getByTestId('archive-confirm-submit')).toBeDisabled()
   })
 
   it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {
@@ -279,6 +342,14 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {
         type: 'team',
+        // A `role` field here (even though the 'team' variant of the schema
+        // doesn't use one) makes the absence assertion below actually test
+        // the `impact?.type === 'user'` guard on line 78 — without it,
+        // `TESTID_BY_ROLE[impact.role]` resolves to `TESTID_BY_ROLE[undefined]`
+        // (undefined) regardless of the guard, so `archive-warning-junior`
+        // would never be found either way and the mutant (ConditionalExpression
+        // forced to `true`) survives unnoticed (PR2 mutation-gate round).
+        role: 'JUNIOR',
         teamName: 'Not This User',
         pendingTransactions: [
           {
@@ -294,7 +365,13 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
     })
     renderDialog(makeUser({ role: 'JUNIOR' }))
 
-    await screen.findByTestId('archive-warning-junior')
+    const dialog = await screen.findByRole('dialog')
+    // See the SENIOR/query-failure test above for why this waits on the
+    // skeleton, not the always-present name input.
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
+    expect(screen.queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 
@@ -305,7 +382,7 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
     renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
 
     const dialog = await screen.findByRole('dialog')
-    expect(dialog.textContent ?? '').toContain('имя: Oleksiy Kovalenko')
+    expect(dialog.textContent ?? '').toContain('ім’я: Oleksiy Kovalenko')
   })
 })
 

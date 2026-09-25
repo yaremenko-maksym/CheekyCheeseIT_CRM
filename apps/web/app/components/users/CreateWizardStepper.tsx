@@ -1,4 +1,7 @@
 import { Check } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 
 export interface CreateWizardStepperProps {
@@ -7,10 +10,10 @@ export interface CreateWizardStepperProps {
 
 type StepState = 'done' | 'active' | 'upcoming'
 
-const STEPS: { label: string }[] = [
-  { label: 'Данные' },
-  { label: 'Контракт' },
-  { label: 'Подтверждение' },
+const STEPS: { label: MessageDescriptor }[] = [
+  { label: msg`Дані` },
+  { label: msg`Контракт` },
+  { label: msg`Підтвердження` },
 ]
 
 function getStepState(stepIndex: number, current: number): StepState {
@@ -20,15 +23,19 @@ function getStepState(stepIndex: number, current: number): StepState {
 }
 
 export function CreateWizardStepper({ current }: CreateWizardStepperProps) {
+  const { t, i18n } = useLingui()
   return (
-    <nav aria-label="Шаги создания пользователя" className="flex items-center gap-0 w-full mb-4">
+    <nav
+      aria-label={t`Кроки створення користувача`}
+      className="flex items-center gap-0 w-full mb-4"
+    >
       {STEPS.map((step, index) => {
         const state = getStepState(index, current)
         const stepNumber = index + 1
         const isLast = index === STEPS.length - 1
 
         return (
-          <div key={step.label} className="flex items-center flex-1 min-w-0">
+          <div key={stepNumber} className="flex items-center flex-1 min-w-0">
             {/* Step indicator */}
             <div
               data-testid={`wizard-step-${stepNumber}`}
@@ -61,7 +68,7 @@ export function CreateWizardStepper({ current }: CreateWizardStepperProps) {
                   state === 'upcoming' && 'text-muted-foreground',
                 )}
               >
-                {step.label}
+                {i18n._(step.label)}
               </span>
             </div>
 

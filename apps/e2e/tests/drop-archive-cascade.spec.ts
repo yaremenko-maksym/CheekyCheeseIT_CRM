@@ -106,8 +106,8 @@ test.describe('Drop archive cascade — AC6', () => {
     // on the confirm-input + confirm-submit which it always renders.
     await expect(page.getByTestId('archive-confirm-input')).toBeVisible({ timeout: 8_000 })
 
-    // Cancel button — uses the shared dialog footer "Отмена".
-    await page.getByRole('button', { name: 'Отмена' }).first().click()
+    // Cancel button — uses the shared dialog footer "Скасувати".
+    await page.getByRole('button', { name: 'Скасувати' }).first().click()
     await expect(page.getByTestId('archive-confirm-input')).not.toBeVisible()
   })
 })

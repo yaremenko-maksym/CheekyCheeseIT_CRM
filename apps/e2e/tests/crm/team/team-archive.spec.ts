@@ -47,10 +47,11 @@ test.describe('Team archive — list page tab', () => {
 
     await page.goto('/team')
 
-    // ut-25: «Показать архивных» button replaced with «Архив» tab.
+    // ut-25: «Показать архивных» button replaced with «Архів» tab.
+    const uk = await loadMessages('uk')
     const archiveTab = page.getByTestId('toggle-archived-teams')
     await expect(archiveTab).toBeVisible()
-    await expect(archiveTab).toHaveText(/Архив/)
+    await expect(archiveTab).toHaveText(new RegExp(assertInCatalog(uk, 'Архів')))
     await expect(page.getByText('Alpha Team')).toBeVisible()
     await expect(page.getByText('Archived Team')).not.toBeVisible()
   })
@@ -78,8 +79,9 @@ test.describe('Team archive — list page tab', () => {
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-archived', 'true')
 
-    // "В архиве" badge present
-    await expect(card.getByText('В архиве')).toBeVisible()
+    // "В архіві" badge present
+    const uk = await loadMessages('uk')
+    await expect(card.getByText(assertInCatalog(uk, 'В архіві'))).toBeVisible()
 
     // ut-39a: inline restore + edit buttons removed from list cards. Card is
     // purely navigational — unarchive now lives on the detail page header.

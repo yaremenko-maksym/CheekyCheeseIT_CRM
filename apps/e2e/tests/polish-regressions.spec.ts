@@ -251,7 +251,7 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
     const teamId = 'team-1-id'
     await asAdmin.goto(`/team/${teamId}`)
     // The member cards are what nest the anchors — wait until they render.
-    await expect(asAdmin.getByText('Участники команды')).toBeVisible()
+    await expect(asAdmin.getByText('Учасники команди')).toBeVisible()
     await expect(asAdmin.getByText(USERS.senior.displayName).first()).toBeVisible()
     await asAdmin.waitForTimeout(300)
 

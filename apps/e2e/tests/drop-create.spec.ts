@@ -33,7 +33,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   }) => {
     await page.goto('/users')
     // SENIOR lands on the access-denied notice — neither button surfaces.
-    await expect(page.getByText(/доступ только для администратора/i)).toBeVisible()
+    await expect(page.getByText(/доступ лише для адміністратора/i)).toBeVisible()
     await expect(page.getByTestId('users-create-button')).toHaveCount(0)
   })
 

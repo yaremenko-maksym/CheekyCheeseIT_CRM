@@ -1,6 +1,7 @@
 import { Check, Plus, X } from 'lucide-react'
 import { useState } from 'react'
 import type { UserProfileDto } from '@crm/shared'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import {
@@ -12,12 +13,7 @@ import {
   CommandList,
 } from '@/components/ui/command'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getInitials } from './constants'
 import { Field } from './section'
@@ -36,25 +32,39 @@ export function AccountantChipField({
   selectedId,
   onChange,
   onlyAccountant,
+  emptyStateText,
 }: {
   accountantUsers: UserProfileDto[]
   selectedId: string
   onChange: (next: string) => void
   onlyAccountant: boolean
+  /**
+   * COPY-M-10 (PR #718 round D): this component has two readers with
+   * different privileges — an ADMIN (via `UserDialog`, can create an
+   * accountant directly) and a SENIOR (via `RejoinTeamDialog`, cannot
+   * create anyone). The default text below assumes the ADMIN reader;
+   * SENIOR-facing call sites MUST override it with the "ask an admin"
+   * phrasing instead of telling a SENIOR to do something they have no
+   * permission for.
+   */
+  emptyStateText?: React.ReactNode
 }) {
+  const { t } = useLingui()
   const [open, setOpen] = useState(false)
   const selected = accountantUsers.find((u) => u.id === selectedId) ?? null
 
   if (accountantUsers.length === 0) {
     return (
-      <Field label="Бухгалтер">
-        <p className="text-xs text-muted-foreground italic">Нет доступных бухгалтеров</p>
+      <Field label={t`Бухгалтер`}>
+        <p className="text-xs text-muted-foreground italic">
+          {emptyStateText ?? <Trans>Бухгалтерів ще немає — спершу додайте бухгалтера</Trans>}
+        </p>
       </Field>
     )
   }
 
   return (
-    <Field label="Бухгалтер">
+    <Field label={t`Бухгалтер`}>
       <div className="flex flex-wrap items-center gap-2">
         {selected ? (
           <TooltipProvider delayDuration={200}>
@@ -68,7 +78,9 @@ export function AccountantChipField({
                   data-testid="user-dialog-accountant-chip"
                 >
                   <Avatar className="h-6 w-6">
-                    {selected.avatarUrl ? <AvatarImage src={selected.avatarUrl} alt={selected.displayName} /> : null}
+                    {selected.avatarUrl ? (
+                      <AvatarImage src={selected.avatarUrl} alt={selected.displayName} />
+                    ) : null}
                     <AvatarFallback className="text-[10px]">
                       {getInitials(selected.displayName)}
                     </AvatarFallback>
@@ -78,7 +90,7 @@ export function AccountantChipField({
                     <button
                       type="button"
                       onClick={() => onChange('')}
-                      aria-label="Очистить бухгалтера"
+                      aria-label={t`Прибрати бухгалтера`}
                       className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                       data-testid="user-dialog-accountant-clear"
                     >
@@ -88,7 +100,9 @@ export function AccountantChipField({
                 </span>
               </TooltipTrigger>
               {onlyAccountant ? (
-                <TooltipContent>Единственный бухгалтер в системе</TooltipContent>
+                <TooltipContent>
+                  <Trans>Єдиний бухгалтер у системі</Trans>
+                </TooltipContent>
               ) : null}
             </Tooltip>
           </TooltipProvider>
@@ -105,14 +119,16 @@ export function AccountantChipField({
                 data-testid="user-dialog-accountant-trigger"
               >
                 <Plus className="h-3.5 w-3.5" />
-                {selected ? 'Сменить' : 'Выбрать бухгалтера'}
+                {selected ? t`Змінити` : t`Обрати бухгалтера`}
               </Button>
             </PopoverTrigger>
             <PopoverContent className="w-72 p-0" align="start">
               <Command>
-                <CommandInput placeholder="Поиск по имени или email…" />
+                <CommandInput placeholder={t`Пошук за ім’ям або email…`} />
                 <CommandList>
-                  <CommandEmpty>Не найдено</CommandEmpty>
+                  <CommandEmpty>
+                    <Trans>Нічого не знайдено</Trans>
+                  </CommandEmpty>
                   <CommandGroup>
                     {accountantUsers.map((u) => (
                       <CommandItem
@@ -125,7 +141,9 @@ export function AccountantChipField({
                         data-testid={`user-dialog-accountant-option-${u.id}`}
                       >
                         <Avatar className="h-6 w-6">
-                          {u.avatarUrl ? <AvatarImage src={u.avatarUrl} alt={u.displayName} /> : null}
+                          {u.avatarUrl ? (
+                            <AvatarImage src={u.avatarUrl} alt={u.displayName} />
+                          ) : null}
                           <AvatarFallback className="text-[10px]">
                             {getInitials(u.displayName)}
                           </AvatarFallback>
