@@ -1125,11 +1125,11 @@ msgstr "The file's content doesn't match its extension — re-save it and try ag
 
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 msgid "Внутрішня нотатка, видна лише адміністраторам"
-msgstr "Internal note, visible only to administrators"
+msgstr "Internal note, visible only to admins"
 
 #: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 msgid "Внутрішня нотатка, видна лише адміністраторам…"
-msgstr "Internal note, visible only to administrators…"
+msgstr "Internal note, visible only to admins…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -2717,7 +2717,7 @@ msgstr "You don't have access to this project's legend"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю"
-msgstr "No access to the profile"
+msgstr "No access to this profile"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору"
@@ -2835,11 +2835,11 @@ msgid "Нотатку збережено"
 msgstr "Note saved"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-msgid "Оберіть спосіб виплати і заповніть реквізити для виплат"
-msgstr "Choose a payout method and fill in the payout details"
+msgid "Оберіть спосіб виплати і заповніть реквізити"
+msgstr "Choose a payout method and fill in the details"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди"
+msgid "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
 msgstr "Choose which emails you get. In-app notifications are always on"
 
 #. js-lingui-explicit-id

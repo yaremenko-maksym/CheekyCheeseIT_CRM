@@ -221,4 +221,45 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
     await expect(page.locator('.text-destructive').first()).toBeVisible()
   })
+
+  // -------------------------------------------------------------------------
+  // Mobile viewport — UX-H-1 (design review, PR #717 fix-round C)
+  // -------------------------------------------------------------------------
+
+  // `animated-tabs.tsx` explicitly names this component as a consumer with no
+  // `overflow-x-auto` ancestor at all — the en label "Sole proprietor (UAH)"
+  // (longer than any uk label, and longer than "USDT (ERC-20)") overflowed
+  // the card's own `overflow:hidden` on 320/375 and made the tab
+  // unreachable, not just visually clipped.
+  for (const width of [320, 375]) {
+    test(`Bank UAH tab stays reachable at ${width}px in en (longest label)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mockAuthAs(page, { ...USERS.junior, locale: 'en' })
+      await page.goto('/profile?tab=requisites')
+      await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+      const bankTab = page.getByLabel('Sole proprietor (UAH)')
+      await expect(bankTab).toBeVisible()
+      // In viewport (not just present in the DOM, possibly clipped) — the
+      // regression was the tab's own bounding box escaping the card.
+      await expect(bankTab).toBeInViewport()
+      await bankTab.click()
+      await expect(page.getByLabel('Recipient’s full name')).toBeVisible()
+    })
+  }
+
+  test('Bank UAH tab stays reachable at 320px in uk too (shorter label, same layout fix)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 800 })
+    await mockAuthAs(page, USERS.junior)
+    await page.goto('/profile?tab=requisites')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+    const bankTab = page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))
+    await expect(bankTab).toBeVisible()
+    await expect(bankTab).toBeInViewport()
+    await bankTab.click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
+  })
 })

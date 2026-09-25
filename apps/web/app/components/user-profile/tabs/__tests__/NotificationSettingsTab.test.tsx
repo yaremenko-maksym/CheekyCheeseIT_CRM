@@ -426,7 +426,7 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     // (per-column label, not a per-row repeat) and is deliberately excluded
     // by scoping to the subtitle paragraph's own text, not a page-wide regex.
     expect(
-      screen.getByText('Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди'),
+      screen.getByText('Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди'),
     ).toBeInTheDocument()
   })
 
@@ -560,7 +560,7 @@ describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
     expect(
       screen.getByText('Листи, які отримує співробітник. У застосунку сповіщення приходять завжди'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/^Оберіть, про що/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Оберіть, які/)).not.toBeInTheDocument()
   })
 
   it('every switch is actually WIRED to the banner — aria-describedby matches the banner id, not just a coincidentally-equal string', () => {

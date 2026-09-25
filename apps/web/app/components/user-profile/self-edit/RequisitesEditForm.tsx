@@ -20,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { translateZodMessage } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -117,7 +118,21 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
           {isUsdtOnlyRole ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="inline-block">
+                {/* UX-H-1 (design review, PR #717 fix-round C): `animated-tabs.tsx`
+                    explicitly names THIS file as a consumer with no
+                    `overflow-x-auto` ancestor at all — on 320/375 the en label
+                    "Sole proprietor (UAH)" (longer than any uk label) overflows
+                    the card's own `overflow:hidden` and the tab becomes
+                    unreachable, not just visually clipped. Same wrapper recipe
+                    as `UserProfileShell.tsx`'s tab bar — `w-full` (not
+                    `inline-block`) so the box actually inherits the card's
+                    width constraint and has something to scroll AGAINST. */}
+                <div
+                  className={cn(
+                    'w-full overflow-x-auto',
+                    '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                  )}
+                >
                   <AnimatedTabs
                     tabs={tabs}
                     value={method}
@@ -128,7 +143,14 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
               <TooltipContent side="top">{i18n._(USDT_ONLY_HINT)}</TooltipContent>
             </Tooltip>
           ) : (
-            <AnimatedTabs tabs={tabs} value={method} onChange={(v) => setMethod(v as Method)} />
+            <div
+              className={cn(
+                'w-full overflow-x-auto',
+                '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              )}
+            >
+              <AnimatedTabs tabs={tabs} value={method} onChange={(v) => setMethod(v as Method)} />
+            </div>
           )}
         </div>
 

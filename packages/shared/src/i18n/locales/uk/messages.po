@@ -2835,12 +2835,12 @@ msgid "Нотатку збережено"
 msgstr "Нотатку збережено"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-msgid "Оберіть спосіб виплати і заповніть реквізити для виплат"
-msgstr "Оберіть спосіб виплати і заповніть реквізити для виплат"
+msgid "Оберіть спосіб виплати і заповніть реквізити"
+msgstr "Оберіть спосіб виплати і заповніть реквізити"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди"
-msgstr "Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди"
+msgid "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
+msgstr "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

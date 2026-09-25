@@ -196,7 +196,7 @@ const EMAIL_ARIA_PREFIX = msg`Листи:`
 const ERROR_STATE_TEXT = msg`Не вдалося завантажити налаштування`
 const RETRY_LABEL = msg`Повторити`
 const SUBTITLE_IMPERSONATING = msg`Листи, які отримує співробітник. У застосунку сповіщення приходять завжди`
-const SUBTITLE_NORMAL = msg`Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди`
+const SUBTITLE_NORMAL = msg`Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди`
 
 //
 // COPY-H-1 (copy-review круг 1, PR #714): this tab used to read the LEGACY
