@@ -655,9 +655,9 @@ function subjectPhrase(
 ): string {
   // SR-L-1: `hasName` selects the branch, `name` is substitution-only — see
   // the doc comment on `MISC_MESSAGES.subjectPhrase`.
-  // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED's hasProject — ICU only branches on hasName === 'no'.
   return renderMessage(i18n, MISC_MESSAGES.subjectPhrase, {
     kind,
+    // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED's hasProject — ICU only branches on hasName === 'no'.
     hasName: name === null ? 'no' : 'yes',
     name,
   })
