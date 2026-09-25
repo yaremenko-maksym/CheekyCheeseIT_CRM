@@ -72,6 +72,27 @@ assert_red "bare \`cat\` in a command that also has a heredoc (stdin never close
   --contains '"decision": "block"' --contains 'STDIN-CAT' \
   -- run_hook "python3 - <<'EOF' > /tmp/slices.txt${NL}print('x')${NL}EOF${NL}cat | sort | uniq -c"
 
+# CR-H-1 (PR #719 review): the bash pre-filter did not list `for`, so a `for`
+# loop — the very form the refusal message recommends — waiting on a task file
+# the harness never writes went straight past the analyzer.
+assert_red "for-loop waiting on tasks/<id>.status -> BLOCK (pre-filter must admit \`for\`)" \
+  --contains '"decision": "block"' --contains 'UNREACHABLE-TASK-FILE' \
+  -- run_hook "for i in \$(seq 1 100); do [ -f $TASKS/x.status ] && break; sleep 5; done"
+
+assert_red "select-loop naming tasks/<id>.exit -> BLOCK (every loop keyword is pre-filtered)" \
+  --contains '"decision": "block"' --contains 'UNREACHABLE-TASK-FILE' \
+  -- run_hook "select x in a b; do [ -f $TASKS/x.exit ] && break; done"
+
+# CR-M-1 (PR #719 review): the deadline / counter only appears in a log line;
+# the exit depends on an unrelated file. Both loops wait for ever and passed.
+assert_red "\$SECONDS only LOGGED, break gated by an unrelated file -> BLOCK" \
+  --contains '"decision": "block"' --contains 'UNBOUNDED-LOOP' \
+  -- run_hook 'while true; do echo "elapsed=$SECONDS"; if [ -f /tmp/cancel ]; then break; fi; sleep 5; done'
+
+assert_red "counter only LOGGED, break gated by an unrelated file -> BLOCK" \
+  --contains '"decision": "block"' --contains 'UNBOUNDED-LOOP' \
+  -- run_hook 'n=0; while true; do n=$((n+1)); echo "poll #$n"; if [ -f /tmp/cancel ]; then break; fi; sleep 5; done'
+
 # ── the same family in other spellings ────────────────────────────────────────
 
 assert_red "task-file wait is refused even WITH a deadline (condition is unreachable)" \
@@ -170,6 +191,18 @@ assert_green "counter compared in the body before break -> passes" \
   --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
   -- run_hook 'i=0; while true; do i=$((i+1)); [ $i -gt 30 ] && break; sleep 1; done'
 
+assert_green "deadline in an if-guard around break, via a derived variable -> passes" \
+  --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
+  -- run_hook "end=\$(( \$(date +%s) + 300 ))${NL}while true; do${NL}  now=\$(date +%s)${NL}  if [ -f /tmp/x ]; then break${NL}  elif [ \"\$now\" -gt \"\$end\" ]; then echo timeout; exit 1; fi${NL}  sleep 5${NL}done"
+
+assert_green "deadline selects a case branch that breaks -> passes (fail-open tracing)" \
+  --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
+  -- run_hook 'while true; do case "$(( SECONDS > 600 ))" in 1) break;; esac; sleep 5; done'
+
+assert_green "deadline checked by a function defined in the same command -> passes" \
+  --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
+  -- run_hook 'timed_out() { [ "$SECONDS" -ge 600 ]; }; until [ -f /tmp/x ] || timed_out; do sleep 5; done'
+
 assert_green "arithmetic counter in the condition -> passes" \
   --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
   -- run_hook 'tries=0; while ! curl -sf http://localhost:3001/health && (( tries++ < 30 )); do sleep 2; done'
@@ -229,5 +262,41 @@ assert_green "a case pattern named cat is not a command" \
 assert_green "unparseable command (unbalanced quote) is allowed — bash would reject it" \
   --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
   -- run_hook 'until [ -f "/tmp/x ]; do sleep 1; done'
+
+# ── the wrapper itself failing must ALLOW, never refuse (CR-M-2, PR #719) ─────
+# For a PreToolUse hook exit 2 is a refusal, and bash exits 2 on a syntax error
+# in the file. Without the EXIT trap at the top of the hook, a typo would refuse
+# every Bash call in every session. This builds a copy of the REAL hook with a
+# syntax error injected after the trap and an unbound variable in another copy,
+# and requires both to exit 0 with the wrapper-failure line — while a copy that
+# is intact still refuses, so the trap does not swallow deliberate refusals.
+WS="$(guard_test_workspace)"
+trap 'rm -rf "$WS"' EXIT
+python3 - "$HOOK" "$WS" <<'PY'
+import sys
+src = open(sys.argv[1]).read()
+marker = "\nset -u\n"
+assert marker in src, "hook layout changed: no top-level `set -u` after the trap"
+open(sys.argv[2] + "/syntax.sh", "w").write(src.replace(marker, "\nset -u\nif then\n", 1))
+open(sys.argv[2] + "/unbound.sh", "w").write(src.replace(marker, "\nset -u\n: \"$UW_NO_SUCH_VAR\"\n", 1))
+PY
+
+run_hook_file() {
+  local file="$1" cmd="$2" json
+  json=$(python3 -c 'import json,sys; print(json.dumps({"tool_input":{"command":sys.argv[1]}}))' "$cmd")
+  printf '%s' "$json" | bash "$file"
+}
+
+assert_green "syntax error in the wrapper -> exit 0 + logged, NOT a refusal" \
+  --contains 'wrapper failed' --not-contains '"decision": "block"' \
+  -- run_hook_file "$WS/syntax.sh" 'until [ -f /tmp/x ]; do sleep 1; done'
+
+assert_green "unbound variable in the wrapper -> exit 0 + logged, NOT a refusal" \
+  --contains 'wrapper failed' --not-contains '"decision": "block"' \
+  -- run_hook_file "$WS/unbound.sh" 'until [ -f /tmp/x ]; do sleep 1; done'
+
+assert_red "the trap lets a deliberate refusal through (exit 2 + body)" \
+  --contains '"decision": "block"' --not-contains 'wrapper failed' \
+  -- run_hook_file "$HOOK" 'until [ -f /tmp/x ]; do sleep 1; done'
 
 guard_test_summary "test-pre-bash-unbounded-wait.sh"

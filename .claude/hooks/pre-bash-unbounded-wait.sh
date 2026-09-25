@@ -59,12 +59,14 @@
 #                is iteration, not waiting (`while read l; do …; done < f`).
 #     A bound is any ONE of:
 #       - the loop runs inside `timeout <N> bash -c '…'` (or sh/zsh -c);
-#       - a deadline: `$SECONDS` / `$EPOCHSECONDS` / `date +%s` referenced in
-#         the condition, or in the body together with `break`/`exit`/`return`,
-#         or assigned to a variable in the body that the condition reads;
-#       - a counter: a variable incremented/decremented in the loop (`n++`,
-#         `n+=1`, `n=$((n+1))`, `expr`) that the condition reads, or that the
-#         body compares before a `break`/`exit`/`return`;
+#       - a deadline (`$SECONDS` / `$EPOCHSECONDS` / `date +%s`) or a counter
+#         (a variable incremented/decremented in the loop: `n++`, `n+=1`,
+#         `n=$((n+1))`, `expr`) that DECIDES an exit: it appears in the loop
+#         condition, or in the guard of a `break`/`exit`/`return` — the
+#         `&&`/`||` list in front of it plus the conditions of the `if`/`elif`
+#         around it. A variable assigned from a deadline or counter
+#         (`now=$(date +%s)`) counts as one too. Merely MENTIONING `$SECONDS`
+#         or a counter in the body (a log line) is not a bound (CR-M-1, #719);
 #       - `while read …` — input-bounded, UNLESS the command also runs
 #         `tail -f`/`-F`/`--follow`, whose input never ends.
 #
@@ -121,18 +123,48 @@
 #      bound EXISTS, not that it is sensible.
 #   7. Tools other than Bash (the matcher is `Bash`). If a Monitor-style tool
 #      that takes a shell command is used for waits, it is not seen here.
+#   8. Guard tracing is lexical and, where it has to guess, guesses ALLOW
+#      (fail-open, per the false-positive budget above). The `case` subject and
+#      functions defined in the same command whose body checks a deadline are
+#      traced; anything further is not. Known residue in the ALLOW direction: a
+#      variable assigned from a deadline or counter but used for something
+#      else (`msg="t=$SECONDS"; … [ -n "$msg" ] && break`) still counts as a
+#      bound. Known residue in the REFUSE direction: a deadline evaluated in a
+#      function defined OUTSIDE this command (sourced script) — rewrite as
+#      `[ "$SECONDS" -ge N ] && break`. Going further means evaluating the
+#      shell; the three incidents did none of this.
 #
 # IF YOU ADD A PREDICATE: add BOTH a refusal and at least one legitimate
 # look-alike that must stay silent to
 # scripts/devops/tests/test-pre-bash-unbounded-wait.sh, and run it.
 # ---------------------------------------------------------------------------
 
+# WRAPPER FAILURE IS AN ALLOW, NOT A BLOCK (CR-M-2 on PR #719). For a
+# PreToolUse hook exit 2 means "refuse", and bash exits 2 (or 258) on a syntax
+# error in this very file, 1 on an unbound variable under `set -u`. Without the
+# trap below, a typo in the wrapper would refuse EVERY Bash call in every session
+# until someone fixed it — the worst failure a guard can have. The EXIT trap runs
+# even after a syntax error further down (verified on macOS /bin/bash 3.2 and
+# bash 5, 2026-09-25) and turns any exit that is not a deliberate refusal into
+# exit 0 with a line on stderr. The only thing it cannot cover is a syntax error
+# in the trap line itself, which is why it is the first command and kept trivial.
+# `bash -n` in the test catches that case before merge.
+trap 'uw_rc=$?; if [ "$uw_rc" -ne 0 ] && [ "${UW_REFUSED:-0}" != 1 ]; then echo "[pre:bash:unbounded-wait] wrapper failed (rc=$uw_rc) — allowing" >&2; exit 0; fi' EXIT
+
 set -u
 
 INPUT=$(cat)
 
-# Cheap pre-filter: no loop keyword and no `cat` anywhere -> nothing to analyse.
-printf '%s' "$INPUT" | grep -qE 'until|while|cat' || exit 0
+# Cheap pre-filter: the command must contain at least one word the analyzer
+# acts on, or there is nothing to analyse. It MUST list every loop keyword the
+# python part parses (`until`, `while`, `for`, `select` — see loops_of()) plus
+# `cat`. `for` was missing in the first version (CR-H-1 on PR #719): a `for`
+# loop waiting on tasks/<id>.status — the incident shape, written the way the
+# refusal message itself recommends — never reached the analyzer. A `bash -c`
+# payload is part of the same string, so it needs no separate entry.
+# `for` also matches `format`, `before`, …: the price is a python start on more
+# commands, paid deliberately — a pre-filter that is too narrow fails silently.
+printf '%s' "$INPUT" | grep -qE 'until|while|for|select|cat' || exit 0
 
 # The analyzer is a SINGLE-QUOTED heredoc on purpose: nothing inside is expanded
 # by the shell. The sibling hook pre-bash-cross-agent-blast.sh assembled its
@@ -482,10 +514,7 @@ def loops_of(events):
     return loops
 
 
-EXIT_RE = re.compile(r"\b(break|exit|return)\b")
 DEADLINE_RE = re.compile(r"\b(EPOCH)?SECONDS\b|\bdate\s+(-u\s+)?['\"]?\+%s")
-DEADLINE_ASSIGN_RE = re.compile(
-    r"\b([A-Za-z_]\w*)=(\$\(|`)\s*date\s+(-u\s+)?['\"]?\+%s")
 COUNTER_RES = [
     re.compile(r"\b([A-Za-z_]\w*)(?:\+\+|--)(?![\w-])"),
     re.compile(r"(?<![\w+])\+\+([A-Za-z_]\w*)"),
@@ -502,26 +531,127 @@ def has_word(var, text):
     return re.search(r"(?<![\w-])\$?\{?" + re.escape(var) + r"\b", text) is not None
 
 
-def bounded(L, cond_text, body_text):
-    if DEADLINE_RE.search(cond_text):
-        return True
-    if DEADLINE_RE.search(body_text):
-        if EXIT_RE.search(body_text):
-            return True
-        for m in DEADLINE_ASSIGN_RE.finditer(body_text):
-            if has_word(m.group(1), cond_text):
-                return True
-    full = cond_text + "\n" + body_text
+# ---- bounds: a deadline or counter must GATE an exit, not merely appear -----
+# The first version accepted "`$SECONDS` somewhere in the body" plus "`break`
+# somewhere in the body" as a bound. CR-M-1 on PR #719 reproduced two loops that
+# wait for ever and passed:
+#     while true; do echo "elapsed=$SECONDS"; if [ -f X ]; then break; fi; sleep 5; done
+#     n=0; while true; do n=$((n+1)); echo "poll #$n"; if [ -f X ]; then break; fi; sleep 5; done
+# The deadline/counter is only LOGGED there; the exit depends on X alone. Now a
+# bound counts only where it decides something: in the loop condition, or in the
+# guard of a `break`/`exit`/`return` — the `&&`/`||` list in front of it plus the
+# conditions of every `if`/`elif` around it.
+SEP_OPS = {";", "\n", "&", ";;", ";&", ";;&", "(", ")"}
+
+
+def exit_guards(toks, s, lo, hi):
+    """Guard text for every break/exit/return whose token lies in [lo, hi)."""
+    guards = []
+    if_stack = []
+    case_stack = []
+    case_start = None
+    cond_start = None
+    list_start = lo
+    cmdpos = True
+    want_target = False
+    for kind, text, st, en in toks:
+        if st < lo or en > hi:
+            continue
+        if kind == "op":
+            if text in REDIR:
+                want_target = True
+                continue
+            if text in SEP_OPS:
+                list_start = en
+            cmdpos = True
+            continue
+        if want_target:
+            want_target = False
+            continue
+        if not cmdpos:
+            continue
+        if text in ("if", "elif"):
+            if text == "elif" and if_stack:
+                if_stack.pop()
+            cond_start = list_start = en
+            continue
+        if text == "then":
+            if cond_start is not None:
+                if_stack.append(s[cond_start:st])
+                cond_start = None
+            list_start = en
+            continue
+        if text == "fi":
+            if if_stack:
+                if_stack.pop()
+            list_start = en
+            cmdpos = False
+            continue
+        if text in ("else", "do", "done", "{", "}", "while", "until"):
+            list_start = en
+            continue
+        if text in ("!", "time"):
+            continue
+        # `case "$(date +%s)" in …) break;; esac` — the subject is the guard
+        if text == "case":
+            case_start = en
+            continue
+        if case_start is not None:
+            if text == "in":
+                case_stack.append(s[case_start:st])
+                case_start = None
+            continue
+        if text == "esac":
+            if case_stack:
+                case_stack.pop()
+            cmdpos = False
+            continue
+        if text in ("break", "exit", "return"):
+            guards.append(s[list_start:st] + "\n" + "\n".join(if_stack + case_stack))
+        cmdpos = False
+    return guards
+
+
+FUNC_DEF_RE = re.compile(
+    r"(?:\bfunction\s+([A-Za-z_][\w-]*)\s*(?:\(\))?|\b([A-Za-z_][\w-]*)\s*\(\))\s*\{(.*?)\}",
+    re.S,
+)
+
+
+def bound_vars(toks, lo, hi, full, s):
+    """Counters incremented in the loop, plus variables assigned FROM a deadline
+    or a counter (`now=$(date +%s)`, `left=$((max - n))`), transitively, plus
+    functions defined in the command whose body checks a deadline
+    (`timed_out() { [ $SECONDS -ge 600 ]; }`) — so calling one counts too."""
     names = set()
     for rx in COUNTER_RES:
         names.update(m.group(1) for m in rx.finditer(full))
-    for v in names:
-        if has_word(v, cond_text):
-            return True
-        occurrences = len(re.findall(r"(?<![\w-])\$?\{?" + re.escape(v) + r"\b", body_text))
-        if EXIT_RE.search(body_text) and occurrences >= 2:
-            return True
-    return False
+    for m in FUNC_DEF_RE.finditer(s):
+        if DEADLINE_RE.search(m.group(3)):
+            names.add(m.group(1) or m.group(2))
+    assigns = []
+    for kind, text, st, en in toks:
+        if kind == "w" and lo <= st and en <= hi and ASSIGN.match(text):
+            name = re.match(r"[A-Za-z_]\w*", text).group(0)
+            assigns.append((name, text.split("=", 1)[1]))
+    for _ in range(3):
+        for name, rhs in assigns:
+            if name not in names and (
+                DEADLINE_RE.search(rhs) or any(has_word(v, rhs) for v in names)
+            ):
+                names.add(name)
+    return names
+
+
+def bounded(L, s, toks, cond_text, body_text):
+    names = bound_vars(toks, L["start"], L["end"], cond_text + "\n" + body_text, s)
+
+    def decides(text):
+        return bool(DEADLINE_RE.search(text)) or any(has_word(v, text) for v in names)
+
+    if decides(cond_text):
+        return True
+    return any(decides(g) for g in exit_guards(toks, s, L["body_start"], L["body_end"]))
 
 
 def snippet(text, limit=140):
@@ -565,7 +695,7 @@ def analyse(s, outer_bounded, depth, reasons):
         if (L["kind"] == "while" and cond_names and cond_names[0][0] == "read"
                 and not follow_fed):
             continue
-        if bounded(L, cond_text, body_text):
+        if bounded(L, s, toks, cond_text, body_text):
             continue
         reasons.append((
             "UNBOUNDED-LOOP",
@@ -660,6 +790,7 @@ RC=$?
 if [ "$RC" -eq 2 ] && printf '%s' "$OUT" | grep -q '"decision": "block"'; then
   printf '%s\n' "$OUT"
   echo "[pre:bash:unbounded-wait] BLOCK: wait loop / stdin read with no bound" >&2
+  UW_REFUSED=1 # the one exit 2 the EXIT trap at the top must let through
   exit 2
 fi
 # Fail-open, but not silently: a crashed analyzer says so on stderr, so the test
