@@ -11,6 +11,12 @@
  */
 
 import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 // ---------------------------------------------------------------------------
 // 1. Sidebar — no "Аудит-журнал"
@@ -67,7 +73,7 @@ test.describe('User profile — no audit tab', () => {
     // The audit tab was labelled "История" — it must not appear after removal.
     await expect(page.getByRole('button', { name: 'История' })).toHaveCount(0)
     // Profile still renders the Overview tab correctly.
-    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Огляд') })).toBeVisible()
   })
 })
 
