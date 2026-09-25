@@ -4720,6 +4720,11 @@ msgid "api-error.FINANCE_SHARES_SUM_EXCEEDS_100"
 msgstr "Сума часток сеньйора і дропа перевищує 100%"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
+msgstr "Суму цього платежу зафіксовано разом із курсом переказу — тут її не змінити, виправте сторнувальною транзакцією"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
 msgstr "Такий тип файлу не підтримується. Дозволені формати: PDF, JPEG, PNG, WEBP, HEIC"

@@ -4720,6 +4720,11 @@ msgid "api-error.FINANCE_SHARES_SUM_EXCEEDS_100"
 msgstr "The senior's and drop's shares add up to more than 100%"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
+msgstr "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
 msgstr "This file type isn't supported. Allowed formats: PDF, JPEG, PNG, WEBP, HEIC"

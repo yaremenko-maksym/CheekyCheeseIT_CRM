@@ -4,7 +4,7 @@ import {
   MAX_TRANSACTION_AMOUNT,
   type PendingObligationStatus,
 } from './finance'
-import { moneyFloorAndPrecisionError } from './money'
+import { AMOUNT_DECIMAL_PLACES, MIN_TRANSACTION_AMOUNT, moneyFloorAndPrecisionError } from './money'
 import { currencyEnumSchema, type CurrencyEnum } from './payment-requisites'
 import { roundShareAmount } from '../utils/money'
 
@@ -64,6 +64,15 @@ export interface CascadeSourceSnapshot {
    * anyone noticing.
    */
   originalAmount: number | null
+  /**
+   * task-paid-salary-amount-edit — the other two thirds of the payment-fact
+   * triplet on the SOURCE row. A paid `SALARY` stays editable (owner decision
+   * 2026-09-25): the obligation follows the corrected `amount` at THIS rate,
+   * which never moves, so the snapshot has to carry it. `null` rate = none
+   * was recorded (owner decision: edit without recomputing, said out loud).
+   */
+  originalCurrency: CurrencyEnum | null
+  exchangeRate: string | null
   /**
    * `transactions.settled_amount` on the SOURCE row ITSELF (task 3, AC13 /
    * addendum §1.12, security-review SR-H-1).
@@ -413,6 +422,29 @@ export const cascadePlanSchema = z.object({
    * facts about the row, not about the proposed edit.
    */
   sourceWarnings: z.array(cascadeWarningSchema),
+  /**
+   * task-paid-salary-amount-edit — what happens to the payment fact of an
+   * edited PAID salary. Non-null only for a `SALARY` whose `amount` actually
+   * moves and which carries `originalAmount`.
+   *
+   * `recomputed: true` — `newOriginalAmount` is the obligation at the RECORDED
+   * rate (`exchangeRate`, unchanged); the write stores exactly this figure.
+   * `recomputed: false` — no rate was recorded, the obligation stays as it was
+   * and the row stops agreeing with itself (owner decision 2, 2026-09-25); the
+   * screen says so instead of quoting a figure.
+   *
+   * Optional on the wire so a plan built before this field existed still parses.
+   */
+  sourcePaymentFact: z
+    .object({
+      originalCurrency: currencyEnumSchema.nullable(),
+      exchangeRate: z.string().nullable(),
+      oldOriginalAmount: z.number(),
+      newOriginalAmount: z.number(),
+      recomputed: z.boolean(),
+    })
+    .nullable()
+    .optional(),
 })
 export type CascadePlan = z.infer<typeof cascadePlanSchema>
 
@@ -731,7 +763,11 @@ function resolveDerivative(
  */
 function resolveSourceWarnings(source: CascadeSourceSnapshot): CascadeWarning[] {
   const warnings: CascadeWarning[] = []
-  if (source.originalAmount !== null) {
+  // task-paid-salary-amount-edit — a salary no longer desyncs anything: the
+  // obligation follows the edit at the recorded rate (or, with no rate, the
+  // plan's `sourcePaymentFact` says so). The warning stays for every other
+  // row carrying the triplet, where the edit is refused.
+  if (source.originalAmount !== null && source.type !== 'SALARY') {
     warnings.push({
       code: 'SOURCE_ORIGINAL_AMOUNT_SET',
       message: `На этой строке уже зафиксирован факт платежа (originalAmount = ${source.originalAmount}) — правка суммы разойдётся с курсом и фактическим платежом, исправляйте документ об оплате`,
@@ -787,6 +823,7 @@ export function resolveEditCascade(
       sourceCurrency: source.currency,
       derivatives: [],
       sourceWarnings,
+      sourcePaymentFact: null,
     }
   }
 
@@ -798,6 +835,31 @@ export function resolveEditCascade(
     sourceCurrency: source.currency,
     derivatives: derivatives.map((d) => resolveDerivative(d, effectiveAmount, source.currency)),
     sourceWarnings,
+    sourcePaymentFact: resolveSourcePaymentFact(source, effectiveAmount),
+  }
+}
+
+/**
+ * The plan's account of the edited salary's payment fact — see
+ * `cascadePlanSchema.sourcePaymentFact`. `UNREPRESENTABLE` yields `null`: that
+ * edit is refused (`classifyEditedRowLedgerFact`) before any plan is shown or
+ * applied, so there is no figure to describe.
+ */
+function resolveSourcePaymentFact(
+  source: CascadeSourceSnapshot,
+  amount: number,
+): NonNullable<CascadePlan['sourcePaymentFact']> | null {
+  const edit = resolveSalaryPaymentFactEdit(source, amount)
+  if (edit === null || edit.kind === 'UNREPRESENTABLE') return null
+  // `originalAmount` is non-null here: `resolveSalaryPaymentFactEdit` answers
+  // null otherwise. Narrowed through it rather than re-checked.
+  const oldOriginalAmount = source.originalAmount as number
+  return {
+    originalCurrency: source.originalCurrency,
+    exchangeRate: source.exchangeRate,
+    oldOriginalAmount,
+    newOriginalAmount: edit.kind === 'RECOMPUTED' ? edit.newOriginalAmount : oldOriginalAmount,
+    recomputed: edit.kind === 'RECOMPUTED',
   }
 }
 
@@ -907,9 +969,18 @@ export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
     'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, правьте сторнирующей транзакцией',
 } as const
 
-export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, string> = {
-  PAYMENT_FACT_RECORDED:
-    'На этой строке зафиксирован факт платежа (сумма и курс) — сумма не редактируется, исправьте документ об оплате',
+/**
+ * task-paid-salary-amount-edit — `PAYMENT_FACT_RECORDED` is NOT in this table
+ * any more. Its old text sent the operator to «исправьте документ об оплате»,
+ * a document the system does not have; the replacement is the catalogued
+ * api-error `FINANCE_PAYMENT_FACT_AMOUNT_LOCKED` (uk/en, `russian-language.md`:
+ * a changed string goes through the catalog), which the 400 and the preview
+ * banner both render. The other three keep their Russian until finance migrates.
+ */
+export const CASCADE_LEDGER_FACT_MESSAGES: Record<
+  Exclude<CascadeLedgerFactReason, 'PAYMENT_FACT_RECORDED'>,
+  string
+> = {
   // COPY-M-3 (copy-review): these two used to open with the SAME four words
   // («Эта строка закрывает обязательство»), while describing different facts —
   // the first has an accumulator of actual transfers behind it, the second IS
@@ -926,6 +997,53 @@ export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, strin
     'Этой строкой закрыто обязательство — её сумма зафиксирована в расчёте, правьте сторнирующей транзакцией',
   ONCHAIN_DEPOSIT:
     'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
+}
+
+/**
+ * task-paid-salary-amount-edit — the obligation a corrected paid figure stands
+ * for, at the rate that transfer was RECORDED with (owner decision 2026-09-25:
+ * «обе суммы по тому же курсу»). `exchange_rate` is «units of the paid
+ * currency per 1 unit of the obligation's» (`paySalary`), so the obligation is
+ * `amount / rate`, stored at the six decimals `original_amount` has.
+ *
+ * `null` — the rate cannot be divided by (non-positive, non-numeric) or the
+ * result is not a storable transaction amount. Never a clamped figure: a wrong
+ * number in a fact-of-payment column is worse than a refused edit.
+ *
+ * The pair then agrees to the precision `paySalary` itself keeps (rate at 8
+ * decimals, obligation at 6): `|obligation × rate − amount| ≤ rate×5e-7 +
+ * obligation×5e-9` — pinned by the spec over a spread of figures rather than
+ * re-checked here, where it holds by construction of the rounding.
+ */
+export function recomputeObligationAtRecordedRate(amount: number, rate: string): number | null {
+  const r = Number(rate)
+  if (!Number.isFinite(r) || r <= 0) return null
+  const obligation = Number((amount / r).toFixed(AMOUNT_DECIMAL_PLACES))
+  if (obligation < MIN_TRANSACTION_AMOUNT || obligation > MAX_TRANSACTION_AMOUNT) return null
+  return obligation
+}
+
+export type SalaryPaymentFactEdit =
+  | { kind: 'RECOMPUTED'; newOriginalAmount: number }
+  | { kind: 'RATE_NOT_RECORDED' }
+  | { kind: 'UNREPRESENTABLE' }
+
+/**
+ * Which of the owner-decided branches an amount edit on this row falls into —
+ * or `null` when the rule does not apply (not a `SALARY`, or no payment fact
+ * recorded on it). ONE description, read by the classifier (may it be edited),
+ * the resolver (what the plan shows) and, through the plan, the write.
+ */
+export function resolveSalaryPaymentFactEdit(
+  source: Pick<CascadeSourceSnapshot, 'type' | 'originalAmount' | 'exchangeRate'>,
+  amount: number,
+): SalaryPaymentFactEdit | null {
+  if (source.type !== 'SALARY' || source.originalAmount === null) return null
+  if (source.exchangeRate === null) return { kind: 'RATE_NOT_RECORDED' }
+  const newOriginalAmount = recomputeObligationAtRecordedRate(amount, source.exchangeRate)
+  return newOriginalAmount === null
+    ? { kind: 'UNREPRESENTABLE' }
+    : { kind: 'RECOMPUTED', newOriginalAmount }
 }
 
 /**
@@ -950,8 +1068,19 @@ export const CASCADE_LEDGER_FACT_MESSAGES: Record<CascadeLedgerFactReason, strin
  */
 export function classifyEditedRowLedgerFact(
   source: CascadeSourceSnapshot,
+  requestedAmount: number,
 ): CascadeLedgerFactReason | null {
-  if (source.originalAmount !== null) return 'PAYMENT_FACT_RECORDED'
+  if (source.originalAmount !== null) {
+    // task-paid-salary-amount-edit — the one row type whose triplet MOVES with
+    // the edit instead of pinning it: a salary's obligation is recomputed at
+    // the recorded rate (or, with no rate, deliberately left). Everything else
+    // carrying the triplet (a converted drop settle) is still refused, and so
+    // is a salary whose recomputed obligation could not be stored.
+    const salaryEdit = resolveSalaryPaymentFactEdit(source, requestedAmount)
+    if (salaryEdit === null || salaryEdit.kind === 'UNREPRESENTABLE') {
+      return 'PAYMENT_FACT_RECORDED'
+    }
+  }
   if (source.settledAmount !== null) return 'SETTLED_AMOUNT_RECORDED'
   if (source.hasClosedObligation) return 'CLOSES_OBLIGATION'
   if (source.type === 'COMPANY_DEPOSIT') return 'ONCHAIN_DEPOSIT'

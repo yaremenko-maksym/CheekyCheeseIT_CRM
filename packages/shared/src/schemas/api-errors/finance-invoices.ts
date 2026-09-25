@@ -53,6 +53,7 @@ export const FINANCE_INVOICES_ERROR_CODES = [
   'FINANCE_ROW_AMOUNT_MISMATCH',
   'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING',
   'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW',
+  'FINANCE_PAYMENT_FACT_AMOUNT_LOCKED',
   'FINANCE_CASCADE_PREVIEW_STALE',
   'FINANCE_SHARE_LEFT_PENDING_DURING_SAVE',
   // tx hash / on-chain
@@ -210,6 +211,7 @@ export const FINANCE_INVOICES_ERROR_PARAMS = {
   FINANCE_ROW_AMOUNT_MISMATCH: [],
   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING: [],
   FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW: [],
+  FINANCE_PAYMENT_FACT_AMOUNT_LOCKED: [],
   FINANCE_CASCADE_PREVIEW_STALE: [],
   FINANCE_SHARE_LEFT_PENDING_DURING_SAVE: [],
   FINANCE_TX_HASH_INVALID: [],
@@ -386,6 +388,17 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       id: 'api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW',
       message:
         'Зміна суми оплаченої транзакції перераховує частки й зобов’язання — спершу відкрийте попередній перегляд',
+    },
+    // task-paid-salary-amount-edit — the `PAYMENT_FACT_RECORDED` refusal
+    // (`classifyEditedRowLedgerFact`). A paid salary no longer lands here; what
+    // does is a converted drop payout, or a salary whose obligation at the
+    // recorded rate could not be stored. The old Russian text sent people to a
+    // «документ об оплате» the system does not have — this one names the
+    // carrier and a remedy that exists.
+    FINANCE_PAYMENT_FACT_AMOUNT_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED',
+      message:
+        'Суму цього платежу зафіксовано разом із курсом переказу — тут її не змінити, виправте сторнувальною транзакцією',
     },
     FINANCE_CASCADE_PREVIEW_STALE: /* i18n */ {
       id: 'api-error.FINANCE_CASCADE_PREVIEW_STALE',
@@ -927,6 +940,8 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     'The transaction was paid or deleted while you were editing it — refresh the page',
   FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW:
     "Changing a paid transaction's amount recalculates shares and obligations — open the preview first",
+  FINANCE_PAYMENT_FACT_AMOUNT_LOCKED:
+    "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction",
   FINANCE_CASCADE_PREVIEW_STALE: 'The data changed after the preview — refresh it and save again',
   FINANCE_SHARE_LEFT_PENDING_DURING_SAVE:
     'One of the shares changed status while saving — nothing was saved, refresh the page and try again',

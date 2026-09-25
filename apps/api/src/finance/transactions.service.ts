@@ -3261,6 +3261,11 @@ export class TransactionsService {
     try {
       cascadeApplied = await this.db.db.transaction(async (dbtx) => {
         let applied: { changedDerivativeIds: string[] } | undefined
+        // task-paid-salary-amount-edit — what the plan (built on the LOCKED
+        // snapshot) says about the edited salary's payment fact. Read by the
+        // source-row UPDATE and the journal below, never re-derived there:
+        // the preview showed exactly this figure.
+        let paymentFact: CascadePlan['sourcePaymentFact'] = null
         // task-cascade-apply (task 3, AC2/AC3/AC4-AC7). Runs FIRST inside the
         // transaction: it takes every lock the rest of this callback needs, in
         // the one order that does not invert `settleByCompany`'s, and it
@@ -3274,7 +3279,7 @@ export class TransactionsService {
           // amount move at all? Asked FIRST because "this row is not editable"
           // is a different, more fundamental answer than "your preview is
           // stale", and the operator should get the one that is actually true.
-          this.assertEditedRowAmountIsOwnRecord(snapshot.source)
+          this.assertEditedRowAmountIsOwnRecord(snapshot.source, data.amount!)
 
           // AC2 — re-derive the version from the state we just locked and
           // compare. A MISMATCH means the world moved between the preview and
@@ -3289,6 +3294,7 @@ export class TransactionsService {
           // The server computes the cascade itself. The client's version is an
           // input for comparison, never a plan to execute (ADR AC5 §11).
           const plan = resolveEditCascade(snapshot, { amount: data.amount! })
+          paymentFact = plan.sourcePaymentFact ?? null
           applied = await this.applyEditCascade(
             dbtx,
             snapshot,
@@ -3351,6 +3357,15 @@ export class TransactionsService {
           .update(transactions)
           .set({
             ...(amountToWrite !== undefined && { amount: String(amountToWrite) }),
+            // task-paid-salary-amount-edit — the obligation at the recorded
+            // rate, in the SAME statement as the amount so the pair is never
+            // observed half-written. `exchangeRate` / `originalCurrency` are
+            // deliberately absent: the rate of a transfer that happened does
+            // not change because its figure was mistyped.
+            ...(amountToWrite !== undefined &&
+              paymentFact?.recomputed && {
+                originalAmount: String(paymentFact.newOriginalAmount),
+              }),
             ...(data.currency !== undefined && {
               currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
             }),
@@ -3449,6 +3464,28 @@ export class TransactionsService {
                   ...(flooredByAccumulator && { flooredFrom: data.amount }),
                 },
               }),
+              // task-paid-salary-amount-edit — «старое/новое по всем трём»:
+              // amount above, the obligation and the rate here. `recomputed:
+              // false` is owner decision 2 (no rate recorded → the obligation
+              // is left as it was), and the note makes the resulting
+              // disagreement between the three a recorded choice, not a bug.
+              ...(amountChanged &&
+                paymentFact && {
+                  paymentFact: {
+                    originalAmount: {
+                      before: String(paymentFact.oldOriginalAmount),
+                      after: String(paymentFact.newOriginalAmount),
+                    },
+                    exchangeRate: {
+                      before: paymentFact.exchangeRate,
+                      after: paymentFact.exchangeRate,
+                    },
+                    recomputed: paymentFact.recomputed,
+                    ...(!paymentFact.recomputed && {
+                      note: 'exchange rate not recorded — obligation not recomputed',
+                    }),
+                  },
+                }),
               ...(currencyChanged && {
                 currency: { before: tx.currency, after: data.currency },
               }),
@@ -3878,6 +3915,12 @@ export class TransactionsService {
         hasSignedInvoice: signedIds.has(source.id),
         originalAmount:
           (source.originalAmount ?? null) === null ? null : Number(source.originalAmount),
+        // task-paid-salary-amount-edit — the rest of the triplet: a paid
+        // SALARY's obligation is recomputed at THIS rate. `?? null` for the
+        // same partial-projection reason as the two below: `undefined` would
+        // read as "a rate was recorded" in the resolver.
+        originalCurrency: source.originalCurrency ?? null,
+        exchangeRate: source.exchangeRate ?? null,
         // AC13 — the two "second carrier" facts about the edited row itself.
         //
         // `?? null` rather than a bare `!== null`: these two feed a REFUSAL,
@@ -3920,13 +3963,23 @@ export class TransactionsService {
    * ordinary work. Calling this from `applyEditCascade` would make the cascade
    * refuse itself. Both directions are pinned by tests.
    */
-  private assertEditedRowAmountIsOwnRecord(source: CascadeSourceSnapshot): void {
+  private assertEditedRowAmountIsOwnRecord(
+    source: CascadeSourceSnapshot,
+    requestedAmount: number,
+  ): void {
     // CR-M-1 (code-review round 3) — the predicates and their texts moved to
     // `@crm/shared` so `GET :id/edit-preview` answers from the SAME
     // description this refusal is built on. Two copies of "what is editable"
     // is precisely how a preview starts promising a save that cannot happen
     // (risk 1 of the main ADR's AC6).
-    const reason = classifyEditedRowLedgerFact(source)
+    //
+    // task-paid-salary-amount-edit — the requested amount is an input now: a
+    // paid salary passes unless its obligation at the recorded rate could not
+    // be stored, and only the figure can tell.
+    const reason = classifyEditedRowLedgerFact(source, requestedAmount)
+    if (reason === 'PAYMENT_FACT_RECORDED') {
+      throw apiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', HttpStatus.BAD_REQUEST)
+    }
     if (reason) throw new BadRequestException(CASCADE_LEDGER_FACT_MESSAGES[reason])
   }
 
@@ -4559,7 +4612,7 @@ export class TransactionsService {
         requestedAmount: amount,
       })
     ) {
-      const ledgerFact = classifyEditedRowLedgerFact(snapshot.source)
+      const ledgerFact = classifyEditedRowLedgerFact(snapshot.source, amount)
       if (ledgerFact) {
         return cascadeEditPreviewResponseSchema.parse({
           editable: false,
