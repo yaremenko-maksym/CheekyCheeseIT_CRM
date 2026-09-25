@@ -20,6 +20,7 @@
  */
 
 import { test, expect, USERS, TEAMS, DROP_TEAM_VACANT, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
@@ -42,12 +43,13 @@ test.describe('Drop add-senior flow — AC2', () => {
   test('SENIOR create dialog exposes a RadioGroup with both team modes', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog.getByTestId('user-dialog-team-mode')).toBeVisible()
@@ -55,30 +57,35 @@ test.describe('Drop add-senior flow — AC2', () => {
     await expect(dialog.getByTestId('user-dialog-team-mode-join-drop')).toBeVisible()
 
     // Spec text — both radios carry the wording from the dialog labels.
-    await expect(dialog.getByText('Создать свою команду')).toBeVisible()
-    await expect(dialog.getByText('Добавить в команду дропа')).toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Створити свою команду'))).toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Додати до команди дропа'))).toBeVisible()
   })
 
   test('JOIN_DROP_TEAM option is enabled when a vacant drop-team exists', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     const joinRadio = dialog.getByTestId('user-dialog-team-mode-join-drop')
     await expect(joinRadio).toBeEnabled()
     // Helper text — should announce that at least one team is available.
-    await expect(dialog.getByText(/команда доступна|команд\(ы\) доступно/i)).toBeVisible()
+    // `<Plural>` (one/few/many/other) — all four uk branches covered.
+    await expect(
+      dialog.getByText(/команда доступна|команди доступні|команд доступно|команди доступно/i),
+    ).toBeVisible()
   })
 
   test('JOIN_DROP_TEAM option is disabled when no vacant drop-team exists', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Override teams: only the senior team, no drop-team at all.
     await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
@@ -91,22 +98,25 @@ test.describe('Drop add-senior flow — AC2', () => {
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
-    await expect(dialog.getByText(/Нет команд дропа без активного синьора/i)).toBeVisible()
+    await expect(
+      dialog.getByText(assertInCatalog(uk, 'Немає команд дропа без активного сеньйора.')),
+    ).toBeVisible()
     await expect(dialog.getByTestId('user-dialog-team-mode-join-drop')).toBeDisabled()
   })
 
   test('selecting JOIN_DROP_TEAM swaps HR/accountant pickers for the drop-team dropdown', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await dialog.getByTestId('user-dialog-team-mode-join-drop').click()
@@ -127,12 +137,13 @@ test.describe('Drop add-senior flow — AC2', () => {
     // for a drop-team <Select> that lists vacant drop-teams from the
     // `/teams` response. The actual POST body shape is covered by
     // backend unit tests (UserDialog onSubmit branch is small).
+    const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     const joinRadio = dialog.getByTestId('user-dialog-team-mode-join-drop')
@@ -140,7 +151,7 @@ test.describe('Drop add-senior flow — AC2', () => {
 
     // The whole RadioGroup row is wrapped in a <label> — clicking it is
     // the canonical activation surface, mirrors a user tap on the option.
-    await dialog.getByText('Добавить в команду дропа').click({ force: true })
+    await dialog.getByText(assertInCatalog(uk, 'Додати до команди дропа')).click({ force: true })
 
     // Drop-team picker should mount.
     const dropTrigger = dialog.getByTestId('user-dialog-drop-team-trigger')
@@ -152,12 +163,13 @@ test.describe('Drop add-senior flow — AC2', () => {
   })
 
   test('CREATE_NEW remains the default (regression safety net)', async ({ asAdmin: page }) => {
+    const uk = await loadMessages('uk')
     await withVacantDropTeam(page)
     await page.goto('/users')
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     // The default mode is CREATE_NEW — HR chip should be auto-selected
     // (single-HR fixture) and the drop-team trigger should NOT be visible.

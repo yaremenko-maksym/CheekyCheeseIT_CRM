@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test'
 import { test, expect, ALL_USERS, USERS, mockAuthAs } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Helper: fill and submit the Create SENIOR form, capturing the POST body
@@ -13,6 +14,7 @@ import { test, expect, ALL_USERS, USERS, mockAuthAs } from './fixtures'
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown>> {
+  const uk = await loadMessages('uk')
   const postReq = page.waitForRequest(
     (req) => req.url().includes('/api/users') && req.method() === 'POST',
   )
@@ -26,7 +28,7 @@ async function createSeniorViaDialog(page: Page): Promise<Record<string, unknown
   const hasRoleCombo = (await roleCombo.count()) > 0
   if (hasRoleCombo) {
     await roleCombo.click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
   }
 
   // Wait for the "Команда" team section to appear inside the dialog
@@ -203,7 +205,7 @@ test.describe('Users management page', () => {
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByTestId('user-dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: /новый пользователь/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /новий користувач/i })).toBeVisible()
     })
 
     test('submits POST with all required fields', async ({ asAdmin: page }) => {
@@ -271,6 +273,7 @@ test.describe('Users management page', () => {
     })
 
     test('can select different role', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
 
       const postReq = page.waitForRequest(
@@ -282,7 +285,7 @@ test.describe('Users management page', () => {
       await page.getByTestId('user-dialog-name').fill('Another Senior')
 
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
       // Wait for team section — signals role switch has settled in the form.
       await expect(page.getByRole('dialog').getByText('Команда', { exact: true })).toBeVisible()
@@ -310,7 +313,7 @@ test.describe('Users management page', () => {
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByTestId('user-dialog')).toBeVisible()
-      await page.getByTestId('user-dialog').getByRole('button', { name: 'Отмена' }).click()
+      await page.getByTestId('user-dialog').getByRole('button', { name: 'Скасувати' }).click()
       await expect(page.getByTestId('user-dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
@@ -327,7 +330,7 @@ test.describe('Users management page', () => {
 
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog).toBeVisible()
-      await expect(page.getByRole('heading', { name: /редактировать/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /редагувати/i })).toBeVisible()
       // Name is pre-filled
       const nameInput = page.getByTestId('user-dialog-name')
       await expect(nameInput).toHaveValue('Senior Dev')
@@ -360,7 +363,7 @@ test.describe('Users management page', () => {
 
       await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
-      await page.getByTestId('user-dialog').getByRole('button', { name: 'Отмена' }).click()
+      await page.getByTestId('user-dialog').getByRole('button', { name: 'Скасувати' }).click()
       await expect(page.getByTestId('user-dialog')).not.toBeVisible()
       expect(patchCalled).toBe(false)
     })
@@ -540,17 +543,18 @@ test.describe('Users management page', () => {
       expect(body.accountantId).toBe(USERS.accountant.id)
     })
 
-    test('ADMIN: Финансы and Команда sections visible for SENIOR role', async ({
+    test('ADMIN: Фінанси and Команда sections visible for SENIOR role', async ({
       asAdmin: page,
     }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
 
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
       const dialog = page.getByTestId('user-dialog')
-      await expect(dialog.getByText('Финансы', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Фінанси'), { exact: true })).toBeVisible()
       await expect(dialog.getByText('Команда', { exact: true })).toBeVisible()
       await expect(dialog.locator('label').filter({ hasText: 'HR' }).first()).toBeVisible()
       await expect(dialog.getByText('Бухгалтер')).toBeVisible()
@@ -559,10 +563,11 @@ test.describe('Users management page', () => {
     test('ADMIN: HR chip pre-selected when only one HR exists (ut-16)', async ({
       asAdmin: page,
     }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog.getByText('HR Manager')).toBeVisible()
@@ -573,12 +578,13 @@ test.describe('Users management page', () => {
     })
 
     test('ADMIN: validation error when no HR selected (ut-16)', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await page.getByPlaceholder('user@cheekycheese.dev').fill('newsenior2@cheekycheese.dev')
       await page.getByTestId('user-dialog-name').fill('Another Senior')
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
       // ut-16: HR is now a chip with × button. We can only meaningfully
       // exercise this assertion when there is >1 HR in the system so the chip
@@ -590,7 +596,7 @@ test.describe('Users management page', () => {
 
       await removeBtn.click()
       await page.getByTestId('user-dialog-submit').click()
-      await expect(page.getByText(/выберите хотя бы одного HR/i)).toBeVisible()
+      await expect(page.getByText(/виберіть щонайменше одного HR/i)).toBeVisible()
     })
 
     test('HR: accessing /users gets redirected to /crm (route-guard)', async ({ asHr: page }) => {
