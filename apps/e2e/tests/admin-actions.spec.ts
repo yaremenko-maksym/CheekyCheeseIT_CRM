@@ -1,17 +1,17 @@
 /**
  * admin-actions.spec.ts
  *
- * Tests for the AdminActionsMenu — "Действия" dropdown visible when ADMIN
+ * Tests for the AdminActionsMenu — "Дії" dropdown visible when ADMIN
  * views any user profile at /profile/:userId.
  *
  * PR #343 consolidated 4 separate edit dialogs (ChangeRoleDialog,
  * ChangeSalaryDialog, ChangeRequisitesDialog, EditProfileDialog) into a
- * single "Редактировать" item that opens UserDialog(mode='edit').
- * "Заметка админа" and "Архивировать" remain as separate items.
+ * single "Редагувати" item that opens UserDialog(mode='edit').
+ * "Нотатка адміністратора" and "Архівувати" remain as separate items.
  *
  * Fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
  * which includes the full actions array. PATCH /users/:id is intercepted
- * to verify the correct payload and trigger the "Пользователь обновлён" toast.
+ * to verify the correct payload and trigger the "Зміни збережено" toast.
  */
 
 import { test, expect, USERS, mockAuthAs } from './fixtures'
@@ -20,10 +20,10 @@ import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 // task-i18n-stage3b (Task 1) — AdminActionsMenu's own strings (trigger,
 // "Редагувати" menu item, "Нотатка адміністратора", "Архівувати") now come
 // from the uk catalog; assertions below use `assertInCatalog` so a future
-// copy change fails loudly instead of silently drifting. UserDialog
-// (mode='edit', opened BY this menu) is a separate, not-yet-migrated
-// component — its own heading/role-select/Save/Cancel/toast text stays the
-// original Russian literal on purpose (wave (b) PR3's job).
+// copy change fails loudly instead of silently drifting. task-i18n-stage3b-pr3
+// (Step 5): UserDialog (mode='edit', opened BY this menu) is now migrated
+// too — its heading/role-select/Save/Cancel/toast text goes through the
+// same catalog.
 let uk: Record<string, string>
 test.beforeAll(async () => {
   uk = await loadMessages('uk')
@@ -78,12 +78,14 @@ test.describe('Admin actions on user profile', () => {
 
     const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
-    // UserDialog edit-mode heading — not yet migrated, still Russian.
-    await expect(dialog.getByRole('heading', { name: 'Редактировать пользователя' })).toBeVisible()
-    // Role select prefilled with JUNIOR = 'Джун'
+    // UserDialog edit-mode heading — task-i18n-stage3b-pr3 (Step 5): migrated.
+    await expect(
+      dialog.getByRole('heading', { name: assertInCatalog(uk, 'Редагувати користувача') }),
+    ).toBeVisible()
+    // Role select prefilled with JUNIOR = 'Джуніор'
     const roleTrigger = dialog.locator('[data-testid="user-dialog-role-trigger"]')
     await expect(roleTrigger).toBeVisible()
-    await expect(roleTrigger).toContainText('Джун')
+    await expect(roleTrigger).toContainText(assertInCatalog(uk, 'Джуніор'))
   })
 
   test('changing role via UserDialog sends PATCH /users/:id and shows toast', async ({
@@ -148,10 +150,10 @@ test.describe('Admin actions on user profile', () => {
     // Open the role Select and pick HR
     await dialog.locator('[data-testid="user-dialog-role-trigger"]').click()
     await page.getByRole('option', { name: 'HR' }).click()
-    await dialog.getByRole('button', { name: 'Сохранить' }).click()
+    await dialog.getByRole('button', { name: assertInCatalog(uk, 'Зберегти') }).click()
 
-    // Toast confirms mutation completed — "Пользователь обновлён" per updateMutation.onSuccess
-    await expect(page.getByText('Пользователь обновлён')).toBeVisible()
+    // Toast confirms mutation completed — «Зміни збережено» per updateMutation.onSuccess
+    await expect(page.getByText(assertInCatalog(uk, 'Зміни збережено'))).toBeVisible()
     expect(patchCalled).toBe(true)
     // Dialog closes on success
     await expect(dialog).not.toBeVisible()
@@ -171,7 +173,7 @@ test.describe('Admin actions on user profile', () => {
 
     const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await dialog.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
     await expect(dialog).not.toBeVisible()
     expect(patched).toBe(false)
   })

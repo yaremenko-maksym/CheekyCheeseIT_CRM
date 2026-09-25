@@ -312,11 +312,11 @@ test.describe('Резюме — асинхронное распознавани�
       resumeResponse({ status: 'READY', content: FILLED_CONTENT, version: 2 }),
     ])
 
-    await expect(page.getByTestId('resume-progress')).toContainText('очереди на распознавание')
+    await expect(page.getByTestId('resume-progress')).toContainText('черзі на розпізнавання')
     // Not a blocking overlay — the sections are reachable the whole time.
     await expect(page.getByTestId('resume-section-summary')).toBeVisible()
 
-    await expect(page.getByTestId('resume-progress')).toContainText('Распознаём резюме', {
+    await expect(page.getByTestId('resume-progress')).toContainText('Розпізнаємо резюме', {
       timeout: 10_000,
     })
     await expect(page.getByTestId('resume-progress')).toBeHidden({ timeout: 10_000 })
@@ -334,7 +334,7 @@ test.describe('Резюме — асинхронное распознавани�
 
     const failed = page.getByTestId('resume-failed')
     await expect(failed).toBeVisible()
-    await expect(failed).toContainText('нет текстового слоя')
+    await expect(failed).toContainText('немає текстового шару')
     await expect(page.getByTestId('resume-paste-toggle')).toBeVisible()
   })
 
@@ -351,8 +351,8 @@ test.describe('Резюме — асинхронное распознавани�
     ])
 
     const failed = page.getByTestId('resume-failed')
-    await expect(failed).toContainText('лимит')
-    await expect(failed).toContainText('августа')
+    await expect(failed).toContainText('ліміт')
+    await expect(failed).toContainText('серпня')
     // The form is NOT blocked by the quota wall.
     await expect(page.getByTestId('resume-edit-summary')).toBeVisible()
   })
