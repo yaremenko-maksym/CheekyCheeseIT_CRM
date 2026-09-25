@@ -25,7 +25,10 @@ import { translateApiError } from '@/lib/axios-utils'
  * system talking.
  */
 export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
-  Exclude<CascadeEditPreviewBlockedReason, 'PAYMENT_FACT_RECORDED'>,
+  Exclude<
+    CascadeEditPreviewBlockedReason,
+    'PAYMENT_FACT_RECORDED' | 'SALARY_OBLIGATION_OUT_OF_RANGE'
+  >,
   string
 > = {
   ...CASCADE_LEDGER_FACT_MESSAGES,
@@ -59,6 +62,11 @@ export function cascadeBlockedReasonMessage(
   if (!reason) return CASCADE_BLOCKED_FALLBACK_MESSAGE
   if (reason === 'PAYMENT_FACT_RECORDED') {
     return translateApiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', undefined)
+  }
+  // CR-M-1 — «перевірте суму», never a reversing transaction: the salary is
+  // editable, only not to this figure.
+  if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
+    return translateApiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', undefined)
   }
   return CASCADE_BLOCKED_REASON_MESSAGES[reason]
 }

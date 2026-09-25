@@ -88,7 +88,7 @@ import {
 } from './onchain-tx'
 // HIGH-1: the SINGLE hash-extraction rule, shared with the Zod write boundary.
 import { extractOnChainTxHash } from '@crm/shared'
-import { InvoicesService } from '../invoices/invoices.service'
+import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
@@ -218,6 +218,19 @@ type TxWithRelations = Transaction & {
     seniorSharePercent: number | null
     seniorSharePercentSource?: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null
   } | null
+}
+
+/**
+ * SR-M-1 — which stage of an invoice void/re-issue failed, if any. `undefined`
+ * (a caller or double that reports nothing) is not a failure: the only
+ * failures are the ones someone actually reported.
+ */
+function invoiceFailureStage(
+  outcome: InvoiceReissueOutcome | undefined,
+): 'VOID' | 'REISSUE' | null {
+  if (outcome === 'VOID_FAILED') return 'VOID'
+  if (outcome === 'REISSUE_FAILED') return 'REISSUE'
+  return null
 }
 
 @Injectable()
@@ -3551,26 +3564,66 @@ export class TransactionsService {
     //
     // OUTSIDE the DB transaction on purpose: that method opens its OWN
     // transaction with `FOR UPDATE`, so calling it from inside this one would
-    // self-deadlock. Failures are logged and swallowed — the same
-    // fire-and-forget contract every other invoice trigger in this file
-    // already has (`autoCreateForSeniorPayout` above, `settleByCompany`'s
-    // trigger): a PDF/S3 hiccup must not undo a cascade that has already
-    // committed, and the invoice can be re-triggered.
+    // self-deadlock. A PDF/S3 hiccup must not undo a cascade that has already
+    // committed — so a failure does not throw.
+    //
+    // SR-M-1 (security-review, PR #721): but it is no longer SILENT either.
+    // Before, a failed void left the old, counterparty-signed invoice live
+    // (the public QR check still confirmed the old figure) and a failed
+    // re-issue left a salary with no invoice forever — both visible only in
+    // the server log. Now each failure is a journal line
+    // (`INVOICE_REISSUE_FAILED`) and the response carries
+    // `invoiceReissueIncomplete`, so the edit is not reported as a clean
+    // success. And the repair exists: re-saving a PAID salary whose invoice
+    // was voided and never replaced re-issues it (below).
+    const actorId = currentUser.impersonatorId ?? currentUser.id
+    const failedStages: Array<{ id: string; stage: 'VOID' | 'REISSUE' }> = []
     if (cascadeApplied) {
-      const actorId = currentUser.impersonatorId ?? currentUser.id
       for (const reissueId of [id, ...cascadeApplied.changedDerivativeIds]) {
+        let outcome: InvoiceReissueOutcome | undefined
         try {
-          await this.invoicesService.voidAndReissueInvoiceForAmountEdit(reissueId, actorId)
+          outcome = await this.invoicesService.voidAndReissueInvoiceForAmountEdit(
+            reissueId,
+            actorId,
+          )
         } catch (invoiceErr) {
           this.logger.error(
             `adminUpdateTransaction: invoice void+reissue failed for transaction=${reissueId}: ${(invoiceErr as Error).message}`,
             (invoiceErr as Error).stack,
           )
+          outcome = 'VOID_FAILED'
         }
+        const stage = invoiceFailureStage(outcome)
+        if (stage) failedStages.push({ id: reissueId, stage })
       }
+    } else if (tx.type === 'SALARY' && tx.status === 'PAID') {
+      // «Повторное сохранение чинит»: a save that did not move the amount is
+      // the operator's way back to an invoice an earlier edit failed to
+      // re-issue. A salary that never had one is left alone (see the method).
+      let outcome: InvoiceReissueOutcome | undefined
+      try {
+        outcome = await this.invoicesService.reissueSalaryInvoiceIfVoided(id)
+      } catch (invoiceErr) {
+        this.logger.error(
+          `adminUpdateTransaction: salary invoice repair failed for transaction=${id}: ${(invoiceErr as Error).message}`,
+        )
+        outcome = 'REISSUE_FAILED'
+      }
+      const stage = invoiceFailureStage(outcome)
+      if (stage) failedStages.push({ id, stage })
     }
 
-    return this.findOne(id, currentUser)
+    for (const failed of failedStages) {
+      await this.db.db.insert(transactionAuditLog).values({
+        actorId,
+        targetId: failed.id,
+        action: 'INVOICE_REISSUE_FAILED',
+        metadata: { stage: failed.stage },
+      })
+    }
+
+    const updatedDto = await this.findOne(id, currentUser)
+    return failedStages.length > 0 ? { ...updatedDto, invoiceReissueIncomplete: true } : updatedDto
   }
 
   // ── Edit cascade preview (read-only) ────────────────────────────────────
@@ -3985,6 +4038,11 @@ export class TransactionsService {
     const reason = classifyEditedRowLedgerFact(source, requestedAmount)
     if (reason === 'PAYMENT_FACT_RECORDED') {
       throw apiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', HttpStatus.BAD_REQUEST)
+    }
+    // CR-M-1 — not a pinned row, a figure that gives an unstorable obligation:
+    // the remedy is another amount, so it is told so, not sent to a reversal.
+    if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
+      throw apiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', HttpStatus.BAD_REQUEST)
     }
     if (reason) throw new BadRequestException(CASCADE_LEDGER_FACT_MESSAGES[reason])
   }

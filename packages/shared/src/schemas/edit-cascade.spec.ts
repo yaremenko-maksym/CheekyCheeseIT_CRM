@@ -300,7 +300,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
     for (const m of messages) expect(m.length).toBeGreaterThan(20)
   })
 
-  it('carries exactly these four codes, spelled out', () => {
+  it('carries exactly these five codes, spelled out', () => {
     // Written as literals ON PURPOSE. Reading the expected values back out of
     // `cascadeLedgerFactReasonSchema.options` would make this pass by
     // construction — the tautology the mutation gate catches by blanking an
@@ -311,6 +311,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
       'SETTLED_AMOUNT_RECORDED',
       'CLOSES_OBLIGATION',
       'ONCHAIN_DEPOSIT',
+      'SALARY_OBLIGATION_OUT_OF_RANGE',
     ])
   })
 
@@ -322,6 +323,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
       'SETTLED_AMOUNT_RECORDED',
       'CLOSES_OBLIGATION',
       'ONCHAIN_DEPOSIT',
+      'SALARY_OBLIGATION_OUT_OF_RANGE',
     ] as const) {
       expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(true)
       expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
@@ -811,12 +813,14 @@ describe("resolveEditCascade — HIGH-2-residual (security-review round 2): comp
 })
 
 describe('resolveEditCascade — MED-1 (security-review round 1): warnings about the SOURCE row itself', () => {
-  it('flags SOURCE_ORIGINAL_AMOUNT_SET when the row being edited already carries a fact-of-payment originalAmount', () => {
+  it('no longer flags SOURCE_ORIGINAL_AMOUNT_SET — the refusal says it now (task-paid-salary-amount-edit, COPY-L-2)', () => {
+    // A salary's triplet follows the edit; every other row carrying one is
+    // refused before a plan is ever shown. The warning had no reachable reader
+    // and carried a Russian remedy that does not exist; the code stays in the
+    // wire enum for compatibility only.
     const s = snapshot({ originalAmount: 800 }, [])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    expect(plan.sourceWarnings).toEqual([
-      { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
-    ])
+    expect(plan.sourceWarnings).toEqual([])
   })
 
   it('flags SOURCE_SIGNED_INVOICE when the row being edited already carries a counterparty-signed invoice', () => {
@@ -1631,7 +1635,7 @@ describe('classifyEditedRowLedgerFact — a paid salary is its own record now', 
         makeSource({ ...PAID_SALARY_FACT, exchangeRate: '0.50000000' }),
         500000,
       ),
-    ).toBe('PAYMENT_FACT_RECORDED')
+    ).toBe('SALARY_OBLIGATION_OUT_OF_RANGE')
   })
 
   it('still refuses a drop payout carrying the same triplet', () => {
@@ -1709,11 +1713,11 @@ describe('resolveEditCascade — the payment fact of an edited salary', () => {
     expect(plan.sourceWarnings.map((w) => w.code)).not.toContain('SOURCE_ORIGINAL_AMOUNT_SET')
   })
 
-  it('still warns on a drop payout carrying the triplet', () => {
+  it('no longer emits the dead Russian SOURCE_ORIGINAL_AMOUNT_SET warning for any row (COPY-L-2)', () => {
     const plan = resolveEditCascade(snapshot({ ...paidSalary, type: 'PAYOUT_DROP' }, []), {
       amount: 48867,
     })
-    expect(plan.sourceWarnings.map((w) => w.code)).toContain('SOURCE_ORIGINAL_AMOUNT_SET')
+    expect(plan.sourceWarnings).toEqual([])
   })
 
   it('crosses the wire with the payment fact intact', () => {

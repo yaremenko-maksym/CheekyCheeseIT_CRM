@@ -249,10 +249,10 @@ describe('getEditCascadePreview — no derivatives', () => {
     })
   })
 
-  it('still flags SOURCE_ORIGINAL_AMOUNT_SET where the write would NOT refuse', async () => {
-    // AC13 only fires on a PAID row. On one that has not settled the warning
-    // is still the right answer — the resolver keeps producing it, and the
-    // preview keeps passing it through.
+  it('no longer emits SOURCE_ORIGINAL_AMOUNT_SET even where the write would NOT refuse (COPY-L-2)', async () => {
+    // task-paid-salary-amount-edit: the warning is retired — it carried a
+    // Russian remedy that does not exist and had no reachable reader (the
+    // panel mounts only for PAID rows). The plan itself stays editable.
     const findFirstImpl = vi.fn().mockResolvedValue(
       sourceRow({
         type: 'SENIOR_PENDING_PAYOUT',
@@ -268,9 +268,7 @@ describe('getEditCascadePreview — no derivatives', () => {
     })
     const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
     expect(result.editable).toBe(true)
-    expect(result.plan!.sourceWarnings).toEqual([
-      { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
-    ])
+    expect(result.plan!.sourceWarnings).toEqual([])
   })
 })
 

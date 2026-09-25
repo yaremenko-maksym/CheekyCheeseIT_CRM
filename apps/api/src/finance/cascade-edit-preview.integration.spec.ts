@@ -572,9 +572,9 @@ describe.skipIf(!hasDatabaseUrl())(
         .where(eq(transactions.id, income.id))
     })
 
-    it('ADMIN: the same warning still surfaces where the write would NOT refuse', async () => {
-      // AC13 fires only on a PAID row. On one still awaiting payment the
-      // warning is the right answer, and the resolver keeps producing it.
+    it('ADMIN: the retired warning no longer surfaces where the write would NOT refuse (COPY-L-2)', async () => {
+      // task-paid-salary-amount-edit: SOURCE_ORIGINAL_AMOUNT_SET is no longer
+      // emitted (a Russian remedy that does not exist, no reachable reader).
       const income = await declare(1000)
       await dbSvc.db
         .update(transactions)
@@ -583,9 +583,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
       expect(plan.editable).toBe(true)
-      expect(plan.plan!.sourceWarnings).toEqual([
-        { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('950') },
-      ])
+      expect(plan.plan!.sourceWarnings).toEqual([])
 
       await dbSvc.db
         .update(transactions)

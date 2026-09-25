@@ -346,7 +346,10 @@ describe.skipIf(!HAS_DB_URL)(
       const before = await row(id)
 
       const preview = await svc.getEditCascadePreview(id, 500_000, ADMIN)
-      expect(preview).toMatchObject({ editable: false, blockedReason: 'PAYMENT_FACT_RECORDED' })
+      expect(preview).toMatchObject({
+        editable: false,
+        blockedReason: 'SALARY_OBLIGATION_OUT_OF_RANGE',
+      })
 
       const versionOfUnchanged = (await svc.getEditCascadePreview(id, 48_675.5, ADMIN)).version!
       await expect(
@@ -355,7 +358,7 @@ describe.skipIf(!HAS_DB_URL)(
           { amount: 500_000, cascadeVersion: versionOfUnchanged },
           ADMIN,
         ),
-      ).rejects.toThrow(/recorded together with the transfer rate/)
+      ).rejects.toThrow(/outside the allowed range — check the amount/)
       expect(await row(id)).toEqual(before)
     })
 

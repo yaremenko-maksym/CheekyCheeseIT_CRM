@@ -344,7 +344,7 @@ export function paidRowAmountLockReason(
     | undefined,
 ): CascadeLedgerFactReason | null {
   if (!tx || tx.status !== 'PAID') return null
-  return classifyEditedRowLedgerFact(
+  const reason = classifyEditedRowLedgerFact(
     {
       type: tx.type,
       originalAmount: tx.originalAmount == null ? null : Number(tx.originalAmount),
@@ -354,4 +354,8 @@ export function paidRowAmountLockReason(
     },
     Number(tx.amount),
   )
+  // CR-M-1 — an out-of-range obligation is a property of a FIGURE, not of the
+  // row: the salary stays editable, and the preview answers for the figure the
+  // operator types. Only a genuinely pinned row closes the field.
+  return reason === 'SALARY_OBLIGATION_OUT_OF_RANGE' ? null : reason
 }

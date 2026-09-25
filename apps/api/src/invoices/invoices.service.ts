@@ -117,6 +117,14 @@ const COMPANY_INFO: InvoiceCompanyInfo = {
   address: 'Україна, м. Київ',
 }
 
+/**
+ * task-paid-salary-amount-edit (SR-M-1) — what happened to a row's invoice
+ * after an edit. The two `*_FAILED` values are what the caller journals
+ * (`INVOICE_REISSUE_FAILED`) and reports in the response; before, both were
+ * only log lines, and the second left a salary without an invoice forever.
+ */
+export type InvoiceReissueOutcome = 'REISSUED' | 'NOT_NEEDED' | 'VOID_FAILED' | 'REISSUE_FAILED'
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name)
@@ -750,9 +758,96 @@ export class InvoicesService {
    * than inlined) so AC4's test can exercise "void only" and "void +
    * reissue" independently.
    */
-  async voidAndReissueInvoiceForAmountEdit(transactionId: string, actorId: string): Promise<void> {
-    const { hadInvoice } = await this.voidInvoiceForAmountEdit(transactionId, actorId)
-    if (hadInvoice) await this.reissueInvoiceIfStillPaid(transactionId)
+  async voidAndReissueInvoiceForAmountEdit(
+    transactionId: string,
+    actorId: string,
+  ): Promise<InvoiceReissueOutcome> {
+    // task-paid-salary-amount-edit (SR-M-1). The two failure modes used to be
+    // log lines only; they are now an OUTCOME the caller journals and reports.
+    let hadInvoice: boolean
+    try {
+      ;({ hadInvoice } = await this.voidInvoiceForAmountEdit(transactionId, actorId))
+    } catch (err) {
+      this.logger.error(
+        `voidAndReissueInvoiceForAmountEdit: void failed for tx=${transactionId}: ${(err as Error).message}`,
+      )
+      return 'VOID_FAILED'
+    }
+    // A salary whose invoice was voided by an EARLIER edit whose re-issue then
+    // failed has `hadInvoice: false` now — and used to be skipped forever.
+    if (!hadInvoice && !(await this.isSalaryAwaitingReissue(transactionId))) return 'NOT_NEEDED'
+    return this.reissueAndVerify(transactionId)
+  }
+
+  /**
+   * task-paid-salary-amount-edit (SR-M-1, «повторное сохранение чинит»). For
+   * a save that did NOT change the amount: if this is a PAID salary whose
+   * invoice was voided and never replaced, re-issue it now. Nothing else can:
+   * `paySalary` never runs on a PAID row again, and there is no «regenerate»
+   * endpoint. A salary that never had an invoice (imported history) is left
+   * alone on purpose — generating one on a notes edit would send a signing
+   * request nobody expected.
+   */
+  async reissueSalaryInvoiceIfVoided(transactionId: string): Promise<InvoiceReissueOutcome> {
+    if (!(await this.isSalaryAwaitingReissue(transactionId))) return 'NOT_NEEDED'
+    return this.reissueAndVerify(transactionId)
+  }
+
+  /** Re-issue, then read back whether a document actually landed on the row. */
+  private async reissueAndVerify(transactionId: string): Promise<InvoiceReissueOutcome> {
+    await this.reissueInvoiceIfStillPaid(transactionId)
+    const state = await this.loadReissueState(transactionId)
+    // Not PAID any more (a cascade reverted it) or linked to a payout: nothing
+    // was supposed to be issued here, so there is nothing missing.
+    if (!state || state.status !== 'PAID' || state.payoutRequestId) return 'NOT_NEEDED'
+    return state.invoiceDocumentId ? 'REISSUED' : 'REISSUE_FAILED'
+  }
+
+  /** PAID `SALARY`, no current invoice, but one existed and was voided. */
+  private async isSalaryAwaitingReissue(transactionId: string): Promise<boolean> {
+    const state = await this.loadReissueState(transactionId)
+    return (
+      !!state &&
+      state.type === 'SALARY' &&
+      state.status === 'PAID' &&
+      !state.payoutRequestId &&
+      !state.invoiceDocumentId &&
+      state.hasVoidedInvoice
+    )
+  }
+
+  private async loadReissueState(transactionId: string): Promise<{
+    type: string
+    status: string
+    payoutRequestId: string | null
+    invoiceDocumentId: string | null
+    hasVoidedInvoice: boolean
+  } | null> {
+    const [tx] = await this.db.db
+      .select({
+        type: nonDeletedTransactions.type,
+        status: nonDeletedTransactions.status,
+        payoutRequestId: nonDeletedTransactions.payoutRequestId,
+        invoiceDocumentId: nonDeletedTransactions.invoiceDocumentId,
+      })
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
+    if (!tx) return null
+    // Every issued invoice carries a COMPANY signature (`autoCreate`), and a
+    // void stamps `voided_at` on it — so a voided signature is the durable
+    // record that an invoice existed and was taken away.
+    const [voided] = await this.db.db
+      .select({ id: invoiceSignatures.id })
+      .from(invoiceSignatures)
+      .where(
+        and(
+          eq(invoiceSignatures.transactionId, transactionId),
+          isNotNull(invoiceSignatures.voidedAt),
+        ),
+      )
+      .limit(1)
+    return { ...tx, hasVoidedInvoice: !!voided }
   }
 
   // ===========================================================================
@@ -1375,10 +1470,16 @@ export class InvoicesService {
     //     NULL snapshot structurally impossible for anything signed after
     //     — reaching here means either the backfill has not run yet on
     //     this DB or a write bypassed `signInvoice` entirely. Live
-    //     `tx.amount` IS the historically-safe fallback for this case: for
-    //     SALARY/SENIOR_INCOME, BIZ-18 blocked ALL PAID-amount edits
-    //     unconditionally while these rows were signed, so no divergence
-    //     was ever possible in the first place.
+    //     `tx.amount` is the fallback for this case. It is safe for the rows
+    //     the backfill covers because BIZ-18 blocked ALL PAID-amount edits
+    //     while they were signed. That is NO LONGER TRUE going forward
+    //     (task-paid-salary-amount-edit, SR-M-1): a PAID SALARY's amount is
+    //     editable now. What keeps this branch honest for such a row is not
+    //     an edit ban but the edit path itself — it voids the old invoice
+    //     (signatures `voided_at`, document soft-deleted) and re-issues, and
+    //     every signature from then on goes through `signInvoice`, which
+    //     writes the snapshot above. A failed void is journalled
+    //     (`INVOICE_REISSUE_FAILED`), not silent.
     //   - PAYOUT: the migration's backfill deliberately EXCLUDES these
     //     rows (round 3, HIGH-2) because `tx.amount` there is the USDT
     //     payable, structurally a DIFFERENT number/currency from what was

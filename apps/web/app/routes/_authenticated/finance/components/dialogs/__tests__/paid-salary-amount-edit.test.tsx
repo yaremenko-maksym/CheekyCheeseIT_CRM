@@ -19,6 +19,15 @@ import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import type { CascadeEditPreviewResponse, TransactionDto } from '@crm/shared'
 
+const toastWarningMock = vi.fn()
+vi.mock('sonner', () => ({
+  toast: Object.assign(vi.fn(), {
+    warning: (...args: unknown[]) => toastWarningMock(...args),
+    success: vi.fn(),
+    error: vi.fn(),
+  }),
+}))
+
 vi.mock('@/lib/axios', () => ({
   api: {
     get: vi.fn().mockResolvedValue({ data: [] }),
@@ -112,12 +121,14 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     fireEvent.change(amountInput(), { target: { value: '48867' } })
 
     const line = await screen.findByTestId('cascade-salary-obligation')
-    expect(line.textContent).toContain('Зарплата стане')
-    expect(line.textContent).toContain('за курсом переказу 41.25')
-    // The obligation's own currency on both figures — not the paid one (UAH).
-    expect(line.textContent).toMatch(/184,65\sUSD\s\(було\s1\D?180,00\sUSD\)/)
-    expect(screen.getByTestId('cascade-salary-invoice-reissue').textContent).toContain(
-      'Рахунок буде анульовано й перевипущено на підпис працівнику',
+    // COPY-M-1: the OBLIGATION, old → new, in its own currency (USD, not the
+    // paid UAH); COPY-M-2: the rate by locale, with its pair.
+    expect(line.textContent).toMatch(
+      /^Зобов’язання за зарплатою: 1\D?180,00\sUSD → 1\D?184,65\sUSD за курсом переказу 41,25\sUAH\/USD$/,
+    )
+    // COPY-M-3 / COPY-H-1: conditional, «співробітник».
+    expect(screen.getByTestId('cascade-salary-invoice-reissue').textContent).toBe(
+      'Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий',
     )
     // The generic «nothing to recompute» line would be false here — the
     // obligation IS recomputed.
@@ -142,7 +153,10 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     fireEvent.change(amountInput(), { target: { value: '48867' } })
 
     const line = await screen.findByTestId('cascade-salary-rate-missing')
-    expect(line.textContent).toContain('Курс переказу не записано')
+    // COPY-M-4: future tense, the obligation named, its figure quoted.
+    expect(line.textContent).toMatch(
+      /^Курс переказу не записано — зобов’язання залишиться 1\D?180,00\sUSD, зміниться лише виплачена сума$/,
+    )
     expect(screen.queryByTestId('cascade-salary-obligation')).toBeNull()
     expect(screen.getByTestId('cascade-salary-invoice-reissue')).toBeTruthy()
   })
@@ -161,7 +175,10 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     fireEvent.change(amountInput(), { target: { value: '48867' } })
 
     const line = await screen.findByTestId('cascade-salary-obligation')
-    expect(line.textContent).toMatch(/184,65\s+\(було\s1\D?180,00\s+\)\sза/)
+    // No currency ⇒ no «null», and no half a pair on the rate.
+    expect(line.textContent).toMatch(
+      /^Зобов’язання за зарплатою: 1\D?180,00\s+→ 1\D?184,65\s+за курсом переказу 41,25$/,
+    )
   })
 
   it('PSE-9. a salary DTO that omits the rate field is not locked — absent is «not recorded», not «bad rate»', () => {
@@ -170,6 +187,52 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
       unknown
     >
     renderDialog(withoutRate as unknown as TransactionDto)
+    expect(amountInput().disabled).toBe(false)
+    expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
+  })
+
+  it('PSE-10. a save whose invoice re-issue failed is not reported as a clean success (SR-M-1)', async () => {
+    adminUpdateTransactionMock.mockResolvedValueOnce({ invoiceReissueIncomplete: true })
+    // A plain re-save — the path that repairs a voided salary invoice.
+    renderDialog(PAID_SALARY)
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await waitFor(() => expect(toastWarningMock).toHaveBeenCalledTimes(1))
+    expect(String(toastWarningMock.mock.calls[0]?.[0])).toContain(
+      'рахунок не вдалося анулювати або перевипустити',
+    )
+  })
+
+  it('PSE-11. a clean save raises no invoice warning', async () => {
+    adminUpdateTransactionMock.mockResolvedValueOnce({})
+    renderDialog(PAID_SALARY)
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalled())
+    expect(toastWarningMock).not.toHaveBeenCalled()
+  })
+
+  it('PSE-12. a figure whose obligation is out of range says «перевірте суму», never a reversal (CR-M-1)', async () => {
+    getEditCascadePreviewMock.mockResolvedValue({
+      editable: false,
+      blockedReason: 'SALARY_OBLIGATION_OUT_OF_RANGE',
+      plan: null,
+      version: null,
+    })
+    renderDialog(PAID_SALARY)
+    fireEvent.change(amountInput(), { target: { value: '400000' } })
+    const banner = await screen.findByTestId('cascade-blocked-banner')
+    expect(banner.textContent).toBe(
+      'За записаним курсом переказу ця сума дає зобов’язання поза допустимими межами — перевірте суму',
+    )
+  })
+
+  it('PSE-13. a salary whose STORED figure already gives an out-of-range obligation keeps its field open', () => {
+    // 400 000 UAH at 0.5 UAH/USD = 800 000 USD, above the ceiling: the figure
+    // is wrong, which is exactly what the operator came to fix.
+    renderDialog({
+      ...PAID_SALARY,
+      amount: '400000',
+      exchangeRate: '0.50000000',
+    } as TransactionDto)
     expect(amountInput().disabled).toBe(false)
     expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
   })

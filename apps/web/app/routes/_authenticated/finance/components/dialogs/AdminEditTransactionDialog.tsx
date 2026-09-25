@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { getAxiosStatus } from '@/lib/axios-utils'
@@ -55,6 +57,7 @@ export function AdminEditTransactionDialog({
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  const { t } = useLingui()
 
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
@@ -332,7 +335,14 @@ export function AdminEditTransactionDialog({
       // see its own doc.
       setStaleMessage(getAxiosStatus(err) === 409 ? cascadeStaleMessage(err) : null)
     },
-    onSuccess: () => {
+    onSuccess: (saved: TransactionDto) => {
+      // SR-M-1 — the edit committed, but the invoice is not in step with it.
+      // Not a silent success: the operator hears it, and the journal has it.
+      if (saved?.invoiceReissueIncomplete) {
+        toast.warning(
+          t`Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз`,
+        )
+      }
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
       void qc.invalidateQueries({ queryKey: ['transaction', tx?.id] })

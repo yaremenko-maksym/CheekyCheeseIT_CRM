@@ -23,12 +23,14 @@
  */
 import { AlertCircle, AlertTriangle, ArrowRight, Ban, RefreshCw, RotateCcw } from 'lucide-react'
 import { Trans } from '@lingui/react/macro'
+import { formatNumber } from '@crm/shared'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse, CascadePlan } from '@crm/shared'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 
 import { cascadeBlockedReasonMessage, TYPE_COLORS, TYPE_LABELS, fmtAmount } from '../../constants'
 
@@ -359,17 +361,28 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
  * signing (`voidAndReissueInvoiceForAmountEdit`). New strings, so uk/en via the
  * catalog (`russian-language.md`), inside a module otherwise not migrated yet.
  */
-function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourcePaymentFact']> }) {
+function SalaryPaymentFactBlock({
+  fact,
+  paidCurrency,
+}: {
+  fact: NonNullable<CascadePlan['sourcePaymentFact']>
+  /** The currency the salary was PAID in (`plan.sourceCurrency`) — the numerator of the rate. */
+  paidCurrency: string
+}) {
+  const locale = useLocale()
   // `paySalary` stamps `original_currency` together with `original_amount`, so
   // null is a legacy/defensive case — shown as a bare figure, never as «null».
   const currency = fact.originalCurrency ?? ''
   const oldAmount = fmtAmount(fact.oldOriginalAmount, currency)
   const newAmount = fmtAmount(fact.newOriginalAmount, currency)
+  // COPY-M-2 — the rate by locale («41,25» in uk, never a bare «41.25» next to
+  // «1 024,24»), with its pair so the admin can check it against what they
+  // know: paid-currency units per one unit of the obligation («UAH/USD»). The
+  // non-breaking space keeps the figure and its unit on one line at 320px.
   // Read only on the `recomputed` branch, where a rate was recorded by
-  // definition (`resolveSalaryPaymentFactEdit`). The stored rate carries 8
-  // decimals of trailing zeros («41.25000000»); `Number` drops them without
-  // rounding a digit that is actually there.
-  const rate = String(Number(fact.exchangeRate))
+  // definition (`resolveSalaryPaymentFactEdit`).
+  const rateFigure = formatNumber(Number(fact.exchangeRate), locale, { maximumFractionDigits: 4 })
+  const rate = currency ? `${rateFigure}\u00a0${paidCurrency}/${currency}` : rateFigure
   return (
     <div className="space-y-2">
       {fact.recomputed ? (
@@ -377,8 +390,11 @@ function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourc
           className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs tabular-nums"
           data-testid="cascade-salary-obligation"
         >
+          {/* COPY-M-1 — «зобов’язання», not «зарплата»: the field above is the
+              paid salary row, and this is what was OWED; old → new, the same
+              direction as every other row of this panel. */}
           <Trans>
-            Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}
+            Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}
           </Trans>
         </p>
       ) : (
@@ -388,8 +404,9 @@ function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourc
         >
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
           <span>
+            {/* COPY-M-4 — shown BEFORE saving, so future tense throughout. */}
             <Trans>
-              Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише
+              Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише
               виплачена сума
             </Trans>
           </span>
@@ -401,7 +418,12 @@ function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourc
       >
         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
         <span>
-          <Trans>Рахунок буде анульовано й перевипущено на підпис працівнику</Trans>
+          {/* COPY-M-3 — conditional: the server voids and re-issues only when
+              an invoice exists (imported history may have none). COPY-H-1 —
+              «співробітник» per the glossary. */}
+          <Trans>
+            Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий
+          </Trans>
         </span>
       </p>
     </div>
@@ -525,7 +547,10 @@ export function CascadeImpactPanel({
             data-testid="cascade-plan-body"
           >
             {preview.plan.sourcePaymentFact ? (
-              <SalaryPaymentFactBlock fact={preview.plan.sourcePaymentFact} />
+              <SalaryPaymentFactBlock
+                fact={preview.plan.sourcePaymentFact}
+                paidCurrency={preview.plan.sourceCurrency}
+              />
             ) : preview.plan.derivatives.length === 0 ? (
               <p
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs"

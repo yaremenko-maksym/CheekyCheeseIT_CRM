@@ -211,6 +211,14 @@ export const transactionSchema = z.object({
    */
   settledAmount: z.string().nullable().optional(),
   settledCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
+  /**
+   * task-paid-salary-amount-edit (SR-M-1) — present (`true`) ONLY on the
+   * response of `PATCH :id/admin-edit`, when the edit committed but voiding or
+   * re-issuing an invoice afterwards failed. The edit is saved; the invoice
+   * is not in step, and the journal holds an `INVOICE_REISSUE_FAILED` line.
+   * Never on list/detail reads.
+   */
+  invoiceReissueIncomplete: z.boolean().optional(),
   senderId: z.string().uuid().nullable(),
   senderLabel: z.string().nullable(),
   senderName: z.string().nullable(), // resolved from user if senderId set

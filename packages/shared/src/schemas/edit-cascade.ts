@@ -763,16 +763,13 @@ function resolveDerivative(
  */
 function resolveSourceWarnings(source: CascadeSourceSnapshot): CascadeWarning[] {
   const warnings: CascadeWarning[] = []
-  // task-paid-salary-amount-edit — a salary no longer desyncs anything: the
-  // obligation follows the edit at the recorded rate (or, with no rate, the
-  // plan's `sourcePaymentFact` says so). The warning stays for every other
-  // row carrying the triplet, where the edit is refused.
-  if (source.originalAmount !== null && source.type !== 'SALARY') {
-    warnings.push({
-      code: 'SOURCE_ORIGINAL_AMOUNT_SET',
-      message: `На этой строке уже зафиксирован факт платежа (originalAmount = ${source.originalAmount}) — правка суммы разойдётся с курсом и фактическим платежом, исправляйте документ об оплате`,
-    })
-  }
+  // task-paid-salary-amount-edit (COPY-L-2) — `SOURCE_ORIGINAL_AMOUNT_SET` is
+  // no longer emitted. A salary's triplet follows the edit (the plan's
+  // `sourcePaymentFact` describes it); every other row carrying the triplet is
+  // refused before a plan is shown, with the catalogued
+  // `FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`. The warning had no reachable reader
+  // and sent the operator to a «документ об оплате» that does not exist. The
+  // code stays in `cascadeWarningCodeSchema` for wire compatibility only.
   if (source.hasSignedInvoice) {
     warnings.push({
       code: 'SOURCE_SIGNED_INVOICE',
@@ -927,6 +924,14 @@ export const cascadeLedgerFactReasonSchema = z.enum([
   'CLOSES_OBLIGATION',
   /** `COMPANY_DEPOSIT` — the figure was observed on-chain (C4 of the ADR). */
   'ONCHAIN_DEPOSIT',
+  /**
+   * task-paid-salary-amount-edit (CR-M-1 / COPY-M-5) — NOT a pinned row: a
+   * paid salary IS editable, only not to THIS figure, because the obligation
+   * it gives at the recorded rate falls outside the storable range. Its own
+   * reason so the operator is told «перевірте суму», not sent to a reversing
+   * transaction for what is a typo.
+   */
+  'SALARY_OBLIGATION_OUT_OF_RANGE',
 ])
 export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSchema>
 
@@ -978,7 +983,7 @@ export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
  * banner both render. The other three keep their Russian until finance migrates.
  */
 export const CASCADE_LEDGER_FACT_MESSAGES: Record<
-  Exclude<CascadeLedgerFactReason, 'PAYMENT_FACT_RECORDED'>,
+  Exclude<CascadeLedgerFactReason, 'PAYMENT_FACT_RECORDED' | 'SALARY_OBLIGATION_OUT_OF_RANGE'>,
   string
 > = {
   // COPY-M-3 (copy-review): these two used to open with the SAME four words
@@ -1085,9 +1090,8 @@ export function classifyEditedRowLedgerFact(
     // carrying the triplet (a converted drop settle) is still refused, and so
     // is a salary whose recomputed obligation could not be stored.
     const salaryEdit = resolveSalaryPaymentFactEdit(source, requestedAmount)
-    if (salaryEdit === null || salaryEdit.kind === 'UNREPRESENTABLE') {
-      return 'PAYMENT_FACT_RECORDED'
-    }
+    if (salaryEdit === null) return 'PAYMENT_FACT_RECORDED'
+    if (salaryEdit.kind === 'UNREPRESENTABLE') return 'SALARY_OBLIGATION_OUT_OF_RANGE'
   }
   if (source.settledAmount !== null) return 'SETTLED_AMOUNT_RECORDED'
   if (source.hasClosedObligation) return 'CLOSES_OBLIGATION'

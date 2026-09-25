@@ -1772,6 +1772,11 @@ msgstr "З картки співробітника (заповніть у про
 msgid "За датою додавання"
 msgstr "За датою додавання"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE"
+msgstr "За записаним курсом переказу ця сума дає зобов’язання поза допустимими межами — перевірте суму"
+
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"
 msgstr "За ім’ям"
@@ -1944,10 +1949,6 @@ msgstr "Заробітку за останні місяці ще немає"
 msgid "Зарплата"
 msgstr "Зарплата"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
-msgid "Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}"
-msgstr "Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH"
@@ -2052,6 +2053,10 @@ msgstr "Зміна суми оплаченої транзакції перера
 msgid "Зміни збережено"
 msgstr "Зміни збережено"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз"
+msgstr "Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз"
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -2107,6 +2112,10 @@ msgstr "Зобов’язання вже закрито або скасован�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY"
 msgstr "Зобов’язання дропа записане не в USDT — закрити його з конверсією не можна, потрібна ручна звірка"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}"
+msgstr "Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2482,8 +2491,8 @@ msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
 msgstr "Курс НБУ недоступний — спробуйте пізніше"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
-msgid "Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише виплачена сума"
-msgstr "Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише виплачена сума"
+msgid "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
+msgstr "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Ласкаво просимо до CRM"
@@ -4173,10 +4182,6 @@ msgstr "Рахунки створює система — завантажити 
 msgid "api-error.INVOICE_VOIDED"
 msgstr "Рахунок анульовано — оновіть сторінку"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
-msgid "Рахунок буде анульовано й перевипущено на підпис працівнику"
-msgstr "Рахунок буде анульовано й перевипущено на підпис працівнику"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN"
@@ -5423,3 +5428,7 @@ msgstr "Юридичне ПІБ ще не заповнено — напишіт�
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "Якщо він потрібен для роботи, напишіть адміністратору"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
+msgstr "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
