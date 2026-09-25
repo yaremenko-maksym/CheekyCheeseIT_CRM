@@ -1093,7 +1093,7 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові."
-msgstr "Write it as in the passport: last name, first name, patronymic."
+msgstr "Used in the MSA contract instead of your first and last name — write it as in your passport."
 
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Виняток видалено"
@@ -2927,7 +2927,7 @@ msgstr "You can add up to 50 custom variables"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Можна прикріпити пізніше в розділі «Проєкти»"
-msgstr "You can attach one later in Projects"
+msgstr "You can attach one later in the Projects section"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
