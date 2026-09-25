@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { createI18n } from '../i18n'
 import {
   ACTION_LABELS,
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   DETAIL_MESSAGES,
   MISC_MESSAGES,
+  NEW_NOTIFICATION_TYPES,
   NOTIFICATION_DETAIL_LINES,
   NOTIFICATION_DETAIL_LINE_CHARS,
   NOTIFICATION_TITLES,
@@ -16,6 +17,7 @@ import {
   notificationDataSchemaFor,
   notificationSubjectTypeSchema,
   notificationTextPreview,
+  renderMessage,
   renderNotification,
   type NotificationSubjectType,
 } from './notification-registry'
@@ -81,28 +83,48 @@ describe('тринадцать типов — реестр', () => {
 
   /**
    * COPY-H-1 (copy-review круг 1, #664): семейный префикс «Ждёт решения: »
-   * съедал больше половины 24-символьного бюджета попапа (`w-80`, `truncate`)
-   * и на 320/375/768px обрезал ровно то единственное слово, что сообщало
+   * съедал больше половины бюджета попапа (`w-80`, `truncate`) и на
+   * 320/375/768px обрезал ровно то единственное слово, что сообщало
    * пользователю, чего от него хотят. Семья теперь узнаётся по общему значку
    * (`TypeIcon`), а не по префиксу — заголовок обязан помещаться в бюджет
-   * целиком (измерено по скриншотам AC7 — ≤19 знаков).
+   * целиком.
    *
-   * task-i18n-stage4-task6: состав `ACTION_REQUIRED_NOTIFICATION_TYPES` НЕ
-   * расширен замороженными типами именно из-за этого бюджета —
-   * `INVOICE_SIGN_REQUIRED`'s uk-заголовок («Рахунок очікує підпису») в него
-   * не помещается.
+   * COPY-M-2/SPEC-M-1 (copy-review круг 2, #714, fix-round 2): круг 1
+   * переписал ТОЛЬКО doc-комментарий (легаси `NOTIFICATION_TITLES` больше не
+   * источник причины исключения `INVOICE_SIGN_REQUIRED`) — сама проверка
+   * по-прежнему мерила ЛЕГАСИ русский `NOTIFICATION_TITLES`, которого никто
+   * не видит, а не показываемый канон `NOTIFICATION_TITLE_MESSAGES` (spec-review
+   * круга 2, SPEC-M-1). Переписано: мерятся ОТРЕНДЕРЕННЫЕ заголовки
+   * (`renderMessage(UK/EN, …)`) для ВСЕХ `NEW_NOTIFICATION_TYPES` (13 типов),
+   * не только трёх `ACTION_REQUIRED` — COPY-H-2 (круг 1) показал, что
+   * информирующие типы обрезаются тоже. Порог в символах — прокси на
+   * реальный бюджет ~202px при Inter 14 medium: замер круга 1 — «You were
+   * added to a project» (27 знаков, 187px) помещается, «A transaction was
+   * added for you» (31, 217px) — нет. Отсюда ≤27 для обоих языков.
+   *
+   * Состав `ACTION_REQUIRED` не расширен замороженными типами из-за
+   * маршрута кнопки письма (`/pending`), см. комментарий к
+   * `INFORMING_NOTIFICATION_TYPES`.
    */
-  it('три типа, требующие действия, помещаются в бюджет попапа целиком (COPY-H-1, ≤19 знаков)', () => {
+  it('заголовки реестра (все 13 типов, uk и en) помещаются в бюджет попапа целиком (COPY-M-2/SPEC-M-1, ≤27 знаков, ~202px Inter 14 medium)', () => {
     expect([...ACTION_REQUIRED_NOTIFICATION_TYPES]).toEqual([
       'PROJECT_CONFIRM_REQUIRED',
       'SHARE_CONFIRM_REQUIRED',
       'DOCUMENT_SIGN_REQUIRED',
     ])
+    for (const type of NEW_NOTIFICATION_TYPES) {
+      const descriptor = NOTIFICATION_TITLE_MESSAGES[type]
+      const uk = renderMessage(UK, descriptor)
+      const en = renderMessage(EN, descriptor)
+      expect(Array.from(uk).length, `${type} (uk): "${uk}"`).toBeLessThanOrEqual(27)
+      expect(Array.from(en).length, `${type} (en): "${en}"`).toBeLessThanOrEqual(27)
+    }
+    // Ни один заголовок ACTION_REQUIRED-семьи не начинается со старого
+    // общего префикса — предмет обязан стоять первым словом (COPY-H-1's
+    // "предмет первым"). Меряется на отрендеренном канон-тексте, не легаси.
     for (const type of ACTION_REQUIRED_NOTIFICATION_TYPES) {
-      expect(Array.from(NOTIFICATION_TITLES[type]).length, type).toBeLessThanOrEqual(19)
-      // Ни один заголовок семьи не начинается со старого общего префикса —
-      // предмет обязан стоять первым словом (COPY-H-1's "предмет первым").
-      expect(NOTIFICATION_TITLES[type].startsWith('Ждёт решения'), type).toBe(false)
+      const uk = renderMessage(UK, NOTIFICATION_TITLE_MESSAGES[type])
+      expect(uk.startsWith('Ждёт решения'), type).toBe(false)
     }
   })
 
@@ -135,7 +157,7 @@ describe('три замороженных типа — реестр, не зам
     expect(rendered.title).toBe('Рахунок підписано')
     expect(rendered.title).not.toContain('ТОВ Ромашка')
     // §10: контрагент назван РОВНО один раз — в деталях, не в заголовке.
-    expect(rendered.detail).toBe('ТОВ Ромашка · 1 500,00 USDT')
+    expect(rendered.detail).toBe('1 500,00 USDT · ТОВ Ромашка')
   })
 
   it('INVOICE_SIGN_REQUIRED рендерится из реестра, деталь — сума', () => {
@@ -276,10 +298,11 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.VACANCY_APPLICATION.detail',
         message: 'Вакансія «{vacancyTitle}»',
       },
-      // COPY-M-4 (copy-review круг 1, #714): новая деталь для INVOICE_SIGNED.
+      // COPY-M-4 (copy-review круг 1, #714) + COPY-L-4 (круг 2): деталь для
+      // INVOICE_SIGNED, сума перед контрагентом (как у остального реестра).
       INVOICE_SIGNED: {
         id: 'notification.INVOICE_SIGNED.detail',
-        message: '{counterpartyName} · {money}',
+        message: '{money} · {counterpartyName}',
       },
     }
     expect(Object.keys(DETAIL_MESSAGES).sort()).toEqual(Object.keys(expected).sort())

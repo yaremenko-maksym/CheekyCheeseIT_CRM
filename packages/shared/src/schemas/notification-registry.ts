@@ -532,8 +532,20 @@ function quoteWithinBudget(text: string, budget: number, locale: Locale): string
  * над `i18n._()`, чтобы каждый читающий сайт не повторял третий аргумент
  * (`{ message: descriptor.message }`) — тот же приём, что `interpolate()` в
  * `apps/api/src/common/api-error.ts`.
+ *
+ * fix-round 2 (SPEC-H-2, PR #714): экспортирован — `apps/web`'s
+ * `NotificationSettingsTab.tsx` `rowTitle()` дублировал ровно этот же
+ * `message === undefined ? …` тернарный манёвр inline, и Stryker'у
+ * (`Mutation Gate (@crm/web)`) внутри `apps/web` он был не суппрешен и не
+ * убит тестом — 4 survived. Переиспользование убирает дублирующую
+ * defensive-ветку из `apps/web` целиком (reuse-first, не suppression),
+ * а не воспроизводит suppression ниже в новом месте.
  */
-function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, unknown>): string {
+export function renderMessage(
+  i18n: I18n,
+  descriptor: MessageDescriptor,
+  params?: Record<string, unknown>,
+): string {
   // `exactOptionalPropertyTypes`: `MessageDescriptor['message']` is
   // `string | undefined` in the general (annotated-as-`MessageDescriptor`)
   // case, but `MessageOptions['message']` wants `string`, never `undefined`
@@ -541,7 +553,7 @@ function t(i18n: I18n, descriptor: MessageDescriptor, params?: Record<string, un
   // unconditionally) keeps this helper correct for every descriptor shape,
   // not just literal-typed ones.
   const message = descriptor.message
-  // Stryker disable next-line ConditionalExpression,EqualityOperator,ObjectLiteral: every call site in this file passes a literal `/* i18n */ { id, message }` object (see MISC_MESSAGES/DETAIL_MESSAGES/ACTION_LABELS/NOTIFICATION_TITLE_MESSAGES/SUBJECT_*_LABELS below) — `message` is never actually undefined through this registry's own descriptors, so this branch is unreachable defensive code for the general `MessageDescriptor` type, not a real decision this file's tests can observe.
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,ObjectLiteral: every call site — in this file (MISC_MESSAGES/DETAIL_MESSAGES/ACTION_LABELS/NOTIFICATION_TITLE_MESSAGES/SUBJECT_*_LABELS below) AND in apps/web's NotificationSettingsTab.tsx rowTitle() (fix-round 2, SPEC-H-2) — passes a literal `/* i18n */ { id, message }` object; `message` is never actually undefined through any real descriptor, so this branch is unreachable defensive code for the general `MessageDescriptor` type, not a real decision any caller's tests can observe.
   return i18n._(descriptor.id, params, message === undefined ? undefined : { message })
 }
 
@@ -633,7 +645,7 @@ export const MISC_MESSAGES = {
 } satisfies Record<string, MessageDescriptor>
 
 function percentText(value: number | null, i18n: I18n): string {
-  return t(i18n, MISC_MESSAGES.percentText, { value })
+  return renderMessage(i18n, MISC_MESSAGES.percentText, { value })
 }
 
 function subjectPhrase(
@@ -644,7 +656,11 @@ function subjectPhrase(
   // SR-L-1: `hasName` selects the branch, `name` is substitution-only — see
   // the doc comment on `MISC_MESSAGES.subjectPhrase`.
   // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED's hasProject — ICU only branches on hasName === 'no'.
-  return t(i18n, MISC_MESSAGES.subjectPhrase, { kind, hasName: name === null ? 'no' : 'yes', name })
+  return renderMessage(i18n, MISC_MESSAGES.subjectPhrase, {
+    kind,
+    hasName: name === null ? 'no' : 'yes',
+    name,
+  })
 }
 
 export const DETAIL_MESSAGES = {
@@ -711,9 +727,11 @@ export const DETAIL_MESSAGES = {
   // COPY-M-4 (copy-review круг 1, #714): контрагент назван — а деталь не
   // говорила, ЯКИЙ саме рахунок підписано. У контрагента з кількома
   // рахунками це не розрізнити. §10 дозволяє цифри в попапі (не в письмі).
+  // COPY-L-4 (copy-review круг 2, #714): сума — перед контрагентом, як у
+  // решти реестра (`TRANSACTION_ADDED`: `{money} · проєкт {projectName}`).
   INVOICE_SIGNED: /* i18n */ {
     id: 'notification.INVOICE_SIGNED.detail',
-    message: '{counterpartyName} · {money}',
+    message: '{money} · {counterpartyName}',
   },
 } satisfies Record<string, MessageDescriptor>
 
@@ -740,7 +758,7 @@ export function describeNotification<T extends NewNotificationType>(
       // COPY-H-6: полезное (сумма) вперёд, имя объекта — в хвост, где его не
       // жалко обрезать `line-clamp-2` при длинных именах клиентов.
       const d = data as NotificationDataByType['TRANSACTION_ADDED']
-      return t(i18n, DETAIL_MESSAGES.TRANSACTION_ADDED, {
+      return renderMessage(i18n, DETAIL_MESSAGES.TRANSACTION_ADDED, {
         money: money(d, locale),
         // Stryker disable next-line StringLiteral: the ICU template only branches on hasProject === 'no' vs anything else — any non-'no' value is unobservable, mutating 'yes' cannot change rendered output.
         hasProject: d.projectName === null ? 'no' : 'yes',
@@ -753,43 +771,47 @@ export function describeNotification<T extends NewNotificationType>(
       // `PENDING → VALIDATED`; «перевірка транзакції» стоит там же в списке
       // _Избегать_.
       if (d.status === 'VALIDATED') {
-        return t(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_VALIDATED, {
+        return renderMessage(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_VALIDATED, {
           money: money(d, locale),
         })
       }
       // COPY-M-3: превью причины — слова конкретного человека, а не системы;
       // кавычки отделяют чужую речь от интерфейса.
       if (d.rejectionReasonPreview === null) {
-        return t(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_REJECTED, {
+        return renderMessage(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_REJECTED, {
           money: money(d, locale),
         })
       }
       // UX-M-2 (круг 2): причина — СВОИМ рядом (`NOTIFICATION_DETAIL_LINE_CHARS`),
       // факты — вторым. Порядок ТОТ ЖЕ, что у `APPROVAL_REJECTED`.
-      return t(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_REJECTED_WITH_REASON, {
+      return renderMessage(i18n, DETAIL_MESSAGES.TRANSACTION_STATUS_CHANGED_REJECTED_WITH_REASON, {
         quote: quoteWithinBudget(d.rejectionReasonPreview, NOTIFICATION_DETAIL_LINE_CHARS, locale),
         money: money(d, locale),
       })
     }
     case 'TEAM_MEMBER_ADDED': {
       const d = data as NotificationDataByType['TEAM_MEMBER_ADDED']
-      return t(i18n, DETAIL_MESSAGES.TEAM_MEMBER_ADDED, { teamName: d.teamName })
+      return renderMessage(i18n, DETAIL_MESSAGES.TEAM_MEMBER_ADDED, { teamName: d.teamName })
     }
     case 'PROJECT_MEMBER_ADDED': {
       const d = data as NotificationDataByType['PROJECT_MEMBER_ADDED']
-      return t(i18n, DETAIL_MESSAGES.PROJECT_MEMBER_ADDED, { projectName: d.projectName })
+      return renderMessage(i18n, DETAIL_MESSAGES.PROJECT_MEMBER_ADDED, {
+        projectName: d.projectName,
+      })
     }
     case 'TEAM_NEW_MEMBER': {
       // COPY-H-6: полезное (кто пришёл) вперёд, имя команды — в хвост.
       const d = data as NotificationDataByType['TEAM_NEW_MEMBER']
-      return t(i18n, DETAIL_MESSAGES.TEAM_NEW_MEMBER, {
+      return renderMessage(i18n, DETAIL_MESSAGES.TEAM_NEW_MEMBER, {
         memberName: d.memberName,
         teamName: d.teamName,
       })
     }
     case 'PROJECT_CONFIRM_REQUIRED': {
       const d = data as NotificationDataByType['PROJECT_CONFIRM_REQUIRED']
-      return t(i18n, DETAIL_MESSAGES.PROJECT_CONFIRM_REQUIRED, { projectName: d.projectName })
+      return renderMessage(i18n, DETAIL_MESSAGES.PROJECT_CONFIRM_REQUIRED, {
+        projectName: d.projectName,
+      })
     }
     case 'SHARE_CONFIRM_REQUIRED': {
       // COPY-H-6 (PROJECT-scope) + COPY-H-3 (BASE-scope — «частка за
@@ -797,8 +819,8 @@ export function describeNotification<T extends NewNotificationType>(
       const d = data as NotificationDataByType['SHARE_CONFIRM_REQUIRED']
       const change = `${percentText(d.previousPercent, i18n)} → ${percentText(d.proposedPercent, i18n)}`
       return d.scope === 'BASE'
-        ? t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_BASE, { change })
-        : t(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_PROJECT, {
+        ? renderMessage(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_BASE, { change })
+        : renderMessage(i18n, DETAIL_MESSAGES.SHARE_CONFIRM_REQUIRED_PROJECT, {
             change,
             // Stryker disable next-line StringLiteral: same equivalent-mutant reason as TRANSACTION_ADDED above — ICU only branches on hasProject === 'no'.
             hasProject: d.projectName === null ? 'no' : 'yes',
@@ -811,7 +833,7 @@ export function describeNotification<T extends NewNotificationType>(
     }
     case 'APPROVAL_CONFIRMED': {
       const d = data as NotificationDataByType['APPROVAL_CONFIRMED']
-      return t(i18n, DETAIL_MESSAGES.APPROVAL_CONFIRMED, {
+      return renderMessage(i18n, DETAIL_MESSAGES.APPROVAL_CONFIRMED, {
         approverName: d.approverName,
         subjectPhrase: subjectPhrase(d.subjectKind, d.subjectTitle, i18n),
       })
@@ -824,9 +846,9 @@ export function describeNotification<T extends NewNotificationType>(
         subjectPhrase: subjectPhrase(d.subjectKind, d.subjectTitle, i18n),
       }
       if (d.reasonPreview === null) {
-        return t(i18n, DETAIL_MESSAGES.APPROVAL_REJECTED_NO_REASON, params)
+        return renderMessage(i18n, DETAIL_MESSAGES.APPROVAL_REJECTED_NO_REASON, params)
       }
-      return t(i18n, DETAIL_MESSAGES.APPROVAL_REJECTED_WITH_REASON, {
+      return renderMessage(i18n, DETAIL_MESSAGES.APPROVAL_REJECTED_WITH_REASON, {
         ...params,
         quote: quoteWithinBudget(d.reasonPreview, NOTIFICATION_DETAIL_LINE_CHARS, locale),
       })
@@ -839,7 +861,7 @@ export function describeNotification<T extends NewNotificationType>(
       // COPY-M-4 (copy-review круг 1, #714): сума додана — у контрагента з
       // кількома рахунками деталь раніше не розрізняла, ЯКИЙ саме підписано.
       const d = data as NotificationDataByType['INVOICE_SIGNED']
-      return t(i18n, DETAIL_MESSAGES.INVOICE_SIGNED, {
+      return renderMessage(i18n, DETAIL_MESSAGES.INVOICE_SIGNED, {
         counterpartyName: d.counterpartyName,
         money: money(d, locale),
       })
@@ -850,7 +872,9 @@ export function describeNotification<T extends NewNotificationType>(
     }
     case 'VACANCY_APPLICATION': {
       const d = data as NotificationDataByType['VACANCY_APPLICATION']
-      return t(i18n, DETAIL_MESSAGES.VACANCY_APPLICATION, { vacancyTitle: d.vacancyTitle })
+      return renderMessage(i18n, DETAIL_MESSAGES.VACANCY_APPLICATION, {
+        vacancyTitle: d.vacancyTitle,
+      })
     }
     default: {
       // CR-M-1 (код-ревью круг 1): одиннадцатый (теперь — четырнадцатый) тип
@@ -940,14 +964,14 @@ function actionLabelFor(
   i18n: I18n,
 ): string {
   if (type === 'APPROVAL_CONFIRMED' || type === 'APPROVAL_REJECTED') {
-    return t(
+    return renderMessage(
       i18n,
       subjectType === 'USER'
         ? MISC_MESSAGES.actionApprovalProfile
         : MISC_MESSAGES.actionApprovalProject,
     )
   }
-  return t(
+  return renderMessage(
     i18n,
     ACTION_LABELS[type as Exclude<NewNotificationType, 'APPROVAL_CONFIRMED' | 'APPROVAL_REJECTED'>],
   )
@@ -960,9 +984,12 @@ function actionLabelFor(
  * `notificationActions` проверяет `subjectType`/`subjectId` раньше, а у
  * `APPROVAL_CONFIRMED`/`APPROVAL_REJECTED` они всегда заданы) получает СВОЮ
  * подпись из `ACTION_LABELS`, а не общее «Відкрити»/«Open» — иначе, например,
- * «Рахунок очікує підпису» показывал кнопку без глагола ровно там, где от
- * человека ждут действия. Незнакомый тип (легаси-десятка до реестра, тип из
- * будущего) по-прежнему получает общее `MISC_MESSAGES.open`.
+ * заголовок «Рахунок на підпис» показывал бы кнопку без глагола ровно там,
+ * где от человека ждут действия (пример обновлён fix-round 2, copy-review
+ * круг 2: заголовок сам переименован из «Рахунок очікує підпису» ещё в
+ * COPY-M-1, круг 1, — этот пример здесь просто не поспевал за тем текстом).
+ * Незнакомый тип (легаси-десятка до реестра, тип из будущего) по-прежнему
+ * получает общее `MISC_MESSAGES.open`.
  */
 function actionLabelForLink(type: string, i18n: I18n): string {
   if (
@@ -970,9 +997,9 @@ function actionLabelForLink(type: string, i18n: I18n): string {
     type !== 'APPROVAL_CONFIRMED' &&
     type !== 'APPROVAL_REJECTED'
   ) {
-    return t(i18n, ACTION_LABELS[type])
+    return renderMessage(i18n, ACTION_LABELS[type])
   }
-  return t(i18n, MISC_MESSAGES.open)
+  return renderMessage(i18n, MISC_MESSAGES.open)
 }
 
 /**
@@ -996,8 +1023,8 @@ export const SUBJECT_MISSING_LABELS: Record<NotificationSubjectType, MessageDesc
 }
 function subjectMissingLabel(subjectType: NotificationSubjectType | null, i18n: I18n): string {
   return subjectType === null
-    ? t(i18n, MISC_MESSAGES.subjectMissingFallback)
-    : t(i18n, SUBJECT_MISSING_LABELS[subjectType])
+    ? renderMessage(i18n, MISC_MESSAGES.subjectMissingFallback)
+    : renderMessage(i18n, SUBJECT_MISSING_LABELS[subjectType])
 }
 
 /**
@@ -1022,8 +1049,8 @@ export const SUBJECT_ARCHIVED_LABELS: Record<NotificationSubjectType, MessageDes
 }
 function subjectArchivedLabel(subjectType: NotificationSubjectType | null, i18n: I18n): string {
   return subjectType === null
-    ? t(i18n, MISC_MESSAGES.subjectArchivedFallback)
-    : t(i18n, SUBJECT_ARCHIVED_LABELS[subjectType])
+    ? renderMessage(i18n, MISC_MESSAGES.subjectArchivedFallback)
+    : renderMessage(i18n, SUBJECT_ARCHIVED_LABELS[subjectType])
 }
 
 /** Маршрут объекта. У транзакции и договора своей страницы нет — ведём в список. */
@@ -1078,7 +1105,13 @@ export function notificationActions(n: RenderableNotification, i18n: I18n): Noti
     // COPY-M-8 (circle 2): «статус ≠ READY_TO_SIGN» ведёт к ТРЁМ переходам —
     // сказано ровно то, что известно.
     if (n.type === 'DOCUMENT_SIGN_REQUIRED') {
-      return [{ label: t(i18n, MISC_MESSAGES.documentSignUnavailable), href: null, disabled: true }]
+      return [
+        {
+          label: renderMessage(i18n, MISC_MESSAGES.documentSignUnavailable),
+          href: null,
+          disabled: true,
+        },
+      ]
     }
     return [{ label: subjectMissingLabel(n.subjectType, i18n), href: null, disabled: true }]
   }
@@ -1088,10 +1121,14 @@ export function notificationActions(n: RenderableNotification, i18n: I18n): Noti
   }
   // ORCH-2 (fix-раунд 6): ПОСЛЕ объекта (missing/archived) и отдельно от него.
   if (n.approvalDecided === true) {
-    return [{ label: t(i18n, MISC_MESSAGES.approvalDecided), href: null, disabled: true }]
+    return [
+      { label: renderMessage(i18n, MISC_MESSAGES.approvalDecided), href: null, disabled: true },
+    ]
   }
   if (n.approvalSuperseded === true) {
-    return [{ label: t(i18n, MISC_MESSAGES.approvalSuperseded), href: null, disabled: true }]
+    return [
+      { label: renderMessage(i18n, MISC_MESSAGES.approvalSuperseded), href: null, disabled: true },
+    ]
   }
   if (isNewNotificationType(n.type) && n.subjectType !== null && n.subjectId !== null) {
     return [
@@ -1143,7 +1180,7 @@ export function renderNotification(n: RenderableNotification, i18n: I18n): Rende
     const parsed = dataSchemas[n.type].safeParse(n.data)
     if (parsed.success) {
       return {
-        title: t(i18n, NOTIFICATION_TITLE_MESSAGES[n.type]),
+        title: renderMessage(i18n, NOTIFICATION_TITLE_MESSAGES[n.type]),
         detail: describeNotification(n.type, parsed.data as never, i18n),
         actions,
       }

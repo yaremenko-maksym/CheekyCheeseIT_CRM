@@ -41,11 +41,6 @@ msgstr "{change} · проєкт {hasProject, select, no {без назви} oth
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGNED.detail"
-msgstr "{counterpartyName} · {money}"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_ADDED.detail"
 msgstr "{hasProject, select, no {{money}} other {{money} · проєкт {projectName}}}"
 
@@ -58,6 +53,11 @@ msgstr "{kind, select, PROJECT {проєкт {hasName, select, no {без наз
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TEAM_NEW_MEMBER.detail"
 msgstr "{memberName} · команда {teamName}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.detail"
+msgstr "{money} · {counterpartyName}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx

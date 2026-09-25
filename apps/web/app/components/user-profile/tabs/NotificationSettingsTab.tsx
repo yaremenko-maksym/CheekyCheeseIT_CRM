@@ -28,6 +28,7 @@ import {
   NEW_NOTIFICATION_TYPES,
   NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   NOTIFICATION_TITLE_MESSAGES,
+  renderMessage,
   type NewNotificationType,
   type Notification,
 } from '@crm/shared'
@@ -186,15 +187,19 @@ const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 // languages instead. `i18n` is the caller's own activated instance
 // (`useLingui()`) — never `createI18n()` here (SR-H-1: that call requires
 // `require()`, unavailable in the browser).
+//
+// SPEC-H-2 (fix-round 2, PR #714): this used to inline the same
+// `message === undefined ? undefined : { message }` narrowing as the
+// registry's own `renderMessage()` helper — a duplicate of a branch no real
+// descriptor can ever take (every `NOTIFICATION_TITLE_MESSAGES` entry is a
+// literal `{ id, message }`), so `Mutation Gate (@crm/web)` had nothing to
+// kill it with and 4 mutants survived. `renderMessage()` is now exported
+// from the registry and reused here instead of re-suppressing the same
+// dead branch a second time in this package.
 export function rowTitle(row: PreferenceRow, i18n: I18n): string {
   if (!KNOWN_TYPES.has(row.type)) return 'Новый тип'
   const descriptor = NOTIFICATION_TITLE_MESSAGES[row.type as NewNotificationType]
-  // `exactOptionalPropertyTypes`: `descriptor.message` is typed `string |
-  // undefined` on the general `MessageDescriptor` shape even though every
-  // entry in `NOTIFICATION_TITLE_MESSAGES` is a literal `{ id, message }` —
-  // same narrowing as the registry's own internal `t()` helper.
-  const { message } = descriptor
-  return i18n._(descriptor.id, undefined, message === undefined ? undefined : { message })
+  return renderMessage(i18n, descriptor)
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {
