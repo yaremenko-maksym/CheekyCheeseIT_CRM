@@ -96,6 +96,17 @@
         "id": "pre:bash:cross-agent-blast"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-unbounded-wait.sh"
+          }
+        ],
+        "description": "Unbounded-wait gate — block a while/until wait loop with no bound (no `timeout N bash -c`, no $SECONDS / date +%s deadline, no iteration counter), any loop waiting on tasks/<id>.status|.exit (the harness never writes them), and a bare `cat` reading an agent's stdin. Decided on command position, not substring. Incidents 2026-09-21 (cat, 25h), 09-24 (Stryker grep loop, ~3h), 09-25 (.status/.exit loops, 11.5h). Test: scripts/devops/tests/test-pre-bash-unbounded-wait.sh",
+        "id": "pre:bash:unbounded-wait"
+      },
+      {
         "matcher": "Agent|Task",
         "hooks": [
           {
