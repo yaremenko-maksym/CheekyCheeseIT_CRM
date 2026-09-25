@@ -875,7 +875,7 @@ test.describe('Finance — правка суммы оплаченной зарп
     await expect(dialog.getByTestId('admin-edit-locked-amount-note')).toHaveCount(0)
 
     await amount.fill('48867')
-    await expect(dialog.getByTestId('cascade-salary-obligation')).toContainText('41.25')
+    await expect(dialog.getByTestId('cascade-salary-obligation')).toContainText(/41[.,]25/)
     await expect(dialog.getByTestId('cascade-salary-invoice-reissue')).toBeVisible()
 
     const saved = asAdmin.waitForRequest(

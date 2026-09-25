@@ -436,6 +436,34 @@ describe.skipIf(!hasDatabaseUrl())(
       })
     })
 
+    // SR-M-2 (security-review, PR #721) — the WRITE half of the pair above.
+    // task-paid-salary-amount-edit opens `PATCH :id/admin-edit` to every paid
+    // salary, and until now FM-5 for it was proven only at the service level.
+    // Same shape as the preview block: the guard fires before the handler, so
+    // a nonexistent id and an arbitrary body prove only that `@Roles('ADMIN')`
+    // is actually wired on the route.
+    describe('PATCH /transactions/:id/admin-edit @Roles guard', () => {
+      const url = '/api/transactions/00000000-0000-4000-8000-000000000000/admin-edit'
+      const body = { amount: 48867, cascadeVersion: 'v' }
+
+      for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+        it(`${persona.role} → 403 (ADMIN only)`, async () => {
+          expect(await patch(persona, url, body)).toBe(403)
+        })
+      }
+
+      it('ADMIN passes the guard (not 403) — a nonexistent id 404s past it instead', async () => {
+        const res = await app.inject({
+          method: 'PATCH',
+          url,
+          payload: body,
+          cookies: { jwt: tokenFor(ADMIN) },
+        })
+        expect(res.statusCode).toBe(404)
+        expect(JSON.parse(res.payload).code).toBe('FINANCE_TRANSACTION_NOT_FOUND')
+      })
+    })
+
     // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
     // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
     // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`

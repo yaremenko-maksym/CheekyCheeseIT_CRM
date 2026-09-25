@@ -59,7 +59,8 @@ const invoicesSpy = {
   autoCreateForIncome: vi.fn(() => Promise.resolve()),
   autoCreateForSeniorPayout: vi.fn(() => Promise.resolve()),
   autoCreateForSalary: vi.fn(() => Promise.resolve()),
-  voidAndReissueInvoiceForAmountEdit: vi.fn(() => Promise.resolve()),
+  voidAndReissueInvoiceForAmountEdit: vi.fn(() => Promise.resolve('REISSUED')),
+  reissueSalaryInvoiceIfVoided: vi.fn(() => Promise.resolve('NOT_NEEDED')),
 }
 
 let _pool: Pool | null = null
@@ -275,6 +276,32 @@ describe.skipIf(!HAS_DB_URL)(
       })
     })
 
+    it('SR-M-1: a failed re-issue is journalled and reported; a plain re-save then repairs it', async () => {
+      const id = await paidSalary()
+      invoicesSpy.voidAndReissueInvoiceForAmountEdit.mockResolvedValueOnce('REISSUE_FAILED')
+      const preview = await svc.getEditCascadePreview(id, 48_867, ADMIN)
+      const saved = await svc.adminUpdateTransaction(
+        id,
+        { amount: 48_867, cascadeVersion: preview.version! },
+        ADMIN,
+      )
+      expect(saved).toMatchObject({ invoiceReissueIncomplete: true })
+      const failures = await dbSvc.db.query.transactionAuditLog.findMany({
+        where: and(
+          eq(transactionAuditLog.targetId, id),
+          eq(transactionAuditLog.action, 'INVOICE_REISSUE_FAILED'),
+        ),
+      })
+      expect(failures.map((f) => f.metadata)).toEqual([{ stage: 'REISSUE' }])
+      // The amount edit itself stands.
+      expect((await row(id))?.amount).toBe('48867.000000')
+
+      invoicesSpy.reissueSalaryInvoiceIfVoided.mockResolvedValueOnce('REISSUED')
+      const resaved = await svc.adminUpdateTransaction(id, { notes: 'пересохранение' }, ADMIN)
+      expect(invoicesSpy.reissueSalaryInvoiceIfVoided).toHaveBeenCalledWith(id)
+      expect(resaved).not.toHaveProperty('invoiceReissueIncomplete')
+    })
+
     it('voids and re-issues the invoice for the corrected figure', async () => {
       const id = await paidSalary()
       await editWithPreview(id, 48_867)
@@ -362,7 +389,7 @@ describe.skipIf(!HAS_DB_URL)(
       expect(await row(id)).toEqual(before)
     })
 
-    it.each(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT'] as const)(
+    it.each(['SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] as const)(
       'FM-5: a %s cannot preview or edit a paid salary — 403, nothing written',
       async (role) => {
         const id = await paidSalary()
