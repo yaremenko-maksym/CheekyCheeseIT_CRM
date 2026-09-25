@@ -125,6 +125,22 @@ const COMPANY_INFO: InvoiceCompanyInfo = {
  */
 export type InvoiceReissueOutcome = 'REISSUED' | 'NOT_NEEDED' | 'VOID_FAILED' | 'REISSUE_FAILED'
 
+/**
+ * `loadReissueState`'s two projections, hoisted so each carries its own
+ * mutation-gate directive: an inline `next-line` comment inside the call chain
+ * was not honoured by Stryker (measured on PR #721), and a block `disable`
+ * is refused by the gate.
+ */
+// Stryker disable next-line ObjectLiteral: a Drizzle query SHAPE — the unit double in `invoice-reissue-outcome.unit.spec.ts` answers with canned rows whatever is selected, so `{}` is unobservable without a live Postgres (mutation-gate-integration-specs.md)
+const REISSUE_STATE_COLUMNS = {
+  type: nonDeletedTransactions.type,
+  status: nonDeletedTransactions.status,
+  payoutRequestId: nonDeletedTransactions.payoutRequestId,
+  invoiceDocumentId: nonDeletedTransactions.invoiceDocumentId,
+}
+// Stryker disable next-line ObjectLiteral: same query SHAPE — only the presence of a row is read, never its columns
+const VOIDED_SIGNATURE_COLUMNS = { id: invoiceSignatures.id }
+
 @Injectable()
 export class InvoicesService {
   private readonly logger = new Logger(InvoicesService.name)
@@ -823,14 +839,8 @@ export class InvoicesService {
     invoiceDocumentId: string | null
     hasVoidedInvoice: boolean
   } | null> {
-    // Stryker disable ObjectLiteral: the two `.select(...)` projections below are Drizzle query SHAPES — the unit double in `invoice-reissue-outcome.unit.spec.ts` answers with canned rows whatever is selected, so `{}` there is unobservable without a live Postgres (mutation-gate-integration-specs.md). A `next-line` directive inside the call chain was not honoured by Stryker (measured), hence the block form
     const [tx] = await this.db.db
-      .select({
-        type: nonDeletedTransactions.type,
-        status: nonDeletedTransactions.status,
-        payoutRequestId: nonDeletedTransactions.payoutRequestId,
-        invoiceDocumentId: nonDeletedTransactions.invoiceDocumentId,
-      })
+      .select(REISSUE_STATE_COLUMNS)
       .from(nonDeletedTransactions)
       .where(eq(nonDeletedTransactions.id, transactionId))
       .limit(1)
@@ -839,7 +849,7 @@ export class InvoicesService {
     // void stamps `voided_at` on it — so a voided signature is the durable
     // record that an invoice existed and was taken away.
     const [voided] = await this.db.db
-      .select({ id: invoiceSignatures.id })
+      .select(VOIDED_SIGNATURE_COLUMNS)
       .from(invoiceSignatures)
       .where(
         and(
@@ -848,7 +858,6 @@ export class InvoicesService {
         ),
       )
       .limit(1)
-    // Stryker restore ObjectLiteral
     return { ...tx, hasVoidedInvoice: !!voided }
   }
 
