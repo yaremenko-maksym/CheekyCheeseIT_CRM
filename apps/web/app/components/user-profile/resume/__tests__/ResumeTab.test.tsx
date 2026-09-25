@@ -36,6 +36,9 @@ const deleteMock = vi.fn()
 
 let resumeData: SeniorResumeResponse = { resume: null, canEdit: true }
 let isLoading = false
+// Mutable so a test can observe the delete confirm button's isPending-driven
+// text ("Видаляємо…" vs "Видалити") without a real mutation in flight.
+let deleteIsPending = false
 
 vi.mock('@/hooks/use-senior-resume', () => ({
   useSeniorResume: () => ({ data: resumeData, isLoading, isError: false }),
@@ -43,7 +46,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
-  useDeleteResume: () => ({ mutate: deleteMock, isPending: false }),
+  useDeleteResume: () => ({ mutate: deleteMock, isPending: deleteIsPending }),
   useResumeSourceUrl: () => ({ data: undefined }),
   // No blob here: these tests are about the tab, and jsdom cannot load a blob
   // iframe anyway. The preview's own behaviour is asserted in
@@ -105,6 +108,7 @@ beforeEach(async () => {
   vi.clearAllMocks()
   resumeData = { resume: null, canEdit: true }
   isLoading = false
+  deleteIsPending = false
   await loadCatalog('uk')
 })
 
@@ -552,6 +556,62 @@ describe('ResumeTab — deleting the resume', () => {
     resumeData = { resume: null, canEdit: true }
     render(<ResumeTab userId="senior-1" />)
     expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
+  })
+
+  it('the confirm button reads "Видалити" while idle and "Видаляємо…" while the mutation is in flight', () => {
+    resumeData = FILLED
+    deleteIsPending = false
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm')).toHaveTextContent('Видалити')
+    expect(screen.getByTestId('resume-delete-confirm')).not.toHaveTextContent('Видаляємо')
+  })
+
+  it('the confirm button says "Видаляємо…" while pending, and disables itself', () => {
+    resumeData = FILLED
+    deleteIsPending = true
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm')).toHaveTextContent('Видаляємо…')
+    expect(screen.getByTestId('resume-delete-confirm')).toBeDisabled()
+  })
+})
+
+/**
+ * Each section's `title` prop, exactly — `ResumeSectionCard.test.tsx` pins
+ * the edit-button aria-label that DERIVES from `title`, but nothing anywhere
+ * pinned the six `title={t\`...\`}` call sites in `ResumeTab` itself, so a
+ * mutant on any one of them (StringLiteral → ``) survived silently.
+ */
+describe('ResumeTab — section titles, exact, one per StringLiteral call site', () => {
+  it('renders all six section titles from the catalog, not a raw key or an empty string', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+    expect(
+      within(screen.getByTestId('resume-section-summary')).getByText('Про себе'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-skills')).getByText('Навички'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-experience')).getByText('Досвід роботи'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-education')).getByText('Освіта'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-languages')).getByText('Мови'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-links')).getByText('Посилання'),
+    ).toBeInTheDocument()
+  })
+
+  it('the summary textarea (while editing) carries the same exact label as an aria-label', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    expect(screen.getByTestId('resume-summary-input')).toHaveAttribute('aria-label', 'Про себе')
   })
 })
 

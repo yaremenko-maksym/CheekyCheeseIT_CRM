@@ -200,6 +200,107 @@ describe('the panel offers switches and nothing else', () => {
   })
 })
 
+/**
+ * Section labels, hover labels, and toggle-state copy — none of these had a
+ * dedicated assertion before this round (the AC8 tests above only click
+ * testids and read the SAVED payload, never the rendered labels), so every
+ * one of `SECTION_LABEL_MESSAGES`'s six entries, the hidden/line-through
+ * class, and the show/hide aria-label pair survived Stryker untouched.
+ */
+describe('section labels and per-row controls, exact text', () => {
+  it('every section renders its own catalog label, not a raw key or an empty one', () => {
+    renderPanel()
+    expect(
+      within(screen.getByTestId('resume-layout-section-summary')).getByText('Про себе'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-skills')).getByText('Навички'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-experience')).getByText('Досвід роботи'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-education')).getByText('Освіта'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-languages')).getByText('Мови'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-links')).getByText('Посилання'),
+    ).toBeInTheDocument()
+  })
+
+  it('the label carries "text-sm" while visible, and gains "line-through" only once hidden', () => {
+    renderPanel()
+    const label = within(screen.getByTestId('resume-layout-section-summary')).getByText('Про себе')
+    expect(label.className).toContain('text-sm')
+    expect(label.className).not.toContain('line-through')
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(label.className).toContain('line-through')
+  })
+
+  it('the toggle button says "Приховати «label»" while visible, "Показати «label»" once hidden — aria-label AND title', () => {
+    renderPanel()
+    const toggle = screen.getByTestId('resume-layout-toggle-summary')
+    expect(toggle).toHaveAttribute('aria-label', 'Приховати «Про себе»')
+    expect(toggle).toHaveAttribute('title', 'Приховати «Про себе»')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-label', 'Показати «Про себе»')
+    expect(toggle).toHaveAttribute('title', 'Показати «Про себе»')
+  })
+
+  it('the up/down buttons name the section they move, in both aria-label and title', () => {
+    // "skills" (index 1) rather than an end-of-list section, so both buttons
+    // are actually enabled/reachable in the default order.
+    renderPanel()
+    const up = screen.getByTestId('resume-layout-up-skills')
+    expect(up).toHaveAttribute('aria-label', 'Перемістити «Навички» вгору')
+    expect(up).toHaveAttribute('title', 'Перемістити «Навички» вгору')
+    const down = screen.getByTestId('resume-layout-down-skills')
+    expect(down).toHaveAttribute('aria-label', 'Перемістити «Навички» вниз')
+    expect(down).toHaveAttribute('title', 'Перемістити «Навички» вниз')
+  })
+})
+
+describe('density and font-scale toggles: radiogroup name and exact option labels', () => {
+  it('density: aria-label on the group, "Щільно"/"Стандартно"/"Вільно" on the options', () => {
+    renderPanel()
+    const group = screen.getByRole('radiogroup', { name: 'Щільність верстки' })
+    expect(within(group).getByText('Щільно')).toBeInTheDocument()
+    expect(within(group).getByText('Стандартно')).toBeInTheDocument()
+    expect(within(group).getByText('Вільно')).toBeInTheDocument()
+  })
+
+  it('font scale: aria-label on the group, "Дрібний"/"Звичайний"/"Великий" on the options', () => {
+    renderPanel()
+    const group = screen.getByRole('radiogroup', { name: 'Розмір шрифту' })
+    expect(within(group).getByText('Дрібний')).toBeInTheDocument()
+    expect(within(group).getByText('Звичайний')).toBeInTheDocument()
+    expect(within(group).getByText('Великий')).toBeInTheDocument()
+  })
+})
+
+describe('save button text follows isSaving, exactly', () => {
+  it('reads "Застосувати" once something is dirty and not saving', () => {
+    renderPanel()
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Застосувати')
+  })
+
+  it('reads "Зберігаємо…" while isSaving is true', () => {
+    render(
+      <ResumeLayoutPanel
+        layout={DEFAULT_RESUME_LAYOUT}
+        canEdit={true}
+        isSaving={true}
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Зберігаємо…')
+    expect(screen.getByTestId('resume-layout-save')).not.toHaveTextContent('Застосувати')
+  })
+})
+
 // ---------------------------------------------------------------------------
 
 function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
