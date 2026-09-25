@@ -3482,6 +3482,33 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     )
   })
 
+  it('COPY-M-6: a cascade where a DERIVED row also failed is MANUAL_CHECK, even if this row could be repaired', async () => {
+    // «Save it again» only ever re-issues the EDITED row's invoice. With a
+    // derived row broken too, following that advice would answer «Зміни
+    // збережено» while the derived invoice stays out of step — the false
+    // confirmation COPY-M-6 is about. One failure outside this row is enough.
+    const derivatives = [pendingDerivativeRow()]
+    const obligations = [obligationRow()]
+    const { db } = makeDouble({ derivatives, obligations })
+    const invoicesService = makeInvoicesSpy()
+    Object.assign(invoicesService, {
+      // Both the source and the derivative fail to re-issue.
+      voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue('REISSUE_FAILED'),
+      // …and this row on its own WOULD be repairable, so the verdict cannot
+      // come from that answer alone.
+      canRepairSalaryInvoice: vi.fn().mockResolvedValue(true),
+    })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const version = computeCascadeVersion(snapshotFrom({ derivatives, obligations }))
+    const result = await svc.adminUpdateTransaction(
+      SOURCE_ID,
+      { amount: 2000, cascadeVersion: version },
+      ADMIN,
+    )
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'MANUAL_CHECK' })
+  })
+
   it('a non-salary save never asks for a salary invoice repair', async () => {
     const { db } = makeDouble()
     const invoicesService = makeInvoicesSpy()

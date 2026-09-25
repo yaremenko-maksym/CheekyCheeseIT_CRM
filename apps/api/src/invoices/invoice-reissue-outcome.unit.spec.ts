@@ -353,3 +353,61 @@ describe('reissueSalaryInvoiceIfVoided — the VOID stage (SR-M-3)', () => {
     expect(voidCall).not.toHaveBeenCalled()
   })
 })
+
+/**
+ * COPY-M-6 — `canRepairSalaryInvoice` only ever picks a MESSAGE, so what it
+ * must never do is answer «yes» where the repair would return `NOT_NEEDED`.
+ * Same predicates as the repair itself, asked without doing anything.
+ */
+describe('canRepairSalaryInvoice — may a re-save fix this row?', () => {
+  it('yes for a document still confirming a stale figure (the VOID stage)', async () => {
+    const { svc, voidCall, reissue } = makeRepairService([VOID_STAGE])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(true)
+    // It answers a question; it must not act on it.
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('yes for a salary whose invoice was voided and never replaced (the REISSUE stage)', async () => {
+    const { svc } = makeRepairService([
+      {
+        ...VOID_STAGE,
+        invoiceDocumentId: null,
+        hasVoidedInvoice: true,
+        signedAmountSnapshot: null,
+      },
+    ])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(true)
+  })
+
+  it('no when the signed figure and the row agree — nothing is out of step', async () => {
+    const { svc } = makeRepairService([{ ...VOID_STAGE, signedAmountSnapshot: '48867.000000' }])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+
+  it('no for a salary that never had an invoice at all', async () => {
+    const { svc } = makeRepairService([
+      {
+        ...VOID_STAGE,
+        invoiceDocumentId: null,
+        hasVoidedInvoice: false,
+        signedAmountSnapshot: null,
+      },
+    ])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+
+  it.each<[string, Partial<RepairState>]>([
+    ['it is not a salary', { type: 'SENIOR_INCOME' }],
+    ['it is not paid', { status: 'PENDING' }],
+    ['it is linked to a payout', { payoutRequestId: 'pr' }],
+  ])('no when %s', async (_label, patch) => {
+    const { svc } = makeRepairService([{ ...VOID_STAGE, ...patch }])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+
+  it('no for a row that vanished', async () => {
+    const { svc } = makeRepairService([null])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+})
