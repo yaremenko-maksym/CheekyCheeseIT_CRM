@@ -128,6 +128,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                     `inline-block`) so the box actually inherits the card's
                     width constraint and has something to scroll AGAINST. */}
                 <div
+                  data-testid="payment-method-tabs-scroll"
                   className={cn(
                     'w-full overflow-x-auto',
                     '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
@@ -144,6 +145,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
             </Tooltip>
           ) : (
             <div
+              data-testid="payment-method-tabs-scroll"
               className={cn(
                 'w-full overflow-x-auto',
                 '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',

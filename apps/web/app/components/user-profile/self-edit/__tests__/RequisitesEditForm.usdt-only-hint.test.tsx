@@ -54,12 +54,27 @@ describe('RequisitesEditForm — USDT_ONLY_HINT on the disabled Bank tab', () =>
     // B: `label: t\`ФОП (UAH)\`` -> `t\`\`` survived against exactly this
     // test file before this assertion existed).
     expect(bankTab).toHaveTextContent('ФОП (UAH)')
+    // UX-H-1 (design review, PR #717 fix-round C, mutation-gate round 2):
+    // the `overflow-x-auto` wrapper around the Tooltip-wrapped (usdt-only)
+    // branch — `cn(...)` string literals emptied to `""` survived, since no
+    // test checked the wrapper's actual class list (only that the tab
+    // itself is visible/clickable, which jsdom's layout-less DOM cannot
+    // distinguish from an overflowing one anyway).
+    const usdtOnlyWrapper = screen.getByTestId('payment-method-tabs-scroll')
+    expect(usdtOnlyWrapper.className).toContain('w-full')
+    expect(usdtOnlyWrapper.className).toMatch(/scrollbar-width:none/)
   })
 
   it('JUNIOR: the Bank UAH tab is enabled and carries no title', () => {
     render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
     const bankTab = screen.getByLabelText('ФОП (UAH)')
     expect(bankTab).not.toHaveAttribute('title')
+    // Same UX-H-1 wrapper, the OTHER (non-Tooltip, normal) branch — a
+    // separate JSX literal in the source, and a separate pair of
+    // mutation-gate survivors.
+    const normalWrapper = screen.getByTestId('payment-method-tabs-scroll')
+    expect(normalWrapper.className).toContain('w-full')
+    expect(normalWrapper.className).toMatch(/scrollbar-width:none/)
   })
 })
 
