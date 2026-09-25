@@ -140,7 +140,7 @@ export function ArchiveUserConfirmDialog({
   // plain statement is. `user` is provably non-null whenever this renders:
   // `Dialog` is `open={!!user}` and Radix does not mount this subtree while
   // closed — see "renders nothing (no dialog) when user is null" below.
-  // Stryker disable next-line OptionalChaining,LogicalOperator: see comment above — `?.`/`??` cannot observably differ from `.`/no-fallback here
+  // Stryker disable next-line OptionalChaining,LogicalOperator,StringLiteral: see comment above — `?.`/`??` cannot observably differ from `.`/no-fallback here, and the `''` fallback's own content is unreachable for the same reason (CI Mutation Gate: survived StringLiteral on the `''` literal, "Stryker was here!")
   const archiveDescription = t`${user?.displayName ?? ''} більше не зможе увійти в CRM. Профіль можна відновити з архіву.`
 
   return (

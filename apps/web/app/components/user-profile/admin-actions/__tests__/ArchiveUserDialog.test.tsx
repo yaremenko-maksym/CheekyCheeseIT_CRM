@@ -112,6 +112,24 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     expect(screen.getByTestId('archive-confirm-submit')).toBeInTheDocument()
   })
 
+  it('COPY-L-10: the sr-only accessible description names the user being archived', async () => {
+    // CI Mutation Gate (@crm/web) survivor, PR #718 round D (COPY-L-10):
+    // this description reuses the same consequence msgid round C added to
+    // components/users/ArchiveUserConfirmDialog.tsx, but Stryker instruments
+    // each source occurrence separately — that file's own test does not
+    // cover this one.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ displayName: 'Oleksiy Kovalenko' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        'Oleksiy Kovalenko більше не зможе увійти в CRM. Профіль можна відновити з архіву.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('fetches the archive-impact for THIS user (not an empty/mistyped entity type)', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { type: 'user', role: 'ADMIN', noDependencies: true },
