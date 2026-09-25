@@ -6,7 +6,14 @@
  * reaches the server as a distinct, validated change, and that nothing here
  * offers a way to edit the template itself.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -14,7 +21,15 @@ import {
   type ResumeLayoutOptions,
   type SeniorResumeDto,
 } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ResumeLayoutPanel, moveSection } from '../ResumeLayoutPanel'
+
+// task-i18n-stage3b-pr3 (Step 4): both `ResumeLayoutPanel` and
+// `ResumePdfPreview` now call `useLingui()` — every render needs the active
+// catalog, same pattern as `UserDialog.create-wizard.test.tsx`.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 /**
  * The blob hook is stubbed rather than the network: it owns `createObjectURL`,
@@ -32,8 +47,9 @@ vi.mock('@/hooks/use-senior-resume', async (importOriginal) => ({
   useResumePdfBlob: () => blobState,
 }))
 
-beforeEach(() => {
+beforeEach(async () => {
   blobState = { blobUrl: 'blob:http://localhost/resume-pdf', isLoading: false, hasError: false }
+  await loadCatalog('uk')
 })
 
 const { ResumePdfPreview } = await import('../ResumePdfPreview')
