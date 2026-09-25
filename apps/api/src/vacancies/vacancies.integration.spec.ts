@@ -1510,7 +1510,14 @@ describe.skipIf(!hasDatabaseUrl())('Vacancies — real backend integration', () 
         (n) => n.userId === HR.id && n.link === `/vacancies/${vacancyId}`,
       )
       expect(hrNotif).toBeDefined()
-      expect(hrNotif!.title).toContain('Ivan Petrenko')
+      // task-i18n-stage4-task6, Step 5: title больше не несёт candidate name +
+      // vacancy title interpolated — заголовок нейтральный
+      // (`NOTIFICATION_TITLES.VACANCY_APPLICATION`), vacancy title едет в
+      // структурированный `data` (candidate name вообще не покидает этот
+      // producer — §10).
+      expect(hrNotif!.title).toBe('Новий відгук на вакансію')
+      expect(hrNotif!.title).not.toContain('Ivan Petrenko')
+      expect((hrNotif!.data as { vacancyTitle: string }).vacancyTitle).toBe('Apply Happy Path Role')
     })
   })
 

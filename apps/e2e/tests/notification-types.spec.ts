@@ -144,14 +144,17 @@ test.describe('N1–N3 — попап выводит строку по типу'
     await asAdmin.goto('/')
     await openBell(asAdmin)
 
+    // SR-H-1 (fix-раунд 1, PR #714): canon uk-текст из `NOTIFICATION_TITLE_
+    // MESSAGES`/`DETAIL_MESSAGES`/`ACTION_LABELS` (`notification-registry.ts`)
+    // — не легаси-русский. COPY-L-2: «чекає», не «очікує».
     await expect(asAdmin.getByTestId(`notification-item-${KNOWN_ID}-title`)).toHaveText(
-      'Проект ждёт решения',
+      'Проєкт чекає рішення',
     )
     await expect(asAdmin.getByTestId(`notification-item-${KNOWN_ID}-detail`)).toHaveText(
-      'Проект Acme',
+      'Проєкт Acme',
     )
     await expect(asAdmin.getByTestId(`notification-item-${KNOWN_ID}-action`)).toHaveText(
-      'Открыть проект',
+      'Відкрити проєкт',
     )
     // Сохранённый заголовок не показан — именно это и означает «подписи
     // выводит клиент», а не «читает из базы».
@@ -175,9 +178,10 @@ test.describe('N1–N3 — попап выводит строку по типу'
     await openBell(asAdmin)
 
     // Строка на месте, показана сохранённым заголовком, а список цел.
+    // SR-H-1: canon uk `MISC_MESSAGES.open`.
     await expect(asAdmin.getByTestId(`notification-item-${UNKNOWN_ID}-title`)).toBeVisible()
     await expect(asAdmin.getByTestId(`notification-item-${UNKNOWN_ID}-action`)).toHaveText(
-      'Открыть',
+      'Відкрити',
     )
     await expect(asAdmin.getByTestId('notifications-list')).toBeVisible()
   })
@@ -187,10 +191,11 @@ test.describe('N1–N3 — попап выводит строку по типу'
     await asAdmin.goto('/')
     await openBell(asAdmin)
 
-    // COPY-M-4: MISSING_ID — TEAM_NEW_MEMBER/subjectType TEAM → «Команда
-    // удалена», не общее «Объекта больше нет».
+    // COPY-M-4: MISSING_ID — TEAM_NEW_MEMBER/subjectType TEAM → «Команду
+    // видалено», не общее «Цього більше немає в CRM». SR-H-1: canon uk
+    // `SUBJECT_MISSING_LABELS.TEAM`.
     await expect(asAdmin.getByTestId(`notification-item-${MISSING_ID}-action`)).toHaveText(
-      'Команда удалена',
+      'Команду видалено',
     )
     await asAdmin.getByTestId(`notification-item-${MISSING_ID}-open`).click()
     // Остались там же, где были: белого экрана и 404 не случилось.
@@ -233,10 +238,11 @@ test.describe('N5 — архив и причина отказа (круг 2: QA-
     await asAdmin.goto('/')
     await openBell(asAdmin)
 
-    // QA-M-3: архив — не удаление. «Проект удалён» на архивном проекте было
-    // бы второй ложью после активной кнопки.
+    // QA-M-3: архив — не удаление. «Проєкт видалено» на архивном проекте было
+    // бы второй ложью после активной кнопки. SR-H-1: canon uk
+    // `SUBJECT_ARCHIVED_LABELS.PROJECT`.
     await expect(asAdmin.getByTestId(`notification-item-${ARCHIVED_ID}-action`)).toHaveText(
-      'Проект в архиве',
+      'Проєкт в архіві',
     )
     await asAdmin.getByTestId(`notification-item-${ARCHIVED_ID}-open`).click()
     await expect(asAdmin).toHaveURL(/\/$/)

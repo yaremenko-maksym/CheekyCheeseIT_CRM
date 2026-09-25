@@ -827,13 +827,18 @@ describe('NotificationsService', () => {
       })
     })
 
-    it('данные старого типа никакой формой не проверяются — три старых типа не сломаны', async () => {
+    it('данные типа вне реестра никакой формой не проверяются', async () => {
+      // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED` здесь раньше был
+      // примером «старого типа» — реестр его теперь регистрирует
+      // (`NEW_NOTIFICATION_TYPES`) и данные ЭТОГО типа проверяются формой,
+      // так что для смысла теста («тип вне реестра — данные не проверяются
+      // никак») нужен тип, которого реестр действительно не знает.
       const h = makeHarness()
       const svc = new NotificationsService(h.db, h.telemetry)
       const created = await svc.create({
         userId: 'u-1',
-        type: 'INVOICE_SIGN_REQUIRED',
-        title: 'Инвойс ожидает вашей подписи',
+        type: 'SOME_TYPE_OUTSIDE_THE_REGISTRY' as never,
+        title: 'Тип вне реестра',
         link: '/documents?category=INVOICE',
         data: { whatever: true },
       })

@@ -2,8 +2,13 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { renderNotification } from '@crm/shared'
+import { createI18n, renderNotification } from '@crm/shared'
 import type { RenderableNotification } from '@crm/shared'
+
+// SR-H-1 (fix-раунд 1, PR #714): `renderNotification` теперь принимает
+// построенный `I18n`, а не `locale` — построен один раз здесь (тот же приём,
+// что `UK` в `notification-registry.spec.ts`).
+const UK = createI18n('uk')
 
 import { NotificationsService } from './notifications.service'
 import { ApprovalsService } from '../approvals/approvals.service'
@@ -319,7 +324,7 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const before = await service.listForUser(SENIOR_ID, { limit: 10 })
       const liveItem = before.items.find((n) => n.type === 'PROJECT_CONFIRM_REQUIRED')
       expect(liveItem?.subjectMissing).toBe(false)
-      expect(renderNotification(liveItem as RenderableNotification).actions[0]).toMatchObject({
+      expect(renderNotification(liveItem as RenderableNotification, UK).actions[0]).toMatchObject({
         href: `/projects/${DOOMED_PROJECT_ID}`,
         disabled: false,
       })
@@ -331,8 +336,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       // Сама запись НЕ исчезает — исчезает только её кнопка.
       expect(deadItem).toBeDefined()
       expect(deadItem?.subjectMissing).toBe(true)
-      expect(renderNotification(deadItem as RenderableNotification).actions).toEqual([
-        { label: 'Проект удалён', href: null, disabled: true },
+      expect(renderNotification(deadItem as RenderableNotification, UK).actions).toEqual([
+        { label: 'Проєкт видалено', href: null, disabled: true },
       ])
     })
 
@@ -390,10 +395,10 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(item?.subjectMissing).toBe(false)
       expect(item?.approvalSuperseded).toBe(true)
       expect(item?.approvalDecided).toBe(false)
-      expect(renderNotification(item as RenderableNotification).actions).toEqual([
+      expect(renderNotification(item as RenderableNotification, UK).actions).toEqual([
         // COPY-M-9 (copy-review круг 3): не «Предложение отозвано» — отзыв лишь
         // один из четырёх путей в это состояние.
-        { label: 'Решение больше не требуется', href: null, disabled: true },
+        { label: 'Рішення більше не потрібне', href: null, disabled: true },
       ])
 
       // Без per-test wipe в этом файле (только `beforeAll`/`afterAll`) —
@@ -454,8 +459,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(item?.subjectMissing).toBe(false)
       expect(item?.approvalSuperseded).toBe(false)
       expect(item?.approvalDecided).toBe(true)
-      expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Решение уже принято', href: null, disabled: true },
+      expect(renderNotification(item as RenderableNotification, UK).actions).toEqual([
+        { label: 'Рішення вже прийнято', href: null, disabled: true },
       ])
 
       await db
@@ -531,15 +536,15 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       expect(stale?.subjectMissing).toBe(false)
       expect(stale?.approvalDecided).toBe(false)
       expect(stale?.approvalSuperseded).toBe(true)
-      expect(renderNotification(stale as RenderableNotification).actions).toEqual([
-        { label: 'Решение больше не требуется', href: null, disabled: true },
+      expect(renderNotification(stale as RenderableNotification, UK).actions).toEqual([
+        { label: 'Рішення більше не потрібне', href: null, disabled: true },
       ])
 
       // Новое: живое, кнопка ведёт в профиль, где предложение и лежит.
       expect(fresh?.approvalSuperseded).toBe(false)
       expect(fresh?.approvalDecided).toBe(false)
-      expect(renderNotification(fresh as RenderableNotification).actions).toEqual([
-        { label: 'Открыть предложение', href: `/profile/${SENIOR_ID}`, disabled: false },
+      expect(renderNotification(fresh as RenderableNotification, UK).actions).toEqual([
+        { label: 'Відкрити пропозицію', href: `/profile/${SENIOR_ID}`, disabled: false },
       ])
 
       await db
@@ -584,8 +589,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const beforeSigning = await service.listForUser(NEWCOMER_ID, { limit: 10 })
       const pending = beforeSigning.items.find((n) => n.type === 'DOCUMENT_SIGN_REQUIRED')
       expect(pending?.subjectMissing).toBe(false)
-      expect(renderNotification(pending as RenderableNotification).actions).toEqual([
-        { label: 'Подписать контракт', href: '/onboarding', disabled: false },
+      expect(renderNotification(pending as RenderableNotification, UK).actions).toEqual([
+        { label: 'Підписати контракт', href: '/onboarding', disabled: false },
       ])
 
       // Реальный переход READY_TO_SIGN → SIGNED — то же, что делает
@@ -605,8 +610,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       // её кнопка, как и у остальных девяти типов.
       expect(signed).toBeDefined()
       expect(signed?.subjectMissing).toBe(true)
-      expect(renderNotification(signed as RenderableNotification).actions).toEqual([
-        { label: 'Подпись больше не требуется', href: null, disabled: true },
+      expect(renderNotification(signed as RenderableNotification, UK).actions).toEqual([
+        { label: 'Підпис більше не потрібен', href: null, disabled: true },
       ])
 
       // Подчистить за собой: следующий прогон этого же файла не должен
@@ -652,8 +657,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const beforeArchive = await service.listForUser(NEWCOMER_ID, { limit: 10 })
       const live = beforeArchive.items.find((n) => n.subjectId === ARCHIVED_PROJECT_ID)
       expect([live?.subjectMissing, live?.subjectArchived]).toEqual([false, false])
-      expect(renderNotification(live as RenderableNotification).actions).toEqual([
-        { label: 'Открыть проект', href: `/projects/${ARCHIVED_PROJECT_ID}`, disabled: false },
+      expect(renderNotification(live as RenderableNotification, UK).actions).toEqual([
+        { label: 'Відкрити проєкт', href: `/projects/${ARCHIVED_PROJECT_ID}`, disabled: false },
       ])
 
       // Ровно то, что делает `DELETE /api/projects/:id` — строка остаётся,
@@ -670,8 +675,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       // Не «удалён»: проект цел и виден в архиве — вторая ложь была бы не
       // лучше первой.
       expect(archived?.subjectMissing).toBe(false)
-      expect(renderNotification(archived as RenderableNotification).actions).toEqual([
-        { label: 'Проект в архиве', href: null, disabled: true },
+      expect(renderNotification(archived as RenderableNotification, UK).actions).toEqual([
+        { label: 'Проєкт в архіві', href: null, disabled: true },
       ])
 
       // Находка задевает не один тип, а всю семью с этим видом объекта.
@@ -681,11 +686,14 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
         'APPROVAL_CONFIRMED',
         'APPROVAL_REJECTED',
       ] as const) {
-        const rendered = renderNotification({
-          ...(archived as RenderableNotification),
-          type,
-        })
-        expect(rendered.actions).toEqual([{ label: 'Проект в архиве', href: null, disabled: true }])
+        const rendered = renderNotification(
+          {
+            ...(archived as RenderableNotification),
+            type,
+          },
+          UK,
+        )
+        expect(rendered.actions).toEqual([{ label: 'Проєкт в архіві', href: null, disabled: true }])
       }
 
       await db.delete(notifications).where(eq(notifications.subjectId, ARCHIVED_PROJECT_ID))
@@ -709,8 +717,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const list = await service.listForUser(NEWCOMER_ID, { limit: 10 })
       const item = list.items.find((n) => n.subjectId === ARCHIVED_TEAM_ID)
       expect([item?.subjectMissing, item?.subjectArchived]).toEqual([false, true])
-      expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Команда в архиве', href: null, disabled: true },
+      expect(renderNotification(item as RenderableNotification, UK).actions).toEqual([
+        { label: 'Команда в архіві', href: null, disabled: true },
       ])
 
       await db.delete(notifications).where(eq(notifications.subjectId, ARCHIVED_TEAM_ID))
@@ -733,8 +741,8 @@ describe.skipIf(!hasDatabaseUrl())('уведомления на живой ба�
       const list = await service.listForUser(ADMIN_ID, { limit: 10 })
       const item = list.items.find((n) => n.subjectId === DROP_ID)
       expect([item?.subjectMissing, item?.subjectArchived]).toEqual([false, true])
-      expect(renderNotification(item as RenderableNotification).actions).toEqual([
-        { label: 'Профиль в архиве', href: null, disabled: true },
+      expect(renderNotification(item as RenderableNotification, UK).actions).toEqual([
+        { label: 'Профіль в архіві', href: null, disabled: true },
       ])
 
       await db.update(users).set({ archivedAt: null }).where(eq(users.id, DROP_ID))
