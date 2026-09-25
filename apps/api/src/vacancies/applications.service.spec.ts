@@ -568,11 +568,19 @@ describe('ApplicationsService.apply()', () => {
     })
   })
 
-  it('happy path: notification title includes candidate name and vacancy title, never the raw email', async () => {
+  // task-i18n-stage4-task6, Step 5: title больше не несёт candidate name +
+  // vacancy title interpolated — заголовок нейтральный
+  // (`NOTIFICATION_TITLES.VACANCY_APPLICATION`), vacancy title едет в
+  // структурированный `data` (§10: candidate name вообще не покидает этот
+  // producer — админ видит его, открыв заявку в CRM).
+  it('happy path: title нейтральный, название вакансии — в data, ничего не выдаёт email', async () => {
     await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
-    const [call] = h.notifications.create.mock.calls as [{ title: string }][]
-    expect(call[0].title).toContain('Ivan Petrenko')
-    expect(call[0].title).toContain('Senior Frontend Engineer')
+    const [call] = h.notifications.create.mock.calls as [
+      { title: string; data: { vacancyTitle: string } },
+    ][]
+    expect(call[0].title).toBe('Новий відгук на вакансію')
+    expect(call[0].title).not.toContain('Ivan Petrenko')
+    expect(call[0].data.vacancyTitle).toBe('Senior Frontend Engineer')
     expect(call[0].title).not.toContain(VALID_FIELDS.email)
   })
 

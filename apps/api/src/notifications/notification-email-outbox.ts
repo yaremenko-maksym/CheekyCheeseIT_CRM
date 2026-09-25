@@ -22,11 +22,47 @@ import {
   isActionRequiredNotificationType,
   isEmailChannelLocked,
   isNewNotificationType,
+  type NewNotificationType,
 } from '@crm/shared'
 import type { SubjectResolution } from './notification-subject-resolver'
 
 /** Потолок попыток. Шестой не будет — строка уходит в `FAILED`. */
 export const MAX_EMAIL_ATTEMPTS = 5
+
+/**
+ * SR-M-1 / CR-M-1 (security-review + code-review круг 1, PR #714). Три
+ * замороженных типа (task-i18n-stage4-task6) попали в `NEW_NOTIFICATION_TYPES`
+ * этим самым PR — и `isNewNotificationType()` ниже, до этого исключения, молча
+ * включала им письма: `INVOICE_SIGN_REQUIRED` контрагенту, `INVOICE_SIGNED`
+ * админу, `VACANCY_APPLICATION` каждому ADMIN/HR (последнее — с анонимной
+ * публичной формы). Регистрация типа в реестре уведомлений и включение НОВОГО
+ * ВНЕШНЕГО канала отправки (письмо на личную почту) — разные решения
+ * (`autonomy-levels.md`: внешняя отправка вне A1); тексты писем для этих трёх
+ * типов и не прошли copy-review как письма (`notification-email-copy.ts`
+ * даёт им только заглушки на украинском, Task 7 их мигрирует).
+ *
+ * Поведение писем в ЭТОМ PR — ровно как на `origin/main`, где этих трёх типов
+ * не существовало: явный список здесь отвязывает «есть письмо» от
+ * `isNewNotificationType()`, а не полагается на побочный эффект регистрации.
+ */
+const NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE = new Set<NewNotificationType>([
+  'INVOICE_SIGNED',
+  'INVOICE_SIGN_REQUIRED',
+  'VACANCY_APPLICATION',
+])
+
+/**
+ * «У типа есть шаблон письма» — старый тип (до реестра) тоже не имеет.
+ *
+ * Типовой предикат (`type is NewNotificationType`), не просто `boolean`:
+ * `decideDelivery` ниже сужает `type` этим вызовом и передаёт его дальше в
+ * `isEmailChannelLocked(type: NewNotificationType)` — обычный `boolean` не
+ * сужал бы тип, и звонок ниже перестал бы компилироваться (тот же узкий
+ * контракт, что раньше держал `isNewNotificationType` в одиночку).
+ */
+function hasEmailTemplate(type: string): type is NewNotificationType {
+  return isNewNotificationType(type) && !NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE.has(type)
+}
 
 /**
  * Почему письма не будет. Отличает «не смогли отправить» (`FAILED`) от «не
@@ -85,11 +121,13 @@ export type EnqueueDecision =
  * заголовок файла.
  */
 export function decideEnqueue(type: string, recipientArchived: boolean): EnqueueDecision {
-  // Порядок причин: у типа, писем не имеющего ВОВСЕ (три старых — инвойсы,
-  // вакансии), вопрос «кто получатель» не встаёт. Ни шаблона, ни настройки у
-  // него нет, и след «письма этому типу не положены» точнее, чем след про
-  // состояние человека.
-  if (!isNewNotificationType(type)) return { status: 'SKIPPED', skipReason: 'LEGACY_TYPE' }
+  // Порядок причин: у типа, писем не имеющего ВОВСЕ (легаси-типы до реестра,
+  // и — SR-M-1/CR-M-1, PR #714 — три замороженных типа этого PR, у которых
+  // ЕСТЬ шаблон текста в попапе, но ещё нет утверждённого шаблона ПИСЬМА, см.
+  // `hasEmailTemplate` выше), вопрос «кто получатель» не встаёт. Ни шаблона,
+  // ни настройки у него нет, и след «письма этому типу не положены» точнее,
+  // чем след про состояние человека.
+  if (!hasEmailTemplate(type)) return { status: 'SKIPPED', skipReason: 'LEGACY_TYPE' }
   if (recipientArchived) return { status: 'SKIPPED', skipReason: 'USER_ARCHIVED' }
   return { status: 'QUEUED' }
 }
@@ -155,7 +193,9 @@ export type SendDecision = { send: true; to: string } | { send: false; skipReaso
  */
 export function decideDelivery(type: string, ctx: DeliveryContext): SendDecision {
   if (ctx.archived) return { send: false, skipReason: 'USER_ARCHIVED' }
-  if (!isNewNotificationType(type)) return { send: false, skipReason: 'LEGACY_TYPE' }
+  // SR-M-1/CR-M-1 (PR #714): same `hasEmailTemplate` gate as `decideEnqueue` —
+  // see its doc comment above `NOTIFICATION_TYPES_WITHOUT_EMAIL_TEMPLATE`.
+  if (!hasEmailTemplate(type)) return { send: false, skipReason: 'LEGACY_TYPE' }
   if (isActionRequiredNotificationType(type)) {
     // SR-L-1 (PR #678, круг 2): для action-required типа `subjectState`
     // ОБЯЗАН прийти определённым — единственный вызывающий, умеющий его не

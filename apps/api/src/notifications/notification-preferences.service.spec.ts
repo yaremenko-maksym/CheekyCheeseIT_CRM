@@ -83,7 +83,7 @@ function makeService(seed: { userId: string; type: string; emailEnabled: boolean
 }
 
 describe('чтение настроек', () => {
-  it('отдаёт все десять типов, даже когда в базе пусто', async () => {
+  it('отдаёт все типы (NEW_NOTIFICATION_TYPES), даже когда в базе пусто', async () => {
     const { service } = makeService()
     const result = await service.listForUser('u-1')
 

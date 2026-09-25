@@ -69,6 +69,18 @@ const DATA: Record<NewNotificationType, unknown> = {
     subjectTitle: PROJECT,
     reasonPreview: 'мало',
   },
+  // task-i18n-stage4-task6: три замороженных типа, теперь в NEW_NOTIFICATION_
+  // TYPES — BODIES для них (notification-email-copy.ts) пока минимальные
+  // Ukrainian-заглушки (Track D / Task 7 пишет их по-настоящему); здесь
+  // проверяется только то, что §11's инварианты не нарушены на них тоже.
+  // COPY-M-4 (copy-review круг 1, PR #714): `dataSchemas.INVOICE_SIGNED` now
+  // also requires `...moneyFields` — without them `notificationDataSchemaFor(
+  // 'INVOICE_SIGNED').safeParse(...)` fails in `composeBody`, and this
+  // fixture would exercise the "data didn't parse" fallback branch instead
+  // of `BODIES.INVOICE_SIGNED`.
+  INVOICE_SIGNED: { counterpartyName: PERSON, amount: '1500.000000', currency: 'USDT' },
+  INVOICE_SIGN_REQUIRED: { amount: '1500.000000', currency: 'USDT' },
+  VACANCY_APPLICATION: { vacancyTitle: 'Senior Frontend Engineer' },
 }
 
 const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subjectType']> = {
@@ -82,18 +94,36 @@ const SUBJECT_TYPE: Record<NewNotificationType, NotificationEmailSource['subject
   DOCUMENT_SIGN_REQUIRED: 'EMPLOYEE_CONTRACT',
   APPROVAL_CONFIRMED: 'PROJECT',
   APPROVAL_REJECTED: 'PROJECT',
+  // task-i18n-stage4-task6: реальные производители (invoices.service.ts,
+  // applications.service.ts) не задают `subjectType`/`subjectId` для этих
+  // трёх типов — кнопка идёт по сохранённой `link`, как и раньше.
+  INVOICE_SIGNED: null,
+  INVOICE_SIGN_REQUIRED: null,
+  VACANCY_APPLICATION: null,
 }
 
 const SUBJECT_ID = '33333333-3333-4333-8333-333333333333'
+
+/**
+ * Ссылка, которую реально кладут производители трёх замороженных типов —
+ * без `&`, чтобы не путать этот тест с HTML-экранированием (`mail.html`
+ * несёт `&amp;`, а `mail.buttonHref` — нет; отдельный вопрос, не предмет
+ * этой задачи).
+ */
+const LINK: Partial<Record<NewNotificationType, string>> = {
+  INVOICE_SIGNED: '/documents/tx-1',
+  INVOICE_SIGN_REQUIRED: '/documents/tx-1',
+  VACANCY_APPLICATION: '/vacancies/vac-1',
+}
 
 function sourceFor(type: NewNotificationType): NotificationEmailSource {
   return {
     type,
     title: NOTIFICATION_TITLES[type],
     body: null,
-    link: null,
+    link: LINK[type] ?? null,
     subjectType: SUBJECT_TYPE[type],
-    subjectId: SUBJECT_ID,
+    subjectId: SUBJECT_TYPE[type] === null ? null : SUBJECT_ID,
     data: DATA[type],
   }
 }
@@ -181,6 +211,14 @@ describe('десять писем — страж §11', () => {
  * реализация: иначе проверка была бы тавтологией и прошла бы по построению.
  * Правка формулировки обязана падать здесь — это не хрупкость, а гейт на
  * текст, который читает `copy-reviewer`.
+ *
+ * CR-M-1 (code-review круг 1, PR #714): кнопка для НЕ-action-required типов
+ * идёт через `emailAction()`/`EMAIL_ACTION_LABELS` — ЗАМОРОЖЕННЫЙ русский
+ * текст `origin/main`, не украинский канон попапа. Круг 1 звал
+ * `notificationActions(..., DEFAULT_LOCALE)` и получал украинскую подпись
+ * («Відкрити …») при русских теме/теле — этот PR возвращает поведение писем
+ * к `origin/main` целиком (тема/тело/кнопка — все три русские), до Task 7
+ * (локаль получателя).
  */
 const GOLDEN: Record<NewNotificationType, { subject: string; text: string; button: string }> = {
   TRANSACTION_ADDED: {
@@ -235,6 +273,33 @@ const GOLDEN: Record<NewNotificationType, { subject: string; text: string; butto
     subject: 'Ваше предложение отклонено',
     text: 'Сотрудник отказался от смены доли по проекту «Мобильный банк».\nПричина — в CRM.',
     button: 'Открыть проект',
+  },
+  // task-i18n-stage4-task6: минимальные BODIES-заглушки (Task 7 пишет их
+  // по-настоящему) — subjectType/subjectId не заданы (реальные производители
+  // их тоже не задают), кнопка идёт по сохранённой `link`, подпись — общее
+  // замороженное «Открыть» (CR-M-1, `emailAction()`'s fallback для типа без
+  // записи в `EMAIL_ACTION_LABELS`, то же поведение, что `origin/main` давал
+  // ЛЮБОМУ незарегистрированному типу). SR-M-1/CR-M-1: почта для этих трёх
+  // типов вообще не уходит (`notification-email-outbox.spec.ts`) — этот
+  // прогон существует только чтобы `renderNotificationEmail()` не падал,
+  // если её всё же позвать напрямую.
+  INVOICE_SIGNED: {
+    subject: 'Рахунок підписано',
+    text: 'Деталі — в CRM.',
+    button: 'Открыть',
+  },
+  INVOICE_SIGN_REQUIRED: {
+    // BODIES's own subject stub — NOT the same string as the popup's canon
+    // title (COPY-M-1 changed that one to «Рахунок на підпис»; this file's
+    // text migrates separately in Task 7, see the module doc comment).
+    subject: 'Рахунок очікує підпису',
+    text: 'Сума та деталі — в CRM.',
+    button: 'Открыть',
+  },
+  VACANCY_APPLICATION: {
+    subject: 'Новий відгук на вакансію «Senior Frontend Engineer»',
+    text: 'Деталі — в CRM.',
+    button: 'Открыть',
   },
 }
 
@@ -524,9 +589,13 @@ describe('деградация', () => {
   })
 
   it('тип, которого шаблон не знает, ведёт по сохранённой ссылке', () => {
+    // task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED` здесь раньше был
+    // примером «типа, которого шаблон не знает» — реестр его теперь
+    // регистрирует, так что пример заменён вымышленным именем; смысл теста
+    // (тип вне `NEW_NOTIFICATION_TYPES`) не завязан на конкретное имя.
     const mail = renderNotificationEmail(
       {
-        type: 'INVOICE_SIGN_REQUIRED',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Инвойс ждёт подписи',
         body: null,
         link: '/finance/invoices/abc',
@@ -555,7 +624,7 @@ describe('деградация', () => {
   it('старый тип без сохранённого тела тоже зовёт в CRM', () => {
     const mail = renderNotificationEmail(
       {
-        type: 'INVOICE_SIGNED',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Инвойс подписан',
         body: null,
         link: '/finance/invoices/abc',
@@ -571,7 +640,7 @@ describe('деградация', () => {
   it('старый тип с сохранённым телом печатает ЕГО, а не заглушку', () => {
     const mail = renderNotificationEmail(
       {
-        type: 'VACANCY_APPLICATION',
+        type: 'SOME_FUTURE_TYPE',
         title: 'Отклик на вакансию',
         body: 'Пришёл отклик на вакансию React-разработчика',
         link: '/vacancies',
@@ -602,6 +671,67 @@ describe('деградация', () => {
       { frontendUrl: FRONTEND },
     )
     expect(mail.buttonLabel).toBe('Открыть CRM')
+  })
+
+  // Гейт мутаций: `emailAction`'s `subjectType !== null && subjectId !== null`
+  // — ни один из тринадцати зарегистрированных типов не даёт ЧАСТИЧНО
+  // заполненную пару (реальные продюсеры кладут либо оба поля, либо ни
+  // одного), поэтому оба «частичных» случая нужно сконструировать вручную.
+  it('subjectType задан, subjectId — нет: кнопка падает на ссылку, не на маршрут объекта', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Заголовок',
+        body: null,
+        link: '/some/legacy/path',
+        subjectType: 'PROJECT',
+        subjectId: null,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonHref).toBe(`${FRONTEND}/some/legacy/path`)
+    expect(mail.buttonLabel).toBe('Открыть')
+  })
+
+  it('subjectId задан, subjectType — нет: кнопка падает на ссылку, не на маршрут объекта', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'PROJECT_MEMBER_ADDED',
+        title: 'Заголовок',
+        body: null,
+        link: '/some/legacy/path',
+        subjectType: null,
+        subjectId: SUBJECT_ID,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonHref).toBe(`${FRONTEND}/some/legacy/path`)
+    expect(mail.buttonLabel).toBe('Открыть')
+  })
+
+  // `emailActionLabelFor`'s собственный defensive-fallback (строка «Открыть»
+  // в конце функции) недостижим через ЛЮБОЙ из тринадцати реальных типов —
+  // все пять типов, у которых producer реально задаёт subjectType/subjectId,
+  // либо APPROVAL_*, либо есть в `EMAIL_ACTION_LABELS`. Прямой вызов через
+  // `renderNotificationEmail` с типом ВНЕ реестра, но с заполненным
+  // subjectType/subjectId — единственный способ дойти до этой ветки.
+  it('emailActionLabelFor: тип вне EMAIL_ACTION_LABELS с адресом объекта — защитное «Открыть»', () => {
+    const mail = renderNotificationEmail(
+      {
+        type: 'SOME_FUTURE_TYPE_NOT_IN_EMAIL_ACTION_LABELS',
+        title: 'Заголовок',
+        body: null,
+        link: null,
+        subjectType: 'PROJECT',
+        subjectId: SUBJECT_ID,
+        data: null,
+      },
+      { frontendUrl: FRONTEND },
+    )
+    expect(mail.buttonLabel).toBe('Открыть')
+    expect(mail.buttonHref).toBe(`${FRONTEND}/projects/${SUBJECT_ID}`)
   })
 
   it('адрес берётся из настройки, а не из константы', () => {

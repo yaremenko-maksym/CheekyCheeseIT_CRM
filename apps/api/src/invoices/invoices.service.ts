@@ -58,6 +58,10 @@ import type {
   InvoiceVerifyResponse,
   SessionUser,
 } from '@crm/shared'
+// task-i18n-stage4-task6: `NOTIFICATION_TITLES[type]` — the neutral, frozen
+// legacy title `CreateNotificationInput.title` still requires (NOT NULL
+// column) — no longer a per-call hand-written Russian string.
+import { NOTIFICATION_TITLES } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -389,11 +393,14 @@ export class InvoicesService {
       userAgent: null,
     })
 
+    // task-i18n-stage4-task6, Step 5: neutral legacy title (still required —
+    // NOT NULL column, `NotificationsService`'s doc comment), amount/currency
+    // now structured `data` instead of a hand-written Russian `body`.
     await this.notificationsService.create({
       userId: counterpartyRow.id,
       type: 'INVOICE_SIGN_REQUIRED',
-      title: 'Инвойс ожидает вашей подписи',
-      body: `Выплата синьора — сумма ${this.formatAmountForNotification(aggregatedAmount, aggregatedCurrency)}`,
+      title: NOTIFICATION_TITLES.INVOICE_SIGN_REQUIRED,
+      data: { amount: aggregatedAmount, currency: aggregatedCurrency },
       link: `/documents?category=INVOICE&openTx=${payoutTx.id}`,
     })
 
@@ -554,8 +561,8 @@ export class InvoicesService {
     await this.notificationsService.create({
       userId: counterpartyRow.id,
       type: 'INVOICE_SIGN_REQUIRED',
-      title: 'Инвойс ожидает вашей подписи',
-      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
+      title: NOTIFICATION_TITLES.INVOICE_SIGN_REQUIRED,
+      data: { amount: tx.amount, currency: tx.currency },
       link: `/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
@@ -1291,11 +1298,23 @@ export class InvoicesService {
     }
 
     // ---- Notify ADMIN ----
+    // task-i18n-stage4-task6, Step 5: counterparty name moves into `data`
+    // (§10 — the popup shows it once, via `describeNotification`; the
+    // neutral title no longer interpolates it).
+    //
+    // COPY-M-4 (copy-review круг 1, PR #714): `...moneyFields` from `txInfo`
+    // (the SAME amount/currency the re-rendered PDF and signature snapshot
+    // use, just above) — without it the admin could not tell which invoice
+    // of a multi-invoice counterparty had just been signed.
     await this.notificationsService.create({
       userId: adminId,
       type: 'INVOICE_SIGNED',
-      title: `${counterpartyRow.displayName} подписал инвойс`,
-      body: `${this.getInvoiceTypeLabel(tx.type)} — сумма ${this.formatAmountForNotification(tx.amount, tx.currency)}`,
+      title: NOTIFICATION_TITLES.INVOICE_SIGNED,
+      data: {
+        counterpartyName: counterpartyRow.displayName,
+        amount: txInfo.amount,
+        currency: txInfo.currency,
+      },
       link: `/documents?category=INVOICE&openTx=${tx.id}`,
     })
 
@@ -1651,38 +1670,6 @@ export class InvoicesService {
     }
     this.cachedAdminId = admin[0]!.id
     return this.cachedAdminId
-  }
-
-  /**
-   * Pretty label used in notifications. Mirrors the frontend
-   * `apps/web/app/lib/invoice-labels.ts` helper so the notification body the
-   * user sees in the bell dropdown matches the type badge on the matching
-   * invoice card / dialog header.
-   */
-  private getInvoiceTypeLabel(type: string): string {
-    // task-aggregate-invoice-per-payout: PAYOUT rows share the senior
-    // payout label (the invoice represents the same money flow — senior
-    // settling with the company).
-    if (type === 'SENIOR_INCOME' || type === 'PAYOUT') return 'Выплата синьора'
-    if (type === 'SALARY') return 'Зарплата'
-    return 'Инвойс'
-  }
-
-  /**
-   * Normalise a NUMERIC amount string for human-readable display in
-   * notifications: drop trailing zeros, cap at 2 decimals, ru-RU locale
-   * (thin-space thousands separator).
-   *
-   * UT round 1: the raw `tx.amount` was emitted into the notification body
-   * as `1500.000000` (Postgres NUMERIC trailing zeros) which looked broken.
-   */
-  private formatAmountForNotification(amount: string, currency: string): string {
-    const num = Number(amount)
-    if (!Number.isFinite(num)) return `${amount} ${currency}`
-    return `${num.toLocaleString('ru-RU', {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    })} ${currency}`
   }
 
   /**

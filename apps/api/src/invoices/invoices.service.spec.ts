@@ -694,6 +694,12 @@ describe('InvoicesService', () => {
         expect.objectContaining({
           userId: SENIOR.id,
           type: 'INVOICE_SIGN_REQUIRED',
+          // task-i18n-stage4-task6: structured `data` replaces the old
+          // hand-written Russian `body` — amount/currency travel here now.
+          data: expect.objectContaining({
+            amount: expect.any(String),
+            currency: expect.any(String),
+          }),
         }),
       )
     })
@@ -1093,7 +1099,13 @@ describe('InvoicesService', () => {
       expect(h.uploadInternal).toHaveBeenCalledTimes(1)
       expect(h.softDeleteInternal).toHaveBeenCalledWith('doc-1', ADMIN.id)
       expect(h.notifCreate).toHaveBeenCalledWith(
-        expect.objectContaining({ userId: ADMIN.id, type: 'INVOICE_SIGNED' }),
+        expect.objectContaining({
+          userId: ADMIN.id,
+          type: 'INVOICE_SIGNED',
+          // task-i18n-stage4-task6: structured `data` replaces the old
+          // hand-written Russian `title` interpolation of the counterparty.
+          data: expect.objectContaining({ counterpartyName: expect.any(String) }),
+        }),
       )
 
       // ArrowFunction/ObjectLiteral mutation-gate closure: `sigBlocks` (the
@@ -2243,6 +2255,12 @@ describe('InvoicesService', () => {
         expect.objectContaining({
           userId: SENIOR.id,
           type: 'INVOICE_SIGN_REQUIRED',
+          // task-i18n-stage4-task6: structured `data` replaces the old
+          // hand-written Russian `body` — amount/currency travel here now.
+          data: expect.objectContaining({
+            amount: expect.any(String),
+            currency: expect.any(String),
+          }),
         }),
       )
     })
