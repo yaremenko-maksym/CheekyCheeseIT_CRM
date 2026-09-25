@@ -305,6 +305,7 @@ test.describe('Users management page', () => {
     })
 
     test('cancel closes dialog without POST', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       let postCalled = false
       page.on('request', (req) => {
         if (req.url().includes('/api/users') && req.method() === 'POST') postCalled = true
@@ -313,7 +314,10 @@ test.describe('Users management page', () => {
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       await expect(page.getByTestId('user-dialog')).toBeVisible()
-      await page.getByTestId('user-dialog').getByRole('button', { name: 'Скасувати' }).click()
+      await page
+        .getByTestId('user-dialog')
+        .getByRole('button', { name: assertInCatalog(uk, 'Скасувати') })
+        .click()
       await expect(page.getByTestId('user-dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
@@ -356,6 +360,7 @@ test.describe('Users management page', () => {
     })
 
     test('edit cancel closes dialog without PATCH', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       let patchCalled = false
       page.on('request', (req) => {
         if (req.url().includes('/api/users/') && req.method() === 'PATCH') patchCalled = true
@@ -363,7 +368,10 @@ test.describe('Users management page', () => {
 
       await page.goto('/users')
       await page.getByTestId(`user-row-edit-${USERS.senior.id}`).click()
-      await page.getByTestId('user-dialog').getByRole('button', { name: 'Скасувати' }).click()
+      await page
+        .getByTestId('user-dialog')
+        .getByRole('button', { name: assertInCatalog(uk, 'Скасувати') })
+        .click()
       await expect(page.getByTestId('user-dialog')).not.toBeVisible()
       expect(patchCalled).toBe(false)
     })
