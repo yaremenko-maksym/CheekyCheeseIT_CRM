@@ -242,4 +242,29 @@ describe('useResetContractToTemplate', () => {
 
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Template not found'))
   })
+
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — the ABOVE test's
+  // rejection carries its own `.message`, so `getApiErrorMessage` never
+  // reaches its `fallback` parameter — the `t`Не вдалося скинути до
+  // шаблону`` literal was never actually exercised by any test. A rejection
+  // with no message/response (`getApiErrorMessage`'s own null/non-object
+  // early-return) forces the fallback path.
+  it('falls back to the own uk toast text when the rejection carries no message at all', async () => {
+    const { toast } = await import('sonner')
+    const toastError = toast.error as ReturnType<typeof vi.fn>
+    toastError.mockReset()
+
+    mockPost.mockRejectedValue(null)
+
+    const qc = makeQC()
+    const { result } = renderHook(() => useResetContractToTemplate('user-uuid'), {
+      wrapper: makeWrapper(qc),
+    })
+
+    result.current.mutate()
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastError).toHaveBeenCalledWith('Не вдалося скинути до шаблону')
+  })
 })

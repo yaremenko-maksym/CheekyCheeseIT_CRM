@@ -459,6 +459,18 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('network down'))
   })
 
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — the reject-reason
+  // textarea's placeholder had zero unit assertion.
+  it('reject dialog: the reason textarea carries the exact example placeholder', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    expect(screen.getByTestId('pending-base-share-reject-reason')).toHaveAttribute(
+      'placeholder',
+      'Наприклад: домовлялися на 30%',
+    )
+  })
+
   it("reject: an error with neither .response nor a string .message falls through to REJECT's own fallback text", async () => {
     // task-648-fix-round-2 (COPY-L-6): approve and reject now carry DIFFERENT
     // last-resort strings again (round 1 merged them into one anonymous "Не

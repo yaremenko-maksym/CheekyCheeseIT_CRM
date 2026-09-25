@@ -94,6 +94,10 @@ describe('OverviewTab — ToS acceptance marker', () => {
     const text = screen.getByTestId('tos-accepted-text').textContent ?? ''
     expect(text).toContain('15.01.2026')
     expect(text).toContain('v1')
+    // task-i18n-stage3b (Task 1), mutation-gate coverage — the "Прийнято:"
+    // PREFIX itself (not just the interpolated date) had no assertion; a
+    // mutant emptying that literal would still pass the two checks above.
+    expect(text).toContain('Прийнято:')
   })
 
   it('AC-2: renders "Не принято" when tosAcceptedAt is null', () => {

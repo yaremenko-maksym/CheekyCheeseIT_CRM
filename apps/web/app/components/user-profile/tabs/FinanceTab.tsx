@@ -44,6 +44,18 @@ const EARNED_TARGET_ROLES: ReadonlyArray<Role> = ['SENIOR', 'DROP', 'JUNIOR', 'H
 
 export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: Role }) {
   const { t } = useLingui()
+  // Unreachable placeholders — `typeFilter`/`statusFilter` are initialised
+  // to 'all', which always has a matching SelectItem, so Radix shows the
+  // item's own label, never these placeholders (only shown for an
+  // unmatched/empty value, which these filters never enter). Named
+  // constants (not inlined) so the `// Stryker disable next-line` below
+  // sits directly above a plain statement — Stryker's "next-line" matches
+  // by the enclosing STATEMENT's start line, which a JSX `{/* */}` comment
+  // attaches unreliably compared to a real `//` comment on a `const`.
+  // Stryker disable next-line StringLiteral: see comment above
+  const typeFilterPlaceholder = t`Усі типи`
+  // Stryker disable next-line StringLiteral: same reasoning as typeFilterPlaceholder above
+  const statusFilterPlaceholder = t`Усі статуси`
   const { user: viewer } = useAuth()
   const role = viewer?.role ?? ''
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
@@ -97,26 +109,22 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   // "Опасность: карты финансов"), only the derived array now lives inside the
   // component so a future locale-aware `TYPE_LABELS` doesn't need a module-
   // level freeze here.
-  // Stryker disable next-line ArrowFunction,ArrayDeclaration: the derived
-  // list is only observable by OPENING the Radix Select and enumerating its
-  // portalled `SelectItem`s — Radix listens for real pointer-capture events
-  // (`pointerdown` + `hasPointerCapture`) to open, which happy-dom does not
-  // implement; `userEvent.click`/`fireEvent.pointerDown` on the trigger both
-  // leave `data-state="closed"` in this test environment (verified: every
-  // `*.test.tsx` in this repo that touches a Radix `<Select>` only ever
-  // asserts the CLOSED trigger's text/disabled state, never an opened
-  // option list). The `[]` deps mutant is additionally unobservable on
-  // first render regardless (useMemo always computes once on mount).
-  const TYPE_OPTIONS = useMemo(
-    () => Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })),
-    [],
-  )
-  // Stryker disable next-line ArrowFunction,ArrayDeclaration: same reasoning
-  // as TYPE_OPTIONS above.
-  const STATUS_OPTIONS = useMemo(
-    () => Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })),
-    [],
-  )
+  // The derived list is only observable by OPENING the Radix Select and
+  // enumerating its portalled `SelectItem`s — Radix listens for real
+  // pointer-capture events (`pointerdown` + `hasPointerCapture`) to open,
+  // which happy-dom does not implement; `userEvent.click`/
+  // `fireEvent.pointerDown` on the trigger both leave `data-state="closed"`
+  // in this test environment (verified: every `*.test.tsx` in this repo
+  // that touches a Radix `<Select>` only ever asserts the CLOSED trigger's
+  // text/disabled state, never an opened option list). The `[]` deps
+  // mutant is additionally unobservable on first render regardless
+  // (useMemo always computes once on mount).
+  // prettier-ignore
+  // Stryker disable next-line ArrowFunction,ArrayDeclaration: see comment above — one line so the directive's "next-line" covers both the arrow body AND the [] deps mutant (Stryker matches by the enclosing statement's start line, not the comment's own line)
+  const TYPE_OPTIONS = useMemo(() => Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })), [])
+  // prettier-ignore
+  // Stryker disable next-line ArrowFunction,ArrayDeclaration: same reasoning as TYPE_OPTIONS above
+  const STATUS_OPTIONS = useMemo(() => Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })), [])
 
   // Pre-parse timestamps once per transactions change — avoids constructing new
   // Date objects on every comparison in sort (O(N log N) × 2 Date() → O(N) once).
@@ -210,12 +218,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </div>
             <Select value={typeFilter} onValueChange={setTypeFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
-                {/* Stryker disable next-line StringLiteral: unreachable —
-                    `typeFilter` is initialised to 'all' and that value always
-                    has a matching SelectItem, so Radix shows the item's own
-                    label, never this placeholder (only shown for an unmatched
-                    /empty value, which this filter never enters). */}
-                <SelectValue placeholder={t`Усі типи`} />
+                <SelectValue placeholder={typeFilterPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">
@@ -230,11 +233,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
             </Select>
             <Select value={statusFilter} onValueChange={setStatusFilter} disabled={isLoading}>
               <SelectTrigger className="h-8 text-xs w-auto min-w-32 max-w-44">
-                {/* Stryker disable next-line StringLiteral: same reasoning
-                    as the type filter's placeholder above — `statusFilter`
-                    is initialised to 'all', which always has a matching
-                    SelectItem. */}
-                <SelectValue placeholder={t`Усі статуси`} />
+                <SelectValue placeholder={statusFilterPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">

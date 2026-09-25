@@ -409,3 +409,41 @@ describe('SignContractStep', () => {
     })
   })
 })
+
+// task-i18n-stage3b (Task 1), mutation-gate coverage — the PDF viewer
+// region's own aria-label, the iframe's title/aria-label, the <object>
+// fallback text + its download link, the below-viewer download link, and
+// the signature block's aria-label all had zero unit assertion.
+describe('SignContractStep — static text/attributes on the PDF viewer + signature block', () => {
+  it('the PDF viewer region carries the exact aria-label', async () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+    expect(
+      await screen.findByRole('region', { name: 'Контракт для підписання' }),
+    ).toBeInTheDocument()
+  })
+
+  it('the iframe carries the same text as BOTH title and aria-label', async () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+    const iframe = await screen.findByTitle('Попередній перегляд персонального контракту')
+    expect(iframe).toHaveAttribute('aria-label', 'Попередній перегляд персонального контракту')
+  })
+
+  it('the <object> fallback text and its download link share the exact filename', async () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+    await screen.findByTitle('Попередній перегляд персонального контракту')
+    expect(screen.getByText(/Вбудований перегляд PDF недоступний/)).toBeInTheDocument()
+    const objectLink = screen.getByRole('link', { name: 'Завантажити контракт' })
+    expect(objectLink).toHaveAttribute('download', 'Контракт — попередній перегляд.pdf')
+  })
+
+  it('the below-viewer download link carries the same exact filename', async () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+    const belowLink = await screen.findByRole('link', { name: 'Завантажити для перегляду' })
+    expect(belowLink).toHaveAttribute('download', 'Контракт — попередній перегляд.pdf')
+  })
+
+  it('the signature block carries the exact "Підписант" aria-label', () => {
+    render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
+    expect(screen.getByRole('group', { name: 'Підписант' })).toBeInTheDocument()
+  })
+})
