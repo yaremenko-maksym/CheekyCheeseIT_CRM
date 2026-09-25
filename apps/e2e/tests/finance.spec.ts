@@ -812,3 +812,93 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     await expect(asAdmin.getByTitle('Редактировать').first()).toBeVisible()
   })
 })
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// 7b. ADMIN EDIT — сумма оплаченной зарплаты (task-paid-salary-amount-edit)
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// The owner's screenshot: «Редактировать транзакцию», Зарплата 48 867 UAH,
+// месяц 2026-08. Owed 1180 USD, paid 48 675 UAH ⇒ recorded rate 41.25.
+const TX_SALARY_PAID: object = {
+  ...TX_SALARY_PENDING,
+  id: 'tx-salary-paid',
+  status: 'PAID',
+  amount: '48675.000000',
+  currency: 'UAH',
+  originalAmount: '1180.000000',
+  originalCurrency: 'USD',
+  exchangeRate: '41.25000000',
+  settledAmount: null,
+  salaryMonth: '2026-08',
+}
+
+test.describe('Finance — правка суммы оплаченной зарплаты (ADMIN)', () => {
+  test('ADMIN: сумма открыта, предпросмотр пересчитывает зарплату по курсу и предупреждает о перевыпуске счёта', async ({
+    asAdmin,
+  }) => {
+    await mockTransactions(asAdmin, [TX_SALARY_PAID])
+    await asAdmin.route(new RegExp(`${API_RE}/transactions/tx-salary-paid/edit-preview`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          editable: true,
+          blockedReason: null,
+          plan: {
+            sourceId: '66666666-0000-4000-8f00-000000000001',
+            sourceAmountChanged: true,
+            oldSourceAmount: 48675,
+            newSourceAmount: 48867,
+            sourceCurrency: 'UAH',
+            derivatives: [],
+            sourceWarnings: [],
+            sourcePaymentFact: {
+              originalCurrency: 'USD',
+              exchangeRate: '41.25000000',
+              oldOriginalAmount: 1180,
+              newOriginalAmount: 1184.654545,
+              recomputed: true,
+            },
+          },
+          version: 'src:tx-salary-paid:v1',
+        }),
+      }),
+    )
+
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTitle('Редактировать').first().click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    const amount = dialog.getByTestId('amount-currency-amount-input')
+    await expect(amount).toBeEnabled()
+    await expect(dialog.getByTestId('admin-edit-locked-amount-note')).toHaveCount(0)
+
+    await amount.fill('48867')
+    await expect(dialog.getByTestId('cascade-salary-obligation')).toContainText('41.25')
+    await expect(dialog.getByTestId('cascade-salary-invoice-reissue')).toBeVisible()
+
+    const saved = asAdmin.waitForRequest(
+      (req) =>
+        req.method() === 'PATCH' && /\/transactions\/tx-salary-paid\/admin-edit/.test(req.url()),
+    )
+    await expect(dialog.getByTestId('admin-edit-save')).toBeEnabled()
+    await dialog.getByTestId('admin-edit-save').click()
+    const body = (await saved).postDataJSON() as { amount: number; cascadeVersion?: string }
+    expect(body.amount).toBe(48867)
+    expect(body.cascadeVersion).toBe('src:tx-salary-paid:v1')
+  })
+
+  test('ADMIN: у оплаченной строки с зафиксированным курсом (не зарплата) сумма заблокирована сразу', async ({
+    asAdmin,
+  }) => {
+    await mockTransactions(asAdmin, [
+      { ...TX_SALARY_PAID, id: 'tx-senior-converted', type: 'SENIOR_INCOME', salaryMonth: null },
+    ])
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTitle('Редактировать').first().click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog.getByTestId('amount-currency-amount-input')).toBeDisabled()
+    await expect(dialog.getByTestId('admin-edit-locked-amount-note')).toBeVisible()
+  })
+})
