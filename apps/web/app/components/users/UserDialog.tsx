@@ -1067,7 +1067,8 @@ export function UserDialog(props: UserDialogProps) {
   const submitLabel = isCreate
     ? createMutation.isPending || createDropMutation.isPending
       ? t`Створюємо…`
-      : t`Створити`
+      : // Stryker disable next-line StringLiteral: unreachable in the DOM — `submitLabel` is only ever rendered by the `user-dialog-submit` button in the `!isCreate` footer branch below (create mode shows the wizard's own step buttons instead), so this half of the ternary is computed every create-mode render but never inserted anywhere a test (or a user) can observe.
+        t`Створити`
     : updateMutation.isPending
       ? t`Зберігаємо…`
       : t`Зберегти`

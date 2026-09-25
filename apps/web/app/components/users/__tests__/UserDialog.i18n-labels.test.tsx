@@ -13,13 +13,7 @@
  * `userEvent` step-advancing needed. Only the payment-method toggle and the
  * team-mode radios need a click to reach their second branch.
  */
-import {
-  fireEvent,
-  render as rtlRender,
-  screen,
-  within,
-  type RenderOptions,
-} from '@testing-library/react'
+import { render as rtlRender, screen, within, type RenderOptions } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -379,6 +373,15 @@ describe('UserDialog — JUNIOR edit mode: read-only "Активні проєк�
     expect(screen.getByText('Команда')).toBeInTheDocument()
     expect(screen.getByText('Активні проєкти')).toBeInTheDocument()
     expect(screen.getByTestId('user-dialog-junior-projects')).toHaveTextContent('Acme — Website')
+  })
+
+  it('the submit button reads "Зберегти" (exact) while idle — the ONLY place submitLabel is actually rendered', () => {
+    // (`submitLabel`'s create-branch, "Створити", is unreachable — the
+    // wizard's own step buttons stand in for it in create mode; see the
+    // Stryker suppression comment on that ternary in UserDialog.tsx.)
+    render(<UserDialog mode="edit" user={juniorProfile} onClose={vi.fn()} />)
+    expect(screen.getByTestId('user-dialog-submit')).toHaveTextContent('Зберегти')
+    expect(screen.getByTestId('user-dialog-submit')).not.toHaveTextContent('Зберігаємо')
   })
 })
 

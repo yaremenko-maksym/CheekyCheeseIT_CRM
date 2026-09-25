@@ -476,6 +476,38 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
     })
   })
 
+  it('«Сохранить как черновик» calls the CURRENT onClose, not a stale first-render one (useCallback deps)', async () => {
+    // `handleWizardSaveDraft`'s useCallback closes over `props` (whole
+    // object) — its `onClose` is a fresh inline arrow function on every
+    // parent render (see users/index.tsx), so a `[]` deps mutant would freeze
+    // the callback on the FIRST render's onClose forever. Reproducing that
+    // needs an explicit `rerender` with a NEW onClose between mount and
+    // click — every other test in this file mounts once and clicks once, so
+    // none of them could have caught this mutant regardless of what they
+    // assert.
+    const user = userEvent.setup()
+    const onCloseFirst = vi.fn()
+    const { rerender } = render(<UserDialog mode="create" open={true} onClose={onCloseFirst} />)
+
+    await fillStep1AndAdvance(user)
+    await waitFor(
+      () => expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+      { timeout: 3000 },
+    )
+    await user.click(screen.getByTestId('wizard-step2-next-btn'))
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active'),
+    )
+
+    const onCloseSecond = vi.fn()
+    rerender(<UserDialog mode="create" open={true} onClose={onCloseSecond} />)
+
+    await user.click(screen.getByTestId('wizard-save-draft-btn'))
+
+    expect(onCloseSecond).toHaveBeenCalledTimes(1)
+    expect(onCloseFirst).not.toHaveBeenCalled()
+  })
+
   it('«Отметить готовым» toasts the exact ready-confirmation text, with the 4500ms duration', async () => {
     const user = userEvent.setup()
     mockPost.mockResolvedValue(newUserResponse)
