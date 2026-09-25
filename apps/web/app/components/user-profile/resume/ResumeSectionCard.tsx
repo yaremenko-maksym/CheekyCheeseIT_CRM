@@ -16,6 +16,7 @@
  */
 import type { ReactNode } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
@@ -48,6 +49,7 @@ export function ResumeSectionCard({
   onSave,
   children,
 }: ResumeSectionCardProps) {
+  const { t } = useLingui()
   return (
     <Card data-testid={`resume-section-${sectionId}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
@@ -58,15 +60,17 @@ export function ResumeSectionCard({
             size="sm"
             onClick={onStartEdit}
             disabled={disableEdit}
-            aria-label={`Редактировать раздел «${title}»`}
+            aria-label={t`Редагувати розділ «${title}»`}
             title={
-              disableEdit ? 'Сначала сохраните или отмените правки в открытом разделе' : undefined
+              disableEdit ? t`Спершу збережіть або скасуйте правки у відкритому розділі` : undefined
             }
             data-testid={`resume-edit-${sectionId}`}
             className="min-h-11 shrink-0 sm:min-h-9"
           >
             <Pencil className="h-4 w-4" aria-hidden />
-            <span className="ml-2 hidden sm:inline">Изменить</span>
+            <span className="ml-2 hidden sm:inline">
+              <Trans>Редагувати</Trans>
+            </span>
           </Button>
         )}
       </CardHeader>
@@ -78,9 +82,14 @@ export function ResumeSectionCard({
               className="text-xs text-muted-foreground"
               data-testid={`resume-editing-hint-${sectionId}`}
             >
-              {isDirty
-                ? 'Есть несохранённые правки — остальные разделы недоступны, пока вы не сохраните или не отмените их.'
-                : 'Остальные разделы недоступны, пока открыт этот.'}
+              {isDirty ? (
+                <Trans>
+                  Є незбережені правки — інші розділи недоступні, поки ви не збережете або не
+                  скасуєте їх.
+                </Trans>
+              ) : (
+                <Trans>Інші розділи недоступні, поки відкритий цей.</Trans>
+              )}
             </p>
             <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:justify-end">
               <Button
@@ -91,7 +100,7 @@ export function ResumeSectionCard({
                 className="min-h-11"
               >
                 <X className="mr-2 h-4 w-4" aria-hidden />
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 onClick={onSave}
@@ -100,7 +109,7 @@ export function ResumeSectionCard({
                 className="min-h-11"
               >
                 <Check className="mr-2 h-4 w-4" aria-hidden />
-                {isSaving ? 'Сохраняем…' : 'Сохранить'}
+                {isSaving ? t`Зберігаємо…` : t`Зберегти`}
               </Button>
             </div>
           </div>
