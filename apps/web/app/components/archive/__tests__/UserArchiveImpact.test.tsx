@@ -80,6 +80,125 @@ describe('UserArchiveImpact', () => {
     expect(screen.getByTestId('archive-warning-senior')).toHaveTextContent('Відновлення можливе')
   })
 
+  it('SENIOR/DROP without a team: exact text, distinct from the with-team branch (mutation-gate round)', async () => {
+    // Pins the no-team branch byte-for-byte: catches the `projectNames ?? []`
+    // ArrayDeclaration default, the `!impact.teamName` guard being forced
+    // false/emptied (which would fall through to the WITH-team text even
+    // though teamName is null), the `projectsCount ?? 0` LogicalOperator
+    // inside the Plural, and the joining `{' '}` between the two <Trans>
+    // nodes (a `toHaveTextContent` substring check would miss all of these
+    // — only an exact, normalized-whitespace comparison catches them).
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{ ...base, role: 'DROP', teamName: null, projectsCount: 1 }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const block = screen.getByTestId('archive-warning-senior')
+    const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
+    expect(text).toBe(
+      'В архів піде профіль Олена разом з усіма проєктами (1 проєкт). ' +
+        'Відновлення можливе — профіль повернеться, але проєкти відновлювати окремо.',
+    )
+  })
+
+  it('SENIOR with a team: exact text, distinct branch, project-names suffix, genitive plurals', async () => {
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{
+          ...base,
+          role: 'SENIOR',
+          teamName: 'Alpha',
+          projectsCount: 2,
+          projectNames: ['P1', 'P2'],
+          hrAccountantsOnTeam: 1,
+          juniorsAffected: 3,
+        }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const block = screen.getByTestId('archive-warning-senior')
+    const text = (block.textContent ?? '').replace(/\s+/g, ' ').trim()
+    expect(text).toBe(
+      'Олена та команда «Alpha» — пов’язана пара, прибрати по одному не можна. ' +
+        'В архів підуть: профіль сеньйора, команда і всі її проєкти (2 проєкти: P1, P2). ' +
+        'HR/бухгалтери в команді (1 HR/бухгалтер) і джуніори на цих проєктах (3 джуніори) ' +
+        'залишаються активними учасниками і продовжують отримувати оплату — архівація команди й ' +
+        'проєктів їх не стосується. ' +
+        'Відновлення можливе — пара «сеньйор+команда» повернеться, але проєкти відновлювати окремо.',
+    )
+  })
+
+  it('HR/ACCOUNTANT/JUNIOR/ADMIN: each branch is role-unique, not confusable with a neighbour (mutation-gate round)', async () => {
+    // mutation-gate survivors: the ACCOUNTANT guard's `'ACCOUNTANT'` literal
+    // forced to `''`/its condition forced `false`/its block emptied all fall
+    // through to the next `if` (JUNIOR) or the ADMIN fallback; the JUNIOR
+    // guard forced `true` renders JUNIOR text even for ADMIN. A per-role
+    // UNIQUE substring, checked on every OTHER role's output too, catches
+    // every one of these branch-confusion mutants at once.
+    await loadCatalog('uk')
+    const rows: Array<[UserImpact, string]> = [
+      [{ ...base, role: 'HR', teamsCount: 3 }, '(роль HR)'],
+      [{ ...base, role: 'ACCOUNTANT', teamsCount: 3 }, '(роль бухгалтера)'],
+      [{ ...base, role: 'JUNIOR', projectsCount: 2 }, 'Самі проєкти залишаться активними'],
+      [{ ...base, role: 'ADMIN' }, 'Нічого пов’язаного архівувати не треба'],
+    ]
+    for (const [impact, unique] of rows) {
+      const { container, unmount } = render(
+        <UserArchiveImpact entityName="Олена" impact={impact} />,
+        { wrapper: I18nTestProvider },
+      )
+      expect(container.textContent).toContain(unique)
+      for (const [, otherUnique] of rows) {
+        if (otherUnique === unique) continue
+        expect(container.textContent).not.toContain(otherUnique)
+      }
+      unmount()
+    }
+  })
+
+  it('HR: exact text, including the joining space and the teamsCount plural value', async () => {
+    // mutation-gate survivors: the `{' '}` between "прибрано з" and the
+    // <strong>/<Plural> element, the one CLOSING the </strong>, and the
+    // `teamsCount ?? 0` LogicalOperator inside the Plural (a `&&` mutant
+    // turns a truthy 3 into 0 — "few"/"many" share the SAME uk word
+    // "команд", so only the exact NUMBER distinguishes them).
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact entityName="Олена" impact={{ ...base, role: 'HR', teamsCount: 3 }} />,
+      {
+        wrapper: I18nTestProvider,
+      },
+    )
+    const text = (screen.getByTestId('archive-warning-hr').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(text).toBe(
+      'В архів піде профіль Олена; його буде прибрано з 3 команд (роль HR). Самі команди залишаться активними.',
+    )
+  })
+
+  it('ACCOUNTANT: exact text, including the joining space and the teamsCount plural value', async () => {
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{ ...base, role: 'ACCOUNTANT', teamsCount: 3 }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const text = (screen.getByTestId('archive-warning-accountant').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(text).toBe(
+      'В архів піде профіль Олена; його буде прибрано з 3 команд (роль бухгалтера). Самі команди залишаться активними.',
+    )
+  })
+
   it('HR/JUNIOR counts after «з» are genitive in uk (1 команди, 5 команд, 2 активних проєктів)', async () => {
     await loadCatalog('uk')
     const { rerender } = render(

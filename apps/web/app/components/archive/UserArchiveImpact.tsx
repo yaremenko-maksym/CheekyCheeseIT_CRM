@@ -65,6 +65,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
     const roleGenitive = select(impact.role, {
       SENIOR: 'сеньйора',
       DROP: 'дропа',
+      // Stryker disable next-line StringLiteral: `other` is unreachable inside the SENIOR|DROP guard above — see the ObjectLiteral disable comment two lines up (a multi-line object literal needs its own per-line disable; "next-line" does not cascade past the opening `{`)
       other: 'співробітника',
     })
     // Stryker disable next-line ObjectLiteral,StringLiteral: same literal-options requirement and the same unreachable `other` as roleGenitive above

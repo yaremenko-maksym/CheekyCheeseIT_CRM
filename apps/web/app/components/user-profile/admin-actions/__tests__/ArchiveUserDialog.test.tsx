@@ -131,6 +131,7 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
 
     const submit = await screen.findByTestId('archive-confirm-submit')
     expect(submit).toBeDisabled()
+    expect(submit).toHaveTextContent('Архівувати')
 
     const input = screen.getByTestId('archive-confirm-name-input')
     await user.type(input, 'wrong name')
@@ -267,7 +268,14 @@ describe('ArchiveUserDialog (profile page) — delegates impact text to UserArch
     renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
 
     const dialog = await screen.findByRole('dialog')
-    await vi.waitFor(() => expect(screen.getByTestId('archive-confirm-name-input')).toBeVisible())
+    // Waits for the SKELETON to go away, not just for the always-present
+    // name input to appear (that renders on the FIRST paint, before the
+    // query has any chance to settle — a false-negative race that let a
+    // real mutant survive: `queryByTestId(...).not.toBeInTheDocument()`
+    // trivially passes while still loading, mutated guard or not).
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
     expect(within(dialog).queryByTestId('archive-warning-senior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
@@ -284,6 +292,14 @@ describe('ArchiveUserDialog (profile page) — delegates impact text to UserArch
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {
         type: 'team',
+        // A `role` field here (even though the 'team' variant of the schema
+        // doesn't use one) makes the absence assertion below actually test
+        // the `impact?.type === 'user'` guard on line 78 — without it,
+        // `TESTID_BY_ROLE[impact.role]` resolves to `TESTID_BY_ROLE[undefined]`
+        // (undefined) regardless of the guard, so `archive-warning-junior`
+        // would never be found either way and the mutant (ConditionalExpression
+        // forced to `true`) survives unnoticed (PR2 mutation-gate round).
+        role: 'JUNIOR',
         teamName: 'Not This User',
         pendingTransactions: [
           {
@@ -299,8 +315,12 @@ describe('ArchiveUserDialog (profile page) — delegates impact text to UserArch
     })
     renderDialog(makeUser({ role: 'JUNIOR' }))
 
-    await screen.findByRole('dialog')
-    await vi.waitFor(() => expect(screen.getByTestId('archive-confirm-name-input')).toBeVisible())
+    const dialog = await screen.findByRole('dialog')
+    // See the SENIOR/query-failure test above for why this waits on the
+    // skeleton, not the always-present name input.
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
     expect(screen.queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })

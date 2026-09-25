@@ -19,6 +19,13 @@ describe('CreateWizardStepper', () => {
     expect(screen.getByText('Підтвердження')).toBeInTheDocument()
   })
 
+  it('the nav carries the "Кроки створення користувача" aria-label', () => {
+    renderStepper(1)
+    expect(
+      screen.getByRole('navigation', { name: 'Кроки створення користувача' }),
+    ).toBeInTheDocument()
+  })
+
   it('marks step 1 as active, 2 and 3 as upcoming when current=1', () => {
     renderStepper(1)
     expect(screen.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active')

@@ -82,6 +82,7 @@ export function ArchiveUserConfirmDialog({
       // to a genuinely different outcome (the component's own guards make
       // it unreachable, not the old — incorrect — "mutationFn already
       // proved it" reasoning this replaces).
+      // Stryker disable next-line OptionalChaining: `user` is provably non-null here — see the long comment above (the dialog's own dismiss-guard makes it unreachable, not the old "mutationFn already proved it" reasoning).
       if (user?.role === 'SENIOR' || user?.role === 'DROP') {
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -91,6 +92,7 @@ export function ArchiveUserConfirmDialog({
       // regardless of the archived person's gender, unlike an adjective
       // agreement would. `other` is reachable: HR/ACCOUNTANT/JUNIOR/ADMIN
       // all take the generic "Користувача архівовано".
+      // Stryker disable next-line OptionalChaining: same non-null guarantee as the `if` above
       const archivedRole = user?.role ?? 'ADMIN'
       // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's select() macro needs this options object to stay a literal it can statically read at compile time (the `{}` mutant makes the transform throw before any test runs) — `other` covers HR/ACCOUNTANT/JUNIOR/ADMIN and is reachable by every one of them.
       const successMessage = select(archivedRole, {
@@ -132,11 +134,11 @@ export function ArchiveUserConfirmDialog({
         <CrmDialogBody className="pb-2">
           <div className="space-y-3 text-sm">
             {isLoading || !user ? (
-              <>
+              <div data-testid="archive-impact-loading">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-4 w-2/3" />
-              </>
+              </div>
             ) : (
               <>
                 {impact?.type === 'user' && (

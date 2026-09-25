@@ -69,10 +69,10 @@ export function ArchiveUserDialog({
         <CrmDialogBody className="pb-2">
           <div className="space-y-3 text-sm">
             {isLoading ? (
-              <>
+              <div data-testid="archive-impact-loading">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
-              </>
+              </div>
             ) : (
               <>
                 {impact?.type === 'user' && (

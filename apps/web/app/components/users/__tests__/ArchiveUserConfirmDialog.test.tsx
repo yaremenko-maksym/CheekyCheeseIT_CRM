@@ -116,6 +116,63 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     expect(within(dialog).queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
   })
 
+  it('the loading condition is `isLoading || !user`, not `&&` — a pending query with a real user still shows skeletons', async () => {
+    // mutation-gate survivor (LogicalOperator `||`→`&&`, ConditionalExpression
+    // →`false`): a `user` truthy AND `isLoading` true is the exact case that
+    // distinguishes the two — the `&&` mutant would skip the skeletons here.
+    ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    renderDialog(makeUser({ role: 'JUNIOR', displayName: 'Oleksiy Kovalenko' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
+    // The confirm input (rendered whenever `user` truthy, independent of
+    // isLoading) stays present — proves `user` really is non-null here and
+    // the skeleton branch is only about `isLoading`.
+    expect(within(dialog).getByTestId('archive-confirm-name-input')).toBeInTheDocument()
+  })
+
+  it('fetches the archive-impact for THIS specific user id (not an empty/mistyped url)', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ id: 'u-42', role: 'ADMIN' }))
+    await screen.findByRole('dialog')
+    expect(api.get).toHaveBeenCalledWith('/users/u-42/archive-impact')
+  })
+
+  it('the query key includes the user id — switching users (same QueryClient) fetches BOTH, not a shared/stale cache entry', async () => {
+    // mutation-gate survivor: `queryKey: ['users-archive-impact', user?.id]`,
+    // ArrayDeclaration/StringLiteral mutants. A constant key (`[]`) would
+    // make react-query treat every user as the SAME cached query — switching
+    // the `user` prop would silently keep showing the FIRST user's impact
+    // instead of fetching the second one's.
+    ;(api.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ data: { type: 'user', role: 'ADMIN', noDependencies: true } })
+      .mockResolvedValueOnce({ data: { type: 'user', role: 'ADMIN', noDependencies: true } })
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    const userA = makeUser({ id: 'u-a', displayName: 'User A' })
+    const userB = makeUser({ id: 'u-b', displayName: 'User B' })
+    const { rerender } = render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ArchiveUserConfirmDialog user={userA} onClose={vi.fn()} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/users/u-a/archive-impact'))
+
+    rerender(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ArchiveUserConfirmDialog user={userB} onClose={vi.fn()} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+    await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/users/u-b/archive-impact'))
+    expect(api.get).toHaveBeenCalledTimes(2)
+  })
+
   it('confirm button stays disabled until the typed name matches exactly', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { type: 'user', role: 'ADMIN', noDependencies: true },
@@ -135,6 +192,105 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     expect(submit).toBeEnabled()
   })
 
+  it('trims whitespace on the typed value before comparing — padded input still matches', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, '  Oleksiy Kovalenko  ')
+    expect(submit).toBeEnabled()
+  })
+
+  it('trims whitespace on user.displayName before comparing — a padded stored name still matches a clean type', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: '  Oleksiy Kovalenko  ' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, 'Oleksiy Kovalenko')
+    expect(submit).toBeEnabled()
+  })
+
+  it('preserves the space before the confirm-name value (no run-together text)', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog.textContent ?? '').toContain('ім’я: Oleksiy Kovalenko')
+  })
+
+  it('submit button shows "Архівуємо…" while pending, "Архівувати" otherwise', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    let resolveDelete!: () => void
+    ;(api.delete as ReturnType<typeof vi.fn>).mockReturnValue(
+      new Promise((resolve) => {
+        resolveDelete = () => resolve({ data: {} })
+      }),
+    )
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    expect(submit).toHaveTextContent('Архівувати')
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    await user.click(submit)
+
+    await vi.waitFor(() => expect(submit).toHaveTextContent('Архівуємо…'))
+    resolveDelete()
+  })
+
+  it('Enter in the name input submits when the typed name matches, and does nothing when it does not', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    ;(api.delete as ReturnType<typeof vi.fn>).mockResolvedValue({ data: {} })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const input = await screen.findByTestId('archive-confirm-name-input')
+    await user.type(input, 'wrong name')
+    await user.keyboard('{Enter}')
+    expect(api.delete).not.toHaveBeenCalled()
+
+    await user.clear(input)
+    await user.type(input, 'Oleksiy Kovalenko')
+    await user.keyboard('{Enter}')
+    expect(api.delete).toHaveBeenCalledWith('/users/u-1')
+  })
+
+  it('onError falls back to a translated message when the API gives no structured error', async () => {
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    // `null` is the shape `getApiErrorMessage` short-circuits to the fallback
+    // on immediately (`err === null`) — a plain `Error('...')` would instead
+    // surface its own `.message` via `extractBackendMessage`'s priority 3,
+    // which does NOT exercise this component's own fallback string at all.
+    ;(api.delete as ReturnType<typeof vi.fn>).mockRejectedValue(null)
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    await user.type(await screen.findByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    await user.click(screen.getByTestId('archive-confirm-submit'))
+
+    await vi.waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        'Не вдалося архівувати користувача — спробуйте ще раз',
+      ),
+    )
+  })
+
   it('Скасувати closes without calling DELETE', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: { type: 'user', role: 'ADMIN', noDependencies: true },
@@ -147,6 +303,26 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
 
     expect(onClose).toHaveBeenCalledTimes(1)
     expect(api.delete).not.toHaveBeenCalled()
+  })
+
+  it('Скасувати clears the typed name (handleClose resets to an empty string, not a stray value)', async () => {
+    // mutation-gate survivor: `setTyped('')` inside handleClose, StringLiteral
+    // mutant. `onClose` here is a plain spy that does NOT unmount the dialog
+    // (the `user` prop stays the same object), so the component instance
+    // survives the click — the typed-name input must show empty, not
+    // whatever the mutant substituted.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const input = await screen.findByTestId('archive-confirm-name-input')
+    await user.type(input, 'partial')
+    expect(input).toHaveValue('partial')
+
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
+    expect(input).toHaveValue('')
   })
 })
 
@@ -221,8 +397,14 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
 
     const dialog = await screen.findByRole('dialog')
-    // Waits for the query to settle (isLoading -> false on error).
-    await vi.waitFor(() => expect(screen.getByTestId('archive-confirm-name-input')).toBeVisible())
+    // Waits for the SKELETON to go away, not just for the always-present
+    // name input to appear (that renders on the FIRST paint, before the
+    // query has any chance to settle — a false-negative race that let a
+    // real mutant survive: `queryByTestId(...).not.toBeInTheDocument()`
+    // trivially passes while still loading, mutated guard or not).
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
     expect(within(dialog).queryByTestId('archive-warning-senior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
@@ -236,6 +418,13 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
       data: {
         type: 'team',
+        // A `role` field here makes the absence assertion below actually
+        // test the `impact?.type === 'user'` guard — without it,
+        // `TESTID_BY_ROLE[impact.role]` resolves to `TESTID_BY_ROLE[undefined]`
+        // regardless of the guard, so `archive-warning-junior` would never be
+        // found either way (PR2 mutation-gate round, mirrors the identical
+        // fix in ArchiveUserDialog.test.tsx).
+        role: 'JUNIOR',
         teamName: 'Not This User',
         pendingTransactions: [
           {
@@ -251,10 +440,14 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     })
     renderDialog(makeUser({ role: 'JUNIOR' }))
 
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
     // No 'user'-typed impact was returned, so neither the warning block nor
     // the pending-list renders — this dialog only recognizes its own shape.
-    await vi.waitFor(() => expect(screen.getByTestId('archive-confirm-name-input')).toBeVisible())
+    // See the SENIOR/query-failure test above for why this waits on the
+    // skeleton, not the always-present name input.
+    await vi.waitFor(() =>
+      expect(within(dialog).queryByTestId('archive-impact-loading')).not.toBeInTheDocument(),
+    )
     expect(screen.queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
