@@ -66,6 +66,11 @@ msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
 msgid "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
 
+#. placeholder {0}: user?.displayName ?? ''
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
+msgstr "{0} will no longer be able to sign in to the CRM. The profile can be restored from the archive."
+
 #. placeholder {0}: filtered.length
 #. placeholder {1}: users?.length ?? 0
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -264,14 +269,14 @@ msgstr "PDF document. If needed, use the “Download to view” button below to 
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — up to {MAX_MB} MB. The file is uploaded to secure storage."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Telegram-канал"
-msgstr "Telegram channel"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "A Telegram channel can only be set for a senior"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Telegram-чат"
+msgstr "Telegram chat"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "UA + 27 цифр"
@@ -471,10 +476,6 @@ msgstr "archive v{0}"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Only an admin can archive a drop"
-
-#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
-msgid "Архівування користувача"
-msgstr "Archiving a user"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
@@ -911,10 +912,6 @@ msgstr "Select at least one approver"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Вибір команди"
 msgstr "Choose a team"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Вибір користувачів для додавання до складу команди."
-msgstr "Choose users to add to the team."
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Вибрати зображення"
@@ -1373,7 +1370,7 @@ msgstr "Future payouts will be sent to this account — confirm the change"
 
 #: apps/web/app/components/users/CreateWizardStepper.tsx
 msgid "Дані"
-msgstr "Data"
+msgstr "Details"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
@@ -1441,8 +1438,8 @@ msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "The junior is already an active member of another project"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Джуніора не прикріплено"
-msgstr "No junior attached"
+msgid "Джуніора не призначено"
+msgstr "No junior assigned"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Джуніора призначено"
@@ -1527,10 +1524,6 @@ msgstr "Add ({0})"
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Додати HR"
 msgstr "Add HR"
-
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
-msgid "Додати в команду дропа"
-msgstr "Add to the drop's team"
 
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Додати документ"
@@ -1717,10 +1710,6 @@ msgstr "This senior’s interview board"
 msgid "Дроп"
 msgstr "Drop"
 
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
-msgid "Дроп не призначений"
-msgstr "No drop assigned"
-
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Дроп:"
 msgstr "Drop:"
@@ -1738,6 +1727,10 @@ msgstr "The drop is already archived"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_NOT_FOUND"
 msgstr "Drop not found"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Дропа не призначено"
+msgstr "No drop assigned"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1988,7 +1981,6 @@ msgid "Зберегти реквізити"
 msgstr "Save payout details"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Збереження…"
 msgstr "Saving…"
 
@@ -2000,6 +1992,7 @@ msgstr "Saved"
 msgid "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
 msgstr "Once saved, the current address stops working for sign-in right away — even if the employee confirmed it. We’ll send an invitation to the new address"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберігаємо…"
@@ -2033,10 +2026,6 @@ msgstr "Only an admin or an accountant can see the missed salary months report"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Collapse"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
-msgstr "Change or assign the team's senior. The current senior will be unassigned from the team."
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зміна реквізитів"
@@ -2137,8 +2126,11 @@ msgstr "Only an admin, an accountant, or a senior can see pending obligations"
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "External link to an image (https://…)"
 
-#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Іван Іваненко"
+msgstr "Ivan Ivanenko"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Ivan Ivanenko"
 
@@ -2254,13 +2246,13 @@ msgstr "Team archived"
 msgid "Команда дропа"
 msgstr "Drop's team"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Команда з’являється автоматично, коли в систему додають сеньйора"
+msgstr "A team appears automatically when a senior is added to the system"
+
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Команда та проєкти"
 msgstr "Team and projects"
-
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Команди створюються автоматично при додаванні сеньйора в систему"
-msgstr "Teams are created automatically when a senior is added to the system"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -2601,7 +2593,7 @@ msgid "Назва"
 msgstr "Name"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Назва A→Z"
+msgid "Назва А→Я"
 msgstr "Name A→Z"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
@@ -3257,9 +3249,17 @@ msgstr "Note saved"
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 msgstr "Choose a senior with no active team. The drop and other team members stay."
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Оберіть сеньйора для команди."
+msgstr "Choose a senior for the team."
+
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
 msgstr "Choose a payout method and fill in the details"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Оберіть, кого додати до команди."
+msgstr "Choose who to add to the team."
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
@@ -3848,8 +3848,8 @@ msgstr "Current project"
 
 #. placeholder {0}: activeSenior.displayName
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
-msgstr "The current senior “{0}” will be unassigned from the team. The new senior must have no active team."
+msgid "Поточного сеньйора «{0}» буде знято з команди. Новий сеньйор має бути без активної команди."
+msgstr "The current senior “{0}” will be removed from the team. The new senior must have no active team."
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Потребує заповнення"
@@ -3941,6 +3941,10 @@ msgstr "PrivatBank"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Приєднатися до команди дропа"
+msgstr "Join a drop's team"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Призначити"
@@ -4585,10 +4589,6 @@ msgstr "Only the person who made the deposit, an admin, or an accountant can see
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Only an admin can create a drop"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Створення нового акаунта сеньйора та формування команди з HR."
-msgstr "Creating a new senior account and forming a team with HR."
-
 #. placeholder {0}: formatDate(team.createdAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Створено {0}"
@@ -4630,6 +4630,10 @@ msgstr "Create senior"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
 msgstr "Create your own team or join a drop’s team to regain access to projects and interviews"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створіть сеньйора та сформуйте команду."
+msgstr "Create a senior and form a team."
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"

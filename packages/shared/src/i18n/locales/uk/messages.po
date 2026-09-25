@@ -66,6 +66,11 @@ msgstr "{0, select, SENIOR {сеньйор} DROP {дроп} other {співро�
 msgid "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 
+#. placeholder {0}: user?.displayName ?? ''
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
+msgstr "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
+
 #. placeholder {0}: filtered.length
 #. placeholder {1}: users?.length ?? 0
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -264,14 +269,14 @@ msgstr "PDF-документ. За потреби скористайтеся к�
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Telegram-канал"
-msgstr "Telegram-канал"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "Telegram-канал можна вказати лише сеньйору"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Telegram-чат"
+msgstr "Telegram-чат"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "UA + 27 цифр"
@@ -471,10 +476,6 @@ msgstr "архів v{0}"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Архівація дропа доступна лише адміністратору"
-
-#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
-msgid "Архівування користувача"
-msgstr "Архівування користувача"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
@@ -911,10 +912,6 @@ msgstr "Виберіть щонайменше одну людину, яка ма
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Вибір команди"
 msgstr "Вибір команди"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Вибір користувачів для додавання до складу команди."
-msgstr "Вибір користувачів для додавання до складу команди."
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Вибрати зображення"
@@ -1441,8 +1438,8 @@ msgid "api-error.JUNIOR_ALREADY_ON_ANOTHER_PROJECT"
 msgstr "Джуніор уже є активним учасником іншого проєкту"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Джуніора не прикріплено"
-msgstr "Джуніора не прикріплено"
+msgid "Джуніора не призначено"
+msgstr "Джуніора не призначено"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Джуніора призначено"
@@ -1527,10 +1524,6 @@ msgstr "Додати ({0})"
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Додати HR"
 msgstr "Додати HR"
-
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
-msgid "Додати в команду дропа"
-msgstr "Додати в команду дропа"
 
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Додати документ"
@@ -1717,10 +1710,6 @@ msgstr "Дошка співбесід цього сеньйора"
 msgid "Дроп"
 msgstr "Дроп"
 
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
-msgid "Дроп не призначений"
-msgstr "Дроп не призначений"
-
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Дроп:"
 msgstr "Дроп:"
@@ -1738,6 +1727,10 @@ msgstr "Дропа вже заархівовано"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_NOT_FOUND"
 msgstr "Дропа не знайдено"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Дропа не призначено"
+msgstr "Дропа не призначено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1988,7 +1981,6 @@ msgid "Зберегти реквізити"
 msgstr "Зберегти реквізити"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-#: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Збереження…"
 msgstr "Збереження…"
 
@@ -2000,6 +1992,7 @@ msgstr "Збережено"
 msgid "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
 msgstr "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберігаємо…"
@@ -2033,10 +2026,6 @@ msgstr "Звіт про пропущені місяці зарплати бач�
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Згорнути"
 msgstr "Згорнути"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
-msgstr "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зміна реквізитів"
@@ -2137,8 +2126,11 @@ msgstr "Зобов’язання, що очікують виплати, бач�
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "Зовнішнє посилання на зображення (https://…)"
 
-#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Іван Іваненко"
+msgstr "Іван Іваненко"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Іваненко Іван Іванович"
 
@@ -2254,13 +2246,13 @@ msgstr "Команда в архіві"
 msgid "Команда дропа"
 msgstr "Команда дропа"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Команда з’являється автоматично, коли в систему додають сеньйора"
+msgstr "Команда з’являється автоматично, коли в систему додають сеньйора"
+
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Команда та проєкти"
 msgstr "Команда та проєкти"
-
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Команди створюються автоматично при додаванні сеньйора в систему"
-msgstr "Команди створюються автоматично при додаванні сеньйора в систему"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -2601,8 +2593,8 @@ msgid "Назва"
 msgstr "Назва"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Назва A→Z"
-msgstr "Назва A→Z"
+msgid "Назва А→Я"
+msgstr "Назва А→Я"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Назва банку (необов’язково)"
@@ -3257,9 +3249,17 @@ msgstr "Нотатку збережено"
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 msgstr "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Оберіть сеньйора для команди."
+msgstr "Оберіть сеньйора для команди."
+
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
 msgstr "Оберіть спосіб виплати і заповніть реквізити"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Оберіть, кого додати до команди."
+msgstr "Оберіть, кого додати до команди."
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
@@ -3848,8 +3848,8 @@ msgstr "Поточний проєкт"
 
 #. placeholder {0}: activeSenior.displayName
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
-msgstr "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
+msgid "Поточного сеньйора «{0}» буде знято з команди. Новий сеньйор має бути без активної команди."
+msgstr "Поточного сеньйора «{0}» буде знято з команди. Новий сеньйор має бути без активної команди."
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Потребує заповнення"
@@ -3941,6 +3941,10 @@ msgstr "ПриватБанк"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Приєднати до команди дропа можна лише сеньйора"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "Приєднатися до команди дропа"
+msgstr "Приєднатися до команди дропа"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Призначити"
@@ -4585,10 +4589,6 @@ msgstr "Статус поповнення бачать лише його авт�
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Створення дропа доступне лише адміністратору"
 
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Створення нового акаунта сеньйора та формування команди з HR."
-msgstr "Створення нового акаунта сеньйора та формування команди з HR."
-
 #. placeholder {0}: formatDate(team.createdAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Створено {0}"
@@ -4630,6 +4630,10 @@ msgstr "Створити сеньйора"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
 msgstr "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
+
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Створіть сеньйора та сформуйте команду."
+msgstr "Створіть сеньйора та сформуйте команду."
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"

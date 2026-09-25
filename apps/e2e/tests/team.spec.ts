@@ -828,7 +828,7 @@ test.describe('Team page', () => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
 
       // Check Telegram link appears in header
-      await expect(page.getByText('Telegram-канал')).toBeVisible()
+      await expect(page.getByText('Telegram-чат')).toBeVisible()
 
       const telegramLink = page.locator('a[href="https://t.me/test_channel"]')
       await expect(telegramLink).toBeVisible()
@@ -1103,7 +1103,7 @@ test.describe('Team page', () => {
       await expect(sendIcon).toBeVisible()
 
       // Check text content
-      await expect(headerTelegramLink).toContainText('Telegram-канал')
+      await expect(headerTelegramLink).toContainText('Telegram-чат')
 
       // Check target and rel attributes
       await expect(headerTelegramLink).toHaveAttribute('target', '_blank')

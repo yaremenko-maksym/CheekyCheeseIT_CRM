@@ -133,7 +133,7 @@ export function ArchiveUserConfirmDialog({
             <Trans>Архівувати користувача</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Архівування користувача</Trans>
+            {t`${user?.displayName ?? ''} більше не зможе увійти в CRM. Профіль можна відновити з архіву.`}
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">

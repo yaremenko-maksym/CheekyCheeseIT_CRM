@@ -42,7 +42,7 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('profile-teamless-banner')).toBeVisible({
       timeout: 8_000,
     })
-    await expect(page.getByText(/У вас нет активной команды/i)).toBeVisible()
+    await expect(page.getByText(/У вас немає активної команди/i)).toBeVisible()
     await expect(page.getByTestId('profile-rejoin-button')).toBeVisible()
   })
 

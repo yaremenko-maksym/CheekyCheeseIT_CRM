@@ -82,7 +82,7 @@ test.describe('Drop rotate-senior — AC4', () => {
     await expect(dialog).toBeVisible()
     // Body copy mentions the current senior — proves we resolved
     // `activeSenior` from the team detail and surfaced it in the dialog.
-    await expect(dialog.getByText(/Поточний сеньйор/i)).toBeVisible()
+    await expect(dialog.getByText(/Поточного сеньйора/i)).toBeVisible()
     await expect(dialog.getByText(USERS.senior.displayName)).toBeVisible()
   })
 

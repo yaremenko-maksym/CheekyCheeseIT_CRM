@@ -226,7 +226,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                     <div className="flex-1">
                       <div className="font-medium inline-flex items-center gap-1">
                         <Users className="h-3 w-3" />
-                        <Trans>Додати в команду дропа</Trans>
+                        <Trans>Приєднатися до команди дропа</Trans>
                       </div>
                       <p className="text-muted-foreground mt-0.5">
                         {vacantDropTeams.length === 0 ? (
@@ -276,7 +276,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                                   <div className="flex flex-col items-start">
                                     <span className="font-medium">{dropTeam.name}</span>
                                     <span className="text-[10px] text-muted-foreground">
-                                      {drop?.displayName ?? t`Дроп не призначений`}
+                                      {drop?.displayName ?? t`Дропа не призначено`}
                                     </span>
                                   </div>
                                 </SelectItem>
@@ -317,7 +317,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
             disabled={mutation.isPending}
             data-testid="rejoin-team-submit"
           >
-            {mutation.isPending ? <Trans>Збереження…</Trans> : <Trans>Зберегти</Trans>}
+            {mutation.isPending ? <Trans>Зберігаємо…</Trans> : <Trans>Зберегти</Trans>}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

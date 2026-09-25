@@ -524,7 +524,7 @@ function TeamDetailPage() {
                     data-testid="team-telegram-link"
                   >
                     <Send className="h-3 w-3" />
-                    <Trans>Telegram-канал</Trans>
+                    <Trans>Telegram-чат</Trans>
                   </a>
                 )}
               </div>
@@ -848,7 +848,7 @@ function TeamDetailPage() {
                                 </p>
                               ) : (
                                 <p className="text-xs text-destructive mt-1">
-                                  <Trans>Джуніора не прикріплено</Trans>
+                                  <Trans>Джуніора не призначено</Trans>
                                 </p>
                               )}
                             </div>
@@ -1037,7 +1037,7 @@ function TeamDetailPage() {
                 <Trans>Додати учасника</Trans>
               </DialogTitle>
               <DialogDescription className="sr-only">
-                <Trans>Вибір користувачів для додавання до складу команди.</Trans>
+                <Trans>Оберіть, кого додати до команди.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
@@ -1165,13 +1165,11 @@ function TeamDetailPage() {
                 {activeSenior ? t`Змінити сеньйора` : t`Призначити сеньйора`}
               </DialogTitle>
               <DialogDescription className="sr-only">
-                <Trans>
-                  Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено.
-                </Trans>
+                <Trans>Оберіть сеньйора для команди.</Trans>
               </DialogDescription>
               <p className="text-xs text-muted-foreground mt-1">
                 {activeSenior
-                  ? t`Поточний сеньйор «${activeSenior.displayName}» буде відкріплений. Новий сеньйор має бути без активної команди.`
+                  ? t`Поточного сеньйора «${activeSenior.displayName}» буде знято з команди. Новий сеньйор має бути без активної команди.`
                   : t`Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються.`}
               </p>
             </CrmDialogHeader>

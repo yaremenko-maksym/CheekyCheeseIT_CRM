@@ -241,7 +241,7 @@ function HrCreateSeniorDialog({
             <Trans>Створити сеньйора</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Створення нового акаунта сеньйора та формування команди з HR.</Trans>
+            <Trans>Створіть сеньйора та сформуйте команду.</Trans>
           </DialogDescription>
           <p className="text-xs text-muted-foreground mt-1">
             <Trans>Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR.</Trans>
@@ -299,7 +299,7 @@ function HrCreateSeniorDialog({
                 return (
                   <Field label={t`Ім’я та прізвище`} error={err} required>
                     <Input
-                      placeholder={t`Іваненко Іван Іванович`}
+                      placeholder={t`Іван Іваненко`}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -678,7 +678,7 @@ function TeamPage() {
                 <SelectValue placeholder={t`Сортування`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="name">{t`Назва A→Z`}</SelectItem>
+                <SelectItem value="name">{t`Назва А→Я`}</SelectItem>
                 <SelectItem value="members">{t`Учасники ↓`}</SelectItem>
                 <SelectItem value="projects">{t`Проєкти ↓`}</SelectItem>
               </SelectContent>
@@ -702,7 +702,7 @@ function TeamPage() {
                 {isHr ? (
                   <Trans>Натисніть «Створити сеньйора», щоб сформувати першу команду</Trans>
                 ) : (
-                  <Trans>Команди створюються автоматично при додаванні сеньйора в систему</Trans>
+                  <Trans>Команда з’являється автоматично, коли в систему додають сеньйора</Trans>
                 )}
               </p>
             </div>
