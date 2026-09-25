@@ -448,14 +448,26 @@ describe.skipIf(!HAS_DB_URL)(
     describe('loadReissueState against real rows (SR-M-3)', () => {
       function invoicesAgainstRealDb(): {
         loadReissueState: (id: string) => Promise<{
+          type: string
+          status: string
+          payoutRequestId: string | null
+          invoiceDocumentId: string | null
+          hasVoidedInvoice: boolean
+          amount: string
+          signedAmountSnapshot: string | null
           activeCompanySignedAt: Date | null
           lastVoidFailureAt: Date | null
-          hasVoidedInvoice: boolean
         } | null>
       } {
         const svc = Object.create(InvoicesService.prototype) as InvoicesService
         Object.assign(svc, { db: dbSvc })
         return svc as unknown as ReturnType<typeof invoicesAgainstRealDb>
+      }
+
+      async function journal(txId: string, action: string, metadata: Record<string, unknown>) {
+        await dbSvc.db
+          .insert(transactionAuditLog)
+          .values({ actorId: ADMIN.id, targetId: txId, action, metadata })
       }
 
       async function signature(
@@ -478,7 +490,9 @@ describe.skipIf(!HAS_DB_URL)(
       it('reads the ACTIVE COUNTERPARTY snapshot — not a company one, not a voided one', async () => {
         const id = await paidSalary()
         // Each row carries a DIFFERENT figure, so a wrong filter cannot pass by
-        // accident: blank the signer_role and the COMPANY figure comes back.
+        // accident: swap the signer_role for the other one and the COMPANY
+        // figure comes back; drop the `voided_at IS NULL` and the retired
+        // countersignature does.
         await signature(id, 'COMPANY', '11111.000000', null)
         await signature(id, 'COUNTERPARTY', '22222.000000', new Date())
         await signature(id, 'COUNTERPARTY', '48675.000000', null)
@@ -495,6 +509,58 @@ describe.skipIf(!HAS_DB_URL)(
 
         const state = await invoicesAgainstRealDb().loadReissueState(id)
         expect(state?.signedAmountSnapshot).toBeNull()
+      })
+
+      it('dates the ACTIVE COMPANY signature — not a countersignature, not a voided one', async () => {
+        const id = await paidSalary()
+        const companyAt = new Date('2026-09-20T10:00:00.000Z')
+        await dbSvc.db.insert(invoiceSignatures).values({
+          transactionId: id,
+          signerRole: 'COMPANY',
+          signerId: ADMIN.id,
+          signedAt: companyAt,
+          amountSnapshot: null,
+          pdfHash: 'a'.repeat(64),
+          method: 'AUTO_COMPANY',
+        })
+        // A LATER countersignature: if the role filter were swapped, this
+        // timestamp would come back instead.
+        await dbSvc.db.insert(invoiceSignatures).values({
+          transactionId: id,
+          signerRole: 'COUNTERPARTY',
+          signerId: ADMIN.id,
+          signedAt: new Date('2026-09-23T10:00:00.000Z'),
+          amountSnapshot: '48675.000000',
+          pdfHash: 'b'.repeat(64),
+          method: 'MANUAL_CLICK',
+        })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.activeCompanySignedAt?.toISOString()).toBe(companyAt.toISOString())
+      })
+
+      it('reads a recorded VOID failure', async () => {
+        const id = await paidSalary()
+        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'VOID' })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeInstanceOf(Date)
+      })
+
+      it('ignores a line of another action, even with the same stage', async () => {
+        const id = await paidSalary()
+        await journal(id, 'AMOUNT_OR_RECEIVER_CHANGE', { stage: 'VOID' })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeNull()
+      })
+
+      it('ignores the REISSUE stage — only a failed VOID leaves a live document', async () => {
+        const id = await paidSalary()
+        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'REISSUE' })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeNull()
       })
 
       it('a row with no signatures at all reports none, and carries its own amount', async () => {

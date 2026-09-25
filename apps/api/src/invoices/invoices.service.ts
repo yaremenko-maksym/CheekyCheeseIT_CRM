@@ -80,6 +80,7 @@ import {
   nonDeletedTransactions,
   projects,
   signedContracts,
+  transactionAuditLog,
   transactions,
   users,
   type Transaction,
@@ -143,6 +144,10 @@ const REISSUE_STATE_COLUMNS = {
 const VOIDED_SIGNATURE_COLUMNS = { id: invoiceSignatures.id }
 // Stryker disable next-line ObjectLiteral: same query SHAPE — the unit double answers with canned rows whatever is selected
 const COUNTERSIGNATURE_AMOUNT_COLUMNS = { amountSnapshot: invoiceSignatures.amountSnapshot }
+// Stryker disable next-line ObjectLiteral: same query SHAPE — the unit double answers with canned rows whatever is selected
+const ACTIVE_COMPANY_SIGNATURE_COLUMNS = { signedAt: invoiceSignatures.signedAt }
+// Stryker disable next-line ObjectLiteral: same query SHAPE — the unit double answers with canned rows whatever is selected
+const VOID_FAILURE_COLUMNS = { createdAt: transactionAuditLog.createdAt }
 
 /**
  * What `loadReissueState` reads, and the three questions asked of it.
@@ -164,6 +169,15 @@ interface ReissueState {
    * has countersigned, or when the signature predates the snapshot column.
    */
   signedAmountSnapshot: string | null
+  /**
+   * SR-M-6 — the SECOND, weaker witness of a failed void, for the window the
+   * first one cannot see: an invoice issued but not yet countersigned.
+   * `signed_at` of the active COMPANY signature (every issued invoice gets
+   * one) and `created_at` of the last `INVOICE_REISSUE_FAILED` line with
+   * `stage: VOID`.
+   */
+  activeCompanySignedAt: Date | null
+  lastVoidFailureAt: Date | null
 }
 
 /** A PAID salary of its own — not a payout-linked row, not another type. */
@@ -177,29 +191,46 @@ function awaitsReissue(state: ReissueState): boolean {
 }
 
 /**
- * The VOID stage (SR-M-3): a document is still current, a void failure is on
- * record, and the document's own COMPANY signature predates that failure — so
- * this is the invoice the failed void was supposed to retire, not a fresh one.
+ * The VOID stage — a document that is still current although the edit was
+ * supposed to retire it. TWO witnesses, asked in this order, because neither
+ * covers the whole population on its own (SR-M-4 → SR-M-6).
+ *
+ *  1. THE DISAGREEMENT ITSELF (sufficient, cannot go missing). The active
+ *     COUNTERPARTY signature carries `amount_snapshot` — the figure `/verify`
+ *     confirms to anyone scanning the QR — and `transactions.amount` carries
+ *     the corrected one. They differ if and only if a void failed to retire
+ *     that document. Round 2 keyed the whole thing on a journal line instead,
+ *     and that line is written best-effort (SR-L-5) by the very path whose
+ *     database was already failing: exactly when the void failed hardest, the
+ *     marker was absent and a countersigned invoice for the OLD amount stayed
+ *     current forever.
+ *
+ *  2. THE JOURNAL LINE (additional, for the window witness 1 is blind to).
+ *     Before the counterparty signs there is no snapshot to disagree with, yet
+ *     the stale document is still live — and `signInvoice`'s hash guard
+ *     compares it against its own COMPANY signature, matches, and lets the
+ *     counterparty sign the OLD figure. So a recorded `stage: VOID` failure
+ *     counts too, cut off by age: an active COMPANY signature NEWER than that
+ *     failure is a document issued after it, i.e. a repair that already
+ *     happened. That cut-off is what keeps the repair idempotent.
+ *
+ * Why journal-as-second and not «void the document on MANUAL_CHECK»: the
+ * message path must not write. Voiding there would retire a live invoice from
+ * inside a branch whose only job is to choose a sentence — and on the failure
+ * of a failure, at that.
  */
 function awaitsVoidRetry(state: ReissueState): boolean {
-  // SR-M-4 — the source of truth is the DATA, not the journal.
-  //
-  // Round 2 keyed this on an `INVOICE_REISSUE_FAILED` journal line, and that
-  // line is written best-effort (SR-L-5) by the very path whose database was
-  // already failing — so exactly when the void failed hardest, the marker was
-  // missing and a counterparty-signed invoice for the OLD amount stayed
-  // current forever, confirmed by `/verify`, with the toast still asking for a
-  // re-save that answered `NOT_NEEDED`.
-  //
-  // What cannot go missing is the disagreement itself: the active
-  // COUNTERPARTY signature carries `amount_snapshot` — the figure `/verify`
-  // reads — and `transactions.amount` carries the corrected one. They differ
-  // if and only if a void failed to retire that document. The journal stays as
-  // a trace for a human, never as the trigger.
   if (!state.invoiceDocumentId) return false
   const signed = state.signedAmountSnapshot
-  if (signed === null) return false
-  return amountsDiffer(Number(signed), Number(state.amount))
+  if (signed !== null && amountsDiffer(Number(signed), Number(state.amount))) return true
+  const failedAt = state.lastVoidFailureAt
+  if (failedAt === null) return false
+  const signedAt = state.activeCompanySignedAt
+  // Comparison through `getTime()`: `null < aDate` is `true` in JS by
+  // coercion, so the «no signature» case and the ordering case would
+  // otherwise be indistinguishable — to a reader and to the gate alike.
+  if (signedAt === null) return true
+  return signedAt.getTime() < failedAt.getTime()
 }
 
 @Injectable()
@@ -948,10 +979,42 @@ export class InvoicesService {
       )
       .orderBy(desc(invoiceSignatures.signedAt))
       .limit(1)
+    // SR-M-6 — witness 2. `autoCreate` gives every issued invoice a COMPANY
+    // signature, and a void stamps `voided_at` on it, so an ACTIVE one dates
+    // the document that is live right now.
+    const [activeCompanySig] = await this.db.db
+      .select(ACTIVE_COMPANY_SIGNATURE_COLUMNS)
+      .from(invoiceSignatures)
+      .where(
+        and(
+          eq(invoiceSignatures.transactionId, transactionId),
+          // Stryker disable next-line StringLiteral: a Postgres query VALUE (which signer_role), not a shape — proven against real rows by paid-salary-amount-edit.integration.spec.ts «dates the ACTIVE COMPANY signature», which puts a COUNTERPARTY row with a different timestamp beside it (mutation-gate-integration-specs.md)
+          eq(invoiceSignatures.signerRole, 'COMPANY'),
+          isNull(invoiceSignatures.voidedAt),
+        ),
+      )
+      .orderBy(desc(invoiceSignatures.signedAt))
+      .limit(1)
+    const [lastVoidFailure] = await this.db.db
+      .select(VOID_FAILURE_COLUMNS)
+      .from(transactionAuditLog)
+      .where(
+        and(
+          eq(transactionAuditLog.targetId, transactionId),
+          // Stryker disable next-line StringLiteral: a Postgres query VALUE (which action), not a shape — proven by the real-DB test «ignores a line of another action», which records a `stage: VOID` metadata under a DIFFERENT action and asserts nothing comes back (mutation-gate-integration-specs.md)
+          eq(transactionAuditLog.action, 'INVOICE_REISSUE_FAILED'),
+          // Stryker disable next-line StringLiteral: likewise a query VALUE (which stage) — proven by «ignores the REISSUE stage», which records that stage and asserts nothing comes back
+          sql`${transactionAuditLog.metadata} ->> 'stage' = 'VOID'`,
+        ),
+      )
+      .orderBy(desc(transactionAuditLog.createdAt))
+      .limit(1)
     return {
       ...tx,
       hasVoidedInvoice: !!voided,
       signedAmountSnapshot: countersignature?.amountSnapshot ?? null,
+      activeCompanySignedAt: activeCompanySig?.signedAt ?? null,
+      lastVoidFailureAt: lastVoidFailure?.createdAt ?? null,
     }
   }
 

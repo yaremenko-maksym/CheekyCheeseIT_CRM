@@ -25,6 +25,10 @@ type State = {
   // invoice: what `/verify` confirms vs what the row now says.
   amount: string
   signedAmountSnapshot: string | null
+  // SR-M-6 — the second witness: a recorded VOID failure, cut off by the age
+  // of the signature the live document carries.
+  activeCompanySignedAt: Date | null
+  lastVoidFailureAt: Date | null
 }
 
 const PAID_SALARY_NO_INVOICE: State = {
@@ -35,6 +39,8 @@ const PAID_SALARY_NO_INVOICE: State = {
   hasVoidedInvoice: true,
   amount: '48867.000000',
   signedAmountSnapshot: null,
+  activeCompanySignedAt: null,
+  lastVoidFailureAt: null,
 }
 
 function makeService(opts: {
@@ -185,21 +191,34 @@ describe('loadReissueState — what the two reads become', () => {
     amount: '48867.000000',
   }
 
-  it('carries every column plus the countersigned figure (SR-M-4)', async () => {
+  const SIGNED_AT = new Date('2026-09-25T10:00:00.000Z')
+  const FAILED_AT = new Date('2026-09-25T11:00:00.000Z')
+
+  it('carries every column plus both witnesses (SR-M-4, SR-M-6)', async () => {
     await expect(
-      withReads([ROW], [{ id: 'sig-1' }], [{ amountSnapshot: '48675.000000' }])(),
+      withReads(
+        [ROW],
+        [{ id: 'sig-1' }],
+        [{ amountSnapshot: '48675.000000' }],
+        [{ signedAt: SIGNED_AT }],
+        [{ createdAt: FAILED_AT }],
+      )(),
     ).resolves.toEqual({
       ...ROW,
       hasVoidedInvoice: true,
       signedAmountSnapshot: '48675.000000',
+      activeCompanySignedAt: SIGNED_AT,
+      lastVoidFailureAt: FAILED_AT,
     })
   })
 
-  it('no voided signature and no countersignature → both absent', async () => {
-    await expect(withReads([ROW], [], [])()).resolves.toEqual({
+  it('nothing on record → every witness absent', async () => {
+    await expect(withReads([ROW], [], [], [], [])()).resolves.toEqual({
       ...ROW,
       hasVoidedInvoice: false,
       signedAmountSnapshot: null,
+      activeCompanySignedAt: null,
+      lastVoidFailureAt: null,
     })
   })
 
@@ -237,6 +256,8 @@ const VOID_STAGE: RepairState = {
   amount: '48867.000000',
   // What `/verify` still confirms — the figure before the edit.
   signedAmountSnapshot: '48675.000000',
+  activeCompanySignedAt: null,
+  lastVoidFailureAt: null,
 }
 
 function makeRepairService(states: Array<RepairState | null>) {
@@ -409,5 +430,86 @@ describe('canRepairSalaryInvoice — may a re-save fix this row?', () => {
   it('no for a row that vanished', async () => {
     const { svc } = makeRepairService([null])
     await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+})
+
+/**
+ * SR-M-6 — the window the snapshot witness cannot see: a void that failed
+ * BEFORE the counterparty signed. There is no `amount_snapshot` to disagree
+ * with yet, but the stale document is live, and `signInvoice`'s hash guard
+ * compares it against its own COMPANY signature — matches — and lets the
+ * counterparty sign the OLD figure. The recorded VOID failure is what makes
+ * that window repairable again.
+ */
+describe('the VOID stage before the counterparty signs (SR-M-6)', () => {
+  const EARLIER = new Date('2026-09-25T10:00:00.000Z')
+  const LATER = new Date('2026-09-25T11:00:00.000Z')
+
+  /** Issued, not yet countersigned, and a void failure on record after it. */
+  const UNSIGNED_STALE: RepairState = {
+    ...VOID_STAGE,
+    signedAmountSnapshot: null,
+    activeCompanySignedAt: EARLIER,
+    lastVoidFailureAt: LATER,
+  }
+
+  it('retries the void on a document nobody has countersigned yet', async () => {
+    const { svc, voidCall, reissue } = makeRepairService([
+      UNSIGNED_STALE,
+      { ...UNSIGNED_STALE, invoiceDocumentId: 'doc-new', activeCompanySignedAt: LATER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
+    expect(reissue).toHaveBeenCalledWith('tx')
+  })
+
+  it('…and reports it as repairable, so the operator is told to save again', async () => {
+    const { svc } = makeRepairService([UNSIGNED_STALE])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(true)
+  })
+
+  it('is idempotent: a document issued AFTER the failure is the repair, not the damage', async () => {
+    const { svc, voidCall, reissue } = makeRepairService([
+      { ...UNSIGNED_STALE, activeCompanySignedAt: LATER, lastVoidFailureAt: EARLIER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('a live document with no failure on record and nothing countersigned is left alone', async () => {
+    const { svc, voidCall } = makeRepairService([{ ...UNSIGNED_STALE, lastVoidFailureAt: null }])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+  })
+
+  it('a failure on record with NO live signature at all still counts', async () => {
+    // `null` signature must not fall through an ordering comparison —
+    // `null < aDate` is true by coercion, which would hide which reason fired.
+    const { svc, voidCall } = makeRepairService([
+      { ...UNSIGNED_STALE, activeCompanySignedAt: null },
+      { ...UNSIGNED_STALE, invoiceDocumentId: 'doc-new', activeCompanySignedAt: LATER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
+  })
+
+  it('equal timestamps do not count as «older» — the document dates from that failure', async () => {
+    const { svc, voidCall } = makeRepairService([
+      { ...UNSIGNED_STALE, activeCompanySignedAt: LATER, lastVoidFailureAt: LATER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+  })
+
+  it('the snapshot witness still fires on its own, with no failure on record', async () => {
+    // Witness 1 stays SUFFICIENT: a journal that never got written (SR-L-5,
+    // and the very reason SR-M-4 moved off it) must not reopen the old hole.
+    const { svc, voidCall } = makeRepairService([
+      { ...VOID_STAGE, lastVoidFailureAt: null, activeCompanySignedAt: null },
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new', signedAmountSnapshot: null },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
   })
 })
