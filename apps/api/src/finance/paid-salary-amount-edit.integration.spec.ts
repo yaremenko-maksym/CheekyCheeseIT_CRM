@@ -511,7 +511,7 @@ describe.skipIf(!HAS_DB_URL)(
         expect(state?.signedAmountSnapshot).toBeNull()
       })
 
-      it('dates the ACTIVE COMPANY signature — not a countersignature, not a voided one', async () => {
+      it('dates the COMPANY signature, not a countersignature', async () => {
         const id = await paidSalary()
         const companyAt = new Date('2026-09-20T10:00:00.000Z')
         await dbSvc.db.insert(invoiceSignatures).values({
@@ -539,12 +539,44 @@ describe.skipIf(!HAS_DB_URL)(
         expect(state?.activeCompanySignedAt?.toISOString()).toBe(companyAt.toISOString())
       })
 
+      it('…and ignores a COMPANY signature that was voided (SR-L-8)', async () => {
+        const id = await paidSalary()
+        await dbSvc.db.insert(invoiceSignatures).values({
+          transactionId: id,
+          signerRole: 'COMPANY',
+          signerId: ADMIN.id,
+          signedAt: new Date('2026-09-20T10:00:00.000Z'),
+          voidedAt: new Date('2026-09-21T10:00:00.000Z'),
+          amountSnapshot: null,
+          pdfHash: 'c'.repeat(64),
+          method: 'AUTO_COMPANY',
+        })
+
+        // A retired signature dates a document that no longer exists — reading
+        // it would make every repaired row look stale again.
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.activeCompanySignedAt).toBeNull()
+      })
+
       it('reads a recorded VOID failure', async () => {
         const id = await paidSalary()
         await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'VOID' })
 
         const state = await invoicesAgainstRealDb().loadReissueState(id)
         expect(state?.lastVoidFailureAt).toBeInstanceOf(Date)
+      })
+
+      it('ignores a VOID failure recorded against ANOTHER transaction (SR-L-8)', async () => {
+        const id = await paidSalary()
+        // `transaction_audit_log.target_id` carries no FK, so a bare id is a
+        // faithful stand-in for «some other row» — and one salary per receiver
+        // per month is all the unique index allows anyway.
+        await journal('c0ffee00-0000-4000-8a00-000000000001', 'INVOICE_REISSUE_FAILED', {
+          stage: 'VOID',
+        })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeNull()
       })
 
       it('ignores a line of another action, even with the same stage', async () => {

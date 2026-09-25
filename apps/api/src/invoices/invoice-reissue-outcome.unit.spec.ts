@@ -502,6 +502,45 @@ describe('the VOID stage before the counterparty signs (SR-M-6)', () => {
     expect(voidCall).not.toHaveBeenCalled()
   })
 
+  it('a countersignature that AGREES settles it — a stale journal line does not reopen the repair (SR-L-7)', async () => {
+    // A→B with a failed void, then B→A: the figures match again, but the old
+    // `stage: VOID` line stays on record forever. Repairing here would void a
+    // CORRECT, countersigned document and ask the counterparty to sign again
+    // for nothing.
+    const { svc, voidCall, reissue } = makeRepairService([
+      {
+        ...VOID_STAGE,
+        signedAmountSnapshot: '48867.000000',
+        activeCompanySignedAt: EARLIER,
+        lastVoidFailureAt: LATER,
+      },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('…and the same row is not reported as repairable either', async () => {
+    const { svc } = makeRepairService([
+      {
+        ...VOID_STAGE,
+        signedAmountSnapshot: '48867.000000',
+        activeCompanySignedAt: EARLIER,
+        lastVoidFailureAt: LATER,
+      },
+    ])
+    await expect(svc.canRepairSalaryInvoice('tx')).resolves.toBe(false)
+  })
+
+  it('a DISAGREEING countersignature still fires, journal line or not', async () => {
+    const { svc, voidCall } = makeRepairService([
+      { ...VOID_STAGE, activeCompanySignedAt: LATER, lastVoidFailureAt: EARLIER },
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new', signedAmountSnapshot: null },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
+  })
+
   it('the snapshot witness still fires on its own, with no failure on record', async () => {
     // Witness 1 stays SUFFICIENT: a journal that never got written (SR-L-5,
     // and the very reason SR-M-4 moved off it) must not reopen the old hole.

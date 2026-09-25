@@ -205,7 +205,9 @@ function awaitsReissue(state: ReissueState): boolean {
  *     marker was absent and a countersigned invoice for the OLD amount stayed
  *     current forever.
  *
- *  2. THE JOURNAL LINE (additional, for the window witness 1 is blind to).
+ *  2. THE JOURNAL LINE (additional, asked ONLY where witness 1 is silent —
+ *     i.e. nothing is countersigned. A countersignature that AGREES settles
+ *     the question by itself; see SR-L-7 in the body).
  *     Before the counterparty signs there is no snapshot to disagree with, yet
  *     the stale document is still live — and `signInvoice`'s hash guard
  *     compares it against its own COMPANY signature, matches, and lets the
@@ -222,7 +224,15 @@ function awaitsReissue(state: ReissueState): boolean {
 function awaitsVoidRetry(state: ReissueState): boolean {
   if (!state.invoiceDocumentId) return false
   const signed = state.signedAmountSnapshot
-  if (signed !== null && amountsDiffer(Number(signed), Number(state.amount))) return true
+  // SR-L-7 — witness 1 is CONCLUSIVE in both directions, so witness 2 is only
+  // asked where witness 1 has nothing to say. A countersignature that AGREES
+  // with the row means the live document attests the right figure, whatever
+  // the journal remembers: A→B with a failed void, then B→A, leaves the old
+  // `stage: VOID` line behind while the figures match again. Retrying there
+  // would void a correct, countersigned document and send the counterparty a
+  // fresh signing request for nothing — safe-direction, one cycle, still
+  // destroying a valid signature.
+  if (signed !== null) return amountsDiffer(Number(signed), Number(state.amount))
   const failedAt = state.lastVoidFailureAt
   if (failedAt === null) return false
   const signedAt = state.activeCompanySignedAt
