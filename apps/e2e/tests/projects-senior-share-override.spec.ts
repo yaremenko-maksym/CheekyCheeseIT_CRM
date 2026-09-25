@@ -182,6 +182,9 @@ test.describe('per-project SENIOR share override', () => {
       await expect(pendingBadge).toBeVisible()
       await expect(pendingBadge).toContainText('30%')
       await expect(pendingBadge).not.toContainText(USERS.senior.displayName)
+      // `project-senior-share` is the PROJECT detail page's own separate
+      // banner ($projectId.tsx) — not touched by this PR (wave (d)'s
+      // territory), still the original Russian text.
       await expect(page.getByTestId('project-senior-share')).toContainText(
         `Подтверждает ${USERS.senior.displayName}`,
       )
@@ -1118,10 +1121,10 @@ test.describe('T — an edit dialog announces the live proposal', () => {
 
     await page.goto(`/profile/${USERS.senior.id}`)
     // `AdminActionsMenu` has a test-id on its trigger; the individual items
-    // carry one only where a spec already needed it, so «Редактировать» is
+    // carry one only where a spec already needed it, so «Редагувати» is
     // addressed by role+name (the menu is a Radix DropdownMenu).
     await page.getByTestId('admin-actions-trigger').click()
-    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+    await page.getByRole('menuitem', { name: 'Редагувати' }).click()
 
     const notice = page.getByTestId('pending-share-edit-notice-user')
     await expect(notice).toBeVisible()
@@ -1220,7 +1223,7 @@ test.describe('V — the approver name is readable without hover', () => {
     await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
 
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
-    expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
+    expect(rendered).toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
   })
 })
 
@@ -1415,12 +1418,12 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.goto('/profile')
     const banner = page.getByTestId('pending-base-share-approval-banner')
     await expect(banner).toBeVisible()
-    await expect(banner).toContainText('Вашу долю')
+    await expect(banner).toContainText('Вашу частку')
     await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
 
     // Nothing on this screen talks ABOUT them, to them.
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
-    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+    expect(rendered).not.toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
     // ...and the ADMIN-only withdraw control is not offered to the approver.
     await expect(page.getByTestId('cancel-pending-share-user')).toHaveCount(0)
 
@@ -1439,12 +1442,12 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.goto(`/profile/${USERS.senior.id}`)
     const banner = page.getByTestId('pending-base-share-approval-banner')
     await expect(banner).toBeVisible()
-    await expect(banner).toContainText('Вашу долю')
+    await expect(banner).toContainText('Вашу частку')
     await expect(page.getByTestId('pending-base-share-approve-button')).toBeVisible()
     await expect(page.getByTestId('pending-base-share-reject-button')).toBeVisible()
 
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
-    expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
+    expect(rendered).not.toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
   })
 
   test('ADMIN on that profile gets the third person and the withdraw control', async ({
@@ -1456,7 +1459,7 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByTestId('user-senior-share-pending-badge')).toBeVisible()
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
-    expect(rendered).toContain(`Подтверждает ${USERS.senior.displayName}`)
+    expect(rendered).toContain(`Чекає підтвердження від ${USERS.senior.displayName}`)
     await expect(page.getByTestId('cancel-pending-share-user').first()).toBeVisible()
     // The actionable banner belongs to the approver, not to the admin.
     await expect(page.getByTestId('pending-base-share-approval-banner')).toHaveCount(0)
@@ -1472,6 +1475,8 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await expect(page.getByTestId('pending-share-approval-banner')).toBeVisible()
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
     expect(rendered).toContain('Вашу долю по проекту')
+    // Project page's own (untouched, still Russian) text — see the
+    // matching comment near `project-senior-share` above.
     expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
   })
 

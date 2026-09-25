@@ -86,14 +86,15 @@ msgstr "{role, select, SENIOR {senior} DROP {drop} other {employee}}"
 msgid "{role, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{role, select, SENIOR {senior's} DROP {drop's} other {employee's}}"
 
-#. placeholder {0}: new Date().getFullYear()
-#: apps/web/app/routes/_authenticated/onboarding/route.tsx
-msgid "© {0} Cheeky Cheese IT. Усі права захищено."
-msgstr "© {0} Cheeky Cheese IT. All rights reserved."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.percentText"
 msgstr "{value, select, null {not set} other {{value}%}}"
+
+#. placeholder {0}: new Date().getFullYear()
+#: apps/web/app/routes/_authenticated/onboarding/route.tsx
+msgid "© {0} Cheeky Cheese IT. Усі права захищено."
+msgstr "© {0} Cheeky Cheese IT. All rights reserved."
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -552,13 +553,6 @@ msgstr "Transaction added for you"
 msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}"
 
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Ваш контракт"
-msgstr "Your contract"
-
-#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
-msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
-msgstr "Your personal contract is not ready to sign yet — an admin will fill it in shortly"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TEAM_MEMBER_ADDED.title"
@@ -568,6 +562,14 @@ msgstr "You were added to a team"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.PROJECT_MEMBER_ADDED.title"
 msgstr "You were added to a project"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Ваш контракт"
+msgstr "Your contract"
+
+#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
+msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
+msgstr "Your personal contract is not ready to sign yet — an admin will fill it in shortly"
 
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -875,9 +877,6 @@ msgstr "Application deleted"
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "No open obligation found for this transaction"
 
-#: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
-msgid "Відкрити дошку"
-msgstr "Open the board"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.open"
@@ -887,6 +886,10 @@ msgstr "Open"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.VACANCY_APPLICATION"
 msgstr "Open vacancy"
+
+#: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
+msgid "Відкрити дошку"
+msgstr "Open the board"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -993,6 +996,11 @@ msgstr "The sender must be an admin"
 msgid "Відпустіть зображення"
 msgstr "Drop the image"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
+msgstr "Rejected: {money}"
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхилити"
@@ -1005,11 +1013,6 @@ msgstr "Reject the proposal"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхиляємо…"
 msgstr "Rejecting…"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
-msgstr "Rejected: {money}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1955,13 +1958,14 @@ msgstr "Team {teamName}"
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Team <0>{0}</0> and its drop <1>{dropName}</1> are a linked pair — you cannot remove just one. Archiving covers: the drop's <2>profile</2>, the team and all its drop projects ({1, plural, one {# project} other {# projects}}{projectNamesSuffix})."
 
-#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Команда та проєкти"
-msgstr "Team and projects"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectArchived.TEAM"
 msgstr "Team archived"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Команда та проєкти"
+msgstr "Team and projects"
 
 #: apps/web/app/components/ui/command.tsx
 msgid "Командне меню"
@@ -2034,18 +2038,6 @@ msgstr "This contract can no longer be edited"
 msgid "api-error.CONTRACT_NOT_DRAFT"
 msgstr "This contract is no longer a draft — refresh the page"
 
-#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
-msgid "Контракт готується"
-msgstr "The contract is being prepared"
-
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Контракт для підписання"
-msgstr "Contract to sign"
-
-#: apps/web/app/components/user-profile/contract/ContractTab.tsx
-msgid "Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку"
-msgstr "The contract was sent for signing — editing is locked; to make changes, revert it to draft"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectArchived.EMPLOYEE_CONTRACT"
@@ -2056,10 +2048,22 @@ msgstr "Contract archived"
 msgid "notification.subjectMissing.EMPLOYEE_CONTRACT"
 msgstr "Contract deleted"
 
+#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
+msgid "Контракт готується"
+msgstr "The contract is being prepared"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Контракт для підписання"
+msgstr "Contract to sign"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
 msgstr "Contract to sign"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку"
+msgstr "The contract was sent for signing — editing is locked; to make changes, revert it to draft"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2794,13 +2798,14 @@ msgstr "No matches — clear the filters"
 msgid "Нова версія умов"
 msgstr "New Terms version"
 
-#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Новий тип сповіщень"
-msgstr "New notification type"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.title"
 msgstr "New vacancy application"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Новий тип сповіщень"
+msgstr "New notification type"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
@@ -3157,14 +3162,14 @@ msgstr "Prepare for signing"
 msgid "Підпис — юридичне ПІБ з профілю"
 msgstr "Signature — legal name from the profile"
 
-#: apps/web/app/components/user-profile/contract/ContractTab.tsx
-msgid "Підписаний"
-msgstr "Signed"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.documentSignUnavailable"
 msgstr "Signature no longer needed"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Підписаний"
+msgstr "Signed"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -3187,6 +3192,7 @@ msgstr "Signatory"
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Підписати контракт"
 msgstr "Sign the contract"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.DOCUMENT_SIGN_REQUIRED"
@@ -3508,6 +3514,7 @@ msgstr "Continue"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Проєкт"
 msgstr "Project"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.PROJECT_MEMBER_ADDED.detail"
@@ -3620,9 +3627,6 @@ msgstr "Proposed by {0}"
 msgid "Профіль"
 msgstr "Profile"
 
-#: apps/web/app/components/user-profile/UserProfileShell.tsx
-msgid "Профіль не знайдено"
-msgstr "Profile not found"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectArchived.USER"
@@ -3632,6 +3636,10 @@ msgstr "Profile archived"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectMissing.USER"
 msgstr "Profile deleted"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Профіль не знайдено"
+msgstr "Profile not found"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"

@@ -72,8 +72,10 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
     await expect(rnokppInput).toHaveAttribute('inputmode', 'numeric')
     await expect(rnokppInput).toHaveAttribute('pattern', '[0-9]*')
 
-    // Switch to the USDT ERC-20 tab.
-    await page.getByRole('button', { name: 'USDT ERC-20' }).click()
+    // Switch to the USDT ERC-20 tab. Plain literal (not `assertInCatalog`) —
+    // this segment label is a hardcoded string in RequisitesEditForm.tsx's
+    // `tabs` array, never wrapped in `t`/`msg`, so it is not a catalog entry.
+    await page.getByRole('button', { name: 'USDT (ERC-20)' }).click()
 
     // WALLET_HASH — USDT wallet address, must resist
     // autocapitalize/autocorrect/spellcheck/autocomplete mangling.

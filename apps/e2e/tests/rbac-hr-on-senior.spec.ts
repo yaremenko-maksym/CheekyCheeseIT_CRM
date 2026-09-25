@@ -57,14 +57,14 @@ test.describe('RBAC — HR viewing SENIOR profile', () => {
     await mockHrViewingSenior(page)
     await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Огляд' })).toBeVisible()
   })
 
   test('Проекты tab is visible', async ({ page }) => {
     await mockHrViewingSenior(page)
     await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Проекты' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Проєкти' })).toBeVisible()
   })
 
   test('Команда tab is visible', async ({ page }) => {
@@ -110,7 +110,7 @@ test.describe('RBAC — HR viewing SENIOR profile', () => {
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     // AnimatedTabs renders inside main; assert exactly 3 tab buttons under it
     const main = page.locator('main')
-    const tabLabels = ['Обзор', 'Проекты', 'Команда']
+    const tabLabels = ['Огляд', 'Проєкти', 'Команда']
     for (const label of tabLabels) {
       await expect(main.getByRole('button', { name: label })).toBeVisible()
     }

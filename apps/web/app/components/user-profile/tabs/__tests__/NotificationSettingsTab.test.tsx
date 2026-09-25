@@ -362,14 +362,14 @@ describe('NotificationSettingsTab — AC3 locked rows', () => {
 // zero unit assertion pinning their resolved text.
 describe('NotificationSettingsTab — desktop table column headers + locked-row email cell', () => {
   it('renders the three column headers with their own exact text', () => {
-    render(<NotificationSettingsTab />)
+    render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     const desktop = within(screen.getByTestId('notification-settings-desktop'))
     const headers = desktop.getAllByRole('columnheader')
     expect(headers.map((h) => h.textContent)).toEqual(['Тип сповіщення', 'У застосунку', 'Лист'])
   })
 
   it('a locked row shows "Завжди" in the email column instead of a second switch', () => {
-    render(<NotificationSettingsTab />)
+    render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     const row = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
       'notification-row-desktop-PROJECT_CONFIRM_REQUIRED',
     )

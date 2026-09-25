@@ -65,7 +65,10 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // RequisitesEditForm renders both method segments when role is NOT SENIOR/ADMIN.
-    await expect(page.getByLabel(assertInCatalog(uk, 'USDT (ERC-20)'))).toBeVisible()
+    // Plain literal, not `assertInCatalog` — this segment's `ariaLabel` is a
+    // hardcoded string in the component's `tabs` array, never wrapped in
+    // `t`/`msg`, so it is not a catalog entry (unlike 'ФОП (UAH)' below).
+    await expect(page.getByLabel('USDT (ERC-20)')).toBeVisible()
     await expect(page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))).toBeVisible()
     // Both must be enabled (not aria-disabled)
     await expect(page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))).not.toBeDisabled()
@@ -114,7 +117,9 @@ test.describe('Requisites edit form', () => {
     // AlertDialog appears with the confirmation text
     await expect(page.getByRole('alertdialog')).toBeVisible()
     await expect(
-      page.getByText(assertInCatalog(uk, 'Далі виплати надходитимуть на ці реквізити')),
+      page.getByText(
+        assertInCatalog(uk, 'Далі виплати надходитимуть на ці реквізити — підтвердіть зміну'),
+      ),
     ).toBeVisible()
   })
 
@@ -190,7 +195,7 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // JUNIOR fixture defaults to BANK_UAH_FOP — switch to USDT first.
-    await page.getByLabel(assertInCatalog(uk, 'USDT (ERC-20)')).click()
+    await page.getByLabel('USDT (ERC-20)').click()
     await expect(page.getByLabel(assertInCatalog(uk, 'Гаманець USDT (ERC-20)'))).toBeVisible()
     await page.getByLabel(assertInCatalog(uk, 'Гаманець USDT (ERC-20)')).clear()
     await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()

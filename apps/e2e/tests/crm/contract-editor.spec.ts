@@ -294,9 +294,10 @@ test.describe('A3-2: Contract editor tab', () => {
 
     await expect(page.getByTestId('contract-tab-no-template')).toBeVisible()
     await expect(page.getByTestId('contract-tab-template-link')).toBeVisible()
-    await expect(
-      page.getByText(assertInCatalog(uk, 'Немає шаблону контракту для ролі «Сеньйор»')),
-    ).toBeVisible()
+    // Not `assertInCatalog` — the catalog stores the RAW template
+    // "…для ролі «{roleLabel}»", never the role-interpolated string, so an
+    // exact-value catalog lookup can never match this literal.
+    await expect(page.getByText('Немає шаблону контракту для ролі «Сеньйор»')).toBeVisible()
   })
 
   test('AC5: Revert from READY_TO_SIGN returns contract to DRAFT', async ({ page }) => {

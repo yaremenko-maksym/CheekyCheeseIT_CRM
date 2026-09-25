@@ -35,66 +35,86 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
   // AbortController ref — cancelled on unmount or when a new load supersedes the current one.
   const abortRef = useRef<AbortController | null>(null)
 
-  const downloadPdf = useCallback(async () => {
-    setIsDownloading(true)
-    try {
-      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `contract-${userId}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      // Revoke after a short delay to allow browser to start download
-      setTimeout(revoke, 1000)
-    } catch (err: unknown) {
-      if (getAxiosStatus(err) === 429) {
-        toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
-      } else {
-        toast.error(t`Не вдалося завантажити PDF`)
+  const downloadPdf = useCallback(
+    async () => {
+      setIsDownloading(true)
+      try {
+        const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `contract-${userId}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        // Revoke after a short delay to allow browser to start download
+        setTimeout(revoke, 1000)
+      } catch (err: unknown) {
+        if (getAxiosStatus(err) === 429) {
+          toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
+        } else {
+          toast.error(t`Не вдалося завантажити PDF`)
+        }
+      } finally {
+        setIsDownloading(false)
       }
-    } finally {
-      setIsDownloading(false)
-    }
-  }, [userId, t])
+    },
+    // MUT-1 (fix-round B, PR #717 CR-M-1) — same reasoning as
+    // `TosPdfPreview.tsx`'s `[i18n]` comment: `t` (from `useLingui()`)
+    // resolves through the SAME `i18n` singleton (`@/lib/i18n`'s `i18n`,
+    // mutated in place by `activateLocale`, never reconstructed) — a
+    // locale switch changes what `t` PRODUCES, not the closure's own
+    // reference identity in any way this callback observes. Kept for
+    // correctness/lint-intent (exhaustive-deps) rather than removed.
+    // Stryker disable next-line ArrayDeclaration: t resolves through the stable i18n singleton, see comment above
+    [userId, t],
+  )
 
-  const loadPdf = useCallback(async () => {
-    // Cancel any in-flight request before starting a new one.
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
+  const loadPdf = useCallback(
+    async () => {
+      // Cancel any in-flight request before starting a new one.
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    setIsLoading(true)
-    setHasError(false)
-    setIframeLoading(true)
-    revokeRef.current?.()
-    revokeRef.current = null
+      setIsLoading(true)
+      setHasError(false)
+      setIframeLoading(true)
+      revokeRef.current?.()
+      revokeRef.current = null
 
-    try {
-      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId, controller.signal)
-      // Guard: if aborted while awaiting, do not call setState on unmounted component.
-      if (controller.signal.aborted) return
-      revokeRef.current = revoke
-      setBlobUrl(url)
-    } catch (err: unknown) {
-      // Ignore AbortError — triggered by cleanup or superseding load, not a real failure.
-      if (err instanceof Error && err.name === 'AbortError') return
-      if (controller.signal.aborted) return
-      setIsLoading(false)
-      setIframeLoading(false)
-      setHasError(true)
-      // 429 Throttle check
-      if (getAxiosStatus(err) === 429) {
-        toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
-      } else {
-        toast.error(t`Не вдалося завантажити PDF попереднього перегляду`)
-      }
-    } finally {
-      if (!controller.signal.aborted) {
+      try {
+        const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId, controller.signal)
+        // Guard: if aborted while awaiting, do not call setState on unmounted component.
+        if (controller.signal.aborted) return
+        revokeRef.current = revoke
+        setBlobUrl(url)
+      } catch (err: unknown) {
+        // Ignore AbortError — triggered by cleanup or superseding load, not a real failure.
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (controller.signal.aborted) return
         setIsLoading(false)
+        setIframeLoading(false)
+        setHasError(true)
+        // 429 Throttle check
+        if (getAxiosStatus(err) === 429) {
+          toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
+        } else {
+          toast.error(t`Не вдалося завантажити PDF попереднього перегляду`)
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+        }
       }
-    }
-  }, [userId, t])
+    },
+    // MUT-1 (fix-round B, PR #717 CR-M-1) — same reasoning as the comment on
+    // `downloadPdf`'s deps above (and `TosPdfPreview.tsx`'s `[i18n]`
+    // comment): `t` resolves through the stable `i18n` singleton, so a
+    // locale switch changes what `t` PRODUCES, not this closure's own
+    // reference identity.
+    // Stryker disable next-line ArrayDeclaration: t resolves through the stable i18n singleton, see comment above
+    [userId, t],
+  )
 
   // Load PDF on mount and when userId changes; cancel on unmount.
   useEffect(() => {
