@@ -5,7 +5,14 @@
  * rendered deterministically — the wiring to the real endpoints is covered by
  * the API integration spec and the E2E run, not here.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -13,6 +20,13 @@ import {
   type SeniorResumeDto,
   type SeniorResumeResponse,
 } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3b-pr3 (Step 4): `ResumeTab` and its section children now
+// call `useLingui()` — every render needs the active catalog.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 const saveMock = vi.fn()
 const saveLayoutMock = vi.fn()
@@ -87,10 +101,11 @@ const FILLED = makeResponse({
   },
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   resumeData = { resume: null, canEdit: true }
   isLoading = false
+  await loadCatalog('uk')
 })
 
 describe('ResumeTab — empty state', () => {
@@ -128,7 +143,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     resumeData = makeResponse({ status: 'QUEUED' })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-progress')
-    expect(panel).toHaveTextContent('очереди на распознавание')
+    expect(panel).toHaveTextContent('черзі на розпізнавання')
     // The rest of the tab still renders — the user is not blocked.
     expect(screen.getByTestId('resume-section-summary')).toBeInTheDocument()
   })
@@ -136,7 +151,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
   it('RUNNING shows its own copy', () => {
     resumeData = makeResponse({ status: 'RUNNING' })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-progress')).toHaveTextContent('Распознаём резюме')
+    expect(screen.getByTestId('resume-progress')).toHaveTextContent('Розпізнаємо резюме')
   })
 
   it('FAILED/NO_TEXT explains the scan case and offers pasting text', () => {
@@ -147,7 +162,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-failed')
-    expect(panel).toHaveTextContent('нет текстового слоя')
+    expect(panel).toHaveTextContent('немає текстового шару')
     expect(screen.getByTestId('resume-paste-toggle')).toBeInTheDocument()
   })
 
@@ -160,8 +175,8 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-failed')
-    expect(panel).toHaveTextContent('лимит')
-    expect(panel).toHaveTextContent('августа')
+    expect(panel).toHaveTextContent('ліміт')
+    expect(panel).toHaveTextContent('серпня')
     // Manual editing is NOT blocked by the quota wall.
     expect(screen.getByTestId('resume-edit-summary')).toBeInTheDocument()
   })
@@ -169,7 +184,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
   it('AI_NOT_CONFIGURED tells the user to fill it in by hand', () => {
     resumeData = makeResponse({ status: 'FAILED', errorCode: 'AI_NOT_CONFIGURED' })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-failed')).toHaveTextContent('вручную')
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent('вручну')
   })
 })
 
@@ -299,11 +314,11 @@ describe('ResumeTab — unsaved edits survive a move between sections', () => {
     fireEvent.change(screen.getByTestId('resume-summary-input'), { target: { value: 'правка' } })
 
     expect(screen.getByTestId('resume-editing-hint-summary')).toHaveTextContent(
-      /несохранённые правки/i,
+      /незбережені правки/i,
     )
     expect(screen.getByTestId('resume-edit-skills')).toHaveAttribute(
       'title',
-      expect.stringContaining('сохраните или отмените'),
+      expect.stringContaining('збережіть або скасуйте'),
     )
   })
 
@@ -478,7 +493,7 @@ describe('ResumeTab — downloads', () => {
       updatedByName: 'Эйчар Иванова',
     })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-tab')).toHaveTextContent('Версия 7')
+    expect(screen.getByTestId('resume-tab')).toHaveTextContent('Версія 7')
     expect(screen.getByTestId('resume-tab')).toHaveTextContent('Эйчар Иванова')
   })
 })
