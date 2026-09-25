@@ -365,7 +365,7 @@ msgstr "Active"
 #. placeholder {0}: impact.seniorName ? ` ${impact.seniorName}` : ''
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Активний сеньйор{0} від’єднається від команди без архівації"
-msgstr "The active senior{0} will be detached from the team without being archived"
+msgstr "The active senior{0} will be unassigned from the team without being archived"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -428,11 +428,15 @@ msgstr "Archiving a user"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
-#: apps/web/app/components/users/UserRow.tsx
-#: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Архівувати"
 msgstr "Archive"
+
+#. placeholder {0}: user.displayName
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+msgid "Архівувати {0}"
+msgstr "Archive {0}"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Архівувати команду"
@@ -811,11 +815,6 @@ msgstr "Choose a file"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Only an admin can withdraw dividends"
-
-#. placeholder {0}: u.displayName
-#: apps/web/app/components/users/HrChipsField.tsx
-msgid "Видалити {0}"
-msgstr "Remove {0}"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Видалити {tag}"
@@ -1301,8 +1300,6 @@ msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "Only a junior, an HR, or an accountant can be added to a project"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-#: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Додати"
 msgstr "Add"
 
@@ -1323,11 +1320,16 @@ msgstr "Add to the drop's team"
 msgid "Додати дохід"
 msgstr "Add income"
 
+#: apps/web/app/routes/_authenticated/users/index.tsx
+msgid "Додати користувача"
+msgstr "Add user"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
 msgstr "Only an administrator can add a senior to a team"
 
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Додати учасника"
 msgstr "Add member"
@@ -1704,7 +1706,7 @@ msgstr "Collapse"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
-msgstr "Change or assign the team's senior. The current senior will be detached."
+msgstr "Change or assign the team's senior. The current senior will be unassigned from the team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2607,8 +2609,8 @@ msgid "Нова версія умов"
 msgstr "New Terms version"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
-msgid "Нова команда. Оберіть склад нижче."
-msgstr "A new team. Choose its composition below."
+msgid "Нова команда — оберіть HR і бухгалтера нижче."
+msgstr "A new team — pick HR and an accountant below."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -2797,10 +2799,6 @@ msgstr "Layout updated"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
 msgstr "Clear"
-
-#: apps/web/app/components/users/AccountantChipField.tsx
-msgid "Очистити бухгалтера"
-msgstr "Clear the accountant"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити зображення"
@@ -3068,7 +3066,7 @@ msgstr "The current Terms version will be deactivated (kept in history). All use
 #. placeholder {0}: activeSenior.displayName
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
-msgstr "The current senior “{0}” will be detached. The new senior must have no active team."
+msgstr "The current senior “{0}” will be unassigned from the team. The new senior must have no active team."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -3116,6 +3114,15 @@ msgstr "Search and run commands"
 #: apps/web/app/components/ui/phone-input.tsx
 msgid "Пошук країни…"
 msgstr "Search country…"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "Прибрати {0}"
+msgstr "Remove {0}"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Прибрати бухгалтера"
+msgstr "Remove accountant"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -3348,11 +3355,15 @@ msgstr "The invoice hasn't been generated yet — try again later"
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Edit the team's name, Telegram link and notes."
 
-#: apps/web/app/components/users/UserRow.tsx
-#: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Редагувати"
 msgstr "Edit"
+
+#. placeholder {0}: user.displayName
+#: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/components/users/UserRow.tsx
+msgid "Редагувати {0}"
+msgstr "Edit {0}"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Редагувати команду"

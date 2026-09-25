@@ -162,8 +162,15 @@ test.describe('Team page', () => {
     test('opens add member dialog', async ({ asAdmin: page }) => {
       await page.goto(`/team/${TEAMS[0]!.id}`)
       await page.getByRole('button', { name: assertInCatalog(uk, 'Додати') }).click()
-      await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByText(new RegExp(assertInCatalog(uk, 'Додати учасника')))).toBeVisible()
+      const dialog = page.getByRole('dialog')
+      await expect(dialog).toBeVisible()
+      // COPY-M-5 (fix-round B): the header trigger's OWN text is now also
+      // "Додати учасника" (was bare "Додати") — an unscoped getByText would
+      // strict-mode-violate on the still-visible header button behind the
+      // dialog. Scope to the dialog to target its title specifically.
+      await expect(
+        dialog.getByText(new RegExp(assertInCatalog(uk, 'Додати учасника'))),
+      ).toBeVisible()
     })
 
     test('clicking a user sends POST to members endpoint', async ({ asAdmin: page }) => {

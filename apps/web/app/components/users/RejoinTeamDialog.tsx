@@ -204,7 +204,7 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                         <Trans>Створити свою команду</Trans>
                       </div>
                       <p className="text-muted-foreground mt-0.5">
-                        <Trans>Нова команда. Оберіть склад нижче.</Trans>
+                        <Trans>Нова команда — оберіть HR і бухгалтера нижче.</Trans>
                       </p>
                     </div>
                   </label>

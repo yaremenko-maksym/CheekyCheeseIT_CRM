@@ -62,6 +62,28 @@ describe('HrChipsField', () => {
     expect(screen.queryByTestId('user-dialog-hr-chip-hr-b')).not.toBeInTheDocument()
   })
 
+  it('CR-H-2: the remove-chip button carries the "Прибрати {name}" aria-label', async () => {
+    // mutation-gate survivor: `aria-label={t\`Прибрати ${u.displayName}\`}`
+    // (StringLiteral, `t\`\`` loses both the text and the name substitution)
+    // — no test read the attribute before this (pattern already established
+    // for the identical case in UserRow.test.tsx).
+    await loadCatalog('uk')
+    render(
+      <HrChipsField
+        hrUsers={[HR_A, HR_B, HR_C]}
+        selectedIds={['hr-a']}
+        onChange={vi.fn()}
+        required={false}
+        onlyHr={false}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('user-dialog-hr-remove-hr-a')).toHaveAttribute(
+      'aria-label',
+      'Прибрати Алла HR',
+    )
+  })
+
   it('`available` excludes already-selected HR from the add-dropdown options (real .filter)', async () => {
     await loadCatalog('uk')
     const user = (await import('@testing-library/user-event')).default.setup()

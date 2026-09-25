@@ -124,14 +124,14 @@ describe('UserRow — aria-labels, titles, role badge variant (task-i18n-stage3b
     expect(screen.getByRole('link', { name: 'Відкрити профіль Иван Петров' })).toBeInTheDocument()
   })
 
-  it('edit button has the "Редагувати" aria-label and title', () => {
+  it('edit button has the "Редагувати {name}" aria-label and title (COPY-M-5: screen reader needs the name)', () => {
     renderRow(makeUser())
     const btn = screen.getByTestId('user-row-edit-user-1')
-    expect(btn).toHaveAttribute('aria-label', 'Редагувати')
-    expect(btn).toHaveAttribute('title', 'Редагувати')
+    expect(btn).toHaveAttribute('aria-label', 'Редагувати Иван Петров')
+    expect(btn).toHaveAttribute('title', 'Редагувати Иван Петров')
   })
 
-  it('archive button: "Архівувати" for another user, "Не можна архівувати себе" for self', () => {
+  it('archive button: "Архівувати {name}" for another user, "Не можна архівувати себе" for self', () => {
     const { unmount } = render(
       <UserRow
         user={makeUser()}
@@ -143,8 +143,8 @@ describe('UserRow — aria-labels, titles, role badge variant (task-i18n-stage3b
       { wrapper: I18nTestProvider },
     )
     const other = screen.getByTestId('user-row-archive-user-1')
-    expect(other).toHaveAttribute('aria-label', 'Архівувати')
-    expect(other).toHaveAttribute('title', 'Архівувати')
+    expect(other).toHaveAttribute('aria-label', 'Архівувати Иван Петров')
+    expect(other).toHaveAttribute('title', 'Архівувати Иван Петров')
     unmount()
 
     render(

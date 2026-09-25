@@ -229,9 +229,14 @@ export function ArchiveConfirmDialog({
               <Skeleton className="h-16 w-full" />
             ) : (
               <>
-                <p className="text-muted-foreground">
+                {/* SR-L-1 (fix-round B): a plain <div>, not <p> — the
+                    entityType='user' branch delegates to UserArchiveImpact,
+                    which renders its OWN <div> wrapper (testid
+                    archive-warning-*); a <div> inside a <p> is invalid HTML
+                    and React warns about it. Text/testids unchanged. */}
+                <div className="text-muted-foreground">
                   {renderImpactText(entityType, entityName, impact)}
-                </p>
+                </div>
                 {(impact?.type === 'user' || impact?.type === 'team') && (
                   <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
                 )}

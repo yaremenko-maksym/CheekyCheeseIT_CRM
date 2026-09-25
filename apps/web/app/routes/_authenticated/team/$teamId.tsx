@@ -558,7 +558,7 @@ function TeamDetailPage() {
                   data-testid="team-add-member-button"
                 >
                   <UserPlus className="h-4 w-4" />
-                  <Trans>Додати</Trans>
+                  <Trans>Додати учасника</Trans>
                 </Button>
                 <Button
                   variant="outline"

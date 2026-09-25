@@ -114,7 +114,7 @@ export function HrChipsField({
                           <button
                             type="button"
                             onClick={() => onChange(selectedIds.filter((id) => id !== u.id))}
-                            aria-label={t`Видалити ${u.displayName}`}
+                            aria-label={t`Прибрати ${u.displayName}`}
                             className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                             data-testid={`user-dialog-hr-remove-${u.id}`}
                           >

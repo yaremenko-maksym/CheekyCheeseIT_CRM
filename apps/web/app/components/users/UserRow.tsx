@@ -238,8 +238,8 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 data-testid={`user-row-edit-${user.id}`}
                 variant="ghost"
                 size="icon"
-                aria-label={t`Редагувати`}
-                title={t`Редагувати`}
+                aria-label={t`Редагувати ${user.displayName}`}
+                title={t`Редагувати ${user.displayName}`}
                 className="h-7 w-7"
                 onClick={(e) => {
                   e.preventDefault()
@@ -258,8 +258,10 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                 data-testid={`user-row-archive-${user.id}`}
                 variant="ghost"
                 size="icon"
-                aria-label={isSelf ? t`Не можна архівувати себе` : t`Архівувати`}
-                title={isSelf ? t`Не можна архівувати себе` : t`Архівувати`}
+                aria-label={
+                  isSelf ? t`Не можна архівувати себе` : t`Архівувати ${user.displayName}`
+                }
+                title={isSelf ? t`Не можна архівувати себе` : t`Архівувати ${user.displayName}`}
                 className="h-7 w-7 text-destructive hover:text-destructive disabled:opacity-30"
                 disabled={isSelf}
                 onClick={(e) => {

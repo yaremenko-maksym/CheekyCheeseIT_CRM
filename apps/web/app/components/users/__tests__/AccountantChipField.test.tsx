@@ -51,7 +51,10 @@ describe('AccountantChipField', () => {
     expect(screen.getByText('Бухгалтер')).toBeInTheDocument()
   })
 
-  it('the clear button on a removable chip carries the "Очистити бухгалтера" aria-label', async () => {
+  it('the clear button on a removable chip carries the "Прибрати бухгалтера" aria-label', async () => {
+    // COPY-M-6 (fix-round B): "Очистити"/"Clear" implied the field itself
+    // gets wiped; nothing is deleted here, only the selection — reworded to
+    // "Прибрати"/"Remove", matching the HR chip's own "Прибрати {0}".
     await loadCatalog('uk')
     const accountant = {
       id: 'a-1',
@@ -70,7 +73,70 @@ describe('AccountantChipField', () => {
     )
     expect(screen.getByTestId('user-dialog-accountant-clear')).toHaveAttribute(
       'aria-label',
-      'Очистити бухгалтера',
+      'Прибрати бухгалтера',
     )
+  })
+
+  it('CR-M-1: the trigger button says "Обрати бухгалтера" with no selection, "Змінити" once one is chosen', async () => {
+    // mutation-gate NoCoverage survivors: `selected ? t\`Змінити\` : t\`Обрати
+    // бухгалтера\`` — neither branch was exercised by a test before this.
+    await loadCatalog('uk')
+    const a = {
+      id: 'a-1',
+      displayName: 'Ірина Бухгалтер',
+      email: 'ira@example.com',
+      avatarUrl: null,
+    } as unknown as UserProfileDto
+    const b = {
+      id: 'a-2',
+      displayName: 'Олег Бухгалтер',
+      email: 'oleg@example.com',
+      avatarUrl: null,
+    } as unknown as UserProfileDto
+    const { rerender } = render(
+      <AccountantChipField
+        accountantUsers={[a, b]}
+        selectedId=""
+        onChange={vi.fn()}
+        onlyAccountant={false}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByTestId('user-dialog-accountant-trigger')).toHaveTextContent(
+      'Обрати бухгалтера',
+    )
+    rerender(
+      <AccountantChipField
+        accountantUsers={[a, b]}
+        selectedId="a-1"
+        onChange={vi.fn()}
+        onlyAccountant={false}
+      />,
+    )
+    expect(screen.getByTestId('user-dialog-accountant-trigger')).toHaveTextContent('Змінити')
+  })
+
+  it('CR-M-1: the add-dropdown search placeholder is localized', async () => {
+    // mutation-gate NoCoverage survivor: `t\`Пошук за ім'ям або email…\`` on
+    // the popover's CommandInput.
+    await loadCatalog('uk')
+    const user = (await import('@testing-library/user-event')).default.setup()
+    const a = {
+      id: 'a-1',
+      displayName: 'Ірина Бухгалтер',
+      email: 'ira@example.com',
+      avatarUrl: null,
+    } as unknown as UserProfileDto
+    render(
+      <AccountantChipField
+        accountantUsers={[a]}
+        selectedId=""
+        onChange={vi.fn()}
+        onlyAccountant={false}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    await user.click(screen.getByTestId('user-dialog-accountant-trigger'))
+    expect(screen.getByPlaceholderText('Пошук за ім’ям або email…')).toBeInTheDocument()
   })
 })

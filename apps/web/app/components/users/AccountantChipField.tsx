@@ -79,7 +79,7 @@ export function AccountantChipField({
                     <button
                       type="button"
                       onClick={() => onChange('')}
-                      aria-label={t`Очистити бухгалтера`}
+                      aria-label={t`Прибрати бухгалтера`}
                       className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                       data-testid="user-dialog-accountant-clear"
                     >

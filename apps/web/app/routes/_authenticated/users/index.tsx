@@ -231,7 +231,7 @@ function UsersPageContent({
               data-testid="users-create-button"
             >
               <Plus className="mr-2 h-4 w-4" />
-              <Trans>Додати</Trans>
+              <Trans>Додати користувача</Trans>
             </Button>
           </div>
         </div>
