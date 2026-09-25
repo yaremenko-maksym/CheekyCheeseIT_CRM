@@ -103,6 +103,15 @@ const searchSchema = z.object({
   seniorId: z.string().optional(),
 })
 
+// task-hide-job-sourcing-button (owner, 2026-09-24): job-sourcing is paused
+// since 2026-08-23; the owner plans a different approach, to start after
+// the CRM i18n project is finished — a time dependency, not an i18n rework
+// of this module. The module itself (apps/web/app/components/job-sourcing/**,
+// apps/web/app/hooks/use-job-sourcing.ts, apps/api/src/job-sourcing/**)
+// stays intact — only this board's entry point is hidden. Flip back to
+// `true` to restore the button + dialog in one edit.
+const JOB_SOURCING_ENTRY_ENABLED = false
+
 export const Route = createFileRoute('/_authenticated/interviews/')({
   validateSearch: searchSchema,
   component: InterviewsPage,
@@ -363,8 +372,9 @@ function InterviewsPage() {
             Lives next to «Новая карточка» because it feeds the same board: a
             vacancy the senior applies to becomes the next interview card.
             Same audience as the board itself (ADMIN / HR / SENIOR).
+            Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
           */}
-          {canCreate && (
+          {JOB_SOURCING_ENTRY_ENABLED && canCreate && (
             <Button
               size="sm"
               variant="outline"
@@ -474,6 +484,15 @@ function InterviewsPage() {
         Job sourcing queue (task-job-sourcing-slice1). A SENIOR passes no
         seniorId — the API resolves it to themselves and ignores anything else,
         so the board's senior-picker cannot be used to peek at someone else.
+        fix-round 2 (CI mutation gate): gated on `jobSourcingOpen` ALONE, not
+        `JOB_SOURCING_ENTRY_ENABLED && jobSourcingOpen` — `jobSourcingOpen`
+        only ever becomes true through the entry button's onClick below, and
+        that button is itself hidden behind `JOB_SOURCING_ENTRY_ENABLED` (see
+        that constant's own comment), so this dialog is already unreachable
+        while the entry point is paused. A redundant second gate here is
+        dead-code-in-effect: no test can ever observe its `&&`→`||` mutant,
+        because both branches evaluate identically for every reachable value
+        of `jobSourcingOpen` (it can never be true here in the first place).
       */}
       {jobSourcingOpen && (
         <JobSuggestionDialog
