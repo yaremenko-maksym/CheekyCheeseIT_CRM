@@ -343,23 +343,20 @@ export function paidRowAmountLockReason(
     | undefined,
 ): CascadeLedgerFactReason | null {
   if (!tx || tx.status !== 'PAID') return null
-  const reason = classifyEditedRowLedgerFact(
+  return classifyEditedRowLedgerFact(
     {
       type: tx.type,
       originalAmount: tx.originalAmount == null ? null : Number(tx.originalAmount),
-      // The rate cannot change the answer HERE: every salary branch —
-      // recomputed, no rate recorded, and (below) an out-of-range figure —
-      // leaves the field open, and every other type ignores the rate. Passing
-      // the DTO's rate through was a branch no outcome could observe (CR-H-1,
-      // round 2 of the mutation gate).
+      // Deliberately NOT the row's rate. The rate decides only between a
+      // salary's editable branches — recomputed, no rate recorded, or a figure
+      // whose obligation is out of range (CR-M-1: a property of the FIGURE,
+      // answered by the preview for what the operator types, never a reason
+      // to close the field). Every other type ignores the rate. So a salary
+      // with a payment fact always stays open here, whatever its rate.
       exchangeRate: null,
       settledAmount: tx.settledAmount == null ? null : Number(tx.settledAmount),
       hasClosedObligation: false,
     },
     Number(tx.amount),
   )
-  // CR-M-1 — an out-of-range obligation is a property of a FIGURE, not of the
-  // row: the salary stays editable, and the preview answers for the figure the
-  // operator types. Only a genuinely pinned row closes the field.
-  return reason === 'SALARY_OBLIGATION_OUT_OF_RANGE' ? null : reason
 }
