@@ -338,7 +338,9 @@ export function AdminEditTransactionDialog({
     onSuccess: (saved: TransactionDto) => {
       // SR-M-1 — the edit committed, but the invoice is not in step with it.
       // Not a silent success: the operator hears it, and the journal has it.
-      if (saved?.invoiceReissueIncomplete) {
+      // No `?.`: the endpoint always answers with the row (`findOne`), and an
+      // optional chain here was a branch no response can take.
+      if (saved.invoiceReissueIncomplete) {
         toast.warning(
           t`Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз`,
         )

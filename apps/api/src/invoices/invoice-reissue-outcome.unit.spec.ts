@@ -40,7 +40,7 @@ function makeService(opts: {
   const states = [...opts.states]
   const internals = svc as unknown as Record<string, unknown>
   internals['logger'] = new Logger('test')
-  vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+  const logError = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
   internals['voidInvoiceForAmountEdit'] = vi.fn(() =>
     opts.voidResult instanceof Error
       ? Promise.reject(opts.voidResult)
@@ -49,14 +49,22 @@ function makeService(opts: {
   const reissue = vi.fn(() => Promise.resolve())
   internals['reissueInvoiceIfStillPaid'] = reissue
   internals['loadReissueState'] = vi.fn(() => Promise.resolve(states.shift() ?? null))
-  return { svc, reissue }
+  return { svc, reissue, logError }
 }
 
 describe('voidAndReissueInvoiceForAmountEdit — outcome', () => {
   it('void throws → VOID_FAILED, and no re-issue is attempted on top of a live invoice', async () => {
-    const { svc, reissue } = makeService({ voidResult: new Error('lock timeout'), states: [] })
+    const { svc, reissue, logError } = makeService({
+      voidResult: new Error('lock timeout'),
+      states: [],
+    })
     await expect(svc.voidAndReissueInvoiceForAmountEdit('tx', 'actor')).resolves.toBe('VOID_FAILED')
     expect(reissue).not.toHaveBeenCalled()
+    // The log line still names the row and the cause — the journal line the
+    // caller writes says THAT it failed, this says WHY.
+    expect(logError).toHaveBeenCalledWith(
+      expect.stringContaining('void failed for tx=tx: lock timeout'),
+    )
   })
 
   it('voided, and a document landed on the row → REISSUED', async () => {
@@ -135,5 +143,50 @@ describe('reissueSalaryInvoiceIfVoided — «повторное сохранен
     const { svc, reissue } = makeService({ states: [null] })
     await expect(svc.reissueSalaryInvoiceIfVoided('tx')).resolves.toBe('NOT_NEEDED')
     expect(reissue).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * `loadReissueState` — the state read the decisions above stand on. A thin
+ * double of drizzle's `select().from().where().limit()` chain: the two queries
+ * answer in order (the row, then the voided-signature probe). The query SHAPE
+ * is exercised against real Postgres by the edit's integration specs; this
+ * pins what the method makes of the answers, which the gate can see.
+ */
+describe('loadReissueState — what the two reads become', () => {
+  function withReads(...answers: unknown[][]) {
+    const svc = Object.create(InvoicesService.prototype) as InvoicesService
+    const queue = [...answers]
+    const chain = {
+      from: () => chain,
+      where: () => chain,
+      limit: () => Promise.resolve(queue.shift() ?? []),
+    }
+    ;(svc as unknown as Record<string, unknown>)['db'] = { db: { select: () => chain } }
+    const load = (svc as unknown as { loadReissueState: (id: string) => Promise<unknown> })
+      .loadReissueState
+    return () => load.call(svc, 'tx')
+  }
+
+  const ROW = {
+    type: 'SALARY',
+    status: 'PAID',
+    payoutRequestId: null,
+    invoiceDocumentId: null,
+  }
+
+  it('a row with a voided signature on record → hasVoidedInvoice: true, every column carried', async () => {
+    await expect(withReads([ROW], [{ id: 'sig-1' }])()).resolves.toEqual({
+      ...ROW,
+      hasVoidedInvoice: true,
+    })
+  })
+
+  it('no voided signature → hasVoidedInvoice: false', async () => {
+    await expect(withReads([ROW], [])()).resolves.toEqual({ ...ROW, hasVoidedInvoice: false })
+  })
+
+  it('no row → null', async () => {
+    await expect(withReads([], [{ id: 'sig-1' }])()).resolves.toBeNull()
   })
 })

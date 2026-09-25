@@ -3387,6 +3387,36 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     })
   })
 
+  it('…and a repair that throws is the same failure, not a 500', async () => {
+    const source = sourceRow(PAID_SALARY)
+    const { db, ops } = makeDouble({ source })
+    const invoicesService = makeInvoicesSpy()
+    Object.assign(invoicesService, {
+      reissueSalaryInvoiceIfVoided: vi.fn().mockRejectedValue(new Error('s3 down')),
+    })
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
+    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')[0]?.values.metadata).toEqual({
+      stage: 'REISSUE',
+    })
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`salary invoice repair failed for transaction=${SOURCE_ID}: s3 down`),
+    )
+  })
+
+  it('a salary that is not PAID is never «repaired» — it has no invoice due yet', async () => {
+    const source = sourceRow({ ...PAID_SALARY, status: 'PENDING' })
+    const { db } = makeDouble({ source })
+    const invoicesService = makeInvoicesSpy()
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'x' }, ADMIN)
+    expect(invoicesService.reissueSalaryInvoiceIfVoided).not.toHaveBeenCalled()
+  })
+
   it('a non-salary save never asks for a salary invoice repair', async () => {
     const { db } = makeDouble()
     const invoicesService = makeInvoicesSpy()
