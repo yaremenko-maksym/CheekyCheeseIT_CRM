@@ -15,13 +15,15 @@
  */
 
 import { test, expect, USERS, TEAMS, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
-  test('default radio is «Создать свою команду» and CREATE_NEW HR chip is auto-selected', async ({
+  test('default radio is «Створити свою команду» and CREATE_NEW HR chip is auto-selected', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Override teams so only the legacy senior team is present — guarantees
     // no JOIN_DROP_TEAM option is plausible by accident.
     await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
@@ -35,7 +37,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await page.getByTestId('users-create-button').click()
 
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog.getByTestId('user-dialog-team-mode-create-new')).toBeVisible()
@@ -46,9 +48,10 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await expect(dialog.getByTestId('user-dialog-drop-team-trigger')).toHaveCount(0)
   })
 
-  test('explicit click on «Создать свою команду» keeps the CREATE_NEW path active', async ({
+  test('explicit click on «Створити свою команду» keeps the CREATE_NEW path active', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -59,14 +62,14 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     // Belt-and-braces: explicitly tap the default radio. The test exists
     // to capture the regression where a future refactor inverts the
     // default — clicking the label should never leave the dialog in a
     // broken state.
-    await dialog.getByText('Создать свою команду').click({ force: true })
+    await dialog.getByText(assertInCatalog(uk, 'Створити свою команду')).click({ force: true })
 
     await expect(dialog.getByTestId(`user-dialog-hr-chip-${USERS.hr.id}`)).toBeVisible()
     // Drop-team selector must not surface.
@@ -76,6 +79,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
   test('SENIOR creation POST omits teamMode/dropTeamId — backend defaults to CREATE_NEW', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
@@ -97,7 +101,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
     await page.getByPlaceholder('user@cheekycheese.dev').fill('senior-default@cheekycheese.dev')
     await page.getByTestId('user-dialog-name').fill('Default Senior')
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     // SENIOR is USDT-only — fill the wallet so the shared refine passes.
     await page.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)

@@ -7,8 +7,17 @@
  * `UserDialog.tsx`) so it can be rendered directly here without the full
  * `UserDialog` mock surface `UserDialog.create-wizard.test.tsx` needs.
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render as rtlRender, screen, type RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3b-pr3 (Step 2): `WizardStep2` now calls `useLingui()`.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(() => loadCatalog('uk'))
 
 vi.mock('@/components/user-profile/contract/useEmployeeContract', () => ({
   useEmployeeContract: vi.fn(),
@@ -59,7 +68,7 @@ describe('WizardStep2 — isNoTemplate via API error envelope code', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, real UseQueryResult has many more fields WizardStep2 never reads
     } as any)
     renderStep2()
-    expect(screen.getByText('Нет активного шаблона')).toBeInTheDocument()
+    expect(screen.getByText('Немає активного шаблону контракту для цієї ролі')).toBeInTheDocument()
   })
 
   it('does NOT show the no-template empty state for prose without a code', () => {
@@ -70,7 +79,9 @@ describe('WizardStep2 — isNoTemplate via API error envelope code', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see previous test's identical note
     } as any)
     renderStep2()
-    expect(screen.queryByText('Нет активного шаблона')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Немає активного шаблону контракту для цієї ролі'),
+    ).not.toBeInTheDocument()
   })
 
   it('does NOT show the no-template empty state while loading, even with a matching code buffered from a previous render', () => {
@@ -83,7 +94,9 @@ describe('WizardStep2 — isNoTemplate via API error envelope code', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see previous test's identical note
     } as any)
     renderStep2()
-    expect(screen.queryByText('Нет активного шаблона')).not.toBeInTheDocument()
-    expect(screen.getByText('Загружаем контракт...')).toBeInTheDocument()
+    expect(
+      screen.queryByText('Немає активного шаблону контракту для цієї ролі'),
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('Завантажуємо контракт…')).toBeInTheDocument()
   })
 })

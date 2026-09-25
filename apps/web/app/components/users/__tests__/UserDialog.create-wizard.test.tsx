@@ -10,6 +10,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
   type RenderOptions,
 } from '@testing-library/react'
 import type { ReactElement } from 'react'
@@ -390,6 +391,13 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
     expect(screen.getByTestId('wizard-confirm-step')).toBeInTheDocument()
     expect(screen.getByTestId('wizard-save-draft-btn')).toBeInTheDocument()
     expect(screen.getByTestId('wizard-mark-ready-btn')).toBeInTheDocument()
+    // Exact idle-state text — the mutation is never in flight in this mock
+    // harness (`useMutation`'s pass-through resolves synchronously), so this
+    // is the only reachable branch of the isMarkingReady ternary; pinning it
+    // exactly is what distinguishes it from an empty StringLiteral mutant.
+    expect(screen.getByTestId('wizard-mark-ready-btn')).toHaveTextContent(
+      'Позначити готовим до підписання',
+    )
   })
 
   it('«Назад» from step 3 goes back to step 2', async () => {
@@ -414,6 +422,18 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
 
     const readyCalls = mockPost.mock.calls.filter((c) => String(c[0]).includes('/ready'))
     expect(readyCalls).toHaveLength(0)
+  })
+
+  it('«Сохранить как черновик» toasts the exact draft-confirmation text, with the 4500ms duration', async () => {
+    const user = userEvent.setup()
+    await advanceToStep3(user)
+
+    await user.click(screen.getByTestId('wizard-save-draft-btn'))
+
+    expect(toast.success).toHaveBeenCalledWith(
+      'Користувача створено, контракт збережено як чернетку',
+      { duration: 4500 },
+    )
   })
 
   it('«Отметить готовым» is disabled when hasContract=false (no-template)', async () => {
@@ -453,6 +473,53 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
       // At least one new POST call after step 3 click
       const newCalls = mockPost.mock.calls.slice(callsBefore)
       expect(newCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('«Сохранить как черновик» calls the CURRENT onClose, not a stale first-render one (useCallback deps)', async () => {
+    // `handleWizardSaveDraft`'s useCallback closes over `props` (whole
+    // object) — its `onClose` is a fresh inline arrow function on every
+    // parent render (see users/index.tsx), so a `[]` deps mutant would freeze
+    // the callback on the FIRST render's onClose forever. Reproducing that
+    // needs an explicit `rerender` with a NEW onClose between mount and
+    // click — every other test in this file mounts once and clicks once, so
+    // none of them could have caught this mutant regardless of what they
+    // assert.
+    const user = userEvent.setup()
+    const onCloseFirst = vi.fn()
+    const { rerender } = render(<UserDialog mode="create" open={true} onClose={onCloseFirst} />)
+
+    await fillStep1AndAdvance(user)
+    await waitFor(
+      () => expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+      { timeout: 3000 },
+    )
+    await user.click(screen.getByTestId('wizard-step2-next-btn'))
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-3')).toHaveAttribute('data-state', 'active'),
+    )
+
+    const onCloseSecond = vi.fn()
+    rerender(<UserDialog mode="create" open={true} onClose={onCloseSecond} />)
+
+    await user.click(screen.getByTestId('wizard-save-draft-btn'))
+
+    expect(onCloseSecond).toHaveBeenCalledTimes(1)
+    expect(onCloseFirst).not.toHaveBeenCalled()
+  })
+
+  it('«Отметить готовым» toasts the exact ready-confirmation text, with the 4500ms duration', async () => {
+    const user = userEvent.setup()
+    mockPost.mockResolvedValue(newUserResponse)
+    await advanceToStep3(user)
+
+    await user.click(screen.getByTestId('wizard-mark-ready-btn'))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(
+        'Користувача створено, контракт готовий до підписання',
+        { duration: 4500 },
+      )
     })
   })
 })
@@ -917,4 +984,27 @@ describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-
 
     expect(await screen.findByText('ПІБ — мінімум 5 символів')).toBeInTheDocument()
   })
+})
+
+// task-i18n-stage3b-pr3, Step 1: the role picker now reads
+// ROLE_LABEL_MESSAGES (canon), not the legacy `ROLE_LABELS` string map — no
+// raw enum, no leftover Russian, on either locale.
+describe('role picker reads ROLE_LABEL_MESSAGES', () => {
+  it.each([
+    ['uk', ['Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп']],
+    ['en', ['Senior', 'Junior', 'HR', 'Accountant', 'Drop']],
+  ] as const)(
+    '%s: every CREATE_ALLOWED_ROLES option is the canon label, no legacy or enum',
+    async (locale, labels) => {
+      await loadCatalog(locale)
+      const user = userEvent.setup()
+      render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+      await user.click(screen.getByTestId('user-dialog-role-trigger'))
+      const listbox = await screen.findByRole('listbox')
+      for (const label of labels) {
+        expect(within(listbox).getByRole('option', { name: label })).toBeInTheDocument()
+      }
+      expect(listbox.textContent).not.toMatch(/Синьор|Джун\b|SENIOR|JUNIOR|ACCOUNTANT|DROP/)
+    },
+  )
 })

@@ -1,12 +1,11 @@
 /**
  * role-select.locale.test.tsx — task-i18n-stage3a (Task 1), Step 1.
  *
- * `useRoleLabel(role)` is the new canon for JSX role labels — it resolves
+ * `useRoleLabel(role)` is the canon for JSX role labels — it resolves
  * `ROLE_LABEL_MESSAGES[role]` against the ACTIVE catalog, so switching
- * locale changes what it returns without a remount. The legacy
- * `ROLE_LABELS: Record<Role, string>` export stays untouched (still a plain
- * string map) for the eight consumers outside this wave's perimeter — see
- * "Опасность: ROLE_LABELS" in the plan.
+ * locale changes what it returns without a remount. task-i18n-stage3b-pr3
+ * (Step 3): the legacy `ROLE_LABELS: Record<Role, string>` export this
+ * replaced has been removed — see "Опасность: удаление легаси" in the plan.
  *
  * Catalog access is through `loadCatalog`/`I18nTestProvider` (SPEC-H-1) —
  * the ONLY working path; `@crm/shared/i18n/locales/...` does not resolve.
@@ -40,10 +39,17 @@ describe('useRoleLabel', () => {
     })
     expect(accountant.current).toBe('Бухгалтер')
   })
+})
 
-  it('leaves the legacy ROLE_LABELS export untouched (type: string) for not-yet-migrated consumers', async () => {
-    const { ROLE_LABELS } = await import('../role-select')
-    expect(typeof ROLE_LABELS.ADMIN).toBe('string')
+// task-i18n-stage3b-pr3, Step 1: PR3 migrates the last two consumers
+// (`UserDialog.tsx`, `components/users/constants.ts`) and drops both legacy
+// exports — see the plan's "Опасность: удаление легаси".
+describe('legacy ROLE_LABELS exports are gone (wave b, PR3)', () => {
+  it('role-select no longer exports ROLE_LABELS', async () => {
+    expect('ROLE_LABELS' in (await import('../role-select'))).toBe(false)
+  })
+  it('components/users/constants no longer exports ROLE_LABELS', async () => {
+    expect('ROLE_LABELS' in (await import('@/components/users/constants'))).toBe(false)
   })
 })
 

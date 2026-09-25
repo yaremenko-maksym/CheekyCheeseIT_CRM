@@ -5,7 +5,14 @@
  * rendered deterministically — the wiring to the real endpoints is covered by
  * the API integration spec and the E2E run, not here.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -13,6 +20,13 @@ import {
   type SeniorResumeDto,
   type SeniorResumeResponse,
 } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3b-pr3 (Step 4): `ResumeTab` and its section children now
+// call `useLingui()` — every render needs the active catalog.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 const saveMock = vi.fn()
 const saveLayoutMock = vi.fn()
@@ -22,6 +36,9 @@ const deleteMock = vi.fn()
 
 let resumeData: SeniorResumeResponse = { resume: null, canEdit: true }
 let isLoading = false
+// Mutable so a test can observe the delete confirm button's isPending-driven
+// text ("Видаляємо…" vs "Видалити") without a real mutation in flight.
+let deleteIsPending = false
 
 vi.mock('@/hooks/use-senior-resume', () => ({
   useSeniorResume: () => ({ data: resumeData, isLoading, isError: false }),
@@ -29,7 +46,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
-  useDeleteResume: () => ({ mutate: deleteMock, isPending: false }),
+  useDeleteResume: () => ({ mutate: deleteMock, isPending: deleteIsPending }),
   useResumeSourceUrl: () => ({ data: undefined }),
   // No blob here: these tests are about the tab, and jsdom cannot load a blob
   // iframe anyway. The preview's own behaviour is asserted in
@@ -87,10 +104,12 @@ const FILLED = makeResponse({
   },
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
   resumeData = { resume: null, canEdit: true }
   isLoading = false
+  deleteIsPending = false
+  await loadCatalog('uk')
 })
 
 describe('ResumeTab — empty state', () => {
@@ -128,7 +147,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     resumeData = makeResponse({ status: 'QUEUED' })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-progress')
-    expect(panel).toHaveTextContent('очереди на распознавание')
+    expect(panel).toHaveTextContent('черзі на розпізнавання')
     // The rest of the tab still renders — the user is not blocked.
     expect(screen.getByTestId('resume-section-summary')).toBeInTheDocument()
   })
@@ -136,7 +155,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
   it('RUNNING shows its own copy', () => {
     resumeData = makeResponse({ status: 'RUNNING' })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-progress')).toHaveTextContent('Распознаём резюме')
+    expect(screen.getByTestId('resume-progress')).toHaveTextContent('Розпізнаємо резюме')
   })
 
   it('FAILED/NO_TEXT explains the scan case and offers pasting text', () => {
@@ -147,7 +166,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-failed')
-    expect(panel).toHaveTextContent('нет текстового слоя')
+    expect(panel).toHaveTextContent('немає текстового шару')
     expect(screen.getByTestId('resume-paste-toggle')).toBeInTheDocument()
   })
 
@@ -160,8 +179,8 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
     })
     render(<ResumeTab userId="senior-1" />)
     const panel = screen.getByTestId('resume-failed')
-    expect(panel).toHaveTextContent('лимит')
-    expect(panel).toHaveTextContent('августа')
+    expect(panel).toHaveTextContent('ліміт')
+    expect(panel).toHaveTextContent('серпня')
     // Manual editing is NOT blocked by the quota wall.
     expect(screen.getByTestId('resume-edit-summary')).toBeInTheDocument()
   })
@@ -169,7 +188,7 @@ describe('ResumeTab — extraction states (AC3/AC5)', () => {
   it('AI_NOT_CONFIGURED tells the user to fill it in by hand', () => {
     resumeData = makeResponse({ status: 'FAILED', errorCode: 'AI_NOT_CONFIGURED' })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-failed')).toHaveTextContent('вручную')
+    expect(screen.getByTestId('resume-failed')).toHaveTextContent('вручну')
   })
 })
 
@@ -299,11 +318,11 @@ describe('ResumeTab — unsaved edits survive a move between sections', () => {
     fireEvent.change(screen.getByTestId('resume-summary-input'), { target: { value: 'правка' } })
 
     expect(screen.getByTestId('resume-editing-hint-summary')).toHaveTextContent(
-      /несохранённые правки/i,
+      /незбережені правки/i,
     )
     expect(screen.getByTestId('resume-edit-skills')).toHaveAttribute(
       'title',
-      expect.stringContaining('сохраните или отмените'),
+      expect.stringContaining('збережіть або скасуйте'),
     )
   })
 
@@ -478,7 +497,7 @@ describe('ResumeTab — downloads', () => {
       updatedByName: 'Эйчар Иванова',
     })
     render(<ResumeTab userId="senior-1" />)
-    expect(screen.getByTestId('resume-tab')).toHaveTextContent('Версия 7')
+    expect(screen.getByTestId('resume-tab')).toHaveTextContent('Версія 7')
     expect(screen.getByTestId('resume-tab')).toHaveTextContent('Эйчар Иванова')
   })
 })
@@ -537,6 +556,62 @@ describe('ResumeTab — deleting the resume', () => {
     resumeData = { resume: null, canEdit: true }
     render(<ResumeTab userId="senior-1" />)
     expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
+  })
+
+  it('the confirm button reads "Видалити" while idle and "Видаляємо…" while the mutation is in flight', () => {
+    resumeData = FILLED
+    deleteIsPending = false
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm')).toHaveTextContent('Видалити')
+    expect(screen.getByTestId('resume-delete-confirm')).not.toHaveTextContent('Видаляємо')
+  })
+
+  it('the confirm button says "Видаляємо…" while pending, and disables itself', () => {
+    resumeData = FILLED
+    deleteIsPending = true
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm')).toHaveTextContent('Видаляємо…')
+    expect(screen.getByTestId('resume-delete-confirm')).toBeDisabled()
+  })
+})
+
+/**
+ * Each section's `title` prop, exactly — `ResumeSectionCard.test.tsx` pins
+ * the edit-button aria-label that DERIVES from `title`, but nothing anywhere
+ * pinned the six `title={t\`...\`}` call sites in `ResumeTab` itself, so a
+ * mutant on any one of them (StringLiteral → ``) survived silently.
+ */
+describe('ResumeTab — section titles, exact, one per StringLiteral call site', () => {
+  it('renders all six section titles from the catalog, not a raw key or an empty string', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+    expect(
+      within(screen.getByTestId('resume-section-summary')).getByText('Про себе'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-skills')).getByText('Навички'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-experience')).getByText('Досвід роботи'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-education')).getByText('Освіта'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-languages')).getByText('Мови'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-section-links')).getByText('Посилання'),
+    ).toBeInTheDocument()
+  })
+
+  it('the summary textarea (while editing) carries the same exact label as an aria-label', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    expect(screen.getByTestId('resume-summary-input')).toHaveAttribute('aria-label', 'Про себе')
   })
 })
 

@@ -14,7 +14,7 @@
  *      `explainUserMutationError` no longer hardcodes the text, it reads the
  *      envelope's `code` through `getApiErrorMessage`).
  *   4. Dialog must stay open (operator can fix the email).
- *   5. Change the email → submit again → success (toast «Дроп создан»).
+ *   5. Change the email → submit again → success (toast «Дропа створено»).
  */
 
 import { test, expect } from './fixtures'
@@ -25,6 +25,7 @@ import {
   createDropViaAPI,
   cleanupDropViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -34,6 +35,7 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
   test('409 from /users/drops shows toast and keeps the dialog open; second submit succeeds', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dupEmail = `drop-ac3-dup-${suffix}@cheekycheese.dev`
     const firstDisplayName = `Drop AC3 Dup ${suffix}`
@@ -58,7 +60,7 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
 
       // Pick DROP role.
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Дроп' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
       // Fill in the *duplicate* email.
       await dialog.getByTestId('user-dialog-email').fill(dupEmail)
@@ -133,10 +135,12 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
       const successBody = (await (await successResp).json()) as { user: { id: string } } | undefined
       if (successBody?.user?.id) secondDropId = successBody.user.id
 
-      // Toast «Дроп создан» surfaces — also asserts that the dialog flow
+      // Toast «Дропа створено» surfaces — also asserts that the dialog flow
       // closes cleanly (navigation to the new team detail happens but the
       // assertion runs against the body root, not the dialog).
-      await expect(page.getByText(/Дроп создан/i)).toBeVisible({ timeout: 8_000 })
+      await expect(page.getByText(assertInCatalog(uk, 'Дропа створено'))).toBeVisible({
+        timeout: 8_000,
+      })
     } finally {
       await cleanupDropViaAPI(page, firstDropId)
       if (secondDropId) await cleanupDropViaAPI(page, secondDropId)

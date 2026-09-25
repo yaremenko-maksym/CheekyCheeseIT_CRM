@@ -1187,8 +1187,27 @@ test.describe('Project status filter — AC5 (responsive)', () => {
     const shortTabs = page.getByTestId('projects-status-tabs-mobile')
 
     await page.setViewportSize({ width: 1024, height: 900 })
-    await page.waitForTimeout(50)
-    const singleLineHeight = (await fullTabs.locator('button').first().boundingBox())!.height
+    // task-flaky-projects-shard (2026-09-25) — two stacked causes, both
+    // fixed here:
+    // (1) `waitForTimeout(50)` was a fixed guess at how long the post-goto
+    // render takes, not a wait for the thing this line reads. Reproduced
+    // 14/30 locally (`--repeat-each=30`, workers=1, clean machine) —
+    // TypeError, `boundingBox()` on a button that had not rendered yet.
+    // (2) `boundingBox()` is a single CDP call, not an auto-retrying
+    // Playwright assertion — `toBeVisible()` alone was not enough either
+    // (diagnosed on the sibling fix in projects-senior-share-override.spec.ts:
+    // `boundingBox()` can return `null` a beat after `toBeVisible()` already
+    // resolved true, a transient CDP box-model race right after navigation
+    // settles). `expect.poll` retries the CDP call itself.
+    const firstFullTab = fullTabs.locator('button').first()
+    let firstBox: Awaited<ReturnType<typeof firstFullTab.boundingBox>> = null
+    await expect
+      .poll(async () => {
+        firstBox = await firstFullTab.boundingBox()
+        return firstBox !== null
+      })
+      .toBe(true)
+    const singleLineHeight = firstBox!.height
 
     const SHORT_LABEL_WIDTHS = new Set([768, 780, 795, 810, 834])
     const WIDTHS_UNDER_TEST = [768, 780, 795, 810, 834, 1024]

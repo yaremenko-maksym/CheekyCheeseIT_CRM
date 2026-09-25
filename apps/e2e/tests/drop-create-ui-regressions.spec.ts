@@ -44,10 +44,11 @@ test.describe('Drop create — UI regressions', () => {
   test('slider for DROP role exposes aria-label «Частка дропа у відсотках»', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
@@ -60,7 +61,6 @@ test.describe('Drop create — UI regressions', () => {
 
     // Senior aria text MUST NOT be present (regression catcher).
     // «синьйора» -> «сеньйора» (COPY-H-2). Catalog-checked (COPY-H-7).
-    const uk = await loadMessages('uk')
     const seniorShareAria = assertInCatalog(uk, 'Частка сеньйора у відсотках')
     await expect(dialog.locator(`[aria-label="${seniorShareAria}"]`)).toHaveCount(0)
   })
@@ -73,11 +73,9 @@ test.describe('Drop create — UI regressions', () => {
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    // UserDialog renders the legacy `ROLE_LABELS` map, NOT `RoleSelect` —
-    // «Синьор» until wave (b) migrates its eight consumers (COPY-M-21).
-    // Flip to assertInCatalog(uk, 'Сеньйор') together with those 17 other
-    // call sites, in the same commit that changes ROLE_LABELS.
-    await page.getByRole('option', { name: 'Синьор' }).click()
+    // task-i18n-stage3b-pr3 (Step 5): UserDialog now reads
+    // `ROLE_LABEL_MESSAGES`, the legacy `ROLE_LABELS` map is gone.
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
@@ -87,9 +85,10 @@ test.describe('Drop create — UI regressions', () => {
     await expect(dialog.locator(`[aria-label="${dropShareAria}"]`)).toHaveCount(0)
   })
 
-  test('submit without HR shows inline «Выберите минимум одного HR» error; dialog stays open', async ({
+  test('submit without HR shows inline «Виберіть щонайменше одного HR» error; dialog stays open', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Override the /api/users mock to return NO HR users — UserDialog can't
     // auto-select what isn't there, so the HR list is empty on submit and
     // the form's inline validation must fire.
@@ -99,8 +98,8 @@ test.describe('Drop create — UI regressions', () => {
     // registration-order LIFO, so the latest wins).
     await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), (r) => {
       if (r.request().method() === 'POST') return r.fallback()
-      // Return ALL users EXCEPT HRs — the picker will render with «Нет
-      // доступных HR» and the form-level validation flags an empty hrIds.
+      // Return ALL users EXCEPT HRs — the picker will render with «HR ще
+      // немає» and the form-level validation flags an empty hrIds.
       return r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -124,7 +123,7 @@ test.describe('Drop create — UI regressions', () => {
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await dialog.getByTestId('user-dialog-email').fill('drop-nohr@example.dev')
@@ -148,10 +147,15 @@ test.describe('Drop create — UI regressions', () => {
     // drift, predates fix/drop-legal-name-persist; see drop-share-slider.spec.ts).
     await dialog.getByTestId('wizard-next-btn').click()
 
-    // Inline validation surfaces the exact wording from UserDialog.tsx:473/532.
-    // Use a broader locator (page, not dialog) — the error renders as a
-    // <p class="text-destructive"> sibling to the chip picker.
-    await expect(page.getByText('Выберите минимум одного HR', { exact: false })).toBeVisible({
+    // Inline validation surfaces `translateZodCode('HR_REQUIRED_MIN')`.
+    // Scoped to `dialog` (not `page`): the same catalog string is ALSO
+    // used by a Notifications-bell item title, and an unscoped `page`
+    // locator resolves to both (Playwright strict-mode violation) — the
+    // error renders as a <p class="text-destructive"> sibling to the chip
+    // picker, inside the dialog.
+    await expect(
+      dialog.getByText(assertInCatalog(uk, 'Виберіть щонайменше одного HR'), { exact: false }),
+    ).toBeVisible({
       timeout: 5_000,
     })
 
@@ -162,9 +166,10 @@ test.describe('Drop create — UI regressions', () => {
     expect(postFired).toBe(false)
   })
 
-  test('toast «Дроп создан» appears on successful submit (happy path)', async ({
+  test('toast «Дропа створено» appears on successful submit (happy path)', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Mock /users/drops to return 201 immediately (no real DB).
     await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
@@ -185,7 +190,7 @@ test.describe('Drop create — UI regressions', () => {
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await dialog.getByTestId('user-dialog-email').fill('drop-happy@example.dev')
@@ -203,9 +208,11 @@ test.describe('Drop create — UI regressions', () => {
     // `wizard-next-btn`, not the edit-only `user-dialog-submit`.
     await dialog.getByTestId('wizard-next-btn').click()
 
-    // Toast «Дроп создан» surfaces immediately. Sonner renders the toast in
-    // a region attached to body — scope is the page, not the dialog.
-    await expect(page.getByText('Дроп создан', { exact: false })).toBeVisible({
+    // Toast «Дропа створено» surfaces immediately. Sonner renders the toast
+    // in a region attached to body — scope is the page, not the dialog.
+    await expect(
+      page.getByText(assertInCatalog(uk, 'Дропа створено'), { exact: false }),
+    ).toBeVisible({
       timeout: 8_000,
     })
   })

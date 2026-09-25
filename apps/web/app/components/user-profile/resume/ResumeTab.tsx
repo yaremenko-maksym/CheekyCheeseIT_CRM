@@ -23,6 +23,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileText, History, PencilLine, Trash2 } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   EMPTY_RESUME_CONTENT,
   isSafeResumeUrl,
@@ -92,6 +93,7 @@ export interface ResumeTabProps {
 }
 
 export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
+  const { t } = useLingui()
   const { data, isLoading, isError } = useSeniorResume(userId)
   const saveMutation = useSaveResumeContent(userId)
   const uploadMutation = useUploadResumeSource(userId)
@@ -194,7 +196,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   if (isError) {
     return (
       <p className="rounded-lg border bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground">
-        Не удалось загрузить резюме.
+        <Trans>Не вдалося відкрити резюме. Оновіть сторінку.</Trans>
       </p>
     )
   }
@@ -241,7 +243,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
               data-testid="resume-download-source"
             >
               <FileText className="mr-2 h-4 w-4" aria-hidden />
-              Исходный файл
+              <Trans>Вихідний файл</Trans>
             </a>
           </Button>
         )}
@@ -253,7 +255,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             className="min-h-11 text-destructive hover:text-destructive"
           >
             <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-            Удалить
+            <Trans>Видалити</Trans>
           </Button>
         )}
       </div>
@@ -263,15 +265,28 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
     <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
       <AlertDialogContent data-testid="resume-delete-confirm-dialog">
         <AlertDialogHeader>
-          <AlertDialogTitle>Удалить резюме?</AlertDialogTitle>
+          <AlertDialogTitle>
+            <Trans>Видалити резюме?</Trans>
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            Будут удалены и заполненные разделы, и загруженный исходный файл
-            {resume?.sourceFileName ? ` («${resume.sourceFileName}»)` : ''}. Восстановить их будет
-            нельзя — резюме придётся загрузить или заполнить заново.
+            {resume?.sourceFileName ? (
+              <Trans>
+                Буде видалено заповнені розділи та завантажений вихідний файл («
+                {resume.sourceFileName}»). Відновити їх не можна — резюме доведеться завантажити або
+                заповнити заново.
+              </Trans>
+            ) : (
+              <Trans>
+                Буде видалено заповнені розділи та завантажений вихідний файл. Відновити їх не можна
+                — резюме доведеться завантажити або заповнити заново.
+              </Trans>
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel data-testid="resume-delete-cancel">Отмена</AlertDialogCancel>
+          <AlertDialogCancel data-testid="resume-delete-cancel">
+            <Trans>Скасувати</Trans>
+          </AlertDialogCancel>
           <AlertDialogAction
             data-testid="resume-delete-confirm"
             disabled={deleteMutation.isPending}
@@ -282,7 +297,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
               deleteMutation.mutate()
             }}
           >
-            {deleteMutation.isPending ? 'Удаляем…' : 'Удалить'}
+            {deleteMutation.isPending ? t`Видаляємо…` : t`Видалити`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -308,10 +323,12 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
                 className="min-h-11 w-full sm:w-auto"
               >
                 <PencilLine className="mr-2 h-4 w-4" aria-hidden />
-                Заполнить вручную
+                <Trans>Заповнити вручну</Trans>
               </Button>
               <p className="mt-2 text-xs text-muted-foreground">
-                Те же разделы и тот же экспорт в PDF — распознавание просто экономит время.
+                <Trans>
+                  Ті самі розділи і той самий експорт у PDF — розпізнавання просто економить час.
+                </Trans>
               </p>
             </div>
           </>
@@ -320,7 +337,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             className="rounded-lg border bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground"
             data-testid="resume-empty-readonly"
           >
-            Резюме ещё не заполнено.
+            <Trans>Резюме ще не заповнено.</Trans>
           </p>
         )}
         {deleteDialog}
@@ -387,8 +404,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
               <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="truncate">
-                Версия {resume.version}
-                {resume.updatedByName ? ` · последним менял ${resume.updatedByName}` : ''}
+                {resume.updatedByName ? (
+                  <Trans>
+                    Версія {resume.version} · останній редактор: {resume.updatedByName}
+                  </Trans>
+                ) : (
+                  <Trans>Версія {resume.version}</Trans>
+                )}
               </span>
             </span>
           )}
@@ -419,13 +441,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
 
       {/* ── Sections ─────────────────────────────────────────────────────── */}
 
-      <ResumeSectionCard title="О себе" {...sectionProps('summary')}>
+      <ResumeSectionCard title={t`Про себе`} {...sectionProps('summary')}>
         {editing === 'summary' ? (
           <Textarea
             value={draft.summary}
             onChange={(e) => setDraft({ ...draft, summary: e.target.value })}
             rows={5}
-            aria-label="О себе"
+            aria-label={t`Про себе`}
             data-testid="resume-summary-input"
           />
         ) : (
@@ -433,14 +455,14 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         )}
       </ResumeSectionCard>
 
-      <ResumeSectionCard title="Навыки" {...sectionProps('skills')}>
+      <ResumeSectionCard title={t`Навички`} {...sectionProps('skills')}>
         {editing === 'skills' ? (
           <Textarea
             value={draft.skills.join('\n')}
             onChange={(e) => setDraft({ ...draft, skills: e.target.value.split('\n') })}
             rows={6}
-            placeholder="По одному навыку в строке"
-            aria-label="Навыки"
+            placeholder={t`По одній навичці в рядку`}
+            aria-label={t`Навички`}
             data-testid="resume-skills-input"
           />
         ) : view.skills.length > 0 ? (
@@ -456,7 +478,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         )}
       </ResumeSectionCard>
 
-      <ResumeSectionCard title="Опыт работы" {...sectionProps('experience')}>
+      <ResumeSectionCard title={t`Досвід роботи`} {...sectionProps('experience')}>
         {editing === 'experience' ? (
           <ResumeExperienceEditor
             items={draft.experience}
@@ -478,13 +500,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         )}
       </ResumeSectionCard>
 
-      <ResumeSectionCard title="Образование" {...sectionProps('education')}>
+      <ResumeSectionCard title={t`Освіта`} {...sectionProps('education')}>
         {editing === 'education' ? (
           <PairListEditor
             rows={draft.education.map((e) => [e.degree, e.institution, e.period])}
-            labels={['Степень / специальность', 'Учебное заведение', 'Период']}
+            labels={[t`Ступінь / спеціальність`, t`Навчальний заклад`, t`Період`]}
             idPrefix="education"
-            addLabel="Добавить образование"
+            addLabel={t`Додати освіту`}
             onChange={(rows) =>
               setDraft({
                 ...draft,
@@ -513,13 +535,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         )}
       </ResumeSectionCard>
 
-      <ResumeSectionCard title="Языки" {...sectionProps('languages')}>
+      <ResumeSectionCard title={t`Мови`} {...sectionProps('languages')}>
         {editing === 'languages' ? (
           <PairListEditor
             rows={draft.languages.map((l) => [l.name, l.level])}
-            labels={['Язык', 'Уровень']}
+            labels={[t`Мова`, t`Рівень`]}
             idPrefix="languages"
-            addLabel="Добавить язык"
+            addLabel={t`Додати мову`}
             onChange={(rows) =>
               setDraft({
                 ...draft,
@@ -541,7 +563,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         )}
       </ResumeSectionCard>
 
-      <ResumeSectionCard title="Ссылки" {...sectionProps('links')}>
+      <ResumeSectionCard title={t`Посилання`} {...sectionProps('links')}>
         {editing === 'links' ? (
           <ResumeLinksEditor
             links={draft.links}
@@ -598,7 +620,11 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
 // ---------------------------------------------------------------------------
 
 function Placeholder() {
-  return <p className="text-sm italic text-muted-foreground">Не заполнено</p>
+  return (
+    <p className="text-sm italic text-muted-foreground">
+      <Trans>Не заповнено</Trans>
+    </p>
+  )
 }
 
 function TextOrPlaceholder({ value, testid }: { value: string; testid: string }) {
@@ -652,62 +678,66 @@ function ResumeLinksEditor({
   links: ResumeLink[]
   onChange: (links: ResumeLink[]) => void
 }) {
+  const { t } = useLingui()
   function patch(index: number, changes: Partial<ResumeLink>) {
     onChange(links.map((link, i) => (i === index ? { ...link, ...changes } : link)))
   }
 
   return (
     <div className="space-y-3">
-      {links.map((link, index) => (
-        <div
-          key={index}
-          className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
-          data-testid={`resume-links-item-${index}`}
-        >
-          <div className="grid flex-1 gap-2 sm:grid-cols-2">
-            <Input
-              value={link.label}
-              onChange={(e) => patch(index, { label: e.target.value })}
-              placeholder="Название"
-              aria-label={`Название ссылки, строка ${index + 1}`}
-              data-testid={`resume-links-label-${index}`}
-              // Static `name` (inert — no <form>) so the mobile-keyboard
-              // registry gets a stable key; the testid is a template literal
-              // and cannot be resolved statically.
-              name="resumeLinkLabel"
-            />
-            <Input
-              type="url"
-              value={link.url}
-              onChange={(e) => patch(index, { url: e.target.value })}
-              placeholder="https://… или mailto:…"
-              aria-label={`Ссылка, строка ${index + 1}`}
-              data-testid={`resume-links-url-${index}`}
-              name="resumeLinkUrl"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onChange(links.filter((_, i) => i !== index))}
-            aria-label={`Удалить ссылку ${index + 1}`}
-            data-testid={`resume-links-remove-${index}`}
-            className="h-11 w-11 shrink-0 self-end text-destructive sm:h-9 sm:w-9 sm:self-auto"
+      {links.map((link, index) => {
+        const position = index + 1
+        return (
+          <div
+            key={index}
+            className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
+            data-testid={`resume-links-item-${index}`}
           >
-            <span aria-hidden>×</span>
-          </Button>
-        </div>
-      ))}
+            <div className="grid flex-1 gap-2 sm:grid-cols-2">
+              <Input
+                value={link.label}
+                onChange={(e) => patch(index, { label: e.target.value })}
+                placeholder={t`Назва`}
+                aria-label={t`Назва посилання, рядок ${position}`}
+                data-testid={`resume-links-label-${index}`}
+                // Static `name` (inert — no <form>) so the mobile-keyboard
+                // registry gets a stable key; the testid is a template literal
+                // and cannot be resolved statically.
+                name="resumeLinkLabel"
+              />
+              <Input
+                type="url"
+                value={link.url}
+                onChange={(e) => patch(index, { url: e.target.value })}
+                placeholder={t`https://… або mailto:…`}
+                aria-label={t`Посилання, рядок ${position}`}
+                data-testid={`resume-links-url-${index}`}
+                name="resumeLinkUrl"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+              />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onChange(links.filter((_, i) => i !== index))}
+              aria-label={t`Видалити посилання ${position}`}
+              data-testid={`resume-links-remove-${index}`}
+              className="h-11 w-11 shrink-0 self-end text-destructive sm:h-9 sm:w-9 sm:self-auto"
+            >
+              <span aria-hidden>×</span>
+            </Button>
+          </div>
+        )
+      })}
       <Button
         variant="outline"
         onClick={() => onChange([...links, { label: '', url: '' }])}
         data-testid="resume-links-add"
         className="min-h-11 w-full sm:w-auto"
       >
-        Добавить ссылку
+        <Trans>Додати посилання</Trans>
       </Button>
     </div>
   )
@@ -732,49 +762,53 @@ function PairListEditor({
   addLabel: string
   onChange: (rows: string[][]) => void
 }) {
+  const { t } = useLingui()
   return (
     <div className="space-y-3">
-      {rows.map((row, rowIndex) => (
-        <div
-          key={rowIndex}
-          className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
-          data-testid={`resume-${idPrefix}-item-${rowIndex}`}
-        >
-          <div className="grid flex-1 gap-2 sm:grid-cols-2">
-            {labels.map((label, colIndex) => (
-              <Input
-                key={colIndex}
-                value={row[colIndex] ?? ''}
-                onChange={(e) =>
-                  onChange(
-                    rows.map((r, i) =>
-                      i === rowIndex
-                        ? labels.map((_, c) => (c === colIndex ? e.target.value : (r[c] ?? '')))
-                        : r,
-                    ),
-                  )
-                }
-                placeholder={label}
-                aria-label={`${label}, строка ${rowIndex + 1}`}
-                data-testid={`resume-${idPrefix}-${colIndex}-${rowIndex}`}
-                // Static `name` (inert — no <form>) so the mobile-keyboard
-                // registry gets a stable key rather than a positional one.
-                name="resumePairField"
-              />
-            ))}
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => onChange(rows.filter((_, i) => i !== rowIndex))}
-            aria-label={`Удалить строку ${rowIndex + 1}`}
-            data-testid={`resume-${idPrefix}-remove-${rowIndex}`}
-            className="h-11 w-11 shrink-0 self-end text-destructive sm:h-9 sm:w-9 sm:self-auto"
+      {rows.map((row, rowIndex) => {
+        const position = rowIndex + 1
+        return (
+          <div
+            key={rowIndex}
+            className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
+            data-testid={`resume-${idPrefix}-item-${rowIndex}`}
           >
-            <span aria-hidden>×</span>
-          </Button>
-        </div>
-      ))}
+            <div className="grid flex-1 gap-2 sm:grid-cols-2">
+              {labels.map((label, colIndex) => (
+                <Input
+                  key={colIndex}
+                  value={row[colIndex] ?? ''}
+                  onChange={(e) =>
+                    onChange(
+                      rows.map((r, i) =>
+                        i === rowIndex
+                          ? labels.map((_, c) => (c === colIndex ? e.target.value : (r[c] ?? '')))
+                          : r,
+                      ),
+                    )
+                  }
+                  placeholder={label}
+                  aria-label={t`${label}, рядок ${position}`}
+                  data-testid={`resume-${idPrefix}-${colIndex}-${rowIndex}`}
+                  // Static `name` (inert — no <form>) so the mobile-keyboard
+                  // registry gets a stable key rather than a positional one.
+                  name="resumePairField"
+                />
+              ))}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onChange(rows.filter((_, i) => i !== rowIndex))}
+              aria-label={t`Видалити рядок ${position}`}
+              data-testid={`resume-${idPrefix}-remove-${rowIndex}`}
+              className="h-11 w-11 shrink-0 self-end text-destructive sm:h-9 sm:w-9 sm:self-auto"
+            >
+              <span aria-hidden>×</span>
+            </Button>
+          </div>
+        )
+      })}
       <Button
         variant="outline"
         onClick={() => onChange([...rows, labels.map(() => '')])}

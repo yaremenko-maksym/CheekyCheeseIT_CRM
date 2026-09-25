@@ -43,7 +43,7 @@ describe('RejoinTeamDialog onSubmit — SR-M-1 defense-in-depth translation', ()
 
     const translated = translateZodMessage(first?.message)
     expect(translated).not.toMatch(/^zod\./)
-    expect(translated).toBe('Виберіть команду дропа')
+    expect(translated).toBe('Оберіть команду дропа')
   })
 
   it('CREATE_NEW with no hrIds: the schema issue translates to uk text, not the raw code', () => {

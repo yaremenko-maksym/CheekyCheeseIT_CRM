@@ -1068,8 +1068,25 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     await page.setViewportSize({ width: 320, height: 720 })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    const box = await page.getByTestId('cancel-pending-share-project').first().boundingBox()
-    expect(box).not.toBeNull()
+    // task-flaky-projects-shard (2026-09-25) root cause: `boundingBox()`
+    // is not an auto-retrying Playwright API — it is a single CDP call.
+    // Diagnosed live (9/80 on a clean machine, `--repeat-each=80`): even
+    // with `toBeVisible()` awaited immediately before it, `boundingBox()`
+    // still returned `null` a beat after navigation settled, while a
+    // `getBoundingClientRect()` read a moment later showed the SAME button
+    // fully laid out (238×44, `display:flex`, `isConnected: true`) — a
+    // transient CDP box-model race right after `page.goto()`, not an
+    // application defect. `expect.poll` retries the CDP call itself until
+    // it stops racing, instead of gambling that one `toBeVisible()` await
+    // was enough head start.
+    const cancelButton = page.getByTestId('cancel-pending-share-project').first()
+    let box: Awaited<ReturnType<typeof cancelButton.boundingBox>> = null
+    await expect
+      .poll(async () => {
+        box = await cancelButton.boundingBox()
+        return box !== null
+      })
+      .toBe(true)
     expect(box!.height).toBeGreaterThanOrEqual(44)
     expect(box!.width).toBeGreaterThanOrEqual(44)
   })
@@ -1275,8 +1292,26 @@ test.describe('W - no horizontal overflow with a live proposal', () => {
     await page.setViewportSize({ width: 320, height: 800 })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    const box = await page.getByTestId('cancel-pending-share-project').first().boundingBox()
-    expect(box).not.toBeNull()
+    // task-flaky-projects-shard (2026-09-25) — root cause, diagnosed live:
+    // `boundingBox()` is a single CDP call, not an auto-retrying Playwright
+    // assertion. `toBeVisible()` awaited immediately before it was not
+    // enough — instrumented locally (`--repeat-each=80`, workers=1, clean
+    // machine, 9/80 red): `boundingBox()` returned `null` a beat after
+    // `toBeVisible()` had already resolved true, while a
+    // `getBoundingClientRect()` read via `page.evaluate()` a moment later
+    // showed the SAME button fully laid out (238×44, `display:flex`,
+    // `isConnected: true`, attached under `<main>`) — a transient CDP
+    // box-model race right after `page.goto()` settles, not an application
+    // defect. `expect.poll` retries the CDP call itself until it stops
+    // racing.
+    const cancelButton = page.getByTestId('cancel-pending-share-project').first()
+    let box: Awaited<ReturnType<typeof cancelButton.boundingBox>> = null
+    await expect
+      .poll(async () => {
+        box = await cancelButton.boundingBox()
+        return box !== null
+      })
+      .toBe(true)
     // Round 2 measured this ending at ~382 - the button was drawn past the
     // edge of the screen, which is how the overflow above became visible.
     expect(box!.x + box!.width).toBeLessThanOrEqual(320)
