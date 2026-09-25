@@ -2,6 +2,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import {
   contractActionState,
   useSaveContractBody,
@@ -61,7 +62,11 @@ const MOCK_CONTRACT = {
 
 function makeWrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return React.createElement(QueryClientProvider, { client: qc }, children)
+    return React.createElement(
+      I18nTestProvider,
+      null,
+      React.createElement(QueryClientProvider, { client: qc }, children),
+    )
   }
 }
 
@@ -70,6 +75,8 @@ function makeQC() {
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
 }
+
+beforeEach(() => loadCatalog('uk'))
 
 describe('contractActionState', () => {
   it('DRAFT: editable, Save + MarkReady + Reset visible, Revert hidden', () => {
@@ -234,5 +241,30 @@ describe('useResetContractToTemplate', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect(toastError).toHaveBeenCalledWith(expect.stringContaining('Template not found'))
+  })
+
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — the ABOVE test's
+  // rejection carries its own `.message`, so `getApiErrorMessage` never
+  // reaches its `fallback` parameter — the `t`Не вдалося скинути до
+  // шаблону`` literal was never actually exercised by any test. A rejection
+  // with no message/response (`getApiErrorMessage`'s own null/non-object
+  // early-return) forces the fallback path.
+  it('falls back to the own uk toast text when the rejection carries no message at all', async () => {
+    const { toast } = await import('sonner')
+    const toastError = toast.error as ReturnType<typeof vi.fn>
+    toastError.mockReset()
+
+    mockPost.mockRejectedValue(null)
+
+    const qc = makeQC()
+    const { result } = renderHook(() => useResetContractToTemplate('user-uuid'), {
+      wrapper: makeWrapper(qc),
+    })
+
+    result.current.mutate()
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+
+    expect(toastError).toHaveBeenCalledWith('Не вдалося скинути до шаблону')
   })
 })

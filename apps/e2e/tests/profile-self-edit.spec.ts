@@ -80,7 +80,8 @@ test.describe('Profile self-edit — debounced autosave', () => {
       { timeout: 8000 },
     )
 
-    const nameInput = page.getByLabel('Имя')
+    const uk1 = await loadMessages('uk')
+    const nameInput = page.getByLabel(assertInCatalog(uk1, 'Ім’я та прізвище'))
     await nameInput.fill('Admin Updated')
 
     const req = await patchReq
@@ -122,9 +123,12 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // AnimatedTabs renders tabs as plain <button>. The overview tab content
     // ("Технологии" card or "Личные данные" card) is what's visible by default.
-    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    const ukOverview = await loadMessages('uk')
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukOverview, 'Огляд') }),
+    ).toBeVisible()
     // Personal-data form section is visible (mode === 'self' renders ProfileEditFields)
-    await expect(page.getByText('Личные данные')).toBeVisible()
+    await expect(page.getByText(assertInCatalog(ukOverview, 'Особисті дані'))).toBeVisible()
   })
 
   test('requisites tab activates via ?tab=requisites search param', async ({ page }) => {
@@ -135,10 +139,15 @@ test.describe('Profile self-edit — debounced autosave', () => {
     // with CardTitle "Реквизиты для выплат" and a CardDescription containing
     // the same phrase ("Выберите метод и заполните реквизиты для выплат").
     // Target the heading specifically to avoid strict-mode violations.
-    await expect(page.getByRole('heading', { name: 'Реквизиты для выплат' })).toBeVisible()
+    const ukReq = await loadMessages('uk')
+    await expect(
+      page.getByRole('heading', { name: assertInCatalog(ukReq, 'Реквізити для виплат') }),
+    ).toBeVisible()
     // Tab trigger is also visible — use exact match to avoid colliding with the
-    // "Сохранить реквизиты" submit button.
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    // submit button.
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukReq, 'Реквізити'), exact: true }),
+    ).toBeVisible()
   })
 
   // -------------------------------------------------------------------------
@@ -176,21 +185,32 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
+    const ukJunior = await loadMessages('uk')
     // Allowed tabs — must be present (EXACTLY these two, per service.ts:84)
-    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukJunior, 'Огляд'), exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukJunior, 'Реквізити'), exact: true }),
+    ).toBeVisible()
 
     // Forbidden tabs — must be completely absent from DOM (data-privacy allowlist).
     // Each covers a distinct privacy risk for the junior role:
-    //   Документы → profile tab absent (junior accesses docs via /documents nav)
-    //   Финансы   → surfaces payment history — privacy boundary for junior
-    //   Проект    → surfaces project internals (rate, client, senior identity)
+    //   Документи → profile tab absent (junior accesses docs via /documents nav)
+    //   Фінанси   → surfaces payment history — privacy boundary for junior
+    //   Проєкт    → surfaces project internals (rate, client, senior identity)
     //   Команда   → surfaces team membership and senior/drop identity
     //   Контракт  → only ADMIN-viewing-non-ADMIN gets it
     // Source: users-access.service.ts isSelf JUNIOR branch (line 84).
-    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Проект', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukJunior, 'Документи'), exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukJunior, 'Фінанси'), exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukJunior, 'Проєкт'), exact: true }),
+    ).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Контракт', exact: true })).toHaveCount(0)
   })
@@ -216,15 +236,26 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Admin User' })).toBeVisible()
 
+    const ukAdmin = await loadMessages('uk')
     // Allowed tabs
-    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukAdmin, 'Огляд'), exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukAdmin, 'Реквізити'), exact: true }),
+    ).toBeVisible()
 
     // Hidden by §2c frontend filter
-    await expect(page.getByRole('button', { name: 'Проекты', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukAdmin, 'Проєкти'), exact: true }),
+    ).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukAdmin, 'Документи'), exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukAdmin, 'Фінанси'), exact: true }),
+    ).toHaveCount(0)
   })
 
   // §2c regression guard: SENIOR self-view must show ONLY overview + requisites.
@@ -248,14 +279,25 @@ test.describe('Profile self-edit — debounced autosave', () => {
     await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
+    const ukSenior = await loadMessages('uk')
     // Allowed tabs
-    await expect(page.getByRole('button', { name: 'Обзор', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukSenior, 'Огляд'), exact: true }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukSenior, 'Реквізити'), exact: true }),
+    ).toBeVisible()
 
     // Hidden by §2c frontend filter
-    await expect(page.getByRole('button', { name: 'Проекты', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukSenior, 'Проєкти'), exact: true }),
+    ).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'Команда', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
-    await expect(page.getByRole('button', { name: 'Финансы', exact: true })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukSenior, 'Документи'), exact: true }),
+    ).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(ukSenior, 'Фінанси'), exact: true }),
+    ).toHaveCount(0)
   })
 })

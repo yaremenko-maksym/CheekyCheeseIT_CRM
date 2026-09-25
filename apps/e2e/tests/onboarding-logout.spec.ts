@@ -10,6 +10,7 @@
 
 import { expect, test } from '@playwright/test'
 import { USERS, mockAuthAs, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Unboarded status — user must complete onboarding before proceeding
 const STATUS_UNBOARDED = {
@@ -36,6 +37,11 @@ const STATUS_UNBOARDED = {
   tosUpdateAvailable: false,
   latestTosVersion: null,
 }
+
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 test.describe('Onboarding logout', () => {
   test.beforeEach(async ({ page }) => {
@@ -71,13 +77,11 @@ test.describe('Onboarding logout', () => {
   // -------------------------------------------------------------------------
   test('AC1: logout button is visible on /onboarding', async ({ page }) => {
     await expect(page.getByTestId('onboarding-logout')).toBeVisible()
-    // `onboarding/route.tsx` is NOT one of the files this PR migrates
-    // (outside Task 1's Steps 1-7 scope) — its logout button still
-    // literally renders "Выйти" (Russian). The Step-8 sweep (fix-round 1)
-    // wrongly flipped this assertion to "Вийти" without the source having
-    // changed — a self-inflicted regression, not a pre-existing failure
-    // (CI-1, fix-round 2).
-    await expect(page.getByTestId('onboarding-logout')).toContainText('Выйти')
+    // task-i18n-stage3b (Task 1) — `_authenticated/onboarding/route.tsx` IS
+    // one of the files this PR migrates (template I, "Вийти"); the comment
+    // this replaces was written for stage 3a (PR #700), when that file was
+    // still out of scope and the button still literally read "Выйти".
+    await expect(page.getByTestId('onboarding-logout')).toContainText(assertInCatalog(uk, 'Вийти'))
   })
 
   // -------------------------------------------------------------------------

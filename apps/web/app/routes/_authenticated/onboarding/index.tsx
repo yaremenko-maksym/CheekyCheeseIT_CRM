@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { z } from 'zod'
 import { CheckCircle2, FileText, ScrollText } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { OnboardingStatusDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
@@ -24,6 +25,7 @@ export const Route = createFileRoute('/_authenticated/onboarding/')({
 type OnboardingStep = 'contract' | 'tos' | 'done'
 
 function OnboardingPage() {
+  const { t } = useLingui()
   const { user } = useAuth()
   const navigate = useNavigate()
   const search = Route.useSearch()
@@ -84,8 +86,8 @@ function OnboardingPage() {
 
   // Progress indicator data
   const steps: Array<{ id: OnboardingStep; label: string; icon: React.ReactNode }> = [
-    { id: 'contract', label: 'Подписать контракт', icon: <FileText className="h-4 w-4" /> },
-    { id: 'tos', label: 'Условия использования', icon: <ScrollText className="h-4 w-4" /> },
+    { id: 'contract', label: t`Підписати контракт`, icon: <FileText className="h-4 w-4" /> },
+    { id: 'tos', label: t`Умови використання`, icon: <ScrollText className="h-4 w-4" /> },
   ]
 
   const currentStepIndex = steps.findIndex((s) => s.id === step)
@@ -95,10 +97,10 @@ function OnboardingPage() {
       {/* Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight" data-testid="onboarding-title">
-          Добро пожаловать в CRM
+          <Trans>Ласкаво просимо до CRM</Trans>
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Для начала работы необходимо выполнить несколько шагов
+          <Trans>Щоб почати роботу, виконайте кілька кроків</Trans>
         </p>
       </div>
 
@@ -144,7 +146,9 @@ function OnboardingPage() {
       </div>
 
       <div className="text-xs text-muted-foreground" data-testid="onboarding-step-indicator">
-        Шаг {Math.min(currentStepIndex + 1, steps.length)} из {steps.length}
+        <Trans>
+          Крок {Math.min(currentStepIndex + 1, steps.length)} із {steps.length}
+        </Trans>
       </div>
 
       {/* Divider */}
@@ -161,7 +165,9 @@ function OnboardingPage() {
             transition={{ duration: 0.2 }}
             data-testid="onboarding-step-contract"
           >
-            <h2 className="mb-4 text-lg font-semibold">Подписание контракта</h2>
+            <h2 className="mb-4 text-lg font-semibold">
+              <Trans>Підписання контракту</Trans>
+            </h2>
             {/* A3-4 three-state: wait if DRAFT, sign if READY_TO_SIGN */}
             {status?.contractReady ? (
               <SignContractStep onSuccess={handleContractSuccess} />
@@ -180,7 +186,9 @@ function OnboardingPage() {
             transition={{ duration: 0.2 }}
             data-testid="onboarding-step-tos"
           >
-            <h2 className="mb-4 text-lg font-semibold">Условия использования</h2>
+            <h2 className="mb-4 text-lg font-semibold">
+              <Trans>Умови використання</Trans>
+            </h2>
             <AcceptTosStep onSuccess={handleTosSuccess} />
           </motion.div>
         )}
@@ -195,9 +203,11 @@ function OnboardingPage() {
             data-testid="onboarding-step-done"
           >
             <CheckCircle2 className="h-14 w-14 text-primary" />
-            <p className="text-center text-lg font-medium">Онбординг завершён!</p>
+            <p className="text-center text-lg font-medium">
+              <Trans>Онбординг завершено!</Trans>
+            </p>
             <p className="text-center text-sm text-muted-foreground">
-              Перенаправление на дашборд...
+              <Trans>Перенаправляємо на дашборд…</Trans>
             </p>
           </motion.div>
         )}

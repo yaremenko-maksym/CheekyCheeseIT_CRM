@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PhoneInput } from '@/components/ui/phone-input'
@@ -8,6 +9,7 @@ import type { UserProfileDto } from '@crm/shared'
 import { useUpdateMe } from '@/hooks/use-user-profile'
 
 export function ProfileEditFields({ user }: { user: UserProfileDto }) {
+  const { t } = useLingui()
   const mutation = useUpdateMe()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -35,7 +37,9 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
       {/* Email read-only — auth-controlled, can't be edited from CRM */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="displayName">Имя</Label>
+          <Label htmlFor="displayName">
+            <Trans>Ім’я та прізвище</Trans>
+          </Label>
           <Input
             id="displayName"
             value={displayName}
@@ -59,7 +63,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
             className="cursor-not-allowed"
           />
           <p id="email-help" className="text-xs text-muted-foreground">
-            Email привязан к Google-аккаунту и не может быть изменён
+            <Trans>Email прив’язано до облікового запису Google і не можна змінити</Trans>
           </p>
         </div>
         <div className="space-y-1.5">
@@ -77,7 +81,9 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="phone">Телефон</Label>
+          <Label htmlFor="phone">
+            <Trans>Телефон</Trans>
+          </Label>
           <PhoneInput
             value={phone}
             onChange={(v) => {
@@ -90,14 +96,16 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
       </div>
 
       <div className="space-y-1.5">
-        <Label>Технологии</Label>
+        <Label>
+          <Trans>Технології</Trans>
+        </Label>
         <TechAutocompleteInput
           value={techStack}
           onChange={(next) => {
             setTechStack(next)
             scheduleSave({ techStack: next })
           }}
-          placeholder="Начните вводить, например: Re..."
+          placeholder={t`Почніть вводити: React, Node.js…`}
         />
       </div>
     </div>

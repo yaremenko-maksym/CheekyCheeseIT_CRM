@@ -2,6 +2,9 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { ShieldOff, UsersRound } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import type { TabKey } from '@crm/shared'
@@ -35,18 +38,19 @@ import { ContractTab } from './contract/ContractTab'
 import { ResumeTab } from './resume/ResumeTab'
 import { NotificationSettingsTab } from './tabs/NotificationSettingsTab'
 
-const TAB_LABELS: Record<string, string> = {
-  overview: 'Обзор',
-  finance: 'Финансы',
-  projects: 'Проекты',
-  team: 'Команда',
-  interviews: 'Собеседования',
-  requisites: 'Реквизиты',
-  documents: 'Документы',
-  contract: 'Контракт',
-  resume: 'Резюме',
-  notifications: 'Уведомления',
-}
+const TAB_LABELS: Record<string, MessageDescriptor> = {
+  overview: msg`Огляд`,
+  finance: msg`Фінанси`,
+  projects: msg`Проєкти`,
+  team: msg`Команда`,
+  interviews: msg`Співбесіди`,
+  requisites: msg`Реквізити`,
+  documents: msg`Документи`,
+  contract: msg`Контракт`,
+  resume: msg`Резюме`,
+  notifications: msg`Сповіщення`,
+} satisfies Record<string, MessageDescriptor>
+const PROJECTS_TAB_JUNIOR_LABEL = msg`Проєкт`
 
 export interface UserProfileShellProps {
   mode: 'self' | 'view'
@@ -56,6 +60,7 @@ export interface UserProfileShellProps {
 }
 
 export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfileShellProps) {
+  const { i18n } = useLingui()
   const { user: viewer } = useAuth()
   const meQuery = useMe(mode === 'self')
   const userQuery = useUser(userId, mode === 'view')
@@ -134,11 +139,15 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-24 text-center">
         <ShieldOff className="h-12 w-12 text-muted-foreground" />
-        <h2 className="text-xl font-semibold">{is403 ? 'Нет доступа' : 'Профиль не найден'}</h2>
+        <h2 className="text-xl font-semibold">
+          {is403 ? <Trans>Немає доступу до профілю</Trans> : <Trans>Профіль не знайдено</Trans>}
+        </h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          {is403
-            ? 'У вас нет прав для просмотра этого профиля.'
-            : 'Пользователь не найден или был удалён.'}
+          {is403 ? (
+            <Trans>Якщо він потрібен для роботи, напишіть адміністратору</Trans>
+          ) : (
+            <Trans>Можливо, користувача архівовано — перевірте фільтр «В архіві» у списку</Trans>
+          )}
         </p>
       </div>
     )
@@ -203,9 +212,30 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
 
   // JUNIOR sees a single project, not a portfolio — relabel tab
   const tabLabel = (t: string): string => {
-    if (t === 'projects' && profileUser?.role === 'JUNIOR') return 'Проект'
-    return TAB_LABELS[t] ?? t
+    // Stryker disable next-line OptionalChaining: `user` is a REQUIRED field
+    // in `userWithPermissionsResponseSchema` (packages/shared/src/schemas/
+    // users.ts) — whenever `data` (and therefore `permissions`, and therefore
+    // any tab this function is called for) is populated, `data.user` is
+    // guaranteed non-null by the same Zod parse. `profileUser` can only be
+    // undefined while `permissions` is ALSO undefined, in which case
+    // `visibleTabs` is `[]` and `tabLabel` is never invoked at all (see
+    // `visibleTabs` above). The `?.` here is defensive against a schema
+    // change, not a reachable branch today — mutating it to `.` cannot be
+    // observed by any test that goes through the component's real data flow.
+    if (t === 'projects' && profileUser?.role === 'JUNIOR') return i18n._(PROJECTS_TAB_JUNIOR_LABEL)
+    const descriptor = TAB_LABELS[t]
+    return descriptor ? i18n._(descriptor) : t
   }
+
+  // Stryker disable next-line StringLiteral: the inner `'contract'` fallback
+  // is unobservable on its own — `TAB_LABELS['contract']` and
+  // `TAB_LABELS['']` are BOTH undefined-or-defined the same way relative to
+  // the OUTER `?? TAB_LABELS['contract']!` fallback that follows: whichever
+  // string the inner default is, a miss on it falls through to the SAME
+  // outer `TAB_LABELS['contract']!`, producing an identical final label.
+  // Mutating it to `''` cannot change what renders, by construction of the
+  // double-fallback below.
+  const dirtyGuardTabLabel = TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? TAB_LABELS['contract']!
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -302,15 +332,19 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           <div className="flex items-start gap-3">
             <UsersRound className="h-5 w-5 text-amber-500/80 shrink-0 mt-0.5" />
             <div className="space-y-0.5">
-              <p className="text-sm font-medium">У вас нет активной команды</p>
+              <p className="text-sm font-medium">
+                <Trans>У вас немає активної команди</Trans>
+              </p>
               <p className="text-xs text-muted-foreground">
-                Создайте свою команду или присоединитесь к команде дропа, чтобы вернуть доступ к
-                проектам и собеседованиям.
+                <Trans>
+                  Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до
+                  проєктів і співбесід
+                </Trans>
               </p>
             </div>
           </div>
           <Button size="sm" onClick={() => setRejoinOpen(true)} data-testid="profile-rejoin-button">
-            Создать или выбрать команду
+            <Trans>Створити або обрати команду</Trans>
           </Button>
         </div>
       )}
@@ -323,19 +357,21 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         <AlertDialogContent data-testid="contract-dirty-guard-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Покинуть вкладку «{TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? 'Контракт'}»?
+              <Trans>Покинути вкладку «{i18n._(dirtyGuardTabLabel)}»?</Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Есть несохранённые изменения. При переходе они будут потеряны.
+              <Trans>Є незбережені зміни — якщо перейти, їх буде втрачено</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={handleDirtyGuardCancel}>Остаться</AlertDialogCancel>
+            <AlertDialogCancel onClick={handleDirtyGuardCancel}>
+              <Trans>Залишитися</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDirtyGuardConfirm}
               data-testid="contract-dirty-guard-confirm"
             >
-              Покинуть
+              <Trans>Покинути</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -346,7 +382,11 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           className="mt-4 rounded-lg border border-border bg-muted/40 px-6 py-10 text-center"
           data-testid="profile-no-access"
         >
-          <p className="text-sm text-muted-foreground">Нет доступа к этому профилю</p>
+          <p className="text-sm text-muted-foreground">
+            <Trans>
+              Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору
+            </Trans>
+          </p>
         </div>
       )}
 

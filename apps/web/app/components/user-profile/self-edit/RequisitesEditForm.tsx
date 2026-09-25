@@ -10,6 +10,8 @@ import {
   User as UserIcon,
   Wallet,
 } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { paymentRequisitesSchema } from '@crm/shared'
 import type { PaymentRequisites, UserProfileDto } from '@crm/shared'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
@@ -18,6 +20,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { translateZodMessage } from '@/lib/axios-utils'
+import { cn } from '@/lib/utils'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -33,7 +36,16 @@ import { useUpdateMeRequisites } from '@/hooks/use-user-profile'
 
 type Method = 'USDT_ERC20' | 'BANK_UAH_FOP'
 
+/**
+ * task-i18n-stage3b (Task 1), Step 6 — same `msg` for both the disabled-tab
+ * tooltip and the standalone `TooltipContent` copy below (COPY-M-11): a
+ * SENIOR/ADMIN sees the identical sentence twice, so one catalog key keeps
+ * them from drifting apart.
+ */
+const USDT_ONLY_HINT = msg`Ви отримуєте виплати лише в USDT (мережа Ethereum) — змінити спосіб не можна`
+
 export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
+  const { t, i18n } = useLingui()
   const mutation = useUpdateMeRequisites()
   const [pending, setPending] = useState<PaymentRequisites | null>(null)
 
@@ -86,27 +98,42 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
   // Tabs with the same animated yellow pill as the profile tabs.
   // For SENIOR/ADMIN the BANK_UAH_FOP tab is rendered disabled with a lock icon.
   const tabs = [
-    { value: 'USDT_ERC20', label: 'USDT ERC-20', ariaLabel: 'USDT ERC-20' },
+    { value: 'USDT_ERC20', label: 'USDT (ERC-20)', ariaLabel: 'USDT (ERC-20)' },
     {
       value: 'BANK_UAH_FOP',
-      label: 'UAH ФОП',
-      ariaLabel: 'Банк UAH (ФОП)',
-      ...(isUsdtOnlyRole
-        ? { disabled: true, disabledTooltip: 'SENIOR и ADMIN получают только в USDT ERC-20' }
-        : {}),
+      label: t`ФОП (UAH)`,
+      ariaLabel: t`ФОП (UAH)`,
+      ...(isUsdtOnlyRole ? { disabled: true, disabledTooltip: i18n._(USDT_ONLY_HINT) } : {}),
     },
   ]
 
   return (
     <TooltipProvider delayDuration={150}>
-      <form onSubmit={handleSubmit} className="space-y-5" aria-label="Способ выплаты">
+      <form onSubmit={handleSubmit} className="space-y-5" aria-label={t`Спосіб виплати`}>
         {/* ---------- Method switcher: AnimatedTabs with yellow pill ---------- */}
         <div className="space-y-2">
-          <Label>Способ выплаты</Label>
+          <Label>
+            <Trans>Спосіб виплати</Trans>
+          </Label>
           {isUsdtOnlyRole ? (
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="inline-block">
+                {/* UX-H-1 (design review, PR #717 fix-round C): `animated-tabs.tsx`
+                    explicitly names THIS file as a consumer with no
+                    `overflow-x-auto` ancestor at all — on 320/375 the en label
+                    "Sole proprietor (UAH)" (longer than any uk label) overflows
+                    the card's own `overflow:hidden` and the tab becomes
+                    unreachable, not just visually clipped. Same wrapper recipe
+                    as `UserProfileShell.tsx`'s tab bar — `w-full` (not
+                    `inline-block`) so the box actually inherits the card's
+                    width constraint and has something to scroll AGAINST. */}
+                <div
+                  data-testid="payment-method-tabs-scroll"
+                  className={cn(
+                    'w-full overflow-x-auto',
+                    '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+                  )}
+                >
                   <AnimatedTabs
                     tabs={tabs}
                     value={method}
@@ -114,12 +141,18 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                   />
                 </div>
               </TooltipTrigger>
-              <TooltipContent side="top">
-                SENIOR и ADMIN получают только в USDT ERC-20
-              </TooltipContent>
+              <TooltipContent side="top">{i18n._(USDT_ONLY_HINT)}</TooltipContent>
             </Tooltip>
           ) : (
-            <AnimatedTabs tabs={tabs} value={method} onChange={(v) => setMethod(v as Method)} />
+            <div
+              data-testid="payment-method-tabs-scroll"
+              className={cn(
+                'w-full overflow-x-auto',
+                '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+              )}
+            >
+              <AnimatedTabs tabs={tabs} value={method} onChange={(v) => setMethod(v as Method)} />
+            </div>
           )}
         </div>
 
@@ -137,13 +170,17 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Bitcoin className="h-4 w-4 text-primary" />
-                    USDT ERC-20 кошелёк
+                    <Trans>Гаманець USDT (ERC-20)</Trans>
                   </CardTitle>
-                  <CardDescription>Адрес для получения выплат в сети Ethereum</CardDescription>
+                  <CardDescription>
+                    <Trans>Адреса для отримання виплат у мережі Ethereum</Trans>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="walletUsdtErc20">USDT ERC-20 кошелёк</Label>
+                    <Label htmlFor="walletUsdtErc20">
+                      <Trans>Гаманець USDT (ERC-20)</Trans>
+                    </Label>
                     <div className="relative">
                       <Wallet className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
@@ -159,19 +196,21 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                       />
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      Начинается с 0x, всего 42 символа
+                      <Trans>Починається з 0x, усього 42 символи</Trans>
                     </p>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="walletUsdtLabel">Метка (необязательно)</Label>
+                    <Label htmlFor="walletUsdtLabel">
+                      <Trans>Мітка (необов’язково)</Trans>
+                    </Label>
                     <div className="relative">
                       <Tag className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="walletUsdtLabel"
                         value={walletUsdtLabel}
                         onChange={(e) => setWalletUsdtLabel(e.target.value)}
-                        placeholder="например: основной"
+                        placeholder={t`наприклад: основний`}
                         className="pl-9"
                       />
                     </div>
@@ -191,20 +230,24 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                 <CardHeader className="pb-3">
                   <CardTitle className="flex items-center gap-2 text-base">
                     <Landmark className="h-4 w-4 text-primary" />
-                    Банковские реквизиты ФОП
+                    <Trans>Банківські реквізити ФОП</Trans>
                   </CardTitle>
-                  <CardDescription>Для перевода в гривне на украинский ФОП</CardDescription>
+                  <CardDescription>
+                    <Trans>Для переказу в гривні на український ФОП</Trans>
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1.5">
-                    <Label htmlFor="bankRecipient">ФИО получателя</Label>
+                    <Label htmlFor="bankRecipient">
+                      <Trans>Ім’я та прізвище отримувача</Trans>
+                    </Label>
                     <div className="relative">
                       <UserIcon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="bankRecipient"
                         value={bankRecipient}
                         onChange={(e) => setBankRecipient(e.target.value)}
-                        placeholder="Иванов Иван Иванович"
+                        placeholder={t`Іваненко Іван Іванович`}
                         autoCapitalize="words"
                         autoComplete="name"
                         className="pl-9"
@@ -228,11 +271,15 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                           className="pl-9 font-mono uppercase"
                         />
                       </div>
-                      <p className="text-xs text-muted-foreground">UA + 27 цифр</p>
+                      <p className="text-xs text-muted-foreground">
+                        <Trans>UA + 27 цифр</Trans>
+                      </p>
                     </div>
 
                     <div className="space-y-1.5">
-                      <Label htmlFor="bankRnokpp">РНОКПП (10 цифр)</Label>
+                      <Label htmlFor="bankRnokpp">
+                        <Trans>РНОКПП (10 цифр)</Trans>
+                      </Label>
                       <div className="relative">
                         <IdCard className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
@@ -246,19 +293,23 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                           className="pl-9 font-mono"
                         />
                       </div>
-                      <p className="text-xs text-muted-foreground">10 цифр</p>
+                      <p className="text-xs text-muted-foreground">
+                        <Trans>10 цифр</Trans>
+                      </p>
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label htmlFor="bankName">Название банка (необязательно)</Label>
+                    <Label htmlFor="bankName">
+                      <Trans>Назва банку (необов’язково)</Trans>
+                    </Label>
                     <div className="relative">
                       <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input
                         id="bankName"
                         value={bankName}
                         onChange={(e) => setBankName(e.target.value)}
-                        placeholder="ПриватБанк"
+                        placeholder={t`ПриватБанк`}
                         className="pl-9"
                       />
                     </div>
@@ -278,7 +329,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
         )}
 
         <Button type="submit" disabled={mutation.isPending}>
-          Сохранить реквизиты
+          <Trans>Зберегти реквізити</Trans>
         </Button>
       </form>
 
@@ -290,14 +341,20 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Изменение реквизитов</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Зміна реквізитів</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              На основе этих данных будут производиться следующие выплаты. Подтвердите изменение.
+              <Trans>Далі виплати надходитимуть на ці реквізити — підтвердіть зміну</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>Подтвердить</AlertDialogAction>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              <Trans>Підтвердити</Trans>
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

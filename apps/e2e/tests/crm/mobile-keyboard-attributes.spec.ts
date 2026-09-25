@@ -12,8 +12,16 @@
  * fixture routes only.
  */
 import { test, expect, USERS, mockAuthAs } from '../fixtures'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 
 const MOBILE_VIEWPORT = { width: 375, height: 812 }
+
+// task-i18n-stage3b (Task 1) — ProfileEditFields' "Ім’я та прізвище" label and
+// RequisitesTab's "Реквізити для виплат" heading now come from the uk catalog.
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 test.describe('Mobile keyboard attributes on a real mobile viewport — task-mobile-keyboards.md AC4', () => {
   test('profile self-edit: money-adjacent identity fields carry the right keyboard hints', async ({
@@ -25,7 +33,7 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // PERSON_NAME — own display name, autofill wanted.
-    const nameInput = page.getByLabel('Имя')
+    const nameInput = page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище'))
     await expect(nameInput).toHaveAttribute('autocapitalize', 'words')
     await expect(nameInput).toHaveAttribute('autocomplete', 'name')
 
@@ -49,7 +57,9 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
     // default (USDT is the OTHER tab — asserted second, after switching).
     await mockAuthAs(page, USERS.junior)
     await page.goto('/profile?tab=requisites')
-    await expect(page.getByRole('heading', { name: 'Реквизиты для выплат' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: assertInCatalog(uk, 'Реквізити для виплат') }),
+    ).toBeVisible()
 
     // BANK_ID — IBAN must FORCE uppercase (schema is case-sensitive `/^UA\d{27}$/`).
     const ibanInput = page.locator('#bankIban')
@@ -62,8 +72,10 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
     await expect(rnokppInput).toHaveAttribute('inputmode', 'numeric')
     await expect(rnokppInput).toHaveAttribute('pattern', '[0-9]*')
 
-    // Switch to the USDT ERC-20 tab.
-    await page.getByRole('button', { name: 'USDT ERC-20' }).click()
+    // Switch to the USDT ERC-20 tab. Plain literal (not `assertInCatalog`) —
+    // this segment label is a hardcoded string in RequisitesEditForm.tsx's
+    // `tabs` array, never wrapped in `t`/`msg`, so it is not a catalog entry.
+    await page.getByRole('button', { name: 'USDT (ERC-20)' }).click()
 
     // WALLET_HASH — USDT wallet address, must resist
     // autocapitalize/autocorrect/spellcheck/autocomplete mangling.

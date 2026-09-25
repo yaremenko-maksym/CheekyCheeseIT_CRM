@@ -17,9 +17,10 @@
  */
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { i18n } from '@lingui/core'
 import {
+  API_ERROR_MESSAGES,
   NEW_NOTIFICATION_TYPES,
-  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   NOTIFICATION_TITLE_MESSAGES,
 } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -101,8 +102,8 @@ describe('NotificationSettingsTab — loading/error states', () => {
   it('shows the error message + Повторить, which calls refetch', () => {
     queryState = { data: undefined, isLoading: false, isError: true, refetch: refetchMock }
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
-    expect(screen.getByText('Не удалось загрузить настройки.')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }))
+    expect(screen.getByText('Не вдалося завантажити налаштування')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Повторити' }))
     expect(refetchMock).toHaveBeenCalledTimes(1)
   })
 })
@@ -148,7 +149,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     const scope = within(screen.getByTestId('notification-settings-desktop'))
     expect(scope.getByTestId('notification-group-admin')).toBeInTheDocument()
-    expect(scope.getByText('Ваши предложения')).toBeInTheDocument()
+    expect(scope.getByText('Ваші пропозиції')).toBeInTheDocument()
     expect(
       scope.getByText(NOTIFICATION_TITLE_MESSAGES.APPROVAL_CONFIRMED.message!),
     ).toBeInTheDocument()
@@ -228,10 +229,10 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     // tab, in a table whose own column header is "Тип уведомления" — and it
     // repeated "уведомлени-" a third time together with the explanation
     // below. "Новый тип" is the one word this generic row actually adds.
-    const title = within(row).getByText('Новый тип')
+    const title = within(row).getByText('Новий тип сповіщень')
     expect(title).toBeInTheDocument()
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText('Настройка появится после обновления приложения.')
+    const explanationEl = within(row).getByText('Налаштування з’явиться після оновлення застосунку')
     // Own id+testid pair (independent strings from the shared locked one) —
     // pins both against a mutant that empties either.
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-desktop-FUTURE_TYPE_XYZ')
@@ -260,7 +261,7 @@ describe('NotificationSettingsTab — AC2 grouping + titles', () => {
     )
     expect(within(row).getByRole('switch')).toHaveAttribute(
       'aria-label',
-      'Письма: Вам додали транзакцію',
+      'Листи: Вам додали транзакцію',
     )
   })
 
@@ -323,7 +324,7 @@ describe('NotificationSettingsTab — AC3 locked rows', () => {
     const desktop = within(screen.getByTestId('notification-settings-desktop'))
     const group = desktop.getByTestId('notification-group-action-required')
     const explanationEl = within(group).getByText(
-      'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.',
+      'Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться',
     )
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-locked-desktop')
     expect(within(group).getByTestId('notification-pref-explain-locked-desktop')).toBe(
@@ -350,9 +351,29 @@ describe('NotificationSettingsTab — AC3 locked rows', () => {
     // once per locked row (the bug COPY-M-2 fixed).
     expect(
       desktop.getAllByText(
-        'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.',
+        'Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться',
       ),
     ).toHaveLength(1)
+  })
+})
+
+// task-i18n-stage3b (Task 1), mutation-gate coverage — the desktop table's
+// own column headers and the locked-row "always on" email-column text had
+// zero unit assertion pinning their resolved text.
+describe('NotificationSettingsTab — desktop table column headers + locked-row email cell', () => {
+  it('renders the three column headers with their own exact text', () => {
+    render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
+    const desktop = within(screen.getByTestId('notification-settings-desktop'))
+    const headers = desktop.getAllByRole('columnheader')
+    expect(headers.map((h) => h.textContent)).toEqual(['Тип сповіщення', 'У застосунку', 'Лист'])
+  })
+
+  it('a locked row shows "Завжди" in the email column instead of a second switch', () => {
+    render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
+    const row = within(screen.getByTestId('notification-settings-desktop')).getByTestId(
+      'notification-row-desktop-PROJECT_CONFIRM_REQUIRED',
+    )
+    expect(within(row).getByText('Завжди')).toBeInTheDocument()
   })
 })
 
@@ -405,7 +426,7 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     // (per-column label, not a per-row repeat) and is deliberately excluded
     // by scoping to the subtitle paragraph's own text, not a page-wide regex.
     expect(
-      screen.getByText('Выберите, о чём присылать письма. В приложении уведомления видны всегда.'),
+      screen.getByText('Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди'),
     ).toBeInTheDocument()
   })
 
@@ -413,10 +434,10 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     viewerRole = 'ADMIN'
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     const scope = within(screen.getByTestId('notification-settings-mobile'))
-    expect(scope.getByText('Требуют ответа')).toBeInTheDocument()
-    expect(scope.getByText('Деньги')).toBeInTheDocument()
-    expect(scope.getByText('Команда и проекты')).toBeInTheDocument()
-    expect(scope.getByText('Ваши предложения')).toBeInTheDocument()
+    expect(scope.getByText('Потребують відповіді')).toBeInTheDocument()
+    expect(scope.getByText('Гроші')).toBeInTheDocument()
+    expect(scope.getByText('Команда та проєкти')).toBeInTheDocument()
+    expect(scope.getByText('Ваші пропозиції')).toBeInTheDocument()
     for (const item of TEN_TYPES) {
       const title =
         NOTIFICATION_TITLE_MESSAGES[item.type as keyof typeof NOTIFICATION_TITLE_MESSAGES].message
@@ -440,9 +461,9 @@ describe('NotificationSettingsTab — mobile card stack (same contract as deskto
     const row = scope.getByTestId('notification-row-mobile-FUTURE_TYPE_XYZ')
     // COPY-L-4: see the desktop test above for why the label shrank to
     // "Новый тип" and the explanation dropped the repeated "уведомления".
-    const title = within(row).getByText('Новый тип')
+    const title = within(row).getByText('Новий тип сповіщень')
     expect(title).toHaveAttribute('title', 'FUTURE_TYPE_XYZ')
-    const explanationEl = within(row).getByText('Настройка появится после обновления приложения.')
+    const explanationEl = within(row).getByText('Налаштування з’явиться після оновлення застосунку')
     expect(explanationEl).toHaveAttribute('id', 'notification-pref-explain-mobile-FUTURE_TYPE_XYZ')
     expect(within(row).getByTestId('notification-pref-explain-mobile-FUTURE_TYPE_XYZ')).toBe(
       explanationEl,
@@ -529,7 +550,7 @@ describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
     // литерал плюс точка (COPY-M-2), и связка проверяется арифметически, а не
     // повторным литералом, который может разойтись молча.
     expect(screen.getByTestId('notification-settings-impersonating-banner')).toHaveTextContent(
-      `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`,
+      i18n._(API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION),
     )
   })
 
@@ -537,11 +558,9 @@ describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
     viewerImpersonating = true
     render(<NotificationSettingsTab />, { wrapper: I18nTestProvider })
     expect(
-      screen.getByText(
-        'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.',
-      ),
+      screen.getByText('Листи, які отримує співробітник. У застосунку сповіщення приходять завжди'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/^Выберите, о чём/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/^Оберіть, які/)).not.toBeInTheDocument()
   })
 
   it('every switch is actually WIRED to the banner — aria-describedby matches the banner id, not just a coincidentally-equal string', () => {

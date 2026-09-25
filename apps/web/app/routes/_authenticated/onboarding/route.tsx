@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, useNavigate } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { useLogout } from '@/lib/use-logout'
@@ -74,7 +75,7 @@ function OnboardingRoot() {
           data-testid="onboarding-logout"
         >
           <LogOut className="mr-2 h-4 w-4" aria-hidden="true" />
-          Выйти
+          <Trans>Вийти</Trans>
         </Button>
       </div>
 
@@ -91,7 +92,7 @@ function OnboardingRoot() {
 
       {/* Footer */}
       <p className="mt-6 text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Cheeky Cheese IT. Все права защищены.
+        <Trans>© {new Date().getFullYear()} Cheeky Cheese IT. Усі права захищено.</Trans>
       </p>
     </div>
   )

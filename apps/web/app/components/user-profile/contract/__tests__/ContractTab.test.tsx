@@ -2,7 +2,13 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useQuery } from '@tanstack/react-query'
 import { i18n } from '@lingui/core'
+import { I18nProvider } from '@lingui/react'
 import { API_ERROR_MESSAGES } from '@crm/shared'
+
+beforeEach(() => {
+  i18n.load('uk', {})
+  i18n.activate('uk')
+})
 
 // Test the ADMIN-only tab visibility logic via the helper function
 // (full UserProfileShell render requires complex multi-provider mocking;
@@ -127,7 +133,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 function renderWithProvider(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  return render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  return render(
+    <I18nProvider i18n={i18n}>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </I18nProvider>,
+  )
 }
 
 describe('ContractTab', () => {
@@ -219,10 +229,11 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     } as any)
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.getByTestId('contract-tab-no-template')).toBeInTheDocument()
-    // COPY-M-7 (PR #694 fix-round 4): the empty state shows the role's Russian
-    // label ("Синьор"), never the raw enum ("SENIOR") — role-select.tsx's map.
-    expect(screen.getByText('Нет шаблона контракта для роли Синьор')).toBeInTheDocument()
-    expect(screen.queryByText(/для роли SENIOR/)).not.toBeInTheDocument()
+    // COPY-M-7 (PR #694 fix-round 4, migrated task-i18n-stage3b): the empty
+    // state shows the role's uk label ("Сеньйор") from `ROLE_LABEL_MESSAGES`,
+    // never the raw enum ("SENIOR").
+    expect(screen.getByText('Немає шаблону контракту для ролі «Сеньйор»')).toBeInTheDocument()
+    expect(screen.queryByText(/ролі «SENIOR»/)).not.toBeInTheDocument()
   })
 
   it('does NOT show the no-template empty state for prose without a code (falls to the generic error state)', () => {
@@ -237,7 +248,7 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     expect(screen.getByTestId('contract-tab-error')).toBeInTheDocument()
   })
 
-  it('renders the own Russian fallback text when there is no error AND no contract (the other half of the `error || !contract` guard, `getApiErrorMessage`’s own fallback path)', () => {
+  it('renders the own uk fallback text when there is no error AND no contract (the other half of the `error || !contract` guard, `getApiErrorMessage`’s own fallback path)', () => {
     vi.mocked(useQuery).mockReturnValueOnce({
       data: undefined,
       isLoading: false,
@@ -246,7 +257,7 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
     } as any)
     renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
     expect(screen.getByTestId('contract-tab-error')).toHaveTextContent(
-      'Не удалось загрузить контракт.',
+      'Не вдалося завантажити контракт',
     )
   })
 })
@@ -262,6 +273,82 @@ describe('ContractTab — isNoTemplate via API error envelope code', () => {
 // through to the descriptor's `message` (the Ukrainian source text), which
 // is exactly what a real app run does before `pnpm i18n:compile` output for
 // a NEW string exists.
+// ─── task-i18n-stage3b (Task 1), mutation-gate coverage — STATUS_LABELS /
+// FROZEN_BANNERS resolve to their own exact uk text, never a neighbour's or
+// an empty string. Uses the read-only path (canEdit=false) since it renders
+// the badge without pulling in the full editor/action-bar tree, and is
+// exercised for all 4 statuses (the previous tests only ever fixture READY_
+// TO_SIGN, so DRAFT/SIGNED/CANCELLED had zero unit coverage). ────────────────
+describe('ContractTab — STATUS_LABELS badge text, per status', () => {
+  it.each([
+    ['DRAFT', 'Чернетка'],
+    ['READY_TO_SIGN', 'Готовий до підписання'],
+    ['SIGNED', 'Підписаний'],
+    ['CANCELLED', 'Скасований'],
+  ])('status=%s renders badge text %s', (status, expectedText) => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: { id: 'contract-uuid', status, bodyMarkdown: '# Contract', customValues: {} },
+      isLoading: false,
+      error: null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+    } as any)
+    renderWithProvider(<ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />)
+    expect(screen.getByTestId('contract-status-badge')).toHaveTextContent(expectedText)
+  })
+})
+
+describe('ContractTab — FROZEN_BANNERS text, per frozen status (canEdit=true, readOnly editor)', () => {
+  it.each([
+    [
+      'READY_TO_SIGN',
+      'Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку',
+    ],
+    [
+      'SIGNED',
+      'Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг',
+    ],
+  ])(
+    'status=%s shows its own frozen-banner text, not the other status’s',
+    (status, expectedText) => {
+      vi.mocked(useQuery).mockReturnValueOnce({
+        data: { id: 'contract-uuid', status, bodyMarkdown: '# Contract', customValues: {} },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+      renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+      expect(screen.getByTestId('contract-editor-frozen-banner')).toHaveTextContent(expectedText)
+    },
+  )
+
+  it('DRAFT (not frozen) renders no frozen-banner at all', () => {
+    // DRAFT is the one status where ContractFillForm ALSO mounts (Screen 2:
+    // `contract.status === 'DRAFT' && !isDirty`) and makes its OWN useQuery
+    // call for contract variables — a second queued return is needed or its
+    // `useMemo` crashes on `data.variables` being undefined.
+    vi.mocked(useQuery)
+      .mockReturnValueOnce({
+        data: {
+          id: 'contract-uuid',
+          status: 'DRAFT',
+          bodyMarkdown: '# Contract',
+          customValues: {},
+        },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+      .mockReturnValueOnce({
+        data: { variables: [], customVariables: [] },
+        isLoading: false,
+        error: null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test double, see identical note above
+      } as any)
+    renderWithProvider(<ContractTab userId="senior-uuid" targetRole="SENIOR" canEdit={true} />)
+    expect(screen.queryByTestId('contract-editor-frozen-banner')).not.toBeInTheDocument()
+  })
+})
+
 describe('ContractTab — SR-L-1: generic error renders the Ukrainian catalog text, not the English envelope fallback', () => {
   beforeEach(() => {
     i18n.load('uk', {})

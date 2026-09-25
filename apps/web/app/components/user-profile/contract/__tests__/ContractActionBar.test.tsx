@@ -1,7 +1,10 @@
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ContractActionBar } from '../ContractActionBar'
 import type { ContractActionBarProps } from '../ContractActionBar'
+
+beforeEach(() => loadCatalog('uk'))
 
 function renderBar(props: Partial<ContractActionBarProps> = {}) {
   const defaults: ContractActionBarProps = {
@@ -14,7 +17,7 @@ function renderBar(props: Partial<ContractActionBarProps> = {}) {
     onRevert: vi.fn(),
     ...props,
   }
-  return render(<ContractActionBar {...defaults} />)
+  return render(<ContractActionBar {...defaults} />, { wrapper: I18nTestProvider })
 }
 
 describe('ContractActionBar', () => {
@@ -49,8 +52,8 @@ describe('ContractActionBar', () => {
     const dialog = screen.getByTestId('contract-revert-confirm-dialog')
     expect(dialog).toBeInTheDocument()
     // Soft text: no mention of "подпись"
-    expect(dialog.textContent).toContain('Вернуть контракт в черновик?')
-    expect(dialog.textContent).not.toContain('подписанный')
+    expect(dialog.textContent).toContain('Повернути контракт у чернетку?')
+    expect(dialog.textContent).not.toContain('підписаний')
     // onRevert NOT called yet
     expect(onRevert).not.toHaveBeenCalled()
     // Confirm the action
@@ -66,8 +69,8 @@ describe('ContractActionBar', () => {
     const dialog = screen.getByTestId('contract-revert-confirm-dialog')
     expect(dialog).toBeInTheDocument()
     // Destructive text
-    expect(dialog.textContent).toContain('Вернуть подписанный контракт в черновик?')
-    expect(dialog.textContent).toContain('необратимо')
+    expect(dialog.textContent).toContain('Повернути підписаний контракт у чернетку?')
+    expect(dialog.textContent).toContain('не можна скасувати')
     // onRevert NOT called yet
     expect(onRevert).not.toHaveBeenCalled()
     // Confirm the action
@@ -82,7 +85,7 @@ describe('ContractActionBar', () => {
     // Reset confirm dialog must appear
     const dialog = screen.getByTestId('contract-reset-confirm-dialog')
     expect(dialog).toBeInTheDocument()
-    expect(dialog.textContent).toContain('Сбросить контракт к шаблону?')
+    expect(dialog.textContent).toContain('Скинути контракт до шаблону?')
     // onReset NOT called yet
     expect(onReset).not.toHaveBeenCalled()
     // Confirm

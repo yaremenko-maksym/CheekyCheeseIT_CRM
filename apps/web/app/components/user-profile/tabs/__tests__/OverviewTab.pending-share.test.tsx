@@ -204,7 +204,9 @@ const PENDING_DIVERGENT: PendingSeniorShare = {
 describe('OverviewTab — a proposal whose percent is null reads the RESOLVED value', () => {
   it('a CONCRETE percent is shown as-is, not swapped for the resolved value', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_DIVERGENT }), 'view')
-    expect(screen.getByTestId('user-senior-share-pending-badge').textContent).toBe('Предложено 55%')
+    expect(screen.getByTestId('user-senior-share-pending-badge').textContent).toBe(
+      'Запропоновано 55%',
+    )
   })
 
   it('and the withdraw confirmation names that same concrete percent', async () => {
@@ -222,7 +224,7 @@ describe('OverviewTab — a proposal whose percent is null reads the RESOLVED va
   it('the badge names the resolved percent, never «0%» and never «null%»', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING_CLEARING }), 'view')
     const badge = screen.getByTestId('user-senior-share-pending-badge')
-    expect(badge.textContent).toBe('Предложено 26%')
+    expect(badge.textContent).toBe('Запропоновано 26%')
   })
 
   it('the withdraw confirmation names the same resolved percent', async () => {
@@ -325,7 +327,7 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     expect(badge.childNodes).toHaveLength(1)
     expect(badge.childNodes[0]?.nodeType).toBe(Node.TEXT_NODE)
     // task-648-fix-round-3 (COPY-H-7 / COPY-M-15): «Предложено N%».
-    expect(badge.textContent).toBe('Предложено 55%')
+    expect(badge.textContent).toBe('Запропоновано 55%')
     expect(badge).not.toHaveTextContent('Senior One')
   })
 
@@ -341,8 +343,8 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     )
     // The WHOLE sentence, both facts and the live number — a partial match
     // would survive the name or the percent being dropped.
-    const line = screen.getByText(/Подтверждает Senior One/)
-    expect(line.textContent).toBe('Подтверждает Senior One — пока действует 26%')
+    const line = screen.getByText(/Чекає підтвердження від Senior One/)
+    expect(line.textContent).toBe('Чекає підтвердження від Senior One — поки діє 26%')
   })
 
   it('the live percent in that line is the ACTIVE one, not the proposed one', () => {
@@ -352,8 +354,8 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
       makeUser({ role: 'SENIOR', seniorSharePercent: 26, pendingSeniorShare: PENDING }),
       'view',
     )
-    expect(screen.getByText(/Подтверждает Senior One/).textContent).toContain('26%')
-    expect(screen.getByText(/Подтверждает Senior One/).textContent).not.toContain('55%')
+    expect(screen.getByText(/Чекає підтвердження від Senior One/).textContent).toContain('26%')
+    expect(screen.getByText(/Чекає підтвердження від Senior One/).textContent).not.toContain('55%')
   })
 })
 
@@ -424,9 +426,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     // separately would not notice a `{' '}` collapsing to `{''}` (the
     // substrings would still individually be present, just run together).
     expect(banner.textContent).toContain(
-      'Вашу долю по умолчанию предлагают изменить: сейчас 26%, предлагают 55%',
+      'Вашу частку за замовчуванням пропонують змінити: зараз 26%, пропонують 55%',
     )
-    expect(banner.textContent).toContain('действует 26%')
+    expect(banner.textContent).toContain('діє 26%')
   })
 
   it('approve: POSTs to the approve endpoint with no body and shows the exact success toast', async () => {
@@ -455,6 +457,18 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-approve-button'))
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('network down'))
+  })
+
+  // task-i18n-stage3b (Task 1), mutation-gate coverage — the reject-reason
+  // textarea's placeholder had zero unit assertion.
+  it('reject dialog: the reason textarea carries the exact example placeholder', async () => {
+    renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId('pending-base-share-reject-button'))
+    expect(screen.getByTestId('pending-base-share-reject-reason')).toHaveAttribute(
+      'placeholder',
+      'Наприклад: домовилися про 30%',
+    )
   })
 
   it("reject: an error with neither .response nor a string .message falls through to REJECT's own fallback text", async () => {
@@ -541,13 +555,13 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'self')
     const user = userEvent.setup()
     const approveButton = screen.getByTestId('pending-base-share-approve-button')
-    expect(approveButton).toHaveTextContent('Подтвердить')
+    expect(approveButton).toHaveTextContent('Підтвердити')
     await user.click(approveButton)
-    await waitFor(() => expect(approveButton).toHaveTextContent('Подтверждение…'))
+    await waitFor(() => expect(approveButton).toHaveTextContent('Підтвердження…'))
     resolvePost({
       data: { user: { seniorSharePercent: CONFIRMED_PERCENT }, permissions: {}, data: {} },
     })
-    await waitFor(() => expect(approveButton).toHaveTextContent('Подтвердить'))
+    await waitFor(() => expect(approveButton).toHaveTextContent('Підтвердити'))
   })
 
   it('reject: confirm button label switches to "Отклонение…" while the mutation is in flight', async () => {
@@ -564,9 +578,9 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'причина')
     const confirmButton = screen.getByTestId('pending-base-share-reject-confirm')
-    expect(confirmButton).toHaveTextContent('Отклонить')
+    expect(confirmButton).toHaveTextContent('Відхилити')
     await user.click(confirmButton)
-    await waitFor(() => expect(confirmButton).toHaveTextContent('Отклонение…'))
+    await waitFor(() => expect(confirmButton).toHaveTextContent('Відхиляємо…'))
     resolvePost({ data: { ok: true } })
   })
 
@@ -579,8 +593,8 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Отклонить предложение')
-    expect(dialog).not.toHaveTextContent('Отклонить новый процент')
+    expect(dialog).toHaveTextContent('Відхилити пропозицію')
+    expect(dialog).not.toHaveTextContent('Відхилити новий відсоток')
   })
 
   // CR-M-3 (#667 code review round 2). These hooks are shared with the
@@ -594,8 +608,10 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const dialog = await screen.findByRole('dialog')
     // Verbatim `SeniorShareApprovalActions`'s description — same decision,
     // same sentence, wherever it is taken from.
-    expect(dialog).toHaveTextContent('Админ увидит причину и сможет предложить другой процент.')
-    expect(dialog).not.toHaveTextContent('администратору')
+    expect(dialog).toHaveTextContent(
+      'Адміністратор побачить причину і зможе запропонувати іншу частку',
+    )
+    expect(dialog).not.toHaveTextContent('адміністратору')
   })
 
   it('reject dialog starts closed, with an empty reason field', () => {
@@ -627,7 +643,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     await user.type(await screen.findByTestId('pending-base-share-reject-reason'), 'черновик')
-    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
     expect(screen.queryByTestId('pending-base-share-reject-reason')).not.toBeInTheDocument()
     expect(api.post).not.toHaveBeenCalled()
   })

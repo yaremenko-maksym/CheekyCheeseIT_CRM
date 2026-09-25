@@ -1,5 +1,6 @@
 import { Info } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { Trans } from '@lingui/react/macro'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 
 /**
@@ -18,15 +19,17 @@ export function TosUpdateBanner() {
     >
       <Info className="h-4 w-4 text-primary" />
       <AlertDescription className="flex items-center gap-2 text-sm">
-        Опубликована новая версия Terms of Service.{' '}
-        <Link
-          to="/onboarding"
-          search={{ step: 'tos' }}
-          className="font-medium text-primary underline-offset-2 hover:underline"
-          data-testid="tos-update-banner-link"
-        >
-          Читать →
-        </Link>
+        <Trans>
+          Опубліковано нову версію Умов використання.{' '}
+          <Link
+            to="/onboarding"
+            search={{ step: 'tos' }}
+            className="font-medium text-primary underline-offset-2 hover:underline"
+            data-testid="tos-update-banner-link"
+          >
+            Читати →
+          </Link>
+        </Trans>
       </AlertDescription>
     </Alert>
   )

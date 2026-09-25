@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Loader2, RotateCcw, Save, CheckCheck, RefreshCw } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,7 +72,7 @@ export function ContractActionBar({
             ) : (
               <Save className="mr-1.5 h-3.5 w-3.5" />
             )}
-            Сохранить
+            <Trans>Зберегти</Trans>
           </Button>
         )}
 
@@ -84,7 +85,7 @@ export function ContractActionBar({
             onClick={onMarkReady}
           >
             <CheckCheck className="mr-1.5 h-3.5 w-3.5" />
-            Отметить готовым
+            <Trans>Позначити готовим</Trans>
           </Button>
         )}
 
@@ -96,7 +97,7 @@ export function ContractActionBar({
             onClick={handleResetClick}
           >
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-            Сбросить к шаблону
+            <Trans>Скинути до шаблону</Trans>
           </Button>
         )}
 
@@ -108,7 +109,7 @@ export function ContractActionBar({
             onClick={handleRevertClick}
           >
             <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-            Вернуть в черновик
+            <Trans>Повернути в чернетку</Trans>
           </Button>
         )}
       </div>
@@ -118,18 +119,30 @@ export function ContractActionBar({
         <AlertDialogContent data-testid="contract-revert-confirm-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {actions.revertDestructive
-                ? 'Вернуть подписанный контракт в черновик?'
-                : 'Вернуть контракт в черновик?'}
+              {actions.revertDestructive ? (
+                <Trans>Повернути підписаний контракт у чернетку?</Trans>
+              ) : (
+                <Trans>Повернути контракт у чернетку?</Trans>
+              )}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {actions.revertDestructive
-                ? 'Это сбросит подпись и онбординг участника (удалит ToS). Действие необратимо.'
-                : 'Участник не сможет подписать, пока вы снова не отметите контракт готовым к подписанию.'}
+              {actions.revertDestructive ? (
+                <Trans>
+                  Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) —
+                  дію не можна скасувати
+                </Trans>
+              ) : (
+                <Trans>
+                  Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до
+                  підписання
+                </Trans>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               data-testid="contract-revert-confirm-ok"
               onClick={handleRevertConfirm}
@@ -139,7 +152,7 @@ export function ContractActionBar({
                   : undefined
               }
             >
-              Вернуть в черновик
+              <Trans>Повернути в чернетку</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -149,15 +162,19 @@ export function ContractActionBar({
       <AlertDialog open={resetConfirmOpen} onOpenChange={setResetConfirmOpen}>
         <AlertDialogContent data-testid="contract-reset-confirm-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Сбросить контракт к шаблону?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Скинути контракт до шаблону?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Текущие изменения тела будут заменены актуальным шаблоном.
+              <Trans>Ваші правки в тексті контракту буде замінено актуальним шаблоном</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction data-testid="contract-reset-confirm-ok" onClick={handleResetConfirm}>
-              Сбросить
+              <Trans>Скинути</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { AlertCircle, ExternalLink, FileText, Info } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getApiErrorCode, getApiErrorMessage } from '@/lib/axios-utils'
-import { ROLE_LABELS } from '@/components/ui/role-select'
+import { useRoleLabel } from '@/components/ui/role-select'
 import {
   useEmployeeContract,
   useMarkContractReady,
@@ -21,12 +24,12 @@ import type { EmployeeContractStatus, Role } from '@crm/shared'
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 
-const STATUS_LABELS: Record<EmployeeContractStatus, string> = {
-  DRAFT: 'Черновик',
-  READY_TO_SIGN: 'Готов к подписанию',
-  SIGNED: 'Подписан',
-  CANCELLED: 'Отменён',
-}
+const STATUS_LABELS: Record<EmployeeContractStatus, MessageDescriptor> = {
+  DRAFT: msg`Чернетка`,
+  READY_TO_SIGN: msg`Готовий до підписання`,
+  SIGNED: msg`Підписаний`,
+  CANCELLED: msg`Скасований`,
+} satisfies Record<EmployeeContractStatus, MessageDescriptor>
 
 const STATUS_VARIANTS: Record<
   EmployeeContractStatus,
@@ -40,12 +43,10 @@ const STATUS_VARIANTS: Record<
 
 // ─── Frozen banner messages ───────────────────────────────────────────────────
 
-const FROZEN_BANNERS: Partial<Record<EmployeeContractStatus, string>> = {
-  READY_TO_SIGN:
-    'Контракт отправлен на подпись. Редактирование заблокировано. Чтобы внести правки — верните в черновик.',
-  SIGNED:
-    'Контракт подписан. Редактирование заблокировано. Вернуть в черновик — значит сбросить подпись и онбординг.',
-}
+const FROZEN_BANNERS: Partial<Record<EmployeeContractStatus, MessageDescriptor>> = {
+  READY_TO_SIGN: msg`Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку`,
+  SIGNED: msg`Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг`,
+} satisfies Partial<Record<EmployeeContractStatus, MessageDescriptor>>
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -70,6 +71,8 @@ export function ContractTab({
   canEdit = false,
   onDirtyChange,
 }: ContractTabProps) {
+  const { t, i18n } = useLingui()
+  const roleLabel = useRoleLabel(targetRole as Role)
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
 
   // Local editor state — tracks unsaved body changes.
@@ -135,16 +138,16 @@ export function ContractTab({
         <FileText className="h-10 w-10 text-muted-foreground/40" />
         <div className="space-y-1">
           <p className="text-sm font-medium">
-            Нет шаблона контракта для роли {ROLE_LABELS[targetRole as Role] ?? targetRole}
+            <Trans>Немає шаблону контракту для ролі «{roleLabel}»</Trans>
           </p>
           <p className="text-xs text-muted-foreground">
-            Создайте шаблон контракта для этой роли, чтобы сформировать контракт.
+            <Trans>Створіть шаблон контракту для цієї ролі, щоб сформувати контракт</Trans>
           </p>
         </div>
         <Button size="sm" variant="outline" asChild>
           <Link to="/admin/contracts" data-testid="contract-tab-template-link">
             <ExternalLink className="mr-1.5 h-3.5 w-3.5" />
-            Перейти к шаблонам
+            <Trans>Перейти до шаблонів</Trans>
           </Link>
         </Button>
       </div>
@@ -166,7 +169,7 @@ export function ContractTab({
     // `isNoTemplate` branch above, `error` IS set but this text is never
     // shown, so there is no reason to pay for (or risk) a translation call
     // whose result is thrown away.
-    const errorMessage = getApiErrorMessage(error, 'Не удалось загрузить контракт.')
+    const errorMessage = getApiErrorMessage(error, t`Не вдалося завантажити контракт`)
     return (
       <div
         className="flex flex-col items-center justify-center gap-3 rounded-xl border border-destructive/30 bg-destructive/5 py-16 text-center"
@@ -188,9 +191,11 @@ export function ContractTab({
       <div className="space-y-6" data-testid="contract-tab-readonly">
         {/* Status header */}
         <div className="flex items-center gap-3">
-          <h3 className="text-sm font-medium text-muted-foreground">Статус контракта:</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">
+            <Trans>Статус контракту:</Trans>
+          </h3>
           <Badge variant={STATUS_VARIANTS[contract.status]} data-testid="contract-status-badge">
-            {STATUS_LABELS[contract.status]}
+            {i18n._(STATUS_LABELS[contract.status])}
           </Badge>
         </div>
 
@@ -232,20 +237,23 @@ export function ContractTab({
   // ── Render (ADMIN full editor) ────────────────────────────────────────────
 
   const readOnly = contract.status !== 'DRAFT'
-  const frozenBanner = FROZEN_BANNERS[contract.status]
+  const frozenBannerMessage = FROZEN_BANNERS[contract.status]
+  const frozenBanner = frozenBannerMessage ? i18n._(frozenBannerMessage) : undefined
 
   return (
     <div className="space-y-6" data-testid="contract-tab">
       {/* Status header */}
       <div className="flex items-center gap-3">
-        <h3 className="text-sm font-medium text-muted-foreground">Статус контракта:</h3>
+        <h3 className="text-sm font-medium text-muted-foreground">
+          <Trans>Статус контракту:</Trans>
+        </h3>
         <Badge variant={STATUS_VARIANTS[contract.status]} data-testid="contract-status-badge">
-          {STATUS_LABELS[contract.status]}
+          {i18n._(STATUS_LABELS[contract.status])}
         </Badge>
         {isDirty && (
           <span className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
             <Info className="h-3 w-3" />
-            Есть несохранённые изменения
+            <Trans>Є незбережені зміни</Trans>
           </span>
         )}
       </div>
@@ -278,7 +286,9 @@ export function ContractTab({
       {/* Screen 2: variable fill form — shown only in DRAFT when body is saved */}
       {contract.status === 'DRAFT' && !isDirty && (
         <div className="border-t border-border pt-5">
-          <h4 className="mb-3 text-sm font-semibold">Подготовить к подписанию</h4>
+          <h4 className="mb-3 text-sm font-semibold">
+            <Trans>Підготувати до підписання</Trans>
+          </h4>
           <ContractFillForm
             userId={userId}
             savedCustomValues={(contract.customValues ?? {}) as Record<string, string>}

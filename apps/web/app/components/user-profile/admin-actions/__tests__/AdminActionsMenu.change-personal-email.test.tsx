@@ -99,19 +99,19 @@ beforeEach(async () => {
 })
 
 describe('AdminActionsMenu — change-personal-email label (COPY-M-12)', () => {
-  it('shows "Добавить личный email" when the user has no personal address at all', async () => {
+  it('shows "Додати особистий email" when the user has no personal address at all', async () => {
     renderMenu(makeUser({ personalEmail: null, personalContactVisible: true }))
     await openMenu()
     expect(screen.getByTestId('admin-actions-change-personal-email')).toHaveTextContent(
-      'Добавить личный email',
+      'Додати особистий email',
     )
   })
 
-  it('shows "Изменить личный email" once a personal address exists', async () => {
+  it('shows "Змінити особистий email" once a personal address exists', async () => {
     renderMenu(makeUser({ personalEmail: 'ivan.personal@gmail.com', personalContactVisible: true }))
     await openMenu()
     expect(screen.getByTestId('admin-actions-change-personal-email')).toHaveTextContent(
-      'Изменить личный email',
+      'Змінити особистий email',
     )
   })
 
@@ -139,16 +139,16 @@ describe('AdminActionsMenu — change-personal-email label (COPY-M-12)', () => {
     expect(screen.queryByTestId('admin-actions-change-personal-email')).not.toBeInTheDocument()
   })
 
-  it('opens ChangePersonalEmailDialog with the matching "Добавить" title when adding (label and dialog stay in sync)', async () => {
+  it('opens ChangePersonalEmailDialog with the matching "Додати" title when adding (label and dialog stay in sync)', async () => {
     renderMenu(makeUser({ personalEmail: null, personalContactVisible: true }))
     const user = await openMenu()
     await user.click(screen.getByTestId('admin-actions-change-personal-email'))
-    // Two "Добавить личный email" strings now exist on screen: the (closed)
+    // Two "Додати особистий email" strings now exist on screen: the (closed)
     // menu item is unmounted once the dialog opens, so this resolves to the
     // dialog's own DialogTitle — proves the menu's add-state label and the
     // dialog's own add-state title are the SAME condition, not two that
     // could drift apart.
-    expect(screen.getByRole('heading', { name: 'Добавить личный email' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Додати особистий email' })).toBeInTheDocument()
   })
 
   // mutation-gate closure (round 5): kills the `user.personalEmail ?? null`
@@ -157,11 +157,11 @@ describe('AdminActionsMenu — change-personal-email label (COPY-M-12)', () => {
   // the two operators diverge: `??` forwards the address, `&&` collapses
   // it to `null` — which would silently put the dialog into "adding" mode
   // for a user who already has a personal address.
-  it('opens ChangePersonalEmailDialog with the matching "Изменить" title when the user already has a personal address', async () => {
+  it('opens ChangePersonalEmailDialog with the matching "Змінити" title when the user already has a personal address', async () => {
     renderMenu(makeUser({ personalEmail: 'ivan.personal@gmail.com', personalContactVisible: true }))
     const user = await openMenu()
     await user.click(screen.getByTestId('admin-actions-change-personal-email'))
-    expect(screen.getByRole('heading', { name: 'Изменить личный email' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Змінити особистий email' })).toBeInTheDocument()
     // And the input is pre-filled with the EXISTING address, not blank —
     // the second half of the same prop reaching the dialog correctly.
     expect(screen.getByTestId('change-personal-email-input')).toHaveValue('ivan.personal@gmail.com')

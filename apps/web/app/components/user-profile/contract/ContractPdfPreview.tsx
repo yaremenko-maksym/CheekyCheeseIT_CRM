@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, Download, FileText, Loader2, RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,7 @@ export interface ContractPdfPreviewProps {
  * changes (spec §5: "preview reflects the saved contract").
  */
 export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPreviewProps) {
+  const { t } = useLingui()
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [hasError, setHasError] = useState(false)
@@ -33,66 +35,86 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
   // AbortController ref — cancelled on unmount or when a new load supersedes the current one.
   const abortRef = useRef<AbortController | null>(null)
 
-  const downloadPdf = useCallback(async () => {
-    setIsDownloading(true)
-    try {
-      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `contract-${userId}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      // Revoke after a short delay to allow browser to start download
-      setTimeout(revoke, 1000)
-    } catch (err: unknown) {
-      if (getAxiosStatus(err) === 429) {
-        toast.error('Слишком часто. Подождите минуту.')
-      } else {
-        toast.error('Не удалось скачать PDF.')
+  const downloadPdf = useCallback(
+    async () => {
+      setIsDownloading(true)
+      try {
+        const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `contract-${userId}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+        // Revoke after a short delay to allow browser to start download
+        setTimeout(revoke, 1000)
+      } catch (err: unknown) {
+        if (getAxiosStatus(err) === 429) {
+          toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
+        } else {
+          toast.error(t`Не вдалося завантажити PDF`)
+        }
+      } finally {
+        setIsDownloading(false)
       }
-    } finally {
-      setIsDownloading(false)
-    }
-  }, [userId])
+    },
+    // MUT-1 (fix-round B, PR #717 CR-M-1) — same reasoning as
+    // `TosPdfPreview.tsx`'s `[i18n]` comment: `t` (from `useLingui()`)
+    // resolves through the SAME `i18n` singleton (`@/lib/i18n`'s `i18n`,
+    // mutated in place by `activateLocale`, never reconstructed) — a
+    // locale switch changes what `t` PRODUCES, not the closure's own
+    // reference identity in any way this callback observes. Kept for
+    // correctness/lint-intent (exhaustive-deps) rather than removed.
+    // Stryker disable next-line ArrayDeclaration: t resolves through the stable i18n singleton, see comment above
+    [userId, t],
+  )
 
-  const loadPdf = useCallback(async () => {
-    // Cancel any in-flight request before starting a new one.
-    abortRef.current?.abort()
-    const controller = new AbortController()
-    abortRef.current = controller
+  const loadPdf = useCallback(
+    async () => {
+      // Cancel any in-flight request before starting a new one.
+      abortRef.current?.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
 
-    setIsLoading(true)
-    setHasError(false)
-    setIframeLoading(true)
-    revokeRef.current?.()
-    revokeRef.current = null
+      setIsLoading(true)
+      setHasError(false)
+      setIframeLoading(true)
+      revokeRef.current?.()
+      revokeRef.current = null
 
-    try {
-      const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId, controller.signal)
-      // Guard: if aborted while awaiting, do not call setState on unmounted component.
-      if (controller.signal.aborted) return
-      revokeRef.current = revoke
-      setBlobUrl(url)
-    } catch (err: unknown) {
-      // Ignore AbortError — triggered by cleanup or superseding load, not a real failure.
-      if (err instanceof Error && err.name === 'AbortError') return
-      if (controller.signal.aborted) return
-      setIsLoading(false)
-      setIframeLoading(false)
-      setHasError(true)
-      // 429 Throttle check
-      if (getAxiosStatus(err) === 429) {
-        toast.error('Слишком часто. Подождите минуту.')
-      } else {
-        toast.error('Не удалось загрузить PDF предпросмотра.')
-      }
-    } finally {
-      if (!controller.signal.aborted) {
+      try {
+        const { blobUrl: url, revoke } = await fetchContractPdfBlob(userId, controller.signal)
+        // Guard: if aborted while awaiting, do not call setState on unmounted component.
+        if (controller.signal.aborted) return
+        revokeRef.current = revoke
+        setBlobUrl(url)
+      } catch (err: unknown) {
+        // Ignore AbortError — triggered by cleanup or superseding load, not a real failure.
+        if (err instanceof Error && err.name === 'AbortError') return
+        if (controller.signal.aborted) return
         setIsLoading(false)
+        setIframeLoading(false)
+        setHasError(true)
+        // 429 Throttle check
+        if (getAxiosStatus(err) === 429) {
+          toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
+        } else {
+          toast.error(t`Не вдалося завантажити PDF попереднього перегляду`)
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+        }
       }
-    }
-  }, [userId])
+    },
+    // MUT-1 (fix-round B, PR #717 CR-M-1) — same reasoning as the comment on
+    // `downloadPdf`'s deps above (and `TosPdfPreview.tsx`'s `[i18n]`
+    // comment): `t` resolves through the stable `i18n` singleton, so a
+    // locale switch changes what `t` PRODUCES, not this closure's own
+    // reference identity.
+    // Stryker disable next-line ArrayDeclaration: t resolves through the stable i18n singleton, see comment above
+    [userId, t],
+  )
 
   // Load PDF on mount and when userId changes; cancel on unmount.
   useEffect(() => {
@@ -108,7 +130,9 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
   return (
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex items-center justify-between rounded-t-lg border-x border-t border-border/60 bg-muted/30 px-3 py-1.5">
-        <span className="text-xs font-medium text-muted-foreground">PDF предпросмотр</span>
+        <span className="text-xs font-medium text-muted-foreground">
+          <Trans>Попередній перегляд PDF</Trans>
+        </span>
         <div className="flex items-center gap-1">
           <Button
             type="button"
@@ -120,7 +144,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
             data-testid="contract-pdf-download-btn"
           >
             <Download className={cn('h-3.5 w-3.5', isDownloading && 'animate-pulse')} />
-            Скачать PDF
+            <Trans>Завантажити PDF</Trans>
           </Button>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -135,11 +159,15 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
                   data-testid="contract-pdf-refresh-btn"
                 >
                   <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                  Обновить превью
+                  <Trans>Оновити перегляд</Trans>
                 </Button>
               </span>
             </TooltipTrigger>
-            {isDirty && <TooltipContent>Сначала сохраните, чтобы обновить превью</TooltipContent>}
+            {isDirty && (
+              <TooltipContent>
+                <Trans>Спочатку збережіть, щоб оновити перегляд</Trans>
+              </TooltipContent>
+            )}
           </Tooltip>
         </div>
       </div>
@@ -153,7 +181,9 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
         {(isLoading || iframeLoading) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 rounded-b-lg bg-muted/30 z-10">
             <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">Загрузка PDF…</p>
+            <p className="text-sm text-muted-foreground">
+              <Trans>Завантаження PDF…</Trans>
+            </p>
           </div>
         )}
 
@@ -161,8 +191,8 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
         {blobUrl && !hasError && (
           <iframe
             src={blobUrl}
-            title="Предварительный просмотр контракта"
-            aria-label="Предварительный просмотр контракта"
+            title={t`Попередній перегляд контракту`}
+            aria-label={t`Попередній перегляд контракту`}
             tabIndex={0}
             className={cn('w-full h-full rounded-b-lg border-0', iframeLoading && 'invisible')}
             onLoad={() => setIframeLoading(false)}
@@ -173,14 +203,16 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
           >
             <object data={blobUrl} type="application/pdf" className="w-full h-full">
               <p className="p-4 text-sm text-muted-foreground">
-                Встроенный просмотр PDF недоступен.{' '}
-                <a
-                  href={blobUrl}
-                  download="contract-preview.pdf"
-                  className="underline hover:text-foreground"
-                >
-                  Скачать контракт
-                </a>
+                <Trans>
+                  Вбудований перегляд PDF недоступний.{' '}
+                  <a
+                    href={blobUrl}
+                    download={t`Контракт — попередній перегляд.pdf`}
+                    className="underline hover:text-foreground"
+                  >
+                    Завантажити контракт
+                  </a>
+                </Trans>
               </p>
             </object>
           </iframe>
@@ -200,9 +232,11 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
             data-testid="contract-pdf-error"
           >
             <AlertTriangle className="h-8 w-8 text-destructive/60" />
-            <p className="text-center text-sm text-muted-foreground">Не удалось загрузить PDF.</p>
+            <p className="text-center text-sm text-muted-foreground">
+              <Trans>Не вдалося завантажити PDF</Trans>
+            </p>
             <Button size="sm" variant="outline" onClick={() => void loadPdf()} disabled={isDirty}>
-              Повторить
+              <Trans>Повторити</Trans>
             </Button>
           </div>
         )}
