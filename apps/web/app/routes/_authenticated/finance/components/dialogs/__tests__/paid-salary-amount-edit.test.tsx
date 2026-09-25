@@ -114,7 +114,8 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     const line = await screen.findByTestId('cascade-salary-obligation')
     expect(line.textContent).toContain('Зарплата стане')
     expect(line.textContent).toContain('за курсом переказу 41.25')
-    expect(line.textContent).toContain('1')
+    // The obligation's own currency on both figures — not the paid one (UAH).
+    expect(line.textContent).toMatch(/184,65\sUSD\s\(було\s1\D?180,00\sUSD\)/)
     expect(screen.getByTestId('cascade-salary-invoice-reissue').textContent).toContain(
       'Рахунок буде анульовано й перевипущено на підпис працівнику',
     )
@@ -144,6 +145,33 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     expect(line.textContent).toContain('Курс переказу не записано')
     expect(screen.queryByTestId('cascade-salary-obligation')).toBeNull()
     expect(screen.getByTestId('cascade-salary-invoice-reissue')).toBeTruthy()
+  })
+
+  it('PSE-8. a legacy row with no recorded obligation currency shows bare figures, never «null»', async () => {
+    getEditCascadePreviewMock.mockResolvedValue(
+      salaryPreview({
+        originalCurrency: null,
+        exchangeRate: '41.25000000',
+        oldOriginalAmount: 1180,
+        newOriginalAmount: 1184.654545,
+        recomputed: true,
+      }),
+    )
+    renderDialog({ ...PAID_SALARY, originalCurrency: null } as TransactionDto)
+    fireEvent.change(amountInput(), { target: { value: '48867' } })
+
+    const line = await screen.findByTestId('cascade-salary-obligation')
+    expect(line.textContent).toMatch(/184,65\s+\(було\s1\D?180,00\s+\)\sза/)
+  })
+
+  it('PSE-9. a salary DTO that omits the rate field is not locked — absent is «not recorded», not «bad rate»', () => {
+    const { exchangeRate: _omitted, ...withoutRate } = PAID_SALARY as unknown as Record<
+      string,
+      unknown
+    >
+    renderDialog(withoutRate as unknown as TransactionDto)
+    expect(amountInput().disabled).toBe(false)
+    expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
   })
 
   it('PSE-5. a paid salary keeps its amount field open', () => {

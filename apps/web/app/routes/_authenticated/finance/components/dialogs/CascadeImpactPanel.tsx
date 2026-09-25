@@ -360,12 +360,16 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
  * catalog (`russian-language.md`), inside a module otherwise not migrated yet.
  */
 function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourcePaymentFact']> }) {
+  // `paySalary` stamps `original_currency` together with `original_amount`, so
+  // null is a legacy/defensive case — shown as a bare figure, never as «null».
   const currency = fact.originalCurrency ?? ''
   const oldAmount = fmtAmount(fact.oldOriginalAmount, currency)
   const newAmount = fmtAmount(fact.newOriginalAmount, currency)
-  // The stored rate carries 8 decimals of trailing zeros («41.25000000»);
-  // `Number` drops them without rounding a digit that is actually there.
-  const rate = fact.exchangeRate === null ? '' : String(Number(fact.exchangeRate))
+  // Read only on the `recomputed` branch, where a rate was recorded by
+  // definition (`resolveSalaryPaymentFactEdit`). The stored rate carries 8
+  // decimals of trailing zeros («41.25000000»); `Number` drops them without
+  // rounding a digit that is actually there.
+  const rate = String(Number(fact.exchangeRate))
   return (
     <div className="space-y-2">
       {fact.recomputed ? (
