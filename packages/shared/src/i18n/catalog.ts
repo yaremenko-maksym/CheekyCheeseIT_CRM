@@ -1,4 +1,5 @@
-import { setupI18n, type I18n } from '@lingui/core'
+import { setupI18n, type I18n, type Messages } from '@lingui/core'
+import { compileMessage } from '@lingui/message-utils/compileMessage'
 import type { Locale } from './locales'
 
 /**
@@ -19,11 +20,19 @@ import type { Locale } from './locales'
  *    explicit `.ts` path (re-throwing anything else, e.g. a real syntax error in
  *    the generated catalog, unchanged).
  */
-function loadMessages(locale: Locale): Record<string, unknown> {
+// task-i18n-stage4-task6: return type tightened from `Record<string, unknown>`
+// to `@lingui/core`'s own `Messages` (a genuine pre-existing type gap, proven
+// present on a pristine `origin/main` checkout of this file, independent of
+// this task's own changes — `setupI18n({ messages: { [locale]:
+// loadMessages(locale) } })` below needs its value to satisfy `AllMessages`,
+// and `unknown` never did; masked until now because nothing else in this
+// file forced `tsc` to type-check past the (also pre-existing, also fixed by
+// this task) `@lingui/message-utils/compileMessage` import failure first).
+function loadMessages(locale: Locale): Messages {
   const path = `./locales/${locale}/messages`
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- CommonJS build; catalogs are generated files
-    return (require(path) as { messages: Record<string, unknown> }).messages
+    return (require(path) as { messages: Messages }).messages
   } catch (err) {
     // Both real locales ('uk', 'en') always resolve on one of the two require
     // paths, so every reachable error through the public
@@ -43,12 +52,27 @@ function loadMessages(locale: Locale): Record<string, unknown> {
     // Stryker disable next-line ConditionalExpression: forcing `if (false)` never re-throws, indistinguishable from correct behavior since only a genuine MODULE_NOT_FOUND is reachable here (see isModuleNotFound above).
     if (!isModuleNotFound) throw err
     // eslint-disable-next-line @typescript-eslint/no-require-imports -- see loadMessages doc comment above
-    return (require(`${path}.ts`) as { messages: Record<string, unknown> }).messages
+    return (require(`${path}.ts`) as { messages: Messages }).messages
   }
 }
 
-/** One instance per request / per recipient — never activate a global singleton on the server. */
+/**
+ * One instance per request / per recipient — never activate a global singleton on the server.
+ *
+ * task-i18n-stage4-task6 (Уточнения оркестратора п.1, same fix as `apps/api/src/common/api-
+ * error.ts`'s `interpolate()`, SR-M-1 PR #704 fix-round 1): `@lingui/core`'s `I18n` constructor
+ * only self-registers `compileMessage` as the message compiler when
+ * `process.env.NODE_ENV !== 'production'` — the compiled catalog (`lingui compile --typescript`)
+ * ships its messages as an already-parsed array form that needs no runtime compiler, but any
+ * `i18n._(id, params, { message })` call whose `id` is missing from the compiled catalog (a
+ * drifted `pnpm i18n:extract`, or a caller that only ever uses the inline fallback) falls back to
+ * the RAW ICU `message` string — which on prod (`NODE_ENV=production`) would render verbatim
+ * (braces and all) instead of being parsed, exactly the defect #704 found in `api-error.ts`.
+ * Registering the compiler explicitly, unconditionally, makes every `createI18n()` instance behave
+ * identically in dev/test and prod regardless of that env-gated default.
+ */
 export function createI18n(locale: Locale): I18n {
   const i18n = setupI18n({ locale, messages: { [locale]: loadMessages(locale) } })
+  i18n.setMessagesCompiler(compileMessage)
   return i18n
 }

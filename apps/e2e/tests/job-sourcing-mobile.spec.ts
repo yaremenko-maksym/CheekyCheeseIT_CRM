@@ -286,8 +286,19 @@ async function openDialog(page: Page) {
   await expect(page.getByTestId('job-suggestion-dialog')).toBeVisible()
 }
 
+// task-hide-job-sourcing-button (owner, 2026-09-24): job-sourcing paused
+// 2026-08-23, the board's entry button hidden. Every test in this file goes
+// through openDialog() -> clicks `open-job-sourcing`, which no longer
+// renders (see JOB_SOURCING_ENTRY_ENABLED in
+// apps/web/app/routes/_authenticated/interviews/index.tsx). Skipped, not
+// deleted — the module and its tests come back together when the entry
+// point is restored.
+const JOB_SOURCING_PAUSED_REASON =
+  'job-sourcing paused 2026-08-23, entry button hidden, owner 2026-09-24'
+
 test.describe('Job sourcing modal — mobile profile', () => {
   test.beforeEach(async ({ page }) => {
+    test.skip(true, JOB_SOURCING_PAUSED_REASON)
     await instrumentWindowOpen(page)
     await mockAuthAs(page, USERS.senior)
     await mockJobSourcing(page)
@@ -411,6 +422,7 @@ test.describe('Job sourcing modal — mobile profile', () => {
  */
 test.describe('Job sourcing modal — responsive widths (AC7)', () => {
   test.beforeEach(async ({ page }) => {
+    test.skip(true, JOB_SOURCING_PAUSED_REASON)
     await instrumentWindowOpen(page)
     await mockAuthAs(page, USERS.senior)
     await mockJobSourcing(page)
@@ -468,6 +480,7 @@ test.describe('Low-match tail across device classes (AC3 + AC8)', () => {
   const RANKED = { ...SUGGESTION, matchScore: 1, matchedKeywords: ['react', 'typescript'] }
 
   test.beforeEach(async ({ page }) => {
+    test.skip(true, JOB_SOURCING_PAUSED_REASON)
     await instrumentWindowOpen(page)
     await mockAuthAs(page, USERS.senior)
     await page.route('**/api/job-sourcing/suggestions**', (route) =>

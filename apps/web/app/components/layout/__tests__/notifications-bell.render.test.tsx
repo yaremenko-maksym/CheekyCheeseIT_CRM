@@ -97,11 +97,11 @@ describe('попап рисует строку по типу', () => {
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-title`)).toHaveTextContent(
-      'Вас добавили в проект',
+      'Вас додали до проєкту',
     )
-    expect(screen.getByTestId(`notification-item-${UUID}-detail`)).toHaveTextContent('Проект Acme')
+    expect(screen.getByTestId(`notification-item-${UUID}-detail`)).toHaveTextContent('Проєкт Acme')
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Открыть проект',
+      'Відкрити проєкт',
     )
     expect(screen.queryByText('Сохранённый заголовок')).toBeNull()
   })
@@ -130,7 +130,7 @@ describe('попап рисует строку по типу', () => {
     expect(screen.getByTestId(`notification-item-${UUID}-title`)).toHaveTextContent(
       'Что-то случилось',
     )
-    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent('Открыть')
+    expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent('Відкрити')
   })
 
   // COPY-M-4 (copy-review круг 1, #664): вид объекта уже известен в момент
@@ -140,7 +140,7 @@ describe('попап рисует строку по типу', () => {
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Проект удалён',
+      'Проєкт видалено',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -181,7 +181,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Подпись больше не требуется',
+      'Підпис більше не потрібен',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -204,7 +204,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-title`)).toHaveTextContent(
-      'Контракт на подпись',
+      'Контракт на підпис',
     )
     expect(screen.queryByTestId(`notification-item-${UUID}-detail`)).toBeNull()
   })
@@ -221,7 +221,7 @@ describe('DOCUMENT_SIGN_REQUIRED — честная деградация пос�
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Подписать контракт',
+      'Підписати контракт',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/onboarding' })
@@ -284,7 +284,7 @@ describe('деталь с суммой набрана моноширинными
 
     const detail = screen.getByTestId(`notification-item-${UUID}-detail`)
     expect(detail.className).toContain('whitespace-pre-wrap')
-    expect(detail.textContent).toBe('«Не тот проект»\nИван Петров — проект Acme')
+    expect(detail.textContent).toBe('«Не тот проект»\nИван Петров — проєкт Acme')
   })
 })
 
@@ -522,9 +522,9 @@ describe('сохранённые адреса времён префикса /crm
  */
 describe('архивный объект: своя подпись и никакого перехода (QA-M-3 / QA-L-2)', () => {
   it.each([
-    ['PROJECT', 'PROJECT_MEMBER_ADDED', 'Проект в архиве'],
-    ['TEAM', 'TEAM_MEMBER_ADDED', 'Команда в архиве'],
-    ['USER', 'APPROVAL_CONFIRMED', 'Профиль в архиве'],
+    ['PROJECT', 'PROJECT_MEMBER_ADDED', 'Проєкт в архіві'],
+    ['TEAM', 'TEAM_MEMBER_ADDED', 'Команда в архіві'],
+    ['USER', 'APPROVAL_CONFIRMED', 'Профіль в архіві'],
   ] as const)('%s → «%s»', async (subjectType, type, label) => {
     items = [
       makeNotification({
@@ -560,7 +560,7 @@ describe('архивный объект: своя подпись и никако
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Проект удалён',
+      'Проєкт видалено',
     )
   })
 })
@@ -600,7 +600,7 @@ describe('согласование по живому объекту больше
     // состояние ведут четыре пути, и два из них не отзыв (пересоздали,
     // погасил отказ соседа).
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Решение больше не требуется',
+      'Рішення більше не потрібне',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()
@@ -611,7 +611,7 @@ describe('согласование по живому объекту больше
     await openBell()
 
     expect(screen.getByTestId(`notification-item-${UUID}-action`)).toHaveTextContent(
-      'Решение уже принято',
+      'Рішення вже прийнято',
     )
     await userEvent.click(screen.getByTestId(`notification-item-${UUID}-open`))
     expect(mockNavigate).not.toHaveBeenCalled()

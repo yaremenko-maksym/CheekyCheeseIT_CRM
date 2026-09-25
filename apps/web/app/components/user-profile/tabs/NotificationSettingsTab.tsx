@@ -19,13 +19,16 @@
  */
 import { Fragment } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
+import type { I18n } from '@lingui/core'
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   ADMIN_NOTIFICATION_TYPES,
   INFORMING_NOTIFICATION_TYPES,
   NEW_NOTIFICATION_TYPES,
   NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
-  NOTIFICATION_TITLES,
+  NOTIFICATION_TITLE_MESSAGES,
+  renderMessage,
   type NewNotificationType,
   type Notification,
 } from '@crm/shared'
@@ -173,10 +176,30 @@ const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 // `notifications-bell.tsx`). The raw value is still available where it
 // belongs — `data-testid` (below) and the row's `title` attribute
 // (`DesktopRow`/`MobileRow`) — just not as the visible label.
-export function rowTitle(row: PreferenceRow): string {
-  return KNOWN_TYPES.has(row.type)
-    ? NOTIFICATION_TITLES[row.type as NewNotificationType]
-    : 'Новый тип'
+//
+// COPY-H-1 (copy-review круг 1, PR #714): this tab used to read the LEGACY
+// `NOTIFICATION_TITLES` record — ten Russian strings, unmigrated — and the
+// three frozen types this PR registers write Ukrainian directly into that
+// same record (see its doc comment), so an `en` viewer saw Russian AND
+// Ukrainian mixed in one list with no English row at all. Reading the CANON
+// `NOTIFICATION_TITLE_MESSAGES` on the VIEWER's locale (same source the bell
+// popup renders from) makes all thirteen rows agree with the popup on both
+// languages instead. `i18n` is the caller's own activated instance
+// (`useLingui()`) — never `createI18n()` here (SR-H-1: that call requires
+// `require()`, unavailable in the browser).
+//
+// SPEC-H-2 (fix-round 2, PR #714): this used to inline the same
+// `message === undefined ? undefined : { message }` narrowing as the
+// registry's own `renderMessage()` helper — a duplicate of a branch no real
+// descriptor can ever take (every `NOTIFICATION_TITLE_MESSAGES` entry is a
+// literal `{ id, message }`), so `Mutation Gate (@crm/web)` had nothing to
+// kill it with and 4 mutants survived. `renderMessage()` is now exported
+// from the registry and reused here instead of re-suppressing the same
+// dead branch a second time in this package.
+export function rowTitle(row: PreferenceRow, i18n: I18n): string {
+  if (!KNOWN_TYPES.has(row.type)) return 'Новый тип'
+  const descriptor = NOTIFICATION_TITLE_MESSAGES[row.type as NewNotificationType]
+  return renderMessage(i18n, descriptor)
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {
@@ -236,6 +259,7 @@ function PreferenceSwitch({
   /** Бэклог 205 — под «войти как» ни одна строка не принимает клик. */
   impersonating: boolean
 }) {
+  const { i18n } = useLingui()
   const interactive = isRowInteractive(row) && !impersonating
   // Имперсонация перебивает свою собственную причину (locked/unknown-type):
   // пока сотрудник просматривается через «войти как», объяснение ОДНО на
@@ -295,7 +319,7 @@ function PreferenceSwitch({
         // controlled before naming which row it belongs to, matching how
         // every OTHER control on this screen is announced ("Switch"/
         // "переключатель" always comes with its purpose stated up front).
-        aria-label={`Письма: ${rowTitle(row)}`}
+        aria-label={`Письма: ${rowTitle(row, i18n)}`}
         aria-disabled={!interactive}
         aria-describedby={explanationId}
         className={cn(!interactive && 'opacity-60 cursor-not-allowed')}
@@ -359,6 +383,7 @@ function DesktopRow({
   // paragraph here would duplicate it a third time. The unknown-type
   // explanation stays per-row (there is normally exactly one such row, and
   // it is specific to THIS type, unlike the fixed `locked` sentence).
+  const { i18n } = useLingui()
   const inlineExplanation = row.locked ? null : rowExplanation(row)
   const known = KNOWN_TYPES.has(row.type)
   return (
@@ -380,7 +405,7 @@ function DesktopRow({
               className="text-sm font-medium text-foreground"
               title={!known ? row.type : undefined}
             >
-              {rowTitle(row)}
+              {rowTitle(row, i18n)}
             </p>
             {inlineExplanation && (
               <p
@@ -461,6 +486,7 @@ function MobileRow({
 }) {
   // See `DesktopRow` — `locked`'s explanation now renders once per group,
   // not per row.
+  const { i18n } = useLingui()
   const inlineExplanation = row.locked ? null : rowExplanation(row)
   const known = KNOWN_TYPES.has(row.type)
   return (
@@ -477,7 +503,7 @@ function MobileRow({
             className="min-w-0 break-words text-sm font-medium text-foreground"
             title={!known ? row.type : undefined}
           >
-            {rowTitle(row)}
+            {rowTitle(row, i18n)}
           </p>
         </div>
         <PreferenceSwitch

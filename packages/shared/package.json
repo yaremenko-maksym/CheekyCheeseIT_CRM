@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@lingui/core": "5.9.5",
+    "@lingui/message-utils": "5.9.5",
     "zod": "^4.0.0"
   },
   "devDependencies": {

@@ -25,6 +25,28 @@ import {
  * не тому — в том числе уволенному человеку на личную почту (SR-H-1).
  */
 
+/**
+ * task-i18n-stage4-task6: `INVOICE_SIGN_REQUIRED`/`INVOICE_SIGNED`/
+ * `VACANCY_APPLICATION` использовались здесь как ПРИМЕРЫ «старого типа без
+ * письма» — но реестр их теперь регистрирует (`NEW_NOTIFICATION_TYPES`).
+ * Заменены вымышленным именем: смысл теста («тип вне реестра целиком») не
+ * завязан на конкретное имя.
+ *
+ * SR-M-1/CR-M-1 (fix-round 1, PR #714): те же три типа СНОВА не отправляют
+ * почту — но теперь по ЯВНОМУ списку (`hasEmailTemplate`), не как побочный
+ * эффект того, что их не было в `NEW_NOTIFICATION_TYPES`. Отдельная секция
+ * ниже проверяет это явно, литералами — не реэкспортируя список из
+ * `notification-email-outbox.ts` (иначе тест сверял бы список сам с собой).
+ */
+const LEGACY_TYPE_EXAMPLE = 'SOME_TYPE_OUTSIDE_THE_REGISTRY'
+
+/** Три замороженных типа без шаблона письма (SR-M-1/CR-M-1, PR #714). */
+const FROZEN_TYPES_WITHOUT_EMAIL = [
+  'INVOICE_SIGNED',
+  'INVOICE_SIGN_REQUIRED',
+  'VACANCY_APPLICATION',
+] as const
+
 /** Контекст отправки по умолчанию: живой получатель, рабочий адрес, настройку не менял. */
 function ctx(over: Partial<DeliveryContext> = {}): DeliveryContext {
   return {
@@ -37,7 +59,10 @@ function ctx(over: Partial<DeliveryContext> = {}): DeliveryContext {
 
 describe('decideEnqueue — что попадает в очередь при записи уведомления', () => {
   it('новый тип живому получателю встаёт в очередь', () => {
+    // SR-M-1/CR-M-1 (PR #714): два из семи информирующих типов — замороженные
+    // (`FROZEN_TYPES_WITHOUT_EMAIL`) — см. отдельную секцию ниже.
     for (const type of INFORMING_NOTIFICATION_TYPES) {
+      if ((FROZEN_TYPES_WITHOUT_EMAIL as readonly string[]).includes(type)) continue
       expect(decideEnqueue(type, false)).toEqual({ status: 'QUEUED' })
     }
   })
@@ -54,11 +79,7 @@ describe('decideEnqueue — что попадает в очередь при з�
     // SPEC-H-1: след обязателен. «Строки нет» не отвечает на вопрос «почему
     // сотруднику не пришло письмо про X» — а именно за этим следом заказана
     // колонка `skip_reason`.
-    expect(decideEnqueue('INVOICE_SIGN_REQUIRED', false)).toEqual({
-      status: 'SKIPPED',
-      skipReason: 'LEGACY_TYPE',
-    })
-    expect(decideEnqueue('VACANCY_APPLICATION', false)).toEqual({
+    expect(decideEnqueue(LEGACY_TYPE_EXAMPLE, false)).toEqual({
       status: 'SKIPPED',
       skipReason: 'LEGACY_TYPE',
     })
@@ -77,7 +98,7 @@ describe('decideEnqueue — что попадает в очередь при з�
     // Порядок причин зафиксирован: у типа, писем не имеющего вовсе, вопрос
     // «кто получатель» не встаёт. Мутант, переставивший ветки, красит этот
     // тест и соседний выше — иначе обе перестановки были бы неотличимы.
-    expect(decideEnqueue('INVOICE_SIGN_REQUIRED', true)).toEqual({
+    expect(decideEnqueue(LEGACY_TYPE_EXAMPLE, true)).toEqual({
       status: 'SKIPPED',
       skipReason: 'LEGACY_TYPE',
     })
@@ -149,7 +170,9 @@ describe('decideDelivery — слать ли это письмо и куда, в
   })
 
   it('письма админу выключаются как обычные', () => {
+    // SR-M-1/CR-M-1 (PR #714): `INVOICE_SIGNED` — замороженный тип, см. ниже.
     for (const type of ADMIN_NOTIFICATION_TYPES) {
+      if ((FROZEN_TYPES_WITHOUT_EMAIL as readonly string[]).includes(type)) continue
       expect(decideDelivery(type, ctx({ emailEnabled: false }))).toEqual({
         send: false,
         skipReason: 'CHANNEL_OFF',
@@ -161,7 +184,7 @@ describe('decideDelivery — слать ли это письмо и куда, в
     // Строка такого типа заводится уже пропущенной и крону не достаётся. Но
     // если она там окажется (вписана руками, осталась от прежней версии),
     // письма, текста которого никто не писал, всё равно не будет.
-    expect(decideDelivery('INVOICE_SIGN_REQUIRED', ctx())).toEqual({
+    expect(decideDelivery(LEGACY_TYPE_EXAMPLE, ctx())).toEqual({
       send: false,
       skipReason: 'LEGACY_TYPE',
     })
@@ -252,7 +275,7 @@ describe('decideDelivery — устаревание объекта (бэклог
   })
 
   it('старый тип не доходит до проверки объекта — LEGACY_TYPE перебивает', () => {
-    expect(decideDelivery('INVOICE_SIGN_REQUIRED', ctx({ subjectState: 'missing' }))).toEqual({
+    expect(decideDelivery(LEGACY_TYPE_EXAMPLE, ctx({ subjectState: 'missing' }))).toEqual({
       send: false,
       skipReason: 'LEGACY_TYPE',
     })
@@ -349,4 +372,30 @@ describe('backoffMs', () => {
     expect(backoffMs(10)).toBe(60 * 60 * 1000)
     expect(backoffMs(99)).toBe(60 * 60 * 1000)
   })
+})
+
+/**
+ * SR-M-1 / CR-M-1 (security-review + code-review круг 1, PR #714).
+ *
+ * Регистрация типа в `NEW_NOTIFICATION_TYPES` (task-i18n-stage4-task6) и
+ * включение НОВОГО ВНЕШНЕГО канала отправки (письмо на личную почту) —
+ * разные решения. `INVOICE_SIGN_REQUIRED`/`INVOICE_SIGNED`/
+ * `VACANCY_APPLICATION` попали в реестр этим PR — но письма для них не
+ * отправляются: поведение равно `origin/main`, где этих трёх типов не было
+ * вовсе.
+ */
+describe('SR-M-1/CR-M-1 — три замороженных типа не ставятся в очередь писем', () => {
+  it.each(FROZEN_TYPES_WITHOUT_EMAIL)('%s: decideEnqueue → SKIPPED/LEGACY_TYPE', (type) => {
+    expect(decideEnqueue(type, false)).toEqual({ status: 'SKIPPED', skipReason: 'LEGACY_TYPE' })
+  })
+
+  it.each(FROZEN_TYPES_WITHOUT_EMAIL)(
+    '%s: decideDelivery → SKIPPED/LEGACY_TYPE даже живому получателю с включённым каналом',
+    (type) => {
+      expect(decideDelivery(type, ctx({ emailEnabled: true }))).toEqual({
+        send: false,
+        skipReason: 'LEGACY_TYPE',
+      })
+    },
+  )
 })

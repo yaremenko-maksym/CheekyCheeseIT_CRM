@@ -82,14 +82,68 @@ msgstr "{0} із {1}"
 msgid "{activeProjects, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 msgstr "{activeProjects, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_CONFIRMED.detail"
+msgstr "{approverName} — {subjectPhrase}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.noReason"
+msgstr "{approverName} — {subjectPhrase}"
+
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 msgid "{archivedRole, select, SENIOR {Сеньйора й команду архівовано} DROP {Дропа й команду архівовано} other {Користувача архівовано}}"
 msgstr "{archivedRole, select, SENIOR {Сеньйора й команду архівовано} DROP {Дропа й команду архівовано} other {Користувача архівовано}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.project"
+msgstr "{change} · проєкт {hasProject, select, no {без назви} other {{projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.detail"
+msgstr "{hasProject, select, no {{money}} other {{money} · проєкт {projectName}}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectPhrase"
+msgstr "{kind, select, PROJECT {проєкт {hasName, select, no {без назви} other {{name}}}} PROJECT_SHARE {частка за проєктом {hasName, select, no {без назви} other {{name}}}} other {частка за замовчуванням}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_NEW_MEMBER.detail"
+msgstr "{memberName} · команда {teamName}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.detail"
+msgstr "{money} · {counterpartyName}"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.withReason"
+msgstr ""
+"{quote}\n"
+"{approverName} — {subjectPhrase}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason"
+msgstr ""
+"{quote}\n"
+"Відхилено: {money}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.percentText"
+msgstr "{value, select, null {не задана} other {{value}%}}"
 
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -479,6 +533,11 @@ msgstr "В архів піде профіль <0>{entityName}</0>. Нічого 
 msgid "В архіві"
 msgstr "В архіві"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.fallback"
+msgstr "В архіві"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "в команді"
 msgstr "в команді"
@@ -508,6 +567,11 @@ msgstr "Вакансію приховано"
 msgid "Вакансію створено"
 msgstr "Вакансію створено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.VACANCY_APPLICATION.detail"
+msgstr "Вакансія «{vacancyTitle}»"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
 msgstr "Валідація доходів"
@@ -515,6 +579,11 @@ msgstr "Валідація доходів"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Валідовано за місяць"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.validated"
+msgstr "Валідовано: {money}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -532,9 +601,24 @@ msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "Валюту {currency} не можна конвертувати в USDT"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.title"
+msgstr "Вам додали транзакцію"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "Вам недоступне завантаження {category, select, RESUME {резюме} SCAN {сканів} RECEIPT {чеків} LOGO {логотипів} other {таких документів}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_MEMBER_ADDED.title"
+msgstr "Вас додали до команди"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_MEMBER_ADDED.title"
+msgstr "Вас додали до проєкту"
 
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -824,19 +908,79 @@ msgstr "Відгук видалено"
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "Відкрите зобов’язання для цієї транзакції не знайдено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.open"
+msgstr "Відкрити"
+
 #. placeholder {0}: team.name
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Відкрити «{0}»"
 msgstr "Відкрити «{0}»"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.VACANCY_APPLICATION"
+msgstr "Відкрити вакансію"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TEAM_MEMBER_ADDED"
+msgstr "Відкрити команду"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TEAM_NEW_MEMBER"
+msgstr "Відкрити команду"
+
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
 msgstr "Відкрити меню"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.approval.project"
+msgstr "Відкрити проєкт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.PROJECT_MEMBER_ADDED"
+msgstr "Відкрити проєкт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.PROJECT_CONFIRM_REQUIRED"
+msgstr "Відкрити проєкт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.SHARE_CONFIRM_REQUIRED"
+msgstr "Відкрити пропозицію"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.approval.profile"
+msgstr "Відкрити профіль"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Відкрити профіль {0}"
 msgstr "Відкрити профіль {0}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.INVOICE_SIGNED"
+msgstr "Відкрити рахунок"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TRANSACTION_ADDED"
+msgstr "Відкрити фінанси"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.TRANSACTION_STATUS_CHANGED"
+msgstr "Відкрити фінанси"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
@@ -893,6 +1037,11 @@ msgstr "Відправник і отримувач не можуть збіга�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN"
 msgstr "Відправник має бути адміністратором"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
+msgstr "Відхилено: {money}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1717,11 +1866,21 @@ msgstr "Команд поки немає"
 msgid "Команда"
 msgstr "Команда"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_MEMBER_ADDED.detail"
+msgstr "Команда {teamName}"
+
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "Команда <0>{0}</0> і її дроп <1>{dropName}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль <2>дропа</2>, команда і всі її drop-проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.TEAM"
+msgstr "Команда в архіві"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1740,6 +1899,11 @@ msgstr "Командне меню"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ALREADY_ARCHIVED"
 msgstr "Команду вже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.TEAM"
+msgstr "Команду видалено"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1800,6 +1964,21 @@ msgstr "Контракт більше не можна редагувати"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_NOT_DRAFT"
 msgstr "Контракт більше не чернетка — оновіть сторінку"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.EMPLOYEE_CONTRACT"
+msgstr "Контракт в архіві"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.EMPLOYEE_CONTRACT"
+msgstr "Контракт видалено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
+msgstr "Контракт на підпис"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2431,6 +2610,11 @@ msgstr "Нова версія умов"
 msgid "Нова команда. Оберіть склад нижче."
 msgstr "Нова команда. Оберіть склад нижче."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.VACANCY_APPLICATION.title"
+msgstr "Новий відгук на вакансію"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Новий сеньйор"
 msgstr "Новий сеньйор"
@@ -2720,9 +2904,24 @@ msgid "Підготовка файлу…"
 msgstr "Підготовка файлу…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.documentSignUnavailable"
+msgstr "Підпис більше не потрібен"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Підписаний контракт не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.DOCUMENT_SIGN_REQUIRED"
+msgstr "Підписати контракт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.action.INVOICE_SIGN_REQUIRED"
+msgstr "Підписати рахунок"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Підтверджені доходи, які ви ще не перерахували"
@@ -2952,10 +3151,30 @@ msgstr "Прикріпити до транзакції можна лише до�
 msgid "zod-error.REJECTION_REASON_TOO_LONG"
 msgstr "Причина відмови — не більше 500 символів"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_MEMBER_ADDED.detail"
+msgstr "Проєкт {projectName}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.detail"
+msgstr "Проєкт {projectName}"
+
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 msgstr "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.PROJECT"
+msgstr "Проєкт в архіві"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.PROJECT"
+msgstr "Проєкт видалено"
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Проєкт відновлено"
@@ -2979,6 +3198,11 @@ msgstr "Проєкт не знайдено"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_ALREADY_ARCHIVED"
 msgstr "Проєкт уже заархівовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
+msgstr "Проєкт чекає рішення"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Проєкти"
@@ -3009,13 +3233,28 @@ msgstr "Проєкти, де ви сеньйор"
 msgid "Проєктів не оплачено цього місяця"
 msgstr "Проєктів не оплачено цього місяця"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_REJECTED.title"
+msgstr "Пропозицію відхилено"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.APPROVAL_CONFIRMED.title"
+msgstr "Пропозицію прийнято"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку."
 msgstr "Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.title"
+msgstr "Пропозиція щодо частки"
 
 #. placeholder {0}: item.proposedBy
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -3026,6 +3265,16 @@ msgstr "Пропонує {0}"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Профіль"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.USER"
+msgstr "Профіль в архіві"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.USER"
+msgstr "Профіль видалено"
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
@@ -3062,6 +3311,11 @@ msgid "api-error.FINANCE_COMPANY_ACCOUNT_ACCESS_FORBIDDEN"
 msgstr "Рахунок компанії бачать лише адміністратор і бухгалтер"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGN_REQUIRED.title"
+msgstr "Рахунок на підпис"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Рахунок не знайдено"
@@ -3073,6 +3327,11 @@ msgstr "Рахунок не передбачений для цього типу 
 
 #: apps/web/app/hooks/use-invoices.ts
 msgid "Рахунок підписано"
+msgstr "Рахунок підписано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.title"
 msgstr "Рахунок підписано"
 
 #. js-lingui-explicit-id
@@ -3150,6 +3409,21 @@ msgstr "Реквізити не довші за 10 000 символів"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Реквізити оновлено"
 msgstr "Реквізити оновлено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.approvalSuperseded"
+msgstr "Рішення більше не потрібне"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.approvalDecided"
+msgstr "Рішення вже прийнято"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_STATUS_CHANGED.title"
+msgstr "Рішення щодо доходу"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Рішення щодо цієї пропозиції вже ухвалено. Оновіть сторінку."
@@ -3526,6 +3800,11 @@ msgid "api-error.FINANCE_TRANSACTION_ALREADY_DELETED"
 msgstr "Транзакцію вже видалено"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.TRANSACTION"
+msgstr "Транзакцію видалено"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSACTION_DELETED_RESTORE_FIRST"
 msgstr "Транзакцію видалено — відновіть її перед цією дією"
@@ -3549,6 +3828,11 @@ msgstr "Транзакцію оплатили або видалили, поки 
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_NOT_CONFIRMED_ONCHAIN"
 msgstr "Транзакцію ще не підтверджено в мережі — спробуйте пізніше"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectArchived.TRANSACTION"
+msgstr "Транзакція в архіві"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3603,6 +3887,11 @@ msgstr "У команді має залишитися щонайменше од�
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_NO_ACTIVE_SENIOR_FOR_ARCHIVE"
 msgstr "У команді немає активного сеньйора — заархівувати її не можна"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TEAM_NEW_MEMBER.title"
+msgstr "У команді новий учасник"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -3855,6 +4144,11 @@ msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "Цей хеш уже використано для виплати або поповнення рахунку компанії"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.subjectMissing.fallback"
+msgstr "Цього більше немає в CRM"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.GOOGLE_ACCOUNT_MISMATCH"
 msgstr "Ця адреса вже прив’язана до іншого облікового запису Google"
@@ -3930,6 +4224,11 @@ msgstr "Частка дропа у відсотках"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка за замовчуванням тепер {percent}%"
 msgstr "Частка за замовчуванням тепер {percent}%"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.SHARE_CONFIRM_REQUIRED.base"
+msgstr "Частка за замовчуванням: {change}"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
