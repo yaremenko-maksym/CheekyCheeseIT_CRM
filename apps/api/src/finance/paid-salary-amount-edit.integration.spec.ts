@@ -62,6 +62,7 @@ const invoicesSpy = {
   autoCreateForSalary: vi.fn(() => Promise.resolve()),
   voidAndReissueInvoiceForAmountEdit: vi.fn(() => Promise.resolve('REISSUED')),
   reissueSalaryInvoiceIfVoided: vi.fn(() => Promise.resolve('NOT_NEEDED')),
+  canRepairSalaryInvoice: vi.fn(() => Promise.resolve(true)),
 }
 
 let _pool: Pool | null = null
@@ -286,7 +287,7 @@ describe.skipIf(!HAS_DB_URL)(
         { amount: 48_867, cascadeVersion: preview.version! },
         ADMIN,
       )
-      expect(saved).toMatchObject({ invoiceReissueIncomplete: true })
+      expect(saved).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
       const failures = await dbSvc.db.query.transactionAuditLog.findMany({
         where: and(
           eq(transactionAuditLog.targetId, id),
@@ -312,7 +313,7 @@ describe.skipIf(!HAS_DB_URL)(
         { amount: 48_867, cascadeVersion: preview.version! },
         ADMIN,
       )
-      expect(saved).toMatchObject({ invoiceReissueIncomplete: true })
+      expect(saved).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
       const failures = await dbSvc.db.query.transactionAuditLog.findMany({
         where: and(
           eq(transactionAuditLog.targetId, id),
@@ -436,10 +437,10 @@ describe.skipIf(!HAS_DB_URL)(
      * SR-M-3, the READ half — against real Postgres.
      *
      * `loadReissueState` decides the repair from three query VALUES a unit double
-     * cannot check: `signer_role = 'COMPANY'`, `action = 'INVOICE_REISSUE_FAILED'`
-     * and `metadata ->> 'stage' = 'VOID'`. Blank any of them and the repair fires
-     * on rows it must not touch — so they are exercised here, on real rows
-     * (mutation-gate-integration-specs.md: only a live DB can tell).
+     * cannot check: `signer_role = 'COUNTERPARTY'` and `voided_at IS NULL`
+     * — blank either and a different figure comes back, so each row below
+     * carries its own distinguishable amount (mutation-gate-integration-specs.md:
+     * only a live DB can tell).
      *
      * The service is built with `Object.create` and a real `db`: this path makes
      * no S3/PDF call, so none of the heavier collaborators are needed.
@@ -460,65 +461,47 @@ describe.skipIf(!HAS_DB_URL)(
       async function signature(
         txId: string,
         role: 'COMPANY' | 'COUNTERPARTY',
-        signedAt: Date,
+        amountSnapshot: string,
         voidedAt: Date | null,
       ) {
         await dbSvc.db.insert(invoiceSignatures).values({
           transactionId: txId,
           signerRole: role,
           signerId: ADMIN.id,
-          signedAt,
           voidedAt,
+          amountSnapshot,
           pdfHash: 'a'.repeat(64),
-          method: 'AUTO_COMPANY',
+          method: role === 'COMPANY' ? 'AUTO_COMPANY' : 'MANUAL_CLICK',
         })
       }
 
-      async function journal(txId: string, action: string, metadata: Record<string, unknown>) {
-        await dbSvc.db
-          .insert(transactionAuditLog)
-          .values({ actorId: ADMIN.id, targetId: txId, action, metadata })
-      }
-
-      const SIGNED_AT = new Date('2026-09-20T10:00:00.000Z')
-
-      it('reads the ACTIVE COMPANY signature — not a voided one, not the counterparty’s', async () => {
+      it('reads the ACTIVE COUNTERPARTY snapshot — not a company one, not a voided one', async () => {
         const id = await paidSalary()
-        const counterpartyLater = new Date('2026-09-21T10:00:00.000Z')
-        const voidedCompanyLater = new Date('2026-09-22T10:00:00.000Z')
-        await signature(id, 'COMPANY', SIGNED_AT, null)
-        await signature(id, 'COUNTERPARTY', counterpartyLater, null)
-        await signature(id, 'COMPANY', voidedCompanyLater, new Date())
+        // Each row carries a DIFFERENT figure, so a wrong filter cannot pass by
+        // accident: blank the signer_role and the COMPANY figure comes back.
+        await signature(id, 'COMPANY', '11111.000000', null)
+        await signature(id, 'COUNTERPARTY', '22222.000000', new Date())
+        await signature(id, 'COUNTERPARTY', '48675.000000', null)
 
         const state = await invoicesAgainstRealDb().loadReissueState(id)
-        expect(state?.activeCompanySignedAt?.toISOString()).toBe(SIGNED_AT.toISOString())
-        // The voided row is what `hasVoidedInvoice` reads, and it is a different question.
+        expect(state?.signedAmountSnapshot).toBe('48675.000000')
+        // The voided row is what `hasVoidedInvoice` reads — a different question.
         expect(state?.hasVoidedInvoice).toBe(true)
       })
 
-      it('reads the last VOID failure — ignoring the REISSUE stage and other actions', async () => {
+      it('a countersignature that was voided leaves nothing confirming a stale figure', async () => {
         const id = await paidSalary()
-        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'REISSUE' })
-        await journal(id, 'AMOUNT_OR_RECEIVER_CHANGE', { stage: 'VOID' })
-        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'VOID' })
+        await signature(id, 'COUNTERPARTY', '48675.000000', new Date())
 
         const state = await invoicesAgainstRealDb().loadReissueState(id)
-        expect(state?.lastVoidFailureAt).toBeInstanceOf(Date)
+        expect(state?.signedAmountSnapshot).toBeNull()
       })
 
-      it('a row whose only failure is the REISSUE stage reports no void failure', async () => {
-        const id = await paidSalary()
-        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'REISSUE' })
-
-        const state = await invoicesAgainstRealDb().loadReissueState(id)
-        expect(state?.lastVoidFailureAt).toBeNull()
-      })
-
-      it('a row with no signatures and no journal reports neither', async () => {
+      it('a row with no signatures at all reports none, and carries its own amount', async () => {
         const id = await paidSalary()
         const state = await invoicesAgainstRealDb().loadReissueState(id)
-        expect(state?.activeCompanySignedAt).toBeNull()
-        expect(state?.lastVoidFailureAt).toBeNull()
+        expect(state?.signedAmountSnapshot).toBeNull()
+        expect(state?.amount).toBe('48675.000000')
       })
     })
   },

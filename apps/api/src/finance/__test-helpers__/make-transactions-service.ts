@@ -59,6 +59,7 @@ function makeDefaultInvoicesStub(): InvoicesService {
     // whether a voided invoice needs re-issuing. «Nothing to do» by default.
     voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue('NOT_NEEDED'),
     reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('NOT_NEEDED'),
+    canRepairSalaryInvoice: vi.fn().mockResolvedValue(false),
   } as unknown as InvoicesService
 }
 

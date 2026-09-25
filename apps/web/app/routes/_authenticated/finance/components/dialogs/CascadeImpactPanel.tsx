@@ -381,7 +381,16 @@ function SalaryPaymentFactBlock({
   // non-breaking space keeps the figure and its unit on one line at 320px.
   // Read only on the `recomputed` branch, where a rate was recorded by
   // definition (`resolveSalaryPaymentFactEdit`).
-  const rateFigure = formatNumber(Number(fact.exchangeRate), locale, { maximumFractionDigits: 4 })
+  //
+  // COPY-M-7 — SIGNIFICANT digits, not decimal places. Four decimals read
+  // fine at «41,25» and lose the rate entirely in the other direction: a
+  // salary owed in UAH and paid in USDT gives «0,0241 USDT/UAH», which no
+  // admin can check against the eight digits actually recorded. Six
+  // significant digits keep «41,25» as it is and give the small rate its
+  // meaning back.
+  const rateFigure = formatNumber(Number(fact.exchangeRate), locale, {
+    maximumSignificantDigits: 6,
+  })
   const rate = currency ? `${rateFigure}\u00a0${paidCurrency}/${currency}` : rateFigure
   return (
     <div className="space-y-2">

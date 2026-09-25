@@ -2053,10 +2053,6 @@ msgstr "Changing a paid transaction's amount recalculates shares and obligations
 msgid "Зміни збережено"
 msgstr "Changes saved"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-msgid "Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз"
-msgstr "Changes saved, but the invoice couldn't be voided or reissued — this is recorded in the log; save the transaction again"
-
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -4197,6 +4193,10 @@ msgstr "Invoice to sign"
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Invoice not found"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок не перевипущено — збережіть транзакцію ще раз"
+msgstr "The invoice wasn't reissued — save the transaction again"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
@@ -4210,6 +4210,10 @@ msgstr "Invoice signed"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.INVOICE_SIGNED.title"
 msgstr "Invoice signed"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"
+msgstr "The invoice is out of step with the amount — it needs a manual check"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

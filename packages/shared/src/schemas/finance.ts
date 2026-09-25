@@ -212,13 +212,20 @@ export const transactionSchema = z.object({
   settledAmount: z.string().nullable().optional(),
   settledCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
   /**
-   * task-paid-salary-amount-edit (SR-M-1) — present (`true`) ONLY on the
-   * response of `PATCH :id/admin-edit`, when the edit committed but voiding or
-   * re-issuing an invoice afterwards failed. The edit is saved; the invoice
-   * is not in step, and the journal holds an `INVOICE_REISSUE_FAILED` line.
-   * Never on list/detail reads.
+   * task-paid-salary-amount-edit (SR-M-1) — present ONLY on the response of
+   * `PATCH :id/admin-edit`, when the edit committed but voiding or re-issuing
+   * an invoice afterwards failed. The edit is saved; the invoice is not in
+   * step with it. Never on list/detail reads.
+   *
+   * COPY-M-6 — two outcomes, because only one of them has a remedy the
+   * operator can perform:
+   *   `SELF_REPAIRABLE` — the broken invoice is the edited salary's own, and
+   *                       saving the row again re-issues it;
+   *   `MANUAL_CHECK`    — the failure is on a DERIVED row (or on a salary the
+   *                       automatic repair cannot recognise). Saving again
+   *                       changes nothing, so the text must not promise it.
    */
-  invoiceReissueIncomplete: z.boolean().optional(),
+  invoiceReissueIncomplete: z.enum(['SELF_REPAIRABLE', 'MANUAL_CHECK']).optional(),
   senderId: z.string().uuid().nullable(),
   senderLabel: z.string().nullable(),
   senderName: z.string().nullable(), // resolved from user if senderId set

@@ -3637,7 +3637,33 @@ export class TransactionsService {
     }
 
     const updatedDto = await this.findOne(id, currentUser)
-    return failedStages.length > 0 ? { ...updatedDto, invoiceReissueIncomplete: true } : updatedDto
+    if (failedStages.length === 0) return updatedDto
+    // COPY-M-6 — «save it again» is true for the EDITED salary's own invoice
+    // and false for a derived row, where no repair path exists at all. Asking
+    // the invoice service keeps the promise tied to what it will actually do,
+    // instead of to which row happened to fail.
+    const onlyThisRow = failedStages.every((f) => f.id === id)
+    const repairable = onlyThisRow && (await this.canRepairInvoiceQuietly(id))
+    return {
+      ...updatedDto,
+      invoiceReissueIncomplete: repairable ? 'SELF_REPAIRABLE' : 'MANUAL_CHECK',
+    }
+  }
+
+  /**
+   * COPY-M-6 — only ever asked to pick a MESSAGE, on a path where something
+   * has already failed. A throw here would replace a saved edit with a 500,
+   * so an unanswerable question means «do not promise a repair».
+   */
+  private async canRepairInvoiceQuietly(id: string): Promise<boolean> {
+    try {
+      return await this.invoicesService.canRepairSalaryInvoice(id)
+    } catch (err) {
+      this.logger.error(
+        `adminUpdateTransaction: could not determine invoice repairability for transaction=${id}: ${(err as Error).message}`,
+      )
+      return false
+    }
   }
 
   // ── Edit cascade preview (read-only) ────────────────────────────────────

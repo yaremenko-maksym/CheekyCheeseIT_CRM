@@ -337,13 +337,20 @@ export function AdminEditTransactionDialog({
     },
     onSuccess: (saved: TransactionDto) => {
       // SR-M-1 — the edit committed, but the invoice is not in step with it.
-      // Not a silent success: the operator hears it, and the journal has it.
+      // Not a silent success: the operator hears it.
+      //
+      // COPY-M-6 — and hears the RIGHT thing. «Save it again» repairs only the
+      // edited salary's own invoice; on a derived row there is no repair path,
+      // and following that advice would return a plain «Зміни збережено» —
+      // a false confirmation. The server says which case this is.
+      // COPY-L-3 — action first, and no «це записано в журнал»: there is no
+      // transaction journal in the UI, so the reader cannot act on it.
       // No `?.`: the endpoint always answers with the row (`findOne`), and an
       // optional chain here was a branch no response can take.
-      if (saved.invoiceReissueIncomplete) {
-        toast.warning(
-          t`Зміни збережено, але рахунок не вдалося анулювати або перевипустити — це записано в журнал, збережіть транзакцію ще раз`,
-        )
+      if (saved.invoiceReissueIncomplete === 'SELF_REPAIRABLE') {
+        toast.warning(t`Рахунок не перевипущено — збережіть транзакцію ще раз`)
+      } else if (saved.invoiceReissueIncomplete === 'MANUAL_CHECK') {
+        toast.warning(t`Рахунок розійшовся із сумою — потрібна ручна звірка`)
       }
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })

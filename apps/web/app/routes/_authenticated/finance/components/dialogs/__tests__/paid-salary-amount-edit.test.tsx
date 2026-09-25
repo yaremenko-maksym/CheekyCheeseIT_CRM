@@ -191,15 +191,28 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
   })
 
-  it('PSE-10. a save whose invoice re-issue failed is not reported as a clean success (SR-M-1)', async () => {
-    adminUpdateTransactionMock.mockResolvedValueOnce({ invoiceReissueIncomplete: true })
+  it('PSE-10. a repairable failure asks for the one action that works (SR-M-1, COPY-M-6)', async () => {
+    adminUpdateTransactionMock.mockResolvedValueOnce({
+      invoiceReissueIncomplete: 'SELF_REPAIRABLE',
+    })
     // A plain re-save — the path that repairs a voided salary invoice.
     renderDialog(PAID_SALARY)
     fireEvent.click(screen.getByTestId('admin-edit-save'))
     await waitFor(() => expect(toastWarningMock).toHaveBeenCalledTimes(1))
-    expect(String(toastWarningMock.mock.calls[0]?.[0])).toContain(
-      'рахунок не вдалося анулювати або перевипустити',
+    expect(String(toastWarningMock.mock.calls[0]?.[0])).toBe(
+      'Рахунок не перевипущено — збережіть транзакцію ще раз',
     )
+  })
+
+  it('PSE-15. a failure the re-save cannot fix asks for a manual check instead (COPY-M-6)', async () => {
+    adminUpdateTransactionMock.mockResolvedValueOnce({ invoiceReissueIncomplete: 'MANUAL_CHECK' })
+    renderDialog(PAID_SALARY)
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+    await waitFor(() => expect(toastWarningMock).toHaveBeenCalledTimes(1))
+    const said = String(toastWarningMock.mock.calls[0]?.[0])
+    expect(said).toBe('Рахунок розійшовся із сумою — потрібна ручна звірка')
+    // The advice that would do nothing here must not be given.
+    expect(said).not.toContain('збережіть транзакцію ще раз')
   })
 
   it('PSE-11. a clean save raises no invoice warning', async () => {
@@ -237,7 +250,7 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
   })
 
-  it('PSE-14. a rate with more decimals is shown to four places, not the locale default of three (COPY-M-2)', async () => {
+  it('PSE-14. a big rate keeps six significant digits (COPY-M-2, COPY-M-7)', async () => {
     getEditCascadePreviewMock.mockResolvedValue(
       salaryPreview({
         originalCurrency: 'USD',
@@ -251,6 +264,40 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     fireEvent.change(amountInput(), { target: { value: '48867' } })
     const line = await screen.findByTestId('cascade-salary-obligation')
     expect(line.textContent).toMatch(/за курсом переказу 41,1235\sUAH\/USD$/)
+  })
+
+  it('PSE-16. a small rate keeps its meaning instead of collapsing to four decimals (COPY-M-7)', async () => {
+    // The other direction: owed in UAH, paid in USDT. At four decimal places
+    // this reads «0,0241 USDT/UAH» — a figure nobody can check against the
+    // eight digits actually recorded.
+    getEditCascadePreviewMock.mockResolvedValue({
+      editable: true,
+      blockedReason: null,
+      plan: {
+        sourceId: PAID_SALARY.id,
+        sourceAmountChanged: true,
+        oldSourceAmount: 1000,
+        newSourceAmount: 1200,
+        sourceCurrency: 'USDT',
+        derivatives: [],
+        sourceWarnings: [],
+        sourcePaymentFact: {
+          originalCurrency: 'UAH',
+          exchangeRate: '0.02412345',
+          oldOriginalAmount: 41450,
+          newOriginalAmount: 49744,
+          recomputed: true,
+        },
+      },
+      version: 'src:v1',
+    })
+    renderDialog({ ...PAID_SALARY, currency: 'USDT', originalCurrency: 'UAH' } as TransactionDto)
+    fireEvent.change(amountInput(), { target: { value: '1200' } })
+    const line = await screen.findByTestId('cascade-salary-obligation')
+    // Six significant digits: 0.02412345 → «0,0241235». At four decimal places
+    // this was «0,0241» — the same rate for every figure in that neighbourhood.
+    expect(line.textContent).toContain('0,0241235')
+    expect(line.textContent).toContain('USDT/UAH')
   })
 
   it('PSE-5. a paid salary keeps its amount field open', () => {

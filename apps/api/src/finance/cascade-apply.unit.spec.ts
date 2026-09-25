@@ -443,6 +443,7 @@ function makeInvoicesSpy() {
     autoCreateForSalary: vi.fn().mockResolvedValue(undefined),
     voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue(undefined),
     reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('NOT_NEEDED'),
+    canRepairSalaryInvoice: vi.fn().mockResolvedValue(true),
   } as unknown as InvoicesService
 }
 
@@ -3319,7 +3320,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const { result, ops } = await editSalaryAmount({
       voidAndReissueInvoiceForAmountEdit: vi.fn().mockRejectedValue(new Error('s3 down')),
     })
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     const [entry] = journalEntries(ops, 'INVOICE_REISSUE_FAILED')
     expect(entry?.values).toMatchObject({
       targetId: SOURCE_ID,
@@ -3332,7 +3333,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const { result, ops } = await editSalaryAmount({
       voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue('VOID_FAILED'),
     })
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')[0]?.values.metadata).toEqual({
       stage: 'VOID',
     })
@@ -3342,7 +3343,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const { result, ops } = await editSalaryAmount({
       voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue('REISSUE_FAILED'),
     })
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')[0]?.values.metadata).toEqual({
       stage: 'REISSUE',
     })
@@ -3381,7 +3382,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const svc = makeTransactionsService({ db, invoicesService })
     stubFindOne(svc)
     const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')[0]?.values.metadata).toEqual({
       stage: 'REISSUE',
     })
@@ -3398,7 +3399,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const svc = makeTransactionsService({ db, invoicesService })
     stubFindOne(svc)
     const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')[0]?.values.metadata).toEqual({
       stage: 'REISSUE',
     })
@@ -3438,13 +3439,47 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
 
     const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
 
-    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'SELF_REPAIRABLE' })
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining(
         `could not journal INVOICE_REISSUE_FAILED for transaction=${SOURCE_ID}`,
       ),
     )
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')).toEqual([])
+  })
+
+  it('COPY-M-6: a failure the re-save cannot fix is reported as MANUAL_CHECK', async () => {
+    const source = sourceRow(PAID_SALARY)
+    const { db } = makeDouble({ source })
+    const invoicesService = makeInvoicesSpy()
+    Object.assign(invoicesService, {
+      reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('REISSUE_FAILED'),
+      // The invoice service says a re-save would answer NOT_NEEDED — so the
+      // dialog must not tell the operator to save again.
+      canRepairSalaryInvoice: vi.fn().mockResolvedValue(false),
+    })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'MANUAL_CHECK' })
+  })
+
+  it('COPY-M-6: a failure whose repairability cannot be determined is MANUAL_CHECK, not a 500', async () => {
+    const source = sourceRow(PAID_SALARY)
+    const { db } = makeDouble({ source })
+    const invoicesService = makeInvoicesSpy()
+    Object.assign(invoicesService, {
+      reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('REISSUE_FAILED'),
+      canRepairSalaryInvoice: vi.fn().mockRejectedValue(new Error('db gone')),
+    })
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
+    expect(result).toMatchObject({ invoiceReissueIncomplete: 'MANUAL_CHECK' })
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('could not determine invoice repairability'),
+    )
   })
 
   it('a non-salary save never asks for a salary invoice repair', async () => {
