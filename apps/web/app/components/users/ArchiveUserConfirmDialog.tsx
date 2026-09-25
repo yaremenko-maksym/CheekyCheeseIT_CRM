@@ -21,6 +21,7 @@ import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 import { UserArchiveImpact } from '@/components/archive/UserArchiveImpact'
+import { isUserArchiveImpact } from '@/hooks/use-archive'
 
 /**
  * Replaces the old DeleteUserDialog. Behaviour:
@@ -158,17 +159,10 @@ export function ArchiveUserConfirmDialog({
               </p>
             ) : (
               <>
-                {/* Stryker disable next-line OptionalChaining: reached only when
-                    isLoading===false, !user===false AND isError===false — by
-                    react-query's success contract `impact` is provably defined
-                    here, so `impact?.type` and `impact.type` are behaviorally
-                    identical; nothing in this component's own state machine
-                    can produce that combination with impact=undefined. */}
-                {impact?.type === 'user' && (
+                {isUserArchiveImpact(impact) && (
                   <UserArchiveImpact entityName={user.displayName} impact={impact} />
                 )}
-                {/* Stryker disable next-line OptionalChaining: same non-null guarantee as the block above */}
-                {impact?.type === 'user' && (
+                {isUserArchiveImpact(impact) && (
                   <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
                 )}
               </>

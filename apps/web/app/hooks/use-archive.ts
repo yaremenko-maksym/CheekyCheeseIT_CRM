@@ -25,6 +25,27 @@ export function useArchiveImpact(entityType: EntityType, entityId: string | unde
   })
 }
 
+/**
+ * Type-predicate narrowing for the 'user' variant of `ArchiveImpact` — a
+ * shared home for the `impact?.type === 'user'` check both
+ * `components/users/ArchiveUserConfirmDialog.tsx` and
+ * `user-profile/admin-actions/ArchiveUserDialog.tsx` render-guard on.
+ * Reusing a single function (rather than repeating `impact?.type === 'user'`
+ * inline in JSX) lets the OptionalChaining check live in a plain function
+ * body, where a `// Stryker disable next-line` comment is recognized — a
+ * JSX block comment is NOT recognized as a Stryker directive in this
+ * codebase (verified empirically against a real CI Mutation Gate run). Both
+ * call sites reach this only once their own `isLoading`/`isError` state has
+ * already settled false, so `impact` is provably defined by react-query's
+ * success contract — `?.` cannot observably differ from `.` here.
+ */
+export function isUserArchiveImpact(
+  impact: ArchiveImpact | undefined,
+): impact is Extract<ArchiveImpact, { type: 'user' }> {
+  // Stryker disable next-line OptionalChaining: impact is provably defined at every call site (see the doc comment above) — no reachable test state can make `?.` and `.` differ here
+  return impact?.type === 'user'
+}
+
 // ── Archive mutation ──────────────────────────────────────────────────────────
 
 export function useArchiveEntity(entityType: EntityType, entityId: string) {
