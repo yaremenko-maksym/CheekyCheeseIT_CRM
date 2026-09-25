@@ -263,6 +263,39 @@ assert_green "unparseable command (unbalanced quote) is allowed — bash would r
   --not-contains '"decision": "block"' --not-contains 'analyzer crashed' \
   -- run_hook 'until [ -f "/tmp/x ]; do sleep 1; done'
 
+# ── the pre-filter: whole words, and a newline is a boundary (CR-L-1) ─────────
+# The pre-filter greps the raw JSON payload, where a newline in the command is
+# the two characters `\n`. A word-boundary regex that forgot this would read a
+# loop at the start of a line as `nuntil` and skip the analyzer entirely.
+assert_red "loop keyword at the start of a LATER line still reaches the analyzer -> BLOCK" \
+  --contains '"decision": "block"' --contains 'UNBOUNDED-LOOP' \
+  -- run_hook "echo start${NL}until [ -f /tmp/x ]; do sleep 1; done"
+
+assert_red "tab before the keyword (JSON \\t) still reaches the analyzer -> BLOCK" \
+  --contains '"decision": "block"' --contains 'STDIN-CAT' \
+  -- run_hook "echo start;	cat | sort"
+
+# Whether python ran at all is invisible from outside, so a PATH shim stands in
+# for python3 and leaves a marker FILE (the hook discards python's stderr and
+# captures its stdout, so printing would prove nothing — the first draft of this
+# case passed vacuously that way and only the positive control below caught it).
+# The payload is built with printf, not python, so only the hook's call counts.
+PF="$(guard_test_workspace)"
+guard_test_shim "$PF" python3 "touch '$PF/ran'; exit 0"
+prefilter_probe() {
+  rm -f "$PF/ran"
+  printf '{"tool_input":{"command":"%s"}}' "$1" | PATH="$PF/bin:$PATH" bash "$HOOK"
+  if [ -f "$PF/ran" ]; then echo ANALYZER-RAN; else echo ANALYZER-SKIPPED; fi
+}
+
+assert_green "\`--format\` / \`before\` / \`location\` do not start the analyzer" \
+  --contains 'ANALYZER-SKIPPED' \
+  -- prefilter_probe 'git log --format=%H before location concatenate'
+
+assert_green "a real keyword after \$( still starts the analyzer" \
+  --contains 'ANALYZER-RAN' \
+  -- prefilter_probe 'x=$(cat); echo done'
+
 # ── the wrapper itself failing must ALLOW, never refuse (CR-M-2, PR #719) ─────
 # For a PreToolUse hook exit 2 is a refusal, and bash exits 2 on a syntax error
 # in the file. Without the EXIT trap at the top of the hook, a typo would refuse
@@ -271,7 +304,7 @@ assert_green "unparseable command (unbalanced quote) is allowed — bash would r
 # and requires both to exit 0 with the wrapper-failure line — while a copy that
 # is intact still refuses, so the trap does not swallow deliberate refusals.
 WS="$(guard_test_workspace)"
-trap 'rm -rf "$WS"' EXIT
+trap 'rm -rf "$WS" "$PF"' EXIT
 python3 - "$HOOK" "$WS" <<'PY'
 import sys
 src = open(sys.argv[1]).read()

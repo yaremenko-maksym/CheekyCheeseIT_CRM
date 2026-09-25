@@ -162,9 +162,17 @@ INPUT=$(cat)
 # loop waiting on tasks/<id>.status — the incident shape, written the way the
 # refusal message itself recommends — never reached the analyzer. A `bash -c`
 # payload is part of the same string, so it needs no separate entry.
-# `for` also matches `format`, `before`, …: the price is a python start on more
-# commands, paid deliberately — a pre-filter that is too narrow fails silently.
-printf '%s' "$INPUT" | grep -qE 'until|while|for|select|cat' || exit 0
+#
+# Whole words only (CR-L-1 on PR #719): as bare substrings `for` and `cat` hit
+# `--format`, `before`, `location` and started python for nothing. The grep runs
+# over the raw JSON payload, where a newline inside the command is the two
+# characters `\n` — so `\n` / `\t` count as a left boundary too, or a loop
+# keyword at the start of a line (`echo x` NEWLINE `until …`) would be read as
+# `nuntil` and skipped. `$(`, `;`, `(`, quotes, spaces are non-word characters
+# and bound the word on their own.
+printf '%s' "$INPUT" \
+  | grep -qE '(^|[^[:alnum:]_]|\\[nt])(until|while|for|select|cat)([^[:alnum:]_]|$)' \
+  || exit 0
 
 # The analyzer is a SINGLE-QUOTED heredoc on purpose: nothing inside is expanded
 # by the shell. The sibling hook pre-bash-cross-agent-blast.sh assembled its
