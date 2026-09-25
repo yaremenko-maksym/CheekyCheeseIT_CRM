@@ -19,6 +19,20 @@ vi.mock('@/lib/axios', () => ({
   api: { get: (url: string) => getMock(url) },
 }))
 
+// mutation-gate (@crm/web, Fix-round B, CI-MUT): `useMemo(() => compareNames(locale),
+// [locale])` — `[locale]` -> `[]` survived. With an empty deps array `cmp` would
+// be built ONCE from whatever locale was active on first render and never
+// rebuilt on a later locale switch (`LanguageSection.tsx`'s uk<->en toggle,
+// same session, no remount — `activateLocale()` reactivates `i18n` in place).
+// Spying on `compareNames` itself (not just the resulting sort order) is the
+// only observable proof: the two locales' `Intl.Collator` outputs are not
+// guaranteed to reorder any name pair Latin-script fixtures could differ on,
+// so an order-based assertion could pass by coincidence even with `[]`.
+vi.mock('@crm/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@crm/shared')>()
+  return { ...actual, compareNames: vi.fn(actual.compareNames) }
+})
+
 vi.mock('@tanstack/react-router', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@tanstack/react-router')>()
   return {
@@ -29,7 +43,10 @@ vi.mock('@tanstack/react-router', async (importOriginal) => {
   }
 })
 
+import { compareNames } from '@crm/shared'
 import { TeamTab } from '../TeamTab'
+
+const compareNamesMock = vi.mocked(compareNames)
 
 function renderTab(userId: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -120,5 +137,34 @@ describe('TeamTab — roster sort order (role first, name as tiebreak)', () => {
       expect.stringContaining('Anna Senior'),
       expect.stringContaining('Zoya Senior'),
     ])
+  })
+
+  // mutation-gate (@crm/web, Fix-round B, CI-MUT): kills the `[locale]` -> `[]`
+  // survivor on the comparator's `useMemo` deps array — see comment on the
+  // `vi.mock('@crm/shared', ...)` above for why this must spy on
+  // `compareNames` itself rather than infer it from sort order.
+  it('rebuilds the name comparator when the active locale changes (no stale [] deps)', async () => {
+    getMock.mockResolvedValue({
+      data: [
+        {
+          id: 's1',
+          displayName: 'Anna Senior',
+          role: 'SENIOR',
+          avatarUrl: null,
+          avatarDocumentId: null,
+        },
+      ],
+    })
+    renderTab('target-1')
+    await waitFor(() => expect(screen.getByText('Anna Senior')).toBeInTheDocument())
+    expect(compareNamesMock).toHaveBeenCalledWith('uk')
+    const callsBeforeSwitch = compareNamesMock.mock.calls.length
+
+    await loadCatalog('en')
+
+    await waitFor(() => expect(compareNamesMock).toHaveBeenCalledWith('en'))
+    // With `[]` deps the memo would never re-run — `compareNames` would stay
+    // at its single pre-switch call count instead of growing.
+    expect(compareNamesMock.mock.calls.length).toBeGreaterThan(callsBeforeSwitch)
   })
 })

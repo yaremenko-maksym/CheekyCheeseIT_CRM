@@ -48,11 +48,38 @@ describe('RequisitesEditForm — USDT_ONLY_HINT on the disabled Bank tab', () =>
       'title',
       'Ви отримуєте виплати лише в USDT (мережа Ethereum) — змінити спосіб не можна',
     )
+    // `getByLabelText` above resolves via the tab's `aria-label` attribute —
+    // it does NOT exercise the separate `label` field (the tab's own VISIBLE
+    // text) that this same object literal carries (mutation-gate Fix-round
+    // B: `label: t\`ФОП (UAH)\`` -> `t\`\`` survived against exactly this
+    // test file before this assertion existed).
+    expect(bankTab).toHaveTextContent('ФОП (UAH)')
   })
 
   it('JUNIOR: the Bank UAH tab is enabled and carries no title', () => {
     render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
     const bankTab = screen.getByLabelText('ФОП (UAH)')
     expect(bankTab).not.toHaveAttribute('title')
+  })
+})
+
+// mutation-gate (@crm/web, Fix-round B, CI-MUT) — the USDT tab's own
+// value/label/ariaLabel object, the form's own aria-label, and the wallet
+// label input's placeholder had zero unit assertion (the test above only
+// exercises the SECOND ("ФОП (UAH)") tab option).
+describe('RequisitesEditForm — USDT tab + form-level text', () => {
+  it('renders the USDT (ERC-20) tab with its own label/ariaLabel (hardcoded, not catalog — see requisites-warning.spec.ts comment)', () => {
+    render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
+    expect(screen.getByLabelText('USDT (ERC-20)')).toBeInTheDocument()
+  })
+
+  it('the form itself carries the "Спосіб виплати" aria-label', () => {
+    render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
+    expect(screen.getByRole('form', { name: 'Спосіб виплати' })).toBeInTheDocument()
+  })
+
+  it('the wallet label input carries the "наприклад: основний" placeholder', () => {
+    render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
+    expect(screen.getByPlaceholderText('наприклад: основний')).toBeInTheDocument()
   })
 })

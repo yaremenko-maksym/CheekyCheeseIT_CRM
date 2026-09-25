@@ -431,9 +431,18 @@ describe('SignContractStep — static text/attributes on the PDF viewer + signat
   it('the <object> fallback text and its download link share the exact filename', async () => {
     render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
     await screen.findByTitle('Попередній перегляд персонального контракту')
-    expect(screen.getByText(/Вбудований перегляд PDF недоступний/)).toBeInTheDocument()
+    const fallbackText = screen.getByText(/Вбудований перегляд PDF недоступний/)
+    expect(fallbackText).toBeInTheDocument()
     const objectLink = screen.getByRole('link', { name: 'Завантажити контракт' })
     expect(objectLink).toHaveAttribute('download', 'Контракт — попередній перегляд.pdf')
+    // mutation-gate (@crm/web, Fix-round B, CI-MUT): the `{' '}` between the
+    // sentence and the link -> `{""}` survived against the two assertions
+    // above — `getByText`'s regex and `getByRole`'s accessible name both
+    // normalize/collapse whitespace, so neither can see a missing single
+    // space. `.textContent` on the shared parent `<p>` is raw, unnormalized.
+    expect(fallbackText.parentElement?.textContent).toBe(
+      'Вбудований перегляд PDF недоступний. Завантажити контракт',
+    )
   })
 
   it('the below-viewer download link carries the same exact filename', async () => {

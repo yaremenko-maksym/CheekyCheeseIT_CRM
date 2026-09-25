@@ -212,10 +212,30 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
 
   // JUNIOR sees a single project, not a portfolio — relabel tab
   const tabLabel = (t: string): string => {
+    // Stryker disable next-line OptionalChaining: `user` is a REQUIRED field
+    // in `userWithPermissionsResponseSchema` (packages/shared/src/schemas/
+    // users.ts) — whenever `data` (and therefore `permissions`, and therefore
+    // any tab this function is called for) is populated, `data.user` is
+    // guaranteed non-null by the same Zod parse. `profileUser` can only be
+    // undefined while `permissions` is ALSO undefined, in which case
+    // `visibleTabs` is `[]` and `tabLabel` is never invoked at all (see
+    // `visibleTabs` above). The `?.` here is defensive against a schema
+    // change, not a reachable branch today — mutating it to `.` cannot be
+    // observed by any test that goes through the component's real data flow.
     if (t === 'projects' && profileUser?.role === 'JUNIOR') return i18n._(PROJECTS_TAB_JUNIOR_LABEL)
     const descriptor = TAB_LABELS[t]
     return descriptor ? i18n._(descriptor) : t
   }
+
+  // Stryker disable next-line StringLiteral: the inner `'contract'` fallback
+  // is unobservable on its own — `TAB_LABELS['contract']` and
+  // `TAB_LABELS['']` are BOTH undefined-or-defined the same way relative to
+  // the OUTER `?? TAB_LABELS['contract']!` fallback that follows: whichever
+  // string the inner default is, a miss on it falls through to the SAME
+  // outer `TAB_LABELS['contract']!`, producing an identical final label.
+  // Mutating it to `''` cannot change what renders, by construction of the
+  // double-fallback below.
+  const dirtyGuardTabLabel = TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? TAB_LABELS['contract']!
 
   return (
     <div className="flex flex-col h-full min-h-0">
@@ -337,10 +357,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         <AlertDialogContent data-testid="contract-dirty-guard-dialog">
           <AlertDialogHeader>
             <AlertDialogTitle>
-              <Trans>
-                Покинути вкладку «
-                {i18n._(TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? TAB_LABELS['contract']!)}»?
-              </Trans>
+              <Trans>Покинути вкладку «{i18n._(dirtyGuardTabLabel)}»?</Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
               <Trans>Є незбережені зміни — якщо перейти, їх буде втрачено</Trans>

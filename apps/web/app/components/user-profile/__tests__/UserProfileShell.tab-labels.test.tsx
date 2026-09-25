@@ -57,7 +57,18 @@ vi.mock('../tabs/DocumentsTab', () => ({
 vi.mock('../tabs/NotificationSettingsTab', () => ({
   NotificationSettingsTab: () => <div data-testid="stub-notifications" />,
 }))
-vi.mock('../resume/ResumeTab', () => ({ ResumeTab: () => <div data-testid="stub-resume" /> }))
+// mutation-gate (@crm/web, Fix-round B, CI-MUT): a dirty 'resume' tab is the
+// ONLY reachable case where `TAB_LABELS[dirtyGuardTab ?? 'contract']` and
+// `TAB_LABELS[dirtyGuardTab && 'contract']` diverge — with dirtyGuardTab
+// ='contract' (the only case the test above covers) BOTH forms resolve to
+// the same key, so that test alone cannot kill the `??`->`&&` mutants on
+// line 342. Mirrors the ContractTab stub above.
+vi.mock('../resume/ResumeTab', () => ({
+  ResumeTab: ({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) => {
+    onDirtyChange(true)
+    return <div data-testid="stub-resume" />
+  },
+}))
 // The dirty-guard flow needs a REAL `onDirtyChange` call — this stub fires it
 // synchronously on mount (unconditionally dirty) so a tab switch away from
 // 'contract' opens the guard without pulling in ContractTab's own deep
@@ -171,6 +182,19 @@ describe('UserProfileShell — dirty-guard title interpolates the LEAVING tab’
 
     const dialog = await screen.findByTestId('contract-dirty-guard-dialog')
     expect(dialog).toHaveTextContent('Покинути вкладку «Контракт»?')
+    expect(onTabChange).not.toHaveBeenCalled()
+  })
+
+  it('leaving a dirty "resume" tab shows the guard titled with "Резюме", not "Контракт" (discriminates the ?? fallback from a plain &&)', async () => {
+    const onTabChange = vi.fn()
+    queryData = makeData('SENIOR', ['overview', 'resume'])
+    renderShell('resume', onTabChange)
+    expect(screen.getByTestId('stub-resume')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Огляд' }))
+
+    const dialog = await screen.findByTestId('contract-dirty-guard-dialog')
+    expect(dialog).toHaveTextContent('Покинути вкладку «Резюме»?')
     expect(onTabChange).not.toHaveBeenCalled()
   })
 })

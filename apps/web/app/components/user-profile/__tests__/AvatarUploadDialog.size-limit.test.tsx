@@ -56,10 +56,16 @@ describe('AvatarUploadDialog — AVATAR_MAX_BYTES size-rejection message', () =>
     })
     fireEvent.change(input, { target: { files: [oversized] } })
 
-    // formatBytes(5 * 1024 * 1024, 'uk') — pinned literally so a mutant that
-    // changes the arithmetic (5*1024/1024, 5/1024*1024, 5*1025*1024, …)
-    // shows up as a DIFFERENT number here.
-    expect(screen.getByText(/5[,.]?\s?МБ/)).toBeInTheDocument()
+    // The dialog's OWN static description also contains "5 МБ" ("Завантажте
+    // файл (PNG, JPEG, GIF, WebP, до 5 МБ)…"), unconditionally — a plain
+    // `/5\s?МБ/` match would pass against THAT text even if `handleFile`'s
+    // size branch were mutated to `if (false)` (no error ever set) or its
+    // message emptied to `t\`\``, which is exactly what happened here on the
+    // first pass (mutation-gate Fix-round B: both mutants survived against
+    // this same assertion). Anchoring on "виберіть менший" — wording unique
+    // to the size-rejection message — actually requires the branch and the
+    // real message text.
+    expect(screen.getByText('Файл 6,0 МБ — максимум 5,0 МБ, виберіть менший')).toBeInTheDocument()
   })
 
   it('a file at exactly 5 MB is NOT rejected (boundary is > , not >=)', () => {
@@ -70,5 +76,28 @@ describe('AvatarUploadDialog — AVATAR_MAX_BYTES size-rejection message', () =>
     })
     fireEvent.change(input, { target: { files: [exact] } })
     expect(screen.queryByText(/максимум/)).not.toBeInTheDocument()
+  })
+})
+
+// mutation-gate (@crm/web, Fix-round B, CI-MUT) — the source-tab toggle's own
+// option labels + aria-label had zero unit assertion (only the size-rejection
+// error text above was pinned).
+describe('AvatarUploadDialog — source tab toggle labels', () => {
+  it('renders the "Файл"/"Посилання" tab labels and the toggle group aria-label', () => {
+    renderDialog()
+    expect(screen.getByText('Файл')).toBeInTheDocument()
+    expect(screen.getByText('Посилання')).toBeInTheDocument()
+    expect(screen.getByLabelText('Джерело зображення')).toBeInTheDocument()
+  })
+
+  it('shows the "Читання файлу…" progress label the instant a valid file is selected, before the async FileReader resolves', () => {
+    renderDialog()
+    const input = screen.getByTestId('avatar-file-input') as HTMLInputElement
+    const valid = new File([new Uint8Array(1024)], 'small.png', { type: 'image/png' })
+    fireEvent.change(input, { target: { files: [valid] } })
+    // `handleFile` calls `progress.prepare()` (phase: 'preparing') SYNCHRONOUSLY
+    // before constructing the FileReader — the label must already be on
+    // screen here, before this test ever awaits the read's onload.
+    expect(screen.getByText('Читання файлу…')).toBeInTheDocument()
   })
 })

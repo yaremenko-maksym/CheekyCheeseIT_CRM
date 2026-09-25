@@ -188,7 +188,12 @@ describe('UserProfileHeader — registration date line', () => {
       },
     )
     expect(screen.getByText(/Дата реєстрації:/)).toBeInTheDocument()
-    expect(screen.getByText(/2026/)).toBeInTheDocument()
+    // "2026" alone is present in BOTH `formatDate(..., 'long')` and the
+    // default (all-numeric) `Intl` output a style-argument mutation would
+    // fall back to — the spelled-out month name is unique to `'long'`
+    // (mutation-gate Fix-round B: the `'long'` string literal survived
+    // against this test's previous `/2026/`-only assertion).
+    expect(screen.getByText(/березня 2026/)).toBeInTheDocument()
   })
 
   it('renders nothing when showCreatedAt is false', () => {
