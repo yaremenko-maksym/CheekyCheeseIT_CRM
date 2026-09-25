@@ -210,10 +210,6 @@ msgstr "Аватар оновлено"
 msgid "Аватар профілю"
 msgstr "Аватар профілю"
 
-#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-msgid "Аватар скинуто на стандартний"
-msgstr "Аватар скинуто на стандартний"
-
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Авто"
 msgstr "Авто"
@@ -501,6 +497,10 @@ msgstr "Ваша частка: {0}%"
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Ваша частка: {0}% · сеньйор: {1}"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
+msgstr "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Ваші пропозиції"
@@ -853,10 +853,6 @@ msgid "Відпустіть зображення"
 msgstr "Відпустіть зображення"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Відхилення…"
-msgstr "Відхилення…"
-
-#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхилити"
 msgstr "Відхилити"
@@ -864,6 +860,10 @@ msgstr "Відхилити"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхилити пропозицію"
 msgstr "Відхилити пропозицію"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Відхиляємо…"
+msgstr "Відхиляємо…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -965,6 +965,10 @@ msgstr "Вкажіть щонайменше одне налаштування"
 msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
 msgstr "Вказаного користувача не знайдено або він має невідповідну роль"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Власна"
+msgstr "Власна"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
@@ -1038,6 +1042,10 @@ msgstr "Гривневі банківські реквізити ФОП"
 msgid "Гроші"
 msgstr "Гроші"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Далі виплати надходитимуть на ці реквізити — підтвердіть зміну"
+msgstr "Далі виплати надходитимуть на ці реквізити — підтвердіть зміну"
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 msgstr "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
@@ -1046,6 +1054,10 @@ msgstr "Дані в контракті — ім’я, email і реквізит�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_CASCADE_PREVIEW_STALE"
 msgstr "Дані змінилися після попереднього перегляду — оновіть його і збережіть ще раз"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Дані компанії"
+msgstr "Дані компанії"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -1110,8 +1122,8 @@ msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Дивіденди можна вивести лише на рахунок адміністратора"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Діє попередній відсоток, поки новий не підтверджено"
-msgstr "Діє попередній відсоток, поки новий не підтверджено"
+msgid "Діє попередня частка, поки нову не підтверджено"
+msgstr "Діє попередня частка, поки нову не підтверджено"
 
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -1164,6 +1176,10 @@ msgstr "До складу проєкту можна додати лише джу
 msgid "Додати"
 msgstr "Додати"
 
+#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
+msgid "Додати документ"
+msgstr "Додати документ"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати дохід"
 msgstr "Додати дохід"
@@ -1177,6 +1193,10 @@ msgstr "Додати особистий email"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
 msgstr "Додати сеньйора до команди може лише адміністратор"
+
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "Додаткові змінні (заповніть нижче):"
+msgstr "Додаткові змінні (заповніть нижче):"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
@@ -1352,8 +1372,8 @@ msgid "Є незбережені зміни"
 msgstr "Є незбережені зміни"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
-msgid "Є незбережені зміни — при переході вони будуть втрачені"
-msgstr "Є незбережені зміни — при переході вони будуть втрачені"
+msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
+msgstr "Є незбережені зміни — якщо перейти, їх буде втрачено"
 
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
@@ -1369,19 +1389,13 @@ msgstr "За однією з часток уже виплачено в {settledC
 msgid "api-error.FINANCE_OBLIGATION_OVERPAID"
 msgstr "За цим зобов’язанням виплачено більше, ніж належало — переплату треба розібрати вручну"
 
-#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
-msgid "Забагато запитів — спробуйте за хвилину"
-msgstr "Забагато запитів — спробуйте за хвилину"
-
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 #: apps/web/app/lib/axios-utils.ts
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
-
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-msgid "Забагато спроб — зачекайте хвилину"
-msgstr "Забагато спроб — зачекайте хвилину"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Завантажений файл"
@@ -1399,10 +1413,6 @@ msgstr "Завантаження контракту…"
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Завантаження…"
 msgstr "Завантаження…"
-
-#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
-msgid "Завантажити"
-msgstr "Завантажити"
 
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Завантажити PDF"
@@ -1772,14 +1782,6 @@ msgstr "Канал у Telegram: 5–32 символи — латиниця, ци
 msgid "Картка співробітника"
 msgstr "Картка співробітника"
 
-#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
-msgid "Кастомна"
-msgstr "Кастомна"
-
-#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
-msgid "Кастомні змінні (заповніть нижче):"
-msgstr "Кастомні змінні (заповніть нижче):"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.VARIABLE_KEY_FORMAT"
@@ -1851,10 +1853,6 @@ msgstr "Компанія вже нарахувала вам цю суму, ал�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_COMPANY_SIGNATURE_MISSING"
 msgstr "Компанія ще не підписала рахунок — зверніться до адміністратора"
-
-#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
-msgid "Константи компанії"
-msgstr "Константи компанії"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Контракт"
@@ -2014,6 +2012,10 @@ msgid "Листи про запити на підтвердження та пі�
 msgstr "Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
+msgstr "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Листи:"
 msgstr "Листи:"
 
@@ -2068,10 +2070,6 @@ msgstr "Можна додати не більше 50 власних змінни
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
 msgstr "Мої проєкти"
-
-#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-msgid "На основі цих даних відбуватимуться наступні виплати — підтвердіть зміну"
-msgstr "На основі цих даних відбуватимуться наступні виплати — підтвердіть зміну"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -2129,8 +2127,8 @@ msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Налаштування застаріли — оновіть сторінку"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Наприклад: домовлялися на 30%"
-msgstr "Наприклад: домовлялися на 30%"
+msgid "Наприклад: домовилися про 30%"
+msgstr "Наприклад: домовилися про 30%"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "наприклад: основний"
@@ -2221,6 +2219,7 @@ msgid "Не вдалося завантажити PDF"
 msgstr "Не вдалося завантажити PDF"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Не вдалося завантажити PDF попереднього перегляду"
 msgstr "Не вдалося завантажити PDF попереднього перегляду"
 
@@ -2246,10 +2245,6 @@ msgstr "Не вдалося завантажити контракт"
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Не вдалося завантажити налаштування"
 msgstr "Не вдалося завантажити налаштування"
-
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-msgid "Не вдалося завантажити попередній перегляд PDF"
-msgstr "Не вдалося завантажити попередній перегляд PDF"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора"
@@ -2656,8 +2651,8 @@ msgid "Нотатку збережено"
 msgstr "Нотатку збережено"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-msgid "Оберіть метод і заповніть реквізити для виплат"
-msgstr "Оберіть метод і заповніть реквізити для виплат"
+msgid "Оберіть спосіб виплати і заповніть реквізити для виплат"
+msgstr "Оберіть спосіб виплати і заповніть реквізити для виплат"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди"
@@ -3026,12 +3021,6 @@ msgstr "Підтвердження не знайдено або вже закр�
 msgid "Підтвердження…"
 msgstr "Підтвердження…"
 
-#. placeholder {0}: user.pendingSeniorShare.approverName
-#. placeholder {1}: user.seniorSharePercent
-#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Підтверджує {0} — поки діє <0>{1}%</0>"
-msgstr "Підтверджує {0} — поки діє <0>{1}%</0>"
-
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Підтвердити"
@@ -3069,6 +3058,10 @@ msgstr "Повернути контракт у чернетку?"
 msgid "Повернути підписаний контракт у чернетку?"
 msgstr "Повернути підписаний контракт у чернетку?"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернути стандартний"
+msgstr "Повернути стандартний"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
@@ -3078,6 +3071,10 @@ msgstr "Повернутися до команди може лише сеньй�
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернутися до свого профілю"
 msgstr "Повернутися до свого профілю"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернуто стандартний аватар"
+msgstr "Повернуто стандартний аватар"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
@@ -3202,10 +3199,6 @@ msgstr "Поточний аватар"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 msgid "Поточний проєкт"
 msgstr "Поточний проєкт"
-
-#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Поточні зміни тіла буде замінено на актуальний шаблон"
-msgstr "Поточні зміни тіла буде замінено на актуальний шаблон"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Потребує заповнення"
@@ -3670,10 +3663,6 @@ msgstr "Скинути до шаблону"
 msgid "Скинути контракт до шаблону?"
 msgstr "Скинути контракт до шаблону?"
 
-#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-msgid "Скинути на стандартний"
-msgstr "Скинути на стандартний"
-
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Скопійовано"
 msgstr "Скопійовано"
@@ -3700,6 +3689,10 @@ msgstr "Співбесіди"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_NOT_FOUND"
 msgstr "Співбесіду не знайдено"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
+msgstr "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
@@ -3834,8 +3827,8 @@ msgid "api-error.FINANCE_SETTLED_AMOUNT_NEGATIVE"
 msgstr "Сума виплати не може бути від’ємною"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-msgid "Сума всіх розрахунків з нею за весь час"
-msgstr "Сума всіх розрахунків з нею за весь час"
+msgid "Сума всіх виплат за весь час"
+msgstr "Сума всіх виплат за весь час"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3998,10 +3991,6 @@ msgstr "Транзакція не видалена — відновлювати 
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING"
 msgstr "Транзакція, з якої виникло зобов’язання, вже не очікує виплати — оновіть сторінку"
-
-#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Тут видно, про що співробітнику надсилати листи. У застосунку сповіщення видно завжди"
-msgstr "Тут видно, про що співробітнику надсилати листи. У застосунку сповіщення видно завжди"
 
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Тут з’являться документи профілю"
@@ -4172,10 +4161,6 @@ msgstr "Усього виплачено цій людині"
 msgid "Учасник / Проєкт"
 msgstr "Учасник / Проєкт"
 
-#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Учасник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
-msgstr "Учасник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_MEMBER_NOT_FOUND"
@@ -4264,8 +4249,8 @@ msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "Це не зобов’язання компанії"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Це скине підпис і онбординг учасника (видалить прийняття Умов використання) — дію не можна скасувати"
-msgstr "Це скине підпис і онбординг учасника (видалить прийняття Умов використання) — дію не можна скасувати"
+msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
+msgstr "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4449,6 +4434,12 @@ msgstr "Чек можна завантажити лише для себе"
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
 
+#. placeholder {0}: user.pendingSeniorShare.approverName
+#. placeholder {1}: user.seniorSharePercent
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
+msgstr "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"
 msgstr "Чекають рішення"
@@ -4484,18 +4475,15 @@ msgstr "Щось пішло не так"
 msgid "contract-variable.companyLegalName"
 msgstr "Юридична назва компанії-контрагента"
 
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу після цього"
-msgstr "Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу після цього"
-
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор"
-msgstr "Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGAL_NAME_REQUIRED"
 msgstr "Юридичне ПІБ не заповнено. Зверніться до адміністратора"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
+msgstr "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"

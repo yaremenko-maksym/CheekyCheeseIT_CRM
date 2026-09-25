@@ -128,12 +128,12 @@ export function ContractActionBar({
             <AlertDialogDescription>
               {actions.revertDestructive ? (
                 <Trans>
-                  Це скине підпис і онбординг учасника (видалить прийняття Умов використання) — дію
-                  не можна скасувати
+                  Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) —
+                  дію не можна скасувати
                 </Trans>
               ) : (
                 <Trans>
-                  Учасник не зможе підписати, поки ви знову не позначите контракт готовим до
+                  Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до
                   підписання
                 </Trans>
               )}
@@ -166,7 +166,7 @@ export function ContractActionBar({
               <Trans>Скинути контракт до шаблону?</Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <Trans>Поточні зміни тіла буде замінено на актуальний шаблон</Trans>
+              <Trans>Ваші правки в тексті контракту буде замінено актуальним шаблоном</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

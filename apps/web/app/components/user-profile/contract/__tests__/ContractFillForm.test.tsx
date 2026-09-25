@@ -271,7 +271,7 @@ describe('ContractFillForm — SOURCE_LABEL text, per reachable source', () => {
 
   it.each([
     ['user', 'Картка співробітника'],
-    ['company', 'Константи компанії'],
+    ['company', 'Дані компанії'],
     ['auto', 'Авто'],
   ] as const)('source=%s renders label %s', async (source, expectedText) => {
     mockUseContractVariables.mockReturnValue({

@@ -343,8 +343,8 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
     )
     // The WHOLE sentence, both facts and the live number — a partial match
     // would survive the name or the percent being dropped.
-    const line = screen.getByText(/Підтверджує Senior One/)
-    expect(line.textContent).toBe('Підтверджує Senior One — поки діє 26%')
+    const line = screen.getByText(/Чекає підтвердження від Senior One/)
+    expect(line.textContent).toBe('Чекає підтвердження від Senior One — поки діє 26%')
   })
 
   it('the live percent in that line is the ACTIVE one, not the proposed one', () => {
@@ -354,8 +354,8 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
       makeUser({ role: 'SENIOR', seniorSharePercent: 26, pendingSeniorShare: PENDING }),
       'view',
     )
-    expect(screen.getByText(/Підтверджує Senior One/).textContent).toContain('26%')
-    expect(screen.getByText(/Підтверджує Senior One/).textContent).not.toContain('55%')
+    expect(screen.getByText(/Чекає підтвердження від Senior One/).textContent).toContain('26%')
+    expect(screen.getByText(/Чекає підтвердження від Senior One/).textContent).not.toContain('55%')
   })
 })
 
@@ -467,7 +467,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     await user.click(screen.getByTestId('pending-base-share-reject-button'))
     expect(screen.getByTestId('pending-base-share-reject-reason')).toHaveAttribute(
       'placeholder',
-      'Наприклад: домовлялися на 30%',
+      'Наприклад: домовилися про 30%',
     )
   })
 
@@ -580,7 +580,7 @@ describe('OverviewTab — pending base share banner, approve/reject interactions
     const confirmButton = screen.getByTestId('pending-base-share-reject-confirm')
     expect(confirmButton).toHaveTextContent('Відхилити')
     await user.click(confirmButton)
-    await waitFor(() => expect(confirmButton).toHaveTextContent('Відхилення…'))
+    await waitFor(() => expect(confirmButton).toHaveTextContent('Відхиляємо…'))
     resolvePost({ data: { ok: true } })
   })
 

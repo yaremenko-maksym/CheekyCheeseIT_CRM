@@ -321,9 +321,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
               <Trans>Зміна реквізитів</Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <Trans>
-                На основі цих даних відбуватимуться наступні виплати — підтвердіть зміну
-              </Trans>
+              <Trans>Далі виплати надходитимуть на ці реквізити — підтвердіть зміну</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

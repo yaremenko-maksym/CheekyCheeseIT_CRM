@@ -114,7 +114,7 @@ test.describe('Requisites edit form', () => {
     // AlertDialog appears with the confirmation text
     await expect(page.getByRole('alertdialog')).toBeVisible()
     await expect(
-      page.getByText(assertInCatalog(uk, 'На основі цих даних відбуватимуться наступні виплати')),
+      page.getByText(assertInCatalog(uk, 'Далі виплати надходитимуть на ці реквізити')),
     ).toBeVisible()
   })
 

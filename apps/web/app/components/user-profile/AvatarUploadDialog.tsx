@@ -251,7 +251,7 @@ export function AvatarUploadDialog({
       { avatarDocumentId: null },
       {
         onSuccess: () => {
-          toast.success(t`Аватар скинуто на стандартний`)
+          toast.success(t`Повернуто стандартний аватар`)
           handleClose()
         },
         onError: () => setError(t`Не вдалося очистити аватар`),
@@ -467,7 +467,7 @@ export function AvatarUploadDialog({
               disabled={isPending}
             >
               <Trash2 className="h-4 w-4" />
-              <Trans>Скинути на стандартний</Trans>
+              <Trans>Повернути стандартний</Trans>
             </Button>
           )}
           <div className="flex gap-2 sm:ml-auto">

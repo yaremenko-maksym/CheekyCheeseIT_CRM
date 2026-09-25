@@ -59,7 +59,7 @@ export function MissingFieldsBanner({ missingVariables, userId }: MissingFieldsB
       {customVars.length > 0 && (
         <div className="space-y-1">
           <p className="text-[11px] text-amber-700/80 dark:text-amber-400/70">
-            <Trans>Кастомні змінні (заповніть нижче):</Trans>
+            <Trans>Додаткові змінні (заповніть нижче):</Trans>
           </p>
           <ul className="space-y-0.5 pl-2">
             {customVars.map((v) => (

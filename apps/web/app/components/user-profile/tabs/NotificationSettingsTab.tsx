@@ -190,7 +190,7 @@ const ALWAYS_LABEL = msg`Завжди`
 const EMAIL_ARIA_PREFIX = msg`Листи:`
 const ERROR_STATE_TEXT = msg`Не вдалося завантажити налаштування`
 const RETRY_LABEL = msg`Повторити`
-const SUBTITLE_IMPERSONATING = msg`Тут видно, про що співробітнику надсилати листи. У застосунку сповіщення видно завжди`
+const SUBTITLE_IMPERSONATING = msg`Листи, які отримує співробітник. У застосунку сповіщення приходять завжди`
 const SUBTITLE_NORMAL = msg`Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди`
 
 export function rowTitle(row: PreferenceRow): string {

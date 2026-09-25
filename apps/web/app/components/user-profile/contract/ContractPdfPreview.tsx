@@ -49,7 +49,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
       setTimeout(revoke, 1000)
     } catch (err: unknown) {
       if (getAxiosStatus(err) === 429) {
-        toast.error(t`Забагато спроб — зачекайте хвилину`)
+        toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
       } else {
         toast.error(t`Не вдалося завантажити PDF`)
       }
@@ -85,9 +85,9 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
       setHasError(true)
       // 429 Throttle check
       if (getAxiosStatus(err) === 429) {
-        toast.error(t`Забагато спроб — зачекайте хвилину`)
+        toast.error(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
       } else {
-        toast.error(t`Не вдалося завантажити попередній перегляд PDF`)
+        toast.error(t`Не вдалося завантажити PDF попереднього перегляду`)
       }
     } finally {
       if (!controller.signal.aborted) {

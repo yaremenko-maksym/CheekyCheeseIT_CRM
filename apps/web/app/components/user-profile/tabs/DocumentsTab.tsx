@@ -12,7 +12,7 @@ export function DocumentsTab() {
         </CardTitle>
         <Button size="sm" variant="outline" disabled>
           <Upload className="mr-2 h-4 w-4" />
-          <Trans>Завантажити</Trans>
+          <Trans>Додати документ</Trans>
         </Button>
       </CardHeader>
       <CardContent>

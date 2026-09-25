@@ -218,7 +218,7 @@ function PendingBaseShareBanner({
               id="pending-base-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder={t`Наприклад: домовлялися на 30%`}
+              placeholder={t`Наприклад: домовилися про 30%`}
               maxLength={500}
               rows={3}
               data-testid="pending-base-share-reject-reason"
@@ -240,7 +240,7 @@ function PendingBaseShareBanner({
             >
               {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention
                   as the approve button above. */}
-              {rejectMutation.isPending ? <Trans>Відхилення…</Trans> : <Trans>Відхилити</Trans>}
+              {rejectMutation.isPending ? <Trans>Відхиляємо…</Trans> : <Trans>Відхилити</Trans>}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -571,7 +571,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                             wrapping. Measured at 468–709px against a 320px
                             viewport before this cap. */}
                         <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
-                          <Trans>Діє попередній відсоток, поки новий не підтверджено</Trans>
+                          <Trans>Діє попередня частка, поки нову не підтверджено</Trans>
                         </TooltipContent>
                       </Tooltip>
                       {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): the
@@ -589,7 +589,7 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                             one because it also renders `dropSharePercent`,
                             which IS nullable.) */}
                         <Trans>
-                          Підтверджує {user.pendingSeniorShare.approverName} — поки діє{' '}
+                          Чекає підтвердження від {user.pendingSeniorShare.approverName} — поки діє{' '}
                           <span className="tabular-nums">{user.seniorSharePercent}%</span>
                         </Trans>
                       </p>

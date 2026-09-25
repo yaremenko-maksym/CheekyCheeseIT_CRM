@@ -337,7 +337,7 @@ describe('SignContractStep', () => {
       render(<SignContractStep onSuccess={vi.fn()} />, { wrapper })
 
       const alert = await screen.findByTestId('legal-name-missing-alert')
-      expect(alert).toHaveTextContent('заповнить адміністратор')
+      expect(alert).toHaveTextContent('напишіть адміністратору')
       expect(alert.textContent).not.toMatch(/\bADMIN\b/)
     })
   })

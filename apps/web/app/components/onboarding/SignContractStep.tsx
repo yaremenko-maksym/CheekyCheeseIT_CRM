@@ -265,7 +265,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         >
           <AlertTriangle className="inline h-4 w-4 mr-2" />
           <Trans>
-            Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор
+            Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу
+            після цього
           </Trans>
         </div>
       )}
@@ -330,8 +331,8 @@ export function SignContractStep({ onSuccess }: SignContractStepProps) {
         {legalNameMissing && (
           <TooltipContent>
             <Trans>
-              Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу
-              після цього
+              Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється
+              одразу після цього
             </Trans>
           </TooltipContent>
         )}

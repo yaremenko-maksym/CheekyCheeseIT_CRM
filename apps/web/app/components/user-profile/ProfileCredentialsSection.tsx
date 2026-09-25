@@ -92,7 +92,8 @@ function ProfileCredentialRow({
     } catch (err: unknown) {
       const status = getAxiosStatus(err)
       if (status === 403) setError(t`Немає доступу до цього пароля`)
-      else if (status === 429) setError(t`Забагато запитів — спробуйте за хвилину`)
+      else if (status === 429)
+        setError(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
       else setError(t`Не вдалося отримати пароль — спробуйте ще раз`)
     }
   }

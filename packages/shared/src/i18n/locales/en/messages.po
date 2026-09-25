@@ -210,10 +210,6 @@ msgstr "Avatar updated"
 msgid "Аватар профілю"
 msgstr "Profile avatar"
 
-#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-msgid "Аватар скинуто на стандартний"
-msgstr "Avatar reset to default"
-
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Авто"
 msgstr "Auto"
@@ -258,7 +254,7 @@ msgstr "An administrator doesn't sign a contract — there's nothing to sign"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Адміністратор побачить причину і зможе запропонувати іншу частку"
-msgstr "The administrator will see the reason and can propose a different share"
+msgstr "An admin will see the reason and can propose a different share"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -489,7 +485,7 @@ msgstr "Your contract"
 
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
 msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
-msgstr "Your personal contract is not ready to sign yet — the administrator will fill it in shortly"
+msgstr "Your personal contract is not ready to sign yet — an admin will fill it in shortly"
 
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -501,6 +497,10 @@ msgstr "Your share: {0}%"
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Your share: {0}% · senior: {1}"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
+msgstr "Your edits to the contract text will be replaced with the current template"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Ваші пропозиції"
@@ -722,7 +722,7 @@ msgstr "Delete notification"
 
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її"
-msgstr "Remove it and sign-in with this address closes immediately, even if the employee already confirmed it"
+msgstr "Once removed, this address stops working for sign-in right away — even if the employee already confirmed it"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -853,10 +853,6 @@ msgid "Відпустіть зображення"
 msgstr "Drop the image"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Відхилення…"
-msgstr "Rejecting…"
-
-#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхилити"
 msgstr "Reject"
@@ -864,6 +860,10 @@ msgstr "Reject"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Відхилити пропозицію"
 msgstr "Reject the proposal"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Відхиляємо…"
+msgstr "Rejecting…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -965,6 +965,10 @@ msgstr "Specify at least one setting"
 msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
 msgstr "The specified user wasn't found or has the wrong role"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Власна"
+msgstr "Custom"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
@@ -1038,14 +1042,22 @@ msgstr "Sole proprietor's UAH bank details"
 msgid "Гроші"
 msgstr "Money"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Далі виплати надходитимуть на ці реквізити — підтвердіть зміну"
+msgstr "Future payouts will be sent to this account — confirm the change"
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
-msgstr "The contract data — name, email and payout details — is set by the administrator; if something is wrong, message them"
+msgstr "The contract data — name, email and payout details — is set by an admin; if something is wrong, message them"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_CASCADE_PREVIEW_STALE"
 msgstr "The data changed after the preview — refresh it and save again"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Дані компанії"
+msgstr "Company details"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -1110,8 +1122,8 @@ msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Dividends can only be withdrawn to an admin's account"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Діє попередній відсоток, поки новий не підтверджено"
-msgstr "The previous percentage applies until the new one is confirmed"
+msgid "Діє попередня частка, поки нову не підтверджено"
+msgstr "The previous share applies until the new one is confirmed"
 
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -1164,6 +1176,10 @@ msgstr "Only a junior, an HR, or an accountant can be added to a project"
 msgid "Додати"
 msgstr "Add"
 
+#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
+msgid "Додати документ"
+msgstr "Upload document"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати дохід"
 msgstr "Add income"
@@ -1177,6 +1193,10 @@ msgstr "Add personal email"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ADD_SENIOR_ADMIN_ONLY"
 msgstr "Only an administrator can add a senior to a team"
+
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "Додаткові змінні (заповніть нижче):"
+msgstr "Additional variables (fill in below):"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
@@ -1349,11 +1369,11 @@ msgstr "Drops can't access interviews"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Є незбережені зміни"
-msgstr "There are unsaved changes"
+msgstr "You have unsaved changes"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
-msgid "Є незбережені зміни — при переході вони будуть втрачені"
-msgstr "There are unsaved changes — they will be lost if you leave"
+msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
+msgstr "You have unsaved changes — leaving now will lose them"
 
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
@@ -1369,19 +1389,13 @@ msgstr "One of the shares was already paid in {settledCurrency} and its new amou
 msgid "api-error.FINANCE_OBLIGATION_OVERPAID"
 msgstr "More has been paid on this obligation than was owed — the overpayment needs a manual review"
 
-#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
-msgid "Забагато запитів — спробуйте за хвилину"
-msgstr "Too many requests — try again in a minute"
-
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 #: apps/web/app/lib/axios-utils.ts
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Too many requests in a row. Wait a bit and try again"
-
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-msgid "Забагато спроб — зачекайте хвилину"
-msgstr "Too many attempts — wait a minute"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Завантажений файл"
@@ -1399,10 +1413,6 @@ msgstr "Loading the contract…"
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Завантаження…"
 msgstr "Uploading…"
-
-#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
-msgid "Завантажити"
-msgstr "Upload"
 
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Завантажити PDF"
@@ -1576,7 +1586,7 @@ msgstr "Saved"
 
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
-msgstr "Save and sign-in with the current address closes immediately, even if the employee already confirmed it — an invitation will be sent to the new address"
+msgstr "Once saved, the current address stops working for sign-in right away — even if the employee confirmed it. We’ll send an invitation to the new address"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1701,7 +1711,7 @@ msgstr "External link to an image (https://…)"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Іваненко Іван Іванович"
-msgstr "Smith John Michael"
+msgstr "Ivan Ivanenko"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я"
@@ -1771,14 +1781,6 @@ msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Картка співробітника"
 msgstr "Employee card"
-
-#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
-msgid "Кастомна"
-msgstr "Custom"
-
-#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
-msgid "Кастомні змінні (заповніть нижче):"
-msgstr "Custom variables (fill in below):"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1852,10 +1854,6 @@ msgstr "The company has already booked this amount but has not transferred it ye
 msgid "api-error.INVOICE_COMPANY_SIGNATURE_MISSING"
 msgstr "The company hasn't signed the invoice yet — contact an admin"
 
-#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
-msgid "Константи компанії"
-msgstr "Company constants"
-
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Контракт"
 msgstr "Contract"
@@ -1900,7 +1898,7 @@ msgstr "The contract is signed — editing is locked; reverting to draft will re
 #. placeholder {0}: data.contractNumber
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Контракт підписано, номер {0}"
-msgstr "Contract signed, number {0}"
+msgstr "Contract No. {0} signed"
 
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
@@ -2014,6 +2012,10 @@ msgid "Листи про запити на підтвердження та пі�
 msgstr "Emails about confirmation and signing requests cannot be turned off — the process would stall without them"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
+msgstr "Emails the employee receives. In-app notifications are always on"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Листи:"
 msgstr "Emails:"
 
@@ -2068,10 +2070,6 @@ msgstr "You can add up to 50 custom variables"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
 msgstr "My projects"
-
-#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-msgid "На основі цих даних відбуватимуться наступні виплати — підтвердіть зміну"
-msgstr "Future payouts will be based on this data — confirm the change"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -2129,8 +2127,8 @@ msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Settings are outdated — refresh the page"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Наприклад: домовлялися на 30%"
-msgstr "For example: agreed on 30%"
+msgid "Наприклад: домовилися про 30%"
+msgstr "e.g. we agreed on 30%"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "наприклад: основний"
@@ -2221,6 +2219,7 @@ msgid "Не вдалося завантажити PDF"
 msgstr "Could not load the PDF"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Не вдалося завантажити PDF попереднього перегляду"
 msgstr "Could not load the preview PDF"
 
@@ -2237,23 +2236,19 @@ msgstr "Failed to load the summary"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Не вдалося завантажити змінні контракту"
-msgstr "Failed to load the contract variables"
+msgstr "Could not load the contract variables"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Не вдалося завантажити контракт"
-msgstr "Failed to load the contract"
+msgstr "Could not load the contract"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Не вдалося завантажити налаштування"
-msgstr "Failed to load the settings"
-
-#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
-msgid "Не вдалося завантажити попередній перегляд PDF"
-msgstr "Failed to load the PDF preview"
+msgstr "Could not load the settings"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора"
-msgstr "Failed to load the contract preview — contact the administrator"
+msgstr "Could not load the contract preview — contact an admin"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
@@ -2266,15 +2261,15 @@ msgstr "Failed to load the financial summary"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося зберегти аватар"
-msgstr "Failed to save the avatar"
+msgstr "Could not save the avatar"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося зберегти значення змінних"
-msgstr "Failed to save the variable values"
+msgstr "Could not save the variable values"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося зберегти контракт"
-msgstr "Failed to save the contract"
+msgstr "Could not save the contract"
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося зберегти легенду. Спробуйте ще раз"
@@ -2327,7 +2322,7 @@ msgstr "Could not send the invitation. Try again"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося обрізати зображення"
-msgstr "Failed to crop the image"
+msgstr "Could not crop the image"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2349,11 +2344,11 @@ msgstr "Couldn't fetch user data — try again"
 
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Не вдалося отримати пароль — спробуйте ще раз"
-msgstr "Failed to retrieve the password — try again"
+msgstr "Could not retrieve the password — try again"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося очистити аватар"
-msgstr "Failed to clear the avatar"
+msgstr "Could not clear the avatar"
 
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
@@ -2361,7 +2356,7 @@ msgstr "Could not check whether a project decision is waiting for you. Refresh t
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Не вдалося підписати контракт"
-msgstr "Failed to sign the contract"
+msgstr "Could not sign the contract"
 
 #: apps/web/app/hooks/use-invoices.ts
 msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
@@ -2387,7 +2382,7 @@ msgstr "Could not confirm. Try again"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося повернути в чернетку"
-msgstr "Failed to revert to draft"
+msgstr "Could not revert to draft"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2400,15 +2395,15 @@ msgstr "Could not return: {errMessage}"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося позначити готовим"
-msgstr "Failed to mark as ready"
+msgstr "Could not mark as ready"
 
 #: apps/web/app/components/onboarding/AcceptTosStep.tsx
 msgid "Не вдалося прийняти Умови використання"
-msgstr "Failed to accept the Terms of Service"
+msgstr "Could not accept the Terms of Service"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Не вдалося прочитати файл"
-msgstr "Failed to read the file"
+msgstr "Could not read the file"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2417,11 +2412,11 @@ msgstr "Couldn't recognize the selected senior — pick one from the list"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
 msgid "Не вдалося скинути до шаблону"
-msgstr "Failed to reset to the template"
+msgstr "Could not reset to the template"
 
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Не вдалося скопіювати — скопіюйте вручну"
-msgstr "Failed to copy — copy it manually"
+msgstr "Could not copy — copy it manually"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
@@ -2529,7 +2524,7 @@ msgstr "There is no active Terms of Service version. Create the first one."
 
 #: apps/web/app/components/user-profile/tabs/TeamTab.tsx
 msgid "Немає даних про склад команди"
-msgstr "No data about the team’s composition"
+msgstr "No team members to show"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2547,7 +2542,7 @@ msgstr "No access to the profile"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору"
-msgstr "No access to the profile — if you need it for work, contact the administrator"
+msgstr "No access to this profile — if you need it for work, contact an admin"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2617,7 +2612,7 @@ msgstr "Telegram handle: 5–32 characters — Latin letters, digits or _"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Нічого не знайдено — скиньте фільтри"
-msgstr "Nothing found — reset the filters"
+msgstr "No matches — clear the filters"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -2656,12 +2651,12 @@ msgid "Нотатку збережено"
 msgstr "Note saved"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
-msgid "Оберіть метод і заповніть реквізити для виплат"
-msgstr "Choose a method and fill in the payout details"
+msgid "Оберіть спосіб виплати і заповніть реквізити для виплат"
+msgstr "Choose a payout method and fill in the payout details"
 
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Оберіть, про що надсилати листи. У застосунку сповіщення видно завжди"
-msgstr "Choose what to send emails about. In-app notifications are always visible"
+msgstr "Choose which emails you get. In-app notifications are always on"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2981,7 +2976,7 @@ msgstr "Prepare for signing"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Підпис — юридичне ПІБ з профілю"
-msgstr "Signature — legal full name from the profile"
+msgstr "Signature — legal name from the profile"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Підписаний"
@@ -3026,12 +3021,6 @@ msgstr "Approval not found or already closed"
 msgid "Підтвердження…"
 msgstr "Confirming…"
 
-#. placeholder {0}: user.pendingSeniorShare.approverName
-#. placeholder {1}: user.seniorSharePercent
-#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-msgid "Підтверджує {0} — поки діє <0>{1}%</0>"
-msgstr "Confirmed by {0} — until then <0>{1}%</0> applies"
-
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Підтвердити"
@@ -3069,6 +3058,10 @@ msgstr "Revert the contract to draft?"
 msgid "Повернути підписаний контракт у чернетку?"
 msgstr "Revert the signed contract to draft?"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернути стандартний"
+msgstr "Reset to default"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.REJOIN_TEAM_SENIOR_ONLY"
@@ -3078,6 +3071,10 @@ msgstr "Only a senior can rejoin a team"
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернутися до свого профілю"
 msgstr "Return to your profile"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернуто стандартний аватар"
+msgstr "Default avatar restored"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
@@ -3202,10 +3199,6 @@ msgstr "Current avatar"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 msgid "Поточний проєкт"
 msgstr "Current project"
-
-#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Поточні зміни тіла буде замінено на актуальний шаблон"
-msgstr "The current body changes will be replaced with the up-to-date template"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Потребує заповнення"
@@ -3541,11 +3534,11 @@ msgstr "This approval has already been decided"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "РНОКПП"
-msgstr "Tax ID"
+msgstr "Tax ID (RNOKPP)"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "РНОКПП (10 цифр)"
-msgstr "Tax ID (10 digits)"
+msgstr "Tax ID (RNOKPP, 10 digits)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -3670,10 +3663,6 @@ msgstr "Reset to template"
 msgid "Скинути контракт до шаблону?"
 msgstr "Reset the contract to the template?"
 
-#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
-msgid "Скинути на стандартний"
-msgstr "Reset to default"
-
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Скопійовано"
 msgstr "Copied"
@@ -3700,6 +3689,10 @@ msgstr "Interviews"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_NOT_FOUND"
 msgstr "Interview not found"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
+msgstr "The employee won’t be able to sign until you mark the contract ready to sign again"
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
@@ -3834,8 +3827,8 @@ msgid "api-error.FINANCE_SETTLED_AMOUNT_NEGATIVE"
 msgstr "The payout amount can't be negative"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-msgid "Сума всіх розрахунків з нею за весь час"
-msgstr "The total of all settlements with them, all time"
+msgid "Сума всіх виплат за весь час"
+msgstr "All-time total of payouts"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3999,10 +3992,6 @@ msgstr "The transaction isn't deleted — there's nothing to restore"
 msgid "api-error.FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING"
 msgstr "The transaction behind this obligation is no longer awaiting payout — refresh the page"
 
-#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
-msgid "Тут видно, про що співробітнику надсилати листи. У застосунку сповіщення видно завжди"
-msgstr "This shows what emails are sent to the employee. In-app notifications are always visible"
-
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Тут з’являться документи профілю"
 msgstr "Profile documents will appear here"
@@ -4135,7 +4124,7 @@ msgstr "Terms of Service — version {0}"
 
 #: apps/web/app/components/onboarding/AcceptTosStep.tsx
 msgid "Умови використання не знайдено — зверніться до адміністратора"
-msgstr "Terms of Service not found — contact the administrator"
+msgstr "Terms of Service not found — contact an admin"
 
 #: apps/web/app/components/onboarding/AcceptTosStep.tsx
 msgid "Умови використання прийнято"
@@ -4143,7 +4132,7 @@ msgstr "Terms of Service accepted"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Умови персонального контракту прочитано — підтверджую"
-msgstr "I have read the terms of the personal contract — confirming"
+msgstr "I have read and accept the terms of my contract"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
@@ -4171,10 +4160,6 @@ msgstr "Total paid to this person"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Учасник / Проєкт"
 msgstr "Member / Project"
-
-#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Учасник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
-msgstr "The member will not be able to sign until you mark the contract ready to sign again"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -4264,8 +4249,8 @@ msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "This isn't a company obligation"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
-msgid "Це скине підпис і онбординг учасника (видалить прийняття Умов використання) — дію не можна скасувати"
-msgstr "This resets the member’s signature and onboarding (removes the Terms of Service acceptance) — the action cannot be undone"
+msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
+msgstr "This resets the employee’s signature and onboarding (removes the Terms of Service acceptance) — the action cannot be undone"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4449,6 +4434,12 @@ msgstr "You can only upload a receipt for yourself"
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "A receipt is required — attach a file or a link"
 
+#. placeholder {0}: user.pendingSeniorShare.approverName
+#. placeholder {1}: user.seniorSharePercent
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
+msgstr "Awaiting confirmation from {0} — <0>{1}%</0> applies until then"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"
 msgstr "Awaiting decision"
@@ -4484,19 +4475,16 @@ msgstr "Something went wrong"
 msgid "contract-variable.companyLegalName"
 msgstr "Counterparty company's legal name"
 
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу після цього"
-msgstr "The legal full name is filled in by the administrator — message them, and signing will open right after"
-
-#: apps/web/app/components/onboarding/SignContractStep.tsx
-msgid "Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор"
-msgstr "Legal full name is not filled in — signing will open as soon as the administrator fills it in"
-
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGAL_NAME_REQUIRED"
 msgstr "Legal full name isn't filled in. Contact an administrator"
 
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
+msgstr "Your legal name isn’t filled in yet — message an admin, and signing opens right after"
+
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
-msgstr "If you need it for work, contact the administrator"
+msgstr "If you need it for work, contact an admin"

@@ -534,9 +534,7 @@ describe('NotificationSettingsTab — impersonation (бэклог 205)', () => {
     viewerImpersonating = true
     render(<NotificationSettingsTab />)
     expect(
-      screen.getByText(
-        'Тут видно, про що співробітнику надсилати листи. У застосунку сповіщення видно завжди',
-      ),
+      screen.getByText('Листи, які отримує співробітник. У застосунку сповіщення приходять завжди'),
     ).toBeInTheDocument()
     expect(screen.queryByText(/^Оберіть, про що/)).not.toBeInTheDocument()
   })

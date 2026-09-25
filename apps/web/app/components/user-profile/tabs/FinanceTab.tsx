@@ -183,7 +183,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
                 <Trans>Усього виплачено цій людині</Trans>
               </p>
               <p className="text-xs text-muted-foreground/70">
-                <Trans>Сума всіх розрахунків з нею за весь час</Trans>
+                <Trans>Сума всіх виплат за весь час</Trans>
               </p>
             </div>
           </div>

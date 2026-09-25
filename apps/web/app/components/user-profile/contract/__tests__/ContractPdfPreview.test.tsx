@@ -137,7 +137,7 @@ describe('ContractPdfPreview', () => {
       expect(screen.getByTestId('contract-pdf-error')).toBeInTheDocument()
     })
 
-    expect(mockToastError).toHaveBeenCalledWith('Не вдалося завантажити попередній перегляд PDF')
+    expect(mockToastError).toHaveBeenCalledWith('Не вдалося завантажити PDF попереднього перегляду')
   })
 
   it('shows 429 throttle toast when fetch returns 429 response error', async () => {
@@ -149,7 +149,9 @@ describe('ContractPdfPreview', () => {
     renderPreview()
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Забагато спроб — зачекайте хвилину')
+      expect(mockToastError).toHaveBeenCalledWith(
+        'Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз',
+      )
     })
     expect(screen.getByTestId('contract-pdf-error')).toBeInTheDocument()
   })
@@ -383,7 +385,9 @@ describe('ContractPdfPreview', () => {
     await user.click(downloadBtn)
 
     await waitFor(() => {
-      expect(mockToastError).toHaveBeenCalledWith('Забагато спроб — зачекайте хвилину')
+      expect(mockToastError).toHaveBeenCalledWith(
+        'Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз',
+      )
     })
   })
 })

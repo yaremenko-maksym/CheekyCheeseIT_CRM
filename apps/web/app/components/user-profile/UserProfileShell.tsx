@@ -343,7 +343,7 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
               </Trans>
             </AlertDialogTitle>
             <AlertDialogDescription>
-              <Trans>Є незбережені зміни — при переході вони будуть втрачені</Trans>
+              <Trans>Є незбережені зміни — якщо перейти, їх буде втрачено</Trans>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

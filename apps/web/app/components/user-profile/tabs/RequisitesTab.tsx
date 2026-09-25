@@ -88,7 +88,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
             <Trans>Реквізити для виплат</Trans>
           </CardTitle>
           <CardDescription>
-            <Trans>Оберіть метод і заповніть реквізити для виплат</Trans>
+            <Trans>Оберіть спосіб виплати і заповніть реквізити для виплат</Trans>
           </CardDescription>
         </CardHeader>
         <CardContent>
