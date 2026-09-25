@@ -47,7 +47,7 @@ export function ResumeIntake({
     event.target.value = ''
     if (!file) return
     if (file.size > RESUME_SOURCE_MAX_BYTES) {
-      toast.error(t`Файл більший за ${MAX_MB} MB`)
+      toast.error(t`Файл більший за ${MAX_MB} МБ`)
       return
     }
     onUploadFile(file)
@@ -83,8 +83,8 @@ export function ResumeIntake({
           </h3>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
             <Trans>
-              Завантажте файл резюме (PDF або DOCX) — ми один раз розпізнаємо його в структуру, а
-              далі ви правите її тут. Якщо у файлі немає тексту, вставте текст резюме вручну.
+              Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви
+              редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну.
             </Trans>
           </p>
         </>
@@ -162,7 +162,7 @@ export function ResumeIntake({
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        <Trans>PDF або DOCX, до {MAX_MB} MB. Файл бачите тільки ви і команда найму.</Trans>
+        <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
       </p>
     </div>
   )

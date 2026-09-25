@@ -205,10 +205,6 @@ msgstr "<0>{received}/{total}</0> receipts from companies this month"
 msgid "10 цифр"
 msgstr "10 digits"
 
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Bank UAH (ФОП)"
-msgstr "Bank UAH (Sole proprietor)"
-
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
 msgstr "Dev Login (testing only)"
@@ -293,7 +289,7 @@ msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN is required"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-msgid "PDF або DOCX, до {MAX_MB} MB. Файл бачите тільки ви і команда найму."
+msgid "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму."
 msgstr "PDF or DOCX, up to {MAX_MB} MB. Only you and the hiring team can see the file."
 
 #. js-lingui-explicit-id
@@ -496,9 +492,6 @@ msgid "Активні ({0})"
 msgstr "Active ({0})"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Активні проекти"
-msgstr "Active projects"
-
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
@@ -613,7 +606,7 @@ msgstr "CRM side navigation — move between sections of the system."
 #. placeholder {0}: resume.sourceFileName
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Буде видалено заповнені розділи та завантажений вихідний файл («{0}»). Відновити їх не можна — резюме доведеться завантажити або заповнити заново."
-msgstr "The filled-in sections and the uploaded source file («{0}») will be deleted. They cannot be recovered — the resume will have to be uploaded or filled in again."
+msgstr "The filled-in sections and the uploaded source file (“{0}”) will be deleted. They cannot be recovered — the resume will have to be uploaded or filled in again."
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Буде видалено заповнені розділи та завантажений вихідний файл. Відновити їх не можна — резюме доведеться завантажити або заповнити заново."
@@ -735,6 +728,10 @@ msgstr "Validated: {money}"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
 msgstr "Only senior or drop income can be validated"
+
+#: apps/web/app/components/users/UserDialog.tsx
+msgid "Валюта"
+msgstr "Currency"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -859,7 +856,7 @@ msgstr "Version {0}"
 #. placeholder {1}: resume.updatedByName
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Версія {0} · останній редактор: {1}"
-msgstr "Version {0} · last edited by: {1}"
+msgstr "Version {0} · last edited by {1}"
 
 #. placeholder {0}: ver.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
@@ -872,7 +869,7 @@ msgstr "The layout is being assembled in the background — no need to refresh t
 
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Верстка резюме не зібралася. Змініть оформлення або зверніться до адміністратора."
-msgstr "The resume layout failed to assemble. Change the formatting or contact an admin."
+msgstr "Could not build the resume PDF. Change the formatting or contact an admin."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "вже є сеньйор"
@@ -969,11 +966,6 @@ msgid "Виберіть дату"
 msgstr "Choose a date"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/zod-errors.ts
-msgid "zod-error.DROP_TEAM_ID_REQUIRED"
-msgstr "Select a drop team"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_TEAM_ID_REQUIRED"
 msgstr "Choose the drop team to add the senior to"
@@ -1045,7 +1037,7 @@ msgstr "Only an administrator can permanently delete a document"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Видалити місце роботи {position}"
-msgstr "Delete work experience {position}"
+msgstr "Delete job {position}"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Видалити посилання {position}"
@@ -1101,7 +1093,7 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові."
-msgstr "Used in the MSA contract instead of the full name. Format: Last First Middle name."
+msgstr "Write it as in the passport: last name, first name, patronymic."
 
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Виняток видалено"
@@ -1424,7 +1416,7 @@ msgstr "The specified user wasn't found or has the wrong role"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут."
-msgstr "The tab can be closed — recognition is running on the server, the result will appear here."
+msgstr "You can close this tab — recognition runs on the server and the result will show up here."
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Власна"
@@ -1664,7 +1656,7 @@ msgstr "To confirm, type the name:"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20."
-msgstr "Only USDT ERC-20 payouts are available for the «{roleLabel}» role."
+msgstr "Only USDT ERC-20 payouts are available for the “{roleLabel}” role."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1681,12 +1673,12 @@ msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "Only a junior, an HR, or an accountant can be added to a project"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
-msgid "Добовий ліміт безкоштовних запитів вичерпано. Заповніть резюме вручну — форма нижче працює."
-msgstr "The daily limit of free requests is used up. Fill in the resume by hand — the form below works."
+msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Заповніть резюме вручну — форма нижче працює."
+msgstr "The daily limit for automatic recognition is used up. Fill in the resume by hand — the form below works."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
-msgid "Добовий ліміт безкоштовних запитів вичерпано. Ліміт оновиться {when} — до того часу заповніть резюме вручну, форма нижче працює."
-msgstr "The daily limit of free requests is used up. The limit resets {when} — until then, fill in the resume by hand, the form below works."
+msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Ліміт оновиться {when} — до того часу заповніть резюме вручну, форма нижче працює."
+msgstr "The daily limit for automatic recognition is used up. The limit resets on {when} — until then, fill in the resume by hand, the form below works."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1720,7 +1712,7 @@ msgstr "Add user"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Додати місце роботи"
-msgstr "Add work experience"
+msgstr "Add a job"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Додати мову"
@@ -1858,7 +1850,7 @@ msgstr "Achievements — one per line"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Досягнення, місце роботи {position}"
-msgstr "Achievements, work experience {position}"
+msgstr "Achievements, job {position}"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Досягнуто ліміт {maxItems} тегів"
@@ -2052,13 +2044,13 @@ msgstr "Upload a file"
 msgid "Завантажити ще раз"
 msgstr "Upload again"
 
+#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+msgid "Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну."
+msgstr "Upload a resume (PDF or DOCX) — we split it into sections once, then you edit them here. If the file has no text, paste it in instead."
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Завантажте файл (PNG, JPEG, GIF, WebP, до 5 МБ) або вкажіть пряме https-посилання"
 msgstr "Upload a file (PNG, JPEG, GIF, WebP, up to 5 MB) or provide a direct https link"
-
-#: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-msgid "Завантажте файл резюме (PDF або DOCX) — ми один раз розпізнаємо його в структуру, а далі ви правите її тут. Якщо у файлі немає тексту, вставте текст резюме вручну."
-msgstr "Upload a resume file (PDF or DOCX) — we recognize it into structure once, then you edit it here. If the file has no text, paste the resume text by hand."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -2250,6 +2242,10 @@ msgstr "Save"
 msgid "Зберегти реквізити"
 msgstr "Save payout details"
 
+#: apps/web/app/components/users/UserDialog.tsx
+msgid "Зберегти чернетку"
+msgstr "Save draft"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Збереження…"
 msgstr "Saving…"
@@ -2299,10 +2295,6 @@ msgstr "Only an admin or a senior can see the senior summary"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Звичайний"
-msgstr "Normal"
-
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Звично"
 msgstr "Normal"
 
 #. js-lingui-explicit-id
@@ -2434,10 +2426,6 @@ msgstr "Ivan Ivanenko"
 msgid "Іваненко Іван Іванович"
 msgstr "Ivan Ivanenko"
 
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Ідентичність"
-msgstr "Identity"
-
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я"
 msgstr "name"
@@ -2514,12 +2502,8 @@ msgid "Картка співробітника"
 msgstr "Employee card"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Керування користувачем"
-msgstr "Managing the user"
-
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Керувати в Проектах →"
-msgstr "Manage in Projects →"
+msgid "Керувати в розділі «Проєкти» →"
+msgstr "Manage in the Projects section →"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -2639,7 +2623,7 @@ msgstr "The company hasn't signed the invoice yet — contact an admin"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Компанія, місце роботи {position}"
-msgstr "Company, work experience {position}"
+msgstr "Company, job {position}"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Контакти"
@@ -2891,7 +2875,7 @@ msgstr "My project"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Місце роботи {position}"
-msgstr "Work experience {position}"
+msgstr "Job {position}"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Місячна зарплата"
@@ -2928,10 +2912,6 @@ msgstr "The employee's interface language — they can change it in their own pr
 msgid "Мови"
 msgstr "Languages"
 
-#: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
-msgid "Модель не змогла розібрати це резюме. Заповніть розділи вручну — форма нижче повністю робоча."
-msgstr "The model could not parse this resume. Fill in the sections by hand — the form below is fully functional."
-
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Можливо, користувача архівовано — перевірте фільтр «В архіві» у списку"
 msgstr "The user may be archived — check the “Archived” filter in the list"
@@ -2946,8 +2926,8 @@ msgid "zod-error.TOO_MANY_CUSTOM_VARIABLES"
 msgstr "You can add up to 50 custom variables"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Можна прикріпити пізніше через розділ «Проекти»"
-msgstr "Can be attached later through the «Projects» section"
+msgid "Можна прикріпити пізніше в розділі «Проєкти»"
+msgstr "You can attach one later in Projects"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
@@ -2963,8 +2943,8 @@ msgid "На цю адресу одразу піде запрошення — у�
 msgstr "An invitation will be sent to this address right away — the employee will be able to sign in with it only after confirming it"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "На цю адресу одразу піде запрошення. Увійти по ній співробітник зможе лише після того, як підтвердить адресу."
-msgstr "An invite goes to this address right away. The employee can sign in with it only after confirming the address."
+msgid "На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження."
+msgstr "An invitation goes to this address right away. The employee can sign in with it only after confirming the address."
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -2983,10 +2963,6 @@ msgstr "Institution"
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 msgid "Надіслати запрошення знову"
 msgstr "Resend invitation"
-
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Надсилаємо…"
-msgstr "Sending…"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"
@@ -3032,10 +3008,6 @@ msgstr "Link title, row {position}"
 msgid "назва проєкту"
 msgstr "project name"
 
-#: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
-msgid "найближчим часом"
-msgstr "soon"
-
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
 msgstr "Hired this month"
@@ -3074,7 +3046,7 @@ msgstr "Next version: v{0} (current — v{1})"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Натисніть «Далі», щоб продовжити без контракту."
-msgstr "Press «Next» to continue without a contract."
+msgstr "Press “Next” to continue without a contract."
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Натисніть «Створити сеньйора», щоб сформувати першу команду"
@@ -3093,6 +3065,10 @@ msgstr "No more than 2 decimals — otherwise the amount is rounded"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_TOO_MANY_DECIMALS"
 msgstr "No more than 6 decimals — otherwise the amount is rounded"
+
+#: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
+msgid "Не вдалося автоматично розібрати це резюме. Заповніть розділи вручну — форма нижче повністю робоча."
+msgstr "Could not parse this resume automatically. Fill in the sections by hand — the form below is fully functional."
 
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 msgid "Не вдалося архівувати користувача — спробуйте ще раз"
@@ -3127,6 +3103,10 @@ msgstr "Something went wrong. Please try again"
 #: apps/web/app/lib/axios-utils.ts
 msgid "Не вдалося виконати запит. Спробуйте ще раз."
 msgstr "Couldn't complete the request. Try again."
+
+#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+msgid "Не вдалося відкрити резюме. Оновіть сторінку."
+msgstr "Could not open the resume. Refresh the page."
 
 #: apps/web/app/hooks/use-documents.ts
 msgid "Не вдалося відновити документ. Спробуйте ще раз"
@@ -3198,10 +3178,6 @@ msgstr "Could not load the settings"
 msgid "Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора"
 msgstr "Could not load the contract preview — contact an admin"
 
-#: apps/web/app/components/user-profile/resume/ResumeTab.tsx
-msgid "Не вдалося завантажити резюме."
-msgstr "Could not load the resume."
-
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Не вдалося завантажити файл"
@@ -3217,7 +3193,7 @@ msgstr "Could not save the avatar"
 
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Не вдалося зберегти зміни — дані у формі збережено, спробуйте ще раз"
+msgid "Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not save the changes — the form keeps your data, try again"
 
 #: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
@@ -3258,7 +3234,7 @@ msgstr "Could not save the profile. Try again"
 
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Не вдалося зібрати PDF"
-msgstr "Could not assemble the PDF"
+msgstr "Could not build the PDF"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
@@ -3405,7 +3381,7 @@ msgid "Не вдалося створити вакансію. Спробуйте
 msgstr "Could not create the vacancy. Try again"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Не вдалося створити дропа — дані у формі збережено, спробуйте ще раз"
+msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the drop — the form keeps your data, try again"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -3413,7 +3389,7 @@ msgid "Не вдалося створити команду — спробуйт�
 msgstr "Could not create the team — try again"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Не вдалося створити користувача — дані у формі збережено, спробуйте ще раз"
+msgid "Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the user — the form keeps your data, try again"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -3512,11 +3488,8 @@ msgstr "Invalid request. Check the data you entered and try again."
 msgid "api-error.FINANCE_TX_HASH_INVALID"
 msgstr "Invalid transaction hash — paste an Etherscan link or 0x followed by 64 hex characters"
 
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Немає активних проектів"
-msgstr "No active projects"
-
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+#: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Немає активних проєктів"
@@ -3611,7 +3584,7 @@ msgstr "No drop teams without an active senior."
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Немає команд дропа без активного сеньйора. Створіть дропа або оберіть «Створити свою команду»."
-msgstr "No drop teams without an active senior. Create a drop or choose «Create your own team»."
+msgstr "No drop teams without an active senior. Create a drop or choose “Create your own team”."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Немає користувачів, яких можна додати"
@@ -3628,7 +3601,7 @@ msgid "api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN"
 msgstr "You don't have permission to attach a receipt to this transaction"
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Немає проектів без активного джуніора"
+msgid "Немає проєктів без активного джуніора"
 msgstr "No projects without an active junior"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -3682,8 +3655,8 @@ msgid "Нова команда — оберіть HR і бухгалтера н�
 msgstr "A new team — pick HR and an accountant below."
 
 #: apps/web/app/components/users/UserDialog.tsx
-msgid "Нова команда сеньйора. Виберіть склад нижче."
-msgstr "A new senior's team. Choose the makeup below."
+msgid "Нова команда сеньйора. Оберіть склад нижче."
+msgstr "A new team led by this senior. Pick its members below."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -3732,6 +3705,11 @@ msgstr "Admin note"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Нотатку збережено"
 msgstr "Note saved"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/zod-errors.ts
+msgid "zod-error.DROP_TEAM_ID_REQUIRED"
+msgstr "Select a drop team"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
@@ -3847,11 +3825,6 @@ msgid "api-error.CONTRACT_TEMPLATE_ADMIN_PUBLISH_FORBIDDEN"
 msgstr "An administrator's contract template can't be published"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Опустити «{label}»"
-msgstr "Move down «{label}»"
-
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Освіта"
 msgstr "Education"
@@ -3860,6 +3833,10 @@ msgstr "Education"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Основна навігація"
 msgstr "Main navigation"
+
+#: apps/web/app/components/users/UserDialog.tsx
+msgid "Основне"
+msgstr "Basics"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4037,13 +4014,23 @@ msgstr "You can only transfer to another admin"
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Translation is still in progress — some screens remain in Russian."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Перемістити «{label}» вгору"
+msgstr "Move “{label}” up"
+
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Перемістити «{label}» вниз"
+msgstr "Move “{label}” down"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вгору"
-msgstr "Move work experience {position} up"
+msgstr "Move job {position} up"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Перемістити місце роботи {position} вниз"
-msgstr "Move work experience {position} down"
+msgstr "Move job {position} down"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Перенаправляємо на дашборд…"
@@ -4063,7 +4050,7 @@ msgstr "Period"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Період, місце роботи {position}"
-msgstr "Period, work experience {position}"
+msgstr "Period, job {position}"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Період, наприклад 2021 — наст. час"
@@ -4114,11 +4101,6 @@ msgstr "Preparing file…"
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Підготувати до підписання"
 msgstr "Prepare for signing"
-
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Підняти «{label}»"
-msgstr "Move up «{label}»"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Підпис — юридичне ПІБ з профілю"
@@ -4265,6 +4247,10 @@ msgstr "Retry"
 msgid "Повторити спробу"
 msgstr "Retry"
 
+#: apps/web/app/components/users/UserDialog.tsx
+msgid "Позначаємо…"
+msgstr "Marking…"
+
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Позначено: відгукнулися"
 msgstr "Marked: applied"
@@ -4280,7 +4266,7 @@ msgstr "Mark ready to sign"
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Показати «{label}»"
-msgstr "Show «{label}»"
+msgstr "Show “{label}”"
 
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Показати пароль"
@@ -4348,8 +4334,8 @@ msgid "api-error.FINANCE_COMPANY_DEPOSIT_FORBIDDEN"
 msgstr "Only a senior or a drop can deposit to the company account"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
-msgid "Порядок і вигляд розділів. Текст резюме змінюється вище."
-msgstr "The order and look of the sections. The resume text changes above."
+msgid "Порядок і вигляд розділів. Текст резюме редагується вище."
+msgstr "The order and look of the sections. Edit the resume text above."
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Посада"
@@ -4357,7 +4343,7 @@ msgstr "Position"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Посада, місце роботи {position}"
-msgstr "Position, work experience {position}"
+msgstr "Position, job {position}"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
@@ -4554,7 +4540,7 @@ msgstr "Only a document in the Receipt category can be attached to a transaction
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Приховати «{label}»"
-msgstr "Hide «{label}»"
+msgstr "Hide “{label}”"
 
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Приховати пароль"
@@ -4579,11 +4565,8 @@ msgstr "About"
 msgid "Продовжити"
 msgstr "Continue"
 
-#: apps/web/app/components/users/UserDialog.tsx
-msgid "Проект"
-msgstr "Project"
-
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
+#: apps/web/app/components/users/UserDialog.tsx
 msgid "Проєкт"
 msgstr "Project"
 
@@ -4831,7 +4814,7 @@ msgstr "Only senior income can be edited"
 
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 msgid "Редагувати розділ «{title}»"
-msgstr "Edit section «{title}»"
+msgstr "Edit section “{title}”"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5238,6 +5221,10 @@ msgstr "An unexpected error occurred. We've been notified — try reloading the 
 msgid "Сталася помилка. Спробуйте ще раз."
 msgstr "Something went wrong. Try again."
 
+#: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
+msgid "Стандартно"
+msgstr "Standard"
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Старий:"
 msgstr "Old:"
@@ -5260,6 +5247,10 @@ msgstr "Contract status:"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN"
 msgstr "Only the person who made the deposit, an admin, or an accountant can see its status"
+
+#: apps/web/app/components/users/UserDialog.tsx
+msgid "Створення або редагування користувача"
+msgstr "Create or edit a user"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -5769,7 +5760,7 @@ msgid "Файл {size} — максимум {limit}, виберіть менши
 msgstr "File is {size} — the maximum is {limit}, choose a smaller one"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
-msgid "Файл більший за {MAX_MB} MB"
+msgid "Файл більший за {MAX_MB} МБ"
 msgstr "The file is larger than {MAX_MB} MB"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
@@ -5839,6 +5830,7 @@ msgstr "Only an admin or an accountant can see the finance summary"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+#: apps/web/app/components/users/UserDialog.tsx
 msgid "ФОП (UAH)"
 msgstr "Sole proprietor (UAH)"
 
@@ -6090,7 +6082,6 @@ msgid "Чекають рішення"
 msgstr "Awaiting decision"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
 msgid "Чернетка"
 msgstr "Draft"
 
@@ -6135,7 +6126,7 @@ msgstr "Counterparty company's legal name"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Юридичне ПІБ"
-msgstr "Legal full name"
+msgstr "Legal name"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts

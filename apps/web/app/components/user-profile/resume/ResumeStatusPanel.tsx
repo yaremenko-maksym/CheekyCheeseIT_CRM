@@ -12,14 +12,12 @@
 import { AlertTriangle, Loader2 } from 'lucide-react'
 import { msg } from '@lingui/core/macro'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { i18n } from '@lingui/core'
 import type { MessageDescriptor } from '@lingui/core'
 import type { ResumeFailureCode, ResumeExtractionStatus, Locale } from '@crm/shared'
 import { formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { useLocale } from '@/lib/i18n'
 
-const RESET_TIME_UNKNOWN = msg`найближчим часом`
 const DEFAULT_FAILURE_HINT = msg`Заповніть розділи вручну або спробуйте завантажити файл ще раз.`
 
 interface ResumeStatusPanelProps {
@@ -49,11 +47,11 @@ const RUNNING_COPY: Record<
 const FAILURE_HINTS: Record<ResumeFailureCode, MessageDescriptor> = {
   NO_TEXT: msg`Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само.`,
   UNREADABLE_FILE: msg`Файл не вдалося прочитати. Завантажте інший PDF/DOCX або вставте текст.`,
-  MODEL_INVALID_JSON: msg`Модель не змогла розібрати це резюме. Заповніть розділи вручну — форма нижче повністю робоча.`,
+  MODEL_INVALID_JSON: msg`Не вдалося автоматично розібрати це резюме. Заповніть розділи вручну — форма нижче повністю робоча.`,
   // task-i18n-stage3b-pr3 (Step 4): the quota-reset time is appended by the
   // caller (`failureHint` below) via `<Trans>Ліміт оновиться {when}</Trans>`
   // — no time here, that half is the `else` branch of `failureHint`.
-  QUOTA_EXCEEDED: msg`Добовий ліміт безкоштовних запитів вичерпано. Заповніть резюме вручну — форма нижче працює.`,
+  QUOTA_EXCEEDED: msg`Добовий ліміт автоматичного розпізнавання вичерпано. Заповніть резюме вручну — форма нижче працює.`,
   // The server message already says "не налаштовано" — this line must ADD
   // something, not restate it: what the user gets if they type it in.
   AI_NOT_CONFIGURED: msg`Заповнене вручну резюме нічим не відрізняється: ті самі розділи, той самий експорт у PDF.`,
@@ -63,9 +61,14 @@ const FAILURE_HINTS: Record<ResumeFailureCode, MessageDescriptor> = {
   STALLED: msg`Розпізнавання перервалося на боці сервера. Завантажте файл ще раз або заповніть резюме вручну.`,
 } satisfies Record<ResumeFailureCode, MessageDescriptor>
 
-export function formatResetTime(iso: string, locale: Locale): string {
+// COPY-M-5 (copy-review PR #720 round A): an unparseable reset time used to
+// fall back to a vague "soon" spliced into `{when}` — which, combined with
+// the en translation's added "on" (COPY-M-5), rendered as the broken
+// "resets on soon". Returning `null` instead lets the caller fall through
+// to `FAILURE_HINTS[QUOTA_EXCEEDED]`, which makes no time claim at all.
+export function formatResetTime(iso: string, locale: Locale): string | null {
   const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return i18n._(RESET_TIME_UNKNOWN)
+  if (Number.isNaN(at.getTime())) return null
   return formatDate(at, locale, 'dateTime')
 }
 
@@ -119,8 +122,8 @@ export function ResumeStatusPanel({
         <p className="text-xs text-muted-foreground">
           {errorCode === 'QUOTA_EXCEEDED' && when ? (
             <Trans>
-              Добовий ліміт безкоштовних запитів вичерпано. Ліміт оновиться {when} — до того часу
-              заповніть резюме вручну, форма нижче працює.
+              Добовий ліміт автоматичного розпізнавання вичерпано. Ліміт оновиться {when} — до того
+              часу заповніть резюме вручну, форма нижче працює.
             </Trans>
           ) : (
             i18n._((errorCode && FAILURE_HINTS[errorCode]) || DEFAULT_FAILURE_HINT)

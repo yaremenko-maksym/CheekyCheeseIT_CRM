@@ -434,7 +434,7 @@ export function UserDialog(props: UserDialogProps) {
       toast.error(
         explainUserMutationError(
           err,
-          t`Не вдалося створити користувача — дані у формі збережено, спробуйте ще раз`,
+          t`Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз`,
         ),
       )
     },
@@ -468,7 +468,7 @@ export function UserDialog(props: UserDialogProps) {
       toast.error(
         explainUserMutationError(
           err,
-          t`Не вдалося створити дропа — дані у формі збережено, спробуйте ще раз`,
+          t`Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз`,
         ),
       )
     },
@@ -488,7 +488,7 @@ export function UserDialog(props: UserDialogProps) {
       toast.error(
         explainUserMutationError(
           err,
-          t`Не вдалося зберегти зміни — дані у формі збережено, спробуйте ще раз`,
+          t`Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз`,
         ),
       )
     },
@@ -549,7 +549,7 @@ export function UserDialog(props: UserDialogProps) {
       toast.error(
         explainUserMutationError(
           err,
-          t`Не вдалося зберегти зміни — дані у формі збережено, спробуйте ще раз`,
+          t`Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз`,
         ),
       )
     },
@@ -1092,7 +1092,7 @@ export function UserDialog(props: UserDialogProps) {
               )}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              <Trans>Керування користувачем</Trans>
+              <Trans>Створення або редагування користувача</Trans>
             </DialogDescription>
           </CrmDialogHeader>
 
@@ -1132,7 +1132,7 @@ export function UserDialog(props: UserDialogProps) {
             {/* ── Step 1 form (or edit form) — hidden at wizard steps 2/3 ─ */}
             <div className={cn('grid gap-3 py-2', isCreate && currentStep !== 1 && 'hidden')}>
               {/* ── Section 1: Identity ─────────────────────────────────── */}
-              <Section title={t`Ідентичність`}>
+              <Section title={t`Основне`}>
                 <form.Field
                   name="email"
                   validators={{
@@ -1260,7 +1260,7 @@ export function UserDialog(props: UserDialogProps) {
                           // invite email goes out immediately on save
                           // (UsersService.createUser calls sendInvite in the
                           // same request).
-                          hint={t`На цю адресу одразу піде запрошення. Увійти по ній співробітник зможе лише після того, як підтвердить адресу.`}
+                          hint={t`На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження.`}
                         >
                           <Input
                             type="email"
@@ -1711,6 +1711,7 @@ export function UserDialog(props: UserDialogProps) {
                                   onAmountChange={field.handleChange}
                                   onCurrencyChange={curField.handleChange}
                                   label={t`Сума`}
+                                  currencyLabel={t`Валюта`}
                                   placeholder="0"
                                 />
                               </Field>
@@ -1749,7 +1750,7 @@ export function UserDialog(props: UserDialogProps) {
                                   { value: 'USDT_ERC20', label: t`USDT ERC-20`, icon: Coins },
                                   {
                                     value: 'BANK_UAH_FOP',
-                                    label: t`Bank UAH (ФОП)`,
+                                    label: t`ФОП (UAH)`,
                                     icon: Landmark,
                                   },
                                 ]}
@@ -2078,7 +2079,7 @@ export function UserDialog(props: UserDialogProps) {
                                         <Trans>Створити свою команду</Trans>
                                       </div>
                                       <p className="text-muted-foreground mt-0.5">
-                                        <Trans>Нова команда сеньйора. Виберіть склад нижче.</Trans>
+                                        <Trans>Нова команда сеньйора. Оберіть склад нижче.</Trans>
                                       </p>
                                     </div>
                                   </label>
@@ -2293,12 +2294,12 @@ export function UserDialog(props: UserDialogProps) {
                           <form.Field name="projectId">
                             {(field) => (
                               <Field
-                                label={t`Проект`}
-                                hint={t`Можна прикріпити пізніше через розділ «Проекти»`}
+                                label={t`Проєкт`}
+                                hint={t`Можна прикріпити пізніше в розділі «Проєкти»`}
                               >
                                 {availableJuniorProjects.length === 0 ? (
                                   <p className="text-xs text-muted-foreground italic">
-                                    <Trans>Немає проектів без активного джуніора</Trans>
+                                    <Trans>Немає проєктів без активного джуніора</Trans>
                                   </p>
                                 ) : (
                                   <Select
@@ -2327,10 +2328,10 @@ export function UserDialog(props: UserDialogProps) {
                     // Edit JUNIOR: read-only project list + link
                     return (
                       <Section title={t`Команда`}>
-                        <Field label={t`Активні проекти`}>
+                        <Field label={t`Активні проєкти`}>
                           {juniorActiveProjects.length === 0 ? (
                             <p className="text-xs text-muted-foreground italic">
-                              <Trans>Немає активних проектів</Trans>
+                              <Trans>Немає активних проєктів</Trans>
                             </p>
                           ) : (
                             <div
@@ -2349,7 +2350,7 @@ export function UserDialog(props: UserDialogProps) {
                             className="text-xs text-primary hover:underline mt-1 inline-block"
                             onClick={() => props.onClose()}
                           >
-                            <Trans>Керувати в Проектах →</Trans>
+                            <Trans>Керувати в розділі «Проєкти» →</Trans>
                           </Link>
                         </Field>
                       </Section>
@@ -2644,7 +2645,7 @@ function WizardStep3({
 
         <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="secondary" onClick={onSaveDraft} data-testid="wizard-save-draft-btn">
-            <Trans>Чернетка</Trans>
+            <Trans>Зберегти чернетку</Trans>
           </Button>
           <Button
             onClick={onMarkReady}
@@ -2652,7 +2653,7 @@ function WizardStep3({
             data-testid="wizard-mark-ready-btn"
             data-track="contract-sign-prep"
           >
-            {isMarkingReady ? t`Надсилаємо…` : t`Позначити готовим до підписання`}
+            {isMarkingReady ? t`Позначаємо…` : t`Позначити готовим до підписання`}
           </Button>
         </div>
       </div>

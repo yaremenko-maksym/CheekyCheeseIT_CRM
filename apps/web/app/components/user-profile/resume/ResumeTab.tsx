@@ -196,7 +196,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   if (isError) {
     return (
       <p className="rounded-lg border bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground">
-        <Trans>Не вдалося завантажити резюме.</Trans>
+        <Trans>Не вдалося відкрити резюме. Оновіть сторінку.</Trans>
       </p>
     )
   }

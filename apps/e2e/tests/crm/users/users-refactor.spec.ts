@@ -132,9 +132,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog).toBeVisible()
-      await expect(
-        dialog.getByText(assertInCatalog(uk, 'Ідентичність'), { exact: true }),
-      ).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Основне'), { exact: true })).toBeVisible()
       await expect(dialog.getByText(assertInCatalog(uk, 'Контакти'), { exact: true })).toBeVisible()
       await expect(dialog.getByText(assertInCatalog(uk, 'Професія'), { exact: true })).toBeVisible()
       await expect(dialog.getByText(assertInCatalog(uk, 'Фінанси'), { exact: true })).toBeVisible()
@@ -225,7 +223,7 @@ test.describe('Users page refactor (PR 2)', () => {
       expect(await projects.filter({ visible: true }).count()).toBe(projectsCount)
       // Link to /projects always present
       await expect(
-        page.getByRole('dialog').getByRole('link', { name: /Керувати в Проектах/ }),
+        page.getByRole('dialog').getByRole('link', { name: /Керувати в розділі «Проєкти»/ }),
       ).toBeVisible()
     })
   })

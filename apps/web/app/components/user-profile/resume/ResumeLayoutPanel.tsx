@@ -102,7 +102,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
   // level, same reasoning as `SECTION_LABEL_MESSAGES` above.
   const DENSITY_OPTIONS = [
     { value: 'compact' as const, label: t`Щільно` },
-    { value: 'normal' as const, label: t`Звично` },
+    { value: 'normal' as const, label: t`Стандартно` },
     { value: 'relaxed' as const, label: t`Вільно` },
   ]
   const FONT_SCALE_OPTIONS = [
@@ -140,7 +140,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
             <Trans>Оформлення</Trans>
           </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            <Trans>Порядок і вигляд розділів. Текст резюме змінюється вище.</Trans>
+            <Trans>Порядок і вигляд розділів. Текст резюме редагується вище.</Trans>
           </p>
         </div>
         {canEdit && (
@@ -209,8 +209,8 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       variant="ghost"
                       size="icon"
                       className="size-11 sm:size-8"
-                      aria-label={t`Підняти «${label}»`}
-                      title={t`Підняти «${label}»`}
+                      aria-label={t`Перемістити «${label}» вгору`}
+                      title={t`Перемістити «${label}» вгору`}
                       data-testid={`resume-layout-up-${key}`}
                       disabled={!canEdit || isSaving || index === 0}
                       onClick={() =>
@@ -224,8 +224,8 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       variant="ghost"
                       size="icon"
                       className="size-11 sm:size-8"
-                      aria-label={t`Опустити «${label}»`}
-                      title={t`Опустити «${label}»`}
+                      aria-label={t`Перемістити «${label}» вниз`}
+                      title={t`Перемістити «${label}» вниз`}
                       data-testid={`resume-layout-down-${key}`}
                       disabled={!canEdit || isSaving || index === draft.sectionOrder.length - 1}
                       onClick={() =>
