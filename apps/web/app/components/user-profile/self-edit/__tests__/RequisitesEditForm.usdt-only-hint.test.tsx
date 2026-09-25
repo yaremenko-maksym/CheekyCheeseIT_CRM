@@ -108,4 +108,16 @@ describe('RequisitesEditForm — USDT tab + form-level text', () => {
     render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
     expect(screen.getByPlaceholderText('наприклад: основний')).toBeInTheDocument()
   })
+
+  it('the Bank UAH fields carry their own example placeholders (recipient name + bank name)', async () => {
+    // mutation-gate (@crm/web, Fix-round B round 2, CI-MUT): both
+    // `t\`Іваненко Іван Іванович\`` and `t\`ПриватБанк\`` -> `t\`\`` survived —
+    // no test switched to the Bank UAH tab at all before this one.
+    render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
+    fireEvent.click(screen.getByLabelText('ФОП (UAH)'))
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('Іваненко Іван Іванович')).toBeInTheDocument(),
+    )
+    expect(screen.getByPlaceholderText('ПриватБанк')).toBeInTheDocument()
+  })
 })
