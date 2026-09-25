@@ -53,4 +53,29 @@ describe('CreateWizardStepper', () => {
     expect(screen.getByTestId('wizard-step-2')).toBeInTheDocument()
     expect(screen.getByTestId('wizard-step-3')).toBeInTheDocument()
   })
+
+  /**
+   * UX-LOW-1 fix (PR #720, round C): at 320px the uk label "Підтвердження"
+   * (a single word) overflowed past the dialog edge under whitespace-nowrap.
+   * These two classes are what stop that — `shrink-0` keeps the circle a
+   * circle once its sibling is allowed to shrink, and `min-w-0` (on the
+   * label itself, not just its wrapper) plus `whitespace-normal break-words`
+   * is what lets the label actually wrap instead of overflowing. jsdom has
+   * no real layout engine, so this can only assert the classes are PRESENT,
+   * not that wrapping visually occurs — that was verified separately with a
+   * live Playwright screenshot at a 320px viewport (see the PR body).
+   */
+  it('the circle keeps shrink-0 so it cannot be squashed once the label is allowed to shrink', () => {
+    renderStepper(1)
+    expect(screen.getByTestId('wizard-step-3-circle').className).toContain('shrink-0')
+  })
+
+  it('the label can shrink and wrap (min-w-0, whitespace-normal, break-words)', () => {
+    renderStepper(1)
+    const label = screen.getByText('Підтвердження')
+    expect(label.className).toContain('min-w-0')
+    expect(label.className).toContain('whitespace-normal')
+    expect(label.className).toContain('break-words')
+    expect(label.className).toContain('sm:whitespace-nowrap')
+  })
 })

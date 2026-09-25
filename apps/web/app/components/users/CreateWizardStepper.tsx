@@ -48,6 +48,7 @@ export function CreateWizardStepper({ current }: CreateWizardStepperProps) {
                   the dialog edge — the fix is letting the LABEL wrap, not
                   letting this icon deform). */}
               <div
+                data-testid={`wizard-step-${stepNumber}-circle`}
                 className={cn(
                   'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors',
                   state === 'done' && 'border-primary bg-primary text-primary-foreground',
