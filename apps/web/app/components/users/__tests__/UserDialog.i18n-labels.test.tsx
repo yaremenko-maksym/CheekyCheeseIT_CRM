@@ -142,6 +142,9 @@ describe('UserDialog — Identity + contract-data sections (JUNIOR default)', ()
   it('Section «Основне» + the always-visible identity fields', () => {
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
     expect(screen.getByText('Основне')).toBeInTheDocument()
+    // The label itself — round-A coverage only asserted the HINT text below,
+    // never this field's own label, so the label's StringLiteral survived.
+    expect(screen.getByText('Особистий email (необов’язково)')).toBeInTheDocument()
     expect(
       screen.getByText(
         'На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження.',
@@ -287,6 +290,7 @@ describe('UserDialog — role SENIOR: share field, USDT-only requisites, team se
     render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
     await selectRole(user, 'Сеньйор')
 
+    expect(screen.getByText('Команда')).toBeInTheDocument()
     expect(screen.getByText('Тип команди')).toBeInTheDocument()
     expect(screen.getByText('Немає команд дропа без активного сеньйора.')).toBeInTheDocument()
   })
@@ -327,6 +331,15 @@ describe('UserDialog — role DROP: share field replaces salary', () => {
     expect(screen.getByText('Частка дропа (%)')).toBeInTheDocument()
     expect(screen.getByText('Скільки дроп залишає собі з кожної виплати')).toBeInTheDocument()
     expect(screen.queryByText('Місячна зарплата')).not.toBeInTheDocument()
+  })
+
+  it('Section «Команда дропа»: its own Telegram-channel field label + hint (a SEPARATE call site from SENIOR\'s "Команда")', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+    await selectRole(user, 'Дроп')
+    expect(screen.getByText('Команда дропа')).toBeInTheDocument()
+    expect(screen.getByText('Telegram-канал команди')).toBeInTheDocument()
+    expect(screen.getByText('Необов’язково. Канал для спілкування команди.')).toBeInTheDocument()
   })
 })
 
@@ -431,10 +444,18 @@ describe('UserDialog — email-change confirmation dialog (edit mode)', () => {
     // (whole-subtree substring match) is the correct query here — `getByText`
     // matches per-element own-text and would see "Старий: Новий:" concatenated
     // as this span's single computed text, never "Старий:" alone.
-    expect(dialog).toHaveTextContent('Зміна email може розірвати вхід через Google для')
-    expect(dialog).toHaveTextContent('Старий:')
-    expect(dialog).toHaveTextContent('old@example.dev')
-    expect(dialog).toHaveTextContent('Новий:')
+    //
+    // Each assertion below includes the LITERAL SPACE that follows the label
+    // ("для {' '}", "Старий:{' '}", "Новий:{' '}") on purpose: that `{' '}`
+    // is itself a separate StringLiteral mutant (JSX text alone survives —
+    // `toHaveTextContent`'s whitespace-normalizing substring match cannot
+    // tell "Старий:" from "Старий: " apart on its own, but it CAN tell
+    // "Старий: old@…" from the space-stripped "Старий:old@…").
+    expect(dialog).toHaveTextContent(
+      'Зміна email може розірвати вхід через Google для Сеньйор Едіт',
+    )
+    expect(dialog).toHaveTextContent('Старий: old@example.dev')
+    expect(dialog).toHaveTextContent('Новий: new@example.dev')
     expect(dialog).toHaveTextContent('new@example.dev')
   })
 })
