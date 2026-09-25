@@ -193,7 +193,8 @@ describe('ImpersonationBanner', () => {
   // task-i18n-stage2-task8 (audit §2, COPY-H-ppl-4): the local role map this
   // banner used to carry had no DROP entry, so a DROP impersonation target
   // would have shown the raw enum. Now sourced from the canonical
-  // `ROLE_LABELS` (`@/components/ui/role-select`), which does have DROP.
+  // `useRoleLabel`/`ROLE_LABEL_MESSAGES` (`@/components/ui/role-select`),
+  // which does have DROP.
   it('shows the DROP role label from the canonical map', () => {
     render(
       <ImpersonationBanner

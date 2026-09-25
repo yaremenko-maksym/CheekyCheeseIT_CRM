@@ -11,34 +11,15 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-// task-i18n-stage3a (Task 1), Step 1/2 — legacy export, LEFT UNCHANGED
-// (still a plain `Record<Role, string>`, still Russian): eight consumers
-// outside this wave's perimeter (`components/user-profile/**`,
-// `components/users/**`, several `routes/_authenticated/**` outside the
-// shell) render `{ROLE_LABELS[role]}` as a JSX child directly — swapping
-// the type here to `MessageDescriptor` would fail typecheck on all eight
-// and, where it doesn't, render `[object Object]`. `ROLE_LABEL_MESSAGES` +
-// `useRoleLabel()` below are the new canon for consumers inside this wave's
-// perimeter; the legacy export is removed once wave (b)/(c) migrate the
-// remaining eight (see the plan's "Опасность: ROLE_LABELS").
-export const ROLE_LABELS: Record<Role, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-  // Drop role - phase 1 (backend). UI polish ships in the frontend task —
-  // until then we reuse the accountant variant so the badge renders without
-  // a dedicated color.
-  DROP: 'Дроп',
-}
-
 /**
- * task-i18n-stage3a (Task 1), Step 1/2 — new canon. `msg` (module level,
- * `@lingui/core/macro`) fixes each role's SOURCE (`uk`) text as a
- * `MessageDescriptor`, resolved against the ACTIVE catalog by
+ * task-i18n-stage3a (Task 1), Step 1/2 — the canon role label map. `msg`
+ * (module level, `@lingui/core/macro`) fixes each role's SOURCE (`uk`) text
+ * as a `MessageDescriptor`, resolved against the ACTIVE catalog by
  * `useRoleLabel()` below — never called at module level with `t`/`plural`,
  * which would freeze the string at import time (Global Constraints).
+ * task-i18n-stage3b-pr3 (Step 3): the legacy `ROLE_LABELS: Record<Role,
+ * string>` export this map replaced has been removed — every consumer in
+ * the app's perimeter now reads from here.
  */
 export const ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor> = {
   ADMIN: msg`Адміністратор`,
@@ -62,7 +43,7 @@ export const ROLE_BADGE_VARIANT: Record<Role, 'admin' | 'senior' | 'junior' | 'h
     JUNIOR: 'junior',
     HR: 'hr',
     ACCOUNTANT: 'accountant',
-    // See ROLE_LABELS — placeholder until the frontend task picks the brand color.
+    // Placeholder variant until the frontend task picks a dedicated brand color.
     DROP: 'accountant',
   }
 
