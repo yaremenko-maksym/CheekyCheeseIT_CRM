@@ -40,10 +40,17 @@ describe('useRoleLabel', () => {
     })
     expect(accountant.current).toBe('Бухгалтер')
   })
+})
 
-  it('leaves the legacy ROLE_LABELS export untouched (type: string) for not-yet-migrated consumers', async () => {
-    const { ROLE_LABELS } = await import('../role-select')
-    expect(typeof ROLE_LABELS.ADMIN).toBe('string')
+// task-i18n-stage3b-pr3, Step 1: PR3 migrates the last two consumers
+// (`UserDialog.tsx`, `components/users/constants.ts`) and drops both legacy
+// exports — see the plan's "Опасность: удаление легаси".
+describe('legacy ROLE_LABELS exports are gone (wave b, PR3)', () => {
+  it('role-select no longer exports ROLE_LABELS', async () => {
+    expect('ROLE_LABELS' in (await import('../role-select'))).toBe(false)
+  })
+  it('components/users/constants no longer exports ROLE_LABELS', async () => {
+    expect('ROLE_LABELS' in (await import('@/components/users/constants'))).toBe(false)
   })
 })
 

@@ -10,6 +10,7 @@ import {
   render as rtlRender,
   screen,
   waitFor,
+  within,
   type RenderOptions,
 } from '@testing-library/react'
 import type { ReactElement } from 'react'
@@ -917,4 +918,27 @@ describe('UserDialog — email/displayName field errors (fix-round 2, CI-5/CR-H-
 
     expect(await screen.findByText('ПІБ — мінімум 5 символів')).toBeInTheDocument()
   })
+})
+
+// task-i18n-stage3b-pr3, Step 1: the role picker now reads
+// ROLE_LABEL_MESSAGES (canon), not the legacy `ROLE_LABELS` string map — no
+// raw enum, no leftover Russian, on either locale.
+describe('role picker reads ROLE_LABEL_MESSAGES', () => {
+  it.each([
+    ['uk', ['Сеньйор', 'Джуніор', 'HR', 'Бухгалтер', 'Дроп']],
+    ['en', ['Senior', 'Junior', 'HR', 'Accountant', 'Drop']],
+  ] as const)(
+    '%s: every CREATE_ALLOWED_ROLES option is the canon label, no legacy or enum',
+    async (locale, labels) => {
+      await loadCatalog(locale)
+      const user = userEvent.setup()
+      render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+      await user.click(screen.getByTestId('user-dialog-role-trigger'))
+      const listbox = await screen.findByRole('listbox')
+      for (const label of labels) {
+        expect(within(listbox).getByRole('option', { name: label })).toBeInTheDocument()
+      }
+      expect(listbox.textContent).not.toMatch(/Синьор|Джун\b|SENIOR|JUNIOR|ACCOUNTANT|DROP/)
+    },
+  )
 })
