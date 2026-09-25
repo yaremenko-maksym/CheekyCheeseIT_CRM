@@ -86,6 +86,13 @@ export function ArchiveUserDialog({
               </p>
             ) : (
               <>
+                {/* Stryker disable next-line OptionalChaining: this branch is only
+                    reached when isLoading===false AND isError===false — by
+                    react-query's own success contract `impact` (the query's
+                    `data`) is provably defined here, so `impact?.type` and
+                    `impact.type` are behaviorally identical; nothing in this
+                    component's own state machine can produce isLoading=false,
+                    isError=false, impact=undefined simultaneously. */}
                 {impact?.type === 'user' && (
                   <UserArchiveImpact entityName={user.displayName} impact={impact} />
                 )}

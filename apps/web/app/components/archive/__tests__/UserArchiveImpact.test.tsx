@@ -205,6 +205,45 @@ describe('UserArchiveImpact', () => {
     )
   })
 
+  it('JUNIOR: exact text, including the joining space before "Профіль можна відновити"', async () => {
+    // CI Mutation Gate (@crm/web) survivor round B: the `{' '}` between this
+    // branch's own Trans and the trailing restore-sentence Trans was added
+    // by round B (COPY-M-3) but never covered by an exact-text assertion —
+    // only HR/ACCOUNTANT got one in round A, since those branches existed
+    // before round B's trailing sentence was added to JUNIOR/ADMIN too.
+    await loadCatalog('uk')
+    render(
+      <UserArchiveImpact
+        entityName="Олена"
+        impact={{ ...base, role: 'JUNIOR', projectsCount: 2 }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    const text = (screen.getByTestId('archive-warning-junior').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(text).toBe(
+      'В архів піде профіль Олена; його буде прибрано з 2 активних проєктів. Самі проєкти ' +
+        'залишаться активними. Профіль більше не зможе увійти в CRM. ' +
+        'Профіль можна відновити з архіву.',
+    )
+  })
+
+  it('ADMIN: exact text, including the joining space before "Профіль можна відновити"', async () => {
+    // Same CI survivor class as the JUNIOR test above, for the ADMIN branch.
+    await loadCatalog('uk')
+    render(<UserArchiveImpact entityName="Олена" impact={{ ...base, role: 'ADMIN' }} />, {
+      wrapper: I18nTestProvider,
+    })
+    const text = (screen.getByTestId('archive-warning-admin').textContent ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    expect(text).toBe(
+      'В архів піде профіль Олена. Нічого пов’язаного архівувати не треба. ' +
+        'Профіль більше не зможе увійти в CRM. Профіль можна відновити з архіву.',
+    )
+  })
+
   it('HR/JUNIOR counts after «з» are genitive in uk (1 команди, 5 команд, 2 активних проєктів)', async () => {
     await loadCatalog('uk')
     const { rerender } = render(
