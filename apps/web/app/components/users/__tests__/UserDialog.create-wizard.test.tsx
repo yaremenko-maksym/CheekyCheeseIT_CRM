@@ -391,6 +391,13 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
     expect(screen.getByTestId('wizard-confirm-step')).toBeInTheDocument()
     expect(screen.getByTestId('wizard-save-draft-btn')).toBeInTheDocument()
     expect(screen.getByTestId('wizard-mark-ready-btn')).toBeInTheDocument()
+    // Exact idle-state text — the mutation is never in flight in this mock
+    // harness (`useMutation`'s pass-through resolves synchronously), so this
+    // is the only reachable branch of the isMarkingReady ternary; pinning it
+    // exactly is what distinguishes it from an empty StringLiteral mutant.
+    expect(screen.getByTestId('wizard-mark-ready-btn')).toHaveTextContent(
+      'Позначити готовим до підписання',
+    )
   })
 
   it('«Назад» from step 3 goes back to step 2', async () => {
@@ -415,6 +422,18 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
 
     const readyCalls = mockPost.mock.calls.filter((c) => String(c[0]).includes('/ready'))
     expect(readyCalls).toHaveLength(0)
+  })
+
+  it('«Сохранить как черновик» toasts the exact draft-confirmation text, with the 4500ms duration', async () => {
+    const user = userEvent.setup()
+    await advanceToStep3(user)
+
+    await user.click(screen.getByTestId('wizard-save-draft-btn'))
+
+    expect(toast.success).toHaveBeenCalledWith(
+      'Користувача створено, контракт збережено як чернетку',
+      { duration: 4500 },
+    )
   })
 
   it('«Отметить готовым» is disabled when hasContract=false (no-template)', async () => {
@@ -454,6 +473,21 @@ describe('UserDialog — step 3 confirm (Task 5)', () => {
       // At least one new POST call after step 3 click
       const newCalls = mockPost.mock.calls.slice(callsBefore)
       expect(newCalls.length).toBeGreaterThan(0)
+    })
+  })
+
+  it('«Отметить готовым» toasts the exact ready-confirmation text, with the 4500ms duration', async () => {
+    const user = userEvent.setup()
+    mockPost.mockResolvedValue(newUserResponse)
+    await advanceToStep3(user)
+
+    await user.click(screen.getByTestId('wizard-mark-ready-btn'))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(
+        'Користувача створено, контракт готовий до підписання',
+        { duration: 4500 },
+      )
     })
   })
 })
