@@ -823,8 +823,8 @@ export class InvoicesService {
     invoiceDocumentId: string | null
     hasVoidedInvoice: boolean
   } | null> {
+    // Stryker disable ObjectLiteral: the two `.select(...)` projections below are Drizzle query SHAPES — the unit double in `invoice-reissue-outcome.unit.spec.ts` answers with canned rows whatever is selected, so `{}` there is unobservable without a live Postgres (mutation-gate-integration-specs.md). A `next-line` directive inside the call chain was not honoured by Stryker (measured), hence the block form
     const [tx] = await this.db.db
-      // Stryker disable next-line ObjectLiteral: a Drizzle query SHAPE (the projection) — the unit double in `invoice-reissue-outcome.unit.spec.ts` answers with canned rows whatever is selected, so `{}` here is unobservable without a live Postgres; the columns' use is exercised against real rows by the edit's integration specs (mutation-gate-integration-specs.md)
       .select({
         type: nonDeletedTransactions.type,
         status: nonDeletedTransactions.status,
@@ -839,7 +839,6 @@ export class InvoicesService {
     // void stamps `voided_at` on it — so a voided signature is the durable
     // record that an invoice existed and was taken away.
     const [voided] = await this.db.db
-      // Stryker disable next-line ObjectLiteral: same query-shape projection as above — only the presence of a row is read, never its columns
       .select({ id: invoiceSignatures.id })
       .from(invoiceSignatures)
       .where(
@@ -849,6 +848,7 @@ export class InvoicesService {
         ),
       )
       .limit(1)
+    // Stryker restore ObjectLiteral
     return { ...tx, hasVoidedInvoice: !!voided }
   }
 
