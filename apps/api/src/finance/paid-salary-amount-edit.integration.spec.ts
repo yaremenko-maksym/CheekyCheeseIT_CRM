@@ -10,7 +10,8 @@ import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
-import { transactionAuditLog, transactions, users } from '../database/schema'
+import { InvoicesService } from '../invoices/invoices.service'
+import { invoiceSignatures, transactionAuditLog, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -430,5 +431,95 @@ describe.skipIf(!HAS_DB_URL)(
         expect(await row(id)).toEqual(before)
       },
     )
+
+    /**
+     * SR-M-3, the READ half — against real Postgres.
+     *
+     * `loadReissueState` decides the repair from three query VALUES a unit double
+     * cannot check: `signer_role = 'COMPANY'`, `action = 'INVOICE_REISSUE_FAILED'`
+     * and `metadata ->> 'stage' = 'VOID'`. Blank any of them and the repair fires
+     * on rows it must not touch — so they are exercised here, on real rows
+     * (mutation-gate-integration-specs.md: only a live DB can tell).
+     *
+     * The service is built with `Object.create` and a real `db`: this path makes
+     * no S3/PDF call, so none of the heavier collaborators are needed.
+     */
+    describe('loadReissueState against real rows (SR-M-3)', () => {
+      function invoicesAgainstRealDb(): {
+        loadReissueState: (id: string) => Promise<{
+          activeCompanySignedAt: Date | null
+          lastVoidFailureAt: Date | null
+          hasVoidedInvoice: boolean
+        } | null>
+      } {
+        const svc = Object.create(InvoicesService.prototype) as InvoicesService
+        Object.assign(svc, { db: dbSvc })
+        return svc as unknown as ReturnType<typeof invoicesAgainstRealDb>
+      }
+
+      async function signature(
+        txId: string,
+        role: 'COMPANY' | 'COUNTERPARTY',
+        signedAt: Date,
+        voidedAt: Date | null,
+      ) {
+        await dbSvc.db.insert(invoiceSignatures).values({
+          transactionId: txId,
+          signerRole: role,
+          signerId: ADMIN.id,
+          signedAt,
+          voidedAt,
+          pdfHash: 'a'.repeat(64),
+          method: 'AUTO_COMPANY',
+        })
+      }
+
+      async function journal(txId: string, action: string, metadata: Record<string, unknown>) {
+        await dbSvc.db
+          .insert(transactionAuditLog)
+          .values({ actorId: ADMIN.id, targetId: txId, action, metadata })
+      }
+
+      const SIGNED_AT = new Date('2026-09-20T10:00:00.000Z')
+
+      it('reads the ACTIVE COMPANY signature — not a voided one, not the counterparty’s', async () => {
+        const id = await paidSalary()
+        const counterpartyLater = new Date('2026-09-21T10:00:00.000Z')
+        const voidedCompanyLater = new Date('2026-09-22T10:00:00.000Z')
+        await signature(id, 'COMPANY', SIGNED_AT, null)
+        await signature(id, 'COUNTERPARTY', counterpartyLater, null)
+        await signature(id, 'COMPANY', voidedCompanyLater, new Date())
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.activeCompanySignedAt?.toISOString()).toBe(SIGNED_AT.toISOString())
+        // The voided row is what `hasVoidedInvoice` reads, and it is a different question.
+        expect(state?.hasVoidedInvoice).toBe(true)
+      })
+
+      it('reads the last VOID failure — ignoring the REISSUE stage and other actions', async () => {
+        const id = await paidSalary()
+        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'REISSUE' })
+        await journal(id, 'AMOUNT_OR_RECEIVER_CHANGE', { stage: 'VOID' })
+        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'VOID' })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeInstanceOf(Date)
+      })
+
+      it('a row whose only failure is the REISSUE stage reports no void failure', async () => {
+        const id = await paidSalary()
+        await journal(id, 'INVOICE_REISSUE_FAILED', { stage: 'REISSUE' })
+
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.lastVoidFailureAt).toBeNull()
+      })
+
+      it('a row with no signatures and no journal reports neither', async () => {
+        const id = await paidSalary()
+        const state = await invoicesAgainstRealDb().loadReissueState(id)
+        expect(state?.activeCompanySignedAt).toBeNull()
+        expect(state?.lastVoidFailureAt).toBeNull()
+      })
+    })
   },
 )

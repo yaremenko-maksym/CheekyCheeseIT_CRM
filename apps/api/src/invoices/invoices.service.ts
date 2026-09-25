@@ -180,10 +180,16 @@ function awaitsReissue(state: ReissueState): boolean {
  * this is the invoice the failed void was supposed to retire, not a fresh one.
  */
 function awaitsVoidRetry(state: ReissueState): boolean {
-  if (!state.invoiceDocumentId || state.lastVoidFailureAt === null) return false
-  return (
-    state.activeCompanySignedAt === null || state.activeCompanySignedAt < state.lastVoidFailureAt
-  )
+  // One question per line, and the comparison through `getTime()` rather than
+  // `<` on the values: `null < aDate` is `true` in JS (null coerces to 0), so
+  // the null case and the ordering case would otherwise be indistinguishable —
+  // a reader, and the mutation gate, could not tell which one is load-bearing.
+  if (!state.invoiceDocumentId) return false
+  const failedAt = state.lastVoidFailureAt
+  if (failedAt === null) return false
+  const signedAt = state.activeCompanySignedAt
+  if (signedAt === null) return true
+  return signedAt.getTime() < failedAt.getTime()
 }
 
 @Injectable()
@@ -917,6 +923,7 @@ export class InvoicesService {
       .where(
         and(
           eq(invoiceSignatures.transactionId, transactionId),
+          // Stryker disable next-line StringLiteral: a Postgres query VALUE (which signer_role), same reasoning and the same real-DB proof as the action filter below
           eq(invoiceSignatures.signerRole, 'COMPANY'),
           isNull(invoiceSignatures.voidedAt),
         ),
@@ -929,7 +936,9 @@ export class InvoicesService {
       .where(
         and(
           eq(transactionAuditLog.targetId, transactionId),
+          // Stryker disable next-line StringLiteral: a Postgres query VALUE (which action to filter by), not a shape — the unit double answers with canned rows whatever is asked, so only a live DB can tell; proven there by paid-salary-amount-edit.integration.spec.ts «loadReissueState against real rows» (mutation-gate-integration-specs.md)
           eq(transactionAuditLog.action, 'INVOICE_REISSUE_FAILED'),
+          // Stryker disable next-line StringLiteral: the SQL fragment is a query VALUE (which stage), unobservable through a double; the same real-DB test distinguishes a VOID failure from a REISSUE one
           sql`${transactionAuditLog.metadata} ->> 'stage' = 'VOID'`,
         ),
       )

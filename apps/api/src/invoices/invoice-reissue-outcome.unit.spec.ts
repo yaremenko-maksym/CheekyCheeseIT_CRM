@@ -21,6 +21,9 @@ type State = {
   payoutRequestId: string | null
   invoiceDocumentId: string | null
   hasVoidedInvoice: boolean
+  // SR-M-3 — the two facts that tell a failed VOID from an ordinary invoice.
+  activeCompanySignedAt: Date | null
+  lastVoidFailureAt: Date | null
 }
 
 const PAID_SALARY_NO_INVOICE: State = {
@@ -29,6 +32,8 @@ const PAID_SALARY_NO_INVOICE: State = {
   payoutRequestId: null,
   invoiceDocumentId: null,
   hasVoidedInvoice: true,
+  activeCompanySignedAt: null,
+  lastVoidFailureAt: null,
 }
 
 function makeService(opts: {
@@ -308,6 +313,45 @@ describe('reissueSalaryInvoiceIfVoided — the VOID stage (SR-M-3)', () => {
     const { svc, voidCall, reissue } = makeRepairService([
       REISSUE_STAGE,
       { ...REISSUE_STAGE, invoiceDocumentId: 'doc-2' },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).toHaveBeenCalledWith('tx')
+  })
+
+  it('a document with NO active company signature and a failure on record is retried', async () => {
+    // `null` signature must mean «retried», not fall through an ordering
+    // comparison: `null < aDate` is true by coercion, which would make the two
+    // reasons indistinguishable.
+    const { svc, voidCall } = makeRepairService([
+      { ...VOID_STAGE, activeCompanySignedAt: null },
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new', activeCompanySignedAt: LATER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
+  })
+
+  it('a document with no signature and NO failure on record is left alone', async () => {
+    const { svc, voidCall, reissue } = makeRepairService([
+      { ...VOID_STAGE, activeCompanySignedAt: null, lastVoidFailureAt: null },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('a row awaiting RE-ISSUE is never sent down the void path, even with a void failure on record', async () => {
+    // The document is already gone: there is nothing to void, and retrying the
+    // void would ask `voidInvoiceForAmountEdit` to act on nothing.
+    const { svc, voidCall, reissue } = makeRepairService([
+      {
+        ...VOID_STAGE,
+        invoiceDocumentId: null,
+        hasVoidedInvoice: true,
+        activeCompanySignedAt: null,
+        lastVoidFailureAt: LATER,
+      },
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new', activeCompanySignedAt: LATER },
     ])
     await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
     expect(voidCall).not.toHaveBeenCalled()
