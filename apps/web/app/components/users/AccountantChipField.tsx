@@ -46,7 +46,7 @@ export function AccountantChipField({
     return (
       <Field label={t`Бухгалтер`}>
         <p className="text-xs text-muted-foreground italic">
-          <Trans>Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»</Trans>
+          <Trans>Бухгалтерів ще немає — спершу додайте бухгалтера</Trans>
         </p>
       </Field>
     )

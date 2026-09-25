@@ -453,8 +453,9 @@ test.describe('Team page', () => {
     test('shows member count badge in team cards', async ({ asAdmin: page }) => {
       await page.goto('/team')
 
-      // Member count is shown as abbreviated "уч." in redesign
-      await expect(page.getByText('уч.', { exact: false })).toBeVisible()
+      // Member count badge — full plural word (COPY-H-4 fix round A), not
+      // the truncated "уч." abbreviation.
+      await expect(page.getByText(/учасник/i).first()).toBeVisible()
     })
   })
 

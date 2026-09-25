@@ -21,6 +21,7 @@ import { getApiErrorMessage, translateZodCode, translateZodMessage } from '@/lib
 import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -440,9 +441,7 @@ function HrCreateSeniorDialog({
               <Field label={t`Бухгалтер`}>
                 {accountantUsers.length === 0 ? (
                   <p className="text-xs text-muted-foreground italic">
-                    <Trans>
-                      Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»
-                    </Trans>
+                    <Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>
                   </p>
                 ) : accountantUsers.length === 1 ? (
                   <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
@@ -486,7 +485,11 @@ function HrCreateSeniorDialog({
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 function TeamPage() {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
+  // SPEC-M-2 (fix-round A): resolved ONCE at component top-level, not per-row
+  // inside the `filteredTeams.map()` badge below — `useRoleLabel` is a hook
+  // and cannot be called from inside a `.map()` callback (Rules of Hooks).
+  const dropRoleLabel = i18n._(ROLE_LABEL_MESSAGES.DROP)
   const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
   const { user } = useAuth()
@@ -751,7 +754,7 @@ function TeamPage() {
                       to="/team/$teamId"
                       params={{ teamId: team.id }}
                       className="absolute inset-0 z-10"
-                      title={t`Перейти до команди ${team.name}`}
+                      title={t`Відкрити «${team.name}»`}
                     />
 
                     {/* Avatars */}
@@ -790,7 +793,7 @@ function TeamPage() {
                         existing visuals are unchanged. */}
                         {team.type === 'DROP' && (
                           <Badge variant="drop" className="text-[10px] shrink-0">
-                            DROP
+                            {dropRoleLabel}
                           </Badge>
                         )}
                       </div>
@@ -826,7 +829,13 @@ function TeamPage() {
                         </a>
                       )}
                       <Badge variant="outline" className="text-[11px] tabular-nums">
-                        <Trans>{team.members.length} уч.</Trans>
+                        <Plural
+                          value={team.members.length}
+                          one="# учасник"
+                          few="# учасники"
+                          many="# учасників"
+                          other="# учасника"
+                        />
                       </Badge>
                       <Badge
                         variant="outline"

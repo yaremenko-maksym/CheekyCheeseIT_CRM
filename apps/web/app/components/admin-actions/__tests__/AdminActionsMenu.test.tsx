@@ -309,7 +309,12 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
       // The two "third parties stay active" counts.
       expect(dialogText).toContain('3')
       expect(dialogText).toContain('4')
-      expect(dialogText).toContain('залишаються активними учасниками')
+      // COPY-M-4 (fix-round A): reworded away from ambiguous "залишаються
+      // активними учасниками" (read as "stay team members", contradicted by
+      // CascadeUnarchiveModal) to an explicit "profiles stay active, keep
+      // getting paid, re-add after restore" statement.
+      expect(dialogText).toContain('їхні профілі залишаються активними')
+      expect(dialogText).toContain('доведеться додати в команду заново')
       // The closing sentence's role-specific pair word — pinned inside the
       // guillemets «...» (`select()`-produced uk word, matches the canon
       // role-name spelling from role-select.tsx's `ROLE_LABEL_MESSAGES`).

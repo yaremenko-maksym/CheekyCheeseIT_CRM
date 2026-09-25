@@ -40,9 +40,7 @@ describe('HrChipsField', () => {
       />,
       { wrapper: I18nTestProvider },
     )
-    expect(
-      screen.getByText('Немає вільних HR — створіть HR у розділі «Команда»'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('HR ще немає — спершу додайте HR')).toBeInTheDocument()
   })
 
   it('`selected` resolves selectedIds to the matching HR objects (real .map/.find), skipping stale ids', async () => {

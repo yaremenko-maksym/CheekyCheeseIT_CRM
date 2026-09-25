@@ -86,7 +86,7 @@ describe('ArchiveConfirmDialog — fetch + loading', () => {
     renderDialog({ entityType: 'user', entityId: 'u-1', entityName: 'Oleksiy' })
 
     const dialog = await screen.findByRole('dialog')
-    expect(within(dialog).queryByText(/буде архівований/)).not.toBeInTheDocument()
+    expect(within(dialog).queryByText(/піде в архів/)).not.toBeInTheDocument()
     // Input + footer buttons render regardless of the impact query state.
     expect(screen.getByTestId('archive-confirm-input')).toBeInTheDocument()
     expect(screen.getByTestId('archive-confirm-submit')).toBeInTheDocument()
@@ -287,17 +287,17 @@ describe('ArchiveConfirmDialog — renderImpactText: project', () => {
     renderDialog({ entityType: 'project', entityId: 'p-1', entityName: 'Project X' })
 
     const dialog = await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований/)
+    await screen.findByText(/піде в архів/)
     const text = dialog.textContent ?? ''
     expect(text).toContain('Project X')
-    // few-form (4): "4 активні джуніори" — mod10 4 is few per uk plural
-    // rules; COPY-M-8 renamed "джун" to "джуніор" across this file.
-    expect(text).toContain('4 активні джуніори')
+    // few-form (4): "4 активних джуніорів" — mod10 4 is few per uk plural
+    // rules; genitive form matches the JUNIOR-role pattern in
+    // UserArchiveImpact.tsx (COPY-H-3 fix round A).
+    expect(text).toContain('4 активних джуніорів')
     expect(text).toContain('не')
-    expect(text).toContain('будуть архівовані')
-    // `{' '}` boundaries: "архівований," -> count, count -> "будуть відв’язані".
-    expect(text).toContain('архівований, 4 активні джуніори')
-    expect(text).toContain('джуніори будуть відв’язані')
+    expect(text).toContain('в архів не підуть')
+    // `{' '}` boundaries: "відв’язано" -> count -> ". Сеньйор".
+    expect(text).toContain('буде відв’язано 4 активних джуніорів')
     // COPY-H-2: the standalone capitalized "Синьйор" sentence-opener in
     // this branch was missed by the first (lowercase-only) sweep.
     expect(text).toContain('Сеньйор і команда')
@@ -332,7 +332,7 @@ describe('ArchiveConfirmDialog — pending-transactions list gating', () => {
     renderDialog({ entityType: 'project', entityId: 'p-1', entityName: 'Project X' })
 
     await screen.findByRole('dialog')
-    await screen.findByText(/буде архівований/)
+    await screen.findByText(/піде в архів/)
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 })

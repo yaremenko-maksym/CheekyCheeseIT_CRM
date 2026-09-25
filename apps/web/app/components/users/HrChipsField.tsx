@@ -69,7 +69,7 @@ export function HrChipsField({
     return (
       <Field label="HR" required={required} error={error}>
         <p className="text-xs text-muted-foreground italic">
-          <Trans>Немає вільних HR — створіть HR у розділі «Команда»</Trans>
+          <Trans>HR ще немає — спершу додайте HR</Trans>
         </p>
       </Field>
     )

@@ -123,6 +123,19 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
     renderDialog(makeUser({ role: 'JUNIOR', displayName: 'Oleksiy Kovalenko' }))
     const dialog = await screen.findByRole('dialog')
+    // Code-review CR-H-1 (fix-round A): the PREVIOUS version of this test
+    // only asserted the warning's ABSENCE, which is also true under the
+    // `isLoading || !user` -> `isLoading && !user` mutant here (since
+    // `impact` stays undefined regardless, `impact?.type === 'user'` is
+    // false either way — the assert never actually depended on which
+    // branch rendered). A POSITIVE assertion on the loading testid is the
+    // one thing that actually differs between the two: under the correct
+    // `||`, isLoading=true alone is enough to render it; under the `&&`
+    // mutant, it would only render when BOTH isLoading AND !user are true,
+    // which is false here (`user` is truthy) — so the mutant renders
+    // NEITHER the loading state NOR the warning, an empty gap this
+    // assertion catches directly.
+    expect(within(dialog).getByTestId('archive-impact-loading')).toBeInTheDocument()
     expect(within(dialog).queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
     // The confirm input (rendered whenever `user` truthy, independent of
     // isLoading) stays present — proves `user` really is non-null here and
@@ -161,6 +174,16 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
       </I18nTestProvider>,
     )
     await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/users/u-a/archive-impact'))
+    // Code-review CR-H-1 (fix-round A): calling `api.get` with both URLs
+    // does not depend on the query-key's first element at all (the URL
+    // comes from `queryFn`'s own template string, a SEPARATE mutant already
+    // killed elsewhere) — it would look identical under a `['', user?.id]`
+    // mutant too. What actually depends on the literal 'users-archive-impact'
+    // label is react-query's OWN cache, keyed by the full array: querying
+    // that exact key must find the resolved data.
+    await vi.waitFor(() =>
+      expect(qc.getQueryData(['users-archive-impact', 'u-a'])).not.toBeUndefined(),
+    )
 
     rerender(
       <I18nTestProvider>
@@ -170,6 +193,9 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
       </I18nTestProvider>,
     )
     await vi.waitFor(() => expect(api.get).toHaveBeenCalledWith('/users/u-b/archive-impact'))
+    await vi.waitFor(() =>
+      expect(qc.getQueryData(['users-archive-impact', 'u-b'])).not.toBeUndefined(),
+    )
     expect(api.get).toHaveBeenCalledTimes(2)
   })
 
@@ -390,9 +416,9 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     // security-review PR #584 round 2 (mutation-gate survivor, OptionalChaining
     // on `impact?.type`). `isLoading: false` does NOT guarantee `impact` is
     // defined — a query ERROR also settles `isLoading` to false while `data`
-    // stays `undefined`, and this component has no explicit isError branch.
-    // That is a REAL reachable state (a 500 from GET .../archive-impact), not
-    // just defensive typing — proven here rather than suppressed.
+    // stays `undefined`. That is a REAL reachable state (a 500 from GET
+    // .../archive-impact), not just defensive typing — proven here rather
+    // than suppressed.
     ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
     renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
 
@@ -407,6 +433,32 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     )
     expect(within(dialog).queryByTestId('archive-warning-senior')).not.toBeInTheDocument()
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
+  })
+
+  it('SR-M-1: a failed archive-impact fetch shows an explicit error and keeps the cascade unconfirmable', async () => {
+    // security-review SR-M-1 (fix-round A): previously, an errored impact
+    // query left the SENIOR/DROP cascade warning silently ABSENT while
+    // "Архівувати" stayed enabled as soon as the name matched — an
+    // administrator could archive a SENIOR (and their whole team+projects)
+    // without ever seeing that warning, purely because the impact request
+    // failed. Now: explicit error text, submit stays disabled even with a
+    // matching typed name.
+    ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByTestId('archive-impact-error')).toHaveTextContent(
+      'Не вдалося порахувати наслідки архівації',
+    )
+
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    expect(screen.getByTestId('archive-confirm-submit')).toBeDisabled()
+
+    // Enter-to-submit must ALSO stay inert — the keydown guard has its own
+    // `isLoading`/`isError` checks, separate from the button's `disabled`.
+    await user.keyboard('{Enter}')
+    expect(api.delete).not.toHaveBeenCalled()
   })
 
   it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {

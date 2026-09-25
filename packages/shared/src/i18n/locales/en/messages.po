@@ -46,6 +46,11 @@ msgstr "· No senior assigned"
 msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
 msgstr "{0, plural, one {# income entry is waiting for your review} other {# income entries are waiting for your review}}"
 
+#. placeholder {0}: team.members.length
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "{0, plural, one {# учасник} few {# учасники} many {# учасників} other {# учасника}}"
+msgstr "{0, plural, one {# member} other {# members}}"
+
 #. placeholder {0}: vacantDropTeams.length
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "{0, plural, one {Доступна # команда.} few {Доступно # команди.} many {Доступно # команд.} other {Доступно # команди.}}"
@@ -72,11 +77,6 @@ msgstr "{0} of {1}"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "{0} із {1}"
 msgstr "{0} of {1}"
-
-#. placeholder {0}: team.members.length
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "{0} уч."
-msgstr "{0} members"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "{activeProjects, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
@@ -106,8 +106,8 @@ msgstr "<0>{0}</0> and its senior <1>{1}</1> are a linked pair — you cannot re
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
-msgstr "<0>{entityName}</0> and team «<1>{0}</1>» are a linked pair — they can't be removed one at a time. Archived together: the {roleGenitive}'s profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{namesSuffix})."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgstr "<0>{entityName}</0> and team “<1>{0}</1>” are a linked pair — one can’t be archived without the other. Archived together: the {roleGenitive}’s profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{namesSuffix}). The profile will no longer be able to sign in to the CRM."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -146,6 +146,10 @@ msgstr "HR can only add a senior to their own drop team"
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR can only create seniors"
 
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "HR ще немає — спершу додайте HR"
+msgstr "No HR yet — add one first"
+
 #. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: {0}"
@@ -154,12 +158,6 @@ msgstr "HR: {0}"
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: немає"
 msgstr "HR: none"
-
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди й проєктів їх не стосується."
-msgstr "HR/accountants on the team ({0, plural, one {# HR/accountant} other {# HR/accountants}}) and juniors on these projects ({1, plural, one {# junior} other {# juniors}}) stay active members and keep getting paid — archiving the team and projects doesn't affect them."
 
 #. placeholder {0}: impact.membersAffected
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -185,10 +183,6 @@ msgstr "Enter the IBAN: UA + 27 digits (29 characters)"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN is required"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Override задано. Застосовується до всіх проєктів команди (пріоритет нижче за project override, вище за user default)."
-msgstr "Override is set. Applies to all of the team's projects (lower priority than a project override, higher than the user default)."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -443,33 +437,41 @@ msgstr "Accountant"
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
 msgstr "An accountant can't choose who receives admin income"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Бухгалтерів ще немає — зверніться до адміністратора"
+msgstr "No accountants yet — ask an admin to add one"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Бухгалтерів ще немає — спершу додайте бухгалтера"
+msgstr "No accountants yet — add one first"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "In active stages"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
-msgstr "The profile of <0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{namesSuffix})."
+msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgstr "The profile of <0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{namesSuffix}). The profile will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними."
-msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves stay active."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves stay active. The profile will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними."
-msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves stay active."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves stay active. The profile will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними."
-msgstr "The profile of <0>{entityName}</0> will be archived; they will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves stay active."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves stay active. The profile will no longer be able to sign in to the CRM."
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба."
-msgstr "The profile of <0>{entityName}</0> will be archived. Nothing related needs archiving."
+msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
+msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs to be archived along with it. The profile will no longer be able to sign in to the CRM."
 
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -821,6 +823,11 @@ msgstr "Application deleted"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "No open obligation found for this transaction"
+
+#. placeholder {0}: team.name
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Відкрити «{0}»"
+msgstr "Open “{0}”"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
@@ -1398,6 +1405,10 @@ msgstr "Uploading…"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "You can only upload your own documents"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
+msgstr "Set for the team. Applies to all its projects except those with an individual project share."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2215,6 +2226,11 @@ msgstr "Couldn't return to your own account. Sign in again"
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Could not return: {errMessage}"
 
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Не вдалося порахувати наслідки архівації"
+msgstr "Could not calculate the consequences of archiving"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
 msgstr "Could not join the team — try again"
@@ -2237,8 +2253,8 @@ msgid "Не вдалося увійти: {errMessage}"
 msgstr "Failed to log in: {errMessage}"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Не задано — використовується значення сеньйора (26% за замовчуванням). Пересуньте повзунок, щоб задати override."
-msgstr "Not set — uses the senior's value (26% by default). Move the slider to set an override."
+msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
+msgstr "Not set — the senior’s default share applies (26% unless changed). Move the slider to set a team share."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2311,15 +2327,6 @@ msgstr "No active contract template for this role. Add one under Contracts"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "There is no active Terms of Service version. Create the first one."
-
-#: apps/web/app/components/users/HrChipsField.tsx
-msgid "Немає вільних HR — створіть HR у розділі «Команда»"
-msgstr "No HR available — create one in the Team section"
-
-#: apps/web/app/components/users/AccountantChipField.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»"
-msgstr "No accountants available — create one in the Team section"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
@@ -2661,11 +2668,6 @@ msgstr "Viewing archived version v{0}"
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "You can only view your own contract"
 
-#. placeholder {0}: team.name
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Перейти до команди {0}"
-msgstr "Go to {0}'s team"
-
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
 msgstr "Moved to “Hired”"
@@ -2952,8 +2954,8 @@ msgstr "Rejection reason — 500 characters max"
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, рахунки) залишається доступною."
-msgstr "Project <0>{entityName}</0> will be archived, <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be detached. The senior and team will <2>not</2> be archived. Financial history (transactions, invoices) stays available."
+msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
+msgstr "The project <0>{entityName}</0> will be archived, and <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unassigned from it. The senior and the team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Проєкт відновлено"
@@ -3024,6 +3026,13 @@ msgstr "Proposed by {0}"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Profile"
+
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "Профіль можна відновити з архіву."
+msgstr "The profile can be restored from the archive."
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"
@@ -3574,6 +3583,12 @@ msgstr "You don't have an active team. Create your own or join a drop's team."
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "You already have an active team"
 
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "У команді {0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення HR/бухгалтерів доведеться додати в команду заново."
+msgstr "The team has {0, plural, one {# HR/accountant} other {# HR/accountants}} and its projects have {1, plural, one {# junior} other {# juniors}}: their profiles stay active and they keep getting paid. After restoring, HR/accountants have to be added to the team again."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ALREADY_HAS_SENIOR"
@@ -3933,13 +3948,13 @@ msgstr "Share unknown. Refresh the page"
 msgid "Частка сеньйора (%)"
 msgstr "Senior's share (%)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Частка сеньйора (override для команди)"
-msgstr "Senior's share (team override)"
-
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Частка сеньйора за весь час"
 msgstr "Senior's share · all time"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Частка сеньйора на рівні команди"
+msgstr "Senior’s share at the team level"
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка сеньйора у відсотках"

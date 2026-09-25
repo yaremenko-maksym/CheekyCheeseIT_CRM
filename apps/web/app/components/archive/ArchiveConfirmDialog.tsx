@@ -135,18 +135,19 @@ function renderImpactText(
   if (entityType === 'project' && impact.type === 'project') {
     return (
       <Trans>
-        Проєкт <strong className="text-foreground">{entityName}</strong> буде архівований,{' '}
+        Проєкт <strong className="text-foreground">{entityName}</strong> піде в архів, від нього
+        буде відв’язано{' '}
         <strong>
           <Plural
             value={impact.activeMembersCount}
-            one="# активний джуніор"
-            few="# активні джуніори"
+            one="# активного джуніора"
+            few="# активних джуніорів"
             many="# активних джуніорів"
-            other="# активних джуніорів"
+            other="# активного джуніора"
           />
-        </strong>{' '}
-        будуть відв’язані. Сеньйор і команда <strong>не</strong> будуть архівовані. Фінансова
-        історія (транзакції, рахунки) залишається доступною.
+        </strong>
+        . Сеньйор і команда в архів <strong>не</strong> підуть. Фінансова історія (транзакції,
+        рахунки) залишається доступною.
       </Trans>
     )
   }

@@ -25,9 +25,7 @@ describe('AccountantChipField', () => {
       { wrapper: I18nTestProvider },
     )
     expect(screen.getByText('Бухгалтер')).toBeInTheDocument()
-    expect(
-      screen.getByText('Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»'),
-    ).toBeInTheDocument()
+    expect(screen.getByText('Бухгалтерів ще немає — спершу додайте бухгалтера')).toBeInTheDocument()
   })
 
   it('renders the selected accountant chip when one is chosen, under the "Бухгалтер" field label', async () => {

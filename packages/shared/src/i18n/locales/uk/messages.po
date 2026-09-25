@@ -46,6 +46,11 @@ msgstr "· Сеньйора не призначено"
 msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
 msgstr "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
 
+#. placeholder {0}: team.members.length
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "{0, plural, one {# учасник} few {# учасники} many {# учасників} other {# учасника}}"
+msgstr "{0, plural, one {# учасник} few {# учасники} many {# учасників} other {# учасника}}"
+
 #. placeholder {0}: vacantDropTeams.length
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "{0, plural, one {Доступна # команда.} few {Доступно # команди.} many {Доступно # команд.} other {Доступно # команди.}}"
@@ -72,11 +77,6 @@ msgstr "{0} з {1}"
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "{0} із {1}"
 msgstr "{0} із {1}"
-
-#. placeholder {0}: team.members.length
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "{0} уч."
-msgstr "{0} уч."
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "{activeProjects, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
@@ -106,8 +106,8 @@ msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана п�
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
-msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -146,6 +146,10 @@ msgstr "HR може приєднати сеньйора лише до своєї
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR може створювати лише сеньйорів"
 
+#: apps/web/app/components/users/HrChipsField.tsx
+msgid "HR ще немає — спершу додайте HR"
+msgstr "HR ще немає — спершу додайте HR"
+
 #. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: {0}"
@@ -154,12 +158,6 @@ msgstr "HR: {0}"
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: немає"
 msgstr "HR: немає"
-
-#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
-#. placeholder {1}: impact.juniorsAffected ?? 0
-#: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди й проєктів їх не стосується."
-msgstr "HR/бухгалтери в команді ({0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}) і джуніори на цих проєктах ({1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}) залишаються активними учасниками і продовжують отримувати оплату — архівація команди й проєктів їх не стосується."
 
 #. placeholder {0}: impact.membersAffected
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
@@ -185,10 +183,6 @@ msgstr "IBAN має бути у форматі UA + 27 цифр (29 символ
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN обов’язковий"
-
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Override задано. Застосовується до всіх проєктів команди (пріоритет нижче за project override, вище за user default)."
-msgstr "Override задано. Застосовується до всіх проєктів команди (пріоритет нижче за project override, вище за user default)."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -443,33 +437,41 @@ msgstr "Бухгалтер"
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
 msgstr "Бухгалтер не обирає, хто отримує дохід адміністратора"
 
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Бухгалтерів ще немає — зверніться до адміністратора"
+msgstr "Бухгалтерів ще немає — зверніться до адміністратора"
+
+#: apps/web/app/components/users/AccountantChipField.tsx
+msgid "Бухгалтерів ще немає — спершу додайте бухгалтера"
+msgstr "Бухгалтерів ще немає — спершу додайте бухгалтера"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
 msgstr "В активних стадіях"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
-msgstr "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix})."
+msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgstr "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба."
-msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба."
+msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
+msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
 
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -821,6 +823,11 @@ msgstr "Відгук видалено"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "Відкрите зобов’язання для цієї транзакції не знайдено"
+
+#. placeholder {0}: team.name
+#: apps/web/app/routes/_authenticated/team/index.tsx
+msgid "Відкрити «{0}»"
+msgstr "Відкрити «{0}»"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
@@ -1398,6 +1405,10 @@ msgstr "Завантаження…"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "Завантажувати можна лише власні документи"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
+msgstr "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2215,6 +2226,11 @@ msgstr "Не вдалося повернутися до вашого облік�
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
 
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+msgid "Не вдалося порахувати наслідки архівації"
+msgstr "Не вдалося порахувати наслідки архівації"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
 msgstr "Не вдалося приєднатися до команди — спробуйте ще раз"
@@ -2237,8 +2253,8 @@ msgid "Не вдалося увійти: {errMessage}"
 msgstr "Не вдалося увійти: {errMessage}"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Не задано — використовується значення сеньйора (26% за замовчуванням). Пересуньте повзунок, щоб задати override."
-msgstr "Не задано — використовується значення сеньйора (26% за замовчуванням). Пересуньте повзунок, щоб задати override."
+msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
+msgstr "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2311,15 +2327,6 @@ msgstr "Немає активного шаблону контракту для �
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "Немає активної версії умов використання. Створіть першу версію."
-
-#: apps/web/app/components/users/HrChipsField.tsx
-msgid "Немає вільних HR — створіть HR у розділі «Команда»"
-msgstr "Немає вільних HR — створіть HR у розділі «Команда»"
-
-#: apps/web/app/components/users/AccountantChipField.tsx
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»"
-msgstr "Немає вільних бухгалтерів — створіть бухгалтера у розділі «Команда»"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
@@ -2661,11 +2668,6 @@ msgstr "Перегляд архівної версії v{0}"
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "Переглянути можна лише власний контракт"
 
-#. placeholder {0}: team.name
-#: apps/web/app/routes/_authenticated/team/index.tsx
-msgid "Перейти до команди {0}"
-msgstr "Перейти до команди {0}"
-
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
 msgstr "Перейшли в «Найнято»"
@@ -2952,8 +2954,8 @@ msgstr "Причина відмови — не більше 500 символів
 
 #. placeholder {0}: impact.activeMembersCount
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
-msgid "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, рахунки) залишається доступною."
-msgstr "Проєкт <0>{entityName}</0> буде архівований, <1>{0, plural, one {# активний джуніор} few {# активні джуніори} many {# активних джуніорів} other {# активних джуніорів}}</1> будуть відв’язані. Сеньйор і команда <2>не</2> будуть архівовані. Фінансова історія (транзакції, рахунки) залишається доступною."
+msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
+msgstr "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Проєкт відновлено"
@@ -3024,6 +3026,13 @@ msgstr "Пропонує {0}"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Профіль"
+
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "Профіль можна відновити з архіву."
+msgstr "Профіль можна відновити з архіву."
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"
@@ -3574,6 +3583,12 @@ msgstr "У вас немає активної команди. Створіть �
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "У вас уже є активна команда"
 
+#. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
+#. placeholder {1}: impact.juniorsAffected ?? 0
+#: apps/web/app/components/archive/UserArchiveImpact.tsx
+msgid "У команді {0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення HR/бухгалтерів доведеться додати в команду заново."
+msgstr "У команді {0, plural, one {# HR/бухгалтер} few {# HR/бухгалтери} many {# HR/бухгалтерів} other {# HR/бухгалтера}}, на її проєктах — {1, plural, one {# джуніор} few {# джуніори} many {# джуніорів} other {# джуніора}}: їхні профілі залишаються активними, оплату вони отримують як і раніше. Після відновлення HR/бухгалтерів доведеться додати в команду заново."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_ALREADY_HAS_SENIOR"
@@ -3933,13 +3948,13 @@ msgstr "Частка невідома. Оновіть сторінку"
 msgid "Частка сеньйора (%)"
 msgstr "Частка сеньйора (%)"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
-msgid "Частка сеньйора (override для команди)"
-msgstr "Частка сеньйора (override для команди)"
-
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Частка сеньйора за весь час"
 msgstr "Частка сеньйора за весь час"
+
+#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+msgid "Частка сеньйора на рівні команди"
+msgstr "Частка сеньйора на рівні команди"
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка сеньйора у відсотках"

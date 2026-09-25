@@ -48,7 +48,11 @@ export function ArchiveUserConfirmDialog({
   const queryClient = useQueryClient()
   const [typed, setTyped] = useState('')
 
-  const { data: impact, isLoading } = useQuery({
+  const {
+    data: impact,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['users-archive-impact', user?.id],
     queryFn: () => api.get<ArchiveImpact>(`/users/${user!.id}/archive-impact`).then((r) => r.data),
     enabled: !!user,
@@ -139,6 +143,19 @@ export function ArchiveUserConfirmDialog({
                 <Skeleton className="h-4 w-3/4" />
                 <Skeleton className="h-4 w-2/3" />
               </div>
+            ) : isError ? (
+              // security-review SR-M-1 (fix-round A): a failed archive-impact
+              // fetch used to leave the SENIOR/DROP cascade warning silently
+              // absent while the submit button stayed enabled — an
+              // irreversible-by-appearance action confirmed blind. Explicit
+              // failure state + submit stays disabled below.
+              <p
+                className="text-sm text-destructive"
+                data-testid="archive-impact-error"
+                role="alert"
+              >
+                <Trans>Не вдалося порахувати наслідки архівації</Trans>
+              </p>
             ) : (
               <>
                 {impact?.type === 'user' && (
@@ -162,7 +179,13 @@ export function ArchiveUserConfirmDialog({
                   onChange={(e) => setTyped(e.target.value)}
                   placeholder={user.displayName}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && matches && !mutation.isPending) {
+                    if (
+                      e.key === 'Enter' &&
+                      matches &&
+                      !mutation.isPending &&
+                      !isLoading &&
+                      !isError
+                    ) {
                       e.preventDefault()
                       mutation.mutate()
                     }
@@ -179,7 +202,7 @@ export function ArchiveUserConfirmDialog({
           <Button
             data-testid="archive-confirm-submit"
             variant="destructive"
-            disabled={!matches || mutation.isPending || !user}
+            disabled={!matches || mutation.isPending || !user || isLoading || isError}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? t`Архівуємо…` : t`Архівувати`}

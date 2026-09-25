@@ -280,6 +280,22 @@ describe('ArchiveUserDialog (profile page) — delegates impact text to UserArch
     expect(screen.queryByTestId('archive-pending-transactions-warning')).not.toBeInTheDocument()
   })
 
+  it('SR-M-1: a failed archive-impact fetch shows an explicit error and keeps the cascade unconfirmable', async () => {
+    // security-review SR-M-1 (fix-round A) — see the identical fix/rationale
+    // in components/users/ArchiveUserConfirmDialog.test.tsx.
+    ;(api.get as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('network down'))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'SENIOR', displayName: 'Oleksiy Kovalenko' }))
+
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByTestId('archive-impact-error')).toHaveTextContent(
+      'Не вдалося порахувати наслідки архівації',
+    )
+
+    await user.type(screen.getByTestId('archive-confirm-name-input'), 'Oleksiy Kovalenko')
+    expect(screen.getByTestId('archive-confirm-submit')).toBeDisabled()
+  })
+
   it('the pending-list guard checks impact.type, not just truthiness — a non-"user" shape never renders it here', async () => {
     // security-review PR #584 round 2 (mutation-gate survivor): a mock that
     // ONLY ever resolves `type: 'user'` cannot distinguish `impact?.type ===

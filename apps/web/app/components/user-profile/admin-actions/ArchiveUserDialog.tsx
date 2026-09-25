@@ -47,7 +47,7 @@ export function ArchiveUserDialog({
 }) {
   const { t } = useLingui()
   const mutation = useArchiveUser(user.id)
-  const { data: impact, isLoading } = useArchiveImpact('user', user.id)
+  const { data: impact, isLoading, isError } = useArchiveImpact('user', user.id)
   const [typed, setTyped] = useState('')
   const matches = typed.trim() === user.displayName.trim()
 
@@ -73,6 +73,17 @@ export function ArchiveUserDialog({
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
               </div>
+            ) : isError ? (
+              // security-review SR-M-1 (fix-round A) — see the same fix in
+              // components/users/ArchiveUserConfirmDialog.tsx for the full
+              // rationale.
+              <p
+                className="text-sm text-destructive"
+                data-testid="archive-impact-error"
+                role="alert"
+              >
+                <Trans>Не вдалося порахувати наслідки архівації</Trans>
+              </p>
             ) : (
               <>
                 {impact?.type === 'user' && (
@@ -102,7 +113,7 @@ export function ArchiveUserDialog({
           <Button
             data-testid="archive-confirm-submit"
             variant="destructive"
-            disabled={!matches || mutation.isPending}
+            disabled={!matches || mutation.isPending || isLoading || isError}
             onClick={async () => {
               await mutation.mutateAsync()
               onClose()

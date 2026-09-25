@@ -970,7 +970,7 @@ function TeamDetailPage() {
                       <div className="grid gap-1.5">
                         <div className="flex items-center justify-between">
                           <Label>
-                            <Trans>Частка сеньйора (override для команди)</Trans>
+                            <Trans>Частка сеньйора на рівні команди</Trans>
                           </Label>
                           {hasOverride && (
                             <Button
@@ -996,13 +996,13 @@ function TeamDetailPage() {
                         <p className="text-xs text-muted-foreground">
                           {hasOverride ? (
                             <Trans>
-                              Override задано. Застосовується до всіх проєктів команди (пріоритет
-                              нижче за project override, вище за user default).
+                              Задано для команди. Діє на всіх її проєктах, крім тих, де є
+                              індивідуальна частка за проєктом.
                             </Trans>
                           ) : (
                             <Trans>
-                              Не задано — використовується значення сеньйора (26% за замовчуванням).
-                              Пересуньте повзунок, щоб задати override.
+                              Не задано — діє частка сеньйора за замовчуванням (26%, якщо не
+                              змінювали). Пересуньте повзунок, щоб задати частку для команди.
                             </Trans>
                           )}
                         </p>
