@@ -3308,7 +3308,7 @@ msgstr "Показник «всього зароблено» бачать лиш
 msgid "Покинути"
 msgstr "Покинути"
 
-#. placeholder {0}: i18n._(TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? TAB_LABELS['contract']!)
+#. placeholder {0}: i18n._(dirtyGuardTabLabel)
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Покинути вкладку «{0}»?"
 msgstr "Покинути вкладку «{0}»?"

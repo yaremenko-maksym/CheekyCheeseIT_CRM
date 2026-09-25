@@ -90,6 +90,28 @@ describe('AvatarUploadDialog — source tab toggle labels', () => {
     expect(screen.getByLabelText('Джерело зображення')).toBeInTheDocument()
   })
 
+  it('the two tab options carry their own distinct `value` (not just distinct labels) — the File tab starts selected', () => {
+    // mutation-gate (@crm/web, Fix-round B round 2, CI-MUT): `value: 'file'`
+    // -> `value: ""` survived against every assertion above — `label`/
+    // `ariaLabel` are what render as visible text, `value` is purely
+    // internal (SegmentedToggle's `option.value === value` selection
+    // check), so no text-based query can see it change.
+    renderDialog()
+    expect(screen.getByRole('tab', { name: 'Файл' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Посилання' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('clicking the "Посилання" tab actually switches to the URL form (not a value that matches neither tab)', () => {
+    // With `value: 'url'` -> `value: ""`, `onChange('')` fires on click and
+    // `tab` becomes `''` — a string that satisfies NEITHER `tab === 'file'`
+    // NOR `tab === 'url'`, so BOTH the file-picker UI and the URL input
+    // would silently vanish. `aria-selected` alone (a SegmentedToggle-level
+    // check) cannot see that consumer-side effect.
+    renderDialog()
+    fireEvent.click(screen.getByRole('tab', { name: 'Посилання' }))
+    expect(screen.getByPlaceholderText('https://example.com/avatar.png')).toBeInTheDocument()
+  })
+
   it('shows the "Читання файлу…" progress label the instant a valid file is selected, before the async FileReader resolves', () => {
     renderDialog()
     const input = screen.getByTestId('avatar-file-input') as HTMLInputElement

@@ -9,7 +9,7 @@
  * SENIOR/ADMIN — this reaches it without needing Radix's async Tooltip
  * portal for the standalone `TooltipContent` copy of the same string.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, beforeEach, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import type { UserProfileDto } from '@crm/shared'
@@ -70,7 +70,33 @@ describe('RequisitesEditForm — USDT_ONLY_HINT on the disabled Bank tab', () =>
 describe('RequisitesEditForm — USDT tab + form-level text', () => {
   it('renders the USDT (ERC-20) tab with its own label/ariaLabel (hardcoded, not catalog — see requisites-warning.spec.ts comment)', () => {
     render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
-    expect(screen.getByLabelText('USDT (ERC-20)')).toBeInTheDocument()
+    const usdtTab = screen.getByLabelText('USDT (ERC-20)')
+    expect(usdtTab).toBeInTheDocument()
+    // mutation-gate (@crm/web, Fix-round B round 2, CI-MUT): `label: 'USDT
+    // (ERC-20)'` -> `label: ""` survived against `getByLabelText` above —
+    // for THIS tab, `label` and `ariaLabel` happen to be the identical
+    // string, so `getByLabelText` (which resolves via `aria-label`) cannot
+    // tell whether the separate VISIBLE `label` field was actually emptied.
+    expect(usdtTab).toHaveTextContent('USDT (ERC-20)')
+  })
+
+  it('the USDT tab carries its own `value` (not just a label) — switching away and back still lands on the USDT fields, not a value that matches no tab', async () => {
+    // mutation-gate (@crm/web, Fix-round B round 2, CI-MUT): `value:
+    // 'USDT_ERC20'` -> `value: ""` survived — `value` is purely internal
+    // (drives which fields `method === 'USDT_ERC20'` renders), invisible to
+    // every label/ariaLabel-based query above.
+    render(<RequisitesEditForm user={makeUser('JUNIOR')} />, { wrapper: I18nTestProvider })
+    expect(screen.getByLabelText('Гаманець USDT (ERC-20)')).toBeInTheDocument()
+
+    // `AnimatePresence mode="wait"` keeps the outgoing card in the DOM for
+    // its own exit transition — the removal is not synchronous with the click.
+    fireEvent.click(screen.getByLabelText('ФОП (UAH)'))
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Гаманець USDT (ERC-20)')).not.toBeInTheDocument(),
+    )
+
+    fireEvent.click(screen.getByLabelText('USDT (ERC-20)'))
+    await waitFor(() => expect(screen.getByLabelText('Гаманець USDT (ERC-20)')).toBeInTheDocument())
   })
 
   it('the form itself carries the "Спосіб виплати" aria-label', () => {
