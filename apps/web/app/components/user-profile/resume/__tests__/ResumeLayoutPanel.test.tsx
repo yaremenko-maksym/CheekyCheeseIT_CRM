@@ -303,4 +303,33 @@ describe('ResumePdfPreview', () => {
     expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent('не уложилась')
     expect(screen.queryByTestId('resume-pdf-pending')).not.toBeInTheDocument()
   })
+
+  /**
+   * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
+   * (`Предпросмотр: ${filename}`) — the ONLY place `resume` / `Резюме —
+   * ${name}.pdf` reach the DOM. The earlier assertion in this describe block
+   * only checked the fixed `Предпросмотр:` prefix (a regex), so an empty or
+   * garbled `filename` — from a mutated fallback or a mutated template — was
+   * invisible to it. These two pin the FULL string, with and without an
+   * explicit `fileName`, which is also what distinguishes `??` from `&&` in
+   * `fileName ?? t\`резюме\`` (with a falsy-but-defined fallback they would
+   * agree; with a truthy `fileName` they diverge).
+   */
+  it('falls back to "резюме" and formats "Резюме — {name}.pdf" when no fileName is given', async () => {
+    render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
+    const frame = await screen.findByTitle('Предпросмотр: Резюме — резюме.pdf')
+    expect(frame).toHaveAttribute('aria-label', 'Предпросмотр: Резюме — резюме.pdf')
+  })
+
+  it('uses the given fileName instead of the fallback', async () => {
+    render(
+      <ResumePdfPreview
+        resume={dto()}
+        pdfUrl="/api/users/u1/resume/pdf"
+        fileName="Іван Іваненко"
+      />,
+    )
+    const frame = await screen.findByTitle('Предпросмотр: Резюме — Іван Іваненко.pdf')
+    expect(frame).toBeInTheDocument()
+  })
 })
