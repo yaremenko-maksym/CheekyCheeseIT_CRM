@@ -237,6 +237,22 @@ describe('paid salary: amount edit with the obligation at the recorded rate', ()
     expect(screen.queryByTestId('admin-edit-locked-amount-note')).toBeNull()
   })
 
+  it('PSE-14. a rate with more decimals is shown to four places, not the locale default of three (COPY-M-2)', async () => {
+    getEditCascadePreviewMock.mockResolvedValue(
+      salaryPreview({
+        originalCurrency: 'USD',
+        exchangeRate: '41.12345678',
+        oldOriginalAmount: 1180,
+        newOriginalAmount: 1188.28,
+        recomputed: true,
+      }),
+    )
+    renderDialog(PAID_SALARY)
+    fireEvent.change(amountInput(), { target: { value: '48867' } })
+    const line = await screen.findByTestId('cascade-salary-obligation')
+    expect(line.textContent).toMatch(/за курсом переказу 41,1235\sUAH\/USD$/)
+  })
+
   it('PSE-5. a paid salary keeps its amount field open', () => {
     renderDialog(PAID_SALARY)
     expect(amountInput().disabled).toBe(false)

@@ -337,7 +337,6 @@ export function paidRowAmountLockReason(
         type: string
         amount: string | number
         originalAmount?: string | null | undefined
-        exchangeRate?: string | null | undefined
         settledAmount?: string | null | undefined
       }
     | null
@@ -348,7 +347,12 @@ export function paidRowAmountLockReason(
     {
       type: tx.type,
       originalAmount: tx.originalAmount == null ? null : Number(tx.originalAmount),
-      exchangeRate: tx.exchangeRate ?? null,
+      // The rate cannot change the answer HERE: every salary branch —
+      // recomputed, no rate recorded, and (below) an out-of-range figure —
+      // leaves the field open, and every other type ignores the rate. Passing
+      // the DTO's rate through was a branch no outcome could observe (CR-H-1,
+      // round 2 of the mutation gate).
+      exchangeRate: null,
       settledAmount: tx.settledAmount == null ? null : Number(tx.settledAmount),
       hasClosedObligation: false,
     },
