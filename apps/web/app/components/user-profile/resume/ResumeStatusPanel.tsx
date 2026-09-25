@@ -10,8 +10,17 @@
  *     case, which must name the reset time and still leave manual editing open.
  */
 import { AlertTriangle, Loader2 } from 'lucide-react'
-import type { ResumeFailureCode, ResumeExtractionStatus } from '@crm/shared'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
+import type { ResumeFailureCode, ResumeExtractionStatus, Locale } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
+import { useLocale } from '@/lib/i18n'
+
+const RESET_TIME_UNKNOWN = msg`найближчим часом`
+const DEFAULT_FAILURE_HINT = msg`Заповніть розділи вручну або спробуйте завантажити файл ще раз.`
 
 interface ResumeStatusPanelProps {
   status: ResumeExtractionStatus
@@ -22,50 +31,42 @@ interface ResumeStatusPanelProps {
   onRetry: () => void
 }
 
-const RUNNING_COPY: Record<'QUEUED' | 'RUNNING', { title: string; hint: string }> = {
+const RUNNING_COPY: Record<
+  'QUEUED' | 'RUNNING',
+  { title: MessageDescriptor; hint: MessageDescriptor }
+> = {
   QUEUED: {
-    title: 'Резюме в очереди на распознавание',
-    hint: 'Можно закрыть вкладку — распознавание идёт на сервере, результат появится здесь.',
+    title: msg`Резюме в черзі на розпізнавання`,
+    hint: msg`Вкладку можна закрити — розпізнавання триває на сервері, результат з’явиться тут.`,
   },
   RUNNING: {
-    title: 'Распознаём резюме',
-    hint: 'Обычно занимает несколько секунд. Страница обновится сама.',
+    title: msg`Розпізнаємо резюме`,
+    hint: msg`Зазвичай займає кілька секунд. Сторінка оновиться сама.`,
   },
-}
+} satisfies Record<'QUEUED' | 'RUNNING', { title: MessageDescriptor; hint: MessageDescriptor }>
 
 /** Actionable next step per failure reason — never a generic apology. */
-function failureHint(code: ResumeFailureCode | null, quotaResetsAt: string | null): string {
-  switch (code) {
-    case 'NO_TEXT':
-      return 'Похоже, в файле нет текстового слоя (скан или картинка). Вставьте текст резюме — распознавание сработает так же.'
-    case 'UNREADABLE_FILE':
-      return 'Файл не удалось прочитать. Загрузите другой PDF/DOCX или вставьте текст.'
-    case 'MODEL_INVALID_JSON':
-      return 'Модель не смогла разобрать это резюме. Заполните разделы вручную — форма ниже полностью рабочая.'
-    case 'QUOTA_EXCEEDED':
-      return quotaResetsAt
-        ? `Суточный лимит бесплатных запросов исчерпан. Лимит обнулится ${formatResetTime(quotaResetsAt)} — до этого заполните резюме вручную, форма ниже работает.`
-        : 'Суточный лимит бесплатных запросов исчерпан. Заполните резюме вручную — форма ниже работает.'
-    case 'AI_NOT_CONFIGURED':
-      // The server message already says "не настроен" — this line must ADD
-      // something, not restate it: what the user gets if they type it in.
-      return 'Заполненное вручную резюме ничем не отличается: те же разделы, тот же экспорт в PDF.'
-    case 'STALLED':
-      return 'Распознавание прервалось на стороне сервера. Загрузите файл ещё раз или заполните резюме вручную.'
-    default:
-      return 'Заполните разделы вручную или попробуйте загрузить файл ещё раз.'
-  }
-}
+const FAILURE_HINTS: Record<ResumeFailureCode, MessageDescriptor> = {
+  NO_TEXT: msg`Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само.`,
+  UNREADABLE_FILE: msg`Файл не вдалося прочитати. Завантажте інший PDF/DOCX або вставте текст.`,
+  MODEL_INVALID_JSON: msg`Модель не змогла розібрати це резюме. Заповніть розділи вручну — форма нижче повністю робоча.`,
+  // task-i18n-stage3b-pr3 (Step 4): the quota-reset time is appended by the
+  // caller (`failureHint` below) via `<Trans>Ліміт оновиться {when}</Trans>`
+  // — no time here, that half is the `else` branch of `failureHint`.
+  QUOTA_EXCEEDED: msg`Добовий ліміт безкоштовних запитів вичерпано. Заповніть резюме вручну — форма нижче працює.`,
+  // The server message already says "не налаштовано" — this line must ADD
+  // something, not restate it: what the user gets if they type it in.
+  AI_NOT_CONFIGURED: msg`Заповнене вручну резюме нічим не відрізняється: ті самі розділи, той самий експорт у PDF.`,
+  // Any other model/transport failure — same fallback the original switch's
+  // `default:` branch gave this code (no dedicated case before this wave).
+  MODEL_ERROR: DEFAULT_FAILURE_HINT,
+  STALLED: msg`Розпізнавання перервалося на боці сервера. Завантажте файл ще раз або заповніть резюме вручну.`,
+} satisfies Record<ResumeFailureCode, MessageDescriptor>
 
-export function formatResetTime(iso: string): string {
+export function formatResetTime(iso: string, locale: Locale): string {
   const at = new Date(iso)
-  if (Number.isNaN(at.getTime())) return 'в ближайшее время'
-  return at.toLocaleString('ru-RU', {
-    day: 'numeric',
-    month: 'long',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
+  if (Number.isNaN(at.getTime())) return i18n._(RESET_TIME_UNKNOWN)
+  return formatDate(at, locale, 'dateTime')
 }
 
 export function ResumeStatusPanel({
@@ -76,6 +77,9 @@ export function ResumeStatusPanel({
   canEdit,
   onRetry,
 }: ResumeStatusPanelProps) {
+  const { i18n } = useLingui()
+  const locale = useLocale()
+
   if (status === 'QUEUED' || status === 'RUNNING') {
     const copy = RUNNING_COPY[status]
     return (
@@ -87,14 +91,16 @@ export function ResumeStatusPanel({
       >
         <Loader2 className="h-5 w-5 shrink-0 animate-spin text-primary" aria-hidden />
         <div className="min-w-0 space-y-0.5">
-          <p className="text-sm font-medium">{copy.title}</p>
-          <p className="text-xs text-muted-foreground">{copy.hint}</p>
+          <p className="text-sm font-medium">{i18n._(copy.title)}</p>
+          <p className="text-xs text-muted-foreground">{i18n._(copy.hint)}</p>
         </div>
       </div>
     )
   }
 
   if (status !== 'FAILED') return null
+
+  const when = quotaResetsAt ? formatResetTime(quotaResetsAt, locale) : undefined
 
   return (
     <div
@@ -105,10 +111,21 @@ export function ResumeStatusPanel({
     >
       <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" aria-hidden />
       <div className="min-w-0 flex-1 space-y-1">
-        <p className="text-sm font-medium">Резюме не распознано автоматически</p>
+        <p className="text-sm font-medium">
+          <Trans>Резюме не розпізнано автоматично</Trans>
+        </p>
         {/* Server copy is plain text; React escapes it. Never dangerouslySetInnerHTML. */}
         {errorMessage && <p className="text-xs text-muted-foreground">{errorMessage}</p>}
-        <p className="text-xs text-muted-foreground">{failureHint(errorCode, quotaResetsAt)}</p>
+        <p className="text-xs text-muted-foreground">
+          {errorCode === 'QUOTA_EXCEEDED' && when ? (
+            <Trans>
+              Добовий ліміт безкоштовних запитів вичерпано. Ліміт оновиться {when} — до того часу
+              заповніть резюме вручну, форма нижче працює.
+            </Trans>
+          ) : (
+            i18n._((errorCode && FAILURE_HINTS[errorCode]) || DEFAULT_FAILURE_HINT)
+          )}
+        </p>
       </div>
       {canEdit && (
         <Button
@@ -121,7 +138,7 @@ export function ResumeStatusPanel({
           className="min-h-11 shrink-0"
           data-testid="resume-retry-upload"
         >
-          Загрузить заново
+          <Trans>Завантажити ще раз</Trans>
         </Button>
       )}
     </div>
