@@ -3362,10 +3362,16 @@ export class TransactionsService {
             // observed half-written. `exchangeRate` / `originalCurrency` are
             // deliberately absent: the rate of a transfer that happened does
             // not change because its figure was mistyped.
-            ...(amountToWrite !== undefined &&
-              paymentFact?.recomputed && {
-                originalAmount: String(paymentFact.newOriginalAmount),
-              }),
+            //
+            // No `amountToWrite !== undefined` beside it: a non-null
+            // `paymentFact` already means the plan saw the stored figure move
+            // (`resolveEditCascade` sets it only when `sourceAmountChanged`),
+            // on a salary with no accumulator — where the floored comparison
+            // `amountChanged` makes is the same comparison. The extra operand
+            // was an equivalent mutant, i.e. a second rule saying nothing.
+            ...(paymentFact?.recomputed && {
+              originalAmount: String(paymentFact.newOriginalAmount),
+            }),
             ...(data.currency !== undefined && {
               currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
             }),
@@ -3469,23 +3475,23 @@ export class TransactionsService {
               // false` is owner decision 2 (no rate recorded → the obligation
               // is left as it was), and the note makes the resulting
               // disagreement between the three a recorded choice, not a bug.
-              ...(amountChanged &&
-                paymentFact && {
-                  paymentFact: {
-                    originalAmount: {
-                      before: String(paymentFact.oldOriginalAmount),
-                      after: String(paymentFact.newOriginalAmount),
-                    },
-                    exchangeRate: {
-                      before: paymentFact.exchangeRate,
-                      after: paymentFact.exchangeRate,
-                    },
-                    recomputed: paymentFact.recomputed,
-                    ...(!paymentFact.recomputed && {
-                      note: 'exchange rate not recorded — obligation not recomputed',
-                    }),
+              // (Non-null only on an amount change — see the UPDATE above.)
+              ...(paymentFact && {
+                paymentFact: {
+                  originalAmount: {
+                    before: String(paymentFact.oldOriginalAmount),
+                    after: String(paymentFact.newOriginalAmount),
                   },
-                }),
+                  exchangeRate: {
+                    before: paymentFact.exchangeRate,
+                    after: paymentFact.exchangeRate,
+                  },
+                  recomputed: paymentFact.recomputed,
+                  ...(!paymentFact.recomputed && {
+                    note: 'exchange rate not recorded — obligation not recomputed',
+                  }),
+                },
+              }),
               ...(currencyChanged && {
                 currency: { before: tx.currency, after: data.currency },
               }),

@@ -1684,6 +1684,14 @@ describe('resolveEditCascade — the payment fact of an edited salary', () => {
     })
   })
 
+  it('describes no figure for an obligation that could not be stored — that edit is refused', () => {
+    const plan = resolveEditCascade(
+      snapshot({ ...paidSalary, amount: 400000, exchangeRate: '0.50000000' }, []),
+      { amount: 500000 },
+    )
+    expect(plan.sourcePaymentFact).toBeNull()
+  })
+
   it('has nothing to say when the amount does not move', () => {
     const plan = resolveEditCascade(snapshot(paidSalary, []), { amount: 48675 })
     expect(plan.sourcePaymentFact).toBeNull()

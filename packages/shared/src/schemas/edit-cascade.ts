@@ -1016,11 +1016,13 @@ export const CASCADE_LEDGER_FACT_MESSAGES: Record<
  * re-checked here, where it holds by construction of the rounding.
  */
 export function recomputeObligationAtRecordedRate(amount: number, rate: string): number | null {
-  const r = Number(rate)
-  if (!Number.isFinite(r) || r <= 0) return null
-  const obligation = Number((amount / r).toFixed(AMOUNT_DECIMAL_PLACES))
-  if (obligation < MIN_TRANSACTION_AMOUNT || obligation > MAX_TRANSACTION_AMOUNT) return null
-  return obligation
+  const obligation = Number((amount / Number(rate)).toFixed(AMOUNT_DECIMAL_PLACES))
+  // ONE range check covers every bad rate, so there is no second rule to keep
+  // in step with it: a non-numeric rate gives NaN (fails both comparisons), a
+  // zero rate gives Infinity, a negative one a negative figure, an infinite
+  // one 0 — all outside [MIN, MAX].
+  const storable = obligation >= MIN_TRANSACTION_AMOUNT && obligation <= MAX_TRANSACTION_AMOUNT
+  return storable ? obligation : null
 }
 
 export type SalaryPaymentFactEdit =
