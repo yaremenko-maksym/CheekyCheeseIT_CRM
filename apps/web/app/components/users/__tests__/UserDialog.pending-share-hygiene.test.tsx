@@ -253,16 +253,16 @@ describe('UserDialog — COPY-H-6: saving a share change says the change is not 
     expect(message).toContain('26%')
     // task-648-fix-round-4 (COPY-L-15): this toast is where the fact is
     // born, and it was the one place calling it «новая доля» — a second later
-    // the reader sees «Предложено 40%» on the badge and «Отменить
-    // предложение» on the button.
-    expect(message).toContain('Предложение')
-    expect(message).not.toMatch(/новая доля/i)
-    // «Пользователь обновлён» is the lie this replaces for THIS case: the
+    // the reader sees «Запропоновано 40%» on the badge and «Скасувати
+    // пропозицію» on the button.
+    expect(message).toContain('запропоновано')
+    expect(message).not.toMatch(/нова частка/i)
+    // «Зміни збережено» is the lie this replaces for THIS case: the
     // live column was not updated at all.
-    expect(message).not.toBe('Пользователь обновлён')
+    expect(message).not.toBe('Зміни збережено')
   })
 
-  it('keeps the plain «Пользователь обновлён» when no proposal was opened', async () => {
+  it('keeps the plain «Зміни збережено» when no proposal was opened', async () => {
     mockPatch.mockResolvedValue({ data: { ...seniorUser, pendingSeniorShare: null } })
     const user = userEvent.setup()
     render(<UserDialog mode="edit" user={seniorUser} onClose={vi.fn()} />)
@@ -278,7 +278,7 @@ describe('UserDialog — COPY-H-6: saving a share change says the change is not 
     await user.click(screen.getByTestId('user-dialog-submit'))
     await waitFor(() => expect(toastSuccess).toHaveBeenCalled())
 
-    expect(toastSuccess).toHaveBeenCalledWith('Пользователь обновлён')
+    expect(toastSuccess).toHaveBeenCalledWith('Зміни збережено')
   })
 })
 

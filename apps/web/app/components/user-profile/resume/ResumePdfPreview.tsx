@@ -20,6 +20,7 @@
  * hand-rolled `<object>` here did not.
  */
 import { Download, FileText, Loader2, TriangleAlert } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { SeniorResumeDto } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { PdfPreview } from '@/components/documents/pdf-preview'
@@ -33,6 +34,7 @@ export interface ResumePdfPreviewProps {
 }
 
 export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewProps) {
+  const { t } = useLingui()
   // Fetched only when the stored PDF matches the current resume — a stale one
   // must never be shown, so there is nothing to load until it is fresh.
   const { blobUrl, isLoading, hasError } = useResumePdfBlob(
@@ -56,10 +58,15 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
         <div className="flex items-start gap-3">
           <TriangleAlert className="mt-0.5 size-4 shrink-0 text-amber-500" />
           <div className="text-sm">
-            <p className="font-medium">Не удалось собрать PDF</p>
+            <p className="font-medium">
+              <Trans>Не вдалося зібрати PDF</Trans>
+            </p>
             <p className="mt-1 text-muted-foreground">
-              {resume.renderError ??
-                'Вёрстка резюме не собралась. Измените оформление или обратитесь к администратору.'}
+              {resume.renderError ?? (
+                <Trans>
+                  Верстка резюме не зібралася. Змініть оформлення або зверніться до адміністратора.
+                </Trans>
+              )}
             </p>
           </div>
         </div>
@@ -74,20 +81,24 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
         className="rounded-xl border border-border/60 bg-card/50 p-6 text-center"
       >
         <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />
-        <p className="mt-3 text-sm font-medium">Готовим PDF по шаблону</p>
+        <p className="mt-3 text-sm font-medium">
+          <Trans>Готуємо PDF за шаблоном</Trans>
+        </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Вёрстка собирается в фоне — страницу обновлять не нужно.
+          <Trans>Верстка збирається у фоні — сторінку оновлювати не потрібно.</Trans>
         </p>
       </section>
     )
   }
+
+  const name = fileName ?? t`резюме`
 
   return (
     <section data-testid="resume-pdf-preview" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-center gap-2 text-sm font-medium">
           <FileText className="size-4 text-muted-foreground" />
-          Предпросмотр
+          <Trans>Попередній перегляд</Trans>
         </p>
         <Button asChild size="sm" variant="outline">
           {/* A plain link, not a post-await window.open — mobile blocks those.
@@ -95,7 +106,7 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
               keeps it and the viewer above goes through a blob instead. */}
           <a href={pdfUrl} download data-testid="resume-download-pdf">
             <Download className="mr-1.5 size-3.5" />
-            Скачать PDF
+            <Trans>Завантажити PDF</Trans>
           </a>
         </Button>
       </div>
@@ -106,7 +117,7 @@ export function ResumePdfPreview({ resume, pdfUrl, fileName }: ResumePdfPreviewP
         blobUrl={blobUrl}
         isLoading={isLoading}
         hasError={hasError}
-        filename={`Резюме — ${fileName ?? 'резюме'}.pdf`}
+        filename={t`Резюме — ${name}.pdf`}
         className="h-[60vh] max-h-[840px] min-h-[320px]"
         testId="resume-pdf-object"
       />

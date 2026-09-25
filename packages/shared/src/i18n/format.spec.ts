@@ -55,6 +55,28 @@ describe('format', () => {
     expect(monthYear).not.toBe(formatDate(d, 'uk', 'long'))
     expect(monthYear).not.toBe(formatDate(d, 'uk', 'month'))
   })
+  it("formatDate 'dateTime' keeps the reader's local clock (no UTC shift)", () => {
+    const d = new Date(2026, 8, 24, 14, 5) // local 24 Sep 2026 14:05
+    expect(formatDate(d, 'en', 'dateTime')).toMatch(/24 September.*14:05/)
+    expect(formatDate(d, 'uk', 'dateTime')).toMatch(/24 вересня.*14:05/)
+  })
+  it('the dateTime style does NOT pin timeZone to UTC, unlike every other style', () => {
+    // Mirrors the "is pinned to UTC" spy below, but proves the opposite for
+    // this one style: `formatResetTime` reads a moment against the
+    // reader's OWN clock (task-i18n-stage3b-pr3 Step 4 / format.ts
+    // Admission #8) — a `timeZone: 'UTC'` here would silently shift the
+    // displayed hour away from what the reader's device clock shows.
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      this: unknown,
+      ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+    ) {
+      return Reflect.construct(RealDateTimeFormat, args)
+    })
+    const d = new Date(2026, 8, 19, 23, 30)
+    formatDate(d, 'en', 'dateTime')
+    expect(spy).toHaveBeenCalledWith('en-GB', expect.not.objectContaining({ timeZone: 'UTC' }))
+  })
   it('is pinned to UTC regardless of the host timezone', () => {
     // Mutating `process.env.TZ` at runtime and expecting `Intl` to pick up
     // the new zone is not portable: on the Linux CI runner (host TZ already

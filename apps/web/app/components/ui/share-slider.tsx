@@ -36,8 +36,9 @@ import { cn } from '@/lib/utils'
  *
  * task-i18n-stage3a (Task 1), COPY-M-core-10 — this map is PRIVATE to the
  * component (never exported), so there is no external consumer pinned to
- * the old Russian text the way `role-select.tsx`'s `ROLE_LABELS` has eight
- * — no legacy/canon split needed, this is a straight in-place migration.
+ * the old Russian text the way `role-select.tsx`'s former `ROLE_LABELS`
+ * export had (removed task-i18n-stage3b-pr3, Step 3) — no legacy/canon
+ * split needed, this is a straight in-place migration.
  * The old map also mixed grammatical case between roles (`'синьор'`
  * nominative vs `'дропу'` dative) — fixed here to genitive for both,
  * matching the already-canon `ArchivePendingTransactionsList.tsx` pattern

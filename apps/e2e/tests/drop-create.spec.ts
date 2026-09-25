@@ -15,6 +15,7 @@
  */
 
 import { test, expect, USERS } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
@@ -38,26 +39,28 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   })
 
   test('DROP role is selectable in the role picker', async ({ asAdmin: page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await expect(page.getByRole('option', { name: 'Дроп' })).toBeVisible()
+    await expect(page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') })).toBeVisible()
   })
 
   test('picking DROP reveals drop-share slider (default 5%) and the team section', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     // Finance section — share slider with the 5% default hint.
-    await expect(dialog.getByText(/Доля дропа/i)).toBeVisible()
-    await expect(dialog.getByText(/по умолчанию 5/i).first()).toBeVisible()
+    await expect(dialog.getByText(/Частка дропа/i)).toBeVisible()
+    await expect(dialog.getByText(/за замовчуванням 5/i).first()).toBeVisible()
 
     // Drop team section — title visible (renamed «Команда» → «Команда дропа»).
     await expect(dialog.getByRole('heading', { name: /Команда дропа/i })).toBeVisible()
@@ -69,6 +72,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   test('submits POST /users/drops with expected payload — DROP role, dropSharePercent', async ({
     asAdmin: page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
 
     // Wait for the POST so we can assert the payload shape per AC1.
@@ -78,7 +82,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
 
@@ -141,6 +145,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
   })
 
   test('cancel closes the dialog without firing a POST', async ({ asAdmin: page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
 
     let postCalled = false
@@ -152,20 +157,21 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
 
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await dialog.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
     await expect(dialog).not.toBeVisible()
     expect(postCalled).toBe(false)
   })
 
   test('switching to Bank UAH (ФОП) reveals UA-IBAN + РНОКПП fields', async ({ asAdmin: page }) => {
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
 

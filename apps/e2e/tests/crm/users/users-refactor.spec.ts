@@ -127,14 +127,15 @@ test.describe('Users page refactor (PR 2)', () => {
 
   test.describe('Sectioned dialogs', () => {
     test('Create dialog shows all 5 sections', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       const dialog = page.getByTestId('user-dialog')
       await expect(dialog).toBeVisible()
-      await expect(dialog.getByText('Идентичность', { exact: true })).toBeVisible()
-      await expect(dialog.getByText('Контакты', { exact: true })).toBeVisible()
-      await expect(dialog.getByText('Профессия', { exact: true })).toBeVisible()
-      await expect(dialog.getByText('Финансы', { exact: true })).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Основне'), { exact: true })).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Контакти'), { exact: true })).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Професія'), { exact: true })).toBeVisible()
+      await expect(dialog.getByText(assertInCatalog(uk, 'Фінанси'), { exact: true })).toBeVisible()
       // Section 5 "Команда" only visible for SENIOR/JUNIOR. Default role is JUNIOR.
       await expect(dialog.getByText('Команда', { exact: true })).toBeVisible()
     })
@@ -159,11 +160,12 @@ test.describe('Users page refactor (PR 2)', () => {
     test('Create SENIOR shows HR multiselect + Accountant chip (ut-16)', async ({
       asAdmin: page,
     }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
       // ut-16: container test-id preserved for both Create and Edit.
       await expect(page.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
       // Accountant block — chip when single, popover trigger when multi.
@@ -221,7 +223,7 @@ test.describe('Users page refactor (PR 2)', () => {
       expect(await projects.filter({ visible: true }).count()).toBe(projectsCount)
       // Link to /projects always present
       await expect(
-        page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ }),
+        page.getByRole('dialog').getByRole('link', { name: /Керувати в розділі «Проєкти»/ }),
       ).toBeVisible()
     })
   })
@@ -459,7 +461,7 @@ test.describe('Users page refactor (PR 2)', () => {
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible()
 
-      const techInput = dialog.locator('input[placeholder*="технологи"]').first()
+      const techInput = dialog.locator('input[placeholder*="вводити"]').first()
       await techInput.focus()
       await techInput.fill('Re')
 
@@ -488,10 +490,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      const techSection = page
-        .getByRole('dialog')
-        .locator('input[placeholder*="технологи"]')
-        .first()
+      const techSection = page.getByRole('dialog').locator('input[placeholder*="вводити"]').first()
       await techSection.focus()
       await techSection.fill('Re')
 
@@ -516,10 +515,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      const techSection = page
-        .getByRole('dialog')
-        .locator('input[placeholder*="технологи"]')
-        .first()
+      const techSection = page.getByRole('dialog').locator('input[placeholder*="вводити"]').first()
       await techSection.focus()
       await techSection.fill('Ja')
 
@@ -564,18 +560,18 @@ test.describe('Users page refactor (PR 2)', () => {
     // (remove) or the searchable "Добавить HR" popover. We assert the
     // popover-driven add flow works end-to-end when ≥2 HRs are seeded.
     test('HR add popover opens and lists remaining HRs (ut-16)', async ({ asAdmin: page }) => {
+      const uk = await loadMessages('uk')
       await page.goto('/users')
       await page.getByTestId('users-create-button').click()
       // Switch role to SENIOR to surface HR multiselect.
       await page.getByTestId('user-dialog-role-trigger').click()
-      await page.getByRole('option', { name: 'Синьор' }).click()
+      await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 
       const addTrigger = page.getByTestId('user-dialog-hr-add-trigger')
       const count = await addTrigger.count()
       test.skip(count === 0, 'Skipped: all HRs already selected — popover not rendered')
 
       await addTrigger.click()
-      const uk = await loadMessages('uk')
       await expect(
         page.getByPlaceholder(assertInCatalog(uk, 'Пошук за ім’ям або email…')),
       ).toBeVisible()

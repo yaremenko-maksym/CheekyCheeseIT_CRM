@@ -14,11 +14,18 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  *    specific date; 'long' would misleadingly imply day-level precision.
  * Neither pre-existing style fits either need. Additive only: existing
  * callers that omit `style` or pass 'long' see byte-identical behavior.
+ *
+ * task-i18n-stage3b-pr3 (Step 4) — added 'dateTime': `ResumeStatusPanel`'s
+ * quota-reset time is a MOMENT the reader checks against their own clock
+ * (day, month by name, hour, minute), not a calendar date — unlike every
+ * other style above, it deliberately has NO `timeZone: 'UTC'`: the reader
+ * needs their LOCAL time, the way the same moment reads on their own
+ * device's clock, not the UTC instant.
  */
 export function formatDate(
   value: Date | string,
   locale: Locale,
-  style: 'short' | 'long' | 'month' | 'monthYear' = 'short',
+  style: 'short' | 'long' | 'month' | 'monthYear' | 'dateTime' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -26,11 +33,15 @@ export function formatDate(
   // there is no separate "already a Date" branch to write; a ternary here
   // would only ever be a no-op copy-constructor call on one side.
   const d = new Date(value)
-  const STYLE_OPTS: Record<'short' | 'long' | 'month' | 'monthYear', Intl.DateTimeFormatOptions> = {
+  const STYLE_OPTS: Record<
+    'short' | 'long' | 'month' | 'monthYear' | 'dateTime',
+    Intl.DateTimeFormatOptions
+  > = {
     short: { timeZone: 'UTC' },
     long: { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' },
     month: { month: 'short', timeZone: 'UTC' },
     monthYear: { month: 'long', year: 'numeric', timeZone: 'UTC' },
+    dateTime: { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }

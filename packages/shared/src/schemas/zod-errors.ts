@@ -325,7 +325,7 @@ export const ZOD_ERROR_MESSAGES: Record<ZodErrorCode, MessageDescriptor> = {
   },
   DROP_TEAM_ID_REQUIRED: /* i18n */ {
     id: 'zod-error.DROP_TEAM_ID_REQUIRED',
-    message: 'Виберіть команду дропа',
+    message: 'Оберіть команду дропа',
   },
   HR_REQUIRED_MIN: /* i18n */ {
     id: 'zod-error.HR_REQUIRED_MIN',

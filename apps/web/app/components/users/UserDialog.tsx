@@ -1,6 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import {
   Coins,
   Landmark,
@@ -93,7 +94,6 @@ import { ContractEditor } from '@/components/user-profile/contract/ContractEdito
 import { ContractActionBar } from '@/components/user-profile/contract/ContractActionBar'
 import {
   CREATE_ALLOWED_ROLES,
-  ROLE_LABELS,
   ROLE_VARIANT,
   ROLES,
   type CreateAllowedRole,
@@ -101,6 +101,7 @@ import {
   normalizeTelegram,
 } from './constants'
 import { Field, Section } from './section'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { ShareSlider } from '@/components/ui/share-slider'
 import { HrChipsField } from './HrChipsField'
 import { AccountantChipField } from './AccountantChipField'
@@ -171,6 +172,7 @@ export type UserDialogProps = CreateProps | EditProps
  * dropdown (ut-12).
  */
 export function UserDialog(props: UserDialogProps) {
+  const { t, i18n } = useLingui()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const { user: me } = useAuth()
@@ -424,12 +426,17 @@ export function UserDialog(props: UserDialogProps) {
       // For non-senior creates keep silent here (success shown at wizard end).
       const isJoinDrop = variables.role === 'SENIOR' && variables.teamMode === 'JOIN_DROP_TEAM'
       if (isJoinDrop) {
-        toast.success('Синьор добавлен в команду дропа', { duration: 4500 })
+        toast.success(t`Сеньйора додано до команди дропа`, { duration: 4500 })
       }
     },
     onError: (err: AxiosError<{ message?: string }>) => {
       // 409 → duplicate email toast, dialog stays open. See `explainUserMutationError`.
-      toast.error(explainUserMutationError(err, 'Ошибка при создании'))
+      toast.error(
+        explainUserMutationError(
+          err,
+          t`Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз`,
+        ),
+      )
     },
   })
 
@@ -450,7 +457,7 @@ export function UserDialog(props: UserDialogProps) {
       // close the dialog + navigate in the same tick — the previous render
       // sometimes pruned the toast before it ever painted). 4500ms keeps it
       // within the spec «4-5 sec» band.
-      toast.success('Дроп создан', { duration: 4500 })
+      toast.success(t`Дропа створено`, { duration: 4500 })
       props.onClose()
       const newTeamId = res.data.team?.id
       if (newTeamId) {
@@ -458,7 +465,12 @@ export function UserDialog(props: UserDialogProps) {
       }
     },
     onError: (err: AxiosError<{ message?: string }>) => {
-      toast.error(explainUserMutationError(err, 'Ошибка при создании дропа'))
+      toast.error(
+        explainUserMutationError(
+          err,
+          t`Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз`,
+        ),
+      )
     },
   })
 
@@ -473,7 +485,12 @@ export function UserDialog(props: UserDialogProps) {
       setCurrentStep(2)
     },
     onError: (err: AxiosError<{ message?: string }>) => {
-      toast.error(explainUserMutationError(err, 'Ошибка при обновлении'))
+      toast.error(
+        explainUserMutationError(
+          err,
+          t`Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз`,
+        ),
+      )
     },
   })
 
@@ -483,14 +500,16 @@ export function UserDialog(props: UserDialogProps) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
       void queryClient.invalidateQueries({ queryKey: ['users'] })
-      toast.success('Пользователь создан, контракт готов к подписанию', { duration: 4500 })
+      toast.success(t`Користувача створено, контракт готовий до підписання`, { duration: 4500 })
       setCurrentStep(1)
       setCreatedUserId(null)
       setHasContract(false)
       props.onClose()
     },
     onError: (err: AxiosError<{ message?: string }>) => {
-      toast.error(explainUserMutationError(err, 'Ошибка при переводе контракта'))
+      toast.error(
+        explainUserMutationError(err, t`Не вдалося позначити контракт готовим до підписання`),
+      )
     },
   })
 
@@ -518,16 +537,21 @@ export function UserDialog(props: UserDialogProps) {
         // «Отменить предложение» on the button. The name is settled; this
         // line was simply written before it was.
         toast.success(
-          `Сохранено. Предложение отправлено синьору: ${pending.percent}% вместо действующих ${response.data.seniorSharePercent}%`,
+          t`Збережено. Сеньйору запропоновано ${pending.percent}% замість чинних ${response.data.seniorSharePercent}%`,
         )
       } else {
-        toast.success('Пользователь обновлён')
+        toast.success(t`Зміни збережено`)
       }
       props.onClose()
     },
     onError: (err: AxiosError<{ message?: string }>) => {
       // Edit can hit 409 too if admin changes email to an already-taken one.
-      toast.error(explainUserMutationError(err, 'Ошибка при обновлении'))
+      toast.error(
+        explainUserMutationError(
+          err,
+          t`Не вдалося зберегти зміни — дані залишилися у формі, спробуйте ще раз`,
+        ),
+      )
     },
   })
 
@@ -1027,12 +1051,12 @@ export function UserDialog(props: UserDialogProps) {
   const handleWizardSaveDraft = useCallback(() => {
     void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
     void queryClient.invalidateQueries({ queryKey: ['users'] })
-    toast.success('Пользователь создан, контракт сохранён как черновик', { duration: 4500 })
+    toast.success(t`Користувача створено, контракт збережено як чернетку`, { duration: 4500 })
     setCurrentStep(1)
     setCreatedUserId(null)
     setHasContract(false)
     props.onClose()
-  }, [queryClient, props])
+  }, [queryClient, props, t])
 
   const isPending =
     createMutation.isPending ||
@@ -1042,11 +1066,12 @@ export function UserDialog(props: UserDialogProps) {
     markReadyMutation.isPending
   const submitLabel = isCreate
     ? createMutation.isPending || createDropMutation.isPending
-      ? 'Создание...'
-      : 'Создать'
+      ? t`Створюємо…`
+      : // Stryker disable next-line StringLiteral: unreachable in the DOM — `submitLabel` is only ever rendered by the `user-dialog-submit` button in the `!isCreate` footer branch below (create mode shows the wizard's own step buttons instead), so this half of the ternary is computed every create-mode render but never inserted anywhere a test (or a user) can observe.
+        t`Створити`
     : updateMutation.isPending
-      ? 'Сохранение...'
-      : 'Сохранить'
+      ? t`Зберігаємо…`
+      : t`Зберегти`
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
@@ -1058,16 +1083,18 @@ export function UserDialog(props: UserDialogProps) {
               {isCreate ? (
                 <>
                   <UserPlus className="h-4 w-4" />
-                  Новый пользователь
+                  <Trans>Новий користувач</Trans>
                 </>
               ) : (
                 <>
                   <Pencil className="h-4 w-4" />
-                  Редактировать пользователя
+                  <Trans>Редагувати користувача</Trans>
                 </>
               )}
             </DialogTitle>
-            <DialogDescription className="sr-only">Управление пользователем</DialogDescription>
+            <DialogDescription className="sr-only">
+              <Trans>Створення або редагування користувача</Trans>
+            </DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody>
@@ -1106,7 +1133,7 @@ export function UserDialog(props: UserDialogProps) {
             {/* ── Step 1 form (or edit form) — hidden at wizard steps 2/3 ─ */}
             <div className={cn('grid gap-3 py-2', isCreate && currentStep !== 1 && 'hidden')}>
               {/* ── Section 1: Identity ─────────────────────────────────── */}
-              <Section title="Идентичность">
+              <Section title={t`Основне`}>
                 <form.Field
                   name="email"
                   validators={{
@@ -1225,7 +1252,7 @@ export function UserDialog(props: UserDialogProps) {
                       const err = field.state.meta.errors[0]
                       return (
                         <Field
-                          label="Личный email (необязательно)"
+                          label={t`Особистий email (необов’язково)`}
                           error={err}
                           // COPY-M-6 (copy-review PR #623 round 4): the OLD
                           // hint repeated "входа" twice and, more
@@ -1234,7 +1261,7 @@ export function UserDialog(props: UserDialogProps) {
                           // invite email goes out immediately on save
                           // (UsersService.createUser calls sendInvite in the
                           // same request).
-                          hint="На этот адрес сразу уйдёт приглашение. Входить по нему сотрудник сможет только после того, как подтвердит адрес."
+                          hint={t`На цю адресу одразу піде запрошення. Увійти з цією адресою співробітник зможе лише після її підтвердження.`}
                         >
                           <Input
                             type="email"
@@ -1276,9 +1303,9 @@ export function UserDialog(props: UserDialogProps) {
                     const showError = field.state.meta.isTouched && field.state.meta.isDirty
                     const err = showError ? field.state.meta.errors[0] : undefined
                     return (
-                      <Field label="Имя и фамилия" error={err} required>
+                      <Field label={t`Ім’я та прізвище`} error={err} required>
                         <Input
-                          placeholder="Иван Иванов"
+                          placeholder={t`Іваненко Іван Іванович`}
                           value={field.state.value}
                           onChange={(e) => field.handleChange(e.target.value)}
                           onBlur={field.handleBlur}
@@ -1303,17 +1330,17 @@ export function UserDialog(props: UserDialogProps) {
                       : ROLES
                     return (
                       <Field
-                        label="Роль"
+                        label={t`Роль`}
                         required
-                        hint={isSelfAdminEdit ? 'Нельзя сменить свою роль ADMIN' : undefined}
+                        hint={isSelfAdminEdit ? t`Свою роль змінити не можна` : undefined}
                       >
                         {hrOnly ? (
                           <div className="flex items-center gap-2 rounded-md border border-input bg-muted/40 px-3 py-2">
                             <Badge variant="senior" className="text-[11px]">
-                              Синьор
+                              {i18n._(ROLE_LABEL_MESSAGES.SENIOR)}
                             </Badge>
                             <span className="text-xs text-muted-foreground">
-                              (HR может создавать только синьоров)
+                              <Trans>(HR може створювати лише сеньйорів)</Trans>
                             </span>
                           </div>
                         ) : (
@@ -1330,7 +1357,7 @@ export function UserDialog(props: UserDialogProps) {
                                 <SelectItem key={r} value={r}>
                                   <div className="flex items-center gap-2">
                                     <Badge variant={ROLE_VARIANT[r]} className="text-[11px]">
-                                      {ROLE_LABELS[r]}
+                                      {i18n._(ROLE_LABEL_MESSAGES[r])}
                                     </Badge>
                                   </div>
                                 </SelectItem>
@@ -1346,16 +1373,14 @@ export function UserDialog(props: UserDialogProps) {
                 {/* task-i18n-stage2 (Task 3, Step 6) — create-wizard-only:
                     interface language for the new account. Language NAMES are
                     given in their own language, not translated (owner decision —
-                    same convention as every language switcher in this app); the
-                    label itself stays Russian until the `web-people` wave migrates
-                    this dialog (spec §4.6: a module migrates as a whole —
-                    copy-review COPY-M-1 on #693). */}
+                    same convention as every language switcher in this app).
+                    task-i18n-stage3b-pr3: the field's own label/hint migrated. */}
                 {isCreate && (
                   <form.Field name="locale">
                     {(field) => (
                       <Field
-                        label="Язык интерфейса"
-                        hint="Язык интерфейса сотрудника. Он сможет сменить его в своём профиле."
+                        label={t`Мова інтерфейсу`}
+                        hint={t`Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі.`}
                         required
                       >
                         <Select
@@ -1380,7 +1405,7 @@ export function UserDialog(props: UserDialogProps) {
               <form.Subscribe selector={(s) => s.values.role}>
                 {(role) =>
                   role !== 'ADMIN' ? (
-                    <Section title="Данные для контракта">
+                    <Section title={t`Дані для контракту`}>
                       <form.Field
                         name="legalFullName"
                         validators={{
@@ -1430,12 +1455,12 @@ export function UserDialog(props: UserDialogProps) {
                           const showError = !!err
                           return (
                             <Field
-                              label="Юридическое ФИО"
+                              label={t`Юридичне ПІБ`}
                               error={showError ? err : undefined}
-                              hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
+                              hint={t`Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові.`}
                             >
                               <Input
-                                placeholder="Иваненко Иван Иванович"
+                                placeholder={t`Іваненко Іван Іванович`}
                                 value={field.state.value}
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
@@ -1453,15 +1478,15 @@ export function UserDialog(props: UserDialogProps) {
                         }}
                       </form.Field>
 
-                      {/* ── Адрес регистрации (ФОП) ──────────────────────── */}
+                      {/* ── Адреса реєстрації (ФОП) ──────────────────────── */}
                       <form.Field name="registrationAddress">
                         {(field) => (
                           <Field
-                            label="Адрес регистрации (ФОП)"
-                            hint="Используется в контракте как {{registrationAddress}}"
+                            label={t`Адреса реєстрації (ФОП)`}
+                            hint={t`Ця адреса підставляється в текст контракту`}
                           >
                             <Input
-                              placeholder="г. Киев, ул. Крещатик, 1"
+                              placeholder={t`м. Київ, вул. Хрещатик, 1`}
                               value={field.state.value}
                               onChange={(e) => field.handleChange(e.target.value)}
                               onBlur={field.handleBlur}
@@ -1476,7 +1501,7 @@ export function UserDialog(props: UserDialogProps) {
               </form.Subscribe>
 
               {/* ── Section 2: Contacts ─────────────────────────────────── */}
-              <Section title="Контакты">
+              <Section title={t`Контакти`}>
                 <form.Field
                   name="telegram"
                   validators={{
@@ -1527,7 +1552,7 @@ export function UserDialog(props: UserDialogProps) {
                     const showError = field.state.meta.isTouched && field.state.meta.isDirty
                     const err = showError ? field.state.meta.errors[0] : undefined
                     return (
-                      <Field label="Телефон" error={err}>
+                      <Field label={t`Телефон`} error={err}>
                         <PhoneInput
                           value={field.state.value as PhoneValue | undefined}
                           onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
@@ -1541,15 +1566,15 @@ export function UserDialog(props: UserDialogProps) {
               </Section>
 
               {/* ── Section 3: Profession (Tech stack) ──────────────────── */}
-              <Section title="Профессия">
+              <Section title={t`Професія`}>
                 <form.Field name="techStack">
                   {(field) => (
-                    <Field label="Технологии">
+                    <Field label={t`Технології`}>
                       <TechAutocompleteInput
                         value={field.state.value}
                         onChange={field.handleChange}
                         onBlur={field.handleBlur}
-                        placeholder="Начните вводить технологию..."
+                        placeholder={t`Почніть вводити: React, Node.js…`}
                       />
                     </Field>
                   )}
@@ -1559,7 +1584,7 @@ export function UserDialog(props: UserDialogProps) {
               {/* ── Section 4: Finance ──────────────────────────────────── */}
               <form.Subscribe selector={(s) => s.values.role}>
                 {(role) => (
-                  <Section title="Финансы">
+                  <Section title={t`Фінанси`}>
                     {role === 'SENIOR' ? (
                       <form.Field
                         name="seniorSharePercent"
@@ -1577,7 +1602,7 @@ export function UserDialog(props: UserDialogProps) {
                             ? field.state.meta.errors[0]
                             : undefined
                           return (
-                            <Field label="Доля синьора (%)" error={err} required={isCreate}>
+                            <Field label={t`Частка сеньйора (%)`} error={err} required={isCreate}>
                               <ShareSlider
                                 value={val}
                                 onChange={(v) => field.handleChange(v)}
@@ -1596,8 +1621,10 @@ export function UserDialog(props: UserDialogProps) {
                                   two blocks in opposite orders, two dialogs
                                   apart, for one feature. */}
                               <p className="text-xs text-muted-foreground">
-                                То, что синьор оставляет себе. Новое значение начнёт действовать
-                                после подтверждения синьора.
+                                <Trans>
+                                  Те, що сеньйор залишає собі. Нове значення набуде чинності після
+                                  підтвердження сеньйора.
+                                </Trans>
                               </p>
                               {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN
                                   who opens this dialog to "fix" the percent
@@ -1652,8 +1679,8 @@ export function UserDialog(props: UserDialogProps) {
                             : undefined
                           return (
                             <Field
-                              label="Доля дропа (%)"
-                              hint="Сколько дроп оставляет себе с каждой выплаты"
+                              label={t`Частка дропа (%)`}
+                              hint={t`Скільки дроп залишає собі з кожної виплати`}
                               error={err}
                               required={isCreate}
                             >
@@ -1667,7 +1694,7 @@ export function UserDialog(props: UserDialogProps) {
                               />
                               <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
                                 <Percent className="h-3 w-3" />
-                                По умолчанию 5%
+                                <Trans>За замовчуванням 5%</Trans>
                               </p>
                             </Field>
                           )
@@ -1678,13 +1705,14 @@ export function UserDialog(props: UserDialogProps) {
                         {(field) => (
                           <form.Field name="salaryCurrency">
                             {(curField) => (
-                              <Field label="Месячная зарплата">
+                              <Field label={t`Місячна зарплата`}>
                                 <AmountCurrencyInput
                                   amount={String(field.state.value ?? '')}
                                   currency={curField.state.value}
                                   onAmountChange={field.handleChange}
                                   onCurrencyChange={curField.handleChange}
-                                  label="Сумма"
+                                  label={t`Сума`}
+                                  currencyLabel={t`Валюта`}
                                   placeholder="0"
                                 />
                               </Field>
@@ -1701,16 +1729,17 @@ export function UserDialog(props: UserDialogProps) {
               <form.Subscribe selector={(s) => s.values.role}>
                 {(role) => {
                   const usdtOnly = role === 'SENIOR' || role === 'ADMIN'
+                  const roleLabel = i18n._(ROLE_LABEL_MESSAGES[role])
                   return (
-                    <Section title="Платёжные реквизиты">
+                    <Section title={t`Реквізити для виплат`}>
                       {usdtOnly ? (
                         <p className="text-xs text-muted-foreground">
-                          Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20.
+                          <Trans>Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20.</Trans>
                         </p>
                       ) : (
                         <form.Field name="paymentMethod">
                           {(field) => (
-                            <Field label="Способ оплаты" required>
+                            <Field label={t`Спосіб виплати`} required>
                               {/* ut-15 + ut-24: iOS-style segmented control with a
                                 sliding gold pill. Implemented via the shared
                                 <SegmentedToggle> primitive (apps/web/app/components/ui/segmented-toggle.tsx)
@@ -1719,21 +1748,27 @@ export function UserDialog(props: UserDialogProps) {
                                 value={field.state.value}
                                 onChange={(v) => field.handleChange(v)}
                                 options={[
-                                  { value: 'USDT_ERC20', label: 'USDT ERC-20', icon: Coins },
+                                  { value: 'USDT_ERC20', label: t`USDT ERC-20`, icon: Coins },
                                   {
                                     value: 'BANK_UAH_FOP',
-                                    label: 'Bank UAH (ФОП)',
+                                    label: t`ФОП (UAH)`,
                                     icon: Landmark,
                                   },
                                 ]}
-                                ariaLabel="Способ оплаты"
+                                ariaLabel={t`Спосіб виплати`}
                                 layoutId="payment-method-active-pill"
                                 testId="user-dialog-payment-method"
                               />
                               <p className="text-xs text-muted-foreground mt-1">
-                                {field.state.value === 'USDT_ERC20'
-                                  ? 'Будет использоваться адрес кошелька в сети Ethereum.'
-                                  : 'Будет использоваться украинский банковский счёт ФОП.'}
+                                {field.state.value === 'USDT_ERC20' ? (
+                                  <Trans>
+                                    Використовуватиметься адреса гаманця в мережі Ethereum.
+                                  </Trans>
+                                ) : (
+                                  <Trans>
+                                    Використовуватиметься український банківський рахунок ФОП.
+                                  </Trans>
+                                )}
                               </p>
                             </Field>
                           )}
@@ -1764,7 +1799,7 @@ export function UserDialog(props: UserDialogProps) {
                                     field.state.meta.isTouched && field.state.meta.isDirty
                                   const err = showError ? field.state.meta.errors[0] : undefined
                                   return (
-                                    <Field label="USDT ERC-20 кошелёк" error={err} required>
+                                    <Field label={t`Гаманець USDT (ERC-20)`} error={err} required>
                                       <Input
                                         placeholder="0x..."
                                         value={field.state.value}
@@ -1786,9 +1821,9 @@ export function UserDialog(props: UserDialogProps) {
                               </form.Field>
                               <form.Field name="walletUsdtLabel">
                                 {(field) => (
-                                  <Field label="Лейбл кошелька">
+                                  <Field label={t`Мітка гаманця (необов’язково)`}>
                                     <Input
-                                      placeholder="Основной"
+                                      placeholder={t`наприклад: основний`}
                                       value={field.state.value}
                                       onChange={(e) => field.handleChange(e.target.value)}
                                       onBlur={field.handleBlur}
@@ -1815,9 +1850,9 @@ export function UserDialog(props: UserDialogProps) {
                                     field.state.meta.isTouched && field.state.meta.isDirty
                                   const err = showError ? field.state.meta.errors[0] : undefined
                                   return (
-                                    <Field label="ФИО получателя (ФОП)" error={err} required>
+                                    <Field label={t`ПІБ отримувача (ФОП)`} error={err} required>
                                       <Input
-                                        placeholder="Иванов Иван Иванович"
+                                        placeholder={t`Іваненко Іван Іванович`}
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
@@ -1884,7 +1919,7 @@ export function UserDialog(props: UserDialogProps) {
                                     field.state.meta.isTouched && field.state.meta.isDirty
                                   const err = showError ? field.state.meta.errors[0] : undefined
                                   return (
-                                    <Field label="РНОКПП (ИНН ФОП)" error={err} required>
+                                    <Field label={t`РНОКПП`} error={err} required>
                                       <Input
                                         placeholder="1234567890"
                                         value={field.state.value}
@@ -1904,9 +1939,9 @@ export function UserDialog(props: UserDialogProps) {
                               </form.Field>
                               <form.Field name="bankUahBankName">
                                 {(field) => (
-                                  <Field label="Банк (опционально)">
+                                  <Field label={t`Банк (необов’язково)`}>
                                     <Input
-                                      placeholder="ПриватБанк"
+                                      placeholder={t`ПриватБанк`}
                                       value={field.state.value}
                                       onChange={(e) => field.handleChange(e.target.value)}
                                       onBlur={field.handleBlur}
@@ -1937,7 +1972,7 @@ export function UserDialog(props: UserDialogProps) {
                     const onlyHr = hrUsers.length === 1
                     const onlyAccountant = accountantUsers.length === 1
                     return (
-                      <Section title="Команда дропа">
+                      <Section title={t`Команда дропа`}>
                         <HrChipsField
                           hrUsers={hrUsers}
                           selectedIds={selectedHrIds}
@@ -1972,9 +2007,11 @@ export function UserDialog(props: UserDialogProps) {
                             const err = showError ? field.state.meta.errors[0] : undefined
                             return (
                               <Field
-                                label="Telegram-канал команды"
+                                label={t`Telegram-канал команди`}
                                 error={err}
-                                hint={err ? undefined : 'Опционально. Канал для общения команды.'}
+                                hint={
+                                  err ? undefined : t`Необов’язково. Канал для спілкування команди.`
+                                }
                               >
                                 <div className="relative">
                                   <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 inline-flex items-center gap-1 text-xs text-muted-foreground">
@@ -2009,7 +2046,7 @@ export function UserDialog(props: UserDialogProps) {
                     const onlyAccountant = accountantUsers.length === 1
 
                     return (
-                      <Section title="Команда">
+                      <Section title={t`Команда`}>
                         {/* Drop role - phase 1 (AC3): two-option team picker.
                           - CREATE_NEW (default): legacy senior-team flow.
                           - JOIN_DROP_TEAM: pick a vacant drop-team. HR /
@@ -2017,7 +2054,7 @@ export function UserDialog(props: UserDialogProps) {
                         {isCreate && (
                           <form.Field name="teamMode">
                             {(field) => (
-                              <Field label="Тип команды" required>
+                              <Field label={t`Тип команди`} required>
                                 <RadioGroup
                                   value={field.state.value}
                                   onValueChange={(v) => field.handleChange(v as TeamMode)}
@@ -2040,10 +2077,10 @@ export function UserDialog(props: UserDialogProps) {
                                     <div className="flex-1">
                                       <div className="font-medium inline-flex items-center gap-1">
                                         <Sparkles className="h-3 w-3" />
-                                        Создать свою команду
+                                        <Trans>Створити свою команду</Trans>
                                       </div>
                                       <p className="text-muted-foreground mt-0.5">
-                                        Новая команда синьора. Выберите состав ниже.
+                                        <Trans>Нова команда сеньйора. Оберіть склад нижче.</Trans>
                                       </p>
                                     </div>
                                   </label>
@@ -2065,16 +2102,20 @@ export function UserDialog(props: UserDialogProps) {
                                     <div className="flex-1">
                                       <div className="font-medium inline-flex items-center gap-1">
                                         <Users className="h-3 w-3" />
-                                        Добавить в команду дропа
+                                        <Trans>Додати до команди дропа</Trans>
                                       </div>
                                       <p className="text-muted-foreground mt-0.5">
-                                        {vacantDropTeams.length === 0
-                                          ? 'Нет команд дропа без активного синьора.'
-                                          : `${vacantDropTeams.length} ${
-                                              vacantDropTeams.length === 1
-                                                ? 'команда доступна'
-                                                : 'команд(ы) доступно'
-                                            }.`}
+                                        {vacantDropTeams.length === 0 ? (
+                                          <Trans>Немає команд дропа без активного сеньйора.</Trans>
+                                        ) : (
+                                          <Plural
+                                            value={vacantDropTeams.length}
+                                            one="# команда доступна."
+                                            few="# команди доступні."
+                                            many="# команд доступно."
+                                            other="# команди доступно."
+                                          />
+                                        )}
                                       </p>
                                     </div>
                                   </label>
@@ -2132,11 +2173,13 @@ export function UserDialog(props: UserDialogProps) {
                                     field.state.meta.isTouched && field.state.meta.isDirty
                                   const err = showError ? field.state.meta.errors[0] : undefined
                                   return (
-                                    <Field label="Команда дропа" error={err} required>
+                                    <Field label={t`Команда дропа`} error={err} required>
                                       {vacantDropTeams.length === 0 ? (
                                         <p className="text-xs text-muted-foreground italic">
-                                          Нет команд дропа без активного синьора. Создайте дропа или
-                                          выберите «Создать свою команду».
+                                          <Trans>
+                                            Немає команд дропа без активного сеньйора. Створіть
+                                            дропа або оберіть «Створити свою команду».
+                                          </Trans>
                                         </p>
                                       ) : (
                                         <Select
@@ -2144,23 +2187,25 @@ export function UserDialog(props: UserDialogProps) {
                                           onValueChange={(v) => field.handleChange(v)}
                                         >
                                           <SelectTrigger data-testid="user-dialog-drop-team-trigger">
-                                            <SelectValue placeholder="— выберите команду дропа —" />
+                                            <SelectValue
+                                              placeholder={t`— оберіть команду дропа —`}
+                                            />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {vacantDropTeams.map((t) => {
-                                              const drop = t.members.find(
+                                            {vacantDropTeams.map((team) => {
+                                              const drop = team.members.find(
                                                 (m) => m.role === 'DROP' && !m.leftAt,
                                               )
-                                              const hrs = t.members
+                                              const hrs = team.members
                                                 .filter((m) => m.role === 'HR' && !m.leftAt)
                                                 .map((m) => m.displayName)
                                                 .join(', ')
                                               return (
-                                                <SelectItem key={t.id} value={t.id}>
+                                                <SelectItem key={team.id} value={team.id}>
                                                   <div className="flex flex-col items-start">
-                                                    <span className="font-medium">{t.name}</span>
+                                                    <span className="font-medium">{team.name}</span>
                                                     <span className="text-[10px] text-muted-foreground">
-                                                      {drop?.displayName ?? 'Дроп не назначен'}
+                                                      {drop?.displayName ?? t`Дропа не призначено`}
                                                       {hrs ? ` · HR: ${hrs}` : ''}
                                                     </span>
                                                   </div>
@@ -2203,10 +2248,12 @@ export function UserDialog(props: UserDialogProps) {
                                   const err = showError ? field.state.meta.errors[0] : undefined
                                   return (
                                     <Field
-                                      label="Telegram-канал команды"
+                                      label={t`Telegram-канал команди`}
                                       error={err}
                                       hint={
-                                        err ? undefined : 'Опционально. Канал для общения команды.'
+                                        err
+                                          ? undefined
+                                          : t`Необов’язково. Канал для спілкування команди.`
                                       }
                                     >
                                       <div className="relative">
@@ -2244,16 +2291,16 @@ export function UserDialog(props: UserDialogProps) {
                   if (role === 'JUNIOR') {
                     if (isCreate) {
                       return (
-                        <Section title="Команда">
+                        <Section title={t`Команда`}>
                           <form.Field name="projectId">
                             {(field) => (
                               <Field
-                                label="Проект"
-                                hint="Можно прикрепить позже через раздел «Проекты»"
+                                label={t`Проєкт`}
+                                hint={t`Можна прикріпити пізніше в розділі «Проєкти»`}
                               >
                                 {availableJuniorProjects.length === 0 ? (
                                   <p className="text-xs text-muted-foreground italic">
-                                    Нет проектов без активного джуна
+                                    <Trans>Немає проєктів без активного джуніора</Trans>
                                   </p>
                                 ) : (
                                   <Select
@@ -2261,10 +2308,10 @@ export function UserDialog(props: UserDialogProps) {
                                     onValueChange={(v) => field.handleChange(v === 'none' ? '' : v)}
                                   >
                                     <SelectTrigger>
-                                      <SelectValue placeholder="— не выбран —" />
+                                      <SelectValue placeholder={t`— не обрано —`} />
                                     </SelectTrigger>
                                     <SelectContent>
-                                      <SelectItem value="none">— не выбран —</SelectItem>
+                                      <SelectItem value="none">{t`— не обрано —`}</SelectItem>
                                       {availableJuniorProjects.map((p) => (
                                         <SelectItem key={p.id} value={p.id}>
                                           {p.companyName} — {p.name}
@@ -2281,11 +2328,11 @@ export function UserDialog(props: UserDialogProps) {
                     }
                     // Edit JUNIOR: read-only project list + link
                     return (
-                      <Section title="Команда">
-                        <Field label="Активные проекты">
+                      <Section title={t`Команда`}>
+                        <Field label={t`Активні проєкти`}>
                           {juniorActiveProjects.length === 0 ? (
                             <p className="text-xs text-muted-foreground italic">
-                              Нет активных проектов
+                              <Trans>Немає активних проєктів</Trans>
                             </p>
                           ) : (
                             <div
@@ -2304,7 +2351,7 @@ export function UserDialog(props: UserDialogProps) {
                             className="text-xs text-primary hover:underline mt-1 inline-block"
                             onClick={() => props.onClose()}
                           >
-                            Управлять в Проектах →
+                            <Trans>Керувати в розділі «Проєкти» →</Trans>
                           </Link>
                         </Field>
                       </Section>
@@ -2323,15 +2370,15 @@ export function UserDialog(props: UserDialogProps) {
             <form.Subscribe selector={(s) => s.values.role}>
               {(role) => (
                 <Badge variant={ROLE_VARIANT[role]} className="text-[11px]">
-                  {ROLE_LABELS[role]}
+                  {i18n._(ROLE_LABEL_MESSAGES[role])}
                 </Badge>
               )}
             </form.Subscribe>
             <div className="flex gap-2">
               <Button variant="ghost" onClick={handleClose}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
-              {/* Wizard step 1: «Далее» instead of «Создать» in create mode */}
+              {/* Wizard step 1: «Далі» instead of «Створити» in create mode */}
               {isCreate && currentStep === 1 ? (
                 <Button
                   onClick={() => void form.handleSubmit()}
@@ -2340,10 +2387,10 @@ export function UserDialog(props: UserDialogProps) {
                   data-track="user-create"
                 >
                   {createMutation.isPending ? (
-                    'Создание...'
+                    t`Створюємо…`
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
-                      Далее
+                      <Trans>Далі</Trans>
                       <ArrowRight className="h-3.5 w-3.5" />
                     </span>
                   )}
@@ -2356,11 +2403,11 @@ export function UserDialog(props: UserDialogProps) {
                     data-testid="wizard-back-btn"
                   >
                     <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-                    Назад
+                    <Trans>Назад</Trans>
                   </Button>
                   <Button onClick={() => setCurrentStep(3)} data-testid="wizard-step2-next-btn">
                     <span className="inline-flex items-center gap-1.5">
-                      Далее
+                      <Trans>Далі</Trans>
                       <ArrowRight className="h-3.5 w-3.5" />
                     </span>
                   </Button>
@@ -2386,17 +2433,23 @@ export function UserDialog(props: UserDialogProps) {
       >
         <AlertDialogContent data-testid="email-change-warning">
           <AlertDialogHeader>
-            <AlertDialogTitle>Сменить email?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Змінити email?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription className="space-y-2">
               <span className="block">
-                Смена email может разорвать вход через Google для{' '}
-                <strong>{editingUser?.displayName}</strong>. Убедись, что пользователь знает и
-                сменит свой Google account при необходимости.
+                <Trans>
+                  Зміна email може розірвати вхід через Google для{' '}
+                  <strong>{editingUser?.displayName}</strong>. Переконайтеся, що користувач знає про
+                  зміну і за потреби змінить свій обліковий запис Google.
+                </Trans>
               </span>
               <span className="block text-muted-foreground">
-                Старый: <code className="px-1 rounded bg-muted">{originalEmail}</code>
+                <Trans>Старий:</Trans>{' '}
+                <code className="px-1 rounded bg-muted">{originalEmail}</code>
                 <br />
-                Новый: <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
+                <Trans>Новий:</Trans>{' '}
+                <code className="px-1 rounded bg-muted">{pendingEmailChange}</code>
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -2407,13 +2460,13 @@ export function UserDialog(props: UserDialogProps) {
                 setPendingEmailChange(null)
               }}
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => setPendingEmailChange(null)}
               data-testid="email-change-confirm"
             >
-              Подтвердить изменение
+              <Trans>Підтвердити зміну</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2449,6 +2502,7 @@ export function WizardStep2({
   onBodyChange,
   isDirty,
 }: WizardStep2Props) {
+  const { t } = useLingui()
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
   const saveBody = useSaveContractBody(userId)
 
@@ -2486,18 +2540,20 @@ export function WizardStep2({
     <div className="py-2 flex flex-col gap-4" data-testid="wizard-contract-step">
       {isLoading && (
         <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
-          Загружаем контракт...
+          <Trans>Завантажуємо контракт…</Trans>
         </div>
       )}
 
       {isNoTemplate && !isLoading && (
         <div className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-6 text-center">
           <FileText className="mx-auto mb-2 h-8 w-8 text-muted-foreground/50" />
-          <p className="text-sm font-medium text-muted-foreground">Нет активного шаблона</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            <Trans>Немає активного шаблону контракту для цієї ролі</Trans>
+          </p>
           <p className="mt-1 text-xs text-muted-foreground/70">
-            Контракт можно создать позже из профиля пользователя.
+            <Trans>Контракт можна додати пізніше з профілю користувача.</Trans>
             <br />
-            Нажмите «Далее» чтобы продолжить без контракта.
+            <Trans>Натисніть «Далі», щоб продовжити без контракту.</Trans>
           </p>
         </div>
       )}
@@ -2509,7 +2565,9 @@ export function WizardStep2({
             onChange={onBodyChange}
             readOnly={contract.status !== 'DRAFT'}
             {...(contract.status === 'READY_TO_SIGN'
-              ? { frozenBanner: 'Контракт передан на подпись — редактирование заблокировано.' }
+              ? {
+                  frozenBanner: t`Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку`,
+                }
               : {})}
           />
           <ContractActionBar
@@ -2554,18 +2612,28 @@ function WizardStep3({
   isMarkingReady,
   onBack,
 }: WizardStep3Props) {
+  const { t } = useLingui()
   return (
     <div className="py-4 flex flex-col gap-6" data-testid="wizard-confirm-step">
       {/* Summary */}
       <div className="rounded-lg border border-border/60 bg-muted/30 p-4 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-primary shrink-0" />
-          <p className="text-sm font-medium">Пользователь создан</p>
+          <p className="text-sm font-medium">
+            <Trans>Користувача створено</Trans>
+          </p>
         </div>
         <p className="text-xs text-muted-foreground pl-7">
-          {hasContract
-            ? 'Контракт сохранён как черновик. Вы можете отметить его готовым к подписанию.'
-            : 'Контракт не создан (нет активного шаблона для роли). Его можно добавить позже через профиль пользователя.'}
+          {hasContract ? (
+            <Trans>
+              Контракт збережено як чернетку. Ви можете позначити його готовим до підписання.
+            </Trans>
+          ) : (
+            <Trans>
+              Контракт не створено (немає активного шаблону для ролі). Його можна додати пізніше
+              через профіль користувача.
+            </Trans>
+          )}
         </p>
       </div>
 
@@ -2573,12 +2641,12 @@ function WizardStep3({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button variant="outline" onClick={onBack} data-testid="wizard-step3-back-btn">
           <ArrowLeft className="mr-1.5 h-3.5 w-3.5" />
-          Назад
+          <Trans>Назад</Trans>
         </Button>
 
         <div className="flex flex-wrap gap-2 justify-end">
           <Button variant="secondary" onClick={onSaveDraft} data-testid="wizard-save-draft-btn">
-            Черновик
+            <Trans>Зберегти чернетку</Trans>
           </Button>
           <Button
             onClick={onMarkReady}
@@ -2586,7 +2654,7 @@ function WizardStep3({
             data-testid="wizard-mark-ready-btn"
             data-track="contract-sign-prep"
           >
-            {isMarkingReady ? 'Отправка...' : 'Отметить готовым к подписи'}
+            {isMarkingReady ? t`Позначаємо…` : t`Позначити готовим до підписання`}
           </Button>
         </div>
       </div>

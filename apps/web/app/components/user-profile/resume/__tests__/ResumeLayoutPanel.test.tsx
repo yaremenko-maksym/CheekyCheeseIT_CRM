@@ -6,7 +6,14 @@
  * reaches the server as a distinct, validated change, and that nothing here
  * offers a way to edit the template itself.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderOptions,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -14,7 +21,15 @@ import {
   type ResumeLayoutOptions,
   type SeniorResumeDto,
 } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ResumeLayoutPanel, moveSection } from '../ResumeLayoutPanel'
+
+// task-i18n-stage3b-pr3 (Step 4): both `ResumeLayoutPanel` and
+// `ResumePdfPreview` now call `useLingui()` — every render needs the active
+// catalog, same pattern as `UserDialog.create-wizard.test.tsx`.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 /**
  * The blob hook is stubbed rather than the network: it owns `createObjectURL`,
@@ -32,8 +47,9 @@ vi.mock('@/hooks/use-senior-resume', async (importOriginal) => ({
   useResumePdfBlob: () => blobState,
 }))
 
-beforeEach(() => {
+beforeEach(async () => {
   blobState = { blobUrl: 'blob:http://localhost/resume-pdf', isLoading: false, hasError: false }
+  await loadCatalog('uk')
 })
 
 const { ResumePdfPreview } = await import('../ResumePdfPreview')
@@ -184,6 +200,107 @@ describe('the panel offers switches and nothing else', () => {
   })
 })
 
+/**
+ * Section labels, hover labels, and toggle-state copy — none of these had a
+ * dedicated assertion before this round (the AC8 tests above only click
+ * testids and read the SAVED payload, never the rendered labels), so every
+ * one of `SECTION_LABEL_MESSAGES`'s six entries, the hidden/line-through
+ * class, and the show/hide aria-label pair survived Stryker untouched.
+ */
+describe('section labels and per-row controls, exact text', () => {
+  it('every section renders its own catalog label, not a raw key or an empty one', () => {
+    renderPanel()
+    expect(
+      within(screen.getByTestId('resume-layout-section-summary')).getByText('Про себе'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-skills')).getByText('Навички'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-experience')).getByText('Досвід роботи'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-education')).getByText('Освіта'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-languages')).getByText('Мови'),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('resume-layout-section-links')).getByText('Посилання'),
+    ).toBeInTheDocument()
+  })
+
+  it('the label carries "text-sm" while visible, and gains "line-through" only once hidden', () => {
+    renderPanel()
+    const label = within(screen.getByTestId('resume-layout-section-summary')).getByText('Про себе')
+    expect(label.className).toContain('text-sm')
+    expect(label.className).not.toContain('line-through')
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(label.className).toContain('line-through')
+  })
+
+  it('the toggle button says "Приховати «label»" while visible, "Показати «label»" once hidden — aria-label AND title', () => {
+    renderPanel()
+    const toggle = screen.getByTestId('resume-layout-toggle-summary')
+    expect(toggle).toHaveAttribute('aria-label', 'Приховати «Про себе»')
+    expect(toggle).toHaveAttribute('title', 'Приховати «Про себе»')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-label', 'Показати «Про себе»')
+    expect(toggle).toHaveAttribute('title', 'Показати «Про себе»')
+  })
+
+  it('the up/down buttons name the section they move, in both aria-label and title', () => {
+    // "skills" (index 1) rather than an end-of-list section, so both buttons
+    // are actually enabled/reachable in the default order.
+    renderPanel()
+    const up = screen.getByTestId('resume-layout-up-skills')
+    expect(up).toHaveAttribute('aria-label', 'Перемістити «Навички» вгору')
+    expect(up).toHaveAttribute('title', 'Перемістити «Навички» вгору')
+    const down = screen.getByTestId('resume-layout-down-skills')
+    expect(down).toHaveAttribute('aria-label', 'Перемістити «Навички» вниз')
+    expect(down).toHaveAttribute('title', 'Перемістити «Навички» вниз')
+  })
+})
+
+describe('density and font-scale toggles: radiogroup name and exact option labels', () => {
+  it('density: aria-label on the group, "Щільно"/"Стандартно"/"Вільно" on the options', () => {
+    renderPanel()
+    const group = screen.getByRole('radiogroup', { name: 'Щільність верстки' })
+    expect(within(group).getByText('Щільно')).toBeInTheDocument()
+    expect(within(group).getByText('Стандартно')).toBeInTheDocument()
+    expect(within(group).getByText('Вільно')).toBeInTheDocument()
+  })
+
+  it('font scale: aria-label on the group, "Дрібний"/"Звичайний"/"Великий" on the options', () => {
+    renderPanel()
+    const group = screen.getByRole('radiogroup', { name: 'Розмір шрифту' })
+    expect(within(group).getByText('Дрібний')).toBeInTheDocument()
+    expect(within(group).getByText('Звичайний')).toBeInTheDocument()
+    expect(within(group).getByText('Великий')).toBeInTheDocument()
+  })
+})
+
+describe('save button text follows isSaving, exactly', () => {
+  it('reads "Застосувати" once something is dirty and not saving', () => {
+    renderPanel()
+    fireEvent.click(screen.getByTestId('resume-layout-toggle-summary'))
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Застосувати')
+  })
+
+  it('reads "Зберігаємо…" while isSaving is true', () => {
+    render(
+      <ResumeLayoutPanel
+        layout={DEFAULT_RESUME_LAYOUT}
+        canEdit={true}
+        isSaving={true}
+        onSave={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('resume-layout-save')).toHaveTextContent('Зберігаємо…')
+    expect(screen.getByTestId('resume-layout-save')).not.toHaveTextContent('Застосувати')
+  })
+})
+
 // ---------------------------------------------------------------------------
 
 function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
@@ -286,5 +403,34 @@ describe('ResumePdfPreview', () => {
     )
     expect(screen.getByTestId('resume-pdf-failed')).toHaveTextContent('не уложилась')
     expect(screen.queryByTestId('resume-pdf-pending')).not.toBeInTheDocument()
+  })
+
+  /**
+   * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
+   * (`Предпросмотр: ${filename}`) — the ONLY place `resume` / `Резюме —
+   * ${name}.pdf` reach the DOM. The earlier assertion in this describe block
+   * only checked the fixed `Предпросмотр:` prefix (a regex), so an empty or
+   * garbled `filename` — from a mutated fallback or a mutated template — was
+   * invisible to it. These two pin the FULL string, with and without an
+   * explicit `fileName`, which is also what distinguishes `??` from `&&` in
+   * `fileName ?? t\`резюме\`` (with a falsy-but-defined fallback they would
+   * agree; with a truthy `fileName` they diverge).
+   */
+  it('falls back to "резюме" and formats "Резюме — {name}.pdf" when no fileName is given', async () => {
+    render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
+    const frame = await screen.findByTitle('Предпросмотр: Резюме — резюме.pdf')
+    expect(frame).toHaveAttribute('aria-label', 'Предпросмотр: Резюме — резюме.pdf')
+  })
+
+  it('uses the given fileName instead of the fallback', async () => {
+    render(
+      <ResumePdfPreview
+        resume={dto()}
+        pdfUrl="/api/users/u1/resume/pdf"
+        fileName="Іван Іваненко"
+      />,
+    )
+    const frame = await screen.findByTitle('Предпросмотр: Резюме — Іван Іваненко.pdf')
+    expect(frame).toBeInTheDocument()
   })
 })

@@ -38,6 +38,7 @@
 
 import { test, expect, API_RE } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import type { Locator, Page } from '@playwright/test'
 
 // task-e2e-origin-agnostic: these page.route() calls are MOCKS — matching
@@ -128,10 +129,11 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await fillBaseDropFields(page, dialog, 'drop-zero@example.dev', 'Drop Zero')
@@ -164,10 +166,11 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await fillBaseDropFields(page, dialog, 'drop-max@example.dev', 'Drop Max')
@@ -201,10 +204,11 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await fillBaseDropFields(page, dialog, 'drop-neg@example.dev', 'Drop Neg')
@@ -242,10 +246,11 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
       }),
     )
 
+    const uk = await loadMessages('uk')
     await page.goto('/users')
     await page.getByTestId('users-create-button').click()
     await page.getByTestId('user-dialog-role-trigger').click()
-    await page.getByRole('option', { name: 'Дроп' }).click()
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Дроп') }).click()
 
     const dialog = page.getByTestId('user-dialog')
     await fillBaseDropFields(page, dialog, 'drop-ovr@example.dev', 'Drop Ovr')

@@ -97,9 +97,11 @@ export function AmountCurrencyInput({
   // CreateTransactionDialog.tsx — omit both props and rely on this default)
   // is explicitly OUT of this wave's perimeter (plan Допущение 1). Swapping
   // the default to a `msg`-resolved value would silently change THEIR
-  // rendered text ahead of their own migration wave — same reasoning as
-  // `ROLE_LABELS` in `role-select.tsx`. A caller inside this wave's
-  // perimeter that wants a translated label passes one explicitly.
+  // rendered text ahead of their own migration wave — same reasoning that
+  // kept `role-select.tsx`'s former `ROLE_LABELS` export (removed
+  // task-i18n-stage3b-pr3) legacy until its last consumer migrated. A caller
+  // inside this wave's perimeter that wants a translated label passes one
+  // explicitly.
   const resolvedLabel = label ?? 'Сумма'
   const resolvedCurrencyLabel = currencyLabel ?? 'Валюта'
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'

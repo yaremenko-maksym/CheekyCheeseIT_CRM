@@ -19,6 +19,9 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Eye, EyeOff, RotateCcw } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import {
   DEFAULT_RESUME_LAYOUT,
   RESUME_SECTION_ORDER,
@@ -54,27 +57,21 @@ import { cn } from '@/lib/utils'
  * instead of on whichever one happened to be first.
  */
 
-/** Russian labels for the sections, matching the headings the template prints. */
-const SECTION_LABELS: Record<ResumeSectionKey, string> = {
-  summary: 'О себе',
-  skills: 'Навыки',
-  experience: 'Опыт работы',
-  education: 'Образование',
-  languages: 'Языки',
-  links: 'Ссылки',
-}
-
-const DENSITY_OPTIONS = [
-  { value: 'compact' as const, label: 'Плотно' },
-  { value: 'normal' as const, label: 'Обычно' },
-  { value: 'relaxed' as const, label: 'Свободно' },
-]
-
-const FONT_SCALE_OPTIONS = [
-  { value: 'small' as const, label: 'Мелкий' },
-  { value: 'normal' as const, label: 'Обычный' },
-  { value: 'large' as const, label: 'Крупный' },
-]
+/**
+ * task-i18n-stage3b-pr3 (Step 4): `msg` (module-level, fixes the SOURCE `uk`
+ * text) resolved against the active catalog by `i18n._()` in the component
+ * below — matching the headings the template prints (also translated,
+ * server-side). Never called at module level with `t` — that would freeze
+ * the string at import time (Global Constraints).
+ */
+const SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor> = {
+  summary: msg`Про себе`,
+  skills: msg`Навички`,
+  experience: msg`Досвід роботи`,
+  education: msg`Освіта`,
+  languages: msg`Мови`,
+  links: msg`Посилання`,
+} satisfies Record<ResumeSectionKey, MessageDescriptor>
 
 export interface ResumeLayoutPanelProps {
   layout: ResumeLayoutOptions
@@ -100,6 +97,20 @@ export function moveSection(
 }
 
 export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeLayoutPanelProps) {
+  const { t, i18n } = useLingui()
+  // Runtime-only (need `t`) — defined inside the component, not at module
+  // level, same reasoning as `SECTION_LABEL_MESSAGES` above.
+  const DENSITY_OPTIONS = [
+    { value: 'compact' as const, label: t`Щільно` },
+    { value: 'normal' as const, label: t`Стандартно` },
+    { value: 'relaxed' as const, label: t`Вільно` },
+  ]
+  const FONT_SCALE_OPTIONS = [
+    { value: 'small' as const, label: t`Дрібний` },
+    { value: 'normal' as const, label: t`Звичайний` },
+    { value: 'large' as const, label: t`Великий` },
+  ]
+
   // Normalised locally as well as on the server: a layout saved before a
   // section existed must not render a short list here either.
   const [draft, setDraft] = useState<ResumeLayoutOptions>(() => normalizeResumeLayout(layout))
@@ -125,9 +136,11 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
     >
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-semibold">Оформление</h3>
+          <h3 className="text-sm font-semibold">
+            <Trans>Оформлення</Trans>
+          </h3>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            Порядок и вид разделов. Текст резюме меняется выше.
+            <Trans>Порядок і вигляд розділів. Текст резюме редагується вище.</Trans>
           </p>
         </div>
         {canEdit && (
@@ -141,7 +154,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               onClick={() => setDraft(DEFAULT_RESUME_LAYOUT)}
             >
               <RotateCcw className="mr-1.5 size-3.5" />
-              Сбросить
+              <Trans>Скинути</Trans>
             </Button>
             <Button
               type="button"
@@ -150,7 +163,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
               disabled={!dirty || isSaving}
               onClick={() => onSave(draft)}
             >
-              {isSaving ? 'Сохраняем…' : 'Применить'}
+              {isSaving ? t`Зберігаємо…` : t`Застосувати`}
             </Button>
           </div>
         )}
@@ -158,10 +171,13 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
 
       <div className="space-y-5">
         <div>
-          <p className="mb-2 text-xs font-medium text-muted-foreground">Разделы</p>
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            <Trans>Розділи</Trans>
+          </p>
           <ul className="space-y-1.5" data-testid="resume-layout-sections">
             {draft.sectionOrder.map((key, index) => {
               const hidden = draft.hiddenSections.includes(key)
+              const label = i18n._(SECTION_LABEL_MESSAGES[key])
               return (
                 <li
                   key={key}
@@ -171,9 +187,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                     hidden && 'opacity-55',
                   )}
                 >
-                  <span className={cn('text-sm', hidden && 'line-through')}>
-                    {SECTION_LABELS[key]}
-                  </span>
+                  <span className={cn('text-sm', hidden && 'line-through')}>{label}</span>
                   <div className="flex items-center gap-1">
                     <Button
                       type="button"
@@ -182,16 +196,8 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       // 44px touch target on mobile — a 24px icon button is
                       // reachable with a mouse and not with a thumb.
                       className="size-11 sm:size-8"
-                      aria-label={
-                        hidden
-                          ? `Показать «${SECTION_LABELS[key]}»`
-                          : `Скрыть «${SECTION_LABELS[key]}»`
-                      }
-                      title={
-                        hidden
-                          ? `Показать «${SECTION_LABELS[key]}»`
-                          : `Скрыть «${SECTION_LABELS[key]}»`
-                      }
+                      aria-label={hidden ? t`Показати «${label}»` : t`Приховати «${label}»`}
+                      title={hidden ? t`Показати «${label}»` : t`Приховати «${label}»`}
                       data-testid={`resume-layout-toggle-${key}`}
                       disabled={!canEdit || isSaving}
                       onClick={() => toggleHidden(key)}
@@ -203,8 +209,8 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       variant="ghost"
                       size="icon"
                       className="size-11 sm:size-8"
-                      aria-label={`Поднять «${SECTION_LABELS[key]}»`}
-                      title={`Поднять «${SECTION_LABELS[key]}»`}
+                      aria-label={t`Перемістити «${label}» вгору`}
+                      title={t`Перемістити «${label}» вгору`}
                       data-testid={`resume-layout-up-${key}`}
                       disabled={!canEdit || isSaving || index === 0}
                       onClick={() =>
@@ -218,8 +224,8 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       variant="ghost"
                       size="icon"
                       className="size-11 sm:size-8"
-                      aria-label={`Опустить «${SECTION_LABELS[key]}»`}
-                      title={`Опустить «${SECTION_LABELS[key]}»`}
+                      aria-label={t`Перемістити «${label}» вниз`}
+                      title={t`Перемістити «${label}» вниз`}
                       data-testid={`resume-layout-down-${key}`}
                       disabled={!canEdit || isSaving || index === draft.sectionOrder.length - 1}
                       onClick={() =>
@@ -237,12 +243,14 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Плотность</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              <Trans>Щільність</Trans>
+            </p>
             <SegmentedToggle
               value={draft.density}
               onChange={(density: ResumeDensity) => update({ density })}
               options={DENSITY_OPTIONS}
-              ariaLabel="Плотность вёрстки"
+              ariaLabel={t`Щільність верстки`}
               layoutId="resume-density"
               size="sm"
               disabled={!canEdit || isSaving}
@@ -250,12 +258,14 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
             />
           </div>
           <div>
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Размер шрифта</p>
+            <p className="mb-2 text-xs font-medium text-muted-foreground">
+              <Trans>Розмір шрифту</Trans>
+            </p>
             <SegmentedToggle
               value={draft.fontScale}
               onChange={(fontScale: ResumeFontScale) => update({ fontScale })}
               options={FONT_SCALE_OPTIONS}
-              ariaLabel="Размер шрифта"
+              ariaLabel={t`Розмір шрифту`}
               layoutId="resume-font-scale"
               size="sm"
               disabled={!canEdit || isSaving}

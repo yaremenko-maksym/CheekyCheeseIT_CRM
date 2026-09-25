@@ -12,10 +12,12 @@
  */
 import { useRef, useState } from 'react'
 import { FileUp, ClipboardType } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { RESUME_LIMITS, RESUME_SOURCE_MAX_BYTES } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { translateZodCode } from '@/lib/axios-utils'
 
 interface ResumeIntakeProps {
   onUploadFile: (file: File) => void
@@ -34,6 +36,7 @@ export function ResumeIntake({
   isBusy,
   variant = 'empty',
 }: ResumeIntakeProps) {
+  const { t } = useLingui()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [mode, setMode] = useState<'idle' | 'text'>('idle')
   const [text, setText] = useState('')
@@ -44,7 +47,7 @@ export function ResumeIntake({
     event.target.value = ''
     if (!file) return
     if (file.size > RESUME_SOURCE_MAX_BYTES) {
-      toast.error(`Файл больше ${MAX_MB} MB`)
+      toast.error(t`Файл більший за ${MAX_MB} МБ`)
       return
     }
     onUploadFile(file)
@@ -53,7 +56,9 @@ export function ResumeIntake({
   function submitText() {
     const trimmed = text.trim()
     if (trimmed.length < RESUME_LIMITS.minExtractableChars) {
-      toast.error('Текст резюме слишком короткий')
+      // task-i18n-stage3b-pr3 (Step 4, COPY-M-ppl-9): same catalog key the
+      // SERVER-side check already uses (etap 4) — one text for two packages.
+      toast.error(translateZodCode('RESUME_TEXT_TOO_SHORT'))
       return
     }
     onSubmitText(trimmed)
@@ -73,10 +78,14 @@ export function ResumeIntake({
       {variant === 'empty' && (
         <>
           <FileUp className="mx-auto h-10 w-10 text-muted-foreground" aria-hidden />
-          <h3 className="mt-3 text-base font-medium">Резюме ещё не заполнено</h3>
+          <h3 className="mt-3 text-base font-medium">
+            <Trans>Резюме ще не заповнено</Trans>
+          </h3>
           <p className="mx-auto mt-1 max-w-md text-sm text-muted-foreground">
-            Загрузите файл резюме (PDF или DOCX) — мы один раз распознаем его в структуру, а дальше
-            вы правите её здесь. Если в файле нет текста, вставьте текст резюме вручную.
+            <Trans>
+              Завантажте резюме (PDF або DOCX) — ми один раз розкладемо його на розділи, а далі ви
+              редагуєте їх тут. Якщо у файлі немає тексту, вставте текст вручну.
+            </Trans>
           </p>
         </>
       )}
@@ -88,7 +97,7 @@ export function ResumeIntake({
         className="sr-only"
         onChange={handleFileChosen}
         data-testid="resume-file-input"
-        aria-label="Файл резюме"
+        aria-label={t`Файл резюме`}
       />
 
       <div
@@ -105,7 +114,7 @@ export function ResumeIntake({
           className="min-h-11"
         >
           <FileUp className="mr-2 h-4 w-4" aria-hidden />
-          {variant === 'empty' ? 'Загрузить файл' : 'Заменить файл'}
+          {variant === 'empty' ? <Trans>Завантажити файл</Trans> : <Trans>Замінити файл</Trans>}
         </Button>
         <Button
           variant="outline"
@@ -115,7 +124,7 @@ export function ResumeIntake({
           className="min-h-11"
         >
           <ClipboardType className="mr-2 h-4 w-4" aria-hidden />
-          Вставить текстом
+          <Trans>Вставити текстом</Trans>
         </Button>
       </div>
 
@@ -124,10 +133,10 @@ export function ResumeIntake({
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder="Вставьте сюда текст резюме целиком"
+            placeholder={t`Вставте сюди текст резюме цілком`}
             rows={10}
             data-testid="resume-text-input"
-            aria-label="Текст резюме"
+            aria-label={t`Текст резюме`}
           />
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             <Button
@@ -138,7 +147,7 @@ export function ResumeIntake({
               }}
               className="min-h-11"
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               onClick={submitText}
@@ -146,14 +155,14 @@ export function ResumeIntake({
               data-testid="resume-text-submit"
               className="min-h-11"
             >
-              Распознать текст
+              <Trans>Розпізнати текст</Trans>
             </Button>
           </div>
         </div>
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        PDF или DOCX, до {MAX_MB} MB. Файл виден только вам и команде найма.
+        <Trans>PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму.</Trans>
       </p>
     </div>
   )

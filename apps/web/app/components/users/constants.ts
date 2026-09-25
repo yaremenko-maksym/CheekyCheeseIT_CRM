@@ -1,13 +1,3 @@
-export const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-  // Drop role - phase 1: финансовая прокладка через чью-то команду.
-  DROP: 'Дроп',
-}
-
 export const ROLE_VARIANT: Record<
   string,
   'admin' | 'senior' | 'junior' | 'hr' | 'accountant' | 'drop'

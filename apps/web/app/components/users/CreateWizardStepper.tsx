@@ -40,12 +40,17 @@ export function CreateWizardStepper({ current }: CreateWizardStepperProps) {
             <div
               data-testid={`wizard-step-${stepNumber}`}
               data-state={state}
-              className="flex items-center gap-2 shrink-0"
+              className="flex items-center gap-2 min-w-0"
             >
-              {/* Circle */}
+              {/* Circle — shrink-0 so it stays a circle once the parent gives
+                  up its own shrink-0 (UX-LOW-1: at 320px the uk label
+                  "Підтвердження" no longer fits nowrap without clipping past
+                  the dialog edge — the fix is letting the LABEL wrap, not
+                  letting this icon deform). */}
               <div
+                data-testid={`wizard-step-${stepNumber}-circle`}
                 className={cn(
-                  'flex h-7 w-7 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors',
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 text-xs font-semibold transition-colors',
                   state === 'done' && 'border-primary bg-primary text-primary-foreground',
                   state === 'active' &&
                     'border-primary bg-background text-primary ring-2 ring-primary/20',
@@ -59,10 +64,15 @@ export function CreateWizardStepper({ current }: CreateWizardStepperProps) {
                 )}
               </div>
 
-              {/* Label */}
+              {/* Label — wraps at the narrowest widths instead of
+                  overflowing past the dialog edge (nowrap from `sm` up,
+                  where every locale's label fits on one line). `break-words`
+                  matters here specifically for uk: "Підтвердження" is ONE
+                  word with no space to wrap on, so whitespace-normal alone
+                  cannot break it — only overflow-wrap can. */}
               <span
                 className={cn(
-                  'text-xs font-medium whitespace-nowrap',
+                  'min-w-0 text-xs font-medium whitespace-normal break-words sm:whitespace-nowrap',
                   state === 'active' && 'text-primary',
                   state === 'done' && 'text-foreground',
                   state === 'upcoming' && 'text-muted-foreground',
