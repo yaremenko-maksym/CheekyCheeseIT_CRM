@@ -5,6 +5,7 @@ import {
   type TransactionStatus,
 } from '@crm/shared'
 import { formatAmount } from '@/lib/format-amount'
+import { translateApiError } from '@/lib/axios-utils'
 
 /**
  * task-cascade-preview-ui (task 5) — why the amount on THIS row cannot be
@@ -23,7 +24,10 @@ import { formatAmount } from '@/lib/format-amount'
  * same banner, one after another, and a register change reads as a different
  * system talking.
  */
-export const CASCADE_BLOCKED_REASON_MESSAGES: Record<CascadeEditPreviewBlockedReason, string> = {
+export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
+  Exclude<CascadeEditPreviewBlockedReason, 'PAYMENT_FACT_RECORDED'>,
+  string
+> = {
   ...CASCADE_LEDGER_FACT_MESSAGES,
   PAYOUT_FAMILY:
     'Это строка выплаты — сумма подтверждена исполненным переводом, она не редактируется, правьте сторнирующей транзакцией',
@@ -38,6 +42,26 @@ export const CASCADE_BLOCKED_REASON_MESSAGES: Record<CascadeEditPreviewBlockedRe
  * anything. An honest short sentence beats a blank refusal.
  */
 export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для этой строки недоступна'
+
+/**
+ * task-paid-salary-amount-edit — the ONE way to render a blocked reason.
+ *
+ * `PAYMENT_FACT_RECORDED` is translated through the api-error catalog
+ * (`FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`, uk/en) — the SAME entry the write
+ * path's 400 carries, so the banner and the refusal cannot drift. Resolved at
+ * call time, not stored in the table above, because a catalog lookup depends
+ * on the active locale. The rest keep their existing texts until finance
+ * migrates to the catalog.
+ */
+export function cascadeBlockedReasonMessage(
+  reason: CascadeEditPreviewBlockedReason | null | undefined,
+): string {
+  if (!reason) return CASCADE_BLOCKED_FALLBACK_MESSAGE
+  if (reason === 'PAYMENT_FACT_RECORDED') {
+    return translateApiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', undefined)
+  }
+  return CASCADE_BLOCKED_REASON_MESSAGES[reason]
+}
 
 export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_INCOME: 'Приход Admin',

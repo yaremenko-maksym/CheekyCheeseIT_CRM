@@ -27,8 +27,14 @@ import {
   cascadeSaveErrorMessage,
   cascadeStaleMessage,
   needsCascadePreview,
+  paidRowAmountLockReason,
 } from '../../cascade-preview'
-import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
+import {
+  EXPENSE_CATEGORIES,
+  TYPE_LABELS,
+  cascadeBlockedReasonMessage,
+  fmtAmount,
+} from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import {
   ReceiptInput,
@@ -137,6 +143,14 @@ export function AdminEditTransactionDialog({
   // «is this a cascade edit»: the two are locked by the ledger having recorded
   // a payment, which is true whether or not the amount is being touched.
   const isPaidRow = tx?.status === 'PAID'
+
+  // task-paid-salary-amount-edit — a PAID row whose amount has a second
+  // carrier (a converted payment fact, an accumulator of payouts, an on-chain
+  // deposit) is locked on OPEN, with the reason under the field, instead of
+  // being refused after the operator has typed a figure. A paid SALARY is not
+  // one of them any more — its obligation follows the edit at the recorded
+  // rate. Same classifier the server asks (`paidRowAmountLockReason`).
+  const amountLockReason = paidRowAmountLockReason(tx)
 
   // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
   // sending someone to check their wifi over a message the server took the
@@ -453,7 +467,16 @@ export function AdminEditTransactionDialog({
                 onAmountChange={setAmount}
                 onCurrencyChange={setCurrency}
                 disableCurrency={isPaidRow}
+                disableAmount={amountLockReason !== null}
               />
+              {amountLockReason !== null && (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="admin-edit-locked-amount-note"
+                >
+                  {cascadeBlockedReasonMessage(amountLockReason)}
+                </p>
+              )}
               {isPaidRow && (
                 <p
                   className="text-xs text-muted-foreground"

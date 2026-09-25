@@ -22,20 +22,15 @@
  * missed.
  */
 import { AlertCircle, AlertTriangle, ArrowRight, Ban, RefreshCw, RotateCcw } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 
-import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
+import type { CascadeDerivativePlan, CascadeEditPreviewResponse, CascadePlan } from '@crm/shared'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 
-import {
-  CASCADE_BLOCKED_FALLBACK_MESSAGE,
-  CASCADE_BLOCKED_REASON_MESSAGES,
-  TYPE_COLORS,
-  TYPE_LABELS,
-  fmtAmount,
-} from '../../constants'
+import { cascadeBlockedReasonMessage, TYPE_COLORS, TYPE_LABELS, fmtAmount } from '../../constants'
 
 // Stryker disable next-line StringLiteral: the two variants are decided by `=== 'mobile'`, so ANY non-'mobile' value (including '') selects the desktop rendering — the mutant is equivalent by construction. Which layout each id lands in is pinned by PR-29/PR-30
 const DESKTOP = 'desktop' as const
@@ -354,6 +349,61 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
   )
 }
 
+/**
+ * task-paid-salary-amount-edit — what saving does to an edited PAID salary.
+ *
+ * The obligation follows the corrected paid figure at the RECORDED rate of
+ * that transfer (owner decision 2026-09-25) — or, with no rate recorded, is
+ * deliberately left as it was, and the screen says so instead of quoting a
+ * figure nobody will store. Either way the invoice is voided and re-issued for
+ * signing (`voidAndReissueInvoiceForAmountEdit`). New strings, so uk/en via the
+ * catalog (`russian-language.md`), inside a module otherwise not migrated yet.
+ */
+function SalaryPaymentFactBlock({ fact }: { fact: NonNullable<CascadePlan['sourcePaymentFact']> }) {
+  const currency = fact.originalCurrency ?? ''
+  const oldAmount = fmtAmount(fact.oldOriginalAmount, currency)
+  const newAmount = fmtAmount(fact.newOriginalAmount, currency)
+  // The stored rate carries 8 decimals of trailing zeros («41.25000000»);
+  // `Number` drops them without rounding a digit that is actually there.
+  const rate = fact.exchangeRate === null ? '' : String(Number(fact.exchangeRate))
+  return (
+    <div className="space-y-2">
+      {fact.recomputed ? (
+        <p
+          className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs tabular-nums"
+          data-testid="cascade-salary-obligation"
+        >
+          <Trans>
+            Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}
+          </Trans>
+        </p>
+      ) : (
+        <p
+          className="flex items-start gap-1.5 text-xs text-amber-400"
+          data-testid="cascade-salary-rate-missing"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            <Trans>
+              Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише
+              виплачена сума
+            </Trans>
+          </span>
+        </p>
+      )}
+      <p
+        className="flex items-start gap-1.5 text-xs text-amber-400"
+        data-testid="cascade-salary-invoice-reissue"
+      >
+        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span>
+          <Trans>Рахунок буде анульовано й перевипущено на підпис працівнику</Trans>
+        </span>
+      </p>
+    </div>
+  )
+}
+
 export function CascadeImpactPanel({
   preview,
   isLoading,
@@ -439,11 +489,7 @@ export function CascadeImpactPanel({
           data-testid="cascade-blocked-banner"
         >
           <Ban className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
-          <span>
-            {preview.blockedReason
-              ? CASCADE_BLOCKED_REASON_MESSAGES[preview.blockedReason]
-              : CASCADE_BLOCKED_FALLBACK_MESSAGE}
-          </span>
+          <span>{cascadeBlockedReasonMessage(preview.blockedReason)}</span>
         </div>
       )}
 
@@ -474,7 +520,9 @@ export function CascadeImpactPanel({
             className={cn(staleMessage && 'pointer-events-none opacity-60')}
             data-testid="cascade-plan-body"
           >
-            {preview.plan.derivatives.length === 0 ? (
+            {preview.plan.sourcePaymentFact ? (
+              <SalaryPaymentFactBlock fact={preview.plan.sourcePaymentFact} />
+            ) : preview.plan.derivatives.length === 0 ? (
               <p
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs"
                 data-testid="cascade-preview-empty"

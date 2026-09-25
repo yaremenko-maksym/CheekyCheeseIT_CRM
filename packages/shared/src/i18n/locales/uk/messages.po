@@ -1944,6 +1944,10 @@ msgstr "Заробітку за останні місяці ще немає"
 msgid "Зарплата"
 msgstr "Зарплата"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}"
+msgstr "Зарплата стане {newAmount} (було {oldAmount}) за курсом переказу {rate}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH"
@@ -2476,6 +2480,10 @@ msgstr "Кроки створення користувача"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
 msgstr "Курс НБУ недоступний — спробуйте пізніше"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише виплачена сума"
+msgstr "Курс переказу не записано — зарплату {oldAmount} не перераховано, зміниться лише виплачена сума"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Ласкаво просимо до CRM"
@@ -4164,6 +4172,10 @@ msgstr "Рахунки створює система — завантажити 
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_VOIDED"
 msgstr "Рахунок анульовано — оновіть сторінку"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Рахунок буде анульовано й перевипущено на підпис працівнику"
+msgstr "Рахунок буде анульовано й перевипущено на підпис працівнику"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

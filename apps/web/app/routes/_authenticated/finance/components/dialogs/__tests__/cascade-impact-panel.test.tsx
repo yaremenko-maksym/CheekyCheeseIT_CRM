@@ -242,9 +242,11 @@ describe('cascade preview — the client half of the loop', () => {
 
     const banner = await screen.findByTestId('cascade-blocked-banner')
 
-    // Verbatim from `CASCADE_LEDGER_FACT_MESSAGES` — the same sentence the
-    // write path's 400 body carries, not a friendlier client paraphrase.
-    expect(banner.textContent).toContain('зафиксирован факт платежа')
+    // The same catalogued sentence the write path's 400 body carries
+    // (`FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`, task-paid-salary-amount-edit), not
+    // a friendlier client paraphrase — and no longer the old text that sent
+    // the operator to a «документ об оплате» the system does not have.
+    expect(banner.textContent).toContain('зафіксовано разом із курсом переказу')
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
   })
 

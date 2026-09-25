@@ -172,7 +172,7 @@ export function getApiErrorCode(err: unknown): ApiErrorCode | null {
  * object literals, which is where they belong; this call site only ever
  * looks one up by a code already in the registry, never defines a new one.
  */
-function translateApiError(
+export function translateApiError(
   code: ApiErrorCode,
   params: Record<string, string | number> | undefined,
 ): string {

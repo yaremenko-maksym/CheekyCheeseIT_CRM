@@ -1069,7 +1069,13 @@ export function resolveSalaryPaymentFactEdit(
  * cascade refuse itself.
  */
 export function classifyEditedRowLedgerFact(
-  source: CascadeSourceSnapshot,
+  // Only the columns the four predicates read — so the edit dialog can ask the
+  // SAME question from a `TransactionDto` before the operator types (task-paid-
+  // salary-amount-edit: «disabled сразу», not a refusal after input).
+  source: Pick<
+    CascadeSourceSnapshot,
+    'type' | 'originalAmount' | 'exchangeRate' | 'settledAmount' | 'hasClosedObligation'
+  >,
   requestedAmount: number,
 ): CascadeLedgerFactReason | null {
   if (source.originalAmount !== null) {
