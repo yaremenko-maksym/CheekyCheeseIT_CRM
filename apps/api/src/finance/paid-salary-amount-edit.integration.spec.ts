@@ -298,7 +298,32 @@ describe.skipIf(!HAS_DB_URL)(
 
       invoicesSpy.reissueSalaryInvoiceIfVoided.mockResolvedValueOnce('REISSUED')
       const resaved = await svc.adminUpdateTransaction(id, { notes: 'пересохранение' }, ADMIN)
-      expect(invoicesSpy.reissueSalaryInvoiceIfVoided).toHaveBeenCalledWith(id)
+      expect(invoicesSpy.reissueSalaryInvoiceIfVoided).toHaveBeenCalledWith(id, ADMIN.id)
+      expect(resaved).not.toHaveProperty('invoiceReissueIncomplete')
+    })
+
+    it('SR-M-3: a failed VOID is journalled with its own stage and the re-save repairs that stage too', async () => {
+      const id = await paidSalary()
+      invoicesSpy.voidAndReissueInvoiceForAmountEdit.mockResolvedValueOnce('VOID_FAILED')
+      const preview = await svc.getEditCascadePreview(id, 48_867, ADMIN)
+      const saved = await svc.adminUpdateTransaction(
+        id,
+        { amount: 48_867, cascadeVersion: preview.version! },
+        ADMIN,
+      )
+      expect(saved).toMatchObject({ invoiceReissueIncomplete: true })
+      const failures = await dbSvc.db.query.transactionAuditLog.findMany({
+        where: and(
+          eq(transactionAuditLog.targetId, id),
+          eq(transactionAuditLog.action, 'INVOICE_REISSUE_FAILED'),
+        ),
+      })
+      // Its OWN stage — the repair below keys on this line being on record.
+      expect(failures.map((f) => f.metadata)).toEqual([{ stage: 'VOID' }])
+
+      invoicesSpy.reissueSalaryInvoiceIfVoided.mockResolvedValueOnce('REISSUED')
+      const resaved = await svc.adminUpdateTransaction(id, { notes: 'пересохранение' }, ADMIN)
+      expect(invoicesSpy.reissueSalaryInvoiceIfVoided).toHaveBeenCalledWith(id, ADMIN.id)
       expect(resaved).not.toHaveProperty('invoiceReissueIncomplete')
     })
 

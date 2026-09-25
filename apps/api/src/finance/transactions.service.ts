@@ -3598,11 +3598,14 @@ export class TransactionsService {
       }
     } else if (tx.type === 'SALARY' && tx.status === 'PAID') {
       // «Повторное сохранение чинит»: a save that did not move the amount is
-      // the operator's way back to an invoice an earlier edit failed to
-      // re-issue. A salary that never had one is left alone (see the method).
+      // the operator's way back to an invoice an earlier edit left broken —
+      // whether the void failed (the old signed document is still current) or
+      // the re-issue did (no document at all). SR-M-3: both stages, so the
+      // toast's advice is actionable in either. A salary that never had an
+      // invoice is left alone (see the method).
       let outcome: InvoiceReissueOutcome | undefined
       try {
-        outcome = await this.invoicesService.reissueSalaryInvoiceIfVoided(id)
+        outcome = await this.invoicesService.reissueSalaryInvoiceIfVoided(id, actorId)
       } catch (invoiceErr) {
         this.logger.error(
           `adminUpdateTransaction: salary invoice repair failed for transaction=${id}: ${(invoiceErr as Error).message}`,
@@ -3613,13 +3616,24 @@ export class TransactionsService {
       if (stage) failedStages.push({ id, stage })
     }
 
+    // SR-L-5 (security-review round 2) — fire-and-forget, like every other
+    // audit write in this file. The edit itself is already committed: letting
+    // a journal failure throw would turn a saved edit into a 500 AND lose the
+    // `invoiceReissueIncomplete` flag, which is the one thing that tells the
+    // operator to save again.
     for (const failed of failedStages) {
-      await this.db.db.insert(transactionAuditLog).values({
-        actorId,
-        targetId: failed.id,
-        action: 'INVOICE_REISSUE_FAILED',
-        metadata: { stage: failed.stage },
-      })
+      try {
+        await this.db.db.insert(transactionAuditLog).values({
+          actorId,
+          targetId: failed.id,
+          action: 'INVOICE_REISSUE_FAILED',
+          metadata: { stage: failed.stage },
+        })
+      } catch (journalErr) {
+        this.logger.error(
+          `adminUpdateTransaction: could not journal INVOICE_REISSUE_FAILED for transaction=${failed.id} (stage=${failed.stage}): ${(journalErr as Error).message}`,
+        )
+      }
     }
 
     const updatedDto = await this.findOne(id, currentUser)

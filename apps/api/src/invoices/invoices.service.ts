@@ -80,6 +80,7 @@ import {
   nonDeletedTransactions,
   projects,
   signedContracts,
+  transactionAuditLog,
   transactions,
   users,
   type Transaction,
@@ -140,6 +141,50 @@ const REISSUE_STATE_COLUMNS = {
 }
 // Stryker disable next-line ObjectLiteral: same query SHAPE — only the presence of a row is read, never its columns
 const VOIDED_SIGNATURE_COLUMNS = { id: invoiceSignatures.id }
+// Stryker disable next-line ObjectLiteral: same query SHAPE — the unit double answers with canned rows whatever is selected
+const ACTIVE_COMPANY_SIGNATURE_COLUMNS = { signedAt: invoiceSignatures.signedAt }
+// Stryker disable next-line ObjectLiteral: same query SHAPE — the unit double answers with canned rows whatever is selected
+const VOID_FAILURE_COLUMNS = { createdAt: transactionAuditLog.createdAt }
+
+/**
+ * What `loadReissueState` reads, and the three questions asked of it.
+ * Plain functions rather than methods: they are pure decisions over that shape,
+ * and the mutation gate can see every branch of them through the service's own
+ * unit double.
+ */
+interface ReissueState {
+  type: string
+  status: string
+  payoutRequestId: string | null
+  invoiceDocumentId: string | null
+  hasVoidedInvoice: boolean
+  /** `signed_at` of the ACTIVE COMPANY signature — `null` when none is current. */
+  activeCompanySignedAt: Date | null
+  /** `created_at` of the last `INVOICE_REISSUE_FAILED` journal line with `stage: VOID`. */
+  lastVoidFailureAt: Date | null
+}
+
+/** A PAID salary of its own — not a payout-linked row, not another type. */
+function isRepairableSalary(state: ReissueState | null): state is ReissueState {
+  return !!state && state.type === 'SALARY' && state.status === 'PAID' && !state.payoutRequestId
+}
+
+/** The REISSUE stage: the invoice is gone and nothing replaced it. */
+function awaitsReissue(state: ReissueState): boolean {
+  return !state.invoiceDocumentId && state.hasVoidedInvoice
+}
+
+/**
+ * The VOID stage (SR-M-3): a document is still current, a void failure is on
+ * record, and the document's own COMPANY signature predates that failure — so
+ * this is the invoice the failed void was supposed to retire, not a fresh one.
+ */
+function awaitsVoidRetry(state: ReissueState): boolean {
+  if (!state.invoiceDocumentId || state.lastVoidFailureAt === null) return false
+  return (
+    state.activeCompanySignedAt === null || state.activeCompanySignedAt < state.lastVoidFailureAt
+  )
+}
 
 @Injectable()
 export class InvoicesService {
@@ -804,8 +849,22 @@ export class InvoicesService {
    * alone on purpose — generating one on a notes edit would send a signing
    * request nobody expected.
    */
-  async reissueSalaryInvoiceIfVoided(transactionId: string): Promise<InvoiceReissueOutcome> {
-    if (!(await this.isSalaryAwaitingReissue(transactionId))) return 'NOT_NEEDED'
+  async reissueSalaryInvoiceIfVoided(
+    transactionId: string,
+    actorId: string,
+  ): Promise<InvoiceReissueOutcome> {
+    const state = await this.loadReissueState(transactionId)
+    if (!isRepairableSalary(state)) return 'NOT_NEEDED'
+    // SR-M-3 (security-review round 2) — the VOID stage. A failed void left
+    // the OLD, counterparty-signed invoice current: the public QR check keeps
+    // confirming the old figure while `transactions.amount` already holds the
+    // new one. `awaitsReissue` below could not see that (it needs the document
+    // GONE), so the toast's «збережіть ще раз» was advice nobody could follow.
+    // Retry the whole thing — void, then re-issue.
+    if (awaitsVoidRetry(state)) {
+      return this.voidAndReissueInvoiceForAmountEdit(transactionId, actorId)
+    }
+    if (!awaitsReissue(state)) return 'NOT_NEEDED'
     return this.reissueAndVerify(transactionId)
   }
 
@@ -822,23 +881,10 @@ export class InvoicesService {
   /** PAID `SALARY`, no current invoice, but one existed and was voided. */
   private async isSalaryAwaitingReissue(transactionId: string): Promise<boolean> {
     const state = await this.loadReissueState(transactionId)
-    return (
-      !!state &&
-      state.type === 'SALARY' &&
-      state.status === 'PAID' &&
-      !state.payoutRequestId &&
-      !state.invoiceDocumentId &&
-      state.hasVoidedInvoice
-    )
+    return isRepairableSalary(state) && awaitsReissue(state)
   }
 
-  private async loadReissueState(transactionId: string): Promise<{
-    type: string
-    status: string
-    payoutRequestId: string | null
-    invoiceDocumentId: string | null
-    hasVoidedInvoice: boolean
-  } | null> {
+  private async loadReissueState(transactionId: string): Promise<ReissueState | null> {
     const [tx] = await this.db.db
       .select(REISSUE_STATE_COLUMNS)
       .from(nonDeletedTransactions)
@@ -858,7 +904,43 @@ export class InvoicesService {
         ),
       )
       .limit(1)
-    return { ...tx, hasVoidedInvoice: !!voided }
+    // SR-M-3 — the two facts that tell a failed VOID from an ordinary invoice.
+    // `autoCreate` gives every fresh invoice a COMPANY signature, and a void
+    // stamps `voided_at` on the active ones; so an ACTIVE company signature
+    // older than the last recorded void failure is exactly the document that
+    // failed void left behind. After a successful repair the new signature is
+    // newer than the failure, and the same question answers no — which is what
+    // makes the repair idempotent without a second marker to keep in step.
+    const [activeCompanySig] = await this.db.db
+      .select(ACTIVE_COMPANY_SIGNATURE_COLUMNS)
+      .from(invoiceSignatures)
+      .where(
+        and(
+          eq(invoiceSignatures.transactionId, transactionId),
+          eq(invoiceSignatures.signerRole, 'COMPANY'),
+          isNull(invoiceSignatures.voidedAt),
+        ),
+      )
+      .orderBy(desc(invoiceSignatures.signedAt))
+      .limit(1)
+    const [lastVoidFailure] = await this.db.db
+      .select(VOID_FAILURE_COLUMNS)
+      .from(transactionAuditLog)
+      .where(
+        and(
+          eq(transactionAuditLog.targetId, transactionId),
+          eq(transactionAuditLog.action, 'INVOICE_REISSUE_FAILED'),
+          sql`${transactionAuditLog.metadata} ->> 'stage' = 'VOID'`,
+        ),
+      )
+      .orderBy(desc(transactionAuditLog.createdAt))
+      .limit(1)
+    return {
+      ...tx,
+      hasVoidedInvoice: !!voided,
+      activeCompanySignedAt: activeCompanySig?.signedAt ?? null,
+      lastVoidFailureAt: lastVoidFailure?.createdAt ?? null,
+    }
   }
 
   // ===========================================================================

@@ -160,6 +160,9 @@ describe('loadReissueState — what the two reads become', () => {
     const chain = {
       from: () => chain,
       where: () => chain,
+      // SR-M-3 added two ordered reads (newest active COMPANY signature, last
+      // recorded void failure) — the double answers them in call order.
+      orderBy: () => chain,
       limit: () => Promise.resolve(queue.shift() ?? []),
     }
     ;(svc as unknown as Record<string, unknown>)['db'] = { db: { select: () => chain } }
@@ -175,18 +178,149 @@ describe('loadReissueState — what the two reads become', () => {
     invoiceDocumentId: null,
   }
 
-  it('a row with a voided signature on record → hasVoidedInvoice: true, every column carried', async () => {
-    await expect(withReads([ROW], [{ id: 'sig-1' }])()).resolves.toEqual({
+  const SIGNED_AT = new Date('2026-09-25T10:00:00.000Z')
+  const FAILED_AT = new Date('2026-09-25T11:00:00.000Z')
+
+  it('carries every column plus the two SR-M-3 timestamps', async () => {
+    await expect(
+      withReads([ROW], [{ id: 'sig-1' }], [{ signedAt: SIGNED_AT }], [{ createdAt: FAILED_AT }])(),
+    ).resolves.toEqual({
       ...ROW,
       hasVoidedInvoice: true,
+      activeCompanySignedAt: SIGNED_AT,
+      lastVoidFailureAt: FAILED_AT,
     })
   })
 
-  it('no voided signature → hasVoidedInvoice: false', async () => {
-    await expect(withReads([ROW], [])()).resolves.toEqual({ ...ROW, hasVoidedInvoice: false })
+  it('no voided signature, no active signature, no failure → all three absent', async () => {
+    await expect(withReads([ROW], [], [], [])()).resolves.toEqual({
+      ...ROW,
+      hasVoidedInvoice: false,
+      activeCompanySignedAt: null,
+      lastVoidFailureAt: null,
+    })
   })
 
   it('no row → null', async () => {
     await expect(withReads([], [{ id: 'sig-1' }])()).resolves.toBeNull()
+  })
+})
+
+/**
+ * SR-M-3 (security-review round 2) — the VOID stage is repairable too.
+ *
+ * When voiding failed, the edit is committed but the OLD, counterparty-signed
+ * invoice is still current: the public QR check keeps confirming the old
+ * figure. `isSalaryAwaitingReissue` could not see that case (it requires
+ * `invoice_document_id IS NULL`), so the toast's advice — «збережіть ще раз» —
+ * was not actionable. The repair now recognises it and retries void+reissue.
+ *
+ * How the state is recognised, and why it is idempotent: a void stamps
+ * `voided_at` on every active signature, and `autoCreate` gives each fresh
+ * invoice a new COMPANY signature. So «the active COMPANY signature is OLDER
+ * than the last recorded VOID failure» means exactly «that failed void left
+ * this document in place». After a successful repair the new document's
+ * signature is newer, and the same question answers no.
+ */
+
+type RepairState = {
+  type: string
+  status: string
+  payoutRequestId: string | null
+  invoiceDocumentId: string | null
+  hasVoidedInvoice: boolean
+  activeCompanySignedAt: Date | null
+  lastVoidFailureAt: Date | null
+}
+
+const EARLIER = new Date('2026-09-25T10:00:00.000Z')
+const LATER = new Date('2026-09-25T11:00:00.000Z')
+
+/** A PAID salary whose failed void left the old signed invoice current. */
+const VOID_STAGE: RepairState = {
+  type: 'SALARY',
+  status: 'PAID',
+  payoutRequestId: null,
+  invoiceDocumentId: 'doc-old',
+  hasVoidedInvoice: false,
+  activeCompanySignedAt: EARLIER,
+  lastVoidFailureAt: LATER,
+}
+
+function makeRepairService(states: Array<RepairState | null>) {
+  const svc = Object.create(InvoicesService.prototype) as InvoicesService
+  const queue = [...states]
+  const internals = svc as unknown as Record<string, unknown>
+  internals['logger'] = new Logger('test')
+  vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+  const voidCall = vi.fn(() => Promise.resolve({ hadInvoice: true, wasSigned: true }))
+  internals['voidInvoiceForAmountEdit'] = voidCall
+  const reissue = vi.fn(() => Promise.resolve())
+  internals['reissueInvoiceIfStillPaid'] = reissue
+  internals['loadReissueState'] = vi.fn(() => Promise.resolve(queue.shift() ?? null))
+  return { svc, voidCall, reissue }
+}
+
+describe('reissueSalaryInvoiceIfVoided — the VOID stage (SR-M-3)', () => {
+  it('retries the void AND the re-issue when a failed void left the old invoice current', async () => {
+    const { svc, voidCall, reissue } = makeRepairService([
+      VOID_STAGE,
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new' },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).toHaveBeenCalledWith('tx', 'actor')
+    expect(reissue).toHaveBeenCalledWith('tx')
+  })
+
+  it('reports VOID_FAILED again when the retried void throws once more', async () => {
+    const { svc, reissue } = makeRepairService([VOID_STAGE])
+    const internals = svc as unknown as Record<string, unknown>
+    internals['voidInvoiceForAmountEdit'] = vi.fn(() => Promise.reject(new Error('still locked')))
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('VOID_FAILED')
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent: once the repair issued a fresh invoice, a further save does nothing', async () => {
+    // The new document's COMPANY signature is NEWER than the failure — the
+    // same shape a successful repair leaves behind.
+    const { svc, voidCall, reissue } = makeRepairService([
+      { ...VOID_STAGE, invoiceDocumentId: 'doc-new', activeCompanySignedAt: LATER },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).not.toHaveBeenCalled()
+  })
+
+  it('leaves an ordinary invoice alone when no void failure was ever recorded', async () => {
+    const { svc, voidCall } = makeRepairService([{ ...VOID_STAGE, lastVoidFailureAt: null }])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
+  })
+
+  it('the REISSUE stage still repairs without touching the void path', async () => {
+    const REISSUE_STAGE: RepairState = {
+      ...VOID_STAGE,
+      invoiceDocumentId: null,
+      hasVoidedInvoice: true,
+      activeCompanySignedAt: null,
+      lastVoidFailureAt: null,
+    }
+    const { svc, voidCall, reissue } = makeRepairService([
+      REISSUE_STAGE,
+      { ...REISSUE_STAGE, invoiceDocumentId: 'doc-2' },
+    ])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('REISSUED')
+    expect(voidCall).not.toHaveBeenCalled()
+    expect(reissue).toHaveBeenCalledWith('tx')
+  })
+
+  it.each<[string, Partial<RepairState>]>([
+    ['it is not a salary', { type: 'SENIOR_INCOME' }],
+    ['it is not paid', { status: 'PENDING' }],
+    ['it is linked to a payout', { payoutRequestId: 'pr' }],
+  ])('does not retry the void when %s', async (_label, patch) => {
+    const { svc, voidCall } = makeRepairService([{ ...VOID_STAGE, ...patch }])
+    await expect(svc.reissueSalaryInvoiceIfVoided('tx', 'actor')).resolves.toBe('NOT_NEEDED')
+    expect(voidCall).not.toHaveBeenCalled()
   })
 })

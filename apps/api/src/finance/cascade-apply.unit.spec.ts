@@ -3365,7 +3365,7 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     const svc = makeTransactionsService({ db, invoicesService })
     stubFindOne(svc)
     const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'пересохранение' }, ADMIN)
-    expect(reissue).toHaveBeenCalledWith(SOURCE_ID)
+    expect(reissue).toHaveBeenCalledWith(SOURCE_ID, ADMIN.id)
     expect(invoicesService.voidAndReissueInvoiceForAmountEdit).not.toHaveBeenCalled()
     expect(result).not.toHaveProperty('invoiceReissueIncomplete')
     expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')).toEqual([])
@@ -3415,6 +3415,36 @@ describe('SR-M-1: invoice void/re-issue failure is journalled and reported', () 
     stubFindOne(svc)
     await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'x' }, ADMIN)
     expect(invoicesService.reissueSalaryInvoiceIfVoided).not.toHaveBeenCalled()
+  })
+
+  it('SR-L-5: a journal write that fails leaves the edit saved and the flag intact', async () => {
+    const source = sourceRow(PAID_SALARY)
+    const { db, ops } = makeDouble({ source })
+    const invoicesService = makeInvoicesSpy()
+    Object.assign(invoicesService, {
+      reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('REISSUE_FAILED'),
+    })
+    const svc = makeTransactionsService({ db, invoicesService })
+    stubFindOne(svc)
+    // The audit insert is the LAST write of this path and the edit is already
+    // committed — a throw here used to become a 500 that also swallowed the
+    // flag telling the operator to save again.
+    const realInsert = db.db.insert
+    db.db.insert = vi.fn((table: unknown) => {
+      if (tableName(table) === 'transaction_audit_log') throw new Error('journal down')
+      return (realInsert as (t: unknown) => unknown)(table)
+    }) as never
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    const result = await svc.adminUpdateTransaction(SOURCE_ID, { notes: 'ещё раз' }, ADMIN)
+
+    expect(result).toMatchObject({ invoiceReissueIncomplete: true })
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        `could not journal INVOICE_REISSUE_FAILED for transaction=${SOURCE_ID}`,
+      ),
+    )
+    expect(journalEntries(ops, 'INVOICE_REISSUE_FAILED')).toEqual([])
   })
 
   it('a non-salary save never asks for a salary invoice repair', async () => {
