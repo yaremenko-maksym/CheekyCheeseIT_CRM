@@ -225,7 +225,7 @@ test.describe('Users page refactor (PR 2)', () => {
       expect(await projects.filter({ visible: true }).count()).toBe(projectsCount)
       // Link to /projects always present
       await expect(
-        page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ }),
+        page.getByRole('dialog').getByRole('link', { name: /Керувати в Проектах/ }),
       ).toBeVisible()
     })
   })
