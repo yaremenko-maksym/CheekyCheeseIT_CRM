@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Dialog,
   DialogContent,
@@ -21,6 +22,7 @@ export function AdminNoteDialog({
   currentNote: string | null
   onClose: () => void
 }) {
+  const { t } = useLingui()
   const mutation = useAdminSetNote(userId)
   const [note, setNote] = useState(currentNote ?? '')
 
@@ -28,25 +30,29 @@ export function AdminNoteDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
-          <DialogTitle>Заметка админа</DialogTitle>
+          <DialogTitle>
+            <Trans>Нотатка адміністратора</Trans>
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Внутренняя заметка, видна только администраторам.
+            <Trans>Внутрішня нотатка, видна лише адміністраторам</Trans>
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
-          <Label>Заметка (макс. 2000 символов)</Label>
+          <Label>
+            <Trans>Нотатка (макс. 2000 символів)</Trans>
+          </Label>
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={8}
             maxLength={2000}
-            placeholder="Внутренняя заметка, видна только администраторам..."
+            placeholder={t`Внутрішня нотатка, видна лише адміністраторам…`}
           />
           <p className="text-xs text-muted-foreground text-right">{note.length}/2000</p>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             disabled={mutation.isPending}
@@ -55,7 +61,7 @@ export function AdminNoteDialog({
               onClose()
             }}
           >
-            Сохранить
+            <Trans>Зберегти</Trans>
           </Button>
         </DialogFooter>
       </DialogContent>

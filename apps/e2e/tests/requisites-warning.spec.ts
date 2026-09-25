@@ -19,10 +19,16 @@
  */
 
 import { test, expect, USERS, mockAuthAs, buildSelfView, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Junior seed user fixture — has BANK_UAH_FOP fields pre-filled in buildSelfView
 const TARGET_IBAN = 'UA213223130000026007233566001'
 const TARGET_RNOKPP = '1234567890'
+
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 test.describe('Requisites edit form', () => {
   // -------------------------------------------------------------------------
@@ -32,7 +38,9 @@ test.describe('Requisites edit form', () => {
   test('Реквизиты tab visible for JUNIOR in self view', async ({ asJunior: page }) => {
     await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(uk, 'Реквізити'), exact: true }),
+    ).toBeVisible()
   })
 
   test('Реквизиты tab visible for HR in self view (all self-viewers get requisites)', async ({
@@ -41,7 +49,9 @@ test.describe('Requisites edit form', () => {
     // Per users-access.service.ts: every self-viewer gets 'requisites' tab.
     await page.goto('/profile')
     await expect(page.getByRole('heading', { name: 'HR Manager' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: assertInCatalog(uk, 'Реквізити'), exact: true }),
+    ).toBeVisible()
   })
 
   // -------------------------------------------------------------------------
@@ -55,10 +65,13 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     // RequisitesEditForm renders both method segments when role is NOT SENIOR/ADMIN.
-    await expect(page.getByLabel('USDT ERC-20')).toBeVisible()
-    await expect(page.getByLabel('Банк UAH (ФОП)')).toBeVisible()
+    // Plain literal, not `assertInCatalog` — this segment's `ariaLabel` is a
+    // hardcoded string in the component's `tabs` array, never wrapped in
+    // `t`/`msg`, so it is not a catalog entry (unlike 'ФОП (UAH)' below).
+    await expect(page.getByLabel('USDT (ERC-20)')).toBeVisible()
+    await expect(page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))).toBeVisible()
     // Both must be enabled (not aria-disabled)
-    await expect(page.getByLabel('Банк UAH (ФОП)')).not.toBeDisabled()
+    await expect(page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))).not.toBeDisabled()
   })
 
   test('SENIOR sees Bank UAH segment disabled (USDT only)', async ({ page }) => {
@@ -75,9 +88,9 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
     // Bank segment is rendered but disabled for SENIOR — soft-lock with tooltip
-    await expect(page.getByLabel('Банк UAH (ФОП)')).toBeDisabled()
+    await expect(page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))).toBeDisabled()
     // USDT wallet input is visible
-    await expect(page.getByLabel('USDT ERC-20 кошелёк')).toBeVisible()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Гаманець USDT (ERC-20)'))).toBeVisible()
   })
 
   // -------------------------------------------------------------------------
@@ -90,21 +103,23 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // Select Bank UAH method
-    await page.getByLabel('Банк UAH (ФОП)').click()
+    await page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)')).click()
     // Wait for the AnimatePresence card swap so the inputs are mounted
-    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
 
     // Fill required fields
-    await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
+    await page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача')).fill('Тест Тестенко')
     await page.getByLabel('IBAN (UA…)').fill('UA213223130000026007233566001')
     await page.getByLabel('РНОКПП (10 цифр)').fill('1234567890')
 
-    await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()
 
     // AlertDialog appears with the confirmation text
     await expect(page.getByRole('alertdialog')).toBeVisible()
     await expect(
-      page.getByText('На основе этих данных будут производиться следующие выплаты'),
+      page.getByText(
+        assertInCatalog(uk, 'Далі виплати надходитимуть на ці реквізити — підтвердіть зміну'),
+      ),
     ).toBeVisible()
   })
 
@@ -121,17 +136,17 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').click()
-    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
-    await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
+    await page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)')).click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
+    await page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача')).fill('Тест Тестенко')
     await page.getByLabel('IBAN (UA…)').fill(TARGET_IBAN)
     await page.getByLabel('РНОКПП (10 цифр)').fill(TARGET_RNOKPP)
 
-    await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()
     await expect(page.getByRole('alertdialog')).toBeVisible()
 
     // Click the confirm action button in the AlertDialog
-    await page.getByRole('button', { name: 'Подтвердить' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Підтвердити') }).click()
 
     const req = await patchReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -155,17 +170,17 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').click()
-    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
-    await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
+    await page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)')).click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
+    await page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача')).fill('Тест Тестенко')
     await page.getByLabel('IBAN (UA…)').fill(TARGET_IBAN)
     await page.getByLabel('РНОКПП (10 цифр)').fill(TARGET_RNOKPP)
 
-    await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()
     await expect(page.getByRole('alertdialog')).toBeVisible()
 
     // Cancel — no PATCH should fire
-    await page.getByRole('button', { name: 'Отмена' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
     await expect(page.getByRole('alertdialog')).not.toBeVisible()
     expect(patched).toBe(false)
   })
@@ -180,10 +195,10 @@ test.describe('Requisites edit form', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // JUNIOR fixture defaults to BANK_UAH_FOP — switch to USDT first.
-    await page.getByLabel('USDT ERC-20').click()
-    await expect(page.getByLabel('USDT ERC-20 кошелёк')).toBeVisible()
-    await page.getByLabel('USDT ERC-20 кошелёк').clear()
-    await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
+    await page.getByLabel('USDT (ERC-20)').click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Гаманець USDT (ERC-20)'))).toBeVisible()
+    await page.getByLabel(assertInCatalog(uk, 'Гаманець USDT (ERC-20)')).clear()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()
 
     // Validation error rendered in the form (no AlertDialog opens)
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
@@ -195,15 +210,56 @@ test.describe('Requisites edit form', () => {
     await page.goto('/profile?tab=requisites')
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
-    await page.getByLabel('Банк UAH (ФОП)').click()
-    await expect(page.getByLabel('ФИО получателя')).toBeVisible()
-    await page.getByLabel('ФИО получателя').fill('Valid Name')
+    await page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)')).click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
+    await page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача')).fill('Valid Name')
     await page.getByLabel('IBAN (UA…)').fill('INVALID-IBAN')
     await page.getByLabel('РНОКПП (10 цифр)').fill('1234567890')
 
-    await page.getByRole('button', { name: 'Сохранить реквизиты' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Зберегти реквізити') }).click()
 
     await expect(page.getByRole('alertdialog')).toHaveCount(0)
     await expect(page.locator('.text-destructive').first()).toBeVisible()
+  })
+
+  // -------------------------------------------------------------------------
+  // Mobile viewport — UX-H-1 (design review, PR #717 fix-round C)
+  // -------------------------------------------------------------------------
+
+  // `animated-tabs.tsx` explicitly names this component as a consumer with no
+  // `overflow-x-auto` ancestor at all — the en label "Sole proprietor (UAH)"
+  // (longer than any uk label, and longer than "USDT (ERC-20)") overflowed
+  // the card's own `overflow:hidden` on 320/375 and made the tab
+  // unreachable, not just visually clipped.
+  for (const width of [320, 375]) {
+    test(`Bank UAH tab stays reachable at ${width}px in en (longest label)`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 800 })
+      await mockAuthAs(page, { ...USERS.junior, locale: 'en' })
+      await page.goto('/profile?tab=requisites')
+      await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+      const bankTab = page.getByLabel('Sole proprietor (UAH)')
+      await expect(bankTab).toBeVisible()
+      // In viewport (not just present in the DOM, possibly clipped) — the
+      // regression was the tab's own bounding box escaping the card.
+      await expect(bankTab).toBeInViewport()
+      await bankTab.click()
+      await expect(page.getByLabel('Recipient’s full name')).toBeVisible()
+    })
+  }
+
+  test('Bank UAH tab stays reachable at 320px in uk too (shorter label, same layout fix)', async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 800 })
+    await mockAuthAs(page, USERS.junior)
+    await page.goto('/profile?tab=requisites')
+    await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
+
+    const bankTab = page.getByLabel(assertInCatalog(uk, 'ФОП (UAH)'))
+    await expect(bankTab).toBeVisible()
+    await expect(bankTab).toBeInViewport()
+    await bankTab.click()
+    await expect(page.getByLabel(assertInCatalog(uk, 'Ім’я та прізвище отримувача'))).toBeVisible()
   })
 })

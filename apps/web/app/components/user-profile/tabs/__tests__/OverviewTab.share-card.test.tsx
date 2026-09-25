@@ -13,9 +13,12 @@
  */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { OverviewTab } from '../OverviewTab'
+
+beforeEach(() => loadCatalog('uk'))
 
 // OverviewTab renders AdminNoteDialog conditionally — mock to prevent fetch calls.
 vi.mock('@/hooks/use-admin-note', () => ({
@@ -83,11 +86,12 @@ describe('OverviewTab — «Доля» card role-aware display', () => {
         permissions={SHARE_PERMS}
         data={EMPTY_DATA}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     const shareCard =
-      screen.getByText('Доля').closest('[class*="card"], .rounded-xl, [data-slot="card"]') ??
-      screen.getByText('Доля').parentElement?.parentElement?.parentElement
+      screen.getByText('Частка').closest('[class*="card"], .rounded-xl, [data-slot="card"]') ??
+      screen.getByText('Частка').parentElement?.parentElement?.parentElement
 
     // The card must exist and show 5%, not 26%
     const cardText = shareCard?.textContent ?? document.body.textContent ?? ''
@@ -103,10 +107,11 @@ describe('OverviewTab — «Доля» card role-aware display', () => {
         permissions={SHARE_PERMS}
         data={EMPTY_DATA}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     const cardText =
-      screen.getByText('Доля').closest('*')?.parentElement?.parentElement?.textContent ?? ''
+      screen.getByText('Частка').closest('*')?.parentElement?.parentElement?.textContent ?? ''
     expect(cardText).toContain('30%')
   })
 
@@ -118,8 +123,9 @@ describe('OverviewTab — «Доля» card role-aware display', () => {
         permissions={NO_SHARE_PERMS}
         data={EMPTY_DATA}
       />,
+      { wrapper: I18nTestProvider },
     )
 
-    expect(screen.queryByText('Доля')).not.toBeInTheDocument()
+    expect(screen.queryByText('Частка')).not.toBeInTheDocument()
   })
 })

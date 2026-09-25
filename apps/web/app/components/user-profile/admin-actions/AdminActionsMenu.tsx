@@ -1,4 +1,5 @@
 import { Fragment, useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Zap,
   ChevronDown,
@@ -46,6 +47,7 @@ export function AdminActionsMenu({
   user: UserProfileDto
   actions: ActionKey[]
 }) {
+  const { t } = useLingui()
   const [open, setOpen] = useState<OpenDialog>(null)
   const close = () => setOpen(null)
   const isArchived = !!user.archivedAt
@@ -96,7 +98,7 @@ export function AdminActionsMenu({
     menuItems.push({
       key: 'edit',
       icon: <Pencil className="mr-2 h-4 w-4" />,
-      label: 'Редактировать',
+      label: t`Редагувати`,
     })
   }
   if (canResendInvite) {
@@ -107,7 +109,7 @@ export function AdminActionsMenu({
       // this menu by a wide margin (237px vs 103/97px for the neighbours) —
       // the item only ever shows when an invite has already been sent
       // (canResendInvite below), so "повторно/снова" carries little.
-      label: 'Отправить приглашение снова',
+      label: t`Надіслати запрошення знову`,
     })
   }
   if (canChangePersonalEmail) {
@@ -120,21 +122,21 @@ export function AdminActionsMenu({
       // that) — "Изменить" is a false claim when there is nothing yet to
       // change. `ChangePersonalEmailDialog` itself branches its own title/
       // description on the SAME condition — keep both in sync.
-      label: user.personalEmail ? 'Изменить личный email' : 'Добавить личный email',
+      label: user.personalEmail ? t`Змінити особистий email` : t`Додати особистий email`,
     })
   }
   if (canSetNote) {
     menuItems.push({
       key: 'set-note',
       icon: <StickyNote className="mr-2 h-4 w-4" />,
-      label: 'Заметка админа',
+      label: t`Нотатка адміністратора`,
     })
   }
   if (canArchive && !isArchived) {
     menuItems.push({
       key: 'archive',
       icon: <Archive className="mr-2 h-4 w-4" />,
-      label: 'Архивировать',
+      label: t`Архівувати`,
     })
   }
 
@@ -144,7 +146,7 @@ export function AdminActionsMenu({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="gap-1" data-testid="admin-actions-trigger">
             <Zap className="h-4 w-4" />
-            Действия
+            <Trans>Дії</Trans>
             <ChevronDown className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -185,7 +187,7 @@ export function AdminActionsMenu({
                 className="text-primary focus:text-primary"
               >
                 <ArchiveRestore className="mr-2 h-4 w-4" />
-                Восстановить из архива
+                <Trans>Відновити з архіву</Trans>
               </DropdownMenuItem>
             </>
           )}

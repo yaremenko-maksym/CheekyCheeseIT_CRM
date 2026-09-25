@@ -19,14 +19,15 @@
  */
 import { Fragment } from 'react'
 import { AlertTriangle } from 'lucide-react'
+import { msg } from '@lingui/core/macro'
 import { useLingui } from '@lingui/react/macro'
 import type { I18n } from '@lingui/core'
 import {
   ACTION_REQUIRED_NOTIFICATION_TYPES,
   ADMIN_NOTIFICATION_TYPES,
+  API_ERROR_MESSAGES,
   INFORMING_NOTIFICATION_TYPES,
   NEW_NOTIFICATION_TYPES,
-  NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE,
   NOTIFICATION_TITLE_MESSAGES,
   renderMessage,
   type NewNotificationType,
@@ -38,6 +39,7 @@ import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/context/auth'
 import { cn } from '@/lib/utils'
+import { i18n } from '@/lib/i18n'
 import { TypeIcon } from '@/lib/notification-type-icon'
 import {
   useNotificationPreferences,
@@ -67,6 +69,16 @@ const ACTION_REQUIRED_SET = new Set<string>(ACTION_REQUIRED_NOTIFICATION_TYPES a
 const ADMIN_SET = new Set<string>(ADMIN_NOTIFICATION_TYPES as readonly string[])
 const INFORMING_SET = new Set<string>(INFORMING_NOTIFICATION_TYPES as readonly string[])
 
+// task-i18n-stage3b (Task 1), Step 3 — group titles/row copy resolved via
+// the shared `i18n` singleton directly (`@/lib/i18n`), not `useLingui()`:
+// `groupPreferences`/`rowTitle`/`rowExplanation` are plain functions with a
+// pure-function test seam (`NotificationSettingsTab.grouping.test.ts`,
+// `codebase-design`), not components — a hook cannot be called there.
+const ACTION_REQUIRED_TITLE = msg`Потребують відповіді`
+const MONEY_TITLE = msg`Гроші`
+const TEAM_TITLE = msg`Команда та проєкти`
+const ADMIN_GROUP_TITLE = msg`Ваші пропозиції`
+
 /**
  * Predicate by TYPE NAME, not array index (design spec §2 rationale) — stays
  * correct if the registry ever reorders or inserts an eleventh informing
@@ -92,9 +104,9 @@ export function groupPreferences(
   const unknown = items.filter((i) => !KNOWN_TYPES.has(i.type))
 
   const groups: PreferenceGroup[] = [
-    { key: 'action-required', title: 'Требуют ответа', rows: actionRequired },
-    { key: 'money', title: 'Деньги', rows: money },
-    { key: 'team', title: 'Команда и проекты', rows: team },
+    { key: 'action-required', title: i18n._(ACTION_REQUIRED_TITLE), rows: actionRequired },
+    { key: 'money', title: i18n._(MONEY_TITLE), rows: money },
+    { key: 'team', title: i18n._(TEAM_TITLE), rows: team },
   ]
   // SR-M-3 (security-review, fix-round 2, PR #675): the actual RECIPIENT of
   // APPROVAL_CONFIRMED/APPROVAL_REJECTED is not "the admin" — it's whoever
@@ -117,7 +129,7 @@ export function groupPreferences(
   // of the meaning ("decisions ON them") is already carried by the row
   // titles themselves ("Предложение принято"/"Предложение отклонено").
   if (canSeeAdminGroup) {
-    groups.push({ key: 'admin', title: 'Ваши предложения', rows: admin })
+    groups.push({ key: 'admin', title: i18n._(ADMIN_GROUP_TITLE), rows: admin })
   }
   // Pushed unconditionally (no `unknown.length > 0` guard) — the trailing
   // filter below already drops any empty group, admin included when
@@ -145,24 +157,17 @@ export function groupPreferences(
 // now, not this sentence). One word back ("приложения") names what is
 // actually being waited on without reintroducing the "уведомления" repeat
 // COPY-L-4 removed.
-const UNKNOWN_TYPE_EXPLANATION = 'Настройка появится после обновления приложения.'
-const LOCKED_EXPLANATION =
-  'Письма о запросах на подтверждение и подпись отключить нельзя — без них процесс встанет.'
+const UNKNOWN_TYPE_EXPLANATION = msg`Налаштування з’явиться після оновлення застосунку`
+const LOCKED_EXPLANATION = msg`Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться`
 
 /**
- * Бэклог 205. Тот же ЛИТЕРАЛ, что отдаёт сервер в 403 на `PUT
- * /notifications/preferences` (`NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE`,
- * `packages/shared/src/schemas/notification-preferences.ts`) — не
- * переизложение своими словами: расхождение формулировок между кнопкой,
- * которая ничего не делает, и причиной, которую видит только сеть, читалось
- * бы как два разных объяснения одного отказа.
- *
- * Точка на конце — единственная разница (COPY-M-2, copy-review PR #678 круг
- * 2): это предложение живёт в прозе карточки рядом с `UNKNOWN_TYPE_EXPLANATION`
- * и `LOCKED_EXPLANATION`, которые точку ставят; серверная константа — текст
- * отказа API, где точки не ставит ни одно сообщение `apps/api`.
+ * Бэклог 205. Тот же текст, что отдаёт сервер в 403 на `PUT
+ * /notifications/preferences` (`API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION`,
+ * шаблон G task-i18n-stage3b) — не переизложение своими словами: расхождение
+ * формулировок между кнопкой, которая ничего не делает, и причиной, которую
+ * видит только сеть, читалось бы как два разных объяснения одного отказа.
+ * Резолвится через `i18n._()` внутри компонента.
  */
-const IMPERSONATION_EXPLANATION = `${NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE}.`
 /** Один баннер на весь таб — id, на который ссылаются все десять `aria-describedby`. */
 const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 
@@ -176,6 +181,23 @@ const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 // `notifications-bell.tsx`). The raw value is still available where it
 // belongs — `data-testid` (below) and the row's `title` attribute
 // (`DesktopRow`/`MobileRow`) — just not as the visible label.
+// task-i18n-stage3b (Task 1) — merged with #714 (Task 6, canon
+// `NOTIFICATION_TITLE_MESSAGES`), now in `origin/main`: known-type titles
+// render from the canon registry via `renderMessage()` below. Only the
+// unknown-type fallback — not part of that registry — stays this
+// component's own translation (UX-L-1, design-review #714: #714 left that
+// fallback as a raw `'Новый тип'` literal; localized here via `NEW_TYPE_LABEL`).
+const NEW_TYPE_LABEL = msg`Новий тип сповіщень`
+const TYPE_COLUMN_HEADER = msg`Тип сповіщення`
+const IN_APP_COLUMN_HEADER = msg`У застосунку`
+const EMAIL_COLUMN_HEADER = msg`Лист`
+const ALWAYS_LABEL = msg`Завжди`
+const EMAIL_ARIA_PREFIX = msg`Листи:`
+const ERROR_STATE_TEXT = msg`Не вдалося завантажити налаштування`
+const RETRY_LABEL = msg`Повторити`
+const SUBTITLE_IMPERSONATING = msg`Листи, які отримує співробітник. У застосунку сповіщення приходять завжди`
+const SUBTITLE_NORMAL = msg`Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди`
+
 //
 // COPY-H-1 (copy-review круг 1, PR #714): this tab used to read the LEGACY
 // `NOTIFICATION_TITLES` record — ten Russian strings, unmigrated — and the
@@ -197,14 +219,14 @@ const IMPERSONATION_EXPLANATION_ID = 'notification-pref-explain-impersonating'
 // from the registry and reused here instead of re-suppressing the same
 // dead branch a second time in this package.
 export function rowTitle(row: PreferenceRow, i18n: I18n): string {
-  if (!KNOWN_TYPES.has(row.type)) return 'Новый тип'
+  if (!KNOWN_TYPES.has(row.type)) return i18n._(NEW_TYPE_LABEL)
   const descriptor = NOTIFICATION_TITLE_MESSAGES[row.type as NewNotificationType]
   return renderMessage(i18n, descriptor)
 }
 
 export function rowExplanation(row: PreferenceRow): string | null {
-  if (row.locked) return LOCKED_EXPLANATION
-  if (!KNOWN_TYPES.has(row.type)) return UNKNOWN_TYPE_EXPLANATION
+  if (row.locked) return i18n._(LOCKED_EXPLANATION)
+  if (!KNOWN_TYPES.has(row.type)) return i18n._(UNKNOWN_TYPE_EXPLANATION)
   return null
 }
 
@@ -319,7 +341,7 @@ function PreferenceSwitch({
         // controlled before naming which row it belongs to, matching how
         // every OTHER control on this screen is announced ("Switch"/
         // "переключатель" always comes with its purpose stated up front).
-        aria-label={`Письма: ${rowTitle(row, i18n)}`}
+        aria-label={`${i18n._(EMAIL_ARIA_PREFIX)} ${rowTitle(row, i18n)}`}
         aria-disabled={!interactive}
         aria-describedby={explanationId}
         className={cn(!interactive && 'opacity-60 cursor-not-allowed')}
@@ -362,7 +384,7 @@ function DesktopGroupHeader({
             data-testid="notification-pref-explain-locked-desktop"
             className="mt-1 font-normal normal-case tracking-normal text-muted-foreground"
           >
-            {LOCKED_EXPLANATION}
+            {i18n._(LOCKED_EXPLANATION)}
           </p>
         )}
       </td>
@@ -419,7 +441,9 @@ function DesktopRow({
           </div>
         </div>
       </td>
-      <td className="w-[120px] px-4 py-3 align-top text-xs text-muted-foreground">Всегда</td>
+      <td className="w-[120px] px-4 py-3 align-top text-xs text-muted-foreground">
+        {i18n._(ALWAYS_LABEL)}
+      </td>
       <td className="w-[100px] px-4 py-3 align-top">
         <PreferenceSwitch
           row={row}
@@ -446,9 +470,13 @@ function DesktopTable({
       <table className="w-full">
         <thead>
           <tr className="border-b border-border text-xs text-muted-foreground">
-            <th className="px-4 py-3 text-left font-medium">Тип уведомления</th>
-            <th className="w-[120px] px-4 py-3 text-left font-medium">В приложении</th>
-            <th className="w-[100px] px-4 py-3 text-left font-medium">Письмо</th>
+            <th className="px-4 py-3 text-left font-medium">{i18n._(TYPE_COLUMN_HEADER)}</th>
+            <th className="w-[120px] px-4 py-3 text-left font-medium">
+              {i18n._(IN_APP_COLUMN_HEADER)}
+            </th>
+            <th className="w-[100px] px-4 py-3 text-left font-medium">
+              {i18n._(EMAIL_COLUMN_HEADER)}
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -566,7 +594,7 @@ function MobileStack({
               data-testid="notification-pref-explain-locked-mobile"
               className="bg-muted/40 px-4 pb-2 text-xs text-muted-foreground"
             >
-              {LOCKED_EXPLANATION}
+              {i18n._(LOCKED_EXPLANATION)}
             </p>
           )}
           {group.rows.map((row) => (
@@ -624,9 +652,9 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       <AlertTriangle className="h-8 w-8 text-destructive/60" />
       {/* COPY-L-3: "уведомлений" repeated the name of the tab this text sits
           under — dropped, not a meaning change. */}
-      <p className="text-sm text-muted-foreground">Не удалось загрузить настройки.</p>
+      <p className="text-sm text-muted-foreground">{i18n._(ERROR_STATE_TEXT)}</p>
       <Button size="sm" variant="outline" onClick={onRetry}>
-        Повторить
+        {i18n._(RETRY_LABEL)}
       </Button>
     </div>
   )
@@ -701,9 +729,7 @@ export function NotificationSettingsTab() {
               ниже тут же отменяется — читателю приходится перечитывать.
               Под имперсонацией подзаголовок описательный, не императив. */}
           <p className="text-sm text-muted-foreground">
-            {impersonating
-              ? 'Здесь видно, о чём сотруднику присылать письма. В приложении уведомления видны всегда.'
-              : 'Выберите, о чём присылать письма. В приложении уведомления видны всегда.'}
+            {impersonating ? i18n._(SUBTITLE_IMPERSONATING) : i18n._(SUBTITLE_NORMAL)}
           </p>
           {/* Бэклог 205 — ОДИН баннер объясняет все десять недоступных
               переключателей разом, тем же текстом, что и серверный 403. */}
@@ -717,7 +743,7 @@ export function NotificationSettingsTab() {
               // (`invoice-card.tsx`).
               className="mt-2 text-sm text-amber-300"
             >
-              {IMPERSONATION_EXPLANATION}
+              {i18n._(API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION)}
             </p>
           )}
         </div>

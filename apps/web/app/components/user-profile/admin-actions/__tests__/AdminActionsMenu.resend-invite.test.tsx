@@ -109,7 +109,7 @@ describe('AdminActionsMenu — resend-invite visibility', () => {
     )
     await openMenu()
     expect(screen.getByTestId('admin-actions-resend-invite')).toHaveTextContent(
-      'Отправить приглашение снова',
+      'Надіслати запрошення знову',
     )
   })
 
@@ -269,7 +269,7 @@ describe('AdminActionsMenu — resend-invite disabled state (mutation-gate closu
     await waitFor(() =>
       expect(screen.getByTestId('admin-actions-resend-invite')).toHaveAttribute('data-disabled'),
     )
-    expect(screen.getByRole('menuitem', { name: /Редактировать/ })).not.toHaveAttribute(
+    expect(screen.getByRole('menuitem', { name: /Редагувати/ })).not.toHaveAttribute(
       'data-disabled',
     )
     resolvePost?.()

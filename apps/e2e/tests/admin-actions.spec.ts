@@ -15,28 +15,47 @@
  */
 
 import { test, expect, USERS, mockAuthAs } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+// task-i18n-stage3b (Task 1) — AdminActionsMenu's own strings (trigger,
+// "Редагувати" menu item, "Нотатка адміністратора", "Архівувати") now come
+// from the uk catalog; assertions below use `assertInCatalog` so a future
+// copy change fails loudly instead of silently drifting. UserDialog
+// (mode='edit', opened BY this menu) is a separate, not-yet-migrated
+// component — its own heading/role-select/Save/Cancel/toast text stays the
+// original Russian literal on purpose (wave (b) PR3's job).
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
   // Действия dropdown renders
   // -------------------------------------------------------------------------
 
-  test('ADMIN viewing junior — "Действия" button is visible', async ({ asAdmin: page }) => {
+  test('ADMIN viewing junior — "Дії" button is visible', async ({ asAdmin: page }) => {
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Действия/ })).toBeVisible()
+    await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Дії') })).toBeVisible()
   })
 
-  test('Действия dropdown lists consolidated menu items', async ({ asAdmin: page }) => {
+  test('Дії dropdown lists consolidated menu items', async ({ asAdmin: page }) => {
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await page.getByRole('button', { name: /Действия/ }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Дії') }).click()
 
-    // PR #343: 4 separate edit items replaced by a single "Редактировать"
-    // that opens UserDialog. "Заметка админа" and "Архивировать" remain.
-    await expect(page.getByRole('menuitem', { name: 'Редактировать' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Заметка админа' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Архивировать' })).toBeVisible()
+    // PR #343: 4 separate edit items replaced by a single "Редагувати"
+    // that opens UserDialog. "Нотатка адміністратора" and "Архівувати" remain.
+    await expect(
+      page.getByRole('menuitem', { name: assertInCatalog(uk, 'Редагувати') }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('menuitem', { name: assertInCatalog(uk, 'Нотатка адміністратора') }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('menuitem', { name: assertInCatalog(uk, 'Архівувати') }),
+    ).toBeVisible()
 
     // Removed items — must NOT appear in the menu
     await expect(page.getByRole('menuitem', { name: 'Изменить роль' })).toHaveCount(0)
@@ -46,20 +65,20 @@ test.describe('Admin actions on user profile', () => {
   })
 
   // -------------------------------------------------------------------------
-  // "Редактировать" → UserDialog (replaces 4 old separate dialogs)
+  // "Редагувати" → UserDialog (replaces 4 old separate dialogs)
   // -------------------------------------------------------------------------
 
-  test('opening "Редактировать" shows UserDialog prefilled with current role', async ({
+  test('opening "Редагувати" shows UserDialog prefilled with current role', async ({
     asAdmin: page,
   }) => {
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Дії') }).click()
+    await page.getByRole('menuitem', { name: assertInCatalog(uk, 'Редагувати') }).click()
 
     const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
-    // UserDialog edit-mode heading
+    // UserDialog edit-mode heading — not yet migrated, still Russian.
     await expect(dialog.getByRole('heading', { name: 'Редактировать пользователя' })).toBeVisible()
     // Role select prefilled with JUNIOR = 'Джун'
     const roleTrigger = dialog.locator('[data-testid="user-dialog-role-trigger"]')
@@ -120,8 +139,8 @@ test.describe('Admin actions on user profile', () => {
 
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Дії') }).click()
+    await page.getByRole('menuitem', { name: assertInCatalog(uk, 'Редагувати') }).click()
 
     const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
@@ -147,8 +166,8 @@ test.describe('Admin actions on user profile', () => {
 
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
-    await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
+    await page.getByRole('button', { name: assertInCatalog(uk, 'Дії') }).click()
+    await page.getByRole('menuitem', { name: assertInCatalog(uk, 'Редагувати') }).click()
 
     const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
@@ -161,7 +180,7 @@ test.describe('Admin actions on user profile', () => {
   // Non-admin sees no Действия button
   // -------------------------------------------------------------------------
 
-  test('HR viewing senior — no "Действия" button (no actions in permissions)', async ({ page }) => {
+  test('HR viewing senior — no "Дії" button (no actions in permissions)', async ({ page }) => {
     // HR viewing senior: permissions.actions = []
     await mockAuthAs(page, USERS.hr)
     // Override the GET /users/:id to return hr-viewing-senior permissions.
@@ -193,6 +212,6 @@ test.describe('Admin actions on user profile', () => {
 
     await page.goto(`/profile/${USERS.senior.id}`)
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
-    await expect(page.getByRole('button', { name: /Действия/ })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: assertInCatalog(uk, 'Дії') })).toHaveCount(0)
   })
 })

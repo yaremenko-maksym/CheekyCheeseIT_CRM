@@ -145,6 +145,11 @@ msgstr ""
 msgid "notification.percentText"
 msgstr "{value, select, null {не задана} other {{value}%}}"
 
+#. placeholder {0}: new Date().getFullYear()
+#: apps/web/app/routes/_authenticated/onboarding/route.tsx
+msgid "© {0} Cheeky Cheese IT. Усі права захищено."
+msgstr "© {0} Cheeky Cheese IT. Усі права захищено."
+
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "+{0} цього місяця"
@@ -167,6 +172,10 @@ msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’яз
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 msgstr "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "10 цифр"
+msgstr "10 цифр"
+
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
 msgstr "Dev Login (лише для тестування)"
@@ -175,6 +184,10 @@ msgstr "Dev Login (лише для тестування)"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_TOO_LONG"
 msgstr "Email не довше 255 символів"
+
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+msgid "Email прив’язано до облікового запису Google і не можна змінити"
+msgstr "Email прив’язано до облікового запису Google і не можна змінити"
 
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив’язаний до долара"
@@ -243,6 +256,10 @@ msgstr "IBAN обов’язковий"
 msgid "api-error.INVOICE_PDF_MODIFIED_AFTER_SIGNATURE"
 msgstr "PDF змінено після першого підпису — зверніться до адміністратора"
 
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "PDF-документ. За потреби скористайтеся кнопкою «Завантажити для перегляду» нижче, щоб переглянути контракт у зовнішній програмі"
+msgstr "PDF-документ. За потреби скористайтеся кнопкою «Завантажити для перегляду» нижче, щоб переглянути контракт у зовнішній програмі"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
 msgstr "PNG, JPEG, WebP — до {MAX_MB} МБ. Файл завантажується в захищене сховище."
@@ -255,6 +272,14 @@ msgstr "Telegram-канал"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.TELEGRAM_CHANNEL_SENIOR_ONLY"
 msgstr "Telegram-канал можна вказати лише сеньйору"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "UA + 27 цифр"
+msgstr "UA + 27 цифр"
+
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "USDT (ERC-20) — мережа Ethereum"
+msgstr "USDT (ERC-20) — мережа Ethereum"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -276,10 +301,22 @@ msgstr "VAT-номер компанії-контрагента"
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
 msgstr "Аватар можна завантажити лише для власного профілю"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Аватар оновлено"
+msgstr "Аватар оновлено"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Аватар профілю"
+msgstr "Аватар профілю"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "авто"
 msgstr "авто"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Авто"
+msgstr "Авто"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
@@ -319,6 +356,10 @@ msgstr "Адміністратор не отримує зарплату — йо
 msgid "api-error.ADMIN_DOES_NOT_SIGN_CONTRACTS"
 msgstr "Адміністратор не підписує контракт — підписувати нема чого"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Адміністратор побачить причину і зможе запропонувати іншу частку"
+msgstr "Адміністратор побачить причину і зможе запропонувати іншу частку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECIPIENT_ADMIN_ARCHIVED"
@@ -333,6 +374,10 @@ msgstr "Адміністратора-отримувача не знайдено"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ADDRESS_FORMAT"
 msgstr "Адреса USDT ERC-20 має починатися з 0x і містити 42 символи"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Адреса для отримання виплат у мережі Ethereum"
+msgstr "Адреса для отримання виплат у мережі Ethereum"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -358,6 +403,7 @@ msgstr "Активна"
 msgid "Активна версія: v{0} · оновлена {1}"
 msgstr "Активна версія: v{0} · оновлена {1}"
 
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Активний"
 msgstr "Активний"
@@ -385,6 +431,11 @@ msgstr "Активних проєктів"
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Активні"
 msgstr "Активні"
+
+#. placeholder {0}: active.length
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+msgid "Активні ({0})"
+msgstr "Активні ({0})"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
@@ -426,6 +477,7 @@ msgid "Архівування користувача"
 msgstr "Архівування користувача"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -470,10 +522,27 @@ msgstr "Баланс адміністратора бачать лише він �
 msgid "api-error.FINANCE_SENIOR_BALANCE_FORBIDDEN"
 msgstr "Баланс сеньйора бачать лише адміністратор, бухгалтер і сам сеньйор"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Банк"
+msgstr "Банк"
+
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Банківський рахунок в Україні (ФОП)"
+msgstr "Банківський рахунок в Україні (ФОП)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyBank"
 msgstr "Банківські реквізити компанії-контрагента"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Банківські реквізити ФОП"
+msgstr "Банківські реквізити ФОП"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
+msgstr "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
@@ -531,6 +600,7 @@ msgstr "В архів піде профіль <0>{entityName}</0>; його бу
 msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
 msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
 
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -624,6 +694,14 @@ msgstr "Вас додали до команди"
 msgid "notification.PROJECT_MEMBER_ADDED.title"
 msgstr "Вас додали до проєкту"
 
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Ваш контракт"
+msgstr "Ваш контракт"
+
+#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
+msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
+msgstr "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
+
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
@@ -635,9 +713,32 @@ msgstr "Ваша частка: {0}%"
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Ваша частка: {0}% · сеньйор: {1}"
 
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
+msgstr "Ваші правки в тексті контракту буде замінено актуальним шаблоном"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Ваші пропозиції"
+msgstr "Ваші пропозиції"
+
+#. placeholder {0}: pending.percent
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
+msgstr "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Вбудований перегляд PDF недоступний. <0>Завантажити контракт</0>"
+msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити контракт</0>"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
 msgstr "Вбудований перегляд PDF недоступний. <0>Завантажити умови використання</0>"
+
+#. placeholder {0}: v.label.toLowerCase()
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Введіть {0}"
+msgstr "Введіть {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -658,6 +759,10 @@ msgstr "Введіть email у форматі name@domain"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.PHONE_INVALID"
 msgstr "Введіть номер у міжнародному форматі, напр. +380671234567"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Введіть посилання на зображення"
+msgstr "Введіть посилання на зображення"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -706,6 +811,10 @@ msgstr "Ви не дроп цього проєкту"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_COUNTERPARTY"
 msgstr "Ви не контрагент цієї транзакції"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Ви отримуєте виплати лише в USDT (мережа Ethereum) — змінити спосіб не можна"
+msgstr "Ви отримуєте виплати лише в USDT (мережа Ethereum) — змінити спосіб не можна"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Ви працюватимете від імені цього користувача. Банер нагадає про активний сеанс — натисніть «Повернутися до свого профілю», щоб вийти."
@@ -807,6 +916,10 @@ msgstr "Вибір команди"
 msgid "Вибір користувачів для додавання до складу команди."
 msgstr "Вибір користувачів для додавання до складу команди."
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Вибрати зображення"
+msgstr "Вибрати зображення"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Вибрати файл"
 msgstr "Вибрати файл"
@@ -819,6 +932,10 @@ msgstr "Виводити дивіденди може лише адміністр
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Видалити {tag}"
 msgstr "Видалити {tag}"
+
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Видалити адресу"
+msgstr "Видалити адресу"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -835,6 +952,10 @@ msgstr "Видалити документ остаточно може лише �
 msgid "Видалити сповіщення"
 msgstr "Видалити сповіщення"
 
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її"
+msgstr "Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DELETE_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN"
@@ -845,6 +966,7 @@ msgstr "Видаляти транзакцію, пов’язану із заяв
 msgid "api-error.FINANCE_DELETE_SOURCE_OF_OBLIGATION_FORBIDDEN"
 msgstr "Видаляти транзакцію, яка є джерелом зобов’язання компанії, не можна"
 
+#: apps/web/app/routes/_authenticated/onboarding/route.tsx
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Вийти"
 msgstr "Вийти"
@@ -922,6 +1044,10 @@ msgstr "Відкрити «{0}»"
 msgid "notification.action.VACANCY_APPLICATION"
 msgstr "Відкрити вакансію"
 
+#: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
+msgid "Відкрити дошку"
+msgstr "Відкрити дошку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TEAM_MEMBER_ADDED"
@@ -998,6 +1124,7 @@ msgstr "Відновити все"
 msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
 msgstr "Відновити документ може лише адміністратор"
 
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Відновити з архіву"
@@ -1037,10 +1164,27 @@ msgstr "Відправник і отримувач не можуть збіга�
 msgid "api-error.FINANCE_TRANSFER_SENDER_MUST_BE_ADMIN"
 msgstr "Відправник має бути адміністратором"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Відпустіть зображення"
+msgstr "Відпустіть зображення"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
 msgstr "Відхилено: {money}"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Відхилити"
+msgstr "Відхилити"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Відхилити пропозицію"
+msgstr "Відхилити пропозицію"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Відхиляємо…"
+msgstr "Відхиляємо…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1142,6 +1286,10 @@ msgstr "Вкажіть щонайменше одне налаштування"
 msgid "api-error.TEAM_USER_NOT_FOUND_OR_WRONG_ROLE"
 msgstr "Вказаного користувача не знайдено або він має невідповідну роль"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Власна"
+msgstr "Власна"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_TYPE_MISMATCH"
@@ -1150,6 +1298,14 @@ msgstr "Вміст файлу не збігається з його розшир
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Внутрішні замітки…"
 msgstr "Внутрішні замітки…"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
+msgid "Внутрішня нотатка, видна лише адміністраторам"
+msgstr "Внутрішня нотатка, видна лише адміністраторам"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
+msgid "Внутрішня нотатка, видна лише адміністраторам…"
+msgstr "Внутрішня нотатка, видна лише адміністраторам…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1173,6 +1329,16 @@ msgstr "Вхід не завершився. Натисніть «Увійти ч
 msgid "Входимо…"
 msgstr "Входимо…"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Гаманець USDT"
+msgstr "Гаманець USDT"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Гаманець USDT (ERC-20)"
+msgstr "Гаманець USDT (ERC-20)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.walletUsdt"
@@ -1183,6 +1349,11 @@ msgstr "Гаманець USDT ERC-20 (якщо вказано)"
 msgid "api-error.FINANCE_COMPANY_WALLET_NOT_CONFIGURED"
 msgstr "Гаманець компанії не налаштовано"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Готовий до підписання"
+msgstr "Готовий до підписання"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
 msgstr "Готово"
@@ -1192,14 +1363,35 @@ msgstr "Готово"
 msgid "contract-variable.bankUahFop"
 msgstr "Гривневі банківські реквізити ФОП"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Гроші"
+msgstr "Гроші"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Далі виплати надходитимуть на ці реквізити — підтвердіть зміну"
+msgstr "Далі виплати надходитимуть на ці реквізити — підтвердіть зміну"
+
 #: apps/web/app/components/users/CreateWizardStepper.tsx
 msgid "Дані"
 msgstr "Дані"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
+msgstr "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_CASCADE_PREVIEW_STALE"
 msgstr "Дані змінилися після попереднього перегляду — оновіть його і збережіть ще раз"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Дані компанії"
+msgstr "Дані компанії"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Дата"
+msgstr "Дата"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1221,6 +1413,11 @@ msgstr "Дата має бути у форматі YYYYMMDD"
 msgid "contract-variable.onboardingDate"
 msgstr "Дата підписання контракту"
 
+#. placeholder {0}: formatDate(user.createdAt, locale, 'long')
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+msgid "Дата реєстрації: {0}"
+msgstr "Дата реєстрації: {0}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_NOT_IN_FUTURE"
@@ -1229,6 +1426,10 @@ msgstr "Дата транзакції не може бути в майбутнь
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Дашборд"
 msgstr "Дашборд"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Джерело зображення"
+msgstr "Джерело зображення"
 
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Джуніор"
@@ -1257,6 +1458,16 @@ msgstr "Джуніорам недоступні співбесіди"
 msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Дивіденди можна вивести лише на рахунок адміністратора"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Діє попередня частка, поки нову не підтверджено"
+msgstr "Діє попередня частка, поки нову не підтверджено"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Дії"
+msgstr "Дії"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
@@ -1275,6 +1486,10 @@ msgstr "Для виплати криптовалютою вкажіть хеш �
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
 msgstr "Для відновлення проєкту <0>{projectName}</0> потрібно також відновити пару:"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Для переказу в гривні на український ФОП"
+msgstr "Для переказу в гривні на український ФОП"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Для підтвердження введіть {confirmInputLabel}:"
@@ -1299,6 +1514,7 @@ msgstr "До активної версії"
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "До складу проєкту можна додати лише джуніора, HR або бухгалтера"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Додати"
 msgstr "Додати"
@@ -1316,6 +1532,10 @@ msgstr "Додати HR"
 msgid "Додати в команду дропа"
 msgstr "Додати в команду дропа"
 
+#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
+msgid "Додати документ"
+msgstr "Додати документ"
+
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Додати дохід"
 msgstr "Додати дохід"
@@ -1323,6 +1543,11 @@ msgstr "Додати дохід"
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Додати користувача"
 msgstr "Додати користувача"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Додати особистий email"
+msgstr "Додати особистий email"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1333,6 +1558,14 @@ msgstr "Додати сеньйора до команди може лише ад
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Додати учасника"
 msgstr "Додати учасника"
+
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "Додаткові змінні (заповніть нижче):"
+msgstr "Додаткові змінні (заповніть нижче):"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Дозволено лише PNG, JPEG, GIF, WebP"
+msgstr "Дозволено лише PNG, JPEG, GIF, WebP"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1386,6 +1619,8 @@ msgid "api-error.FINANCE_RECEIPT_DOCUMENT_NOT_FOUND"
 msgstr "Документ чека не знайдено"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Документи"
 msgstr "Документи"
 
@@ -1470,6 +1705,14 @@ msgstr "Доходи дропа бачить лише дроп"
 msgid "Доходи на валідації та виплати в черзі"
 msgstr "Доходи на валідації та виплати в черзі"
 
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+msgid "Дошка співбесід"
+msgstr "Дошка співбесід"
+
+#: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
+msgid "Дошка співбесід цього сеньйора"
+msgstr "Дошка співбесід цього сеньйора"
+
 #: apps/web/app/components/ui/role-select.tsx
 msgid "Дроп"
 msgstr "Дроп"
@@ -1501,6 +1744,14 @@ msgstr "Дропа не знайдено"
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Дропам недоступні співбесіди"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Є незбережені зміни"
+msgstr "Є незбережені зміни"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
+msgstr "Є незбережені зміни — якщо перейти, їх буде втрачено"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "є проєкт"
 msgstr "є проєкт"
@@ -1512,6 +1763,10 @@ msgstr "Єдиний HR у системі"
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Єдиний бухгалтер у системі"
 msgstr "Єдиний бухгалтер у системі"
+
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "З картки співробітника (заповніть у профілі):"
+msgstr "З картки співробітника (заповніть у профілі):"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За датою додавання"
@@ -1536,6 +1791,9 @@ msgid "api-error.FINANCE_OBLIGATION_OVERPAID"
 msgstr "За цим зобов’язанням виплачено більше, ніж належало — переплату треба розібрати вручну"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 #: apps/web/app/lib/axios-utils.ts
 msgid "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
 msgstr "Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз"
@@ -1545,17 +1803,42 @@ msgid "Завантажений файл"
 msgstr "Завантажений файл"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Завантаження PDF…"
 msgstr "Завантаження PDF…"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Завантаження контракту…"
+msgstr "Завантаження контракту…"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Завантаження…"
 msgstr "Завантаження…"
 
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Завантажити PDF"
+msgstr "Завантажити PDF"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Завантажити для перегляду"
+msgstr "Завантажити для перегляду"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Завантажте файл (PNG, JPEG, GIF, WebP, до 5 МБ) або вкажіть пряме https-посилання"
+msgstr "Завантажте файл (PNG, JPEG, GIF, WebP, до 5 МБ) або вкажіть пряме https-посилання"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_SELF_ONLY"
 msgstr "Завантажувати можна лише власні документи"
+
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Завантажуємо Умови використання…"
+msgstr "Завантажуємо Умови використання…"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Завжди"
+msgstr "Завжди"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
@@ -1571,6 +1854,10 @@ msgstr "Закривати зобов’язання компанії можут
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Закрити"
 msgstr "Закрити"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Залишитися"
+msgstr "Залишитися"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1589,10 +1876,35 @@ msgstr "Запис додано"
 msgid "Запитувані дані не знайдено."
 msgstr "Запитувані дані не знайдено."
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Заповнено"
+msgstr "Заповнено"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Заповнено автоматично"
+msgstr "Заповнено автоматично"
+
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "Заповнити в профілі →"
+msgstr "Заповнити в профілі →"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SALARY_MONTH_BACKFILL_FORBIDDEN"
 msgstr "Заповнити пропущені місяці зарплати може лише адміністратор"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Заповнити реквізити"
+msgstr "Заповнити реквізити"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Заповніть усі обов’язкові поля"
+msgstr "Заповніть усі обов’язкові поля"
+
+#. placeholder {0}: user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Запропоновано {0}%"
+msgstr "Запропоновано {0}%"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1618,11 +1930,16 @@ msgstr "Запрошення не надіслано — поштовий сер
 msgid "api-error.INVITE_INVALID"
 msgstr "Запрошення недійсне"
 
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+msgid "Зараз не призначено на проєкт"
+msgstr "Зараз не призначено на проєкт"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Заробітку за останні місяці ще немає"
 msgstr "Заробітку за останні місяці ще немає"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/lib/invoice-labels.ts
 msgid "Зарплата"
 msgstr "Зарплата"
@@ -1657,11 +1974,20 @@ msgstr "Заявку на виплату вже оплачено"
 msgid "api-error.FINANCE_PAYOUT_REQUEST_NOT_FOUND"
 msgstr "Заявку на виплату не знайдено"
 
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберегти"
 msgstr "Зберегти"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Зберегти реквізити"
+msgstr "Зберегти реквізити"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Збереження…"
 msgstr "Збереження…"
@@ -1669,6 +1995,10 @@ msgstr "Збереження…"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Збережено"
 msgstr "Збережено"
+
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
+msgstr "Збережіть — і вхід за поточною адресою закриється одразу, навіть якщо співробітник уже підтвердив її — на нову адресу піде запрошення"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1708,6 +2038,10 @@ msgstr "Згорнути"
 msgid "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
 msgstr "Зміна або призначення сеньйора в команді. Поточного сеньйора буде відкріплено."
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Зміна реквізитів"
+msgstr "Зміна реквізитів"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW"
@@ -1718,15 +2052,26 @@ msgstr "Зміна суми оплаченої транзакції перера
 msgid "Зміни збережено"
 msgstr "Зміни збережено"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Змінити"
 msgstr "Змінити"
 
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+msgid "Змінити аватар"
+msgstr "Змінити аватар"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY"
 msgstr "Змінити гаманець компанії може лише адміністратор"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Змінити особистий email"
+msgstr "Змінити особистий email"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1792,6 +2137,7 @@ msgstr "Зобов’язання, що очікують виплати, бач�
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "Зовнішнє посилання на зображення (https://…)"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Іваненко Іван Іванович"
@@ -1813,9 +2159,14 @@ msgstr "ім’я дропа"
 msgid "ім’я сеньйора"
 msgstr "ім’я сеньйора"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Ім’я та прізвище"
 msgstr "Ім’я та прізвище"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Ім’я та прізвище отримувача"
+msgstr "Ім’я та прізвище отримувача"
 
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Ім’я: А–Я"
@@ -1835,6 +2186,11 @@ msgstr "Індивідуальну частку дропа за проєктом
 msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
 msgstr "Індивідуальну частку сеньйора за проєктом змінюють лише адміністратор і бухгалтер"
 
+#. placeholder {0}: archived.length
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+msgid "Історія ({0})"
+msgstr "Історія ({0})"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Історія версій"
 msgstr "Історія версій"
@@ -1843,10 +2199,18 @@ msgstr "Історія версій"
 msgid "Історія заробітку по місяцях"
 msgstr "Історія заробітку по місяцях"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Кадрування"
+msgstr "Кадрування"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
 msgstr "Канал у Telegram: 5–32 символи — латиниця, цифри або _"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Картка співробітника"
+msgstr "Картка співробітника"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1864,6 +2228,7 @@ msgstr "Команд поки немає"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Команда"
 msgstr "Команда"
@@ -1888,6 +2253,10 @@ msgstr "Команда в архіві"
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Команда дропа"
 msgstr "Команда дропа"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Команда та проєкти"
+msgstr "Команда та проєкти"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Команди створюються автоматично при додаванні сеньйора в систему"
@@ -1953,9 +2322,16 @@ msgstr "Компанія вже нарахувала вам цю суму, ал�
 msgid "api-error.INVOICE_COMPANY_SIGNATURE_MISSING"
 msgstr "Компанія ще не підписала рахунок — зверніться до адміністратора"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/CreateWizardStepper.tsx
 msgid "Контракт"
 msgstr "Контракт"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Контракт — попередній перегляд.pdf"
+msgstr "Контракт — попередній перегляд.pdf"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1977,15 +2353,36 @@ msgstr "Контракт в архіві"
 msgid "notification.subjectMissing.EMPLOYEE_CONTRACT"
 msgstr "Контракт видалено"
 
+#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
+msgid "Контракт готується"
+msgstr "Контракт готується"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Контракт для підписання"
+msgstr "Контракт для підписання"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.DOCUMENT_SIGN_REQUIRED.title"
 msgstr "Контракт на підпис"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку"
+msgstr "Контракт надіслано на підпис — редагування заблоковано, щоб внести правки, поверніть у чернетку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_NOT_READY"
 msgstr "Контракт не готовий до підпису"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
+msgstr "Контракт підписано — редагування заблоковано, повернення в чернетку скине підпис і онбординг"
+
+#. placeholder {0}: data.contractNumber
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Контракт підписано, номер {0}"
+msgstr "Контракт підписано, номер {0}"
 
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
@@ -1996,6 +2393,10 @@ msgstr "Контракти"
 #: apps/web/app/lib/axios-utils.ts
 msgid "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
 msgstr "Конфлікт даних. Оновіть сторінку і спробуйте ще раз."
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Копіювати пароль"
+msgstr "Копіювати пароль"
 
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 msgid "Користувач (сеньйор)"
@@ -2062,6 +2463,12 @@ msgstr "Країна реєстрації компанії-контрагент�
 msgid "Країну не знайдено"
 msgstr "Країну не знайдено"
 
+#. placeholder {0}: Math.min(currentStepIndex + 1, steps.length)
+#. placeholder {1}: steps.length
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Крок {0} із {1}"
+msgstr "Крок {0} із {1}"
+
 #: apps/web/app/components/users/CreateWizardStepper.tsx
 msgid "Кроки створення користувача"
 msgstr "Кроки створення користувача"
@@ -2071,6 +2478,10 @@ msgstr "Кроки створення користувача"
 msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
 msgstr "Курс НБУ недоступний — спробуйте пізніше"
 
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Ласкаво просимо до CRM"
+msgstr "Ласкаво просимо до CRM"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Легенда"
 msgstr "Легенда"
@@ -2079,15 +2490,35 @@ msgstr "Легенда"
 msgid "Легенду збережено"
 msgstr "Легенду збережено"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Лист"
+msgstr "Лист"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.PREFERENCE_EMAIL_LOCKED"
 msgstr "Листи про запити на підтвердження та підпис вимкнути не можна"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться"
+msgstr "Листи про запити на підтвердження та підпис вимкнути не можна — без них процес зупиниться"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
+msgstr "Листи, які отримує співробітник. У застосунку сповіщення приходять завжди"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Листи:"
+msgstr "Листи:"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.LOGO_SOURCE_XOR"
 msgstr "Логотип — це файл або посилання, не обидва одночасно"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Масштаб"
+msgstr "Масштаб"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Меню користувача"
@@ -2106,10 +2537,22 @@ msgstr "Мій баланс (частка)"
 msgid "Мій проєкт"
 msgstr "Мій проєкт"
 
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Мітка"
+msgstr "Мітка"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Мітка (необов’язково)"
+msgstr "Мітка (необов’язково)"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Мова інтерфейсу"
 msgstr "Мова інтерфейсу"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Можливо, користувача архівовано — перевірте фільтр «В архіві» у списку"
+msgstr "Можливо, користувача архівовано — перевірте фільтр «В архіві» у списку"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
@@ -2129,13 +2572,25 @@ msgstr "Мої проєкти"
 msgid "contract-variable.companyAuthorityBasis"
 msgstr "На підставі чого діє представник компанії"
 
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
+msgstr "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
 msgstr "Навігація"
 
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+msgid "Надіслати запрошення знову"
+msgstr "Надіслати запрошення знову"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"
 msgstr "Надходження від компаній за цей місяць"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Назад"
+msgstr "Назад"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Назад до умов використання"
@@ -2148,6 +2603,10 @@ msgstr "Назва"
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Назва A→Z"
 msgstr "Назва A→Z"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Назва банку (необов’язково)"
+msgstr "Назва банку (необов’язково)"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Назва команди"
@@ -2166,10 +2625,22 @@ msgstr "назва проєкту"
 msgid "Найнято за місяць"
 msgstr "Найнято за місяць"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Налаштування з’явиться після оновлення застосунку"
+msgstr "Налаштування з’явиться після оновлення застосунку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Налаштування застаріли — оновіть сторінку"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Наприклад: домовилися про 30%"
+msgstr "Наприклад: домовилися про 30%"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "наприклад: основний"
+msgstr "наприклад: основний"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Напрямок сортування: за зростанням"
@@ -2270,10 +2741,13 @@ msgid "Не вдалося заархівувати. Спробуйте ще р�
 msgstr "Не вдалося заархівувати. Спробуйте ще раз"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Не вдалося завантажити PDF"
 msgstr "Не вдалося завантажити PDF"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Не вдалося завантажити PDF попереднього перегляду"
 msgstr "Не вдалося завантажити PDF попереднього перегляду"
 
@@ -2288,6 +2762,22 @@ msgstr "Не вдалося завантажити документ. Спроб�
 msgid "Не вдалося завантажити зведення"
 msgstr "Не вдалося завантажити зведення"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Не вдалося завантажити змінні контракту"
+msgstr "Не вдалося завантажити змінні контракту"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Не вдалося завантажити контракт"
+msgstr "Не вдалося завантажити контракт"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Не вдалося завантажити налаштування"
+msgstr "Не вдалося завантажити налаштування"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора"
+msgstr "Не вдалося завантажити попередній перегляд контракту — зверніться до адміністратора"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Не вдалося завантажити файл"
@@ -2296,6 +2786,18 @@ msgstr "Не вдалося завантажити файл"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Не вдалося завантажити фінансове зведення"
 msgstr "Не вдалося завантажити фінансове зведення"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Не вдалося зберегти аватар"
+msgstr "Не вдалося зберегти аватар"
+
+#: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
+msgid "Не вдалося зберегти значення змінних"
+msgstr "Не вдалося зберегти значення змінних"
+
+#: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
+msgid "Не вдалося зберегти контракт"
+msgstr "Не вдалося зберегти контракт"
 
 #: apps/web/app/hooks/use-legend.ts
 msgid "Не вдалося зберегти легенду. Спробуйте ще раз"
@@ -2350,6 +2852,10 @@ msgstr "Не вдалося змінити частку. Спробуйте ще
 msgid "Не вдалося надіслати запрошення. Спробуйте ще раз"
 msgstr "Не вдалося надіслати запрошення. Спробуйте ще раз"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Не вдалося обрізати зображення"
+msgstr "Не вдалося обрізати зображення"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_CONTENT_UNRECOGNIZED"
@@ -2372,9 +2878,21 @@ msgstr "Не вдалося оновити реквізити. Спробуйт�
 msgid "api-error.INVOICE_USER_DATA_FETCH_FAILED"
 msgstr "Не вдалося отримати дані користувачів — спробуйте ще раз"
 
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Не вдалося отримати пароль — спробуйте ще раз"
+msgstr "Не вдалося отримати пароль — спробуйте ще раз"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Не вдалося очистити аватар"
+msgstr "Не вдалося очистити аватар"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
 msgstr "Не вдалося перевірити, чи чекає на вас рішення щодо проєкту. Оновіть сторінку."
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Не вдалося підписати контракт"
+msgstr "Не вдалося підписати контракт"
 
 #: apps/web/app/hooks/use-invoices.ts
 msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
@@ -2398,6 +2916,10 @@ msgstr "Не вдалося підтвердити суму цього раху�
 msgid "Не вдалося підтвердити. Спробуйте ще раз"
 msgstr "Не вдалося підтвердити. Спробуйте ще раз"
 
+#: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
+msgid "Не вдалося повернути в чернетку"
+msgstr "Не вдалося повернути в чернетку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.IMPERSONATION_ORIGIN_UNAVAILABLE"
@@ -2406,6 +2928,10 @@ msgstr "Не вдалося повернутися до вашого облік�
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Не вдалося повернутися: {errMessage}"
 msgstr "Не вдалося повернутися: {errMessage}"
+
+#: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
+msgid "Не вдалося позначити готовим"
+msgstr "Не вдалося позначити готовим"
 
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
@@ -2416,10 +2942,26 @@ msgstr "Не вдалося порахувати наслідки архівац
 msgid "Не вдалося приєднатися до команди — спробуйте ще раз"
 msgstr "Не вдалося приєднатися до команди — спробуйте ще раз"
 
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Не вдалося прийняти Умови використання"
+msgstr "Не вдалося прийняти Умови використання"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Не вдалося прочитати файл"
+msgstr "Не вдалося прочитати файл"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_ID_INVALID"
 msgstr "Не вдалося розпізнати вибраного сеньйора — виберіть зі списку"
+
+#: apps/web/app/components/user-profile/contract/useEmployeeContract.ts
+msgid "Не вдалося скинути до шаблону"
+msgstr "Не вдалося скинути до шаблону"
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Не вдалося скопіювати — скопіюйте вручну"
+msgstr "Не вдалося скопіювати — скопіюйте вручну"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Не вдалося створити вакансію. Спробуйте ще раз"
@@ -2433,6 +2975,15 @@ msgstr "Не вдалося створити команду — спробуйт
 msgid "Не вдалося увійти: {errMessage}"
 msgstr "Не вдалося увійти: {errMessage}"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "не вказано"
+msgstr "не вказано"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
 msgstr "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
@@ -2441,6 +2992,10 @@ msgstr "Не задано — діє частка сеньйора за замо
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DERIVATIVE_ROW_SETTLED_AMOUNT_UNKNOWN"
 msgstr "Не записано, скільки вже виплачено за однією з часток — потрібна ручна звірка"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Не заповнено"
+msgstr "Не заповнено"
 
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -2461,6 +3016,18 @@ msgstr "Не можна заархівувати самого себе"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "Не можна редагувати обліковий запис іншого адміністратора"
+
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+msgid "не підтверджено"
+msgstr "не підтверджено"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Не прийнято"
+msgstr "Не прийнято"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Невідомо"
+msgstr "Невідомо"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2486,6 +3053,10 @@ msgstr "Некоректна адреса гаманця — потрібні 0x
 msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
 msgstr "Некоректна роль шаблону контракту"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Некоректний URL"
+msgstr "Некоректний URL"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Некоректний запит. Перевірте введені дані і спробуйте ще раз."
 msgstr "Некоректний запит. Перевірте введені дані і спробуйте ще раз."
@@ -2495,6 +3066,7 @@ msgstr "Некоректний запит. Перевірте введені д�
 msgid "api-error.FINANCE_TX_HASH_INVALID"
 msgstr "Некоректний хеш транзакції — потрібне посилання на Etherscan або 0x і 64 шістнадцяткові символи"
 
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Немає активних проєктів"
@@ -2508,6 +3080,10 @@ msgstr "Немає активного шаблону контракту для �
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "Немає активної версії умов використання. Створіть першу версію."
+
+#: apps/web/app/components/user-profile/tabs/TeamTab.tsx
+msgid "Немає даних про склад команди"
+msgstr "Немає даних про склад команди"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
@@ -2523,10 +3099,22 @@ msgstr "Немає доступу до контакту HR"
 msgid "api-error.LEGEND_ACCESS_DENIED"
 msgstr "Немає доступу до легенди проєкту"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Немає доступу до профілю"
+msgstr "Немає доступу до профілю"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору"
+msgstr "Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGEND_EDIT_ACCESS_DENIED"
 msgstr "Немає доступу до редагування легенди проєкту"
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Немає доступу до цього пароля"
+msgstr "Немає доступу до цього пароля"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2545,6 +3133,14 @@ msgstr "Немає доступу? Зверніться до адміністр�
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "Немає доходів, що очікують валідації"
+
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+msgid "Немає завершених проєктів"
+msgstr "Немає завершених проєктів"
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Немає збережених паролів"
+msgstr "Немає збережених паролів"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Немає зв’язку із сервером. Перевірте підключення до інтернету і спробуйте ще раз."
@@ -2584,6 +3180,10 @@ msgstr "Немає транзакцій у роботі. Додайте дохі
 msgid "Немає учасників"
 msgstr "Немає учасників"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Немає шаблону контракту для ролі «{roleLabel}»"
+msgstr "Немає шаблону контракту для ролі «{roleLabel}»"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_FORMAT"
@@ -2598,6 +3198,7 @@ msgstr "Нікого не обрано"
 msgid "Нічого не знайдено"
 msgstr "Нічого не знайдено"
 
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Нічого не знайдено — скиньте фільтри"
@@ -2621,6 +3222,10 @@ msgstr "Новий відгук на вакансію"
 msgid "Новий сеньйор"
 msgstr "Новий сеньйор"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Новий тип сповіщень"
+msgstr "Новий тип сповіщень"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
 msgstr "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
@@ -2634,6 +3239,16 @@ msgstr "Номер контракту — присвоюється під час
 msgid "Номер телефону"
 msgstr "Номер телефону"
 
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
+msgid "Нотатка (макс. 2000 символів)"
+msgstr "Нотатка (макс. 2000 символів)"
+
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Нотатка адміністратора"
+msgstr "Нотатка адміністратора"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Нотатку збережено"
 msgstr "Нотатку збережено"
@@ -2642,10 +3257,22 @@ msgstr "Нотатку збережено"
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 msgstr "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
 
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Оберіть спосіб виплати і заповніть реквізити"
+msgstr "Оберіть спосіб виплати і заповніть реквізити"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
+msgstr "Оберіть, які листи отримувати. У застосунку сповіщення приходять завжди"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
 msgstr "Обліковий запис Google не збігається з адресою, на яку надіслано запрошення"
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "обов’язково"
+msgstr "обов’язково"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Обрати бухгалтера"
@@ -2654,6 +3281,10 @@ msgstr "Обрати бухгалтера"
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Обробка…"
 msgstr "Обробка…"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Огляд"
+msgstr "Огляд"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2665,9 +3296,17 @@ msgstr "Огляд відповідності доходів бачать лиш
 msgid "api-error.FINANCE_DERIVATIVE_ROW_TYPE_MISMATCH_FOR_REOPEN"
 msgstr "Одну з часток закрила транзакція нетипового виду — повернути її до очікування виплати не можна"
 
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Онбординг завершено!"
+msgstr "Онбординг завершено!"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Оновити"
 msgstr "Оновити"
+
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Оновити перегляд"
+msgstr "Оновити перегляд"
 
 #: apps/web/app/lib/telemetry/ErrorBoundary.tsx
 msgid "Оновити сторінку"
@@ -2700,6 +3339,10 @@ msgstr "Оплатити"
 msgid "api-error.FINANCE_PAY_SALARY_ONLY"
 msgstr "Оплатити можна лише зарплату"
 
+#: apps/web/app/components/onboarding/TosUpdateBanner.tsx
+msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
+msgstr "Опубліковано нову версію Умов використання. <0>Читати →</0>"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Опублікувати"
@@ -2725,6 +3368,14 @@ msgstr "Основна навігація"
 msgid "api-error.PERSONAL_EMAIL_MUST_DIFFER_FROM_WORK"
 msgstr "Особиста адреса має відрізнятися від робочої"
 
+#: apps/web/app/components/user-profile/UserProfileHeader.tsx
+msgid "особистий email"
+msgstr "особистий email"
+
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+msgid "Особистий email"
+msgstr "Особистий email"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.PERSONAL_EMAIL_MUST_DIFFER"
@@ -2734,6 +3385,10 @@ msgstr "Особистий email має відрізнятися від робо
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYER_ACCOUNT_MUST_BE_ADMIN"
 msgstr "Особистий рахунок, з якого йде оплата, має належати адміністратору"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Особисті дані"
+msgstr "Особисті дані"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2747,6 +3402,11 @@ msgstr "Особисту адресу видалено — увійти чере
 #: apps/web/app/routes/login.tsx
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Отримувач"
+msgstr "Отримувач"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2822,6 +3482,10 @@ msgstr "Очікують валідації"
 msgid "Очікують виплати"
 msgstr "Очікують виплати"
 
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Паролі проєкту"
+msgstr "Паролі проєкту"
+
 #: apps/web/app/hooks/use-credentials.ts
 msgid "Пароль видалено"
 msgstr "Пароль видалено"
@@ -2850,6 +3514,10 @@ msgstr "Перегляд архівної версії v{0}"
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "Переглянути можна лише власний контракт"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Перейти до шаблонів"
+msgstr "Перейти до шаблонів"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Перейшли в «Найнято»"
 msgstr "Перейшли в «Найнято»"
@@ -2862,6 +3530,18 @@ msgstr "Переказати можна лише іншому адміністр
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Переклад ще триває — частина екранів поки що російською."
+
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Перенаправляємо на дашборд…"
+msgstr "Перенаправляємо на дашборд…"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Перетягніть зображення і скористайтеся повзунком для масштабування — кадр зберігається колом 512×512"
+msgstr "Перетягніть зображення і скористайтеся повзунком для масштабування — кадр зберігається колом 512×512"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Перетягніть файл у вікно або натисніть кнопку вище"
+msgstr "Перетягніть файл у вікно або натисніть кнопку вище"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Перша версія"
@@ -2901,15 +3581,44 @@ msgstr "Під час збереження одна з часток змінил
 msgid "Підготовка файлу…"
 msgstr "Підготовка файлу…"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Підготувати до підписання"
+msgstr "Підготувати до підписання"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Підпис — юридичне ПІБ з профілю"
+msgstr "Підпис — юридичне ПІБ з профілю"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.documentSignUnavailable"
 msgstr "Підпис більше не потрібен"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Підписаний"
+msgstr "Підписаний"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.SIGNED_CONTRACT_NOT_FOUND"
 msgstr "Підписаний контракт не знайдено"
+
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Підписання контракту"
+msgstr "Підписання контракту"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Підписання…"
+msgstr "Підписання…"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Підписант"
+msgstr "Підписант"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Підписати контракт"
+msgstr "Підписати контракт"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -2942,6 +3651,15 @@ msgstr "Підтвердження архівації. Введіть ім’я 
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Підтвердження не знайдено або вже закрито"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Підтвердження…"
+msgstr "Підтвердження…"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Підтвердити"
+msgstr "Підтвердити"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_CONFIRM_PAYOUT_ONLY"
@@ -2956,10 +3674,27 @@ msgstr "Після округлення сума виплати стала ну�
 msgid "Повернення…"
 msgstr "Повернення…"
 
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Повернути в чернетку"
+msgstr "Повернути в чернетку"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_ALREADY_STATUS_CANNOT_REVERT"
 msgstr "Повернути в чернетку не можна: контракт уже {status, select, DRAFT {є чернеткою} READY_TO_SIGN {очікує підпису} SIGNED {підписано} CANCELLED {скасовано} other {в іншому статусі}}"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Повернути контракт у чернетку?"
+msgstr "Повернути контракт у чернетку?"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Повернути підписаний контракт у чернетку?"
+msgstr "Повернути підписаний контракт у чернетку?"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернути стандартний"
+msgstr "Повернути стандартний"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2975,8 +3710,14 @@ msgstr "Повернутися до свого профілю"
 msgid "Повернутися до списку"
 msgstr "Повернутися до списку"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Повернуто стандартний аватар"
+msgstr "Повернуто стандартний аватар"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Повторити"
 msgstr "Повторити"
@@ -2989,10 +3730,27 @@ msgstr "Повторити спробу"
 msgid "Позначено: відгукнулися"
 msgstr "Позначено: відгукнулися"
 
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Позначити готовим"
+msgstr "Позначити готовим"
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Показати пароль"
+msgstr "Показати пароль"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
 msgstr "Показник «всього зароблено» бачать лише адміністратор і бухгалтер"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Покинути"
+msgstr "Покинути"
+
+#. placeholder {0}: i18n._(dirtyGuardTabLabel)
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Покинути вкладку «{0}»?"
+msgstr "Покинути вкладку «{0}»?"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Помилка завантаження балансу"
@@ -3006,13 +3764,25 @@ msgstr "Помилка на нашій стороні. Ми вже знаємо 
 msgid "Помилка під час публікації версії умов використання"
 msgstr "Помилка під час публікації версії умов використання"
 
+#: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд"
 msgstr "Попередній перегляд"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Попередній перегляд PDF"
 msgstr "Попередній перегляд PDF"
+
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Попередній перегляд контракту"
+msgstr "Попередній перегляд контракту"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Попередній перегляд персонального контракту"
+msgstr "Попередній перегляд персонального контракту"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд умов"
@@ -3029,6 +3799,7 @@ msgid "api-error.FINANCE_COMPANY_DEPOSIT_FORBIDDEN"
 msgstr "Поповнювати рахунок компанії можуть лише сеньйор або дроп"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Посилання"
 msgstr "Посилання"
 
@@ -3036,6 +3807,10 @@ msgstr "Посилання"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_REQUIRED"
 msgstr "Посилання має вести на etherscan.io, tronscan.org або інший експлорер"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Посилання має починатися з https://"
+msgstr "Посилання має починатися з https://"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -3063,10 +3838,26 @@ msgstr "Посилання не працює. Відкрийте посилан�
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Поточний аватар"
+msgstr "Поточний аватар"
+
+#: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+msgid "Поточний проєкт"
+msgstr "Поточний проєкт"
+
 #. placeholder {0}: activeSenior.displayName
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
 msgstr "Поточний сеньйор «{0}» буде відкріплений. Новий сеньйор має бути без активної команди."
+
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Потребує заповнення"
+msgstr "Потребує заповнення"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Потребують відповіді"
+msgstr "Потребують відповіді"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -3078,14 +3869,23 @@ msgstr "Потрібен {expectedRole, select, ADMIN {адміністрато�
 msgid "api-error.HR_REQUIRED_MINIMUM_ONE"
 msgstr "Потрібен щонайменше один HR"
 
+#: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
+msgid "Потрібно заповнити перед генерацією"
+msgstr "Потрібно заповнити перед генерацією"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Потрібно увійти ще раз."
 msgstr "Потрібно увійти ще раз."
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "Починається з 0x, усього 42 символи"
+msgstr "Починається з 0x, усього 42 символи"
 
 #: apps/web/app/components/ui/tech-autocomplete-input.tsx
 msgid "Почніть вводити технологію…"
 msgstr "Почніть вводити технологію…"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Почніть вводити: React, Node.js…"
 msgstr "Почніть вводити: React, Node.js…"
@@ -3115,6 +3915,10 @@ msgstr "Пошук і виконання команд"
 msgid "Пошук країни…"
 msgstr "Пошук країни…"
 
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Пошук…"
+msgstr "Пошук…"
+
 #. placeholder {0}: u.displayName
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Прибрати {0}"
@@ -3128,6 +3932,10 @@ msgstr "Прибрати бухгалтера"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
 msgstr "Прибрати сеньйора з команди не можна — видаліть саму команду"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "ПриватБанк"
+msgstr "ПриватБанк"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -3148,15 +3956,48 @@ msgstr "Призначити роль адміністратора не можн
 msgid "Призначити сеньйора"
 msgstr "Призначити сеньйора"
 
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Приймаємо…"
+msgstr "Приймаємо…"
+
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Приймаю Умови використання"
+msgstr "Приймаю Умови використання"
+
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Прийняти Умови використання"
+msgstr "Прийняти Умови використання"
+
+#. placeholder {0}: formatDate(tosAcceptedAt, locale, 'short')
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Прийнято: {0}"
+msgstr "Прийнято: {0}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY"
 msgstr "Прикріпити до транзакції можна лише документ категорії «Чек»"
 
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Приховати пароль"
+msgstr "Приховати пароль"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REJECTION_REASON_TOO_LONG"
 msgstr "Причина відмови — не більше 500 символів"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Причина відмови *"
+msgstr "Причина відмови *"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Продовжити"
+msgstr "Продовжити"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Проєкт"
+msgstr "Проєкт"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -3212,6 +4053,7 @@ msgid "notification.PROJECT_CONFIRM_REQUIRED.title"
 msgstr "Проєкт чекає рішення"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Проєкти"
 msgstr "Проєкти"
 
@@ -3290,6 +4132,10 @@ msgstr "Профіль видалено"
 msgid "Профіль можна відновити з архіву."
 msgstr "Профіль можна відновити з архіву."
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Профіль не знайдено"
+msgstr "Профіль не знайдено"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Прочитати все"
 msgstr "Прочитати все"
@@ -3355,6 +4201,8 @@ msgstr "Рахунок ще не згенеровано — спробуйте �
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Редагування назви, Telegram-посилання та заміток команди."
 
+#: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Редагувати"
 msgstr "Редагувати"
@@ -3394,6 +4242,10 @@ msgstr "Редагувати транзакцію, пов’язану із за
 msgid "contract-variable.companyRegNumber"
 msgstr "Реєстраційний номер компанії-контрагента"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Резюме"
+msgstr "Резюме"
+
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме видалено"
 msgstr "Резюме видалено"
@@ -3402,10 +4254,24 @@ msgstr "Резюме видалено"
 msgid "Резюме збережено"
 msgstr "Резюме збережено"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Реквізити"
+msgstr "Реквізити"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Реквізити для виплат"
+msgstr "Реквізити для виплат"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.requisites"
 msgstr "Реквізити для оплати — підставляються автоматично за способом оплати"
+
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Реквізити не вказано"
+msgstr "Реквізити не вказано"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3416,6 +4282,10 @@ msgstr "Реквізити не довші за {maxChars, number} символ�
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REQUISITES_TOO_LONG"
 msgstr "Реквізити не довші за 10 000 символів"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Реквізити не заповнено"
+msgstr "Реквізити не заповнено"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Реквізити оновлено"
@@ -3444,6 +4314,15 @@ msgstr "Рішення щодо цієї пропозиції вже ухвал�
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_ALREADY_DECIDED"
 msgstr "Рішення щодо цього підтвердження вже ухвалено"
+
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "РНОКПП"
+msgstr "РНОКПП"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+msgid "РНОКПП (10 цифр)"
+msgstr "РНОКПП (10 цифр)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -3535,9 +4414,20 @@ msgstr "Сеньйора та команду відновлено"
 msgid "api-error.FINANCE_SIMULATION_TX_NOT_CONFIRMED"
 msgstr "Симуляція: транзакцію не підтверджено"
 
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Скасований"
+msgstr "Скасований"
+
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/components/user-profile/admin-actions/AdminNoteDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
+#: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
@@ -3559,9 +4449,27 @@ msgstr "Скасувати пропозицію частки може лише �
 msgid "api-error.SHARE_CANCEL_ADMIN_ACCOUNTANT_ONLY"
 msgstr "Скасувати пропозицію частки можуть лише адміністратор і бухгалтер"
 
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Скинути"
 msgstr "Скинути"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Скинути до шаблону"
+msgstr "Скинути до шаблону"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Скинути контракт до шаблону?"
+msgstr "Скинути контракт до шаблону?"
+
+#: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
+msgid "Скопійовано"
+msgstr "Скопійовано"
+
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "Скопіювати {label}"
+msgstr "Скопіювати {label}"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -3578,6 +4486,7 @@ msgid "Співбесід"
 msgstr "Співбесід"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Співбесіди"
 msgstr "Співбесіди"
 
@@ -3586,12 +4495,17 @@ msgstr "Співбесіди"
 msgid "api-error.INTERVIEW_NOT_FOUND"
 msgstr "Співбесіду не знайдено"
 
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
+msgstr "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
+
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
 msgstr "Співробітників"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Сповіщення"
 msgstr "Сповіщення"
 
@@ -3604,6 +4518,12 @@ msgstr "Сповіщення не знайдено"
 msgid "Сповіщень немає"
 msgstr "Сповіщень немає"
 
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Спосіб виплати"
+msgstr "Спосіб виплати"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.preferredMethod"
@@ -3612,6 +4532,14 @@ msgstr "Спосіб оплати з профілю: USDT (ERC-20) або ФОП
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку більші"
 msgstr "Спочатку більші"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Спочатку виберіть область"
+msgstr "Спочатку виберіть область"
+
+#: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
+msgid "Спочатку збережіть, щоб оновити перегляд"
+msgstr "Спочатку збережіть, щоб оновити перегляд"
 
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку менші"
@@ -3637,6 +4565,16 @@ msgstr "Сталася помилка. Спробуйте ще раз."
 msgid "Статистика"
 msgstr "Статистика"
 
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Статус"
+msgstr "Статус"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Статус контракту:"
+msgstr "Статус контракту:"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DEPOSIT_STATUS_ACCESS_FORBIDDEN"
@@ -3660,6 +4598,7 @@ msgstr "Створено {0}"
 msgid "Створити"
 msgstr "Створити"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Створити або обрати команду"
 msgstr "Створити або обрати команду"
@@ -3688,9 +4627,26 @@ msgstr "Створити свою команду"
 msgid "Створити сеньйора"
 msgstr "Створити сеньйора"
 
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
+msgstr "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"
+msgstr "Створіть шаблон контракту для цієї ролі, щоб сформувати контракт"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Створюємо…"
 msgstr "Створюємо…"
+
+#: apps/web/app/components/onboarding/ContractWaitScreen.tsx
+msgid "Сторінка оновиться сама, щойно контракт буде готовий"
+msgstr "Сторінка оновиться сама, щойно контракт буде готовий"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Сума"
+msgstr "Сума"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3701,6 +4657,10 @@ msgstr "Сума виплати має бути числом"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SETTLED_AMOUNT_NEGATIVE"
 msgstr "Сума виплати не може бути від’ємною"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Сума всіх виплат за весь час"
+msgstr "Сума всіх виплат за весь час"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3766,6 +4726,7 @@ msgstr "Текст документа не може бути порожнім"
 msgid "Текст прийнято, розпізнаємо резюме"
 msgstr "Текст прийнято, розпізнаємо резюме"
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Телефон"
 msgstr "Телефон"
@@ -3784,9 +4745,16 @@ msgstr "Термін дії запрошення закінчився"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 
+#: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Технології"
 msgstr "Технології"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Тип"
+msgstr "Тип"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
@@ -3797,6 +4765,10 @@ msgstr "Тип {mimeType} не підтримується. Можна заван
 msgid "api-error.PAYMENT_TYPE_CHANGE_FORBIDDEN"
 msgstr "Тип оплати проєкту змінюють лише адміністратор і бухгалтер"
 
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "Тип сповіщення"
+msgstr "Тип сповіщення"
+
 #: apps/web/app/routes/login.tsx
 msgid "Тільки для співробітників"
 msgstr "Тільки для співробітників"
@@ -3804,6 +4776,10 @@ msgstr "Тільки для співробітників"
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"
 msgstr "Транзакції в роботі"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Транзакцій поки немає"
+msgstr "Транзакцій поки немає"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3860,9 +4836,17 @@ msgstr "Транзакція не видалена — відновлювати 
 msgid "api-error.FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING"
 msgstr "Транзакція, з якої виникло зобов’язання, вже не очікує виплати — оновіть сторінку"
 
+#: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
+msgid "Тут з’являться документи профілю"
+msgstr "Тут з’являться документи профілю"
+
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Тут з’являться події за вашими проєктами, грошима та документами"
 msgstr "Тут з’являться події за вашими проєктами, грошима та документами"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "У вас немає активної команди"
+msgstr "У вас немає активної команди"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -3877,6 +4861,10 @@ msgstr "У вас немає активної команди. Створіть �
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "У вас уже є активна команда"
+
+#: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
+msgid "У застосунку"
+msgstr "У застосунку"
 
 #. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
 #. placeholder {1}: impact.juniorsAffected ?? 0
@@ -3978,12 +4966,32 @@ msgstr "Увійти як інший адміністратор не можна"
 msgid "api-error.IMPERSONATION_SELF_FORBIDDEN"
 msgstr "Увійти як самого себе не можна"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Умови використання"
 msgstr "Умови використання"
+
+#. placeholder {0}: tos.version
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Умови використання — версія {0}"
+msgstr "Умови використання — версія {0}"
+
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Умови використання не знайдено — зверніться до адміністратора"
+msgstr "Умови використання не знайдено — зверніться до адміністратора"
+
+#: apps/web/app/components/onboarding/AcceptTosStep.tsx
+msgid "Умови використання прийнято"
+msgstr "Умови використання прийнято"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Умови персонального контракту прочитано — підтверджую"
+msgstr "Умови персонального контракту прочитано — підтверджую"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 msgid "Усе, що чекає рішення"
@@ -3994,10 +5002,33 @@ msgstr "Усе, що чекає рішення"
 msgid "Усі"
 msgstr "Усі"
 
+#: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
+msgid "Усі поля заповнено"
+msgstr "Усі поля заповнено"
+
 #: apps/web/app/routes/_authenticated/users/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Усі ролі"
 msgstr "Усі ролі"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Усі статуси"
+msgstr "Усі статуси"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Усі типи"
+msgstr "Усі типи"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Усього виплачено цій людині"
+msgstr "Усього виплачено цій людині"
+
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+msgid "Учасник / Проєкт"
+msgstr "Учасник / Проєкт"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -4017,8 +5048,13 @@ msgid "Учасників додано"
 msgstr "Учасників додано"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Файл"
 msgstr "Файл"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Файл {size} — максимум {limit}, виберіть менший"
+msgstr "Файл {size} — максимум {limit}, виберіть менший"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Файл більший за {MAX_MB} МБ — виберіть інший"
@@ -4060,6 +5096,7 @@ msgid "Фінальний вигляд документа «Умови вико�
 msgstr "Фінальний вигляд документа «Умови використання» — як PDF."
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Фінанси"
 msgstr "Фінанси"
 
@@ -4071,6 +5108,14 @@ msgstr "Фінанси та команда"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SUMMARY_FORBIDDEN"
 msgstr "Фінансове зведення бачать лише адміністратор і бухгалтер"
+
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+msgid "ФОП (UAH)"
+msgstr "ФОП (UAH)"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Формат файлу не підтримується."
@@ -4095,6 +5140,10 @@ msgstr "Хеш транзакції: 0x + 64 hex — або посилання �
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "Це не зобов’язання компанії"
+
+#: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
+msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
+msgstr "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4207,6 +5256,7 @@ msgstr "Ця електронна адреса не має доступу. Зв�
 msgid "api-error.FINANCE_PAYOUT_TRANSACTIONS_UNAVAILABLE"
 msgstr "Частину транзакцій уже включено до виплати або вони недоступні — оновіть список"
 
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Частка"
 msgstr "Частка"
@@ -4295,14 +5345,32 @@ msgstr "Чек можна завантажити лише для себе"
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
 
+#. placeholder {0}: user.pendingSeniorShare.approverName
+#. placeholder {1}: user.seniorSharePercent
+#: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
+msgstr "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"
 msgstr "Чекають рішення"
+
+#: apps/web/app/components/user-profile/contract/ContractTab.tsx
+msgid "Чернетка"
+msgstr "Чернетка"
+
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+msgid "Читання файлу…"
+msgstr "Читання файлу…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Шаблон контракту не знайдено"
+
+#: apps/web/app/routes/_authenticated/onboarding/index.tsx
+msgid "Щоб почати роботу, виконайте кілька кроків"
+msgstr "Щоб почати роботу, виконайте кілька кроків"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -4322,3 +5390,12 @@ msgstr "Юридична назва компанії-контрагента"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGAL_NAME_REQUIRED"
 msgstr "Юридичне ПІБ не заповнено. Зверніться до адміністратора"
+
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+#: apps/web/app/components/onboarding/SignContractStep.tsx
+msgid "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
+msgstr "Юридичне ПІБ ще не заповнено — напишіть адміністратору, і підписання відкриється одразу після цього"
+
+#: apps/web/app/components/user-profile/UserProfileShell.tsx
+msgid "Якщо він потрібен для роботи, напишіть адміністратору"
+msgstr "Якщо він потрібен для роботи, напишіть адміністратору"

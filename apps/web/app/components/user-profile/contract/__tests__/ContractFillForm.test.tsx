@@ -14,6 +14,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
 import type { ContractVariablesResponse } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 // ─── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,9 @@ const mockUseContractVariables = useContractVariables as ReturnType<typeof vi.fn
 function makeWrapper() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const Wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    </I18nTestProvider>
   )
   return Wrapper
 }
@@ -76,8 +79,9 @@ function makeVariablesResponse(
 // ─── Tests ───────────────────────────────────────────────────────────────────
 
 describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks()
+    await loadCatalog('uk')
   })
 
   it('renders the real resolved value for a filled company variable', async () => {
@@ -244,6 +248,46 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       expect(el.textContent).toBe(longAddress)
       // Verify break-words class is applied (not overflow:hidden / truncate)
       expect(el.className).toContain('break-words')
+    })
+  })
+})
+
+// task-i18n-stage3b (Task 1), mutation-gate coverage — SOURCE_LABEL had zero
+// unit assertion pinning its resolved text: every fixture above sets
+// `source: 'company' | 'user'` but never reads the label the row actually
+// prints next to the source icon.
+//
+// 'custom'/'unknown' are deliberately NOT covered here: `autoVariables`
+// (the only caller of AutoFilledRow, which is the only reader of
+// SOURCE_LABEL) filters them out — `v.source !== 'custom' && v.source !==
+// 'unknown'` — so those two map entries can never reach this component in
+// the current UI flow. See the matching `// Stryker disable` comments on
+// the map itself for the same reasoning at the mutation-gate level.
+describe('ContractFillForm — SOURCE_LABEL text, per reachable source', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    await loadCatalog('uk')
+  })
+
+  it.each([
+    ['user', 'Картка співробітника'],
+    ['company', 'Дані компанії'],
+    ['auto', 'Авто'],
+  ] as const)('source=%s renders label %s', async (source, expectedText) => {
+    mockUseContractVariables.mockReturnValue({
+      data: makeVariablesResponse({
+        variables: [{ key: 'someKey', label: 'Some field', source, value: 'x', isEmpty: false }],
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('auto-var-row-someKey')).toHaveTextContent(expectedText)
     })
   })
 })

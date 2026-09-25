@@ -105,7 +105,7 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
   it('mode=self: the tab-bar wrapper hides the native scrollbar', () => {
     queryData = makeData(['overview', 'requisites'])
     renderShell('self', 'overview')
-    const wrapper = screen.getByText('Уведомления').closest('.overflow-x-auto')
+    const wrapper = screen.getByText('Сповіщення').closest('.overflow-x-auto')
     expect(wrapper).not.toBeNull()
     expect(wrapper?.className).toContain('[scrollbar-width:none]')
     expect(wrapper?.className).toContain('[&::-webkit-scrollbar]:hidden')
@@ -114,7 +114,7 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
   it('mode=self: the tab bar includes "Уведомления", and its body is NOT active by default', () => {
     queryData = makeData(['overview', 'requisites'])
     renderShell('self', 'overview')
-    expect(screen.getByText('Уведомления')).toBeInTheDocument()
+    expect(screen.getByText('Сповіщення')).toBeInTheDocument()
     // Pins `activeTab === 'notifications'` as a genuine equality check, not
     // an always-true gate — a mutant that renders the tab body regardless of
     // which tab is active must fail this on the DEFAULT ('overview') tab.
@@ -128,9 +128,9 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
     // concat, i.e. the concat is additive, not a replacement of the filter.
     queryData = makeData(['overview', 'finance', 'team', 'requisites'])
     renderShell('self', 'overview')
-    expect(screen.getByText('Обзор')).toBeInTheDocument()
-    expect(screen.getByText('Уведомления')).toBeInTheDocument()
-    expect(screen.queryByText('Финансы')).not.toBeInTheDocument()
+    expect(screen.getByText('Огляд')).toBeInTheDocument()
+    expect(screen.getByText('Сповіщення')).toBeInTheDocument()
+    expect(screen.queryByText('Фінанси')).not.toBeInTheDocument()
     expect(screen.queryByText('Команда')).not.toBeInTheDocument()
   })
 
@@ -147,7 +147,7 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
     // among them (see UsersAccessService — verified no such string exists).
     queryData = makeData(['overview', 'finance', 'projects', 'team', 'requisites', 'documents'])
     renderShell('view', 'overview')
-    expect(screen.queryByText('Уведомления')).not.toBeInTheDocument()
+    expect(screen.queryByText('Сповіщення')).not.toBeInTheDocument()
   })
 
   it('mode=view + ?tab=notifications: falls back to "Обзор" (same path as any other unavailable tab)', () => {
@@ -171,7 +171,7 @@ describe('UserProfileShell — "Уведомления" tab (AC1)', () => {
   it('mode=view: even if permissions.tabs somehow contains "notifications", neither the tab bar nor the body renders it', () => {
     queryData = makeData(['overview', 'notifications'])
     renderShell('view', 'notifications')
-    expect(screen.queryByText('Уведомления')).not.toBeInTheDocument()
+    expect(screen.queryByText('Сповіщення')).not.toBeInTheDocument()
     expect(screen.queryByTestId('stub-notifications')).not.toBeInTheDocument()
     expect(screen.getByTestId('stub-overview')).toBeInTheDocument()
   })

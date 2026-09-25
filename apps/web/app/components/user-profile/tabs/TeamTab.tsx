@@ -1,11 +1,15 @@
+import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { compareNames } from '@crm/shared'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
-import { ROLE_LABELS } from '@/components/ui/role-select'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { api } from '@/lib/axios'
+import { useLocale } from '@/lib/i18n'
 
 interface TeamMember {
   id: string
@@ -24,6 +28,8 @@ const ROLE_ORDER: Record<TeamMember['role'], number> = {
 }
 
 export function TeamTab({ userId }: { userId: string }) {
+  const { i18n } = useLingui()
+  const locale = useLocale()
   const { data, isLoading } = useQuery({
     queryKey: ['user-team', userId],
     queryFn: () =>
@@ -34,13 +40,12 @@ export function TeamTab({ userId }: { userId: string }) {
     staleTime: 30_000,
   })
 
+  const cmp = useMemo(() => compareNames(locale), [locale])
+
   if (isLoading) return <Skeleton className="h-64 w-full" />
   const members = (data ?? [])
     .slice()
-    .sort(
-      (a, b) =>
-        ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.displayName.localeCompare(b.displayName),
-    )
+    .sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || cmp(a.displayName, b.displayName))
   if (members.length === 0) {
     // task-web-border-hack-and-honest-empty-state (2026-08-17, defect 69):
     // an empty roster here has two possible causes — the profile genuinely
@@ -55,7 +60,7 @@ export function TeamTab({ userId }: { userId: string }) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Нет данных о составе команды
+          <Trans>Немає даних про склад команди</Trans>
         </CardContent>
       </Card>
     )
@@ -77,7 +82,7 @@ export function TeamTab({ userId }: { userId: string }) {
             <div className="min-w-0 flex-1">
               <p className="truncate font-medium">{m.displayName}</p>
             </div>
-            <Badge variant="outline">{ROLE_LABELS[m.role]}</Badge>
+            <Badge variant="outline">{i18n._(ROLE_LABEL_MESSAGES[m.role])}</Badge>
           </Link>
         ))}
       </CardContent>

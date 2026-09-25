@@ -23,6 +23,7 @@
  * hit on the duplicated row testids.
  */
 import { test, expect, REAL_API_BASE, SEED_EMAILS, loginViaApi } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const REAL_API = `${REAL_API_BASE}/api`
 
@@ -166,11 +167,12 @@ test.describe('Notification settings tab — responsive (AC6)', () => {
     await page.setViewportSize({ width: 320, height: 900 })
     await page.goto('/profile?tab=overview')
 
+    const uk = await loadMessages('uk')
     // Scoped to `main` — the bell's own trigger button in the top bar shares
-    // the exact accessible name "Уведомления" (`notifications-bell-trigger`).
+    // the exact accessible name "Сповіщення" (`notifications-bell-trigger`).
     const tabBar = page.getByRole('main')
-    const notificationsTab = tabBar.getByRole('button', { name: 'Уведомления' })
-    const overviewTab = tabBar.getByRole('button', { name: 'Обзор' })
+    const notificationsTab = tabBar.getByRole('button', { name: assertInCatalog(uk, 'Сповіщення') })
+    const overviewTab = tabBar.getByRole('button', { name: assertInCatalog(uk, 'Огляд') })
 
     await notificationsTab.click()
     await expect(page.getByTestId('notification-settings-mobile')).toBeVisible()

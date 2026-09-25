@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Check, Copy, Eye, EyeOff, ExternalLink, KeyRound, Loader2 } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { ProjectCredential } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -37,7 +38,7 @@ export function ProfileCredentialsSection({ userId }: ProfileCredentialsSectionP
       <CardHeader className="pb-3">
         <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <KeyRound className="h-3.5 w-3.5" />
-          Пароли проекта
+          <Trans>Паролі проєкту</Trans>
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -47,7 +48,9 @@ export function ProfileCredentialsSection({ userId }: ProfileCredentialsSectionP
             <Skeleton className="h-12 w-full rounded-md" />
           </div>
         ) : !credentials || credentials.length === 0 ? (
-          <p className="text-sm text-muted-foreground/60 italic">Нет сохранённых паролей</p>
+          <p className="text-sm text-muted-foreground/60 italic">
+            <Trans>Немає збережених паролів</Trans>
+          </p>
         ) : (
           <ul className="space-y-1" data-testid="profile-credentials-list">
             {credentials.map((cred, i) => (
@@ -70,6 +73,7 @@ function ProfileCredentialRow({
   credential: ProjectCredential
   userId: string
 }) {
+  const { t } = useLingui()
   const reveal = useRevealUserCredential(userId)
   const [plaintext, setPlaintext] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -87,9 +91,10 @@ function ProfileCredentialRow({
       setPlaintext(password)
     } catch (err: unknown) {
       const status = getAxiosStatus(err)
-      if (status === 403) setError('Нет доступа к этому паролю')
-      else if (status === 429) setError('Слишком много запросов. Попробуйте через минуту.')
-      else setError('Не удалось получить пароль. Попробуйте ещё раз.')
+      if (status === 403) setError(t`Немає доступу до цього пароля`)
+      else if (status === 429)
+        setError(t`Забагато запитів поспіль. Зачекайте трохи і спробуйте ще раз`)
+      else setError(t`Не вдалося отримати пароль — спробуйте ще раз`)
     }
   }
 
@@ -100,7 +105,7 @@ function ProfileCredentialRow({
       setCopied(true)
       window.setTimeout(() => setCopied(false), 2000)
     } catch {
-      setError('Не удалось скопировать. Скопируйте вручную.')
+      setError(t`Не вдалося скопіювати — скопіюйте вручну`)
     }
   }
 
@@ -164,7 +169,7 @@ function ProfileCredentialRow({
             variant="ghost"
             size="icon"
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            aria-label={revealed ? 'Скрыть пароль' : 'Показать пароль'}
+            aria-label={revealed ? t`Приховати пароль` : t`Показати пароль`}
             aria-pressed={revealed}
             disabled={reveal.isPending}
             data-testid={`profile-credentials-reveal-btn-${credential.id}`}
@@ -184,7 +189,7 @@ function ProfileCredentialRow({
               variant="ghost"
               size="icon"
               className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              aria-label={copied ? 'Скопировано' : 'Копировать пароль'}
+              aria-label={copied ? t`Скопійовано` : t`Копіювати пароль`}
               data-testid={`profile-credentials-copy-btn-${credential.id}`}
               onClick={() => void handleCopy()}
             >

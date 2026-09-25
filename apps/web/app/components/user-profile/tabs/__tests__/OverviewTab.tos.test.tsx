@@ -15,9 +15,27 @@
  */
 
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { UserProfileDto, ViewPermissions } from '@crm/shared'
+import { formatDate } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { OverviewTab } from '../OverviewTab'
+
+beforeEach(() => loadCatalog('uk'))
+
+// mutation-gate (@crm/web, Fix-round B, CI-MUT): `formatDate(tosAcceptedAt,
+// locale, 'short')` -> `formatDate(..., "")` survived. `'short'`'s ONLY
+// difference from `Intl`'s no-options default is an explicit UTC timeZone —
+// on a CI runner whose OWN local timezone happens to already be UTC (common
+// for GitHub Actions), the two styles render byte-identical output for ANY
+// date value, so no `screen.getByText`-style assertion could ever
+// discriminate them there. Spying on `formatDate`'s call arguments is the
+// only environment-independent way to pin the literal.
+vi.mock('@crm/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@crm/shared')>()
+  return { ...actual, formatDate: vi.fn(actual.formatDate) }
+})
+const formatDateMock = vi.mocked(formatDate)
 
 // OverviewTab renders AdminNoteDialog conditionally — it imports a mutation
 // hook internally. Mock the hook to prevent fetch calls in unit tests.
@@ -82,6 +100,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     // Card heading
@@ -90,6 +109,11 @@ describe('OverviewTab — ToS acceptance marker', () => {
     const text = screen.getByTestId('tos-accepted-text').textContent ?? ''
     expect(text).toContain('15.01.2026')
     expect(text).toContain('v1')
+    // task-i18n-stage3b (Task 1), mutation-gate coverage — the "Прийнято:"
+    // PREFIX itself (not just the interpolated date) had no assertion; a
+    // mutant emptying that literal would still pass the two checks above.
+    expect(text).toContain('Прийнято:')
+    expect(formatDateMock).toHaveBeenCalledWith('2026-01-15T10:00:00.000Z', 'uk', 'short')
   })
 
   it('AC-2: renders "Не принято" when tosAcceptedAt is null', () => {
@@ -107,6 +131,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     expect(screen.getByTestId('tos-acceptance-card')).toBeInTheDocument()
@@ -128,6 +153,7 @@ describe('OverviewTab — ToS acceptance marker', () => {
           },
         }}
       />,
+      { wrapper: I18nTestProvider },
     )
 
     expect(screen.queryByTestId('tos-acceptance-card')).not.toBeInTheDocument()
