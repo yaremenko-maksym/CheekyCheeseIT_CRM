@@ -8,6 +8,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { Trans } from '@lingui/react/macro'
 import type { UserProfileDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { AccountantChipField } from '../AccountantChipField'
@@ -26,6 +27,28 @@ describe('AccountantChipField', () => {
     )
     expect(screen.getByText('Бухгалтер')).toBeInTheDocument()
     expect(screen.getByText('Бухгалтерів ще немає — спершу додайте бухгалтера')).toBeInTheDocument()
+  })
+
+  it('COPY-M-10: a caller-supplied emptyStateText replaces the default (ADMIN-only) hint', async () => {
+    // RejoinTeamDialog is SENIOR-facing — a SENIOR cannot "add an
+    // accountant" themselves, so it must override the default text.
+    await loadCatalog('uk')
+    render(
+      <AccountantChipField
+        accountantUsers={[]}
+        selectedId=""
+        onChange={vi.fn()}
+        onlyAccountant={false}
+        emptyStateText={<Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(
+      screen.getByText('Бухгалтерів ще немає — зверніться до адміністратора'),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('Бухгалтерів ще немає — спершу додайте бухгалтера'),
+    ).not.toBeInTheDocument()
   })
 
   it('renders the selected accountant chip when one is chosen, under the "Бухгалтер" field label', async () => {

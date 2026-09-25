@@ -32,11 +32,22 @@ export function AccountantChipField({
   selectedId,
   onChange,
   onlyAccountant,
+  emptyStateText,
 }: {
   accountantUsers: UserProfileDto[]
   selectedId: string
   onChange: (next: string) => void
   onlyAccountant: boolean
+  /**
+   * COPY-M-10 (PR #718 round D): this component has two readers with
+   * different privileges — an ADMIN (via `UserDialog`, can create an
+   * accountant directly) and a SENIOR (via `RejoinTeamDialog`, cannot
+   * create anyone). The default text below assumes the ADMIN reader;
+   * SENIOR-facing call sites MUST override it with the "ask an admin"
+   * phrasing instead of telling a SENIOR to do something they have no
+   * permission for.
+   */
+  emptyStateText?: React.ReactNode
 }) {
   const { t } = useLingui()
   const [open, setOpen] = useState(false)
@@ -46,7 +57,7 @@ export function AccountantChipField({
     return (
       <Field label={t`Бухгалтер`}>
         <p className="text-xs text-muted-foreground italic">
-          <Trans>Бухгалтерів ще немає — спершу додайте бухгалтера</Trans>
+          {emptyStateText ?? <Trans>Бухгалтерів ще немає — спершу додайте бухгалтера</Trans>}
         </p>
       </Field>
     )

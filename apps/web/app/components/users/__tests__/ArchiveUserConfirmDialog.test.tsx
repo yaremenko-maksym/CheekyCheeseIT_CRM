@@ -107,6 +107,23 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it('SPEC-H-1: the sr-only accessible description names the user being archived', async () => {
+    // CI Mutation Gate (@crm/web) survivor, PR #718 round C (COPY-L-4):
+    // round C replaced the static `<Trans>Архівування користувача</Trans>`
+    // description with a dynamic, name-interpolated one — a new occurrence
+    // no existing test read, so its exact text content was unverified.
+    ;(api.get as ReturnType<typeof vi.fn>).mockResolvedValue({
+      data: { type: 'user', role: 'ADMIN', noDependencies: true },
+    })
+    renderDialog(makeUser({ displayName: 'Oleksiy Kovalenko' }))
+    const dialog = await screen.findByRole('dialog')
+    expect(
+      within(dialog).getByText(
+        'Oleksiy Kovalenko більше не зможе увійти в CRM. Профіль можна відновити з архіву.',
+      ),
+    ).toBeInTheDocument()
+  })
+
   it('shows skeletons while the impact query is pending', async () => {
     ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
     renderDialog(makeUser({ role: 'JUNIOR' }))
@@ -116,30 +133,25 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     expect(within(dialog).queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
   })
 
-  it('the loading condition is `isLoading || !user`, not `&&` — a pending query with a real user still shows skeletons', async () => {
-    // mutation-gate survivor (LogicalOperator `||`→`&&`, ConditionalExpression
-    // →`false`): a `user` truthy AND `isLoading` true is the exact case that
-    // distinguishes the two — the `&&` mutant would skip the skeletons here.
+  it('the loading condition is `!impactReady && !isError`, not `&&`-gated on isError — an unsettled query with a real user still shows skeletons', async () => {
+    // SR-M-2 (fix-round D) replaced the old `isLoading || !user` gate with
+    // `!impactReady && !isError` (see the long comment on `impactReady` in
+    // the component) — this test now pins THAT condition instead: a query
+    // that never settles (`impact` stays undefined, `isError` stays false)
+    // must show the skeleton, not silently render nothing.
     ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
     renderDialog(makeUser({ role: 'JUNIOR', displayName: 'Oleksiy Kovalenko' }))
     const dialog = await screen.findByRole('dialog')
-    // Code-review CR-H-1 (fix-round A): the PREVIOUS version of this test
-    // only asserted the warning's ABSENCE, which is also true under the
-    // `isLoading || !user` -> `isLoading && !user` mutant here (since
-    // `impact` stays undefined regardless, `impact?.type === 'user'` is
-    // false either way — the assert never actually depended on which
-    // branch rendered). A POSITIVE assertion on the loading testid is the
-    // one thing that actually differs between the two: under the correct
-    // `||`, isLoading=true alone is enough to render it; under the `&&`
-    // mutant, it would only render when BOTH isLoading AND !user are true,
-    // which is false here (`user` is truthy) — so the mutant renders
-    // NEITHER the loading state NOR the warning, an empty gap this
-    // assertion catches directly.
+    // A POSITIVE assertion on the loading testid (not just the warning's
+    // absence) is what actually distinguishes "shows skeleton" from
+    // "renders nothing" — a mutant that flips `!impactReady && !isError` to
+    // always-false would make BOTH the skeleton and the warning absent,
+    // which a negative-only assertion would not catch.
     expect(within(dialog).getByTestId('archive-impact-loading')).toBeInTheDocument()
     expect(within(dialog).queryByTestId('archive-warning-junior')).not.toBeInTheDocument()
-    // The confirm input (rendered whenever `user` truthy, independent of
-    // isLoading) stays present — proves `user` really is non-null here and
-    // the skeleton branch is only about `isLoading`.
+    // The confirm input (rendered whenever `user` truthy, independent of the
+    // impact query) stays present — proves `user` really is non-null here
+    // and the skeleton branch is only about the impact not being ready yet.
     expect(within(dialog).getByTestId('archive-confirm-name-input')).toBeInTheDocument()
   })
 
@@ -216,6 +228,29 @@ describe('ArchiveUserConfirmDialog (users list) — loading + gating', () => {
     await user.clear(input)
     await user.type(input, 'Oleksiy Kovalenko')
     expect(submit).toBeEnabled()
+  })
+
+  it('SR-M-2: the button stays disabled while the impact is not yet ready, even with a correctly typed name', async () => {
+    // security-review SR-M-2 (fix-round D): the OLD gate enumerated bad
+    // states (`isLoading || isError`) — a query stuck in TanStack Query v5's
+    // offline `fetchStatus: 'paused'` state has BOTH false while `impact`
+    // stays `undefined` forever, so the old gate would enable the button on
+    // a correctly typed name with NO cascade warning ever shown. A
+    // never-resolving promise reproduces that "stuck, never settles" shape
+    // directly — the requirement is `impactReady`, not the ABSENCE of a
+    // particular bad state.
+    ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, 'Oleksiy Kovalenko')
+    expect(submit).toBeDisabled()
+
+    // Enter-to-submit must ALSO stay inert for the same reason.
+    await user.keyboard('{Enter}')
+    expect(api.delete).not.toHaveBeenCalled()
   })
 
   it('trims whitespace on the typed value before comparing — padded input still matches', async () => {
@@ -456,7 +491,7 @@ describe('ArchiveUserConfirmDialog (users list) — delegates impact text to Use
     expect(screen.getByTestId('archive-confirm-submit')).toBeDisabled()
 
     // Enter-to-submit must ALSO stay inert — the keydown guard has its own
-    // `isLoading`/`isError` checks, separate from the button's `disabled`.
+    // `impactReady` check, separate from the button's `disabled`.
     await user.keyboard('{Enter}')
     expect(api.delete).not.toHaveBeenCalled()
   })

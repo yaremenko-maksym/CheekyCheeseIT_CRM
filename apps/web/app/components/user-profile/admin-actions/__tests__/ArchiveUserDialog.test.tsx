@@ -142,6 +142,22 @@ describe('ArchiveUserDialog (profile page) — mounts on the CrmDialogContent pa
     expect(submit).toBeEnabled()
   })
 
+  it('SR-M-2: the button stays disabled while the impact is not yet ready, even with a correctly typed name', async () => {
+    // security-review SR-M-2 (fix-round D) — same fix/rationale as the
+    // identical gate in components/users/ArchiveUserConfirmDialog.test.tsx.
+    // A never-resolving promise reproduces TanStack Query v5's offline
+    // `fetchStatus: 'paused'` shape: `impact` stays `undefined` forever,
+    // never settling into either `isLoading` or `isError`.
+    ;(api.get as ReturnType<typeof vi.fn>).mockReturnValue(new Promise(() => {}))
+    const user = userEvent.setup()
+    renderDialog(makeUser({ role: 'ADMIN', displayName: 'Oleksiy Kovalenko' }))
+
+    const submit = await screen.findByTestId('archive-confirm-submit')
+    const input = screen.getByTestId('archive-confirm-name-input')
+    await user.type(input, 'Oleksiy Kovalenko')
+    expect(submit).toBeDisabled()
+  })
+
   it('trims WHITESPACE ON THE TYPED VALUE before comparing — padded input still matches', async () => {
     // Pins `typed.trim()` — without it, the padded input would never equal
     // the clean displayName and the button would stay disabled forever.

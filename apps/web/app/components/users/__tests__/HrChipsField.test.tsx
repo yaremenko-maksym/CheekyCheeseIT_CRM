@@ -10,6 +10,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { Trans } from '@lingui/react/macro'
 import type { UserProfileDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { HrChipsField } from '../HrChipsField'
@@ -41,6 +42,25 @@ describe('HrChipsField', () => {
       { wrapper: I18nTestProvider },
     )
     expect(screen.getByText('HR ще немає — спершу додайте HR')).toBeInTheDocument()
+  })
+
+  it('COPY-M-10: a caller-supplied emptyStateText replaces the default (ADMIN-only) hint', async () => {
+    // RejoinTeamDialog is SENIOR-facing — a SENIOR cannot "add HR"
+    // themselves, so it must override the default ADMIN-oriented text.
+    await loadCatalog('uk')
+    render(
+      <HrChipsField
+        hrUsers={[]}
+        selectedIds={[]}
+        onChange={vi.fn()}
+        required={false}
+        onlyHr={false}
+        emptyStateText={<Trans>HR ще немає — зверніться до адміністратора</Trans>}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+    expect(screen.getByText('HR ще немає — зверніться до адміністратора')).toBeInTheDocument()
+    expect(screen.queryByText('HR ще немає — спершу додайте HR')).not.toBeInTheDocument()
   })
 
   it('`selected` resolves selectedIds to the matching HR objects (real .map/.find), skipping stale ids', async () => {

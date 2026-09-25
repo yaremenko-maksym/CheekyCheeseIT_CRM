@@ -51,7 +51,7 @@ export function ArchiveUserConfirmDialog({
 
   const {
     data: impact,
-    isLoading,
+    isPending,
     isError,
   } = useQuery({
     queryKey: ['users-archive-impact', user?.id],
@@ -119,6 +119,29 @@ export function ArchiveUserConfirmDialog({
   }
 
   const matches = !!user && typed.trim() === user.displayName.trim()
+  // SR-M-2 (security-review PR #718 round D): the previous gate enumerated
+  // BAD states (`isLoading || isError`) instead of requiring the GOOD one.
+  // In TanStack Query v5, `networkMode: 'online'` (the default, unchanged
+  // by lib/query-client.ts) leaves a first-mount query offline in
+  // `status: 'pending'` / `fetchStatus: 'paused'` — `isLoading` (=
+  // `isPending && isFetching`) is FALSE there even though `impact` is still
+  // `undefined`, so nothing told the admin the cascade wasn't computed yet.
+  // `isPending` alone (true whenever there is no data yet, fetching or
+  // paused — not `isLoading`) drives the skeleton below; `impactReady`
+  // additionally requires the resolved data to actually BE a user-shaped
+  // impact before the button unlocks, closing both gaps at once rather than
+  // just the one state that was reported.
+  const impactReady = isUserArchiveImpact(impact)
+  // SPEC-H-1 (fix-round D): moved out of the JSX expression it used to sit
+  // in — a `{/* Stryker disable */}` comment inside JSX is NOT recognized
+  // as a Stryker directive in this codebase (verified empirically against a
+  // real CI Mutation Gate run, see the identical note on `isUserArchiveImpact`
+  // in hooks/use-archive.ts), only a `//` line comment immediately above a
+  // plain statement is. `user` is provably non-null whenever this renders:
+  // `Dialog` is `open={!!user}` and Radix does not mount this subtree while
+  // closed — see "renders nothing (no dialog) when user is null" below.
+  // Stryker disable next-line OptionalChaining,LogicalOperator: see comment above — `?.`/`??` cannot observably differ from `.`/no-fallback here
+  const archiveDescription = t`${user?.displayName ?? ''} більше не зможе увійти в CRM. Профіль можна відновити з архіву.`
 
   return (
     // security-review PR #584 round 3: ignore any dismiss gesture (Escape,
@@ -132,13 +155,11 @@ export function ArchiveUserConfirmDialog({
             <Archive className="h-4 w-4" />
             <Trans>Архівувати користувача</Trans>
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            {t`${user?.displayName ?? ''} більше не зможе увійти в CRM. Профіль можна відновити з архіву.`}
-          </DialogDescription>
+          <DialogDescription className="sr-only">{archiveDescription}</DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3 text-sm">
-            {isLoading || !user ? (
+            {isPending ? (
               <div data-testid="archive-impact-loading">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
@@ -159,7 +180,7 @@ export function ArchiveUserConfirmDialog({
               </p>
             ) : (
               <>
-                {isUserArchiveImpact(impact) && (
+                {user && isUserArchiveImpact(impact) && (
                   <UserArchiveImpact entityName={user.displayName} impact={impact} />
                 )}
                 {isUserArchiveImpact(impact) && (
@@ -180,13 +201,7 @@ export function ArchiveUserConfirmDialog({
                   onChange={(e) => setTyped(e.target.value)}
                   placeholder={user.displayName}
                   onKeyDown={(e) => {
-                    if (
-                      e.key === 'Enter' &&
-                      matches &&
-                      !mutation.isPending &&
-                      !isLoading &&
-                      !isError
-                    ) {
+                    if (e.key === 'Enter' && matches && !mutation.isPending && impactReady) {
                       e.preventDefault()
                       mutation.mutate()
                     }
@@ -203,7 +218,7 @@ export function ArchiveUserConfirmDialog({
           <Button
             data-testid="archive-confirm-submit"
             variant="destructive"
-            disabled={!matches || mutation.isPending || !user || isLoading || isError}
+            disabled={!matches || mutation.isPending || !user || !impactReady}
             onClick={() => mutation.mutate()}
           >
             {mutation.isPending ? t`Архівуємо…` : t`Архівувати`}

@@ -296,12 +296,19 @@ export function RejoinTeamDialog({ open, onClose }: { open: boolean; onClose: ()
                     onChange={setSelectedHrIds}
                     required
                     onlyHr={hrUsers.length === 1}
+                    // COPY-M-10: this dialog is SENIOR-facing — only ADMIN
+                    // can create users, so the empty state must not tell
+                    // the SENIOR reader to add one themselves.
+                    emptyStateText={<Trans>HR ще немає — зверніться до адміністратора</Trans>}
                   />
                   <AccountantChipField
                     accountantUsers={accountantUsers}
                     selectedId={selectedAccountantId}
                     onChange={setSelectedAccountantId}
                     onlyAccountant={accountantUsers.length === 1}
+                    emptyStateText={
+                      <Trans>Бухгалтерів ще немає — зверніться до адміністратора</Trans>
+                    }
                   />
                 </>
               )

@@ -66,7 +66,9 @@ msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
 msgid "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{0, select, SENIOR {senior} DROP {drop} other {employee}}"
 
+#. placeholder {0}: user.displayName
 #. placeholder {0}: user?.displayName ?? ''
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 msgid "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
 msgstr "{0} will no longer be able to sign in to the CRM. The profile can be restored from the archive."
@@ -170,8 +172,8 @@ msgstr "<0>{0}</0> and its senior <1>{1}</1> are a linked pair — you cannot re
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
-msgstr "<0>{entityName}</0> and team “<1>{0}</1>” are a linked pair — one can’t be archived without the other. Archived together: the {roleGenitive}’s profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{namesSuffix}). The profile will no longer be able to sign in to the CRM."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, архівувати окремо не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
+msgstr "<0>{entityName}</0> and team “<1>{0}</1>” are a linked pair — one can’t be archived without the other. Archived together: the {roleGenitive}’s profile, the team and all its projects ({1, plural, one {# project} other {# projects}}{namesSuffix}). This account will no longer be able to sign in to the CRM."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -217,6 +219,10 @@ msgstr "HR can only add a senior to their own drop team"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR can only create seniors"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "HR ще немає — зверніться до адміністратора"
+msgstr "No HR yet — ask an admin to add one"
 
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "HR ще немає — спершу додайте HR"
@@ -565,6 +571,7 @@ msgstr "Accountant"
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
 msgstr "An accountant can't choose who receives admin income"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Бухгалтерів ще немає — зверніться до адміністратора"
 msgstr "No accountants yet — ask an admin to add one"
@@ -579,27 +586,27 @@ msgstr "In active stages"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
-msgstr "The profile of <0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{namesSuffix}). The profile will no longer be able to sign in to the CRM."
+msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
+msgstr "The profile of <0>{entityName}</0> will be archived together with all their projects ({0, plural, one {# project} other {# projects}}{namesSuffix}). This account will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves stay active. The profile will no longer be able to sign in to the CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# active project} other {# active projects}}</1>. The projects themselves stay active. This account will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves stay active. The profile will no longer be able to sign in to the CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (HR role). The teams themselves stay active. This account will no longer be able to sign in to the CRM."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves stay active. The profile will no longer be able to sign in to the CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed from <1>{0, plural, one {# team} other {# teams}}</1> (accountant role). The teams themselves stay active. This account will no longer be able to sign in to the CRM."
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
-msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs to be archived along with it. The profile will no longer be able to sign in to the CRM."
+msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
+msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs to be archived along with it. This account will no longer be able to sign in to the CRM."
 
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -3638,10 +3645,6 @@ msgstr "Confirmed income you have not transferred yet"
 msgid "Підтвердження"
 msgstr "Confirmation"
 
-#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
-msgid "Підтвердження архівації користувача. Введіть ім’я для підтвердження."
-msgstr "Confirm archiving the user. Type the name to confirm."
-
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Archive confirmation. Enter the name to confirm the action."
@@ -3896,8 +3899,8 @@ msgid "Пошук за ім’ям або email…"
 msgstr "Search by name or email…"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
-msgid "Пошук за ім’ям, email, telegram, технологіями…"
-msgstr "Search by name, email, telegram, technologies…"
+msgid "Пошук за ім’ям, email, Telegram, технологіями…"
+msgstr "Search by name, email, Telegram, tech stack…"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Пошук за іменем, email, telegram…"

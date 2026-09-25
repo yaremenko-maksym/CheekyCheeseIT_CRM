@@ -66,7 +66,9 @@ msgstr "{0, select, SENIOR {сеньйор} DROP {дроп} other {співро�
 msgid "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 msgstr "{0, select, SENIOR {сеньйора} DROP {дропа} other {співробітника}}"
 
+#. placeholder {0}: user.displayName
 #. placeholder {0}: user?.displayName ?? ''
+#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 msgid "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
 msgstr "{0} більше не зможе увійти в CRM. Профіль можна відновити з архіву."
@@ -170,8 +172,8 @@ msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана п�
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
-msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgid "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, архівувати окремо не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
+msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’язана пара, архівувати окремо не можна. В архів підуть: профіль {roleGenitive}, команда і всі її проєкти ({1, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
@@ -217,6 +219,10 @@ msgstr "HR може приєднати сеньйора лише до своєї
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR може створювати лише сеньйорів"
+
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
+msgid "HR ще немає — зверніться до адміністратора"
+msgstr "HR ще немає — зверніться до адміністратора"
 
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "HR ще немає — спершу додайте HR"
@@ -565,6 +571,7 @@ msgstr "Бухгалтер"
 msgid "api-error.FINANCE_ADMIN_INCOME_RECEIVER_FIXED_FOR_ACCOUNTANT"
 msgstr "Бухгалтер не обирає, хто отримує дохід адміністратора"
 
+#: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Бухгалтерів ще немає — зверніться до адміністратора"
 msgstr "Бухгалтерів ще немає — зверніться до адміністратора"
@@ -579,27 +586,27 @@ msgstr "В активних стадіях"
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
-msgstr "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Профіль більше не зможе увійти в CRM."
+msgid "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
+msgstr "В архів піде профіль <0>{entityName}</0> разом з усіма проєктами ({0, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}{namesSuffix}). Вхід у CRM для цього акаунта буде закрито."
 
 #. placeholder {0}: impact.projectsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# активного проєкту} few {# активних проєктів} many {# активних проєктів} other {# активного проєкту}}</1>. Самі проєкти залишаться активними. Вхід у CRM для цього акаунта буде закрито."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль HR). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
 
 #. placeholder {0}: impact.teamsCount ?? 0
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
-msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM."
+msgid "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
+msgstr "В архів піде профіль <0>{entityName}</0>; його буде прибрано з <1>{0, plural, one {# команди} few {# команд} many {# команд} other {# команди}}</1> (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито."
 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
-msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
-msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Профіль більше не зможе увійти в CRM."
+msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
+msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
 
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -3638,10 +3645,6 @@ msgstr "Підтверджені доходи, які ви ще не перер�
 msgid "Підтвердження"
 msgstr "Підтвердження"
 
-#: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
-msgid "Підтвердження архівації користувача. Введіть ім’я для підтвердження."
-msgstr "Підтвердження архівації користувача. Введіть ім’я для підтвердження."
-
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Підтвердження архівації. Введіть ім’я для підтвердження дії."
@@ -3896,8 +3899,8 @@ msgid "Пошук за ім’ям або email…"
 msgstr "Пошук за ім’ям або email…"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
-msgid "Пошук за ім’ям, email, telegram, технологіями…"
-msgstr "Пошук за ім’ям, email, telegram, технологіями…"
+msgid "Пошук за ім’ям, email, Telegram, технологіями…"
+msgstr "Пошук за ім’ям, email, Telegram, технологіями…"
 
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 msgid "Пошук за іменем, email, telegram…"

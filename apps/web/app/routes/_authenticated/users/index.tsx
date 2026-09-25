@@ -270,7 +270,7 @@ function UsersPageContent({
                   <Input
                     type="search"
                     enterKeyHint="search"
-                    placeholder={t`Пошук за ім’ям, email, telegram, технологіями…`}
+                    placeholder={t`Пошук за ім’ям, email, Telegram, технологіями…`}
                     className="pl-8"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

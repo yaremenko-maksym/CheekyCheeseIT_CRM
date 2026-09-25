@@ -47,9 +47,19 @@ export function ArchiveUserDialog({
 }) {
   const { t } = useLingui()
   const mutation = useArchiveUser(user.id)
-  const { data: impact, isLoading, isError } = useArchiveImpact('user', user.id)
+  const { data: impact, isPending, isError } = useArchiveImpact('user', user.id)
   const [typed, setTyped] = useState('')
   const matches = typed.trim() === user.displayName.trim()
+  // SR-M-2 (security-review PR #718 round D) — same fix as the identical
+  // gate in components/users/ArchiveUserConfirmDialog.tsx: require the
+  // GOOD state (`impactReady`) instead of enumerating bad ones
+  // (`isLoading || isError`), which leaves a paused/offline first-mount
+  // query (isLoading=false, isError=false, impact=undefined) showing no
+  // warning at all with the button still enabled. `isPending` (true
+  // whenever there is no data yet, fetching or paused — not `isLoading`)
+  // drives the skeleton; `impactReady` additionally requires the resolved
+  // data to actually BE a user-shaped impact before the button unlocks.
+  const impactReady = isUserArchiveImpact(impact)
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -63,12 +73,12 @@ export function ArchiveUserDialog({
             <Trans>Архівувати користувача</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Підтвердження архівації користувача. Введіть ім’я для підтвердження.</Trans>
+            {t`${user.displayName} більше не зможе увійти в CRM. Профіль можна відновити з архіву.`}
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3 text-sm">
-            {isLoading ? (
+            {isPending ? (
               <div data-testid="archive-impact-loading">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
@@ -113,7 +123,7 @@ export function ArchiveUserDialog({
           <Button
             data-testid="archive-confirm-submit"
             variant="destructive"
-            disabled={!matches || mutation.isPending || isLoading || isError}
+            disabled={!matches || mutation.isPending || !impactReady}
             onClick={async () => {
               await mutation.mutateAsync()
               onClose()

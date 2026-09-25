@@ -55,7 +55,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
               many="# проєктів"
               other="# проєкту"
             />
-            {namesSuffix}). Профіль більше не зможе увійти в CRM.
+            {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
           </Trans>{' '}
           <Trans>Відновлення можливе — профіль повернеться, але проєкти відновлювати окремо.</Trans>
         </>
@@ -74,8 +74,8 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
       <>
         <Trans>
           <Name>{entityName}</Name> та команда «<strong>{impact.teamName}</strong>» — пов’язана
-          пара, прибрати по одному не можна. В архів підуть: профіль {roleGenitive}, команда і всі
-          її проєкти (
+          пара, архівувати окремо не можна. В архів підуть: профіль {roleGenitive}, команда і всі її
+          проєкти (
           <Plural
             value={impact.projectsCount ?? 0}
             one="# проєкт"
@@ -83,7 +83,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
             many="# проєктів"
             other="# проєкту"
           />
-          {namesSuffix}). Профіль більше не зможе увійти в CRM.
+          {namesSuffix}). Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
         <Trans>
           У команді{' '}
@@ -127,7 +127,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
               other="# команди"
             />
           </strong>{' '}
-          (роль HR). Самі команди залишаться активними. Профіль більше не зможе увійти в CRM.
+          (роль HR). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
         <Trans>Профіль можна відновити з архіву.</Trans>
       </>
@@ -148,8 +148,8 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
               other="# команди"
             />
           </strong>{' '}
-          (роль бухгалтера). Самі команди залишаться активними. Профіль більше не зможе увійти в
-          CRM.
+          (роль бухгалтера). Самі команди залишаться активними. Вхід у CRM для цього акаунта буде
+          закрито.
         </Trans>{' '}
         <Trans>Профіль можна відновити з архіву.</Trans>
       </>
@@ -170,7 +170,7 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
               other="# активного проєкту"
             />
           </strong>
-          . Самі проєкти залишаться активними. Профіль більше не зможе увійти в CRM.
+          . Самі проєкти залишаться активними. Вхід у CRM для цього акаунта буде закрито.
         </Trans>{' '}
         <Trans>Профіль можна відновити з архіву.</Trans>
       </>
@@ -181,8 +181,8 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
   return (
     <>
       <Trans>
-        В архів піде профіль <Name>{entityName}</Name>. Нічого пов’язаного архівувати не треба.
-        Профіль більше не зможе увійти в CRM.
+        В архів піде профіль <Name>{entityName}</Name>. Нічого пов’язаного архівувати не треба. Вхід
+        у CRM для цього акаунта буде закрито.
       </Trans>{' '}
       <Trans>Профіль можна відновити з архіву.</Trans>
     </>
