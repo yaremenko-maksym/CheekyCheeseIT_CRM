@@ -484,9 +484,17 @@ function InterviewsPage() {
         Job sourcing queue (task-job-sourcing-slice1). A SENIOR passes no
         seniorId — the API resolves it to themselves and ignores anything else,
         so the board's senior-picker cannot be used to peek at someone else.
-        Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
+        fix-round 2 (CI mutation gate): gated on `jobSourcingOpen` ALONE, not
+        `JOB_SOURCING_ENTRY_ENABLED && jobSourcingOpen` — `jobSourcingOpen`
+        only ever becomes true through the entry button's onClick below, and
+        that button is itself hidden behind `JOB_SOURCING_ENTRY_ENABLED` (see
+        that constant's own comment), so this dialog is already unreachable
+        while the entry point is paused. A redundant second gate here is
+        dead-code-in-effect: no test can ever observe its `&&`→`||` mutant,
+        because both branches evaluate identically for every reachable value
+        of `jobSourcingOpen` (it can never be true here in the first place).
       */}
-      {JOB_SOURCING_ENTRY_ENABLED && jobSourcingOpen && (
+      {jobSourcingOpen && (
         <JobSuggestionDialog
           open={jobSourcingOpen}
           onClose={() => setJobSourcingOpen(false)}
