@@ -463,7 +463,7 @@ test.describe('Users page refactor (PR 2)', () => {
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible()
 
-      const techInput = dialog.locator('input[placeholder*="технологи"]').first()
+      const techInput = dialog.locator('input[placeholder*="вводити"]').first()
       await techInput.focus()
       await techInput.fill('Re')
 
@@ -492,10 +492,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      const techSection = page
-        .getByRole('dialog')
-        .locator('input[placeholder*="технологи"]')
-        .first()
+      const techSection = page.getByRole('dialog').locator('input[placeholder*="вводити"]').first()
       await techSection.focus()
       await techSection.fill('Re')
 
@@ -520,10 +517,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId('users-create-button').click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
-      const techSection = page
-        .getByRole('dialog')
-        .locator('input[placeholder*="технологи"]')
-        .first()
+      const techSection = page.getByRole('dialog').locator('input[placeholder*="вводити"]').first()
       await techSection.focus()
       await techSection.fill('Ja')
 

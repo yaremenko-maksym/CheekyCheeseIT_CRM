@@ -148,10 +148,13 @@ test.describe('Drop create — UI regressions', () => {
     await dialog.getByTestId('wizard-next-btn').click()
 
     // Inline validation surfaces `translateZodCode('HR_REQUIRED_MIN')`.
-    // Use a broader locator (page, not dialog) — the error renders as a
-    // <p class="text-destructive"> sibling to the chip picker.
+    // Scoped to `dialog` (not `page`): the same catalog string is ALSO
+    // used by a Notifications-bell item title, and an unscoped `page`
+    // locator resolves to both (Playwright strict-mode violation) — the
+    // error renders as a <p class="text-destructive"> sibling to the chip
+    // picker, inside the dialog.
     await expect(
-      page.getByText(assertInCatalog(uk, 'Виберіть щонайменше одного HR'), { exact: false }),
+      dialog.getByText(assertInCatalog(uk, 'Виберіть щонайменше одного HR'), { exact: false }),
     ).toBeVisible({
       timeout: 5_000,
     })
