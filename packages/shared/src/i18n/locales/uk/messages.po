@@ -1040,10 +1040,6 @@ msgstr "Вибрати файл"
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Виводити дивіденди може лише адміністратор"
 
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Видалення співбесіди"
-msgstr "Видалення співбесіди"
-
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -1743,8 +1739,12 @@ msgid "Добовий ліміт автоматичного розпізнава
 msgstr "Добовий ліміт автоматичного розпізнавання вичерпано. Ліміт оновиться {when} — до того часу заповніть резюме вручну, форма нижче працює."
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Довільні нотатки..."
-msgstr "Довільні нотатки..."
+msgid "Довільні нотатки…"
+msgstr "Довільні нотатки…"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+msgid "Додайте нову співбесіду на дошку."
+msgstr "Додайте нову співбесіду на дошку."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1912,8 +1912,8 @@ msgid "Доступ до CRM закрито. Якщо це помилка, на�
 msgstr "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
 
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
-msgid "Доступ до співбесід відкриється після прив’язки до команди."
-msgstr "Доступ до співбесід відкриється після прив’язки до команди."
+msgid "Доступ до співбесід відкриється, щойно ви створите або оберете команду."
+msgstr "Доступ до співбесід відкриється, щойно ви створите або оберете команду."
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Доступ лише для адміністратора"
@@ -2233,6 +2233,10 @@ msgstr "Заповнити пропущені місяці зарплати мо
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Заповнити реквізити"
 msgstr "Заповнити реквізити"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Заповніть дані нового проєкту та додайте учасників."
+msgstr "Заповніть дані нового проєкту та додайте учасників."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
@@ -3597,7 +3601,6 @@ msgid "Незакриті транзакції, що чекають виплат
 msgstr "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Незбережені зміни"
 msgstr "Незбережені зміни"
 
@@ -3803,7 +3806,6 @@ msgid "Нова команда сеньйора. Оберіть склад ни�
 msgstr "Нова команда сеньйора. Оберіть склад нижче."
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
 msgid "Нова співбесіда"
 msgstr "Нова співбесіда"
@@ -3876,6 +3878,10 @@ msgstr "Оберіть сеньйора для команди."
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
 msgstr "Оберіть спосіб виплати і заповніть реквізити"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Оберіть, зберегти зміни чи закрити без збереження."
+msgstr "Оберіть, зберегти зміни чи закрити без збереження."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Оберіть, кого додати до команди."
@@ -4331,6 +4337,10 @@ msgstr "Підтвердження архівації. Введіть ім’я 
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Підтвердження не знайдено або вже закрито"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Підтвердження незворотної дії."
+msgstr "Підтвердження незворотної дії."
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Підтвердження…"
 msgstr "Підтвердження…"
@@ -4764,6 +4774,10 @@ msgstr "Проєкт {projectName}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 msgstr "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Проєкт буде створено на основі цієї співбесіди."
+msgstr "Проєкт буде створено на основі цієї співбесіди."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -5488,11 +5502,6 @@ msgstr "Створення або редагування користувача"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Створення дропа доступне лише адміністратору"
-
-#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Створення проєкту"
-msgstr "Створення проєкту"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Створення…"

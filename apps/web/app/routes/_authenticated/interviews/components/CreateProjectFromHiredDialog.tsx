@@ -193,7 +193,7 @@ export function CreateProjectFromHiredDialog({
             <Trans>Створити проєкт — {seniorName}</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Створення проєкту</Trans>
+            <Trans>Заповніть дані нового проєкту та додайте учасників.</Trans>
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">

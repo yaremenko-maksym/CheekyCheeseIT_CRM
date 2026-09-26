@@ -85,7 +85,7 @@ export function CreateInterviewDialog({
             <Trans>Нова співбесіда</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            <Trans>Нова співбесіда</Trans>
+            <Trans>Додайте нову співбесіду на дошку.</Trans>
           </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">

@@ -13,6 +13,12 @@
  */
 
 import { test as base, expect, mockAuthAs, USERS, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+let uk: Awaited<ReturnType<typeof loadMessages>>
+base.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 /**
  * Authenticate as the orphan senior + serve a teams list where the senior
@@ -81,8 +87,14 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('interviews-teamless-empty-state')).toBeVisible({
       timeout: 8_000,
     })
-    await expect(page.getByText(/У вас немає активної команди/i)).toBeVisible()
-    await page.getByRole('button', { name: /Створити або обрати команду/i }).click()
+    await expect(
+      page.getByText(new RegExp(assertInCatalog(uk, 'У вас немає активної команди'), 'i')),
+    ).toBeVisible()
+    await page
+      .getByRole('button', {
+        name: new RegExp(assertInCatalog(uk, 'Створити або обрати команду'), 'i'),
+      })
+      .click()
     await expect(page.getByTestId('rejoin-team-dialog')).toBeVisible()
   })
 

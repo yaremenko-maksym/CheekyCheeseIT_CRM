@@ -414,7 +414,7 @@ export function InterviewDetailSheet({
                 <FieldRow
                   name="notesGeneral"
                   label={t`Загальні нотатки`}
-                  placeholder={t`Довільні нотатки...`}
+                  placeholder={t`Довільні нотатки…`}
                   schema={updateInterviewSchema.shape.notesGeneral.unwrap().unwrap()}
                   textarea
                 />
@@ -462,7 +462,7 @@ export function InterviewDetailSheet({
               <Trans>Видалити співбесіду?</Trans>
             </DialogTitle>
             <DialogDescription className="sr-only">
-              <Trans>Видалення співбесіди</Trans>
+              <Trans>Підтвердження незворотної дії.</Trans>
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
@@ -505,7 +505,7 @@ export function InterviewDetailSheet({
               <Trans>Незбережені зміни</Trans>
             </DialogTitle>
             <DialogDescription className="sr-only">
-              <Trans>Незбережені зміни</Trans>
+              <Trans>Оберіть, зберегти зміни чи закрити без збереження.</Trans>
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
@@ -548,7 +548,7 @@ export function InterviewDetailSheet({
               <Trans>Створити проєкт?</Trans>
             </DialogTitle>
             <DialogDescription className="sr-only">
-              <Trans>Створення проєкту</Trans>
+              <Trans>Проєкт буде створено на основі цієї співбесіди.</Trans>
             </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">

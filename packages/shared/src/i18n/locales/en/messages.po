@@ -1040,10 +1040,6 @@ msgstr "Choose a file"
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Only an admin can withdraw dividends"
 
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Видалення співбесіди"
-msgstr "Deleting the interview"
-
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -1743,8 +1739,12 @@ msgid "Добовий ліміт автоматичного розпізнава
 msgstr "The daily limit for automatic recognition is used up. The limit resets on {when} — until then, fill in the resume by hand, the form below works."
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Довільні нотатки..."
-msgstr "Free-form notes..."
+msgid "Довільні нотатки…"
+msgstr "Free-form notes…"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+msgid "Додайте нову співбесіду на дошку."
+msgstr "Add a new interview to the board."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1912,8 +1912,8 @@ msgid "Доступ до CRM закрито. Якщо це помилка, на�
 msgstr "Your access to the CRM has been turned off. If this is a mistake, contact an admin."
 
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
-msgid "Доступ до співбесід відкриється після прив’язки до команди."
-msgstr "Access to interviews will open once you join a team."
+msgid "Доступ до співбесід відкриється, щойно ви створите або оберете команду."
+msgstr "Access to interviews will open as soon as you create or choose a team."
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Доступ лише для адміністратора"
@@ -2233,6 +2233,10 @@ msgstr "Only an admin can fill in missed salary months"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Заповнити реквізити"
 msgstr "Fill in payout details"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Заповніть дані нового проєкту та додайте учасників."
+msgstr "Fill in the new project's details and add members."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
@@ -3597,7 +3601,6 @@ msgid "Незакриті транзакції, що чекають виплат
 msgstr "Unsettled transactions awaiting payout ({0}) — they stay in the system and remain payable"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Незбережені зміни"
 msgstr "Unsaved changes"
 
@@ -3803,7 +3806,6 @@ msgid "Нова команда сеньйора. Оберіть склад ни�
 msgstr "A new team led by this senior. Pick its members below."
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
 msgid "Нова співбесіда"
 msgstr "New interview"
@@ -3876,6 +3878,10 @@ msgstr "Choose a senior for the team."
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
 msgstr "Choose a payout method and fill in the details"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Оберіть, зберегти зміни чи закрити без збереження."
+msgstr "Choose whether to save the changes or close without saving."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Оберіть, кого додати до команди."
@@ -4259,7 +4265,7 @@ msgstr "One of the shares changed status while saving — nothing was saved, ref
 
 #: apps/web/app/routes/_authenticated/interviews/index.tsx
 msgid "Підбір вакансій"
-msgstr "Vacancy search"
+msgstr "Vacancy sourcing"
 
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Підготовка файлу…"
@@ -4330,6 +4336,10 @@ msgstr "Archive confirmation. Enter the name to confirm the action."
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Approval not found or already closed"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Підтвердження незворотної дії."
+msgstr "Confirmation of an irreversible action."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Підтвердження…"
@@ -4764,6 +4774,10 @@ msgstr "Project {projectName}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 msgstr "The project <0>{entityName}</0> will be archived, and <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unassigned from it. The senior and the team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Проєкт буде створено на основі цієї співбесіди."
+msgstr "The project will be created based on this interview."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -5488,11 +5502,6 @@ msgstr "Create or edit a user"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Only an admin can create a drop"
-
-#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-msgid "Створення проєкту"
-msgstr "Creating the project"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Створення…"

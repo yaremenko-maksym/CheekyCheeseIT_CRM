@@ -321,7 +321,7 @@ function InterviewsPage() {
             <Trans>У вас немає активної команди</Trans>
           </p>
           <p className="mt-1 text-xs text-muted-foreground max-w-md">
-            <Trans>Доступ до співбесід відкриється після прив’язки до команди.</Trans>
+            <Trans>Доступ до співбесід відкриється, щойно ви створите або оберете команду.</Trans>
           </p>
           <Button size="sm" className="mt-4 gap-1.5" onClick={() => setRejoinDialogOpen(true)}>
             <Plus className="h-4 w-4" />
