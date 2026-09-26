@@ -117,7 +117,7 @@ test.describe('«Тип оплаты» field-scoped RBAC — project edit (Flow 
     const patchReq = page.waitForRequest(
       (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
     )
-    await page.getByRole('button', { name: 'Сохранить' }).click()
+    await page.getByRole('button', { name: 'Зберегти' }).click()
     const req = await patchReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body.paymentType).toBe('USDT')
@@ -156,7 +156,7 @@ test.describe('«Тип оплаты» field-scoped RBAC — project edit (Flow 
     await mockProjectDetail(page, { paymentType: null })
     await page.goto(`/projects/${PROJECTS[0]!.id}`)
 
-    await expect(page.getByText('Тип оплаты')).not.toBeAttached()
+    await expect(page.getByText('Тип оплати')).not.toBeAttached()
   })
 })
 
@@ -188,7 +188,7 @@ test.describe('Per-project drop-share override — project edit (Flow 4, AC4)', 
     const patchReq = page.waitForRequest(
       (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
     )
-    await page.getByRole('button', { name: 'Сохранить' }).click()
+    await page.getByRole('button', { name: 'Зберегти' }).click()
     const req = await patchReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body.dropSharePercentOverride).toBe(20)

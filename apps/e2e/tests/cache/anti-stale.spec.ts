@@ -285,8 +285,9 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     const projectName = `AntiStale-${sentinelSuffix}`
     const companyName = `TestCo-${sentinelSuffix}`
 
-    // Click "Новый проект".
-    await page.getByRole('button', { name: 'Новый проект' }).click()
+    // Click "Новий проєкт" (task-i18n-stage3c-pr4: uk source text, PR3 migrated
+    // this create dialog — see `projects/index.tsx`).
+    await page.getByRole('button', { name: 'Новий проєкт' }).click()
 
     // Wait for the create-project dialog.
     const dialog = page.getByRole('dialog')
@@ -297,20 +298,20 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     // contains both the label text and the textbox (confirmed from DOM snapshot).
     await dialog
       .locator('div, [class]')
-      .filter({ hasText: /^Название проекта/ })
+      .filter({ hasText: /^Назва проєкту/ })
       .getByRole('textbox')
       .fill(projectName)
 
     await dialog
       .locator('div, [class]')
-      .filter({ hasText: /^Компания/ })
+      .filter({ hasText: /^Компанія/ })
       .getByRole('textbox')
       .fill(companyName)
 
-    // Select senior — combobox labelled «Синьор» (confirmed from DOM snapshot).
+    // Select senior — combobox labelled «Сеньйор» (confirmed from DOM snapshot).
     await dialog
       .locator('div, [class]')
-      .filter({ hasText: /^Синьор/ })
+      .filter({ hasText: /^Сеньйор/ })
       .getByRole('combobox')
       .selectOption(SEED_SENIOR_ID)
 
@@ -331,7 +332,7 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     )
 
     // Submit.
-    await page.getByRole('button', { name: 'Создать' }).click()
+    await page.getByRole('button', { name: 'Створити', exact: true }).click()
 
     // Capture project ID for cleanup.
     try {

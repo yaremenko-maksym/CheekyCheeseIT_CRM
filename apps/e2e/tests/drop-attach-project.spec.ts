@@ -97,7 +97,7 @@ test.describe('Drop attach — happy-path (AC1)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await expect(page.getByTestId('attach-drop-btn')).toBeVisible()
   })
@@ -115,7 +115,7 @@ test.describe('Drop attach — happy-path (AC1)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
     await page.getByTestId('attach-drop-btn').click()
 
     const dialog = page.getByTestId('attach-drop-dialog')
@@ -157,7 +157,7 @@ test.describe('Drop attach — happy-path (AC1)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
     await page.getByTestId('attach-drop-btn').click()
 
     const dialog = page.getByTestId('attach-drop-dialog')
@@ -190,7 +190,7 @@ test.describe('Drop attach — happy-path (AC1)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await expect(page.getByTestId('attach-drop-btn')).toBeVisible()
     await page.getByTestId('attach-drop-btn').click()
@@ -217,7 +217,7 @@ test.describe('Drop detach — confirm flow (AC2)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await expect(page.getByTestId('effective-team-drop')).toBeVisible()
     await expect(page.getByTestId('detach-drop-btn')).toBeVisible()
@@ -234,7 +234,7 @@ test.describe('Drop detach — confirm flow (AC2)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await page.getByTestId('detach-drop-btn').click()
 
@@ -275,7 +275,7 @@ test.describe('Drop detach — confirm flow (AC2)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await page.getByTestId('detach-drop-btn').click()
     await expect(page.getByTestId('detach-drop-confirm-btn')).toBeVisible()
@@ -309,13 +309,13 @@ test.describe('Drop detach — confirm flow (AC2)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await page.getByTestId('detach-drop-btn').click()
     await expect(page.getByTestId('detach-drop-confirm-btn')).toBeVisible()
 
     // Cancel
-    await page.getByRole('button', { name: 'Отмена' }).click()
+    await page.getByRole('button', { name: 'Скасувати' }).click()
     await expect(page.getByTestId('detach-drop-confirm-btn')).not.toBeVisible()
 
     // Drop row still present, no PATCH fired
@@ -340,7 +340,7 @@ test.describe('Picker hidden when drop already assigned (AC3)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     // Button must NOT appear — dropCandidates is [] when project.dropId != null
     await expect(page.getByTestId('attach-drop-btn')).not.toBeVisible()
@@ -371,7 +371,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
 
     // "Добавить" in the overview team card — exclude credentials-add-btn
     const addBtn = page
-      .getByRole('button', { name: /^добавить$/i })
+      .getByRole('button', { name: /^додати$/i })
       .and(page.locator(':not([data-testid="credentials-add-btn"])'))
     await expect(addBtn).toBeVisible()
     await addBtn.click()
@@ -418,7 +418,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
     await page.getByTestId('tab-overview').click()
 
     const addBtn = page
-      .getByRole('button', { name: /^добавить$/i })
+      .getByRole('button', { name: /^додати$/i })
       .and(page.locator(':not([data-testid="credentials-add-btn"])'))
     await expect(addBtn).toBeVisible()
     await addBtn.click()
@@ -432,7 +432,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
     // availableToAdd (HR already in team, accountant in team, junior is free).
     // Using first() avoids strict-mode violation from nested div matches.
     await dialog
-      .getByRole('button', { name: /^добавить$/i })
+      .getByRole('button', { name: /^додати$/i })
       .first()
       .click()
 
@@ -466,7 +466,7 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     // Drop identity fully masked for SENIOR — row not rendered at all (maskedDrop = null)
     await expect(page.getByTestId('effective-team-drop')).not.toBeAttached()
@@ -487,7 +487,7 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
     })
 
     await page.goto(`/projects/${PROJECT_ID}`)
-    await page.getByRole('tab', { name: 'Состав' }).click()
+    await page.getByRole('tab', { name: 'Склад' }).click()
 
     await expect(page.getByTestId('attach-drop-btn')).not.toBeAttached()
   })

@@ -315,7 +315,7 @@ test.describe('AC1 — JUNIOR hub /project', () => {
     const card = page.getByTestId('project-info-card')
     await expect(card.getByText(JUNIOR_PROJECT.companyName)).toBeVisible()
     await expect(card.getByText(JUNIOR_PROJECT.domain!, { exact: true })).toBeVisible()
-    await expect(card.getByText('Активный', { exact: true })).toBeVisible()
+    await expect(card.getByText('Активний', { exact: true })).toBeVisible()
 
     // Rate and currency MUST NOT be in the DOM
     await expect(page.getByText('5000')).toHaveCount(0)
@@ -339,7 +339,9 @@ test.describe('AC1 — JUNIOR hub /project', () => {
     await expect(page.getByText(USERS.senior.email, { exact: false })).toHaveCount(0)
   })
 
-  test('persona card "Открыть легенду" button navigates to /legend', async ({ asJunior: page }) => {
+  test('persona card "Відкрити легенду" button navigates to /legend', async ({
+    asJunior: page,
+  }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/project')
@@ -458,7 +460,7 @@ test.describe('AC1 — JUNIOR hub /project', () => {
 
     await page.goto('/project')
     await expect(page.getByTestId('junior-hub')).toBeVisible()
-    await expect(page.getByText('Вас ещё не добавили в проект.')).toBeVisible()
+    await expect(page.getByText('Вас ще не додали до проєкту.')).toBeVisible()
   })
 })
 
@@ -503,7 +505,7 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(card.getByText('USD').first()).toBeVisible()
   })
 
-  test('salary-changed-at line visible and contains «Изменена» when changedAt is set', async ({
+  test('salary-changed-at line visible and contains «Змінено» when changedAt is set', async ({
     asJunior: page,
   }) => {
     // SALARY_META_FIXTURE already contains changedAt: '2026-03-01T00:00:00.000Z'
@@ -516,10 +518,10 @@ test.describe('AC3 — Salary snapshot card', () => {
 
     const changedAtEl = card.getByTestId('salary-changed-at')
     await expect(changedAtEl).toBeVisible()
-    await expect(changedAtEl).toContainText('Изменена')
+    await expect(changedAtEl).toContainText('Змінено')
   })
 
-  test('salary-changed-at shows fallback «Ставка ещё не менялась» when changedAt is null', async ({
+  test('salary-changed-at shows fallback «Ставку ще не змінювали» when changedAt is null', async ({
     asJunior: page,
   }) => {
     // round-5: salary-changed-at is ALWAYS in DOM when hasRate=true.
@@ -537,10 +539,10 @@ test.describe('AC3 — Salary snapshot card', () => {
 
     const changedAtEl = card.getByTestId('salary-changed-at')
     await expect(changedAtEl).toBeVisible()
-    await expect(changedAtEl).toContainText('Ставка ещё не менялась')
+    await expect(changedAtEl).toContainText('Ставку ще не змінювали')
   })
 
-  test('PAID transaction shows badge «Выплачено»', async ({ asJunior: page }) => {
+  test('PAID transaction shows badge «Виплачено»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/project')
@@ -551,11 +553,11 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(txList).toBeVisible()
 
     // At least one «Выплачено» badge for PAID tx
-    const paidBadges = txList.getByText('Выплачено')
+    const paidBadges = txList.getByText('Виплачено')
     await expect(paidBadges.first()).toBeVisible()
   })
 
-  test('VALIDATED transaction also shows badge «Выплачено»', async ({ asJunior: page }) => {
+  test('VALIDATED transaction also shows badge «Виплачено»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/project')
@@ -564,11 +566,11 @@ test.describe('AC3 — Salary snapshot card', () => {
 
     const txList = card.getByTestId('salary-tx-list')
     // PAID + VALIDATED → 2 «Выплачено» badges
-    const paidBadges = txList.getByText('Выплачено')
+    const paidBadges = txList.getByText('Виплачено')
     await expect(paidBadges).toHaveCount(2)
   })
 
-  test('PENDING transaction shows badge «Ожидание»', async ({ asJunior: page }) => {
+  test('PENDING transaction shows badge «Очікування»', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/project')
@@ -576,7 +578,7 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(card).toBeVisible()
 
     const txList = card.getByTestId('salary-tx-list')
-    await expect(txList.getByText('Ожидание').first()).toBeVisible()
+    await expect(txList.getByText('Очікування').first()).toBeVisible()
   })
 
   test('shows max 3 last transactions', async ({ asJunior: page }) => {
@@ -629,7 +631,7 @@ test.describe('AC3 — Salary snapshot card', () => {
     await expect(card).toBeVisible()
 
     await expect(card.getByTestId('salary-no-rate')).toBeVisible()
-    await expect(card.getByTestId('salary-no-rate')).toContainText('Ставка не назначена')
+    await expect(card.getByTestId('salary-no-rate')).toContainText('Ставку не призначено')
   })
 })
 
@@ -724,7 +726,7 @@ test.describe('AC2 — JUNIOR /legend', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('AC6 — Legend persona edit form UX', () => {
-  test('edit form has icon-only X cancel in header and text Отмена only in footer', async ({
+  test('edit form has icon-only X cancel in header and text Скасувати only in footer', async ({
     asJunior: page,
   }) => {
     await mockJuniorProjectsAndLegend(page)
@@ -734,34 +736,34 @@ test.describe('AC6 — Legend persona edit form UX', () => {
     await expect(block).toBeVisible()
 
     // Open edit form
-    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+    await block.getByRole('button', { name: /Редагувати|Створити/ }).click()
 
     // Header X cancel: aria-label "Отмена редактирования", icon-only (no visible text)
     const headerCancel = block.getByTestId('persona-edit-cancel-icon')
     await expect(headerCancel).toBeVisible()
 
     // Footer «Отмена» button (exact text label — distinct from header aria-label "Отмена редактирования")
-    const footerCancel = block.getByRole('button', { name: 'Отмена', exact: true })
+    const footerCancel = block.getByRole('button', { name: 'Скасувати', exact: true })
     await expect(footerCancel).toBeVisible()
 
     // Only ONE exact-text «Отмена» button — the footer one
-    await expect(block.getByRole('button', { name: 'Отмена', exact: true })).toHaveCount(1)
+    await expect(block.getByRole('button', { name: 'Скасувати', exact: true })).toHaveCount(1)
   })
 
-  test('footer Отмена resets form and exits edit mode', async ({ asJunior: page }) => {
+  test('footer Скасувати resets form and exits edit mode', async ({ asJunior: page }) => {
     await mockJuniorProjectsAndLegend(page)
 
     await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
 
-    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+    await block.getByRole('button', { name: /Редагувати|Створити/ }).click()
 
     // Edit form is open — ФИО input should be visible
-    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    const fullNameInput = block.getByRole('textbox', { name: /ПІБ/ })
     await expect(fullNameInput).toBeVisible()
     await fullNameInput.fill('Зміни які не зберегти')
 
-    await block.getByRole('button', { name: 'Отмена', exact: true }).click()
+    await block.getByRole('button', { name: 'Скасувати', exact: true }).click()
 
     // Edit form collapses
     await expect(fullNameInput).not.toBeVisible({ timeout: 2000 })
@@ -773,9 +775,9 @@ test.describe('AC6 — Legend persona edit form UX', () => {
     await page.goto('/legend')
     const block = page.getByTestId('legend-persona-block')
 
-    await block.getByRole('button', { name: /Редактировать|Створити|Создать/ }).click()
+    await block.getByRole('button', { name: /Редагувати|Створити/ }).click()
 
-    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    const fullNameInput = block.getByRole('textbox', { name: /ПІБ/ })
     await expect(fullNameInput).toBeVisible()
 
     // Click the icon-only X in the header
@@ -790,7 +792,7 @@ test.describe('AC6 — Legend persona edit form UX', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('AC7 — DatePickerField in legend forms', () => {
-  test('persona edit form has DatePickerField for Дата рождения', async ({ asJunior: page }) => {
+  test('persona edit form has DatePickerField for Дата народження', async ({ asJunior: page }) => {
     // Use legend with no dateOfBirth so DatePickerField shows placeholder text
     const legendNoDob = { ...LEGEND_FIXTURE, dateOfBirth: null }
     await mockJuniorProjectsAndLegend(page, { legend: legendNoDob })
@@ -799,11 +801,11 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
-    await block.getByRole('button', { name: /Редактировать|Создать/ }).click()
+    await block.getByRole('button', { name: /Редагувати|Створити/ }).click()
 
     // DatePickerField renders as a button with the field label when no date is set
     // DOM snapshot shows: button "Дата рождения" (label text, not placeholder phrase)
-    const datePickerBtn = block.getByRole('button', { name: /Дата рождения/i })
+    const datePickerBtn = block.getByRole('button', { name: /Дата народження/i })
     await expect(datePickerBtn).toBeVisible()
   })
 
@@ -819,7 +821,7 @@ test.describe('AC7 — DatePickerField in legend forms', () => {
     await block.getByTestId('legend-entry-add-btn').click()
 
     // DatePickerField for event date
-    const eventDateBtn = block.getByRole('button', { name: /Выберите дату события/i })
+    const eventDateBtn = block.getByRole('button', { name: /Виберіть дату події/i })
     await expect(eventDateBtn).toBeVisible()
   })
 
@@ -871,15 +873,15 @@ test.describe('AC8 — JUNIOR legend persona form has no prefill (defaults=null)
     const block = page.getByTestId('legend-persona-block')
     await expect(block).toBeVisible()
 
-    await block.getByRole('button', { name: /Создать|Редактировать/ }).click()
+    await block.getByRole('button', { name: /Створити|Редагувати/ }).click()
 
     // ФИО field must be empty (no prefill from real senior identity)
-    const fullNameInput = block.getByRole('textbox', { name: /ФИО/ })
+    const fullNameInput = block.getByRole('textbox', { name: /ПІБ/ })
     await expect(fullNameInput).toBeVisible()
     await expect(fullNameInput).toHaveValue('')
 
     // Address field must be empty
-    const addressInput = block.getByRole('textbox', { name: /Адрес/i })
+    const addressInput = block.getByRole('textbox', { name: /Адреса/i })
     await expect(addressInput).toHaveValue('')
   })
 })
@@ -1171,12 +1173,12 @@ test.describe('Round 3 — JUNIOR profile self-view tabs', () => {
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
 
     // overview tab present
-    await expect(page.getByRole('button', { name: 'Обзор' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Огляд' })).toBeVisible()
     // requisites tab present
-    await expect(page.getByRole('button', { name: 'Реквизиты', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Реквізити', exact: true })).toBeVisible()
 
     // documents tab ABSENT — task-junior-ut-round3 §6a removed it from JUNIOR self-view
-    await expect(page.getByRole('button', { name: 'Документы', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Документи', exact: true })).toHaveCount(0)
   })
 
   test('JUNIOR self-view: tos-acceptance-card absent (backend withholds tosAcceptedAt)', async ({
