@@ -11,9 +11,10 @@
  *   canAccess — управляет видимостью секции целиком (вычисляется снаружи)
  */
 import { useState } from 'react'
+import { useLingui } from '@lingui/react/macro'
 import { BookOpen, Loader2, Pencil, Plus, Save, X } from 'lucide-react'
 import { useForm } from '@tanstack/react-form'
-import { upsertLegendSchema } from '@crm/shared'
+import { upsertLegendSchema, formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -21,6 +22,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAddLegendEntry, useLegend, useUpsertLegend } from '@/hooks/use-legend'
+import { useLocale } from '@/lib/i18n'
 
 interface ProjectLegendSectionProps {
   projectId: string
@@ -29,6 +31,8 @@ interface ProjectLegendSectionProps {
 }
 
 export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSectionProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const { data: legend, isLoading } = useLegend(projectId, canAccess)
   const upsert = useUpsertLegend(projectId)
   const addEntry = useAddLegendEntry(projectId)
@@ -70,7 +74,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
       <Card data-testid="legend-section" className="border-border/40">
         <CardHeader>
           <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Легенда
+            {t`Легенда`}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-2">
@@ -114,7 +118,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
             <BookOpen className="h-3.5 w-3.5" />
-            Легенда
+            {t`Легенда`}
           </CardTitle>
           <Button
             variant="ghost"
@@ -125,12 +129,12 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
-            {legend ? 'Редактировать' : 'Создать'}
+            {legend ? t`Редагувати` : t`Створити`}
           </Button>
         </CardHeader>
         <CardContent>
           {!legend ? (
-            <p className="text-sm text-muted-foreground/60 italic">Легенда не заполнена</p>
+            <p className="text-sm text-muted-foreground/60 italic">{t`Легенда не заповнена`}</p>
           ) : (
             <div className="space-y-4">
               <dl
@@ -139,7 +143,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
               >
                 {legend.fullName && (
                   <div>
-                    <dt className="text-xs text-muted-foreground mb-0.5">ФИО</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`ПІБ`}</dt>
                     <dd className="font-medium" data-testid="legend-fullname">
                       {legend.fullName}
                     </dd>
@@ -147,31 +151,31 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                 )}
                 {legend.dateOfBirth && (
                   <div>
-                    <dt className="text-xs text-muted-foreground mb-0.5">Дата рождения</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Дата народження`}</dt>
                     <dd data-testid="legend-dob">{legend.dateOfBirth}</dd>
                   </div>
                 )}
                 {legend.address && (
                   <div className="sm:col-span-2">
-                    <dt className="text-xs text-muted-foreground mb-0.5">Адрес</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Адреса`}</dt>
                     <dd data-testid="legend-address">{legend.address}</dd>
                   </div>
                 )}
                 {legend.presentedRole && (
                   <div>
-                    <dt className="text-xs text-muted-foreground mb-0.5">Позиция для клиента</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Посада для клієнта`}</dt>
                     <dd data-testid="legend-presented-role">{legend.presentedRole}</dd>
                   </div>
                 )}
                 {legend.presentedStack && (
                   <div>
-                    <dt className="text-xs text-muted-foreground mb-0.5">Стек для клиента</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Стек для клієнта`}</dt>
                     <dd data-testid="legend-presented-stack">{legend.presentedStack}</dd>
                   </div>
                 )}
                 {legend.backstory && (
                   <div className="sm:col-span-2">
-                    <dt className="text-xs text-muted-foreground mb-0.5">Бэкстори</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Бекстори`}</dt>
                     <dd className="whitespace-pre-wrap" data-testid="legend-backstory">
                       {legend.backstory}
                     </dd>
@@ -179,13 +183,13 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                 )}
                 {legend.hobbies && (
                   <div>
-                    <dt className="text-xs text-muted-foreground mb-0.5">Хобби</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Хобі`}</dt>
                     <dd data-testid="legend-hobbies">{legend.hobbies}</dd>
                   </div>
                 )}
                 {legend.notes && (
                   <div className="sm:col-span-2">
-                    <dt className="text-xs text-muted-foreground mb-0.5">Заметки</dt>
+                    <dt className="text-xs text-muted-foreground mb-0.5">{t`Примітки`}</dt>
                     <dd className="whitespace-pre-wrap" data-testid="legend-notes">
                       {legend.notes}
                     </dd>
@@ -197,17 +201,13 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
               {legend.entries.length > 0 && (
                 <div className="pt-3 border-t border-border/30" data-testid="legend-entries">
                   <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider mb-2">
-                    Журнал
+                    {t`Журнал`}
                   </p>
                   <ol className="space-y-2">
                     {legend.entries.map((entry) => (
                       <li key={entry.id} className="text-sm" data-testid="legend-entry">
                         <span className="text-muted-foreground text-xs mr-1.5">
-                          {new Date(entry.createdAt).toLocaleDateString('ru-RU', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                          })}
+                          {formatDate(entry.createdAt, locale, 'short')}
                           {' · '}
                           {entry.authorName}:
                         </span>
@@ -228,14 +228,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                   className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
                 >
                   <Plus className="h-3 w-3" />
-                  Добавить запись
+                  {t`Додати запис`}
                 </Button>
               ) : (
                 <div className="space-y-2 pt-2" data-testid="legend-entry-form">
                   <Textarea
                     value={entryText}
                     onChange={(e) => setEntryText(e.target.value)}
-                    placeholder="Новая запись в журнал легенды..."
+                    placeholder={t`Новий запис у журнал легенди...`}
                     rows={3}
                     data-testid="legend-entry-input"
                     className="text-sm"
@@ -252,7 +252,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                       ) : (
                         <Save className="h-3.5 w-3.5 mr-1" />
                       )}
-                      Сохранить запись
+                      {t`Зберегти запис`}
                     </Button>
                     <Button
                       variant="ghost"
@@ -264,7 +264,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                       data-testid="legend-entry-cancel-button"
                     >
                       <X className="h-3.5 w-3.5 mr-1" />
-                      Отмена
+                      {t`Скасувати`}
                     </Button>
                   </div>
                 </div>
@@ -282,7 +282,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <BookOpen className="h-3.5 w-3.5" />
-          Легенда
+          {t`Легенда`}
         </CardTitle>
         <Button
           variant="ghost"
@@ -292,7 +292,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
           className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
         >
           <X className="h-3.5 w-3.5" />
-          Отмена
+          {t`Скасувати`}
         </Button>
       </CardHeader>
       <CardContent>
@@ -309,14 +309,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             <form.Field name="fullName">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="legend-fullName">ФИО *</Label>
+                  <Label htmlFor="legend-fullName">{t`ПІБ *`}</Label>
                   <Input
                     id="legend-fullName"
                     data-testid="legend-input-fullname"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="Иванов Иван Иванович"
+                    placeholder={t`Іванов Іван Іванович`}
                     autoCapitalize="words"
                     autoComplete="off"
                   />
@@ -330,7 +330,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             <form.Field name="dateOfBirth">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="legend-dateOfBirth">Дата рождения</Label>
+                  <Label htmlFor="legend-dateOfBirth">{t`Дата народження`}</Label>
                   <Input
                     id="legend-dateOfBirth"
                     data-testid="legend-input-dob"
@@ -346,7 +346,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             <form.Field name="presentedRole">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="legend-presentedRole">Позиция для клиента</Label>
+                  <Label htmlFor="legend-presentedRole">{t`Посада для клієнта`}</Label>
                   <Input
                     id="legend-presentedRole"
                     data-testid="legend-input-presented-role"
@@ -362,7 +362,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             <form.Field name="presentedStack">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="legend-presentedStack">Стек для клиента</Label>
+                  <Label htmlFor="legend-presentedStack">{t`Стек для клієнта`}</Label>
                   <Input
                     id="legend-presentedStack"
                     data-testid="legend-input-presented-stack"
@@ -379,14 +379,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
           <form.Field name="address">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="legend-address">Адрес</Label>
+                <Label htmlFor="legend-address">{t`Адреса`}</Label>
                 <Input
                   id="legend-address"
                   data-testid="legend-input-address"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Киев, ул. Крещатик 1"
+                  placeholder={t`Київ, вул. Хрещатик, 1`}
                 />
               </div>
             )}
@@ -395,14 +395,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
           <form.Field name="backstory">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="legend-backstory">Бэкстори</Label>
+                <Label htmlFor="legend-backstory">{t`Бекстори`}</Label>
                 <Textarea
                   id="legend-backstory"
                   data-testid="legend-input-backstory"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Краткая история для клиентской компании..."
+                  placeholder={t`Коротка історія для клієнтської компанії...`}
                   rows={3}
                 />
               </div>
@@ -413,14 +413,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
             <form.Field name="hobbies">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="legend-hobbies">Хобби</Label>
+                  <Label htmlFor="legend-hobbies">{t`Хобі`}</Label>
                   <Input
                     id="legend-hobbies"
                     data-testid="legend-input-hobbies"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="Чтение, плавание..."
+                    placeholder={t`Читання, плавання...`}
                   />
                 </div>
               )}
@@ -430,14 +430,14 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
           <form.Field name="notes">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="legend-notes">Заметки</Label>
+                <Label htmlFor="legend-notes">{t`Примітки`}</Label>
                 <Textarea
                   id="legend-notes"
                   data-testid="legend-input-notes"
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Дополнительная информация..."
+                  placeholder={t`Додаткова інформація...`}
                   rows={3}
                 />
               </div>
@@ -452,7 +452,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
               onClick={handleCancel}
               data-testid="legend-cancel-button-bottom"
             >
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button
               type="submit"
@@ -465,7 +465,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
               ) : (
                 <Save className="h-4 w-4 mr-1" />
               )}
-              Сохранить
+              {t`Зберегти`}
             </Button>
           </div>
         </form>

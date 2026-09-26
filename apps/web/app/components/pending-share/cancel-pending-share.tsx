@@ -1,5 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { toast } from 'sonner'
 import type { PendingSeniorShare, ProjectDetailDto, UserWithPermissionsResponse } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -38,6 +42,13 @@ import { PENDING_QUERY_KEY } from '@/hooks/use-pending-items'
  */
 
 export type PendingShareScope = 'user' | 'project'
+
+// task-i18n-stage3c-pr3: module-level `msg` descriptors resolved through the
+// shared `@lingui/core` `i18n` singleton (not a hook) inside `useMutation`
+// callbacks — same non-component pattern as `project-approval-caption.ts`.
+const CANCELLED_KEEPS_PREVIOUS: MessageDescriptor = msg`Пропозицію скасовано — діє попередній відсоток`
+const CANCELLED_KEEPS_PERCENT: MessageDescriptor = msg`Пропозицію скасовано — діє {percent}%`
+const CANCEL_FAILED: MessageDescriptor = msg`Не вдалося скасувати пропозицію`
 
 /**
  * `UserWithPermissionsResponse` (users half) and `ProjectDetailDto` (project
@@ -90,8 +101,8 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
       const percent = effectivePercentOf(scope, data)
       toast.success(
         percent === null
-          ? 'Предложение отменено — действует прежний процент'
-          : `Предложение отменено — действует ${percent}%`,
+          ? i18n._(CANCELLED_KEEPS_PREVIOUS)
+          : i18n._(CANCELLED_KEEPS_PERCENT, { percent }),
       )
       invalidate()
     },
@@ -99,7 +110,7 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
       // Same 404/409 mapping the approve/reject pair uses, and the same
       // refetch-on-failure (QA-MED-5, round 1): a proposal someone else
       // already resolved must not leave a live-looking button on screen.
-      toast.error(seniorShareErrorMessage(err, 'Не удалось отменить предложение'))
+      toast.error(seniorShareErrorMessage(err, i18n._(CANCEL_FAILED)))
       invalidate()
     },
   })
@@ -157,6 +168,7 @@ export function CancelPendingShareButton({
    */
   onActed?: () => void
 }) {
+  const { t } = useLingui()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const cancelMutation = useCancelPendingShare(scope, id)
   return (
@@ -173,7 +185,7 @@ export function CancelPendingShareButton({
         {/* task-648-fix-round-3 (COPY-L-12): «Отмена…» sat one dialog away
             from «Отмена» meaning "close this dialog" — the in-flight label
             now names the process, like the other 8 in the repo. */}
-        {cancelMutation.isPending ? 'Отменяем предложение…' : 'Отменить предложение'}
+        {cancelMutation.isPending ? t`Скасовуємо пропозицію…` : t`Скасувати пропозицію`}
       </Button>
       <CancelPendingShareConfirm
         open={confirmOpen}
@@ -220,12 +232,13 @@ function CancelPendingShareConfirm({
   pendingPercent: number
   onConfirm: () => void
 }) {
+  const { t } = useLingui()
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent data-testid={`cancel-pending-share-confirm-${scope}`}>
         <AlertDialogHeader>
-          <AlertDialogTitle>Отменить предложение {pendingPercent}%?</AlertDialogTitle>
-          <AlertDialogDescription>Действующая доля не изменится.</AlertDialogDescription>
+          <AlertDialogTitle>{t`Скасувати пропозицію ${pendingPercent}%?`}</AlertDialogTitle>
+          <AlertDialogDescription>{t`Діюча частка не зміниться.`}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           {/* «Оставить», not «Отмена»: on a dialog whose whole subject is
@@ -243,14 +256,14 @@ function CancelPendingShareConfirm({
             className="h-11 sm:h-9"
             data-testid={`cancel-pending-share-keep-${scope}`}
           >
-            Оставить
+            {t`Залишити`}
           </AlertDialogCancel>
           <AlertDialogAction
             className="h-11 sm:h-9"
             onClick={onConfirm}
             data-testid={`cancel-pending-share-confirm-button-${scope}`}
           >
-            Отменить предложение
+            {t`Скасувати пропозицію`}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
@@ -312,6 +325,7 @@ export function PendingShareEditNotice({
   approverName: string
   testId?: string
 }) {
+  const { t } = useLingui()
   const [confirmOpen, setConfirmOpen] = useState(false)
   const cancelMutation = useCancelPendingShare(scope, id)
   return (
@@ -330,8 +344,10 @@ export function PendingShareEditNotice({
           no case at all — «Подтверждает <имя>» — so this reuses it instead of
           inventing a second way to name one person. One fact, one frame. */}
       <p className="text-xs">
-        Предложено <span className="font-medium tabular-nums">{pendingPercent}%</span>. Подтверждает{' '}
-        {approverName}. Новое значение заменит предложение.
+        <Trans>
+          Запропоновано <span className="font-medium tabular-nums">{pendingPercent}%</span>.
+          Підтверджує {approverName}. Нове значення замінить пропозицію.
+        </Trans>
       </p>
       <Button
         type="button"
@@ -342,7 +358,7 @@ export function PendingShareEditNotice({
         onClick={() => setConfirmOpen(true)}
         data-testid={`cancel-pending-share-${scope}-in-dialog`}
       >
-        {cancelMutation.isPending ? 'Отменяем предложение…' : 'Отменить предложение'}
+        {cancelMutation.isPending ? t`Скасовуємо пропозицію…` : t`Скасувати пропозицію`}
       </Button>
       {/* task-648-fix-round-3 (COPY-M-14): the same confirmation as the
           indicator's button — an irreversible action asks once, in one

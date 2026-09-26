@@ -5,7 +5,7 @@
  *   AC-1. Senior name renders as <a href="/profile/<seniorId>"> с hover:underline.
  *   AC-2. First active junior name renders as <a href="/profile/<juniorId>"> когда есть джун.
  *   AC-3. Клик по имени синьора/джуна НЕ переходит на детальку проекта (stopPropagation).
- *   AC-4. Когда джунов нет — junior-link отсутствует, отображается «Нет джуна».
+ *   AC-4. Когда джунов нет — junior-link отсутствует, отображается «Немає джуніора».
  *
  * Setup: minimal in-memory TanStack Router (one __root__ route only) so the
  * `<Link>` component can render valid <a href="…"> tags without spinning up
@@ -16,7 +16,7 @@
 
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   RouterProvider,
@@ -28,6 +28,11 @@ import type { ProjectDto, ProjectMemberDto } from '@crm/shared'
 import type { Role } from '@/lib/route-access'
 
 import { ProjectRow } from '../ProjectRow'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 // Stable seed values so href assertions can use literal strings.
 const PROJECT_ID = '00000000-0000-0000-0000-0000000000a1'
@@ -119,9 +124,11 @@ function renderProjectRow(
   })
 
   return render(
-    <QueryClientProvider client={queryClient}>
-      <RouterProvider router={router} />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -154,7 +161,7 @@ describe('ProjectRow — clickable senior/junior names', () => {
     // Wait for the row itself to render — then assert junior link is absent.
     await screen.findByTestId(`project-row-${project.id}`)
     expect(screen.queryByTestId(`project-row-${project.id}-junior-link`)).not.toBeInTheDocument()
-    expect(screen.getByText('Нет джуна')).toBeInTheDocument()
+    expect(screen.getByText('Немає джуніора')).toBeInTheDocument()
   })
 
   it('AC-3: senior link onClick stops synthetic React event propagation', async () => {
@@ -182,7 +189,11 @@ describe('ProjectRow — clickable senior/junior names', () => {
       history: createMemoryHistory({ initialEntries: ['/'] }),
     })
 
-    render(<RouterProvider router={router} />)
+    render(
+      <I18nTestProvider>
+        <RouterProvider router={router} />
+      </I18nTestProvider>,
+    )
 
     const link = await screen.findByTestId(`project-row-${project.id}-senior-link`)
 
@@ -251,18 +262,18 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     expect(row.className).not.toContain('ring-amber-500/20')
   })
 
-  it('DRAFT: renders the "Ждёт решения" badge (COPY-H-5, PR #646 fix-round 4 — was "Ждёт подтверждения"), amber dot, ring — no opacity dimming', async () => {
+  it('DRAFT: renders the "Очікує рішення" badge (COPY-H-5, PR #646 fix-round 4 — was "Ждёт подтверждения"), amber dot, ring — no opacity dimming', async () => {
     const project = makeProject({ status: 'DRAFT', dropId: null })
     renderProjectRow(project)
 
     const badge = await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(badge).toHaveTextContent('Ждёт решения')
+    expect(badge).toHaveTextContent('Очікує рішення')
     // .tagName check (not just getByText) — kills the `pendingCaption && <p>`
     // -> `pendingCaption || <p>` mutant, which getByText alone cannot see
     // (both render the same visible text, just not wrapped in a <p>).
-    const caption = screen.getByText(`от ${project.seniorName}`)
+    const caption = screen.getByText(`Підтверджує ${project.seniorName}`)
     expect(caption.tagName).toBe('P')
-    expect(caption).toHaveAttribute('title', `от ${project.seniorName}`)
+    expect(caption).toHaveAttribute('title', `Підтверджує ${project.seniorName}`)
     const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
     expect(dot.className).toContain('bg-amber-500')
     const row = screen.getByTestId(`project-row-${project.id}`)
@@ -297,11 +308,11 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     })
     renderProjectRow(project)
 
-    const caption = await screen.findByText(`от ${longSeniorName}`)
+    const caption = await screen.findByText(`Підтверджує ${longSeniorName}`)
     expect(caption.className).toContain('max-w-full')
     expect(caption.className).not.toContain('lg:max-w-40')
     expect(caption.className).toContain('truncate')
-    expect(caption).toHaveAttribute('title', `от ${longSeniorName}`)
+    expect(caption).toHaveAttribute('title', `Підтверджує ${longSeniorName}`)
 
     // COPY-H-5 follow-up (PR #646 fix-round 4, mutation-gate closure). The
     // caption's `data-testid` (project-status-filter-ui.spec.ts's COPY-H-5
@@ -328,7 +339,9 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
+    expect(
+      screen.getByText(`Підтверджують: ${project.dropName}, ${project.seniorName}`),
+    ).toBeInTheDocument()
   })
 
   it('COPY-M-1: DRAFT drop-project, BOTH still pending, dropName is null (old cached DTO) — falls back to generic "дропа", still drop-first', async () => {
@@ -342,7 +355,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от дропа и ${project.seniorName}`)).toBeInTheDocument()
+    expect(screen.getByText(`Підтверджують: дропа, ${project.seniorName}`)).toBeInTheDocument()
   })
 
   it('SPEC-M-2 (PR #646 fix-round 1): DRAFT drop-project, drop ALREADY approved — caption names only the senior, not "и дропа"', async () => {
@@ -356,8 +369,8 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.seniorName}`)).toBeInTheDocument()
-    expect(screen.queryByText(/и дропа/)).not.toBeInTheDocument()
+    expect(screen.getByText(`Підтверджує ${project.seniorName}`)).toBeInTheDocument()
+    expect(screen.queryByText(/^Підтверджують:/)).not.toBeInTheDocument()
   })
 
   it('SPEC-M-2: DRAFT drop-project, senior ALREADY approved, dropName known — caption names the drop (COPY-M-2, fix-round 2: symmetric with the "both pending" branch above — no longer drops the name), not the senior', async () => {
@@ -371,8 +384,10 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.dropName}`)).toBeInTheDocument()
-    expect(screen.queryByText(new RegExp(`^от ${project.seniorName}`))).not.toBeInTheDocument()
+    expect(screen.getByText(`Підтверджує ${project.dropName}`)).toBeInTheDocument()
+    expect(
+      screen.queryByText(new RegExp(`^Підтверджує ${project.seniorName}`)),
+    ).not.toBeInTheDocument()
   })
 
   it('COPY-M-2 (fix-round 2): DRAFT drop-project, senior ALREADY approved, dropName masked to null (e.g. SENIOR viewer) — caption falls back to generic "дропа"', async () => {
@@ -386,7 +401,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText('от дропа')).toBeInTheDocument()
+    expect(screen.getByText('Підтверджує дропа')).toBeInTheDocument()
   })
 
   it('DRAFT drop-project, approval fields absent (old cached DTO, pre SPEC-M-2): defaults to "both still pending", drop-first order (COPY-M-1)', async () => {
@@ -394,19 +409,21 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     renderProjectRow(project)
 
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
-    expect(screen.getByText(`от ${project.dropName} и ${project.seniorName}`)).toBeInTheDocument()
+    expect(
+      screen.getByText(`Підтверджують: ${project.dropName}, ${project.seniorName}`),
+    ).toBeInTheDocument()
   })
 
-  it('REJECTED: renders the "Отклонён" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
+  it('REJECTED: renders the "Відхилений" badge + reason text, destructive dot, opacity dimming (same treatment as archived)', async () => {
     // COPY-M-1 (PR #670 fix-round 2): was "Отклонено" (neuter/impersonal),
-    // renamed to "Отклонён" (masculine, agrees with "проект") to match the
+    // renamed to "Відхилений" (masculine, agrees with "проект") to match the
     // project detail page header badge (`ProjectStatusBadge.tsx`) — one
     // object, one name across both halves of the same click-through.
     const project = makeProject({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' })
     renderProjectRow(project)
 
     const badge = await screen.findByTestId(`project-row-${project.id}-status-rejected`)
-    expect(badge).toHaveTextContent('Отклонён')
+    expect(badge).toHaveTextContent('Відхилений')
     const reason = screen.getByText('«нет бюджета на Q3»')
     expect(reason).toHaveAttribute('title', 'нет бюджета на Q3')
     const dot = screen.getByTestId(`project-row-${project.id}-status-dot`)
@@ -434,7 +451,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     // `display`/`-webkit-line-clamp` active at the larger size — the exact
     // hazard this fix was written to avoid, see the component's own comment.
     const longReason =
-      'Нет бюджета на Q3, вернёмся к вопросу в начале следующего квартала после пересмотра плана'
+      'Немає бюджету на Q3, повернемось до питання на початку наступного кварталу після перегляду плану'
     const project = makeProject({ status: 'REJECTED', rejectionReason: longReason })
     renderProjectRow(project)
 
@@ -484,7 +501,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     // instances) — "Причина загружается…" was the one outlier for this
     // exact fact.
     expect(screen.getByTestId(`project-row-${project.id}-status-reason-loading`)).toHaveTextContent(
-      'Загрузка причины…',
+      'Завантаження причини…',
     )
     // Not the same slot as a real reason — no quoted text renders at all.
     expect(screen.queryByText(/«.*»/)).not.toBeInTheDocument()
@@ -514,7 +531,7 @@ describe('ProjectRow — status badge (design spec §7/§8)', () => {
     const project = makeProject({ status: 'ACTIVE', archivedAt: '2026-02-01T00:00:00.000Z' })
     renderProjectRow(project)
 
-    await screen.findByText('В архиве')
+    await screen.findByText('В архіві')
     expect(screen.queryByTestId(`project-row-${project.id}-status-pending`)).not.toBeInTheDocument()
     const row = screen.getByTestId(`project-row-${project.id}`)
     expect(row.className).toContain('opacity-60')
@@ -597,11 +614,11 @@ describe('ProjectRow — Confirm/Reject actions gate (canAct, §Что сдел�
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
     expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
     expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
-    const caption = screen.getByText('Вы подтвердили. Ждём дропа')
+    const caption = screen.getByText('Ви підтвердили. Чекаємо дропа')
     expect(caption.tagName).toBe('P')
     // The generic third-party caption ("от дропа") must NOT also be present
     // — the first-person one replaces it, not sits alongside it.
-    expect(screen.queryByText('от дропа')).not.toBeInTheDocument()
+    expect(screen.queryByText('Підтверджує дропа')).not.toBeInTheDocument()
   })
 
   it('COPY-H-2: drop already confirmed (their own dropApprovalPending is false), senior still owes a decision — no actions for the drop, first-person caption instead', async () => {
@@ -617,8 +634,8 @@ describe('ProjectRow — Confirm/Reject actions gate (canAct, §Что сдел�
     await screen.findByTestId(`project-row-${project.id}-status-pending`)
     expect(screen.queryByTestId(`project-approval-approve-${project.id}`)).not.toBeInTheDocument()
     expect(screen.queryByTestId(`project-approval-reject-${project.id}`)).not.toBeInTheDocument()
-    const caption = screen.getByText('Вы подтвердили. Ждём синьора')
+    const caption = screen.getByText('Ви підтвердили. Чекаємо сеньйора')
     expect(caption.tagName).toBe('P')
-    expect(screen.queryByText(`от ${project.seniorName}`)).not.toBeInTheDocument()
+    expect(screen.queryByText(`Підтверджує ${project.seniorName}`)).not.toBeInTheDocument()
   })
 })

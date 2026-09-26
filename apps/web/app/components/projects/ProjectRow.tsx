@@ -1,7 +1,10 @@
 import { Link } from '@tanstack/react-router'
+import { useLingui } from '@lingui/react/macro'
 import { Clock, XCircle } from 'lucide-react'
 import type { ProjectDto } from '@crm/shared'
+import { formatDate, formatNumber } from '@crm/shared'
 import type { Role } from '@/lib/route-access'
+import { useLocale } from '@/lib/i18n'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
@@ -52,12 +55,6 @@ function getInitials(name: string) {
     .slice(0, 2)
 }
 
-const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-}
-
 /**
  * Horizontal row-list layout for the /projects page (ut-41 + ut-42).
  *
@@ -73,6 +70,8 @@ const DATE_FORMAT_OPTS: Intl.DateTimeFormatOptions = {
  *    existing specs don't break.
  */
 export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: ProjectRowProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const isArchived = !!project.archivedAt
   // task-project-status-filter-ui (design spec §2/§7/§8). Draft/rejected are
   // a SEPARATE axis from archival (business spec §4.2 — never mixed): a
@@ -209,7 +208,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
               <Link
                 to="/projects/$projectId"
                 params={{ projectId: project.id }}
-                aria-label={`Открыть проект ${project.companyName}`}
+                aria-label={t`Відкрити проєкт ${project.companyName}`}
                 className={cn(
                   'text-sm font-semibold truncate cursor-pointer hover:underline leading-tight',
                   "before:absolute before:inset-0 before:content-[''] before:z-[1]",
@@ -256,7 +255,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                     grid refactor, spec §11 stays intact at md+) while
                     leaving the text in the DOM/AX tree at every width. */}
                 <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
-                  Синьор
+                  {t`Сеньйор`}
                 </p>
                 {/* Inner link sits above the row-level stretched-link (z-[2] > z-[1]).
                     stopPropagation страховка на случай если bubbling доберётся до
@@ -302,7 +301,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                     Синьор label above — same reason (accessible below `lg`,
                     not just visually hidden). */}
                 <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
-                  Джун
+                  {t`Джуніор`}
                 </p>
                 {/* `<div>` (not `<p>`) used as the truncate parent because we
                     nest an inline `<a>` for the junior name. Keeps `+N` suffix
@@ -342,14 +341,14 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                     COPY-M-11 (PR #646 fix-round 4): same sr-only fix as the
                     other two labels — same reason. */}
                 <p className="sr-only text-[10px] uppercase tracking-wide text-muted-foreground/70 font-semibold lg:not-sr-only">
-                  Джун
+                  {t`Джуніор`}
                 </p>
                 <p className="text-xs font-medium text-destructive/80 flex items-center gap-1.5 truncate">
                   <span
                     className="h-1.5 w-1.5 rounded-full bg-destructive/50 shrink-0"
                     aria-hidden
                   />
-                  Нет джуна
+                  {t`Немає джуніора`}
                 </p>
               </div>
             </>
@@ -366,7 +365,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
           <p className="text-sm font-semibold tabular-nums">
             {project.rate != null ? (
               <>
-                {project.rate.toLocaleString()}{' '}
+                {formatNumber(project.rate, locale)}{' '}
                 <span className="text-xs text-muted-foreground font-normal">
                   {project.currency}
                 </span>
@@ -376,7 +375,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
             )}
           </p>
           <p className="text-[11px] text-muted-foreground/80 tabular-nums">
-            {new Date(project.startDate).toLocaleDateString('uk-UA', DATE_FORMAT_OPTS)}
+            {formatDate(project.startDate, locale, 'short')}
           </p>
         </div>
 
@@ -439,7 +438,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
               variant="outline"
               className="border-amber-500/30 bg-amber-500/10 text-amber-500 text-[10px]"
             >
-              В архиве
+              {t`В архіві`}
             </Badge>
           ) : isPending ? (
             <>
@@ -496,7 +495,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                 data-testid={`project-row-${project.id}-status-pending`}
               >
                 <Clock className="hidden h-3 w-3 xl:inline" aria-hidden />
-                Ждёт решения
+                {t`Очікує рішення`}
               </Badge>
               {approvalCaption && (
                 // UX-H-1 / COPY-H-2 / COPY-M-9 = UX-L-2(r3): see git history
@@ -622,9 +621,9 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                     agrees with "проект") to match the project detail page
                     header badge (`ProjectStatusBadge.tsx`): one object, one
                     name across both halves of the same click-through
-                    (row → detail page). One symbol shorter too, in the same
-                    ~86px column this file has twice fixed for overflow. */}
-                Отклонён
+                    (row → detail page). task-i18n-stage3c-pr3: "Відхилений"
+                    keeps the same masculine agreement in `uk`. */}
+                {t`Відхилений`}
               </Badge>
               {approvalCaption && (
                 // UX-H-1: same fixed max-w-40 fix as pendingCaption above.
@@ -674,7 +673,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                   className="max-w-full text-[11px] italic text-muted-foreground/70"
                   data-testid={`project-row-${project.id}-status-reason-loading`}
                 >
-                  Загрузка причины…
+                  {t`Завантаження причини…`}
                 </p>
               )}
             </>

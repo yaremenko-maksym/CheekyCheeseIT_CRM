@@ -1,3 +1,6 @@
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
 import { Clock, XCircle } from 'lucide-react'
 import type { ProjectStatus } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +19,13 @@ import { Badge } from '@/components/ui/badge'
  * `isArchived ? … : isPending ? … : isRejected ? … : …` chain
  * (task-project-status-filter-ui) — this file gives the detail page the
  * same rule instead of a second, drifted copy of it.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 3). `projectStatusBadge` stays a pure
+ * function returning `label: string` — resolved through the shared
+ * `@lingui/core` `i18n` singleton (same non-hook pattern as
+ * `project-approval-caption.ts`), so `$projectId.tsx` (PR4, not this PR's
+ * file), which only ever renders the `<ProjectStatusBadge>` component and
+ * never reads `.label` itself, keeps compiling unmodified.
  */
 export type ResolvedProjectStatus = 'ACTIVE' | 'ARCHIVED' | 'DRAFT' | 'REJECTED'
 
@@ -42,11 +52,16 @@ export interface ProjectStatusBadgeInfo {
   icon: typeof Clock | null
 }
 
+const ARCHIVED_LABEL: MessageDescriptor = msg`В архіві`
+const DRAFT_LABEL: MessageDescriptor = msg`Очікує рішення`
+const REJECTED_LABEL: MessageDescriptor = msg`Відхилений`
+const ACTIVE_LABEL: MessageDescriptor = msg`Активний`
+
 export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectStatusBadgeInfo {
   if (project.archivedAt) {
     return {
       status: 'ARCHIVED',
-      label: 'В архиве',
+      label: i18n._(ARCHIVED_LABEL),
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
       icon: null,
@@ -59,7 +74,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
       // (a shade darker fill/text so the two read as siblings, not a copy).
       return {
         status: 'DRAFT',
-        label: 'Ждёт решения',
+        label: i18n._(DRAFT_LABEL),
         variant: 'outline',
         className: 'gap-1 border-amber-500/30 bg-amber-500/20 text-amber-300',
         icon: Clock,
@@ -68,7 +83,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
       // Same destructive token family as ProjectRow.tsx's "Отклонён" badge.
       return {
         status: 'REJECTED',
-        label: 'Отклонён',
+        label: i18n._(REJECTED_LABEL),
         variant: 'outline',
         className: 'gap-1 border-destructive/30 bg-destructive/10 text-destructive',
         icon: XCircle,
@@ -76,7 +91,7 @@ export function projectStatusBadge(project: ProjectStatusBadgeInput): ProjectSta
     case 'ACTIVE':
       return {
         status: 'ACTIVE',
-        label: 'Активный',
+        label: i18n._(ACTIVE_LABEL),
         variant: 'default',
         className: '',
         icon: null,

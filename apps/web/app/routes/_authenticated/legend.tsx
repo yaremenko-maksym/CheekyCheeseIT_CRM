@@ -1,6 +1,7 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { PageHeader } from '@/components/crm/StickyPageHeader'
 import { motion } from 'framer-motion'
+import { useLingui } from '@lingui/react/macro'
 import { BookOpen, Loader2, Pencil, Plus, Save, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useAuth } from '@/context/auth'
@@ -8,7 +9,8 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useLegend, useUpsertLegend, useAddLegendEntry } from '@/hooks/use-legend'
 import { useForm } from '@tanstack/react-form'
-import { upsertLegendSchema } from '@crm/shared'
+import { upsertLegendSchema, formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -34,6 +36,7 @@ const card = {
 }
 
 function LegendPage() {
+  const { t } = useLingui()
   const { denied } = useRoleGuard(['JUNIOR', 'ADMIN', 'HR'])
   const { user } = useAuth()
   const navigate = useNavigate()
@@ -88,7 +91,7 @@ function LegendPage() {
           {!isLoading && !projectId && (
             <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">
               <BookOpen className="h-10 w-10 mb-3 opacity-40" />
-              <p className="text-sm">Вас ещё не добавили в проект.</p>
+              <p className="text-sm">{t`Вас ще не додали до проєкту.`}</p>
             </div>
           )}
 
@@ -125,6 +128,7 @@ interface LegendBlockProps {
 }
 
 function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
+  const { t } = useLingui()
   const [editing, setEditing] = useState(false)
   const upsert = useUpsertLegend(projectId)
   const form = useForm({
@@ -182,7 +186,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
     <Card className="border-border/40 bg-card" data-testid="legend-persona-block">
       <CardHeader className="flex flex-row items-start justify-between pb-3">
         <div className="flex items-center gap-3">
-          <CardTitle className="text-sm font-semibold">Персона</CardTitle>
+          <CardTitle className="text-sm font-semibold">{t`Персона`}</CardTitle>
         </div>
         {!editing && (
           <Button
@@ -190,11 +194,11 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
             size="sm"
             onClick={handleEdit}
             disabled={upsert.isPending}
-            aria-label="Редактировать персону"
+            aria-label={t`Редагувати персону`}
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
-            {legend ? 'Редактировать' : 'Создать'}
+            {legend ? t`Редагувати` : t`Створити`}
           </Button>
         )}
         {editing && (
@@ -206,7 +210,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
               setEditing(false)
             }}
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            aria-label="Отмена редактирования"
+            aria-label={t`Скасувати редагування`}
             data-testid="persona-edit-cancel-icon"
           >
             <X className="h-4 w-4" />
@@ -217,31 +221,31 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
         {!editing ? (
           !legend ? (
             <p className="text-sm text-muted-foreground/60 italic">
-              Персона не заполнена. Нажмите «Создать».
+              {t`Персона не заповнена. Натисніть «Створити».`}
             </p>
           ) : (
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
               {legend.fullName && (
                 <div>
-                  <dt className="text-xs text-muted-foreground mb-0.5">ФИО</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`ПІБ`}</dt>
                   <dd className="font-medium">{legend.fullName}</dd>
                 </div>
               )}
               {legend.dateOfBirth && (
                 <div>
-                  <dt className="text-xs text-muted-foreground mb-0.5">Дата рождения</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Дата народження`}</dt>
                   <dd>{legend.dateOfBirth}</dd>
                 </div>
               )}
               {legend.address && (
                 <div className="sm:col-span-2">
-                  <dt className="text-xs text-muted-foreground mb-0.5">Адрес</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Адреса`}</dt>
                   <dd>{legend.address}</dd>
                 </div>
               )}
               {legend.hobbies && (
                 <div className="sm:col-span-2">
-                  <dt className="text-xs text-muted-foreground mb-0.5">Хобби</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Хобі`}</dt>
                   <dd>{legend.hobbies}</dd>
                 </div>
               )}
@@ -260,13 +264,13 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
               <form.Field name="fullName">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label htmlFor="persona-fullName">ФИО *</Label>
+                    <Label htmlFor="persona-fullName">{t`ПІБ *`}</Label>
                     <Input
                       id="persona-fullName"
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder="Иванов Иван Иванович"
+                      placeholder={t`Іванов Іван Іванович`}
                       autoCapitalize="words"
                       autoComplete="off"
                     />
@@ -281,11 +285,11 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
               <form.Field name="dateOfBirth">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label>Дата рождения</Label>
+                    <Label>{t`Дата народження`}</Label>
                     <DatePickerField
                       value={field.state.value ?? ''}
                       onChange={(v) => field.handleChange(v)}
-                      placeholder="Дата рождения"
+                      placeholder={t`Дата народження`}
                     />
                   </div>
                 )}
@@ -294,13 +298,13 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
             <form.Field name="address">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="persona-address">Адрес</Label>
+                  <Label htmlFor="persona-address">{t`Адреса`}</Label>
                   <Input
                     id="persona-address"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="Киев, ул. Крещатик 1"
+                    placeholder={t`Київ, вул. Хрещатик, 1`}
                   />
                 </div>
               )}
@@ -308,13 +312,13 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
             <form.Field name="hobbies">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="persona-hobbies">Хобби</Label>
+                  <Label htmlFor="persona-hobbies">{t`Хобі`}</Label>
                   <Input
                     id="persona-hobbies"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="Чтение, плавание..."
+                    placeholder={t`Читання, плавання...`}
                   />
                 </div>
               )}
@@ -329,7 +333,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                   setEditing(false)
                 }}
               >
-                Отмена
+                {t`Скасувати`}
               </Button>
               <Button type="submit" size="sm" disabled={upsert.isPending}>
                 {upsert.isPending ? (
@@ -337,7 +341,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                 ) : (
                   <Save className="h-4 w-4 mr-1" />
                 )}
-                Сохранить
+                {t`Зберегти`}
               </Button>
             </div>
           </form>
@@ -352,6 +356,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
 // ---------------------------------------------------------------------------
 
 function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
+  const { t } = useLingui()
   const [editing, setEditing] = useState(false)
   const upsert = useUpsertLegend(projectId)
 
@@ -369,7 +374,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
     },
     onSubmit: async ({ value }) => {
       const dto = upsertLegendSchema.parse({
-        fullName: value.fullName || 'Персона',
+        fullName: value.fullName || t`Персона`,
         dateOfBirth: value.dateOfBirth || null,
         address: value.address || null,
         hobbies: value.hobbies || null,
@@ -400,18 +405,18 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
   return (
     <Card className="border-border/40 bg-card" data-testid="legend-cover-block">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Кавер-стори</CardTitle>
+        <CardTitle className="text-sm font-semibold">{t`Кавер-сторі`}</CardTitle>
         {!editing && (
           <Button
             variant="ghost"
             size="sm"
             onClick={handleEdit}
             disabled={upsert.isPending}
-            aria-label="Редактировать cover story"
+            aria-label={t`Редагувати кавер-сторі`}
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Pencil className="h-3 w-3" />
-            Редактировать
+            {t`Редагувати`}
           </Button>
         )}
         {editing && (
@@ -423,7 +428,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
               setEditing(false)
             }}
             className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            aria-label="Отмена редактирования"
+            aria-label={t`Скасувати редагування`}
             data-testid="persona-edit-cancel-icon"
           >
             <X className="h-4 w-4" />
@@ -433,24 +438,24 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
       <CardContent>
         {!editing ? (
           !legend || (!legend.presentedRole && !legend.presentedStack && !legend.backstory) ? (
-            <p className="text-sm text-muted-foreground/60 italic">Кавер-стори не заполнена.</p>
+            <p className="text-sm text-muted-foreground/60 italic">{t`Кавер-сторі не заповнена.`}</p>
           ) : (
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm">
               {legend.presentedRole && (
                 <div>
-                  <dt className="text-xs text-muted-foreground mb-0.5">Позиция для клиента</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Посада для клієнта`}</dt>
                   <dd className="font-medium">{legend.presentedRole}</dd>
                 </div>
               )}
               {legend.presentedStack && (
                 <div>
-                  <dt className="text-xs text-muted-foreground mb-0.5">Стек для клиента</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Стек для клієнта`}</dt>
                   <dd>{legend.presentedStack}</dd>
                 </div>
               )}
               {legend.backstory && (
                 <div className="sm:col-span-2">
-                  <dt className="text-xs text-muted-foreground mb-0.5">Бэкстори</dt>
+                  <dt className="text-xs text-muted-foreground mb-0.5">{t`Бекстори`}</dt>
                   <dd className="whitespace-pre-wrap">{legend.backstory}</dd>
                 </div>
               )}
@@ -469,7 +474,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
               <form.Field name="presentedRole">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label htmlFor="cover-role">Позиция для клиента</Label>
+                    <Label htmlFor="cover-role">{t`Посада для клієнта`}</Label>
                     <Input
                       id="cover-role"
                       value={field.state.value}
@@ -483,7 +488,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
               <form.Field name="presentedStack">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label htmlFor="cover-stack">Стек для клиента</Label>
+                    <Label htmlFor="cover-stack">{t`Стек для клієнта`}</Label>
                     <Input
                       id="cover-stack"
                       value={field.state.value}
@@ -498,13 +503,13 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
             <form.Field name="backstory">
               {(field) => (
                 <div className="space-y-1">
-                  <Label htmlFor="cover-backstory">Бэкстори</Label>
+                  <Label htmlFor="cover-backstory">{t`Бекстори`}</Label>
                   <Textarea
                     id="cover-backstory"
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder="Краткая история для клиентской компании..."
+                    placeholder={t`Коротка історія для клієнтської компанії...`}
                     rows={3}
                   />
                 </div>
@@ -520,7 +525,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
                   setEditing(false)
                 }}
               >
-                Отмена
+                {t`Скасувати`}
               </Button>
               <Button type="submit" size="sm" disabled={upsert.isPending}>
                 {upsert.isPending ? (
@@ -528,7 +533,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
                 ) : (
                   <Save className="h-4 w-4 mr-1" />
                 )}
-                Сохранить
+                {t`Зберегти`}
               </Button>
             </div>
           </form>
@@ -543,6 +548,8 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
 // ---------------------------------------------------------------------------
 
 function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const [showForm, setShowForm] = useState(false)
   const [entryText, setEntryText] = useState('')
   const [entryDate, setEntryDate] = useState('')
@@ -566,30 +573,30 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
   return (
     <Card className="border-border/40 bg-card" data-testid="legend-journal-block">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Журнал событий</CardTitle>
+        <CardTitle className="text-sm font-semibold">{t`Журнал подій`}</CardTitle>
         {!showForm && (
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setShowForm(true)}
-            aria-label="Добавить запись в журнал"
+            aria-label={t`Додати запис у журнал`}
             data-testid="legend-entry-add-btn"
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-3 w-3" />
-            Добавить запись
+            {t`Додати запис`}
           </Button>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
         {entries.length === 0 && !showForm && (
           <p className="text-sm text-muted-foreground/60 italic">
-            Записей пока нет.{' '}
+            {t`Записів ще немає.`}{' '}
             <button
               onClick={() => setShowForm(true)}
               className="underline underline-offset-2 hover:text-foreground transition-colors inline-flex items-center min-h-[24px]"
             >
-              Добавить первую запись
+              {t`Додати перший запис`}
             </button>
           </p>
         )}
@@ -600,11 +607,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
               {entries.map((entry) => (
                 <li key={entry.id} className="text-sm" data-testid="legend-entry-item">
                   <span className="text-muted-foreground text-xs mr-1.5">
-                    {new Date(entry.eventDate ?? entry.createdAt).toLocaleDateString('ru-RU', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                    })}
+                    {formatDate(entry.eventDate ?? entry.createdAt, locale, 'short')}
                     {' · '}
                     {entry.authorName}:
                   </span>
@@ -622,7 +625,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
               <Textarea
                 value={entryText}
                 onChange={(e) => setEntryText(e.target.value.slice(0, MAX_CHARS))}
-                placeholder="Что произошло? (например: клиент спросил про образование, ответили — МГУ)"
+                placeholder={t`Що сталося? (наприклад: клієнт запитав про освіту, відповіли — КПІ)`}
                 rows={3}
                 data-testid="legend-entry-textarea"
                 className="text-sm"
@@ -632,11 +635,11 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
                 {charCount} / {MAX_CHARS}
               </p>
               <div className="space-y-1">
-                <Label className="text-xs">Дата события (необязательно)</Label>
+                <Label className="text-xs">{t`Дата події (необов’язково)`}</Label>
                 <DatePickerField
                   value={entryDate}
                   onChange={setEntryDate}
-                  placeholder="Выберите дату события"
+                  placeholder={t`Виберіть дату події`}
                   data-testid="legend-entry-date"
                 />
               </div>
@@ -652,7 +655,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
                   ) : (
                     <Save className="h-3.5 w-3.5 mr-1" />
                   )}
-                  Сохранить запись
+                  {t`Зберегти запис`}
                 </Button>
                 <Button
                   variant="ghost"
@@ -664,7 +667,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
                   data-testid="legend-entry-cancel-btn"
                 >
                   <X className="h-3.5 w-3.5 mr-1" />
-                  Отмена
+                  {t`Скасувати`}
                 </Button>
               </div>
             </div>

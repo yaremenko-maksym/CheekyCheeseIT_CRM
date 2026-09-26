@@ -9,9 +9,20 @@
  * a `<Link>` nor a `useMutation` call.
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { ProjectApprovalCaptionInput } from '@/components/projects/project-approval-caption'
+import { loadCatalog } from '@/test/i18n'
 import { ProjectHeaderApprovalNote } from '../$projectId'
+
+// task-i18n-stage3c-pr3: `resolveProjectApprovalCaption` (PR3) now resolves
+// through the shared `@lingui/core` `i18n` singleton — `loadCatalog`
+// activates `uk` before each test, same as every other catalog-backed unit
+// test. This file otherwise stays PR4's own (it tests a `$projectId.tsx`
+// export) — only the two caption-text assertions this dependency touches
+// were updated.
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const SENIOR_ID = '00000000-0000-0000-0000-0000000000b1'
 const DROP_ID = '00000000-0000-0000-0000-0000000000b2'
@@ -62,7 +73,7 @@ describe('ProjectHeaderApprovalNote', () => {
       />,
     )
     const caption = screen.getByTestId('project-header-approval-caption')
-    expect(caption).toHaveTextContent('от Nadiya Dropivska и Oleksiy Kovalenko')
+    expect(caption).toHaveTextContent('Підтверджують: Nadiya Dropivska, Oleksiy Kovalenko')
   })
 
   it('DRAFT, viewer already confirmed — first-person «Вы подтвердили. Ждём …» caption', () => {
@@ -78,7 +89,7 @@ describe('ProjectHeaderApprovalNote', () => {
       />,
     )
     const caption = screen.getByTestId('project-header-approval-caption')
-    expect(caption).toHaveTextContent('Вы подтвердили. Ждём дропа')
+    expect(caption).toHaveTextContent('Ви підтвердили. Чекаємо дропа')
   })
 
   it('ACTIVE — neither the reason nor the caption renders', () => {

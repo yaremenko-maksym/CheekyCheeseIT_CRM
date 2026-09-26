@@ -8,11 +8,17 @@
  * fix-round 1 — narrowed from 409/404) is exactly what AC3's "stale item
  * disappears instead of erroring" behaviour depends on. `sonner`'s `toast`
  * is mocked to assert the SR-M-4 "404 is now a real, toasted error" fix.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 6): every visible/aria/toast string
+ * now resolves through the REAL compiled catalog (`loadCatalog`, SPEC-H-1)
+ * — `beforeEach` activates `uk` so every existing assertion below still
+ * pins the ACTUAL rendered text, just translated.
  */
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { getUserFacingErrorMessage } from '@/lib/axios-utils'
+import { loadCatalog } from '@/test/i18n'
 import { ProjectApprovalActions } from '../ProjectApprovalActions'
 
 const mockApprove = vi.fn()
@@ -80,13 +86,14 @@ function serverError() {
   })
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   mockApprove.mockReset()
   mockReject.mockReset()
   mockToastError.mockReset()
   mockToastSuccess.mockReset()
   approveState = { isPending: false, isError: false, error: null }
   rejectState = { isPending: false, isError: false, error: null }
+  await loadCatalog('uk')
 })
 
 describe('ProjectApprovalActions — Confirm', () => {
@@ -95,10 +102,10 @@ describe('ProjectApprovalActions — Confirm', () => {
     const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
     const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
     expect(approve).toBeInTheDocument()
-    expect(approve).toHaveTextContent('Подтвердить')
-    expect(approve).not.toHaveTextContent('Подтверждение…')
+    expect(approve).toHaveTextContent('Підтвердити')
+    expect(approve).not.toHaveTextContent('Підтвердження…')
     expect(reject).toBeInTheDocument()
-    expect(reject).toHaveTextContent('Отклонить')
+    expect(reject).toHaveTextContent('Відхилити')
   })
 
   /**
@@ -121,8 +128,8 @@ describe('ProjectApprovalActions — Confirm', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
     const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
-    expect(approve).toHaveAttribute('aria-label', 'Подтвердить')
-    expect(reject).toHaveAttribute('aria-label', 'Отклонить')
+    expect(approve).toHaveAttribute('aria-label', 'Підтвердити')
+    expect(reject).toHaveAttribute('aria-label', 'Відхилити')
   })
 
   /**
@@ -139,8 +146,8 @@ describe('ProjectApprovalActions — Confirm', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     const approve = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
     const reject = screen.getByTestId(`project-approval-reject-${PROJECT_ID}`)
-    expect(approve).toHaveAttribute('title', 'Подтвердить')
-    expect(reject).toHaveAttribute('title', 'Отклонить')
+    expect(approve).toHaveAttribute('title', 'Підтвердити')
+    expect(reject).toHaveAttribute('title', 'Відхилити')
   })
 
   /**
@@ -150,16 +157,16 @@ describe('ProjectApprovalActions — Confirm', () => {
    */
   it('COPY-M-14: without `compact`, the visible label never hides at lg: — only ProjectRow opts into the icon-only fallback', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
-    const approveLabel = screen.getByText('Подтвердить')
-    const rejectLabel = screen.getByText('Отклонить')
+    const approveLabel = screen.getByText('Підтвердити')
+    const rejectLabel = screen.getByText('Відхилити')
     expect(approveLabel.className).not.toContain('lg:hidden')
     expect(rejectLabel.className).not.toContain('lg:hidden')
   })
 
   it('COPY-M-14: `compact` restores the lg:hidden icon-only fallback for ProjectRow’s mount point', () => {
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" compact />)
-    const approveLabel = screen.getByText('Подтвердить')
-    const rejectLabel = screen.getByText('Отклонить')
+    const approveLabel = screen.getByText('Підтвердити')
+    const rejectLabel = screen.getByText('Відхилити')
     expect(approveLabel.className).toContain('lg:hidden')
     expect(rejectLabel.className).toContain('lg:hidden')
   })
@@ -200,10 +207,10 @@ describe('ProjectApprovalActions — Confirm', () => {
     act(() => opts.onSuccess({ status: 'ACTIVE' }))
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(mockToastSuccess).toHaveBeenCalledWith('Проект «Acme» подтверждён')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Проєкт «Acme» підтверджено')
   })
 
-  it('COPY-M-8 (PR #646 fix-round 3): a successful approve that leaves the project DRAFT with dropApprovalPending=true names the drop specifically ("Ждём дропа"), not a generic "the other side"', async () => {
+  it('COPY-M-8 (PR #646 fix-round 3): a successful approve that leaves the project DRAFT with dropApprovalPending=true names the drop specifically ("Чекаємо дропа"), not a generic "the other side"', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
@@ -215,7 +222,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     act(() => opts.onSuccess({ status: 'DRAFT', dropApprovalPending: true }))
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём дропа')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Ви підтвердили. Чекаємо дропа')
   })
 
   it("COPY-M-8 (PR #646 fix-round 3): the same DRAFT outcome with dropApprovalPending falsy (senior still pending, or a 2-party-less project) names the senior instead — the ternary's OTHER branch, not a shared fallback string", async () => {
@@ -230,7 +237,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     act(() => opts.onSuccess({ status: 'DRAFT' }))
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(mockToastSuccess).toHaveBeenCalledWith('Вы подтвердили. Ждём синьора')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Ви підтвердили. Чекаємо сеньйора')
   })
 
   it('an "already responded" 409 on approve calls onActed too — no error surfaced, no toast', async () => {
@@ -271,7 +278,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     // string, never the backend's raw "Согласование ... погашено" text
     // (fixture's own message, asserted separately below where it matters).
     expect(mockToastError.mock.calls[0]?.[0]).toBe(
-      'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+      'Підтвердження недоступне: воно застаріло або адресоване не вам. Оновіть сторінку.',
     )
   })
 
@@ -327,16 +334,16 @@ describe('ProjectApprovalActions — Confirm', () => {
 
     const button = screen.getByTestId(`project-approval-approve-${PROJECT_ID}`)
     expect(button).toBeDisabled()
-    expect(button).toHaveTextContent('Подтверждение…')
-    expect(button).not.toHaveTextContent('Подтвердить')
+    expect(button).toHaveTextContent('Підтвердження…')
+    expect(button).not.toHaveTextContent('Підтвердити')
     // COPY-L-8 = UX-M-2(r5): aria-label's OTHER ternary branch — the visible
     // label swaps to the in-flight text, and so must the raw attribute (see
     // the "at rest" test above for why toHaveAccessibleName cannot see this).
-    expect(button).toHaveAttribute('aria-label', 'Подтверждение…')
+    expect(button).toHaveAttribute('aria-label', 'Підтвердження…')
     // COPY-M-14 (PR #646 fix-round 6): title mirrors aria-label's OTHER
     // ternary branch too — a hovering mouse user gets the same in-flight
     // wording a screen-reader user already does.
-    expect(button).toHaveAttribute('title', 'Подтверждение…')
+    expect(button).toHaveAttribute('title', 'Підтвердження…')
   })
 
   /**
@@ -397,7 +404,7 @@ describe('ProjectApprovalActions — Confirm', () => {
     expect(wrapperClick).not.toHaveBeenCalled()
   })
 
-  it('clicking Отклонить (opening the dialog) also stops propagation', async () => {
+  it('clicking Відхилити (opening the dialog) also stops propagation', async () => {
     const user = userEvent.setup()
     const wrapperClick = vi.fn()
     render(
@@ -418,14 +425,14 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
-    expect(await screen.findByText('Отклонить проект «Acme Corp»')).toBeInTheDocument()
+    expect(await screen.findByText('Відхилити проєкт «Acme Corp»')).toBeInTheDocument()
   })
 
   it('mutation-gate (ProjectApprovalActions.tsx:183): with the dialog open and no error, the error paragraph is ABSENT — rejectError must actually gate on isError, not render unconditionally', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
-    await screen.findByText('Отклонить проект «Acme»')
+    await screen.findByText('Відхилити проєкт «Acme»')
 
     expect(screen.queryByText(getUserFacingErrorMessage(null))).not.toBeInTheDocument()
   })
@@ -452,13 +459,13 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     expect(counter).toHaveAttribute('aria-live', 'polite')
   })
 
-  it('CR-bm-1 (PR #646 fix-round 4): the "Причина отказа" Label is actually linked to the Textarea — it carried an id nobody referenced (no htmlFor/aria-labelledby) since fix-round 1, a Label in visual proximity only; getByLabelText only resolves through a REAL association, not just matching text near the field', async () => {
+  it('CR-bm-1 (PR #646 fix-round 4): the "Причина відмови" Label is actually linked to the Textarea — it carried an id nobody referenced (no htmlFor/aria-labelledby) since fix-round 1, a Label in visual proximity only; getByLabelText only resolves through a REAL association, not just matching text near the field', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
     const textarea = await screen.findByTestId('project-approval-reject-reason')
-    expect(screen.getByLabelText('Причина отказа *')).toBe(textarea)
+    expect(screen.getByLabelText('Причина відмови *')).toBe(textarea)
   })
 
   it('UX-L-1(r3) (PR #646 fix-round 3): the dialog title is line-clamp-2 — an extreme companyName must not push the reason field below the fold on 320px', async () => {
@@ -466,7 +473,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
-    const title = await screen.findByText('Отклонить проект «Acme»')
+    const title = await screen.findByText('Відхилити проєкт «Acme»')
     expect(title.className).toContain('line-clamp-2')
   })
 
@@ -476,10 +483,10 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
     expect(
-      await screen.findByText('Админ увидит причину и сможет предложить проект заново.'),
+      await screen.findByText('Адмін побачить причину і зможе запропонувати проєкт знову.'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/обязательна/)).not.toBeInTheDocument()
-    expect(screen.getByText('Форма отказа: причина')).toBeInTheDocument()
+    expect(screen.queryByText(/обов.язков/)).not.toBeInTheDocument()
+    expect(screen.getByText('Форма відмови: причина')).toBeInTheDocument()
   })
 
   it('submit is disabled while the reason is empty or whitespace-only, enabled once typed', async () => {
@@ -490,13 +497,13 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     const submit = await screen.findByTestId('project-approval-reject-submit')
     const textarea = screen.getByTestId('project-approval-reject-reason')
     expect(submit).toBeDisabled()
-    // At-rest label — not the in-flight "Отклонение…" text.
-    expect(submit).toHaveTextContent('Отклонить')
+    // At-rest label — not the in-flight "Відхилення…" text.
+    expect(submit).toHaveTextContent('Відхилити')
 
     fireEvent.change(textarea, { target: { value: '   ' } })
     expect(submit).toBeDisabled()
 
-    fireEvent.change(textarea, { target: { value: 'нет бюджета' } })
+    fireEvent.change(textarea, { target: { value: 'немає бюджету' } })
     expect(submit).not.toBeDisabled()
   })
 
@@ -506,13 +513,13 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
 
     const textarea = screen.getByTestId('project-approval-reject-reason')
-    fireEvent.change(textarea, { target: { value: '  нет бюджета на Q3  ' } })
+    fireEvent.change(textarea, { target: { value: '  немає бюджету на Q3  ' } })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
     expect(mockReject).toHaveBeenCalledTimes(1)
     expect(mockReject.mock.calls[0]?.[0]).toEqual({
       projectId: PROJECT_ID,
-      reason: 'нет бюджета на Q3',
+      reason: 'немає бюджету на Q3',
     })
   })
 
@@ -522,7 +529,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -530,13 +537,13 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     act(() => opts.onSuccess())
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText('Отклонить проект «Acme»')).not.toBeInTheDocument()
+    expect(screen.queryByText('Відхилити проєкт «Acme»')).not.toBeInTheDocument()
     // COPY-H-2: reject's onSuccess takes no argument (unlike approve's,
     // which branches on project.status) — there is only one outcome, so one
     // fixed toast, asserted here since this is the main reject-success test.
-    expect(mockToastSuccess).toHaveBeenCalledWith('Проект отклонён, админ увидит причину')
+    expect(mockToastSuccess).toHaveBeenCalledWith('Проєкт відхилено, адмін побачить причину')
 
-    // Reopen — the reason field must be blank, not still carrying "нет бюджета".
+    // Reopen — the reason field must be blank, not still carrying the old text.
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     expect(await screen.findByTestId('project-approval-reject-reason')).toHaveValue('')
   })
@@ -546,7 +553,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -560,7 +567,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -568,7 +575,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     act(() => opts.onError(conflictError()))
 
     expect(onActed).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText('Отклонить проект «Acme»')).not.toBeInTheDocument()
+    expect(screen.queryByText('Відхилити проєкт «Acme»')).not.toBeInTheDocument()
     expect(mockToastError).not.toHaveBeenCalled()
 
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
@@ -580,7 +587,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -594,7 +601,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -602,7 +609,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     act(() => opts.onError(notFoundError()))
 
     expect(onActed).not.toHaveBeenCalled()
-    expect(screen.getByText('Отклонить проект «Acme»')).toBeInTheDocument()
+    expect(screen.getByText('Відхилити проєкт «Acme»')).toBeInTheDocument()
   })
 
   it('SR-M-4: a 404 on reject calls toast.error with the user-facing message', async () => {
@@ -610,7 +617,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -622,7 +629,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     // string, never the backend's raw "Согласование ... погашено" text
     // (fixture's own message, asserted separately below where it matters).
     expect(mockToastError.mock.calls[0]?.[0]).toBe(
-      'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.',
+      'Підтвердження недоступне: воно застаріло або адресоване не вам. Оновіть сторінку.',
     )
   })
 
@@ -632,7 +639,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" onActed={onActed} />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
     await user.click(screen.getByTestId('project-approval-reject-submit'))
 
@@ -641,7 +648,7 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
 
     expect(onActed).not.toHaveBeenCalled()
     // Dialog is still mounted — the title and the reason (untouched) are both there.
-    expect(screen.getByText('Отклонить проект «Acme»')).toBeInTheDocument()
+    expect(screen.getByText('Відхилити проєкт «Acme»')).toBeInTheDocument()
   })
 
   it('a pre-set reject error renders the message INSIDE a <p> when the dialog is open', async () => {
@@ -669,27 +676,27 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     // going back through the now-disabled trigger button — a keystroke in
     // the still-open dialog's own Textarea does it.
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'нет бюджета' },
+      target: { value: 'немає бюджету' },
     })
 
     const submit = screen.getByTestId('project-approval-reject-submit')
     expect(submit).toBeDisabled()
-    expect(submit).toHaveTextContent('Отклонение…')
+    expect(submit).toHaveTextContent('Відхилення…')
   })
 
-  it('Отмена closes the dialog without ever calling reject.mutate, and clears whatever was typed', async () => {
+  it('Скасувати closes the dialog without ever calling reject.mutate, and clears whatever was typed', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />)
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
-    await screen.findByText('Отклонить проект «Acme»')
+    await screen.findByText('Відхилити проєкт «Acme»')
     fireEvent.change(screen.getByTestId('project-approval-reject-reason'), {
-      target: { value: 'черновик причины' },
+      target: { value: 'чернетка причини' },
     })
 
-    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
 
     expect(mockReject).not.toHaveBeenCalled()
-    expect(screen.queryByText('Отклонить проект «Acme»')).not.toBeInTheDocument()
+    expect(screen.queryByText('Відхилити проєкт «Acme»')).not.toBeInTheDocument()
 
     await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
     expect(await screen.findByTestId('project-approval-reject-reason')).toHaveValue('')

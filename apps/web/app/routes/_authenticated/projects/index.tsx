@@ -3,6 +3,8 @@ import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useForm, type FieldApi } from '@tanstack/react-form'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,

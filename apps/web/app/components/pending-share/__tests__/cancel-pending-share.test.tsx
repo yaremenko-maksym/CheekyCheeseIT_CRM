@@ -11,6 +11,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const { toastSuccess, toastError } = vi.hoisted(() => ({
   toastSuccess: vi.fn(),
@@ -30,9 +31,17 @@ import {
 function renderWithClient(ui: React.ReactElement) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const invalidateSpy = vi.spyOn(qc, 'invalidateQueries')
-  render(<QueryClientProvider client={qc}>{ui}</QueryClientProvider>)
+  render(
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>{ui}</QueryClientProvider>
+    </I18nTestProvider>,
+  )
   return { qc, invalidateSpy }
 }
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 /**
  * task-648-fix-round-3 (COPY-M-14): withdrawing now takes TWO gestures — the
@@ -85,9 +94,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     await withdraw(user, 'user')
-    await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует 26%'),
-    )
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє 26%'))
   })
 
   it('names it from the PROJECT response shape, which carries a different field', async () => {
@@ -95,9 +102,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="project" id="proj-1" pendingPercent={55} />)
     await withdraw(user, 'project')
-    await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует 30%'),
-    )
+    await waitFor(() => expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє 30%'))
   })
 
   it('falls back to a number-free sentence when the response carries no percent', async () => {
@@ -106,7 +111,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     await withdraw(user, 'user')
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует прежний процент'),
+      expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє попередній відсоток'),
     )
   })
 
@@ -122,7 +127,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     await withdraw(user, 'user')
     await waitFor(() =>
       expect(toastError).toHaveBeenCalledWith(
-        'Пропозиція недоступна: вона застаріла або адресована не вам. Оновіть сторінку.',
+        'Підтвердження недоступне: воно застаріло або адресоване не вам. Оновіть сторінку.',
       ),
     )
     // QA-MED-5's lesson: refetch on FAILURE too, or a proposal resolved
@@ -135,7 +140,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     await withdraw(user, 'user')
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Не удалось отменить предложение'))
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Не вдалося скасувати пропозицію'))
   })
 
   it('a response with no body at all still yields the number-free sentence', async () => {
@@ -146,7 +151,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     await withdraw(user, 'user')
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует прежний процент'),
+      expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє попередній відсоток'),
     )
   })
 
@@ -156,7 +161,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     renderWithClient(<CancelPendingShareButton scope="project" id="proj-1" pendingPercent={55} />)
     await withdraw(user, 'project')
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует прежний процент'),
+      expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє попередній відсоток'),
     )
   })
 
@@ -168,7 +173,7 @@ describe('CancelPendingShareButton — what the operator is told', () => {
     renderWithClient(<CancelPendingShareButton scope="project" id="proj-1" pendingPercent={55} />)
     await withdraw(user, 'project')
     await waitFor(() =>
-      expect(toastSuccess).toHaveBeenCalledWith('Предложение отменено — действует прежний процент'),
+      expect(toastSuccess).toHaveBeenCalledWith('Пропозицію скасовано — діє попередній відсоток'),
     )
   })
 
@@ -228,7 +233,7 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
       />,
     )
     const notice = screen.getByTestId('pending-share-edit-notice-user')
-    expect(notice).toHaveTextContent('Предложено 40%')
+    expect(notice).toHaveTextContent('Запропоновано 40%')
     // task-648-fix-round-4 (COPY-M-17). Round 3 wrote «ждёт подтверждения
     // <имя>», whose slot is genitive while the name arrives from the database
     // in the nominative. On Latin script that passes unnoticed; this fixture
@@ -237,9 +242,9 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
     // human, so it breaks when, not if. The indicator two centimetres away
     // already had a frame that needs no case at all — «Подтверждает <имя>» —
     // so the notice now uses that one instead of inventing a second.
-    expect(notice).toHaveTextContent('Подтверждает Олексій Коваленко')
-    expect(notice).not.toHaveTextContent('ждёт подтверждения')
-    expect(notice).toHaveTextContent('Новое значение заменит предложение')
+    expect(notice).toHaveTextContent('Підтверджує Олексій Коваленко')
+    expect(notice).not.toHaveTextContent('Очікує підтвердження')
+    expect(notice).toHaveTextContent('Нове значення замінить пропозицію')
   })
 
   it('its withdraw button posts to the same endpoint as the icon one', async () => {
@@ -277,13 +282,13 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
       />,
     )
     const button = screen.getByTestId('cancel-pending-share-user-in-dialog')
-    expect(button).toHaveTextContent('Отменить предложение')
+    expect(button).toHaveTextContent('Скасувати пропозицію')
     await withdraw(user, 'user-in-dialog')
     // task-648-fix-round-3 (COPY-L-12): «Отмена…» sat one dialog away from
     // «Отмена» meaning "close this" — the in-flight label names the process.
-    await waitFor(() => expect(button).toHaveTextContent('Отменяем предложение…'))
+    await waitFor(() => expect(button).toHaveTextContent('Скасовуємо пропозицію…'))
     resolvePost({ data: { user: { seniorSharePercent: 26 } } })
-    await waitFor(() => expect(button).toHaveTextContent('Отменить предложение'))
+    await waitFor(() => expect(button).toHaveTextContent('Скасувати пропозицію'))
   })
 
   // task-648-fix-round-3 (COPY-H-7 / COPY-M-14). This used to read "the ICON
@@ -294,10 +299,10 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
   it('the withdraw button names itself in visible text, not only to a screen reader', () => {
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     const button = screen.getByTestId('cancel-pending-share-user')
-    expect(button).toHaveTextContent('Отменить предложение')
+    expect(button).toHaveTextContent('Скасувати пропозицію')
     // ...and the visible text IS the accessible name — no `aria-label`
     // shadowing it with something different.
-    expect(screen.getByRole('button', { name: 'Отменить предложение' })).toBe(button)
+    expect(screen.getByRole('button', { name: 'Скасувати пропозицію' })).toBe(button)
   })
 })
 
@@ -325,11 +330,11 @@ describe('CancelPendingShareButton — the confirmation step', () => {
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} />)
     await user.click(screen.getByTestId('cancel-pending-share-user'))
     const dialog = await screen.findByTestId('cancel-pending-share-confirm-user')
-    expect(dialog).toHaveTextContent('Отменить предложение 45%?')
-    expect(dialog).toHaveTextContent('Действующая доля не изменится')
+    expect(dialog).toHaveTextContent('Скасувати пропозицію 45%?')
+    expect(dialog).toHaveTextContent('Діюча частка не зміниться')
   })
 
-  it('«Оставить» closes it and withdraws nothing', async () => {
+  it('«Залишити» closes it and withdraws nothing', async () => {
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} />)
     await user.click(screen.getByTestId('cancel-pending-share-user'))
@@ -371,8 +376,8 @@ describe('CancelPendingShareButton — the confirmation step', () => {
     )
     await user.click(screen.getByTestId('cancel-pending-share-project-in-dialog'))
     const dialog = await screen.findByTestId('cancel-pending-share-confirm-project-in-dialog')
-    expect(dialog).toHaveTextContent('Отменить предложение 45%?')
-    expect(dialog).toHaveTextContent('Действующая доля не изменится')
+    expect(dialog).toHaveTextContent('Скасувати пропозицію 45%?')
+    expect(dialog).toHaveTextContent('Діюча частка не зміниться')
     expect(mockPost).not.toHaveBeenCalled()
   })
 })
@@ -427,11 +432,11 @@ describe('CancelPendingShareButton — in-flight label and dialog dismissal', ()
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={55} />)
     const button = screen.getByTestId('cancel-pending-share-user')
-    expect(button).toHaveTextContent('Отменить предложение')
+    expect(button).toHaveTextContent('Скасувати пропозицію')
     await withdraw(user, 'user')
-    await waitFor(() => expect(button).toHaveTextContent('Отменяем предложение…'))
+    await waitFor(() => expect(button).toHaveTextContent('Скасовуємо пропозицію…'))
     resolvePost({ data: { user: { seniorSharePercent: 26 } } })
-    await waitFor(() => expect(button).toHaveTextContent('Отменить предложение'))
+    await waitFor(() => expect(button).toHaveTextContent('Скасувати пропозицію'))
   })
 
   it('closes the confirmation once confirmed — it does not stay open over the result', async () => {
