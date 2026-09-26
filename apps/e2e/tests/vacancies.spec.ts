@@ -41,9 +41,19 @@
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { loginViaApi, SEED_ADMIN_EMAIL, SEED_EMAILS, REAL_API_BASE } from './fixtures'
+// task-i18n-stage3c-pr2 — vacancies/applications screens now go through the
+// uk/en catalog; assertions below use `assertInCatalog` so a future copy
+// change fails loudly instead of silently drifting (same convention as
+// admin-actions.spec.ts).
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 /** Seed DROP user (apps/api/src/database/seed.ts) — used by the RBAC smoke. */
 const DROP_EMAIL = 'viktor.drop@cheekycheese.dev'
+
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 // ---------------------------------------------------------------------------
 // Minimal, syntactically valid single-page PDF — no external dependency.
@@ -160,7 +170,9 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     const cardTestId = await card.getAttribute('data-testid')
     vacancyId = cardTestId!.replace('vacancy-card-', '')
 
-    await expect(card.getByTestId(`vacancy-status-badge-${vacancyId}`)).toHaveText('Черновик')
+    await expect(card.getByTestId(`vacancy-status-badge-${vacancyId}`)).toHaveText(
+      assertInCatalog(uk, 'Чернетка'),
+    )
 
     // task-vacancies-form-simplify AC2: «Уровень»/«Локация» controls are
     // gone — the create form no longer sets them, so the card must show the
@@ -171,7 +183,9 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     // Publish — exact testid (NOT a prefix match: a `-mobile-` sibling button
     // shares the `vacancy-publish-` prefix, see playwright-patterns skill).
     await card.getByTestId(`vacancy-publish-${vacancyId}`).click()
-    await expect(card.getByTestId(`vacancy-status-badge-${vacancyId}`)).toHaveText('Опубликовано')
+    await expect(card.getByTestId(`vacancy-status-badge-${vacancyId}`)).toHaveText(
+      assertInCatalog(uk, 'Опублікована'),
+    )
   })
 
   test('2. (AC6) Публичный список вакансий отдаёт опубликованную из п.1', async ({ page }) => {
@@ -218,22 +232,30 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     await expect(candidateCard.getByTestId(`candidate-download-${applicationId}`)).toBeVisible()
 
     const statusToggle = candidateCard.getByTestId(`candidate-status-${applicationId}`)
-    await expect(statusToggle.getByRole('radio', { name: 'Новый' })).toBeChecked()
+    await expect(
+      statusToggle.getByRole('radio', { name: assertInCatalog(uk, 'Новий') }),
+    ).toBeChecked()
 
-    // Новый → Просмотрено
-    await statusToggle.getByRole('radio', { name: 'Просмотрено' }).click()
-    await expect(statusToggle.getByRole('radio', { name: 'Просмотрено' })).toBeChecked()
+    // Новий → Переглянутий
+    await statusToggle.getByRole('radio', { name: assertInCatalog(uk, 'Переглянутий') }).click()
+    await expect(
+      statusToggle.getByRole('radio', { name: assertInCatalog(uk, 'Переглянутий') }),
+    ).toBeChecked()
     await expect(
       candidateCard.getByTestId(`candidate-new-badge-${applicationId}`),
     ).not.toBeAttached()
 
-    // Просмотрено → Отклонено
-    await statusToggle.getByRole('radio', { name: 'Отклонено' }).click()
-    await expect(statusToggle.getByRole('radio', { name: 'Отклонено' })).toBeChecked()
+    // Переглянутий → Відхилений
+    await statusToggle.getByRole('radio', { name: assertInCatalog(uk, 'Відхилений') }).click()
+    await expect(
+      statusToggle.getByRole('radio', { name: assertInCatalog(uk, 'Відхилений') }),
+    ).toBeChecked()
 
     // Delete — confirm dialog must warn about the resume file (task AC).
     await candidateCard.getByTestId(`candidate-delete-${applicationId}`).click()
-    const confirmDialog = page.getByRole('alertdialog', { name: 'Удалить отклик?' })
+    const confirmDialog = page.getByRole('alertdialog', {
+      name: assertInCatalog(uk, 'Видалити відгук?'),
+    })
     await expect(confirmDialog).toBeVisible()
     await expect(confirmDialog).toContainText('файл резюме')
     await confirmDialog.getByTestId(`candidate-delete-confirm-${applicationId}`).click()
@@ -247,7 +269,9 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.goto(`/vacancies/${vacancyId}`)
-    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Опубликовано')
+    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Опублікована'),
+    )
 
     // delete-guard while PUBLISHED: disabled + "закройте сначала" tooltip
     // (Опасная зона card, full variant — the only place this exercises the
@@ -265,19 +289,27 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     // intercepting span, which is what the Tooltip is actually listening on
     // (verified: without `force`, the hover times out — confirmed live).
     await publishedDeleteBtn.hover({ force: true })
-    await expect(page.getByText('Опубликованную вакансию нужно сначала закрыть')).toBeVisible()
+    await expect(
+      page.getByText(assertInCatalog(uk, 'Опубліковану вакансію потрібно спочатку закрити')),
+    ).toBeVisible()
 
     // close
     await page.getByTestId('vacancy-detail-close').click()
-    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Закрыто')
+    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Закрита'),
+    )
 
     // re-open
     await page.getByTestId('vacancy-detail-reopen').click()
-    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Опубликовано')
+    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Опублікована'),
+    )
 
     // close again — end state for this vacancy
     await page.getByTestId('vacancy-detail-close').click()
-    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Закрыто')
+    await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText(
+      assertInCatalog(uk, 'Закрита'),
+    )
 
     // Regression guard for the deleted application (step 4) — no residue in
     // the vacancy's own applications list. Checked BEFORE the delete below:
@@ -294,7 +326,9 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     const deleteBtn = page.getByTestId(`vacancy-delete-${vacancyId}`)
     await expect(deleteBtn).toBeEnabled()
     await deleteBtn.click()
-    const confirmDialog = page.getByRole('alertdialog', { name: 'Удалить вакансию?' })
+    const confirmDialog = page.getByRole('alertdialog', {
+      name: assertInCatalog(uk, 'Видалити вакансію?'),
+    })
     await expect(confirmDialog).toBeVisible()
     await confirmDialog.getByTestId(`vacancy-delete-confirm-${vacancyId}`).click()
 
@@ -361,7 +395,9 @@ test('DRAFT-вакансия: удаление через список полн�
   // List-page delete is the ICON variant (no `-disabled-` suffix — 0
   // applications on a fresh DRAFT vacancy means the guard allows it).
   await card.getByTestId(`vacancy-delete-${created.id}`).click()
-  const confirmDialog = page.getByRole('alertdialog', { name: 'Удалить вакансию?' })
+  const confirmDialog = page.getByRole('alertdialog', {
+    name: assertInCatalog(uk, 'Видалити вакансію?'),
+  })
   await expect(confirmDialog).toBeVisible()
   await confirmDialog.getByTestId(`vacancy-delete-confirm-${created.id}`).click()
 
@@ -388,10 +424,12 @@ test.describe('Vacancies — RBAC-смоук (AC5)', () => {
       await loginViaApi(page, email)
       await page.goto('/')
 
-      const nav = page.getByRole('navigation', { name: 'Основная навигация' })
+      const nav = page.getByRole('navigation', { name: assertInCatalog(uk, 'Основна навігація') })
       // Not rendered at all by RBAC (not just hidden) — assert not.toBeAttached(),
       // per the 2026-07-12 stale-expectation lesson (memory/autotest/lessons.md).
-      await expect(nav.getByRole('link', { name: 'Вакансии' })).not.toBeAttached()
+      await expect(
+        nav.getByRole('link', { name: assertInCatalog(uk, 'Вакансії') }),
+      ).not.toBeAttached()
 
       await page.goto('/vacancies')
       await expect(page).toHaveURL(`${new URL(page.url()).origin}/`)

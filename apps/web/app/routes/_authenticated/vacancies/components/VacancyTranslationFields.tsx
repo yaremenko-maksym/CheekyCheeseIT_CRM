@@ -89,6 +89,7 @@
  * original compact height at `sm:` and up, where the Sheet has room.
  */
 import { useEffect, useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { CircleCheck, TriangleAlert } from 'lucide-react'
 import type { VacancyTranslationLocale } from '@crm/shared'
 import { VACANCY_TRANSLATION_LOCALES, vacancyTranslationSchema } from '@crm/shared'
@@ -109,7 +110,7 @@ export type { VacancyTranslationFocusRequest }
 export interface VacancyTranslationFieldsProps {
   form: AnyForm
   focusRequest?: VacancyTranslationFocusRequest | null | undefined
-  /** Dot-path → Russian message, from the last failed submit (HIGH-2). Not TanStack field state — see module doc. */
+  /** Dot-path → catalog-resolved message, from the last failed submit (HIGH-2). Not TanStack field state — see module doc. */
   submitFieldErrors?: Record<string, string> | null | undefined
   /** Called with a field's dot-path the moment the user edits it, so the parent can drop its now-stale `submitFieldErrors` entry. */
   onFieldEdited?: ((path: string) => void) | undefined
@@ -134,6 +135,7 @@ export function VacancyTranslationFields({
   submitFieldErrors,
   onFieldEdited,
 }: VacancyTranslationFieldsProps) {
+  const { t } = useLingui()
   const [activeLocale, setActiveLocale] = useState<VacancyTranslationLocale>(
     VACANCY_TRANSLATION_LOCALES[0],
   )
@@ -150,9 +152,11 @@ export function VacancyTranslationFields({
 
   return (
     <div className="space-y-1.5">
-      <Label>Переводы (необязательно)</Label>
+      <Label>
+        <Trans>Переклади (необов’язково)</Trans>
+      </Label>
       <p className="text-xs text-muted-foreground">
-        Название и описание вакансии для лендинга на других языках.
+        <Trans>Назва і опис вакансії для лендингу іншими мовами.</Trans>
       </p>
       <Tabs
         value={activeLocale}
@@ -191,10 +195,10 @@ export function VacancyTranslationFields({
                 {(status: { translated: boolean; hasLiveError: boolean }) => {
                   const hasError = status.hasLiveError || hasSubmitError
                   const statusLabel = hasError
-                    ? 'ошибка'
+                    ? t`помилка`
                     : status.translated
-                      ? 'переведено'
-                      : 'не переведено'
+                      ? t`перекладено`
+                      : t`не перекладено`
                   // design-review round 3 — no glyph for "не переведено":
                   // an outline circle reads as "unselected radio option",
                   // which fights the tab's own active/inactive background.
@@ -238,7 +242,7 @@ export function VacancyTranslationFields({
           })}
         </TabsList>
         <p className="text-xs text-muted-foreground">
-          Без перевода на языке показывается оригинал (английский).
+          <Trans>Без перекладу цією мовою показується основний текст вакансії.</Trans>
         </p>
 
         {VACANCY_TRANSLATION_LOCALES.map((locale: VacancyTranslationLocale) => {
@@ -260,7 +264,9 @@ export function VacancyTranslationFields({
                   const errorId = `vacancy-translation-${locale}-title-error`
                   return (
                     <div className="space-y-1.5">
-                      <Label className={cn('text-xs', err && 'text-destructive')}>Название</Label>
+                      <Label className={cn('text-xs', err && 'text-destructive')}>
+                        <Trans>Назва</Trans>
+                      </Label>
                       <Input
                         value={field.state.value ?? ''}
                         onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -300,7 +306,7 @@ export function VacancyTranslationFields({
                   return (
                     <div className="space-y-1.5">
                       <Label className={cn('text-xs', err && 'text-destructive')}>
-                        Описание (Markdown)
+                        <Trans>Опис (Markdown)</Trans>
                       </Label>
                       <Textarea
                         value={field.state.value ?? ''}

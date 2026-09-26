@@ -21,6 +21,7 @@
  * (`ProjectEditFields`, exported `AnyForm`/`AnyField`).
  */
 import type { FieldApi, ReactFormExtendedApi } from '@tanstack/react-form'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { createVacancySchema } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -36,7 +37,7 @@ import { ContractEditor } from '@/components/user-profile/contract/ContractEdito
 import {
   DOMAIN_LABELS,
   DOMAIN_OPTIONS,
-  EMPLOYMENT_TYPE_LABELS,
+  EMPLOYMENT_TYPE_LABEL_MESSAGES,
   slugifyTitle,
   zodIssueRu,
 } from '../constants'
@@ -103,7 +104,7 @@ export interface VacancyFormFieldsProps {
   onSlugAutoLinkedChange: (linked: boolean) => void
   /** Bumped by the parent when submit validation found an error inside a translation tab, to force that tab open. */
   focusRequest?: VacancyTranslationFocusRequest | null
-  /** Dot-path → Russian message, from the last failed submit (HIGH-2) — forwarded to `VacancyTranslationFields`. */
+  /** Dot-path → catalog-resolved message, from the last failed submit (HIGH-2) — forwarded to `VacancyTranslationFields`. */
   submitFieldErrors?: Record<string, string> | null
   /** Forwarded to `VacancyTranslationFields` — see that component's doc. */
   onFieldEdited?: (path: string) => void
@@ -117,6 +118,7 @@ export function VacancyFormFields({
   submitFieldErrors,
   onFieldEdited,
 }: VacancyFormFieldsProps) {
+  const { t, i18n } = useLingui()
   return (
     <div className="space-y-4">
       <form.Field
@@ -132,7 +134,9 @@ export function VacancyFormFields({
           const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
           return (
             <div className="space-y-1.5">
-              <Label className={cn(err && 'text-destructive')}>Название вакансии</Label>
+              <Label className={cn(err && 'text-destructive')}>
+                <Trans>Назва вакансії</Trans>
+              </Label>
               <Input
                 value={field.state.value}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
@@ -160,7 +164,7 @@ export function VacancyFormFields({
             const r = createVacancySchema.shape.slug.safeParse(value.trim())
             return r.success
               ? undefined
-              : zodIssueRu(r.error.issues[0], 'Строчные латинские буквы, цифры и дефис')
+              : zodIssueRu(r.error.issues[0], t`Малі латинські літери, цифри та дефіс`)
           },
         }}
       >
@@ -169,7 +173,9 @@ export function VacancyFormFields({
           const canAutoSlug = slugifyTitle(String(form.state.values.title ?? '')) !== ''
           return (
             <div className="space-y-1.5">
-              <Label className={cn(err && 'text-destructive')}>URL-слаг</Label>
+              <Label className={cn(err && 'text-destructive')}>
+                <Trans>URL-слаг</Trans>
+              </Label>
               <div
                 className={cn(
                   'flex items-center rounded-md border border-input bg-transparent text-sm shadow-sm ring-offset-background focus-within:ring-1 focus-within:ring-ring',
@@ -192,9 +198,11 @@ export function VacancyFormFields({
                 />
               </div>
               <p className="text-xs text-muted-foreground">
-                {canAutoSlug
-                  ? 'Генерируется автоматически из названия. Можно редактировать.'
-                  : 'Придумайте короткий URL-адрес (латиница, цифры, дефис).'}
+                {canAutoSlug ? (
+                  <Trans>Генерується автоматично з назви. Можна редагувати.</Trans>
+                ) : (
+                  <Trans>Придумайте коротку URL-адресу (латиниця, цифри, дефіс).</Trans>
+                )}
               </p>
               {err && <p className="text-xs text-destructive">{err}</p>}
             </div>
@@ -206,7 +214,9 @@ export function VacancyFormFields({
         <form.Field name="domain">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label>Домен</Label>
+              <Label>
+                <Trans>Домен</Trans>
+              </Label>
               <Select value={field.state.value} onValueChange={(v) => field.handleChange(v)}>
                 <SelectTrigger data-testid="vacancy-form-domain">
                   <SelectValue />
@@ -226,15 +236,17 @@ export function VacancyFormFields({
         <form.Field name="employmentType">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label>Тип занятости</Label>
+              <Label>
+                <Trans>Тип зайнятості</Trans>
+              </Label>
               <Select value={field.state.value} onValueChange={(v) => field.handleChange(v)}>
                 <SelectTrigger data-testid="vacancy-form-employment-type">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {EMPLOYMENT_TYPE_OPTIONS.map((t) => (
-                    <SelectItem key={t} value={t}>
-                      {EMPLOYMENT_TYPE_LABELS[t]}
+                  {EMPLOYMENT_TYPE_OPTIONS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {i18n._(EMPLOYMENT_TYPE_LABEL_MESSAGES[option])}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -257,9 +269,26 @@ export function VacancyFormFields({
       >
         {(field: AnyField) => {
           const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+          // fix-round A (CI-MUT) — `ContractEditor` (below) is never given an
+          // `onBlur` prop, so `field.state.meta.isTouched` never flips true
+          // through real user interaction with this field; `err` is
+          // therefore always `undefined` here and this className mutant is
+          // unobservable by any test that renders the real component tree.
+          // Wiring `onBlur` through `ContractEditor`'s shared interface
+          // (used by TOS/contract pages too) is a pre-existing product gap,
+          // out of scope for this i18n PR — see VacancyFormFields.test.tsx's
+          // note. A JSX comment directly above the `<Label>` below does NOT
+          // work as a Stryker suppression (Stryker only reads `//` line
+          // comments, and JSX `{/* */}` is a separate AST node it never
+          // scans) — the computation is hoisted into this plain `const` so
+          // the `//` comment lands on a real JS statement instead.
+          // Stryker disable next-line ConditionalExpression,StringLiteral,LogicalOperator: isTouched never becomes true for this field — see comment above
+          const descriptionLabelClassName = cn(err && 'text-destructive')
           return (
             <div className="space-y-1.5">
-              <Label className={cn(err && 'text-destructive')}>Описание (Markdown)</Label>
+              <Label className={descriptionLabelClassName}>
+                <Trans>Опис (Markdown)</Trans>
+              </Label>
               {/* §4.2: default 480px height is fine both narrow (Sheet) and wide
                   (detail-page inline) — spec explicitly says not to fight it. */}
               <ContractEditor

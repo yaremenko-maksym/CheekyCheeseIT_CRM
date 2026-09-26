@@ -13,6 +13,14 @@
  */
 import { render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+// task-i18n-stage3c-pr2 — `VacanciesListPage` now calls `useLingui()`, which
+// needs an `I18nProvider` in the tree (same convention as the other
+// vacancies test files).
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const navigateMock = vi.fn()
 let viewerRole: string | null = 'ADMIN'
@@ -56,7 +64,7 @@ describe('/vacancies — RBAC guard (AC2)', () => {
   for (const role of ['SENIOR', 'ACCOUNTANT', 'DROP']) {
     it(`${role} → redirected to / (role home), page content NOT rendered`, () => {
       viewerRole = role
-      render(<VacanciesListPage />)
+      render(<VacanciesListPage />, { wrapper: I18nTestProvider })
       expect(navigateMock).toHaveBeenCalledWith({ to: '/', replace: true })
       expect(screen.queryByTestId('vacancies-page')).not.toBeInTheDocument()
     })
@@ -64,7 +72,7 @@ describe('/vacancies — RBAC guard (AC2)', () => {
 
   it('JUNIOR → redirected to /project (own hub), page content NOT rendered', () => {
     viewerRole = 'JUNIOR'
-    render(<VacanciesListPage />)
+    render(<VacanciesListPage />, { wrapper: I18nTestProvider })
     expect(navigateMock).toHaveBeenCalledWith({ to: '/project', replace: true })
     expect(screen.queryByTestId('vacancies-page')).not.toBeInTheDocument()
   })
@@ -72,7 +80,7 @@ describe('/vacancies — RBAC guard (AC2)', () => {
   for (const role of ['ADMIN', 'HR']) {
     it(`${role} → NOT redirected, page renders`, () => {
       viewerRole = role
-      render(<VacanciesListPage />)
+      render(<VacanciesListPage />, { wrapper: I18nTestProvider })
       expect(navigateMock).not.toHaveBeenCalled()
       expect(screen.getByTestId('vacancies-page')).toBeInTheDocument()
     })
