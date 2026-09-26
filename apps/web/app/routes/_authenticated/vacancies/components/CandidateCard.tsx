@@ -1,6 +1,6 @@
 /**
  * CandidateCard — task-crm-vacancies-ui §5. Vacancy application card: avatar
- * initials + name + «Новый»-badge + date, email + contact chips
+ * initials + name + «New»-badge + date, email + contact chips
  * (telegram/github/linkedin — only when present), collapsible cover letter,
  * footer (download resume · delete · status SegmentedToggle).
  *
@@ -9,8 +9,9 @@
  * generation artifact, the real schema has no such field).
  */
 import { useState } from 'react'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { useLocale } from '@/lib/i18n'
+import { formatRelativeTime } from '@crm/shared'
 // lucide-react@1.x dropped brand/logo icons (Github/Linkedin) — ExternalLink
 // is the generic stand-in; the visible "GitHub"/"LinkedIn" text label already
 // distinguishes the two chips.
@@ -40,14 +41,8 @@ import {
   useDeleteVacancyApplication,
   useUpdateVacancyApplication,
 } from '@/hooks/use-vacancies'
-import { APPLICATION_STATUS_LABELS, safeExternalHref } from '../constants'
+import { APPLICATION_STATUS_LABEL_MESSAGES, safeExternalHref } from '../constants'
 import { ResumePreviewDialog } from './ResumePreviewDialog'
-
-const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
-  { value: 'NEW', label: APPLICATION_STATUS_LABELS.NEW },
-  { value: 'VIEWED', label: APPLICATION_STATUS_LABELS.VIEWED },
-  { value: 'REJECTED', label: APPLICATION_STATUS_LABELS.REJECTED, activeVariant: 'destructive' },
-]
 
 interface CandidateCardProps {
   vacancyId: string
@@ -55,16 +50,28 @@ interface CandidateCardProps {
 }
 
 export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const [coverLetterOpen, setCoverLetterOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const resumeUrlQuery = useApplicationResumeUrl(vacancyId, application.id, { enabled: false })
   const updateStatus = useUpdateVacancyApplication(vacancyId)
   const deleteApplication = useDeleteVacancyApplication(vacancyId)
 
+  const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
+    { value: 'NEW', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW) },
+    { value: 'VIEWED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.VIEWED) },
+    {
+      value: 'REJECTED',
+      label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.REJECTED),
+      activeVariant: 'destructive',
+    },
+  ]
+
   const isNew = application.status === 'NEW'
   const relativeDate = (() => {
     try {
-      return formatDistanceToNow(new Date(application.createdAt), { addSuffix: true, locale: ru })
+      return formatRelativeTime(application.createdAt, locale)
     } catch {
       return application.createdAt
     }
@@ -127,7 +134,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
               <span className="text-sm font-semibold truncate">{application.fullName}</span>
               {isNew && (
                 <Badge data-testid={`candidate-new-badge-${application.id}`}>
-                  {APPLICATION_STATUS_LABELS.NEW}
+                  {i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW)}
                 </Badge>
               )}
             </div>
@@ -165,7 +172,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           onToggle={(e) => setCoverLetterOpen(e.currentTarget.open)}
         >
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-            Сопроводительное письмо
+            <Trans>Супровідний лист</Trans>
           </summary>
           <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
             {application.coverLetter}
@@ -186,7 +193,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 data-testid={`candidate-preview-${application.id}`}
               >
                 <Eye className="mr-1 h-3.5 w-3.5" />
-                Просмотр
+                <Trans>Перегляд</Trans>
               </Button>
               <Button
                 size="sm"
@@ -196,7 +203,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 data-testid={`candidate-download-${application.id}`}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
-                Скачать резюме
+                <Trans>Завантажити резюме</Trans>
               </Button>
             </>
           ) : (
@@ -208,7 +215,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
               className="text-xs text-muted-foreground"
               data-testid={`candidate-resume-purged-${application.id}`}
             >
-              Резюме удалено (истёк срок хранения)
+              <Trans>Резюме видалено (минув термін зберігання)</Trans>
             </span>
           )}
 
@@ -218,7 +225,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 size="sm"
                 variant="ghost"
                 className="text-muted-foreground hover:text-destructive"
-                aria-label="Удалить отклик"
+                aria-label={t`Видалити відгук`}
                 data-testid={`candidate-delete-${application.id}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -226,21 +233,27 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Удалить отклик?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  <Trans>Видалити відгук?</Trans>
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Отклик кандидата {application.fullName} будет удалён. Загруженный файл резюме
-                  также будет удалён с сервера. Это действие необратимо.
+                  <Trans>
+                    Відгук кандидата {application.fullName} буде видалено. Завантажений файл резюме
+                    також буде видалено з сервера. Цю дію не можна скасувати.
+                  </Trans>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Отмена</AlertDialogCancel>
+                <AlertDialogCancel>
+                  <Trans>Скасувати</Trans>
+                </AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   onClick={() => deleteApplication.mutate(application.id)}
                   disabled={deleteApplication.isPending}
                   data-testid={`candidate-delete-confirm-${application.id}`}
                 >
-                  Удалить
+                  <Trans>Видалити</Trans>
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
@@ -251,7 +264,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           value={application.status}
           onChange={(status) => updateStatus.mutate({ appId: application.id, status })}
           options={STATUS_OPTIONS}
-          ariaLabel={`Статус отклика кандидата ${application.fullName}`}
+          ariaLabel={t`Статус відгуку кандидата ${application.fullName}`}
           variant="pill"
           size="sm"
           disabled={updateStatus.isPending}
