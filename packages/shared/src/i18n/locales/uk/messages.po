@@ -250,6 +250,10 @@ msgstr "HR ще немає — зверніться до адміністрат�
 msgid "HR ще немає — спершу додайте HR"
 msgstr "HR ще немає — спершу додайте HR"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "HR-скринінг"
+msgstr "HR-скринінг"
+
 #. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: {0}"
@@ -512,6 +516,11 @@ msgstr "Активного сеньйора в команді немає."
 msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
 msgstr "Активного учасника в проєкті не знайдено"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Англійська"
+msgstr "Англійська"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Архів"
@@ -705,6 +714,10 @@ msgstr "Вакансію приховано"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Вакансію створено"
 msgstr "Вакансію створено"
+
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Вакансія"
+msgstr "Вакансія"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -1163,6 +1176,10 @@ msgstr "Відкрити"
 msgid "Відкрити «{0}»"
 msgstr "Відкрити «{0}»"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Відкрити вакансію"
+msgstr "Відкрити вакансію"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.VACANCY_APPLICATION"
@@ -1234,6 +1251,10 @@ msgstr "Відкрити фінанси"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
 msgstr "Відкриті співбесіди"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Відмова"
+msgstr "Відмова"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Відновити"
@@ -1607,6 +1628,10 @@ msgstr "Джуніора призначено"
 msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
 msgstr "Джуніорам недоступні співбесіди"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Дзвінок"
+msgstr "Дзвінок"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
@@ -1975,6 +2000,10 @@ msgstr "Єдиний бухгалтер у системі"
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
 msgstr "З картки співробітника (заповніть у профілі):"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "З клієнтом"
+msgstr "З клієнтом"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За датою додавання"
@@ -3021,6 +3050,10 @@ msgstr "Назва посилання, рядок {position}"
 msgid "назва проєкту"
 msgstr "назва проєкту"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Найнято"
+msgstr "Найнято"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
 msgstr "Найнято за місяць"
@@ -3952,6 +3985,10 @@ msgstr "Оформлення"
 msgid "Оформлення оновлено"
 msgstr "Оформлення оновлено"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Оффер отримано"
+msgstr "Оффер отримано"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
 msgstr "Очистити"
@@ -4510,6 +4547,10 @@ msgstr "ПриватБанк"
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Приєднати до команди дропа можна лише сеньйора"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Приєднатися до дзвінка"
+msgstr "Приєднатися до дзвінка"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Приєднатися до команди дропа"
 msgstr "Приєднатися до команди дропа"
@@ -4702,6 +4743,11 @@ msgstr "Професія"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Профіль"
+
+#. placeholder {0}: interview.hrName
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Профіль HR: {0}"
+msgstr "Профіль HR: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -5465,6 +5511,10 @@ msgstr "Термін дії запрошення закінчився"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Технічна"
+msgstr "Технічна"
+
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5831,6 +5881,10 @@ msgstr "Фільтр команд"
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Фільтр користувачів"
 msgstr "Фільтр користувачів"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Фінальна"
+msgstr "Фінальна"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Фінальний вигляд документа «Умови використання» — як PDF."

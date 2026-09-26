@@ -1,6 +1,7 @@
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { z } from 'zod'
+import { useLingui, Trans } from '@lingui/react/macro'
 import type { CreateInterviewDto, InterviewDto } from '@crm/shared'
 import { createInterviewSchema } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -36,6 +37,7 @@ export function CreateInterviewDialog({
   defaultSeniorId: string
   isSenior: boolean
 }) {
+  const { t } = useLingui()
   const queryClient = useQueryClient()
 
   const createMutation = useMutation({
@@ -48,7 +50,10 @@ export function CreateInterviewDialog({
     },
   })
 
-  const urlSchema = z.string().url('Введите корректный URL (https://...)').or(z.literal(''))
+  const urlSchema = z
+    .string()
+    .url(t`Введіть коректний URL (https://...)`)
+    .or(z.literal(''))
 
   const form = useForm({
     defaultValues: {
@@ -76,8 +81,12 @@ export function CreateInterviewDialog({
     >
       <CrmDialogContent>
         <CrmDialogHeader>
-          <DialogTitle>Новая карточка</DialogTitle>
-          <DialogDescription className="sr-only">Новая карточка собеседования</DialogDescription>
+          <DialogTitle>
+            <Trans>Нова співбесіда</Trans>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            <Trans>Нова співбесіда</Trans>
+          </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="flex flex-col gap-4">
@@ -85,7 +94,9 @@ export function CreateInterviewDialog({
               <form.Field name="seniorId">
                 {(field) => (
                   <div className="space-y-1">
-                    <Label>Синьор</Label>
+                    <Label>
+                      <Trans>Сеньйор</Trans>
+                    </Label>
                     <select
                       className="flex h-9 w-full rounded-md border border-border bg-input px-3 py-1 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={field.state.value}
@@ -116,13 +127,13 @@ export function CreateInterviewDialog({
                 return (
                   <div className="space-y-1">
                     <Label className={cn(hasError && 'text-destructive')}>
-                      Компания <span className="text-red-400">*</span>
+                      <Trans>Компанія</Trans> <span className="text-red-400">*</span>
                     </Label>
                     <Input
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
-                      placeholder="Название компании"
+                      placeholder={t`Назва компанії`}
                       className={cn(
                         hasError && 'border-destructive focus-visible:ring-destructive/30',
                       )}
@@ -148,7 +159,9 @@ export function CreateInterviewDialog({
                 const hasError = field.state.meta.isTouched && field.state.meta.errors.length > 0
                 return (
                   <div className="space-y-1">
-                    <Label className={cn(hasError && 'text-destructive')}>Ссылка на вакансию</Label>
+                    <Label className={cn(hasError && 'text-destructive')}>
+                      <Trans>Посилання на вакансію</Trans>
+                    </Label>
                     <Input
                       type="url"
                       autoCapitalize="off"
@@ -183,7 +196,9 @@ export function CreateInterviewDialog({
                 const hasError = field.state.meta.isTouched && field.state.meta.errors.length > 0
                 return (
                   <div className="space-y-1">
-                    <Label className={cn(hasError && 'text-destructive')}>Ссылка на звонок</Label>
+                    <Label className={cn(hasError && 'text-destructive')}>
+                      <Trans>Посилання на дзвінок</Trans>
+                    </Label>
                     <Input
                       type="url"
                       autoCapitalize="off"
@@ -208,10 +223,10 @@ export function CreateInterviewDialog({
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={createMutation.isPending}>
-            {createMutation.isPending ? 'Создаём...' : 'Создать'}
+            {createMutation.isPending ? t`Створюємо…` : t`Створити`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

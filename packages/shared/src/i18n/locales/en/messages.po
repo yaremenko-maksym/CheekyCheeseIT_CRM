@@ -250,6 +250,10 @@ msgstr "No HR yet — ask an admin to add one"
 msgid "HR ще немає — спершу додайте HR"
 msgstr "No HR yet — add one first"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "HR-скринінг"
+msgstr "HR screen"
+
 #. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "HR: {0}"
@@ -512,6 +516,11 @@ msgstr "There is no active senior on the team."
 msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
 msgstr "Active member not found in the project"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Англійська"
+msgstr "English"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Архів"
@@ -705,6 +714,10 @@ msgstr "Vacancy hidden"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Вакансію створено"
 msgstr "Vacancy created"
+
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Вакансія"
+msgstr "Vacancy"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -1163,6 +1176,10 @@ msgstr "Open"
 msgid "Відкрити «{0}»"
 msgstr "Open “{0}”"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Відкрити вакансію"
+msgstr "Open the vacancy"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.VACANCY_APPLICATION"
@@ -1234,6 +1251,10 @@ msgstr "Open Finance"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
 msgstr "Open interviews"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Відмова"
+msgstr "Rejected"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Відновити"
@@ -1607,6 +1628,10 @@ msgstr "Junior assigned"
 msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
 msgstr "Juniors can't access interviews"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Дзвінок"
+msgstr "Call"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
@@ -1975,6 +2000,10 @@ msgstr "The only accountant in the system"
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
 msgstr "From the employee’s card (fill in on the profile):"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "З клієнтом"
+msgstr "Client"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За датою додавання"
@@ -3021,6 +3050,10 @@ msgstr "Link title, row {position}"
 msgid "назва проєкту"
 msgstr "project name"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Найнято"
+msgstr "Hired"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
 msgstr "Hired this month"
@@ -3952,6 +3985,10 @@ msgstr "Formatting"
 msgid "Оформлення оновлено"
 msgstr "Layout updated"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Оффер отримано"
+msgstr "Offer received"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
 msgstr "Clear"
@@ -4510,6 +4547,10 @@ msgstr "PrivatBank"
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Приєднатися до дзвінка"
+msgstr "Join the call"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Приєднатися до команди дропа"
 msgstr "Join a drop's team"
@@ -4702,6 +4743,11 @@ msgstr "Profession"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Profile"
+
+#. placeholder {0}: interview.hrName
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Профіль HR: {0}"
+msgstr "HR profile: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -5465,6 +5511,10 @@ msgstr "The invite has expired"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "The invitation has expired. Ask an admin to send it again."
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Технічна"
+msgstr "Technical"
+
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5831,6 +5881,10 @@ msgstr "Team filter"
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Фільтр користувачів"
 msgstr "User filter"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Фінальна"
+msgstr "Final"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Фінальний вигляд документа «Умови використання» — як PDF."

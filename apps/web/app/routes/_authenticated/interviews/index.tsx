@@ -18,6 +18,7 @@ import { motion } from 'framer-motion'
 import { z } from 'zod'
 import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
+import { Trans } from '@lingui/react/macro'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
@@ -298,7 +299,11 @@ function InterviewsPage() {
     return (
       <div className="flex flex-col h-full px-6 pt-4">
         <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
-          <p className="text-sm font-medium text-muted-foreground">Нет доступа к разделу</p>
+          <p className="text-sm font-medium text-muted-foreground">
+            <Trans>
+              Немає доступу до цього розділу — якщо він потрібен для роботи, напишіть адміністратору
+            </Trans>
+          </p>
         </div>
       </div>
     )
@@ -312,13 +317,15 @@ function InterviewsPage() {
           data-testid="interviews-teamless-empty-state"
         >
           <UsersRound className="h-10 w-10 text-muted-foreground/30" />
-          <p className="mt-4 text-sm font-medium">У вас нет активной команды</p>
+          <p className="mt-4 text-sm font-medium">
+            <Trans>У вас немає активної команди</Trans>
+          </p>
           <p className="mt-1 text-xs text-muted-foreground max-w-md">
-            Доступ к собеседованиям откроется после привязки к команде.
+            <Trans>Доступ до співбесід відкриється після прив’язки до команди.</Trans>
           </p>
           <Button size="sm" className="mt-4 gap-1.5" onClick={() => setRejoinDialogOpen(true)}>
             <Plus className="h-4 w-4" />
-            Создать или выбрать команду
+            <Trans>Створити або обрати команду</Trans>
           </Button>
         </div>
         <RejoinTeamDialog open={rejoinDialogOpen} onClose={() => setRejoinDialogOpen(false)} />
@@ -354,7 +361,7 @@ function InterviewsPage() {
                   params={{ userId: effectiveSeniorId }}
                   className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
                 >
-                  Профиль
+                  <Trans>Профіль</Trans>
                 </Link>
               )}
             </div>
@@ -363,13 +370,13 @@ function InterviewsPage() {
           {canCreate && (
             <Button size="sm" onClick={() => setCreateOpen(true)}>
               <Plus className="mr-1.5 h-4 w-4" />
-              Новая карточка
+              <Trans>Нова співбесіда</Trans>
             </Button>
           )}
 
           {/*
             task-job-sourcing-slice1 §4 — entry point to the vacancy queue.
-            Lives next to «Новая карточка» because it feeds the same board: a
+            Lives next to «Нова співбесіда» because it feeds the same board: a
             vacancy the senior applies to becomes the next interview card.
             Same audience as the board itself (ADMIN / HR / SENIOR).
             Hidden while job-sourcing is paused — see JOB_SOURCING_ENTRY_ENABLED.
@@ -382,7 +389,7 @@ function InterviewsPage() {
               data-testid="open-job-sourcing"
             >
               <Search className="mr-1.5 h-4 w-4" />
-              Подбор вакансий
+              <Trans>Підбір вакансій</Trans>
             </Button>
           )}
         </div>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
+import { useLingui, Trans } from '@lingui/react/macro'
 import type { CreateProjectDto, ProjectDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -41,12 +42,6 @@ function getInitials(name: string) {
     .slice(0, 2)
 }
 
-const _ROLE_LABELS: Record<string, string> = {
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
-
 function UserChip({ user, onRemove }: { user: UserOption; onRemove: () => void }) {
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 pl-1 pr-1.5 py-0.5">
@@ -79,6 +74,7 @@ function MemberPicker({
   onRemove: (id: string) => void
   single?: boolean
 }) {
+  const { t } = useLingui()
   const available = allUsers.filter(
     (u) => roles.includes(u.role) && !selected.some((s) => s.id === u.id),
   )
@@ -100,7 +96,7 @@ function MemberPicker({
             if (u) onAdd(u)
           }}
         >
-          <option value="">— добавить —</option>
+          <option value="">{t`— додати —`}</option>
           {available.map((u) => (
             <option key={u.id} value={u.id}>
               {u.displayName}
@@ -125,6 +121,7 @@ export function CreateProjectFromHiredDialog({
   seniorName: string
   companyName: string
 }) {
+  const { t } = useLingui()
   const queryClient = useQueryClient()
 
   const [hrMembers, setHrMembers] = useState<UserOption[]>([])
@@ -192,13 +189,19 @@ export function CreateProjectFromHiredDialog({
     >
       <CrmDialogContent data-testid="create-project-from-hired-dialog">
         <CrmDialogHeader>
-          <DialogTitle>Создать проект — {seniorName}</DialogTitle>
-          <DialogDescription className="sr-only">Создание проекта</DialogDescription>
+          <DialogTitle>
+            <Trans>Створити проєкт — {seniorName}</Trans>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            <Trans>Створення проєкту</Trans>
+          </DialogDescription>
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <div className="space-y-3">
             <div className="space-y-1.5">
-              <Label>Логотип компании</Label>
+              <Label>
+                <Trans>Логотип компанії</Trans>
+              </Label>
               <ImageUploadField
                 value={{
                   documentId: (form.state.values as { logoDocumentId: string | null })
@@ -229,7 +232,9 @@ export function CreateProjectFromHiredDialog({
                 const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
                 return (
                   <div className="space-y-1.5">
-                    <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
+                    <Label className={cn(err && 'text-destructive')}>
+                      <Trans>Назва проєкту</Trans>
+                    </Label>
                     <Input
                       value={field.state.value as string}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -256,7 +261,9 @@ export function CreateProjectFromHiredDialog({
                 const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
                 return (
                   <div className="space-y-1.5">
-                    <Label className={cn(err && 'text-destructive')}>Компания</Label>
+                    <Label className={cn(err && 'text-destructive')}>
+                      <Trans>Компанія</Trans>
+                    </Label>
                     <Input
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -273,7 +280,9 @@ export function CreateProjectFromHiredDialog({
             <form.Field name="domain">
               {(field) => (
                 <div className="space-y-1.5">
-                  <Label>Домен</Label>
+                  <Label>
+                    <Trans>Домен</Trans>
+                  </Label>
                   <select
                     className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                     value={field.state.value}
@@ -300,7 +309,7 @@ export function CreateProjectFromHiredDialog({
                   onCurrencyChange={(v) =>
                     form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
                   }
-                  label="Ставка"
+                  label={t`Ставка`}
                   placeholder="5000"
                 />
               )}
@@ -309,7 +318,9 @@ export function CreateProjectFromHiredDialog({
             <form.Field name="startDate">
               {(field) => (
                 <div className="space-y-1.5">
-                  <Label>Дата начала</Label>
+                  <Label>
+                    <Trans>Дата початку</Trans>
+                  </Label>
                   <Input
                     type="date"
                     value={field.state.value}
@@ -321,7 +332,7 @@ export function CreateProjectFromHiredDialog({
 
             <div className="border-t border-border pt-3 space-y-3">
               <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Участники
+                <Trans>Склад</Trans>
               </p>
 
               <MemberPicker
@@ -334,7 +345,7 @@ export function CreateProjectFromHiredDialog({
               />
 
               <MemberPicker
-                label="Бухгалтер"
+                label={t`Бухгалтер`}
                 roles={['ACCOUNTANT']}
                 allUsers={allUsers}
                 selected={accountants}
@@ -344,7 +355,7 @@ export function CreateProjectFromHiredDialog({
               />
 
               <MemberPicker
-                label="Джун"
+                label={t`Джуніор`}
                 roles={['JUNIOR']}
                 allUsers={allUsers}
                 selected={juniors}
@@ -354,7 +365,7 @@ export function CreateProjectFromHiredDialog({
             </div>
 
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/20 px-3 py-2">
-              <span className="text-xs text-muted-foreground">Синьор:</span>
+              <span className="text-xs text-muted-foreground">{t`Сеньйор:`}</span>
               <Badge variant="senior" className="text-xs">
                 {seniorName}
               </Badge>
@@ -363,10 +374,10 @@ export function CreateProjectFromHiredDialog({
         </CrmDialogBody>
         <CrmDialogFooter>
           <Button variant="outline" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={isPending}>
-            {isPending ? 'Создание...' : 'Создать проект'}
+            {isPending ? t`Створення…` : t`Створити проєкт`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

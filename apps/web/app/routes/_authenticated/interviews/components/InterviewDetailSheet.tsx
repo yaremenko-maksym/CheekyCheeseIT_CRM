@@ -5,6 +5,7 @@ import { useNavigate } from '@tanstack/react-router'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { z } from 'zod'
+import { useLingui, Trans } from '@lingui/react/macro'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { updateInterviewSchema, IT_DOMAINS } from '@crm/shared'
 import { api } from '@/lib/axios'
@@ -30,7 +31,7 @@ import {
 import { Textarea } from '@/components/ui/textarea'
 import {
   STAGE_BADGE_COLORS,
-  STAGE_LABELS,
+  STAGE_LABEL_MESSAGES,
   TERMINAL_STAGES,
   getNextStage,
   getPrevStage,
@@ -57,6 +58,7 @@ export function InterviewDetailSheet({
   canMoveTerminal: boolean
   canCreateProject?: boolean
 }) {
+  const { t, i18n } = useLingui()
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -72,7 +74,7 @@ export function InterviewDetailSheet({
       api.patch<InterviewDto>(`/interviews/${interview.id}`, data).then((r) => r.data),
     onSuccess: (updated) => {
       queryClient.invalidateQueries({ queryKey: ['interviews'] })
-      toast.success('Карточка сохранена')
+      toast.success(t`Співбесіду збережено`)
       onSaved(updated)
       if (closeAfterSave.current) {
         closeAfterSave.current = false
@@ -244,7 +246,9 @@ export function InterviewDetailSheet({
         >
           <SheetHeader className="mb-4 shrink-0">
             <SheetTitle className="pr-6">{interview.companyName}</SheetTitle>
-            <SheetDescription className="sr-only">Детали собеседования</SheetDescription>
+            <SheetDescription className="sr-only">
+              <Trans>Деталі співбесіди</Trans>
+            </SheetDescription>
             <div className="flex items-center gap-2 flex-wrap">
               <span
                 className={cn(
@@ -252,11 +256,11 @@ export function InterviewDetailSheet({
                   STAGE_BADGE_COLORS[interview.stage],
                 )}
               >
-                {STAGE_LABELS[interview.stage]}
+                {i18n._(STAGE_LABEL_MESSAGES[interview.stage])}
               </span>
               {interview.seniorName && (
                 <span className="text-xs text-muted-foreground">
-                  Senior: {interview.seniorName}
+                  <Trans>Сеньйор: {interview.seniorName}</Trans>
                 </span>
               )}
             </div>
@@ -266,19 +270,22 @@ export function InterviewDetailSheet({
             <div className="flex flex-col gap-4">
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Основное
+                  <Trans>Основне</Trans>
                 </h3>
                 <FieldRow
                   name="companyName"
-                  label="Компания"
-                  placeholder="Название компании"
+                  label={t`Компанія`}
+                  placeholder={t`Назва компанії`}
                   schema={updateInterviewSchema.shape.companyName.unwrap()}
                 />
                 <FieldRow
                   name="vacancyUrl"
-                  label="Ссылка на вакансию"
+                  label={t`Посилання на вакансію`}
                   placeholder="https://..."
-                  schema={z.string().url('Введите корректный URL (https://...)').or(z.literal(''))}
+                  schema={z
+                    .string()
+                    .url(t`Введіть коректний URL (https://...)`)
+                    .or(z.literal(''))}
                   inputType="url"
                 />
               </div>
@@ -286,7 +293,7 @@ export function InterviewDetailSheet({
               {canMove && (!isTerminal || canMoveTerminal) && (
                 <div className="space-y-2">
                   <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Этап
+                    <Trans>Стадія</Trans>
                   </h3>
                   <div className="flex gap-2">
                     {prevStage && (
@@ -297,7 +304,7 @@ export function InterviewDetailSheet({
                         onClick={() => void handleMoveWithSave(prevStage, 0)}
                         disabled={moveMutation.isPending}
                       >
-                        ← {STAGE_LABELS[prevStage]}
+                        ← {i18n._(STAGE_LABEL_MESSAGES[prevStage])}
                       </Button>
                     )}
                     {nextStage && (
@@ -307,7 +314,7 @@ export function InterviewDetailSheet({
                         onClick={() => void handleMoveWithSave(nextStage, 0)}
                         disabled={moveMutation.isPending}
                       >
-                        {STAGE_LABELS[nextStage]} →
+                        {i18n._(STAGE_LABEL_MESSAGES[nextStage])} →
                       </Button>
                     )}
                   </div>
@@ -319,7 +326,7 @@ export function InterviewDetailSheet({
                       onClick={() => void handleMoveWithSave('HIRED', 0)}
                       disabled={moveMutation.isPending}
                     >
-                      Нанят
+                      {i18n._(STAGE_LABEL_MESSAGES.HIRED)}
                     </Button>
                     <Button
                       variant="outline"
@@ -328,7 +335,7 @@ export function InterviewDetailSheet({
                       onClick={() => void handleMoveWithSave('REJECTED', 0)}
                       disabled={moveMutation.isPending}
                     >
-                      Отказ
+                      {i18n._(STAGE_LABEL_MESSAGES.REJECTED)}
                     </Button>
                     <Button
                       variant="outline"
@@ -337,7 +344,7 @@ export function InterviewDetailSheet({
                       onClick={() => void handleMoveWithSave('ARCHIVED', 0)}
                       disabled={moveMutation.isPending}
                     >
-                      Архив
+                      {i18n._(STAGE_LABEL_MESSAGES.ARCHIVED)}
                     </Button>
                   </div>
                 </div>
@@ -345,18 +352,20 @@ export function InterviewDetailSheet({
 
               <div className="space-y-3">
                 <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                  Заметки синьора
+                  <Trans>Нотатки сеньйора</Trans>
                 </h3>
                 <form.Field name="notesDomain">
                   {(field) => (
                     <div className="space-y-1">
-                      <Label className="text-xs">Домен</Label>
+                      <Label className="text-xs">
+                        <Trans>Домен</Trans>
+                      </Label>
                       <select
                         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                         value={field.state.value ?? ''}
                         onChange={(e) => field.handleChange((e.target.value || null) as string)}
                       >
-                        <option value="">— не выбран —</option>
+                        <option value="">{t`— не обрано —`}</option>
                         {IT_DOMAINS.map((d) => (
                           <option key={d} value={d}>
                             {d}
@@ -368,44 +377,44 @@ export function InterviewDetailSheet({
                 </form.Field>
                 <FieldRow
                   name="notesTechStack"
-                  label="Стек технологий"
+                  label={t`Стек технологій`}
                   placeholder="React, Node.js, AWS"
                   schema={updateInterviewSchema.shape.notesTechStack.unwrap().unwrap()}
                 />
                 <FieldRow
                   name="notesTeamSize"
-                  label="Состав команды"
+                  label={t`Розмір команди`}
                   placeholder="5 devs, 2 QA, 1 PM"
                   schema={updateInterviewSchema.shape.notesTeamSize.unwrap().unwrap()}
                 />
                 <FieldRow
                   name="notesBenefits"
-                  label="Бенефиты"
+                  label={t`Бенефіти`}
                   placeholder="20 days vacation, health insurance"
                   schema={updateInterviewSchema.shape.notesBenefits.unwrap().unwrap()}
                 />
                 <FieldRow
                   name="notesPaymentType"
-                  label="Тип оплаты"
-                  placeholder="ФОП / гиг-контракт / крипта"
+                  label={t`Тип оплати`}
+                  placeholder={t`ФОП / гіг-контракт / USDT`}
                   schema={updateInterviewSchema.shape.notesPaymentType.unwrap().unwrap()}
                 />
                 <FieldRow
                   name="notesSalaryReview"
-                  label="Пересмотр зарплаты"
-                  placeholder="через 3 місяці"
+                  label={t`Перегляд зарплати`}
+                  placeholder={t`через 3 місяці`}
                   schema={updateInterviewSchema.shape.notesSalaryReview.unwrap().unwrap()}
                 />
                 <FieldRow
                   name="notesCorpTech"
-                  label="Корпоративная техника"
+                  label={t`Корпоративна техніка`}
                   placeholder="MacBook Pro M3, iPhone 15..."
                   schema={z.string().max(255)}
                 />
                 <FieldRow
                   name="notesGeneral"
-                  label="Общие заметки"
-                  placeholder="Свободные заметки..."
+                  label={t`Загальні нотатки`}
+                  placeholder={t`Довільні нотатки...`}
                   schema={updateInterviewSchema.shape.notesGeneral.unwrap().unwrap()}
                   textarea
                 />
@@ -422,7 +431,7 @@ export function InterviewDetailSheet({
                     onClick={() => void form.handleSubmit()}
                     disabled={updateMutation.isPending || !isDirty}
                   >
-                    {updateMutation.isPending ? 'Сохраняем...' : 'Сохранить'}
+                    {updateMutation.isPending ? t`Збереження…` : t`Зберегти`}
                   </Button>
                 )}
               </form.Subscribe>
@@ -430,7 +439,7 @@ export function InterviewDetailSheet({
                 <Button
                   variant="outline"
                   size="icon"
-                  title="Удалить карточку"
+                  title={t`Видалити співбесіду`}
                   className="text-red-400 border-red-500/40 hover:bg-red-500/10"
                   onClick={() => setConfirmDelete(true)}
                 >
@@ -449,11 +458,15 @@ export function InterviewDetailSheet({
       <Dialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <DialogContent data-testid="confirm-delete-dialog">
           <DialogHeader>
-            <DialogTitle>Удалить карточку?</DialogTitle>
-            <DialogDescription className="sr-only">Удаление карточки</DialogDescription>
+            <DialogTitle>
+              <Trans>Видалити співбесіду?</Trans>
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              <Trans>Видалення співбесіди</Trans>
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Карточка &quot;{interview.companyName}&quot; будет удалена безвозвратно.
+            <Trans>Співбесіду «{interview.companyName}» буде видалено безповоротно.</Trans>
           </p>
           <DialogFooter>
             <Button
@@ -461,14 +474,14 @@ export function InterviewDetailSheet({
               data-testid="cancel-button"
               onClick={() => setConfirmDelete(false)}
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               variant="destructive"
               onClick={() => deleteMutation.mutate()}
               disabled={deleteMutation.isPending}
             >
-              Удалить
+              <Trans>Видалити</Trans>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -488,11 +501,15 @@ export function InterviewDetailSheet({
           data-testid="confirm-unsaved-dialog"
         >
           <DialogHeader>
-            <DialogTitle>Несохранённые изменения</DialogTitle>
-            <DialogDescription className="sr-only">Несохранённые изменения</DialogDescription>
+            <DialogTitle>
+              <Trans>Незбережені зміни</Trans>
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              <Trans>Незбережені зміни</Trans>
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Есть несохранённые изменения. Сохранить перед закрытием?
+            <Trans>Є незбережені зміни. Зберегти перед закриттям?</Trans>
           </p>
           <DialogFooter>
             <Button
@@ -503,7 +520,7 @@ export function InterviewDetailSheet({
                 onClose()
               }}
             >
-              Не сохранять
+              <Trans>Не зберігати</Trans>
             </Button>
             <Button
               onClick={() => {
@@ -513,7 +530,7 @@ export function InterviewDetailSheet({
               }}
               disabled={updateMutation.isPending}
             >
-              Сохранить
+              <Trans>Зберегти</Trans>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -527,11 +544,17 @@ export function InterviewDetailSheet({
       >
         <DialogContent data-testid="confirm-create-project-dialog">
           <DialogHeader>
-            <DialogTitle>Создать проект?</DialogTitle>
-            <DialogDescription className="sr-only">Создание проекта</DialogDescription>
+            <DialogTitle>
+              <Trans>Створити проєкт?</Trans>
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              <Trans>Створення проєкту</Trans>
+            </DialogDescription>
           </DialogHeader>
           <p className="text-sm text-muted-foreground">
-            Создать новый проект на базе карточки «{hiredInterview?.companyName}»?
+            <Trans>
+              Створити новий проєкт на основі співбесіди «{hiredInterview?.companyName}»?
+            </Trans>
           </p>
           <DialogFooter>
             <Button
@@ -539,7 +562,7 @@ export function InterviewDetailSheet({
               data-testid="cancel-button"
               onClick={() => setConfirmCreateProject(false)}
             >
-              Нет
+              <Trans>Ні</Trans>
             </Button>
             <Button
               onClick={() => {
@@ -552,7 +575,7 @@ export function InterviewDetailSheet({
                 }
               }}
             >
-              Да, перейти
+              <Trans>Так, перейти</Trans>
             </Button>
           </DialogFooter>
         </DialogContent>

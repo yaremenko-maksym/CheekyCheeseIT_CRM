@@ -1,3 +1,5 @@
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { InterviewStage } from '@crm/shared'
 
 export const ACTIVE_STAGES: InterviewStage[] = [
@@ -13,17 +15,20 @@ export const TERMINAL_STAGES: InterviewStage[] = ['HIRED', 'REJECTED', 'ARCHIVED
 
 export const ALL_STAGES: InterviewStage[] = [...ACTIVE_STAGES, ...TERMINAL_STAGES]
 
-export const STAGE_LABELS: Record<InterviewStage, string> = {
-  HR_SCREEN: 'HR Screen',
-  ENGLISH_CHECK: 'English',
-  TECH_INTERVIEW: 'Tech',
-  FINAL_INTERVIEW: 'Final',
-  CLIENT_INTERVIEW: 'Client',
-  OFFER_RECEIVED: 'Offer',
-  HIRED: 'Нанят',
-  REJECTED: 'Отказ',
-  ARCHIVED: 'Архив',
-}
+// Canon terms — CONTEXT.md «Волна c — web-projects». satisfies WITHOUT
+// `as const` (урок #707): `as const satisfies …` disables Stryker for the
+// whole block (0 mutants).
+export const STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor> = {
+  HR_SCREEN: msg`HR-скринінг`, // en: HR screen
+  ENGLISH_CHECK: msg`Англійська`, // en: English
+  TECH_INTERVIEW: msg`Технічна`, // en: Technical
+  FINAL_INTERVIEW: msg`Фінальна`, // en: Final
+  CLIENT_INTERVIEW: msg`З клієнтом`, // en: Client
+  OFFER_RECEIVED: msg`Оффер отримано`, // en: Offer received
+  HIRED: msg`Найнято`, // en: Hired
+  REJECTED: msg`Відмова`, // en: Rejected
+  ARCHIVED: msg`Архів`, // en: Archived
+} satisfies Record<InterviewStage, MessageDescriptor>
 
 // Stage colors — semantic, harmonised palette (owner verdict 2026-06-23).
 // Active stages: vivid enough to distinguish, not "acid".
@@ -116,8 +121,4 @@ export function getPrevStage(stage: InterviewStage): InterviewStage | null {
   const activeIdx = ACTIVE_STAGES.indexOf(stage)
   if (activeIdx <= 0) return null
   return ACTIVE_STAGES[activeIdx - 1] ?? null
-}
-
-export function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('uk-UA', { day: '2-digit', month: '2-digit' })
 }
