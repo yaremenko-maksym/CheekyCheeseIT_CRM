@@ -1556,7 +1556,7 @@ function ProjectDetailPage() {
                         className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
                         data-testid="project-drop-badge"
                       >
-                        Drop-проект
+                        <Trans>Проєкт з дропом</Trans>
                       </Badge>
                     )}
                   <Badge variant="outline" className="text-xs">
@@ -1579,7 +1579,7 @@ function ProjectDetailPage() {
                   data-testid="project-edit-button"
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  Редактировать
+                  <Trans>Редагувати</Trans>
                 </Button>
               )}
               {isAdmin && !project.archivedAt && (
@@ -1591,7 +1591,7 @@ function ProjectDetailPage() {
                   data-testid="project-archive-button"
                 >
                   <Archive className="h-3.5 w-3.5" />
-                  Архивировать
+                  <Trans>Архівувати</Trans>
                 </Button>
               )}
               {isAdmin && project.archivedAt && (
@@ -1613,10 +1613,10 @@ function ProjectDetailPage() {
                 <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Ставка
+                    {t`Ставка`}
                   </p>
                   <p className="text-sm font-semibold tabular-nums">
-                    {project.rate.toLocaleString()} {project.currency}
+                    {formatNumber(project.rate, locale)} {project.currency}
                   </p>
                   {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
                     <p className="text-[10px] text-muted-foreground tabular-nums">
@@ -1629,13 +1629,9 @@ function ProjectDetailPage() {
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Старт</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{t`Старт`}</p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                  })}
+                  {formatDate(project.startDate, locale, 'short')}
                 </p>
               </div>
             </div>
@@ -1644,14 +1640,10 @@ function ProjectDetailPage() {
                 <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Завершён
+                    {t`В архіві з`}
                   </p>
                   <p className="text-sm font-semibold">
-                    {new Date(project.archivedAt).toLocaleDateString('ru-RU', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                    })}
+                    {formatDate(project.archivedAt, locale, 'short')}
                   </p>
                 </div>
               </div>
@@ -1659,7 +1651,7 @@ function ProjectDetailPage() {
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Globe className="h-4 w-4 text-violet-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Домен</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{t`Домен`}</p>
                 <p className="text-sm font-semibold">{project.domain}</p>
               </div>
             </div>
