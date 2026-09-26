@@ -1740,25 +1740,34 @@ function ProjectDetailPage() {
               <Card className="min-w-0 border-border/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Детали проекта
+                    {t`Деталі проєкту`}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-0 divide-y divide-border/40">
-                  <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
+                  <InfoRow
+                    icon={<Briefcase className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.techStack)}
+                  >
                     {project.techStack ? (
                       <span className="font-medium">{project.techStack}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
+                  <InfoRow
+                    icon={<Users className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.teamSize)}
+                  >
                     {project.teamSize ? (
                       <span className="font-medium">{project.teamSize}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
+                  <InfoRow
+                    icon={<Building2 className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.benefits)}
+                  >
                     {project.benefits ? (
                       <span className="font-medium">{project.benefits}</span>
                     ) : (
@@ -1771,24 +1780,33 @@ function ProjectDetailPage() {
                   spec, not relying solely on the null value). HR still sees it
                   (read value), only JUNIOR loses the row entirely. */}
                   {user?.role !== 'JUNIOR' && (
-                    <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
+                    <InfoRow
+                      icon={<CreditCard className="h-3.5 w-3.5" />}
+                      label={i18n._(EDIT_FIELD_LABEL_MESSAGES.paymentType)}
+                    >
                       {project.paymentType ? (
                         <span className="font-medium">
-                          {PAYMENT_TYPE_LABELS[project.paymentType]}
+                          {i18n._(PAYMENT_TYPE_MESSAGES[project.paymentType])}
                         </span>
                       ) : (
                         <span className="text-muted-foreground/40 italic">—</span>
                       )}
                     </InfoRow>
                   )}
-                  <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
+                  <InfoRow
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.salaryReview)}
+                  >
                     {project.salaryReview ? (
                       <span className="font-medium">{project.salaryReview}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
+                  <InfoRow
+                    icon={<Laptop className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.corpTech)}
+                  >
                     {project.corpTech ? (
                       <span className="font-medium">{project.corpTech}</span>
                     ) : (
@@ -1798,7 +1816,7 @@ function ProjectDetailPage() {
                   <div className="flex items-start gap-2 py-3 text-sm">
                     <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t`Загальні нотатки`}</p>
                       {project.notesGeneral ? (
                         <p className="text-sm whitespace-pre-wrap leading-relaxed">
                           {project.notesGeneral}
@@ -1815,7 +1833,7 @@ function ProjectDetailPage() {
                   {canSeeProjectFinance && (
                     <InfoRow
                       icon={<Percent className="h-3.5 w-3.5" />}
-                      label="Доля синьора"
+                      label={t`Частка сеньйора`}
                       // task-648-fix-round-3 (COPY-H-7): only when a proposal
                       // is live does this row carry a named button; only then
                       // does it need the full width. Without a proposal it is
@@ -1832,7 +1850,7 @@ function ProjectDetailPage() {
                   {/* task-drop-share-override-and-receiver (Surface A). Same
                   read-only pattern as «Доля синьора» above, drop-projects only. */}
                   {canSeeProjectFinance && project.dropId != null && (
-                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля дропа">
+                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label={t`Частка дропа`}>
                       <ProjectDropShareInfo project={project} />
                     </InfoRow>
                   )}
@@ -1844,7 +1862,7 @@ function ProjectDetailPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Команда
+                      {t`Склад`}
                     </CardTitle>
                     {canManage && !project.archivedAt && (
                       <Tooltip>
@@ -1861,12 +1879,14 @@ function ProjectDetailPage() {
                               }}
                             >
                               <UserPlus className="h-3 w-3" />
-                              Добавить
+                              <Trans>Додати до складу</Trans>
                             </Button>
                           </span>
                         </TooltipTrigger>
                         {availableToAdd.length === 0 && (
-                          <TooltipContent>Некого добавлять</TooltipContent>
+                          <TooltipContent>
+                            <Trans>Нікого додавати</Trans>
+                          </TooltipContent>
                         )}
                       </Tooltip>
                     )}
@@ -1901,7 +1921,7 @@ function ProjectDetailPage() {
                           {senior.displayName}
                         </span>
                         <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
-                          Синьор
+                          {i18n._(ROLE_LABEL_MESSAGES.SENIOR)}
                         </Badge>
                       </ProfileNameLink>
                     </div>
@@ -1938,7 +1958,7 @@ function ProjectDetailPage() {
                             variant="outline"
                             className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"
                           >
-                            Дроп
+                            {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                           </Badge>
                         </ProfileNameLink>
                       </div>
@@ -1947,7 +1967,7 @@ function ProjectDetailPage() {
                   {/* HR */}
                   <div className="pt-3 pb-3">
                     {activeHRs.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                      <p className="text-xs text-muted-foreground/50 italic">{t`Не призначено`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeHRs.map((m) => (
@@ -1965,7 +1985,7 @@ function ProjectDetailPage() {
                   {/* Accountants */}
                   <div className="pt-3 pb-3">
                     {activeAccountants.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                      <p className="text-xs text-muted-foreground/50 italic">{t`Не призначено`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeAccountants.map((m) => (
@@ -1983,7 +2003,7 @@ function ProjectDetailPage() {
                   {/* Junior */}
                   <div className="pt-3">
                     {activeJuniors.length === 0 ? (
-                      <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
+                      <p className="text-xs text-amber-500/80 font-medium">{t`Джуніор не призначений`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeJuniors.map((m) => (
@@ -2002,7 +2022,7 @@ function ProjectDetailPage() {
                   {pastMembers.length > 0 && (
                     <div className="pt-3">
                       <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">
-                        Покинули проект
+                        {t`Залишили проєкт`}
                       </p>
                       <div className="space-y-1.5 opacity-50">
                         {pastMembers.map((m) => (
