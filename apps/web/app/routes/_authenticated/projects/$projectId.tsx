@@ -2053,9 +2053,13 @@ function ProjectDetailPage() {
         <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
           <CrmDialogContent maxWidth="max-w-lg">
             <CrmDialogHeader>
-              <DialogTitle>Редактировать — {project.companyName}</DialogTitle>
+              <DialogTitle>
+                <Trans>Редагувати — {project.companyName}</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Редактирование параметров проекта: ставка, валюта, домен и настройки доли.
+                <Trans>
+                  Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки.
+                </Trans>
               </DialogDescription>
             </CrmDialogHeader>
 
@@ -2079,13 +2083,13 @@ function ProjectDetailPage() {
             {canOpenEdit && (
               <CrmDialogFooter>
                 <Button variant="outline" onClick={() => setEditOpen(false)}>
-                  Отмена
+                  <Trans>Скасувати</Trans>
                 </Button>
                 <Button
                   onClick={() => void editForm.handleSubmit()}
                   disabled={editMutation.isPending}
                 >
-                  {editMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                  {editMutation.isPending ? t`Збереження…` : t`Зберегти`}
                 </Button>
               </CrmDialogFooter>
             )}
@@ -2095,22 +2099,26 @@ function ProjectDetailPage() {
         <Dialog open={!!removeMemberTarget} onOpenChange={(v) => !v && setRemoveMemberTarget(null)}>
           <CrmDialogContent maxWidth="sm:max-w-sm">
             <CrmDialogHeader>
-              <DialogTitle>Убрать участника?</DialogTitle>
+              <DialogTitle>
+                <Trans>Прибрати зі складу?</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Подтверждение удаления участника из проекта.
+                <Trans>Підтвердження видалення учасника зі складу проєкту.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody className="pb-2">
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {removeMemberTarget?.displayName}
-                </span>{' '}
-                будет убран из проекта.
+                <Trans>
+                  <span className="font-medium text-foreground">
+                    {removeMemberTarget?.displayName}
+                  </span>{' '}
+                  буде прибраний зі складу проєкту.
+                </Trans>
               </p>
             </CrmDialogBody>
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setRemoveMemberTarget(null)}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 variant="destructive"
@@ -2119,7 +2127,7 @@ function ProjectDetailPage() {
                 }
                 disabled={removeMemberMutation.isPending}
               >
-                Убрать
+                <Trans>Прибрати</Trans>
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
@@ -2133,15 +2141,19 @@ function ProjectDetailPage() {
         >
           <CrmDialogContent maxWidth="max-w-sm">
             <CrmDialogHeader>
-              <DialogTitle>Добавить участника</DialogTitle>
+              <DialogTitle>
+                <Trans>Додати до складу</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Выбор участников для добавления в проект.
+                <Trans>Вибір учасників для додавання до складу проєкту.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
               <div className="max-h-72 space-y-1.5 overflow-y-auto">
                 {availableToAdd.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">Некого добавлять</p>
+                  <p className="text-sm text-muted-foreground py-2">
+                    <Trans>Нікого додавати</Trans>
+                  </p>
                 )}
                 {availableToAdd.map((u) => {
                   const isAdded = addedMemberIds.has(u.id)
@@ -2177,7 +2189,7 @@ function ProjectDetailPage() {
                           addMemberMutation.mutate(u.id)
                         }}
                       >
-                        {isAdded ? 'Добавлено' : isPending ? '...' : 'Добавить'}
+                        {isAdded ? t`Додано` : isPending ? '...' : t`Додати`}
                       </Button>
                     </div>
                   )
@@ -2190,13 +2202,19 @@ function ProjectDetailPage() {
         <Dialog open={dropPickerOpen} onOpenChange={(v) => !v && setDropPickerOpen(false)}>
           <CrmDialogContent maxWidth="max-w-sm" data-testid="attach-drop-dialog">
             <CrmDialogHeader>
-              <DialogTitle>Привязать дропа</DialogTitle>
-              <DialogDescription className="sr-only">Выбор дропа для проекта</DialogDescription>
+              <DialogTitle>
+                <Trans>Прив’язати дропа</Trans>
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                <Trans>Вибір дропа для проєкту</Trans>
+              </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
               <ul className="max-h-72 space-y-1.5 overflow-y-auto">
                 {dropCandidates.length === 0 && (
-                  <p className="py-2 text-sm text-muted-foreground">Нет доступных дропов</p>
+                  <p className="py-2 text-sm text-muted-foreground">
+                    <Trans>Немає доступних дропів</Trans>
+                  </p>
                 )}
                 {dropCandidates.map((u) => (
                   <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
@@ -2214,17 +2232,17 @@ function ProjectDetailPage() {
                       variant="outline"
                       className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
                     >
-                      Дроп
+                      {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                     </Badge>
                     <Button
                       size="sm"
                       className="h-7 min-h-[44px] min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0"
                       disabled={dropMutation.isPending}
                       onClick={() => dropMutation.mutate(u.id)}
-                      aria-label={`Назначить ${u.displayName} дропом`}
+                      aria-label={t`Призначити ${u.displayName} дропом`}
                       data-testid={`assign-drop-btn-${u.id}`}
                     >
-                      {dropMutation.isPending ? '...' : 'Назначить'}
+                      {dropMutation.isPending ? '...' : t`Призначити`}
                     </Button>
                   </li>
                 ))}
@@ -2239,22 +2257,27 @@ function ProjectDetailPage() {
         >
           <CrmDialogContent maxWidth="sm:max-w-sm" data-testid="detach-drop-dialog">
             <CrmDialogHeader>
-              <DialogTitle>Снять дропа?</DialogTitle>
+              <DialogTitle>
+                <Trans>Відв’язати дропа?</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Подтверждение снятия дропа с проекта
+                <Trans>Підтвердження відв’язання дропа від проєкту</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody className="pb-2">
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {project.effectiveTeam?.drop?.displayName ?? 'Дроп'}
-                </span>{' '}
-                будет снят с проекта. Приходы больше не будут проходить через него.
+                <Trans>
+                  <span className="font-medium text-foreground">
+                    {project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)}
+                  </span>{' '}
+                  буде відв’язаний від проєкту. Гроші за проєктом більше не йтимуть через його
+                  реквізити.
+                </Trans>
               </p>
             </CrmDialogBody>
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setDetachDropConfirmOpen(false)}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 variant="destructive"
@@ -2262,7 +2285,7 @@ function ProjectDetailPage() {
                 disabled={dropMutation.isPending}
                 data-testid="detach-drop-confirm-btn"
               >
-                Снять
+                <Trans>Відв’язати</Trans>
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
