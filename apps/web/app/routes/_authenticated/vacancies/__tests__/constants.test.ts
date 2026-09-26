@@ -1,12 +1,16 @@
 import { describe, expect, it, beforeEach } from 'vitest'
 import { i18n } from '@lingui/core'
+import { z } from 'zod'
 import {
   APPLICATION_STATUS_LABEL_MESSAGES,
   buildSeoFieldsDto,
   buildTranslationsDto,
+  collectVacancyValidationErrors,
   EMPLOYMENT_TYPE_LABEL_MESSAGES,
   emptySeoFormValues,
   emptyTranslationsFormValues,
+  getVacancyDeleteGate,
+  getVacancyPublishGate,
   SALARY_PERIOD_LABEL_MESSAGES,
   safeExternalHref,
   seoFormValuesFromVacancy,
@@ -15,7 +19,7 @@ import {
   VACANCY_STATUS_LABEL_MESSAGES,
   zodIssueRu,
 } from '../constants'
-import { createVacancySchema, VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
+import { createVacancySchema, updateVacancySchema, VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
 import { loadCatalog } from '@/test/i18n'
 
 beforeEach(async () => {
@@ -86,6 +90,165 @@ describe('zodIssueRu pluralizes the character count (shape J)', () => {
     [21, 'Мінімум 21 символ'],
   ])('minimum=%i -> %s', (minimum, expected) => {
     expect(tooSmall(minimum)).toBe(expected)
+  })
+})
+
+// task-i18n-stage3c-pr2 (CI-MUT, fix-round A) — every branch of `zodIssueRu`,
+// not just the too_small plural boundaries above: undefined issue, too_big,
+// invalid_format (with and without a caller-supplied `patternMsg`), and the
+// final catch-all. Also the guard conditions themselves (`code === X &&
+// 'field' in issue`) — a same-code issue MISSING the expected numeric field
+// must fall through instead of resolving the wrong message, which is exactly
+// what the surviving `||`-instead-of-`&&` mutants at these lines exploited.
+describe('zodIssueRu — every branch (CI-MUT, fix-round A)', () => {
+  it('undefined issue -> undefined', () => {
+    expect(zodIssueRu(undefined)).toBeUndefined()
+  })
+
+  it('too_big resolves the maximum plural, boundary values', () => {
+    expect(zodIssueRu({ code: 'too_big', maximum: 1 } as never)).toBe('Максимум 1 символ')
+    expect(zodIssueRu({ code: 'too_big', maximum: 5 } as never)).toBe('Максимум 5 символів')
+  })
+
+  it('too_small WITHOUT a minimum field falls through to the catch-all, not the plural', () => {
+    expect(zodIssueRu({ code: 'too_small' } as never)).toBe('Неприпустиме значення')
+  })
+
+  it('too_big WITHOUT a maximum field falls through to the catch-all, not the plural', () => {
+    expect(zodIssueRu({ code: 'too_big' } as never)).toBe('Неприпустиме значення')
+  })
+
+  it('invalid_format WITH a patternMsg returns it verbatim, not the generic text', () => {
+    expect(zodIssueRu({ code: 'invalid_format' } as never, 'custom hint')).toBe('custom hint')
+  })
+
+  it('invalid_format WITHOUT a patternMsg returns the generic catalog text', () => {
+    expect(zodIssueRu({ code: 'invalid_format' } as never)).toBe('Неприпустимий формат')
+  })
+
+  it('too_small carrying a MAXIMUM field (never happens for real, but pins the `&&`) falls through, not the plural', () => {
+    // Discriminates `code === 'too_small' && 'minimum' in issue` mutated to
+    // `code === 'too_small' || 'minimum' in issue`: this issue has a
+    // `maximum` field but no `minimum`, so the OR-mutant would still enter
+    // the too_small branch on the code check alone and crash reading
+    // `issue.minimum` (undefined) into the plural — the AND-original
+    // correctly falls through to the catch-all instead.
+    expect(zodIssueRu({ code: 'too_small', maximum: 5 } as never)).toBe('Неприпустиме значення')
+  })
+
+  it('too_big carrying a MINIMUM field (never happens for real, but pins the `&&`) falls through, not the plural', () => {
+    expect(zodIssueRu({ code: 'too_big', minimum: 3 } as never)).toBe('Неприпустиме значення')
+  })
+
+  it('an unrecognized issue code falls through to the same catch-all', () => {
+    expect(zodIssueRu({ code: 'custom' } as never)).toBe('Неприпустиме значення')
+  })
+})
+
+// task-i18n-stage3c-pr2 (CI-MUT, fix-round A) — `collectVacancyValidationErrors`
+// was only ever exercised indirectly (VacancySheet.test.tsx's translation-tab
+// test), which never hit the de-dup guard: the FIRST issue for a given
+// dot-path wins, a second issue for the SAME path must not overwrite it.
+describe('collectVacancyValidationErrors (CI-MUT, fix-round A)', () => {
+  it('returns null when the dto is already valid', () => {
+    expect(collectVacancyValidationErrors({ status: 'PUBLISHED' }, updateVacancySchema)).toBeNull()
+  })
+
+  it('keeps the FIRST error for a path, ignoring a second issue on the same path', () => {
+    // `title` fails BOTH `.min(3)` (too_small) and — once schema had a second
+    // rule — would fail again; simulate the de-dup guard directly against a
+    // schema that genuinely produces two issues on the same path is brittle,
+    // so this pins the guard's own documented behaviour: a hand-built dto
+    // with one bad field yields exactly ONE entry for that path.
+    const result = collectVacancyValidationErrors(
+      { title: 'ab', slug: 'valid-slug', descriptionMd: 'short' },
+      createVacancySchema,
+    )
+    expect(result).not.toBeNull()
+    expect(Object.keys(result!.fields)).toEqual(expect.arrayContaining(['title', 'descriptionMd']))
+    // Exactly one message per path — the guard did not let a later issue for
+    // the same path clobber (or duplicate) the first.
+    expect(result!.fields.title).toBe('Мінімум 3 символи')
+  })
+
+  it('a genuine SECOND issue on the same path is discarded, not overwritten (kills the always-true mutant)', () => {
+    // The hand-built-dto test above only ever produces ONE issue per path
+    // (schema-level `.min()` bails after the first failure) — it cannot
+    // discriminate `if (!(path in fields))` mutated to `if (true)`, because
+    // with only one issue per path both versions behave identically. This
+    // schema uses `.superRefine()` to push TWO issues onto the exact same
+    // `title` path deliberately, confirming the addIssue shape via a direct
+    // node run first (too_small then too_big, both on ['title']).
+    const twoIssuesOnSamePath = z.object({ title: z.string() }).superRefine((_val, ctx) => {
+      ctx.addIssue({
+        code: 'too_small',
+        minimum: 3,
+        origin: 'string',
+        inclusive: true,
+        path: ['title'],
+        message: 'first',
+      })
+      ctx.addIssue({
+        code: 'too_big',
+        maximum: 5,
+        origin: 'string',
+        inclusive: true,
+        path: ['title'],
+        message: 'second',
+      })
+    })
+    const result = collectVacancyValidationErrors({ title: 'ab' }, twoIssuesOnSamePath)
+    expect(result).not.toBeNull()
+    // Original: `!(path in fields)` is true only for the FIRST issue, so
+    // `fields.title` stays "Мінімум 3 символи" (too_small). The `if (true)`
+    // mutant would let the SECOND issue win, overwriting it with the
+    // too_big text ("Максимум 5 символів") instead.
+    expect(result!.fields.title).toBe('Мінімум 3 символи')
+  })
+
+  it('firstTranslationLocale is null when no translation field is invalid', () => {
+    const result = collectVacancyValidationErrors(
+      { title: 'ab' },
+      createVacancySchema.pick({ title: true }),
+    )
+    expect(result?.firstTranslationLocale).toBeNull()
+  })
+})
+
+describe('getVacancyDeleteGate (CI-MUT, fix-round A)', () => {
+  it('PUBLISHED is never deletable, regardless of applicationsCount, with the "close first" tooltip', () => {
+    const gate = getVacancyDeleteGate({ status: 'PUBLISHED', applicationsCount: 0 })
+    expect(gate.canDelete).toBe(false)
+    expect(gate.tooltip).toBe('Опубліковану вакансію потрібно спочатку закрити')
+  })
+
+  it('DRAFT with 0 applications is deletable', () => {
+    expect(getVacancyDeleteGate({ status: 'DRAFT', applicationsCount: 0 }).canDelete).toBe(true)
+  })
+
+  it('CLOSED with applications is NOT deletable, with the "has applications" tooltip', () => {
+    const gate = getVacancyDeleteGate({ status: 'CLOSED', applicationsCount: 3 })
+    expect(gate.canDelete).toBe(false)
+    expect(gate.tooltip).toBe('Неможливо видалити вакансію з відгуками')
+  })
+})
+
+describe('getVacancyPublishGate (CI-MUT, fix-round A)', () => {
+  const FULL_RANGE = {
+    salaryMin: '3000',
+    salaryMax: '5000',
+    salaryCurrency: 'USDT' as const,
+    salaryPeriod: 'MONTH' as const,
+  }
+
+  it('every salary field present -> canPublish true', () => {
+    expect(getVacancyPublishGate(FULL_RANGE).canPublish).toBe(true)
+  })
+
+  it('a missing salary field -> canPublish false, with the catalog tooltip', () => {
+    const gate = getVacancyPublishGate({ ...FULL_RANGE, salaryMin: null })
+    expect(gate.canPublish).toBe(false)
+    expect(gate.tooltip).toBe('Вкажіть вилку зарплати у формі редагування перед публікацією')
   })
 })
 

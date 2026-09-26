@@ -255,3 +255,39 @@ describe('VacancyCard — applications counter pluralization (task-i18n-stage3c-
     expect(screen.getAllByText(expected).length).toBeGreaterThan(0)
   })
 })
+
+// task-i18n-stage3c-pr2 (CI-MUT, fix-round A) — the mobile icon-only buttons'
+// `aria-label`s (edit / kebab-menu / close / delete) had no test at all: a
+// sighted-only click-and-check pass never needs an accessible name, so these
+// four `t\`...\`` literals were free to drift or be blanked without any test
+// noticing.
+describe('VacancyCard — icon-only button accessible names (CI-MUT, fix-round A)', () => {
+  it('mobile edit icon button is named "Редагувати вакансію"', () => {
+    renderCard(makeVacancy({ status: 'DRAFT' }))
+    expect(screen.getByTestId('vacancy-edit-mobile-vac-1')).toHaveAccessibleName(
+      'Редагувати вакансію',
+    )
+  })
+
+  it('mobile kebab menu is named "Ще дії" when rendered (PUBLISHED)', () => {
+    renderCard(makeVacancy({ status: 'PUBLISHED' }))
+    expect(screen.getByTestId('vacancy-more-mobile-vac-1')).toHaveAccessibleName('Ще дії')
+  })
+
+  it('desktop close button (PUBLISHED) is named "Закрити вакансію"', () => {
+    renderCard(makeVacancy({ status: 'PUBLISHED' }))
+    expect(screen.getByTestId('vacancy-close-vac-1')).toHaveAccessibleName('Закрити вакансію')
+  })
+
+  it('desktop delete button: "Видалити вакансію" when enabled', () => {
+    renderCard(makeVacancy({ status: 'DRAFT', applicationsCount: 0 }))
+    expect(screen.getByTestId('vacancy-delete-vac-1')).toHaveAccessibleName('Видалити вакансію')
+  })
+
+  it('desktop delete button: "Видалити вакансію (недоступно)" when disabled', () => {
+    renderCard(makeVacancy({ status: 'DRAFT', applicationsCount: 3 }))
+    expect(screen.getByTestId('vacancy-delete-disabled-vac-1')).toHaveAccessibleName(
+      'Видалити вакансію (недоступно)',
+    )
+  })
+})

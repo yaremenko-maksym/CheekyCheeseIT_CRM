@@ -206,6 +206,42 @@ describe('CandidateCard — status toggle (PATCH)', () => {
     fireEvent.click(screen.getByTestId('candidate-status-app-1-NEW'))
     expect(apiPatch).not.toHaveBeenCalled()
   })
+
+  // task-i18n-stage3c-pr2 (CI-MUT, fix-round A) — the REJECTED option's own
+  // `value`/`label`/`activeVariant: 'destructive'` entry had no direct
+  // coverage (only VIEWED/NEW were exercised above).
+  it('clicking «Відхилений» PATCHes status: REJECTED', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-REJECTED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'REJECTED',
+      }),
+    )
+  })
+
+  it('REJECTED renders as the destructive (red) pill when active, not the default gold one', () => {
+    renderCard(makeApplication({ status: 'REJECTED' }))
+    const rejectedButton = screen.getByTestId('candidate-status-app-1-REJECTED')
+    // The active pill is an inner `aria-hidden` div with no dedicated
+    // testid — asserting on the button's own markup (not a live DOM query)
+    // avoids `testing-library/no-node-access` without losing the check.
+    expect(rejectedButton.innerHTML).toContain('bg-destructive/20')
+  })
+
+  it('the status toggle group names the candidate in its accessible name', () => {
+    renderCard(makeApplication({ fullName: 'Ada Lovelace' }))
+    expect(
+      screen.getByRole('radiogroup', { name: 'Статус відгуку кандидата Ada Lovelace' }),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('CandidateCard — delete button accessible name (CI-MUT, fix-round A)', () => {
+  it('the delete icon button is named "Видалити відгук" for assistive tech', () => {
+    renderCard(makeApplication())
+    expect(screen.getByRole('button', { name: 'Видалити відгук' })).toBeInTheDocument()
+  })
 })
 
 describe('CandidateCard — resume download (presigned URL, task-candidate-card-resume AC1)', () => {

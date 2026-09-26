@@ -137,6 +137,15 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
       onSubmit: ({ value }) => {
         const dto = buildVacancyDto(value)
         const schema = isEdit ? updateVacancySchema : createVacancySchema
+        // fix-round A (CI-MUT) — `form.state.errorMap` (where this object
+        // lands) is never read anywhere in this file or `VacancyFormFields`;
+        // the actual user-visible feedback is `onSubmitInvalid`'s toast
+        // below. Only "truthy vs null" gates `handleSubmit()`'s onSubmit
+        // call — verified by the existing "apiPost not called" tests — so
+        // both the `{}` (ObjectLiteral) and `` (StringLiteral) mutants on
+        // this line are genuinely unobservable: either still yields a
+        // truthy object, which gates identically.
+        // Stryker disable next-line ObjectLiteral,StringLiteral: gating is truthy-vs-null only, this message string is never rendered — see comment above
         return schema.safeParse(dto).success ? null : { form: t`Форма містить помилки` }
       },
     },

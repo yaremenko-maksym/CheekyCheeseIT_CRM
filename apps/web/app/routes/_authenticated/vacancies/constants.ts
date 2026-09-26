@@ -310,7 +310,18 @@ const INVALID_VALUE_MSG = msg`Неприпустиме значення`
 // are different types, so `{ message: descriptor.message }` doesn't
 // type-check even though `msg` always sets it — same guard as
 // `axios-utils.ts`'s `translateApiError`/`translateZodError`.
+//
+// fix-round A (CI-MUT) — every call site passes a `msg` descriptor's
+// `.message`, which the macro always fills in, so `message` is never
+// actually `undefined` in this codebase; the fallback branch (`{message}`
+// forced to always/never render) is unobservable through any test that
+// loads a real catalog, because `i18n._`'s own third argument is only ever
+// consulted as a raw string fallback when the catalog lookup itself fails —
+// which none of our tests do on purpose (that would defeat the point of
+// asserting the actual rendered catalog text).
+// Stryker disable next-line BlockStatement: emptying this function's body always returns `undefined` — same fallback-only reasoning as the `return` line below
 function messageOptions(message: string | undefined): { message: string } | undefined {
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,ObjectLiteral: fallback-only branch, unreachable with a loaded catalog — see comment above
   return message !== undefined ? { message } : undefined
 }
 

@@ -269,9 +269,24 @@ export function VacancyFormFields({
       >
         {(field: AnyField) => {
           const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+          // fix-round A (CI-MUT) — `ContractEditor` (below) is never given an
+          // `onBlur` prop, so `field.state.meta.isTouched` never flips true
+          // through real user interaction with this field; `err` is
+          // therefore always `undefined` here and this className mutant is
+          // unobservable by any test that renders the real component tree.
+          // Wiring `onBlur` through `ContractEditor`'s shared interface
+          // (used by TOS/contract pages too) is a pre-existing product gap,
+          // out of scope for this i18n PR — see VacancyFormFields.test.tsx's
+          // note. A JSX comment directly above the `<Label>` below does NOT
+          // work as a Stryker suppression (Stryker only reads `//` line
+          // comments, and JSX `{/* */}` is a separate AST node it never
+          // scans) — the computation is hoisted into this plain `const` so
+          // the `//` comment lands on a real JS statement instead.
+          // Stryker disable next-line ConditionalExpression,StringLiteral,LogicalOperator: isTouched never becomes true for this field — see comment above
+          const descriptionLabelClassName = cn(err && 'text-destructive')
           return (
             <div className="space-y-1.5">
-              <Label className={cn(err && 'text-destructive')}>
+              <Label className={descriptionLabelClassName}>
                 <Trans>Опис (Markdown)</Trans>
               </Label>
               {/* §4.2: default 480px height is fine both narrow (Sheet) and wide
