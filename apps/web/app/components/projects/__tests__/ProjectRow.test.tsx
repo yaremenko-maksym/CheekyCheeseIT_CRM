@@ -260,11 +260,26 @@ describe('ProjectRow — rate/date column + sr-only role labels (mutation-gate c
   })
 
   it('renders the start date as DD.MM.YYYY (uk-UA, UTC-pinned) — independently computed via Intl, not via formatDate', async () => {
-    const project = makeProject({ startDate: '2026-01-01T00:00:00.000Z' })
-    renderProjectRow(project)
+    // task-i18n-stage3c-pr3 fix-round A (CI-MUT, second pass): a CI runner's
+    // default timezone IS UTC, so mutating the `'short'` style arg to `''`
+    // (which drops `formatDate`'s `timeZone: 'UTC'` option) renders the SAME
+    // string there — the mutant survived CI even though this test passed
+    // locally on a non-UTC machine. Forcing a negative-offset host timezone
+    // makes the assertion timezone-INDEPENDENT: at 2026-01-01T00:00:00Z,
+    // America/Los_Angeles (UTC-8) local time is still 2025-12-31 — so ONLY
+    // the explicit `timeZone: 'UTC'` option can produce "01.01.2026" here,
+    // regardless of what timezone the test happens to run in otherwise.
+    const originalTZ = process.env.TZ
+    process.env.TZ = 'America/Los_Angeles'
+    try {
+      const project = makeProject({ startDate: '2026-01-01T00:00:00.000Z' })
+      renderProjectRow(project)
 
-    const rateColumn = await screen.findByTestId(`project-row-${project.id}-rate-column`)
-    expect(rateColumn).toHaveTextContent('01.01.2026')
+      const rateColumn = await screen.findByTestId(`project-row-${project.id}-rate-column`)
+      expect(rateColumn).toHaveTextContent('01.01.2026')
+    } finally {
+      process.env.TZ = originalTZ
+    }
   })
 
   it('renders the sr-only «Сеньйор» role label alongside the senior link', async () => {
