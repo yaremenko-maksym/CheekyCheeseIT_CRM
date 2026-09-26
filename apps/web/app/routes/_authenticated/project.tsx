@@ -14,14 +14,24 @@
  */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { BookOpen, DollarSign, Phone, Send, UserCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { HrContactDto, ProjectDto, SalaryMetaDto, TransactionDto } from '@crm/shared'
-import { hrContactSchema, salaryMetaSchema, transactionSchema } from '@crm/shared'
+import {
+  hrContactSchema,
+  salaryMetaSchema,
+  transactionSchema,
+  formatDate,
+  formatNumber,
+} from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
 import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
 import { Badge } from '@/components/ui/badge'
@@ -163,8 +173,12 @@ function JuniorProjectHub() {
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
             <UserCircle className="h-10 w-10 opacity-30" />
-            <p className="text-sm font-medium">Вас ещё не добавили в проект.</p>
-            <p className="text-xs">Свяжитесь с вашим HR для добавления в проект.</p>
+            <p className="text-sm font-medium">
+              <Trans>Вас ще не додали до проєкту.</Trans>
+            </p>
+            <p className="text-xs">
+              <Trans>Зв’яжіться з вашим HR, щоб він додав вас до проєкту.</Trans>
+            </p>
           </div>
         </div>
       </div>
@@ -210,12 +224,13 @@ function ProjectSwitcher({
   activeIdx: number
   onSelect: (i: number) => void
 }) {
+  const { t } = useLingui()
   return (
     <div
       className="flex gap-2 flex-wrap"
       data-testid="project-switcher"
       role="group"
-      aria-label="Выбор проекта"
+      aria-label={t`Вибір проєкту`}
     >
       {projects.slice(0, 2).map((p, i) => (
         <Button
