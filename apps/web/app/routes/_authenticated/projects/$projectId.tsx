@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
@@ -29,8 +30,15 @@ import type {
   ProjectMemberDto,
   UpdateProjectDto,
   TransactionDto,
+  Role,
 } from '@crm/shared'
-import { createProjectSchema, IT_DOMAINS, type ItDomain } from '@crm/shared'
+import {
+  createProjectSchema,
+  IT_DOMAINS,
+  type ItDomain,
+  formatDate,
+  formatNumber,
+} from '@crm/shared'
 import { financeApi } from '@/routes/_authenticated/finance/api'
 import { TransactionDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog'
 import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
@@ -41,7 +49,9 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { ROLE_LABEL_MESSAGES, useRoleLabel } from '@/components/ui/role-select'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge'
@@ -80,7 +90,7 @@ import {
 } from '@/components/ui/select'
 import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { ShareSlider } from '@/components/ui/share-slider'
-import { PAYMENT_TYPE_LABELS } from './constants'
+import { PAYMENT_TYPE_MESSAGES } from './constants'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -112,14 +122,6 @@ function coerceDomain(value: string | null | undefined): ItDomain {
 export const Route = createFileRoute('/_authenticated/projects/$projectId')({
   component: ProjectDetailPage,
 })
-
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
 
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
@@ -1144,6 +1146,8 @@ function ProjectDropShareInfo({
 }
 
 function ProjectDetailPage() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
@@ -2108,7 +2112,7 @@ function ProjectDetailPage() {
                         variant={ROLE_VARIANT[u.role] ?? 'junior'}
                         className="shrink-0 text-[9px]"
                       >
-                        {ROLE_LABELS[u.role] ?? u.role}
+                        {i18n._(ROLE_LABEL_MESSAGES[u.role as Role])}
                       </Badge>
                       <Button
                         size="sm"
@@ -2489,6 +2493,8 @@ function MemberRow({
   canManage: boolean
   onRemove: () => void
 }) {
+  const locale = useLocale()
+  const roleLabel = useRoleLabel(member.role as Role)
   return (
     <div className={cn('flex items-center gap-2', member.leftAt && 'opacity-50')}>
       <Link
@@ -2506,13 +2512,13 @@ function MemberRow({
           </p>
           {member.leftAt && (
             <p className="text-[10px] text-muted-foreground">
-              вышел {new Date(member.leftAt).toLocaleDateString('uk-UA')}
+              <Trans>вийшов {formatDate(member.leftAt, locale, 'short')}</Trans>
             </p>
           )}
         </div>
       </Link>
       <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="shrink-0 text-[9px]">
-        {ROLE_LABELS[member.role] ?? member.role}
+        {roleLabel}
       </Badge>
       {canManage && !member.leftAt && (
         <Button
