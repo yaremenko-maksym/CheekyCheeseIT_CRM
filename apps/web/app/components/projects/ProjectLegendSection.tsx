@@ -235,7 +235,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                   <Textarea
                     value={entryText}
                     onChange={(e) => setEntryText(e.target.value)}
-                    placeholder={t`Новий запис у журнал легенди...`}
+                    placeholder={t`Новий запис у журнал легенди…`}
                     rows={3}
                     data-testid="legend-entry-input"
                     className="text-sm"
@@ -316,7 +316,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder={t`Іванов Іван Іванович`}
+                    placeholder={t`Іваненко Іван Іванович`}
                     autoCapitalize="words"
                     autoComplete="off"
                   />
@@ -402,7 +402,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder={t`Коротка історія для клієнтської компанії...`}
+                  placeholder={t`Коротка історія для клієнтської компанії…`}
                   rows={3}
                 />
               </div>
@@ -420,7 +420,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder={t`Читання, плавання...`}
+                    placeholder={t`Читання, плавання…`}
                   />
                 </div>
               )}
@@ -437,7 +437,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder={t`Додаткова інформація...`}
+                  placeholder={t`Додаткова інформація…`}
                   rows={3}
                 />
               </div>

@@ -247,6 +247,26 @@ describe('PendingShareEditNotice — what the edit dialogs show', () => {
     expect(notice).toHaveTextContent('Нове значення замінить пропозицію')
   })
 
+  // Fix-round B (COPY-H-1, BLOCK — meaning inversion). The en translation of
+  // this same "{approverName} hasn't confirmed yet" sentence read "Confirmed
+  // by {approverName}" — the opposite of what it says: the approver has NOT
+  // acted, this is what shows WHILE waiting. No en test previously covered
+  // this component at all.
+  it('COPY-H-1 (en): states "Awaiting <name>", never "Confirmed by"', async () => {
+    await loadCatalog('en')
+    renderWithClient(
+      <PendingShareEditNotice
+        scope="user"
+        id="senior-1"
+        pendingPercent={40}
+        approverName="Oleksiy Kovalenko"
+      />,
+    )
+    const notice = screen.getByTestId('pending-share-edit-notice-user')
+    expect(notice).toHaveTextContent('Awaiting Oleksiy Kovalenko')
+    expect(notice).not.toHaveTextContent('Confirmed by')
+  })
+
   it('its withdraw button posts to the same endpoint as the icon one', async () => {
     const user = userEvent.setup()
     renderWithClient(

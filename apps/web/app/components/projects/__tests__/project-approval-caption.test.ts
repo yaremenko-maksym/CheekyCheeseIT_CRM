@@ -241,4 +241,26 @@ describe('resolveProjectApprovalCaption (en second original)', () => {
     )
     expect(caption).toBe('You confirmed. Awaiting the drop')
   })
+
+  // Fix-round B (COPY-H-1, BLOCK — meaning inversion). The `{drop}` branch's
+  // en translation read "Confirmed by {drop}" — the OPPOSITE of what it
+  // means (the drop has NOT confirmed yet; this is the third-party caption
+  // shown WHILE waiting). No test previously exercised this specific branch
+  // in en at all — only the `{senior}` branch (above) and the first-person
+  // branches were pinned, which is exactly how the inversion shipped
+  // unnoticed. Mirrors the uk test above one-for-one.
+  it('COPY-H-1: DRAFT, drop-project, senior already confirmed, dropName known — third-party caption says "Awaiting <drop>", never "Confirmed by"', async () => {
+    await loadCatalog('en')
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: false,
+        dropApprovalPending: true,
+      }),
+      undefined,
+    )
+    expect(caption).toBe('Awaiting Nadiya Dropivska')
+    expect(caption).not.toContain('Confirmed')
+  })
 })

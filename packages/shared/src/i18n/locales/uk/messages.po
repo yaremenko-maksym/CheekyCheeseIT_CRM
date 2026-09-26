@@ -1964,8 +1964,8 @@ msgstr "Додати учасника"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
-msgid "Додаткова інформація..."
-msgstr "Додаткова інформація..."
+msgid "Додаткова інформація…"
+msgstr "Додаткова інформація…"
 
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Додаткові змінні (заповніть нижче):"
@@ -2711,8 +2711,8 @@ msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Змінити частку сеньйора на рівні команди можуть лише адміністратор і бухгалтер"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
-msgid "Змінювати може тільки ADMIN або ACCOUNTANT."
-msgstr "Змінювати може тільки ADMIN або ACCOUNTANT."
+msgid "Змінювати може тільки адмін або бухгалтер."
+msgstr "Змінювати може тільки адмін або бухгалтер."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -2766,17 +2766,14 @@ msgstr "Зовнішнє посилання на зображення (https://�
 msgid "Іван Іваненко"
 msgstr "Іван Іваненко"
 
+#: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Іваненко Іван Іванович"
-
-#: apps/web/app/components/projects/ProjectLegendSection.tsx
-#: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Іванов Іван Іванович"
-msgstr "Іванов Іван Іванович"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я"
@@ -3158,8 +3155,8 @@ msgstr "Користувачів поки немає"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Коротка історія для клієнтської компанії..."
-msgstr "Коротка історія для клієнтської компанії..."
+msgid "Коротка історія для клієнтської компанії…"
+msgstr "Коротка історія для клієнтської компанії…"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Корп. техніка"
@@ -4148,8 +4145,8 @@ msgid "notification.VACANCY_APPLICATION.title"
 msgstr "Новий відгук на вакансію"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
-msgid "Новий запис у журнал легенди..."
-msgstr "Новий запис у журнал легенди..."
+msgid "Новий запис у журнал легенди…"
+msgstr "Новий запис у журнал легенди…"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Новий користувач"
@@ -6012,11 +6009,8 @@ msgstr "Створення дропа доступне лише адмініст
 msgid "Створення проєкту"
 msgstr "Створення проєкту"
 
-#: apps/web/app/routes/_authenticated/projects/index.tsx
-msgid "Створення..."
-msgstr "Створення..."
-
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Створення…"
 msgstr "Створення…"
 
@@ -6966,8 +6960,8 @@ msgstr "Читання файлу…"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Читання, плавання..."
-msgstr "Читання, плавання..."
+msgid "Читання, плавання…"
+msgstr "Читання, плавання…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -6987,8 +6981,8 @@ msgid "Щільно"
 msgstr "Щільно"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — КПІ)"
-msgstr "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — КПІ)"
+msgid "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — місцевий університет)"
+msgstr "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — місцевий університет)"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Щоб почати роботу, виконайте кілька кроків"

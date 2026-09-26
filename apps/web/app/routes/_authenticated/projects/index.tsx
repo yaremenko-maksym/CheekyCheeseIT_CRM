@@ -1081,7 +1081,7 @@ function ProjectsPage() {
                                 </Select>
                                 {!canEditPaymentType && (
                                   <p className="text-xs text-muted-foreground italic">
-                                    {t`Змінювати може тільки ADMIN або ACCOUNTANT.`}
+                                    {t`Змінювати може тільки адмін або бухгалтер.`}
                                   </p>
                                 )}
                               </div>
@@ -1139,7 +1139,7 @@ function ProjectsPage() {
                   disabled={createMutation.isPending}
                   data-track="project-create"
                 >
-                  {createMutation.isPending ? t`Створення...` : t`Створити`}
+                  {createMutation.isPending ? t`Створення…` : t`Створити`}
                 </Button>
               </CrmDialogFooter>
             </CrmDialogContent>

@@ -661,7 +661,7 @@ function CredentialDialog({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder={t`Додаткова інформація...`}
+                  placeholder={t`Додаткова інформація…`}
                 />
               </div>
             )}

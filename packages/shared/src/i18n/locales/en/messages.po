@@ -1964,8 +1964,8 @@ msgstr "Add member"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
-msgid "Додаткова інформація..."
-msgstr "Additional information..."
+msgid "Додаткова інформація…"
+msgstr "Additional information…"
 
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "Додаткові змінні (заповніть нижче):"
@@ -2480,7 +2480,7 @@ msgstr "Proposed {0}%"
 
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 msgid "Запропоновано <0>{pendingPercent}%</0>. Підтверджує {approverName}. Нове значення замінить пропозицію."
-msgstr "Proposed <0>{pendingPercent}%</0>. Confirmed by {approverName}. A new value will replace the proposal."
+msgstr "Proposed <0>{pendingPercent}%</0>. Awaiting {approverName}. A new value will replace the proposal."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2711,8 +2711,8 @@ msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Only an administrator or an accountant can change the senior's share at the team level"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
-msgid "Змінювати може тільки ADMIN або ACCOUNTANT."
-msgstr "Only ADMIN or ACCOUNTANT can change this."
+msgid "Змінювати може тільки адмін або бухгалтер."
+msgstr "Only an admin or an accountant can change this."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -2766,17 +2766,14 @@ msgstr "External link to an image (https://…)"
 msgid "Іван Іваненко"
 msgstr "Ivan Ivanenko"
 
+#: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Іваненко Іван Іванович"
 msgstr "Ivan Ivanenko"
-
-#: apps/web/app/components/projects/ProjectLegendSection.tsx
-#: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Іванов Іван Іванович"
-msgstr "John Smith"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "ім’я"
@@ -3158,8 +3155,8 @@ msgstr "No users yet"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Коротка історія для клієнтської компанії..."
-msgstr "A short story for the client company..."
+msgid "Коротка історія для клієнтської компанії…"
+msgstr "A short story for the client company…"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Корп. техніка"
@@ -4148,8 +4145,8 @@ msgid "notification.VACANCY_APPLICATION.title"
 msgstr "New vacancy application"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
-msgid "Новий запис у журнал легенди..."
-msgstr "A new entry in the legend journal..."
+msgid "Новий запис у журнал легенди…"
+msgstr "A new entry in the legend journal…"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Новий користувач"
@@ -4743,7 +4740,7 @@ msgstr "Confirming…"
 
 #: apps/web/app/components/projects/project-approval-caption.ts
 msgid "Підтверджує {drop}"
-msgstr "Confirmed by {drop}"
+msgstr "Awaiting {drop}"
 
 #: apps/web/app/components/projects/project-approval-caption.ts
 msgid "Підтверджує {senior}"
@@ -5846,7 +5843,7 @@ msgstr "Members"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Склад команди"
-msgstr "Team size"
+msgstr "Team composition"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
@@ -6012,11 +6009,8 @@ msgstr "Only an admin can create a drop"
 msgid "Створення проєкту"
 msgstr "Creating the project"
 
-#: apps/web/app/routes/_authenticated/projects/index.tsx
-msgid "Створення..."
-msgstr "Creating..."
-
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Створення…"
 msgstr "Creating…"
 
@@ -6966,8 +6960,8 @@ msgstr "Reading the file…"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Читання, плавання..."
-msgstr "Reading, swimming..."
+msgid "Читання, плавання…"
+msgstr "Reading, swimming…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -6987,8 +6981,8 @@ msgid "Щільно"
 msgstr "Compact"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
-msgid "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — КПІ)"
-msgstr "What happened? (e.g. the client asked about education, we said — KPI)"
+msgid "Що сталося? (наприклад: клієнт запитав про освіту, відповіли — місцевий університет)"
+msgstr "What happened? (e.g. the client asked about education, we said — a local university)"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Щоб почати роботу, виконайте кілька кроків"

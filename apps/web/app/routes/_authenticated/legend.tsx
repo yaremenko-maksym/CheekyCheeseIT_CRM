@@ -270,7 +270,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                       value={field.state.value}
                       onBlur={field.handleBlur}
                       onChange={(e) => field.handleChange(e.target.value)}
-                      placeholder={t`Іванов Іван Іванович`}
+                      placeholder={t`Іваненко Іван Іванович`}
                       autoCapitalize="words"
                       autoComplete="off"
                     />
@@ -318,7 +318,7 @@ function LegendPersonaBlock({ projectId, legend }: LegendBlockProps) {
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder={t`Читання, плавання...`}
+                    placeholder={t`Читання, плавання…`}
                   />
                 </div>
               )}
@@ -509,7 +509,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder={t`Коротка історія для клієнтської компанії...`}
+                    placeholder={t`Коротка історія для клієнтської компанії…`}
                     rows={3}
                   />
                 </div>
@@ -625,7 +625,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
               <Textarea
                 value={entryText}
                 onChange={(e) => setEntryText(e.target.value.slice(0, MAX_CHARS))}
-                placeholder={t`Що сталося? (наприклад: клієнт запитав про освіту, відповіли — КПІ)`}
+                placeholder={t`Що сталося? (наприклад: клієнт запитав про освіту, відповіли — місцевий університет)`}
                 rows={3}
                 data-testid="legend-entry-textarea"
                 className="text-sm"
