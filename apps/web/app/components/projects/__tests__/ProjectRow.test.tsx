@@ -227,6 +227,82 @@ describe('ProjectRow — clickable senior/junior names', () => {
 })
 
 /**
+ * task-i18n-stage3c-pr3 fix-round A (CI-MUT). Closes 5 `StringLiteral`
+ * mutation-gate survivors the E2E-only sweep could not reach:
+ *  - the `{' '}` join between the formatted rate and its currency code
+ *    (mutating it to `''` still passes every existing test, since none of
+ *    them asserted the rendered text at all — only that the columns exist);
+ *  - `formatDate`'s `'short'` style arg (mutating it to `''` drops the
+ *    `timeZone: 'UTC'` option, which only diverges from the real value on a
+ *    host running in a negative UTC offset — pinning the EXACT literal
+ *    output, independently computed via `Intl` directly rather than by
+ *    calling `formatDate` again, is what actually kills this one);
+ *  - the sr-only «Сеньйор»/«Джуніор» (×2 branches) column labels, which were
+ *    never asserted by content at all — only their PRESENCE via testid on
+ *    neighboring elements.
+ */
+describe('ProjectRow — rate/date column + sr-only role labels (mutation-gate closure)', () => {
+  it('renders the rate formatted with a NBSP-joined currency code, not concatenated with no separator', async () => {
+    const project = makeProject({ rate: 4500, currency: 'USD' })
+    renderProjectRow(project)
+
+    const rateColumn = await screen.findByTestId(`project-row-${project.id}-rate-column`)
+    // `Intl.NumberFormat('uk-UA')`'s own grouping separator between the
+    // digits is U+00A0 (NBSP) — `toHaveTextContent`'s default whitespace
+    // normalization collapses it to a plain space, so match on that
+    // normalized form rather than the raw NBSP. Independently computed, not
+    // re-derived from the component's own `formatNumber` call. Substring,
+    // not exact match: this column also renders the start date right below.
+    // `\s+` (not `\s*`) is deliberate: the mutant this test exists to kill
+    // removes the `{' '}` join entirely, which would collapse this to
+    // "4 500USD" with zero whitespace before the currency code.
+    expect(rateColumn).toHaveTextContent(/4 500\s+USD/)
+  })
+
+  it('renders the start date as DD.MM.YYYY (uk-UA, UTC-pinned) — independently computed via Intl, not via formatDate', async () => {
+    const project = makeProject({ startDate: '2026-01-01T00:00:00.000Z' })
+    renderProjectRow(project)
+
+    const rateColumn = await screen.findByTestId(`project-row-${project.id}-rate-column`)
+    expect(rateColumn).toHaveTextContent('01.01.2026')
+  })
+
+  it('renders the sr-only «Сеньйор» role label alongside the senior link', async () => {
+    const project = makeProject()
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-senior-link`)
+    expect(screen.getByText('Сеньйор')).toBeInTheDocument()
+  })
+
+  it('renders the sr-only «Джуніор» role label alongside an active junior link', async () => {
+    const project = makeProject()
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}-junior-link`)
+    expect(screen.getByText('Джуніор')).toBeInTheDocument()
+  })
+
+  it('renders the sr-only «Джуніор» role label even when there is no active junior (paired with "Немає джуніора")', async () => {
+    const project = makeProject({ members: [] })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    expect(screen.getByText('Джуніор')).toBeInTheDocument()
+    expect(screen.getByText('Немає джуніора')).toBeInTheDocument()
+  })
+
+  it('the company-name link carries an aria-label naming the company (not an empty string)', async () => {
+    const project = makeProject({ companyName: 'Acme Corp' })
+    renderProjectRow(project)
+
+    await screen.findByTestId(`project-row-${project.id}`)
+    const link = screen.getByRole('link', { name: 'Відкрити проєкт Acme Corp' })
+    expect(link).toHaveTextContent('Acme Corp')
+  })
+})
+
+/**
  * task-project-status-filter-ui — the 4-branch status badge (§7/§8) and the
  * Confirm/Reject action gate. Each test targets ONE mutant class the
  * mutation gate reported on `ProjectRow.tsx`'s `isPending`/`isRejected`/

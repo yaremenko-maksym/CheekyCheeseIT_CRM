@@ -57,8 +57,8 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       // ADMIN is already logged in. Land on /projects.
       await page.goto('/projects')
 
-      // Open «Новый проект» dialog.
-      await page.getByRole('button', { name: 'Новый проект' }).first().click()
+      // Open «Новий проєкт» dialog (task-i18n-stage3c-pr3 fix-round A: uk text).
+      await page.getByRole('button', { name: 'Новий проєкт' }).first().click()
 
       const dialog = page.getByRole('dialog')
       await expect(dialog).toBeVisible({ timeout: 10_000 })
@@ -86,8 +86,8 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       // The AmountCurrencyInput uses placeholder="5000" — find by placeholder.
       await dialog.getByPlaceholder('5000').fill('5000')
 
-      // Submit. The dialog's submit button is labelled «Создать».
-      const createButtonInDialog = dialog.getByRole('button', { name: /Создать/i })
+      // Submit. The dialog's submit button is labelled «Створити» (uk).
+      const createButtonInDialog = dialog.getByRole('button', { name: /Створити/i })
       // Intercept the POST so we can read the created project id immediately
       // (the dialog doesn't auto-navigate to the new detail page).
       const postPromise = page.waitForResponse(

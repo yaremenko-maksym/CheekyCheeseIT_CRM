@@ -101,7 +101,8 @@ test.describe('Mobile keyboard attributes on a real mobile viewport — task-mob
   }) => {
     await page.setViewportSize(MOBILE_VIEWPORT)
     await page.goto('/projects')
-    await page.getByRole('button', { name: /новый проект/i }).click()
+    // task-i18n-stage3c-pr3 fix-round A: button text now uk "Новий проєкт".
+    await page.getByRole('button', { name: /новий проєкт/i }).click()
     await expect(page.getByRole('dialog')).toBeVisible()
 
     // MONEY — AmountCurrencyInput's «Ставка» field. AC2: type="text" +

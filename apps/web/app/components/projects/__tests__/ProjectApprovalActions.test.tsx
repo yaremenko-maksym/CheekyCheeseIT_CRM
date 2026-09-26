@@ -524,6 +524,17 @@ describe('ProjectApprovalActions — Reject (AC4: reason required before send)',
     expect(screen.getByLabelText('Причина відмови *')).toBe(textarea)
   })
 
+  it('task-i18n-stage3c-pr3 fix-round A (CI-MUT): the reason field carries the "Наприклад: …" placeholder — StringLiteral mutation-gate survivor, unasserted by any prior test', async () => {
+    const user = userEvent.setup()
+    render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />, {
+      wrapper: I18nTestProvider,
+    })
+    await user.click(screen.getByTestId(`project-approval-reject-${PROJECT_ID}`))
+
+    const textarea = await screen.findByTestId('project-approval-reject-reason')
+    expect(textarea).toHaveAttribute('placeholder', 'Наприклад: немає бюджету на Q3')
+  })
+
   it('UX-L-1(r3) (PR #646 fix-round 3): the dialog title is line-clamp-2 — an extreme companyName must not push the reason field below the fold on 320px', async () => {
     const user = userEvent.setup()
     render(<ProjectApprovalActions projectId={PROJECT_ID} companyName="Acme" />, {

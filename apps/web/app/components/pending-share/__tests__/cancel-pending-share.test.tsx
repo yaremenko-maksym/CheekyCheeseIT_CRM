@@ -334,6 +334,17 @@ describe('CancelPendingShareButton — the confirmation step', () => {
     expect(dialog).toHaveTextContent('Діюча частка не зміниться')
   })
 
+  it('task-i18n-stage3c-pr3 fix-round A (CI-MUT): the dialog footer buttons carry their own text — "Залишити" (keep) and "Скасувати пропозицію" (confirm), StringLiteral mutation-gate survivors no prior test asserted by testid', async () => {
+    const user = userEvent.setup()
+    renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} />)
+    await user.click(screen.getByTestId('cancel-pending-share-user'))
+    await screen.findByTestId('cancel-pending-share-confirm-user')
+    expect(screen.getByTestId('cancel-pending-share-keep-user')).toHaveTextContent('Залишити')
+    expect(screen.getByTestId('cancel-pending-share-confirm-button-user')).toHaveTextContent(
+      'Скасувати пропозицію',
+    )
+  })
+
   it('«Залишити» closes it and withdraws nothing', async () => {
     const user = userEvent.setup()
     renderWithClient(<CancelPendingShareButton scope="user" id="senior-1" pendingPercent={45} />)
