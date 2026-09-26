@@ -574,7 +574,7 @@ export function ProjectEditFields({
               const sliderValue = hasOverride ? (raw as number) : defaultDropSharePercent
               return (
                 <div className="space-y-2" data-testid="project-edit-drop-share-section">
-                  <Label className={cn(err && 'text-destructive')}>Доля дропа (%)</Label>
+                  <Label className={cn(err && 'text-destructive')}>{t`Частка дропа (%)`}</Label>
                   <ShareSlider
                     value={sliderValue}
                     min={0}
@@ -592,12 +592,14 @@ export function ProjectEditFields({
                       would put two words for one operation in ONE dialog —
                       the defect COPY-M-16 is about, merely moved. */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию — {defaultDropSharePercent}%. Это же значение снимет индивидуальную
-                    долю дропа по проекту.
+                    <Trans>
+                      За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає
+                      індивідуальну частку дропа по проєкту.
+                    </Trans>
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      Менять может только ADMIN или ACCOUNTANT.
+                      <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -714,6 +716,7 @@ function ProjectShareInfo({
    */
   viewerId?: string | null | undefined
 }) {
+  const { t } = useLingui()
   const overrideRaw = project.seniorSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.seniorSharePercentDefault ?? 26
@@ -736,21 +739,25 @@ function ProjectShareInfo({
       )}
       data-testid={testId}
     >
-      {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
+      {variant === 'inline' && (
+        <span className="text-muted-foreground">
+          <Trans>Частка сеньйора:</Trans>
+        </span>
+      )}
       <span className="font-medium tabular-nums">{effective}%</span>
       {hasOverride ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Badge variant="secondary" className="text-[10px]" data-testid={badgeTestId}>
-              Override
+              <Trans>Override</Trans>
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            Установлено для этого проекта; глобальная доля синьора: {fallback}%
+            <Trans>Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%</Trans>
           </TooltipContent>
         </Tooltip>
       ) : (
-        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+        <span className="text-xs text-muted-foreground">{t`(за замовчуванням)`}</span>
       )}
       {/* task-pending-share (position 5): значение выше — ДЕЙСТВУЮЩЕЕ, не
           меняется пока согласование открыто (AC2). Индикатор — отдельная
@@ -786,14 +793,14 @@ function ProjectShareInfo({
                 className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
                 data-testid="project-senior-share-pending-badge"
               >
-                {`Предложено ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
+                {t`Запропоновано ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
               </Badge>
             </TooltipTrigger>
             {/* task-648-fix-round-2 (UX-M-3(r2)): capped + wrapping.
                 Measured at 468px (ordinary name) and 709px (long name)
                 against a 320px viewport before this cap. */}
             <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
-              Действует прежний процент, пока новый не подтверждён.
+              <Trans>Діє попередній відсоток, поки новий не підтверджено.</Trans>
             </TooltipContent>
           </Tooltip>
           {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): name and the
@@ -808,8 +815,10 @@ function ProjectShareInfo({
               Oleksiy Kovalenko» was the finding. */}
           {audience === 'observer' && (
             <span className="block text-xs text-muted-foreground break-words">
-              Подтверждает {pending.approverName} — пока действует{' '}
-              <span className="tabular-nums">{effective}%</span>
+              <Trans>
+                Підтверджує {pending.approverName} — поки діє{' '}
+                <span className="tabular-nums">{effective}%</span>
+              </Trans>
             </span>
           )}
           {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw control lives
@@ -856,6 +865,7 @@ export function PendingShareApprovalBanner({
   currentPercent: number
   pending: NonNullable<ProjectDetailDto['pendingSeniorShare']>
 }) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -872,7 +882,7 @@ export function PendingShareApprovalBanner({
       // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
       // see the identical comment on useApproveSeniorShareChange (base-share
       // twin of this mutation) for the full reasoning.
-      toast.success(`Доля по проекту теперь ${data.effectiveSeniorSharePercent}%`)
+      toast.success(t`Частка в проєкті тепер ${data.effectiveSeniorSharePercent}%`)
       invalidate()
     },
     onError: (err: unknown) => {
@@ -886,7 +896,7 @@ export function PendingShareApprovalBanner({
       // carrying neither `.response` nor a string `.message` fell through to
       // the generic house text, and the reader could not tell which of the
       // two buttons on this banner had failed.
-      toast.error(seniorShareErrorMessage(err, 'Не удалось подтвердить'))
+      toast.error(seniorShareErrorMessage(err, t`Не вдалося підтвердити`))
       invalidate()
     },
   })
@@ -912,14 +922,16 @@ export function PendingShareApprovalBanner({
       // so the same object was «предложение» on the button and «доля» in the
       // answer. It is also the more accurate of the two: the доля did not
       // move — the next clause of this very sentence says so.
-      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
+      toast.success(
+        t`Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину`,
+      )
       setRejectOpen(false)
       setReason('')
       invalidate()
     },
     onError: (err: unknown) => {
       // task-648-fix-round-3 (COPY-L-9): reject twin of the fallback above.
-      toast.error(seniorShareErrorMessage(err, 'Не удалось отклонить'))
+      toast.error(seniorShareErrorMessage(err, t`Не вдалося відхилити`))
       invalidate()
     },
   })
@@ -945,23 +957,25 @@ export function PendingShareApprovalBanner({
           the wording the profile twin already used. */}
       <p className="text-sm">
         {pending.percent === null ? (
-          <>
-            По проекту предлагают снять индивидуальную долю: сейчас{' '}
-            <span className="font-medium tabular-nums">{currentPercent}%</span>, станет{' '}
+          <Trans>
+            По проєкту пропонують зняти індивідуальну частку: зараз{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, стане{' '}
             <span className="font-medium tabular-nums">
               {pending.effectivePercentAfterApproval}%
             </span>
             .{' '}
-          </>
+          </Trans>
         ) : (
-          <>
-            Вашу долю по проекту предлагают изменить: сейчас{' '}
-            <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
+          <Trans>
+            Вашу частку по проєкту пропонують змінити: зараз{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, пропонують{' '}
             <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
-          </>
+          </Trans>
         )}
-        Пока вы не подтвердите, действует{' '}
-        <span className="font-medium tabular-nums">{currentPercent}%</span>.
+        <Trans>
+          Поки ви не підтвердите, діє{' '}
+          <span className="font-medium tabular-nums">{currentPercent}%</span>.
+        </Trans>
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -973,7 +987,7 @@ export function PendingShareApprovalBanner({
         >
           {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention as
               OverviewTab.tsx's identical banner. */}
-          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          {approveMutation.isPending ? <Trans>Підтвердження…</Trans> : <Trans>Підтвердити</Trans>}
         </Button>
         <Button
           size="sm"
@@ -983,7 +997,7 @@ export function PendingShareApprovalBanner({
           disabled={approveMutation.isPending}
           data-testid="pending-share-reject-button"
         >
-          Отклонить
+          <Trans>Відхилити</Trans>
         </Button>
       </div>
 
@@ -993,21 +1007,25 @@ export function PendingShareApprovalBanner({
             {/* task-648-fix-round-4 (COPY-M-18): same rename as the profile
                 twin in OverviewTab.tsx — one object, one name, on both
                 halves. */}
-            <DialogTitle>Отклонить предложение</DialogTitle>
-            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+            <DialogTitle>
+              <Trans>Відхилити пропозицію</Trans>
+            </DialogTitle>
+            <DialogDescription>
+              <Trans>Причина обов’язкова і буде видна адміністратору.</Trans>
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             {/* task-648-fix-round-1 (COPY-M-8): same fix as
                 OverviewTab.tsx's identical dialog — mirrors
                 ProjectApprovalActions.tsx (#646). */}
             <Label htmlFor="pending-share-reject-reason" className="text-xs">
-              Причина отказа *
+              <Trans>Причина відмови *</Trans>
             </Label>
             <Textarea
               id="pending-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Например: договаривались на 30%"
+              placeholder={t`Наприклад: домовилися про 30%`}
               maxLength={500}
               rows={3}
               data-testid="pending-share-reject-reason"
@@ -1018,7 +1036,7 @@ export function PendingShareApprovalBanner({
           </CrmDialogBody>
           <CrmDialogFooter>
             <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               variant="destructive"
@@ -1027,7 +1045,7 @@ export function PendingShareApprovalBanner({
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-share-reject-confirm"
             >
-              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
+              {rejectMutation.isPending ? <Trans>Відхиляємо…</Trans> : <Trans>Відхилити</Trans>}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
