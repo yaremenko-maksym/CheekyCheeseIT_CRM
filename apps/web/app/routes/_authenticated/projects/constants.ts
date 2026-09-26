@@ -21,27 +21,12 @@ export const PAYMENT_TYPE_MESSAGES = {
   USDT: msg`USDT`,
 } satisfies Record<ProjectPaymentType, MessageDescriptor>
 
-/**
- * task-i18n-stage3c-pr3 (Task 3, «Опасность/Interfaces»). Legacy string map,
- * KEPT alive on purpose: `$projectId.tsx` (PR4, not this PR's file) still
- * imports it directly and renders `.FOP`/`.GIG_CONTRACT`/`.USDT` as plain
- * strings. Removing it here would break `$projectId.tsx`'s compile before
- * PR4 has migrated its own consumer to `PAYMENT_TYPE_MESSAGES` — the plan's
- * own dependency table ("PR4 ждёт мерж PR3... удалять/менять старый
- * PAYMENT_TYPE_LABELS можно только после того, как оба потребителя
- * переехали"). `projects/index.tsx` (this PR's own consumer) reads
- * `PAYMENT_TYPE_MESSAGES` exclusively — this export has zero consumers left
- * INSIDE this PR's periphery, only outside it. Delete this block in PR4 once
- * `$projectId.tsx` moves to `PAYMENT_TYPE_MESSAGES`.
- */
-
-/* eslint-disable lingui/no-unlocalized-strings -- deliberate legacy bridge, see the doc comment above */
-export const PAYMENT_TYPE_LABELS: Record<ProjectPaymentType, string> = {
-  FOP: 'ФОП',
-  GIG_CONTRACT: 'гіг-контракт',
-  USDT: 'USDT',
-}
-/* eslint-enable lingui/no-unlocalized-strings */
+// task-i18n-stage3c-pr4 (Task 4, Step 2): the legacy `PAYMENT_TYPE_LABELS`
+// string map that used to live here is removed — `$projectId.tsx` (the only
+// remaining consumer outside this file's own `index.tsx`) now reads
+// `PAYMENT_TYPE_MESSAGES` exclusively (`git grep -nP '\bPAYMENT_TYPE_LABELS\b'
+// -- apps/web` is empty). See the plan's dependency table for the PR3→PR4
+// removal order this comment used to document.
 
 /**
  * task-project-status-filter-ui. The four values of the /projects list's

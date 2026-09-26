@@ -2634,6 +2634,7 @@ function ProjectEffectiveTeamCard({
   onAttachDrop?: () => void
   onDetachDrop?: () => void
 }) {
+  const { t, i18n } = useLingui()
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
   // Drop role - phase 2. Optional drop row in the «Эффективный состав»
@@ -2734,10 +2735,12 @@ function ProjectEffectiveTeamCard({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Эффективный состав
-            <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
-              (HR/бухгалтер — из текущей команды синьора)
-            </span>
+            <Trans>
+              Ефективний склад
+              <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
+                (HR/бухгалтер — з поточної команди сеньйора)
+              </span>
+            </Trans>
           </CardTitle>
           {/* Attach drop button — only when canManageDrop and no drop yet */}
           {canManageDrop && project.dropId == null && (
@@ -2753,11 +2756,15 @@ function ProjectEffectiveTeamCard({
                     data-testid="attach-drop-btn"
                   >
                     <UserPlus className="h-3 w-3" />
-                    Привязать дропа
+                    <Trans>Прив’язати дропа</Trans>
                   </Button>
                 </span>
               </TooltipTrigger>
-              {dropCandidates.length === 0 && <TooltipContent>Нет доступных дропов</TooltipContent>}
+              {dropCandidates.length === 0 && (
+                <TooltipContent>
+                  <Trans>Немає доступних дропів</Trans>
+                </TooltipContent>
+              )}
             </Tooltip>
           )}
         </div>
@@ -2768,7 +2775,7 @@ function ProjectEffectiveTeamCard({
             className="text-xs text-muted-foreground/60 italic px-2 py-1.5"
             data-testid="effective-team-senior"
           >
-            Синьор не назначен
+            {t`Сеньйор не призначений`}
           </p>
         )}
         {senior && juniors.length === 0 && (
@@ -2776,7 +2783,7 @@ function ProjectEffectiveTeamCard({
             className="text-xs text-amber-500/80 font-medium px-2 py-1.5"
             data-testid="effective-team-juniors-empty"
           >
-            Джун не назначен
+            {t`Джуніор не призначений`}
           </p>
         )}
         {flatMembers.map((m) => {
@@ -2805,7 +2812,7 @@ function ProjectEffectiveTeamCard({
                   variant="outline"
                   className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px]"
                 >
-                  Дроп
+                  {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                 </Badge>
               ) : (
                 <Badge
@@ -2820,13 +2827,7 @@ function ProjectEffectiveTeamCard({
                   }
                   className="shrink-0 text-[9px]"
                 >
-                  {m.role === 'SENIOR'
-                    ? 'Синьор'
-                    : m.role === 'HR'
-                      ? 'HR'
-                      : m.role === 'ACCOUNTANT'
-                        ? 'Бухгалтер'
-                        : 'Джун'}
+                  {i18n._(ROLE_LABEL_MESSAGES[m.role])}
                 </Badge>
               )}
             </>
@@ -2839,7 +2840,7 @@ function ProjectEffectiveTeamCard({
                   variant="ghost"
                   size="icon"
                   className="h-5 w-5 shrink-0 text-muted-foreground hover:text-destructive"
-                  aria-label="Снять дропа с проекта"
+                  aria-label={t`Відв’язати дропа від проєкту`}
                   data-testid="detach-drop-btn"
                   onClick={(e) => {
                     e.preventDefault()
