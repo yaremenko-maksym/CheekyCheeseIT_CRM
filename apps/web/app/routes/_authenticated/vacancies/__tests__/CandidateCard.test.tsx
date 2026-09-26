@@ -250,6 +250,51 @@ describe('CandidateCard — status toggle (PATCH)', () => {
     expect(screen.getByTestId('candidate-status-app-1-VIEWED')).toHaveTextContent('Переглянутий')
     expect(screen.getByTestId('candidate-status-app-1-REJECTED')).toHaveTextContent('Відхилений')
   })
+
+  // task-i18n-stage3c-pr2 (CI-MUT, fix-round B round 2) — the desktop click/
+  // destructive-render tests above never touch the MOBILE toggle's own
+  // `onChange`/`options`/`layoutId` wiring; the mutation gate found the
+  // mobile instance's NEW/REJECTED entries and its `onChange` handler
+  // completely unobserved.
+  it('clicking the mobile toggle PATCHes the new status (own onChange wiring, not just the desktop one)', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-VIEWED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'VIEWED',
+      }),
+    )
+  })
+
+  it('clicking the mobile NEW option (from a different status) PATCHes status: NEW', async () => {
+    // The mobile array's own `{ value: 'NEW', ... }` entry had no click
+    // coverage — every mobile test above starts FROM 'NEW', so clicking
+    // NEW was always the already-active no-op case, never a real
+    // transition into it.
+    renderCard(makeApplication({ status: 'VIEWED' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-NEW'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'NEW',
+      }),
+    )
+  })
+
+  it('clicking the mobile REJECTED option PATCHes status: REJECTED', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-REJECTED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'REJECTED',
+      }),
+    )
+  })
+
+  it('the mobile REJECTED option also renders as the destructive (red) pill when active', () => {
+    renderCard(makeApplication({ status: 'REJECTED' }))
+    const rejectedButton = screen.getByTestId('candidate-status-app-1-mobile-REJECTED')
+    expect(rejectedButton.innerHTML).toContain('bg-destructive/20')
+  })
 })
 
 describe('CandidateCard — delete button accessible name (CI-MUT, fix-round A)', () => {
