@@ -164,7 +164,7 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
     expect(section).toBeInTheDocument()
     expect(screen.getByTestId('project-edit-drop-share-override')).toBeDisabled()
     expect(
-      within(section).getByText('Менять может только ADMIN или ACCOUNTANT.'),
+      within(section).getByText('Змінювати може лише ADMIN або ACCOUNTANT.'),
     ).toBeInTheDocument()
   })
 
@@ -210,7 +210,7 @@ describe('ProjectEditFields — Surface C (paymentType Select)', () => {
   it('is disabled with a hint for non-ADMIN/ACCOUNTANT viewers (e.g. HR)', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={false} dropId={null} viewerRole="HR" />)
     expect(screen.getByTestId('project-payment-type-trigger')).toBeDisabled()
-    expect(screen.getByText('Менять может только ADMIN или ACCOUNTANT.')).toBeInTheDocument()
+    expect(screen.getByText('Змінювати може лише ADMIN або ACCOUNTANT.')).toBeInTheDocument()
   })
 
   it('selecting an option makes the form dirty and reaches submit', async () => {
@@ -335,8 +335,8 @@ describe('ProjectEditFields — live proposal notice', () => {
     // promise that the same value CANCELS an open proposal — that gesture
     // no longer does anything (SR-H-2), and text must not promise it.
     const section = screen.getByTestId('project-edit-senior-share-section')
-    expect(section).toHaveTextContent('начнёт действовать после подтверждения синьора')
-    expect(section).not.toHaveTextContent('отменить отправленное предложение')
+    expect(section).toHaveTextContent('почне діяти після підтвердження сеньйора')
+    expect(section).not.toHaveTextContent('скасувати надіслану пропозицію')
   })
 
   // task-648-fix-round-3 (COPY-M-16). The hint used to carry two tenses about
@@ -356,33 +356,33 @@ describe('ProjectEditFields — live proposal notice', () => {
     )
     const section = screen.getByTestId('project-edit-senior-share-section')
     // Both claims about this save are in the FUTURE, because both are.
-    expect(section).toHaveTextContent('снимет индивидуальную долю по проекту')
-    expect(section).toHaveTextContent('Любое изменение начнёт действовать после подтверждения')
+    expect(section).toHaveTextContent('знімає індивідуальну частку по проєкту')
+    expect(section).toHaveTextContent('Будь-яка зміна почне діяти після підтвердження')
     // The present tense promised something that does not happen on save.
-    expect(section).not.toHaveTextContent('сбрасывает')
+    expect(section).not.toHaveTextContent('скидає')
     // CONTEXT.md's «Доля синьора» entry calls the personal level
-    // «(по умолчанию)»; «переопределение» is jargon this UI invented.
-    expect(section).not.toHaveTextContent('переопределение')
+    // «(за замовчуванням)»; «перевизначення» is jargon this UI invented.
+    expect(section).not.toHaveTextContent('перевизначення')
 
     // task-648-fix-round-4 (COPY-L-16): the caveat comes FIRST. Round 3 left
-    // it third, so the reader met «это же значение снимет индивидуальную
-    // долю» as an unqualified promise and learnt only afterwards that it
+    // it third, so the reader met «те саме значення знімає індивідуальну
+    // частку» as an unqualified promise and learnt only afterwards that it
     // waits for the senior — two claims to hold at once to answer one
     // question. Asserted by POSITION, not by presence: both sentences were
     // already on screen when the defect was raised, so a presence assertion
     // could not have caught it and cannot catch its return.
     const hint = section.textContent ?? ''
-    const caveatAt = hint.indexOf('Любое изменение начнёт действовать')
-    const clearsAt = hint.indexOf('снимет индивидуальную долю по проекту')
+    const caveatAt = hint.indexOf('Будь-яка зміна почне діяти')
+    const clearsAt = hint.indexOf('знімає індивідуальну частку по проєкту')
     expect(caveatAt).toBeGreaterThanOrEqual(0)
     expect(clearsAt).toBeGreaterThanOrEqual(0)
     expect(caveatAt).toBeLessThan(clearsAt)
 
     // The percent is glued to the sentence by a `{' '}` JSX fragment, which is
-    // a string literal like any other — empty it and the hint reads «По
-    // умолчанию —26%». Position and presence assertions both stay green on
-    // that; only reading the joint does not. (Found by the mutation gate on
-    // this very line, not guessed.)
-    expect(hint).toContain('По умолчанию — 26%: это же значение снимет')
+    // a string literal like any other — empty it and the hint reads «За
+    // замовчуванням —26%». Position and presence assertions both stay green
+    // on that; only reading the joint does not. (Found by the mutation gate
+    // on this very line, not guessed.)
+    expect(hint).toContain('За замовчуванням — 26%: те саме значення знімає')
   })
 })

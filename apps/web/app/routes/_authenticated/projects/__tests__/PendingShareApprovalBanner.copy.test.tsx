@@ -23,6 +23,7 @@ import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectDetailDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PendingShareApprovalBanner } from '../$projectId'
 
 vi.mock('@/lib/axios', () => ({
@@ -35,6 +36,13 @@ vi.mock('sonner', () => ({
 
 import { api } from '@/lib/axios'
 import { toast } from 'sonner'
+
+// task-i18n-stage3c-pr4: `PendingShareApprovalBanner` now calls `useLingui()`
+// — every render needs an `I18nProvider` ancestor (same pattern as
+// `contracts-editor-layout.test.tsx`'s SPEC-H-1 fix).
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const PROJECT_ID = 'b0000000-0000-4000-8000-000000000001'
 
@@ -54,6 +62,7 @@ function renderBanner(pending: NonNullable<ProjectDetailDto['pendingSeniorShare'
     <QueryClientProvider client={qc}>
       <PendingShareApprovalBanner projectId={PROJECT_ID} currentPercent={26} pending={pending} />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
   return { ...utils, invalidateQueries }
 }
@@ -88,8 +97,8 @@ describe('PendingShareApprovalBanner — the refusal path names the proposal', (
     await user.click(screen.getByTestId('pending-share-reject-button'))
 
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent('Отклонить предложение')
-    expect(dialog).not.toHaveTextContent('Отклонить новый процент')
+    expect(dialog).toHaveTextContent('Відхилити пропозицію')
+    expect(dialog).not.toHaveTextContent('Відхилити новий відсоток')
   })
 
   it('the success toast says the proposal was rejected, and that the old percent still applies', async () => {
@@ -98,18 +107,18 @@ describe('PendingShareApprovalBanner — the refusal path names the proposal', (
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('pending-share-reject-button'))
-    await user.type(screen.getByTestId('pending-share-reject-reason'), 'договаривались на 30%')
+    await user.type(screen.getByTestId('pending-share-reject-reason'), 'домовилися про 30%')
     await user.click(screen.getByTestId('pending-share-reject-confirm'))
 
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        'Предложение отклонено — действует прежний процент. Админ увидит причину',
+        'Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину',
       ),
     )
-    // «Доля» is the thing that did NOT move. Asserted negatively as well as
+    // «Частка» is the thing that did NOT move. Asserted negatively as well as
     // positively so that a future edit cannot quietly reintroduce the second
     // name for one object while keeping this test green on the first clause.
-    expect(vi.mocked(toast.success).mock.calls.at(-1)?.[0]).not.toMatch(/^Доля отклонена/)
+    expect(vi.mocked(toast.success).mock.calls.at(-1)?.[0]).not.toMatch(/^Частку відхилено/)
   })
 })
 
@@ -157,7 +166,7 @@ describe('PendingShareApprovalBanner — approving', () => {
     // The number comes from the SERVER's resolved answer, never from the
     // proposal the client happened to be holding — the round-1 lesson
     // (COPY-M-3) that this banner's base-share twin also carries.
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Доля по проекту теперь 55%'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Частка в проєкті тепер 55%'))
     // Both keys, both spellings: the detail query that this page reads and
     // the list query that the projects index reads. A refetch of one and not
     // the other leaves the other screen showing a proposal that is gone.
@@ -196,13 +205,13 @@ describe('PendingShareApprovalBanner — approving', () => {
 
     await user.click(screen.getByTestId('pending-share-approve-button'))
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось подтвердить'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося підтвердити'))
   })
 
   it('labels its own buttons', () => {
     renderBanner()
-    expect(screen.getByTestId('pending-share-approve-button')).toHaveTextContent('Подтвердить')
-    expect(screen.getByTestId('pending-share-reject-button')).toHaveTextContent('Отклонить')
+    expect(screen.getByTestId('pending-share-approve-button')).toHaveTextContent('Підтвердити')
+    expect(screen.getByTestId('pending-share-reject-button')).toHaveTextContent('Відхилити')
   })
 })
 
@@ -222,19 +231,19 @@ describe('PendingShareApprovalBanner — the sentence the senior actually reads'
   it('reads as a comparison when a percent is proposed', () => {
     renderBanner()
     expect(bannerParagraph()).toBe(
-      'Вашу долю по проекту предлагают изменить: сейчас 26%, предлагают 55%. ' +
-        'Пока вы не подтвердите, действует 26%.',
+      'Вашу частку по проєкту пропонують змінити: зараз 26%, пропонують 55%. ' +
+        'Поки ви не підтвердите, діє 26%.',
     )
   })
 
   it('reads as a removal when the proposal is to clear the override (percent === null)', () => {
     renderBanner({ ...PENDING, percent: null, effectivePercentAfterApproval: 30 })
-    // The «станет» number is the SERVER's resolved fallback, not a number the
-    // client guessed from a default — the null branch has never computed it
-    // and this pins that it still does not.
+    // The «станет»/«стане» number is the SERVER's resolved fallback, not a
+    // number the client guessed from a default — the null branch has never
+    // computed it and this pins that it still does not.
     expect(bannerParagraph()).toBe(
-      'По проекту предлагают снять индивидуальную долю: сейчас 26%, станет 30%. ' +
-        'Пока вы не подтвердите, действует 26%.',
+      'По проєкту пропонують зняти індивідуальну частку: зараз 26%, стане 30%. ' +
+        'Поки ви не підтвердите, діє 26%.',
     )
   })
 })
@@ -253,7 +262,7 @@ describe('PendingShareApprovalBanner — the refusal dialog', () => {
 
     expect(await screen.findByTestId('pending-share-reject-reason')).toHaveValue('')
     expect(screen.getByTestId('pending-share-reject-confirm')).toBeDisabled()
-    expect(screen.getByTestId('pending-share-reject-confirm')).toHaveTextContent('Отклонить')
+    expect(screen.getByTestId('pending-share-reject-confirm')).toHaveTextContent('Відхилити')
   })
 
   it('treats a reason of only spaces as no reason at all', async () => {
@@ -264,17 +273,17 @@ describe('PendingShareApprovalBanner — the refusal dialog', () => {
 
     // Without the `.trim()` a non-empty string of spaces enables the button
     // and the admin receives a blank explanation — which is the one thing
-    // this dialog exists to prevent («Причина обязательна»).
+    // this dialog exists to prevent («Причина обов’язкова»).
     expect(screen.getByTestId('pending-share-reject-confirm')).toBeDisabled()
   })
 
-  it('«Отмена» closes the dialog without calling anything', async () => {
+  it('«Скасувати» closes the dialog without calling anything', async () => {
     renderBanner()
     const user = userEvent.setup()
     await user.click(screen.getByTestId('pending-share-reject-button'))
     await screen.findByRole('dialog')
 
-    await user.click(screen.getByRole('button', { name: 'Отмена' }))
+    await user.click(screen.getByRole('button', { name: 'Скасувати' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(api.post).not.toHaveBeenCalled()
@@ -286,15 +295,12 @@ describe('PendingShareApprovalBanner — the refusal dialog', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('pending-share-reject-button'))
-    await user.type(
-      await screen.findByTestId('pending-share-reject-reason'),
-      'договаривались на 30%',
-    )
+    await user.type(await screen.findByTestId('pending-share-reject-reason'), 'домовилися про 30%')
     await user.click(screen.getByTestId('pending-share-reject-confirm'))
 
     await waitFor(() =>
       expect(api.post).toHaveBeenCalledWith(`/projects/${PROJECT_ID}/senior-share/reject`, {
-        reason: 'договаривались на 30%',
+        reason: 'домовилися про 30%',
       }),
     )
     // Closed, and — reopened — empty again. A reason that survives its own
@@ -318,11 +324,11 @@ describe('PendingShareApprovalBanner — the refusal dialog', () => {
     const user = userEvent.setup()
 
     await user.click(screen.getByTestId('pending-share-reject-button'))
-    await user.type(await screen.findByTestId('pending-share-reject-reason'), 'нет')
+    await user.type(await screen.findByTestId('pending-share-reject-reason'), 'ні')
     await user.click(screen.getByTestId('pending-share-reject-confirm'))
 
     // COPY-L-9: a NAMED fallback. Two buttons on this banner can fail, and
     // the house text does not say which one did.
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не удалось отклонить'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Не вдалося відхилити'))
   })
 })
