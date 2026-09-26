@@ -35,13 +35,13 @@ export const PAYMENT_TYPE_MESSAGES = {
  * `$projectId.tsx` moves to `PAYMENT_TYPE_MESSAGES`.
  */
 
-// bridge, see the doc comment above: `$projectId.tsx` (PR4) still reads this
-// as a plain string map, deleted once PR4 migrates it to PAYMENT_TYPE_MESSAGES.
+/* eslint-disable lingui/no-unlocalized-strings -- deliberate legacy bridge, see the doc comment above */
 export const PAYMENT_TYPE_LABELS: Record<ProjectPaymentType, string> = {
   FOP: 'ФОП',
   GIG_CONTRACT: 'гіг-контракт',
   USDT: 'USDT',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 /**
  * task-project-status-filter-ui. The four values of the /projects list's
