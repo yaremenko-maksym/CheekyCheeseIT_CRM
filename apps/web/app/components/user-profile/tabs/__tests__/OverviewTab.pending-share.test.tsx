@@ -218,7 +218,7 @@ describe('OverviewTab — a proposal whose percent is null reads the RESOLVED va
     )
     await user.click(screen.getByTestId('cancel-pending-share-user'))
     const dialog = await screen.findByTestId('cancel-pending-share-confirm-user')
-    expect(dialog).toHaveTextContent('Отменить предложение 55%?')
+    expect(dialog).toHaveTextContent('Скасувати пропозицію 55%?')
   })
 
   it('the badge names the resolved percent, never «0%» and never «null%»', () => {
@@ -236,7 +236,7 @@ describe('OverviewTab — a proposal whose percent is null reads the RESOLVED va
     )
     await user.click(screen.getByTestId('cancel-pending-share-user'))
     const dialog = await screen.findByTestId('cancel-pending-share-confirm-user')
-    expect(dialog).toHaveTextContent('Отменить предложение 26%?')
+    expect(dialog).toHaveTextContent('Скасувати пропозицію 26%?')
   })
 })
 
@@ -364,7 +364,7 @@ describe('OverviewTab — pending share informational badge (any viewer who can 
 // the withdraw control. Round 1 shipped the endpoint with no way to reach it.
 // ---------------------------------------------------------------------------
 
-describe('OverviewTab — withdraw ("Отменить предложение") control', () => {
+describe('OverviewTab — withdraw ("Скасувати пропозицію") control', () => {
   it('an ADMIN viewer gets it next to the indicator', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view', ADMIN_SHARE_PERMS)
     expect(screen.getByTestId('cancel-pending-share-user')).toBeInTheDocument()
@@ -385,7 +385,7 @@ describe('OverviewTab — withdraw ("Отменить предложение") c
 
   it('carries an accessible name — it is icon-only', () => {
     renderTab(makeUser({ role: 'SENIOR', pendingSeniorShare: PENDING }), 'view', ADMIN_SHARE_PERMS)
-    expect(screen.getByRole('button', { name: 'Отменить предложение' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Скасувати пропозицію' })).toBeInTheDocument()
   })
 })
 
