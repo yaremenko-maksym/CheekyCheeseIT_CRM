@@ -34,6 +34,9 @@ export const PAYMENT_TYPE_MESSAGES = {
  * INSIDE this PR's periphery, only outside it. Delete this block in PR4 once
  * `$projectId.tsx` moves to `PAYMENT_TYPE_MESSAGES`.
  */
+
+// bridge, see the doc comment above: `$projectId.tsx` (PR4) still reads this
+// as a plain string map, deleted once PR4 migrates it to PAYMENT_TYPE_MESSAGES.
 export const PAYMENT_TYPE_LABELS: Record<ProjectPaymentType, string> = {
   FOP: 'ФОП',
   GIG_CONTRACT: 'гіг-контракт',

@@ -20,9 +20,10 @@ import {
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { z } from 'zod'
 import type { CreateProjectDto, ProjectDto, ProjectMemberDto, ItDomain } from '@crm/shared'
-import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
+import { createProjectSchema, IT_DOMAINS, compareNames } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -51,10 +52,10 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectRow } from '@/components/projects/ProjectRow'
 import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
 import {
-  PAYMENT_TYPE_LABELS,
+  PAYMENT_TYPE_MESSAGES,
   PROJECT_STATUS_FILTERS,
-  STATUS_FILTER_LABELS,
-  STATUS_FILTER_LABELS_MOBILE,
+  STATUS_FILTER_LABEL_MESSAGES,
+  STATUS_FILTER_LABEL_MESSAGES_MOBILE,
   type ProjectStatusFilter,
 } from './constants'
 import { useActiveTeam } from '@/hooks/use-active-team'
@@ -143,6 +144,8 @@ type AnyField = FieldApi<
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 function ProjectsPage() {
+  const { t } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { user } = useAuth()
   const search = Route.useSearch()
@@ -191,6 +194,8 @@ function ProjectsPage() {
   const [seniorFilter, setSeniorFilter] = useState<string>('ALL')
   const [sortKey, setSortKey] = useState<ProjectSortKey>('companyName')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const sortAscLabel = t`За зростанням`
+  const sortDescLabel = t`За спаданням`
 
   // task-project-status-filter-ui (design spec §2). `status` is now the ONE
   // URL-driven source for all four tabs (ADMIN can deep-link «На
@@ -300,8 +305,8 @@ function ProjectsPage() {
     const projectSeniorIds = new Set((projects ?? []).map((p) => p.seniorId).filter(Boolean))
     return allUsers
       .filter((u) => u.role === 'SENIOR' || (u.role === 'ADMIN' && projectSeniorIds.has(u.id)))
-      .sort((a, b) => a.displayName.localeCompare(b.displayName, 'uk'))
-  }, [allUsers, projects])
+      .sort((a, b) => compareNames(locale)(a.displayName, b.displayName))
+  }, [allUsers, projects, locale])
   // Drop role - phase 2: list of DROP users for the optional Select in the
   // create-project form. The list is hidden entirely when empty so the form
   // looks identical to pre-phase-2 for companies that don't use drops.
@@ -449,14 +454,13 @@ function ProjectsPage() {
           data-testid="projects-teamless-empty-state"
         >
           <UsersRound className="h-10 w-10 text-muted-foreground/30" />
-          <p className="mt-4 text-sm font-medium">У вас нет активной команды</p>
+          <p className="mt-4 text-sm font-medium">{t`У вас немає активної команди`}</p>
           <p className="mt-1 text-xs text-muted-foreground max-w-md">
-            Создайте свою команду или присоединитесь к команде дропа, чтобы получить доступ к
-            проектам.
+            {t`Створіть свою команду або приєднайтеся до команди дропа, щоб отримати доступ до проєктів.`}
           </p>
           <Button size="sm" className="mt-4 gap-1.5" onClick={() => setRejoinDialogOpen(true)}>
             <Plus className="h-4 w-4" />
-            Создать или выбрать команду
+            {t`Створити або обрати команду`}
           </Button>
         </div>
         <RejoinTeamDialog open={rejoinDialogOpen} onClose={() => setRejoinDialogOpen(false)} />
@@ -485,7 +489,7 @@ function ProjectsPage() {
   // warning, not just another neutral choice.
   const tabOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map((value) => ({
     value,
-    label: STATUS_FILTER_LABELS[value],
+    label: i18n._(STATUS_FILTER_LABEL_MESSAGES[value]),
     ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects', icon: Archive } : {}),
     ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
   }))
@@ -501,7 +505,7 @@ function ProjectsPage() {
   const tabOptionsMobile: ReadonlyArray<SegmentedToggleOption<StatusTab>> = allowedTabs.map(
     (value) => ({
       value,
-      label: STATUS_FILTER_LABELS_MOBILE[value],
+      label: i18n._(STATUS_FILTER_LABEL_MESSAGES_MOBILE[value]),
       ...(value === 'ARCHIVED' ? { testId: 'toggle-archived-projects-mobile' } : {}),
       ...(value === 'REJECTED' ? { activeVariant: 'destructive' as const } : {}),
     }),
@@ -539,7 +543,7 @@ function ProjectsPage() {
   // empty-state's semantics unchanged for ACTIVE/ARCHIVED.
   const emptyState: { text: string; icon: typeof Briefcase } =
     currentTab === 'ARCHIVED'
-      ? { text: 'Архив пуст', icon: Briefcase }
+      ? { text: t`Архів порожній`, icon: Briefcase }
       : currentTab === 'PENDING'
         ? {
             // COPY-M-5 (PR #646 fix-round 2): "черновик" is already the
@@ -550,13 +554,13 @@ function ProjectsPage() {
             // this exact screen using a third, already-taken word for the
             // same object.
             text: isAdmin
-              ? 'Проектов на подтверждении нет'
-              : 'Нет проектов, ожидающих вашего решения',
+              ? t`Немає проєктів на підтвердженні`
+              : t`Немає проєктів, що очікують вашого рішення`,
             icon: Clock,
           }
         : currentTab === 'REJECTED'
-          ? { text: 'Отклонённых проектов нет', icon: XCircle }
-          : { text: 'Проектов пока нет', icon: Briefcase }
+          ? { text: t`Відхилених проєктів немає`, icon: XCircle }
+          : { text: t`Проєктів поки немає`, icon: Briefcase }
   const EmptyStateIcon = emptyState.icon
 
   return (
@@ -569,7 +573,7 @@ function ProjectsPage() {
             {canCreate && (
               <Button size="sm" onClick={() => setShowCreate(true)}>
                 <Plus className="mr-1.5 h-4 w-4" />
-                Новый проект
+                {t`Новий проєкт`}
               </Button>
             )}
           </div>
@@ -618,7 +622,7 @@ function ProjectsPage() {
               value={currentTab}
               onChange={handleTabChange}
               options={tabOptionsMobile}
-              ariaLabel="Фильтр проектов по статусу"
+              ariaLabel={t`Фільтр проєктів за статусом`}
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs-mobile"
@@ -629,7 +633,7 @@ function ProjectsPage() {
               value={currentTab}
               onChange={handleTabChange}
               options={tabOptions}
-              ariaLabel="Фильтр проектов по статусу"
+              ariaLabel={t`Фільтр проєктів за статусом`}
               variant="tabs"
               size="sm"
               layoutId="projects-status-tabs"
@@ -642,7 +646,7 @@ function ProjectsPage() {
                 user's focus), which is not otherwise observable to a
                 screen-reader user. */}
             <p className="sr-only" aria-live="polite" aria-atomic="true">
-              {STATUS_FILTER_LABELS[currentTab]}. Показано проектов: {filtered.length}.
+              {t`${i18n._(STATUS_FILTER_LABEL_MESSAGES[currentTab])}. Показано проєктів: ${filtered.length}.`}
             </p>
           </>
         )}
@@ -654,7 +658,7 @@ function ProjectsPage() {
             <Input
               type="search"
               enterKeyHint="search"
-              placeholder="Поиск по компании, проекту, синьору…"
+              placeholder={t`Пошук за компанією, проєктом, сеньйором…`}
               className="pl-8"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
@@ -665,14 +669,14 @@ function ProjectsPage() {
           {(isAdmin || isAccountant) && ownerUsers.length > 0 && (
             <Select value={seniorFilter} onValueChange={setSeniorFilter}>
               <SelectTrigger className="w-44" data-testid="projects-senior-filter">
-                <SelectValue placeholder="Все ответственные" />
+                <SelectValue placeholder={t`Усі відповідальні`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">Все ответственные</SelectItem>
+                <SelectItem value="ALL">{t`Усі відповідальні`}</SelectItem>
                 {ownerUsers.map((u) => (
                   <SelectItem key={u.id} value={u.id}>
                     {u.displayName}
-                    {u.role === 'ADMIN' ? ' (админ)' : ''}
+                    {u.role === 'ADMIN' ? t` (адмін)` : ''}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -683,12 +687,12 @@ function ProjectsPage() {
 
           <Select value={sortKey} onValueChange={(v) => setSortKey(v as ProjectSortKey)}>
             <SelectTrigger className="w-52" data-testid="projects-sort-key">
-              <SelectValue placeholder="Сортировка" />
+              <SelectValue placeholder={t`Сортування`} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="companyName">По компании</SelectItem>
-              <SelectItem value="rate">По ставке</SelectItem>
-              <SelectItem value="startDate">По дате начала</SelectItem>
+              <SelectItem value="companyName">{t`За компанією`}</SelectItem>
+              <SelectItem value="rate">{t`За ставкою`}</SelectItem>
+              <SelectItem value="startDate">{t`За датою початку`}</SelectItem>
             </SelectContent>
           </Select>
           <Button
@@ -696,7 +700,7 @@ function ProjectsPage() {
             variant="ghost"
             size="icon"
             onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-            aria-label={`Направление сортировки: ${sortDir === 'asc' ? 'По возрастанию' : 'По убыванию'}`}
+            aria-label={t`Напрямок сортування: ${sortDir === 'asc' ? sortAscLabel : sortDescLabel}`}
             data-testid="projects-sort-direction"
             data-dir={sortDir}
             className="h-9 w-9"
@@ -724,9 +728,9 @@ function ProjectsPage() {
           {isError && (
             <Card data-testid="projects-fetch-error">
               <CardContent className="flex flex-col items-center justify-center gap-2 py-10">
-                <p className="text-sm text-destructive">Не удалось загрузить проекты</p>
+                <p className="text-sm text-destructive">{t`Не вдалося завантажити проєкти`}</p>
                 <p className="text-xs text-muted-foreground">
-                  Обновите страницу или попробуйте позже
+                  {t`Оновіть сторінку або спробуйте пізніше`}
                 </p>
               </CardContent>
             </Card>
@@ -746,7 +750,7 @@ function ProjectsPage() {
                   onClick={() => setShowCreate(true)}
                 >
                   <Plus className="mr-1.5 h-4 w-4" />
-                  Создать проект
+                  {t`Створити проєкт`}
                 </Button>
               )}
             </div>
@@ -802,13 +806,13 @@ function ProjectsPage() {
           >
             <CrmDialogContent maxWidth="max-w-md">
               <CrmDialogHeader>
-                <DialogTitle>Новый проект</DialogTitle>
-                <DialogDescription className="sr-only">Создание проекта</DialogDescription>
+                <DialogTitle>{t`Новий проєкт`}</DialogTitle>
+                <DialogDescription className="sr-only">{t`Створення проєкту`}</DialogDescription>
               </CrmDialogHeader>
               <CrmDialogBody>
                 <div className="space-y-3">
                   <div className="space-y-1.5">
-                    <Label>Логотип компании</Label>
+                    <Label>{t`Логотип компанії`}</Label>
                     <ImageUploadField
                       value={{
                         documentId: (createForm.state.values as { logoDocumentId: string | null })
@@ -841,7 +845,9 @@ function ProjectsPage() {
                         : undefined
                       return (
                         <div className="space-y-1.5">
-                          <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
+                          <Label
+                            className={cn(err && 'text-destructive')}
+                          >{t`Назва проєкту`}</Label>
                           <Input
                             value={field.state.value}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -874,7 +880,7 @@ function ProjectsPage() {
                         : undefined
                       return (
                         <div className="space-y-1.5">
-                          <Label className={cn(err && 'text-destructive')}>Компания</Label>
+                          <Label className={cn(err && 'text-destructive')}>{t`Компанія`}</Label>
                           <Input
                             value={field.state.value}
                             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -895,7 +901,7 @@ function ProjectsPage() {
                   <createForm.Field name="domain">
                     {(field: AnyField) => (
                       <div className="space-y-1.5">
-                        <Label>Домен</Label>
+                        <Label>{t`Домен`}</Label>
                         <select
                           className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                           value={field.state.value}
@@ -918,7 +924,7 @@ function ProjectsPage() {
                     validators={{
                       onBlur: ({ value }: { value: string }) => {
                         const r = createProjectSchema.shape.seniorId.safeParse(value)
-                        return r.success ? undefined : 'Выберите синьора'
+                        return r.success ? undefined : t`Виберіть сеньйора`
                       },
                     }}
                   >
@@ -928,7 +934,7 @@ function ProjectsPage() {
                         : undefined
                       return (
                         <div className="space-y-1.5">
-                          <Label className={cn(err && 'text-destructive')}>Синьор</Label>
+                          <Label className={cn(err && 'text-destructive')}>{t`Сеньйор`}</Label>
                           <select
                             className={cn(
                               'w-full rounded-md border bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring',
@@ -940,7 +946,7 @@ function ProjectsPage() {
                             }
                             onBlur={field.handleBlur}
                           >
-                            <option value="">— выберите синьора —</option>
+                            <option value="">{t`— виберіть сеньйора —`}</option>
                             {seniorUsers.map((u) => (
                               <option key={u.id} value={u.id}>
                                 {u.displayName}
@@ -960,7 +966,7 @@ function ProjectsPage() {
                     <createForm.Field name="dropId">
                       {(field: AnyField) => (
                         <div className="space-y-1.5">
-                          <Label>Дроп (опционально)</Label>
+                          <Label>{t`Дроп (опційно)`}</Label>
                           <select
                             data-testid="create-project-drop-select"
                             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
@@ -970,7 +976,7 @@ function ProjectsPage() {
                             }
                             onBlur={field.handleBlur}
                           >
-                            <option value="">— не выбран —</option>
+                            <option value="">{t`— не обрано —`}</option>
                             {dropUsers.map((u) => (
                               <option key={u.id} value={u.id}>
                                 {u.displayName}
@@ -978,8 +984,7 @@ function ProjectsPage() {
                             ))}
                           </select>
                           <p className="text-xs text-muted-foreground">
-                            Если выбран — приходы по проекту пойдут через дропа (доля 5% по
-                            умолчанию).
+                            {t`Якщо обрано — надходження за проєктом підуть через дропа (частка 5% за замовчуванням).`}
                           </p>
                         </div>
                       )}
@@ -1002,7 +1007,7 @@ function ProjectsPage() {
                         onCurrencyChange={(v) =>
                           createForm.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
                         }
-                        label="Ставка"
+                        label={t`Ставка`}
                         placeholder="5000"
                       />
                     )}
@@ -1011,7 +1016,7 @@ function ProjectsPage() {
                   <createForm.Field name="startDate">
                     {(field: AnyField) => (
                       <div className="space-y-1.5">
-                        <Label>Дата начала</Label>
+                        <Label>{t`Дата початку`}</Label>
                         <Input
                           type="date"
                           value={field.state.value}
@@ -1035,12 +1040,12 @@ function ProjectsPage() {
                       ] as const
                     ).map((fieldName) => {
                       const labels: Record<string, string> = {
-                        techStack: 'Стек технологий',
-                        teamSize: 'Состав команды',
-                        benefits: 'Бенефиты',
-                        paymentType: 'Тип оплаты',
-                        salaryReview: 'Пересмотр ЗП',
-                        corpTech: 'Корп. технологии',
+                        techStack: t`Стек технологій`,
+                        teamSize: t`Склад команди`,
+                        benefits: t`Бенефіти`,
+                        paymentType: t`Тип оплати`,
+                        salaryReview: t`Перегляд ЗП`,
+                        corpTech: t`Корп. техніка`,
                       }
                       // task-drop-share-override-and-receiver (Surface C).
                       // paymentType moves from free-text Input to a 3-value
@@ -1050,7 +1055,7 @@ function ProjectsPage() {
                           <createForm.Field key="paymentType" name="paymentType">
                             {(field: AnyField) => (
                               <div className="space-y-1.5">
-                                <Label>Тип оплаты</Label>
+                                <Label>{t`Тип оплати`}</Label>
                                 <Select
                                   value={field.state.value as string}
                                   onValueChange={(v) => field.handleChange(v)}
@@ -1060,23 +1065,23 @@ function ProjectsPage() {
                                     className="h-9 text-sm"
                                     data-testid="project-payment-type-trigger"
                                   >
-                                    <SelectValue placeholder="Выберите тип оплаты" />
+                                    <SelectValue placeholder={t`Виберіть тип оплати`} />
                                   </SelectTrigger>
                                   <SelectContent>
                                     <SelectItem value="FOP" className="text-sm">
-                                      {PAYMENT_TYPE_LABELS.FOP}
+                                      {i18n._(PAYMENT_TYPE_MESSAGES.FOP)}
                                     </SelectItem>
                                     <SelectItem value="GIG_CONTRACT" className="text-sm">
-                                      {PAYMENT_TYPE_LABELS.GIG_CONTRACT}
+                                      {i18n._(PAYMENT_TYPE_MESSAGES.GIG_CONTRACT)}
                                     </SelectItem>
                                     <SelectItem value="USDT" className="text-sm">
-                                      {PAYMENT_TYPE_LABELS.USDT}
+                                      {i18n._(PAYMENT_TYPE_MESSAGES.USDT)}
                                     </SelectItem>
                                   </SelectContent>
                                 </Select>
                                 {!canEditPaymentType && (
                                   <p className="text-xs text-muted-foreground italic">
-                                    Менять может только ADMIN или ACCOUNTANT.
+                                    {t`Змінювати може тільки ADMIN або ACCOUNTANT.`}
                                   </p>
                                 )}
                               </div>
@@ -1104,7 +1109,7 @@ function ProjectsPage() {
                     <createForm.Field name="notesGeneral">
                       {(field: AnyField) => (
                         <div className="space-y-1.5">
-                          <Label>Общие заметки</Label>
+                          <Label>{t`Загальні примітки`}</Label>
                           <textarea
                             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
                             value={field.state.value as string}
@@ -1127,14 +1132,14 @@ function ProjectsPage() {
                     createForm.reset()
                   }}
                 >
-                  Отмена
+                  {t`Скасувати`}
                 </Button>
                 <Button
                   onClick={() => void createForm.handleSubmit()}
                   disabled={createMutation.isPending}
                   data-track="project-create"
                 >
-                  {createMutation.isPending ? 'Создание...' : 'Создать'}
+                  {createMutation.isPending ? t`Створення...` : t`Створити`}
                 </Button>
               </CrmDialogFooter>
             </CrmDialogContent>

@@ -103,9 +103,9 @@ export function resolveProjectApprovalCaption(
 
   const pendingCaption =
     seniorStillPending && dropStillPending
-      ? i18n._(BOTH_PENDING, { drop: dropLabel, senior: seniorLabel })
+      ? i18n._(BOTH_PENDING.id, { drop: dropLabel, senior: seniorLabel })
       : seniorStillPending
-        ? i18n._(SENIOR_PENDING, { senior: seniorLabel })
+        ? i18n._(SENIOR_PENDING.id, { senior: seniorLabel })
         : dropStillPending
           ? // COPY-M-2 (fix-round 2): symmetric with the "both pending"
             // branch above — a drop whose senior already confirmed should
@@ -113,7 +113,7 @@ export function resolveProjectApprovalCaption(
             // does not. `dropName` is `null` for a SENIOR viewer (RBAC rule
             // #2 — masking, unaffected: the fallback is the same one the
             // masked branch already used before this change).
-            i18n._(DROP_PENDING, { drop: dropLabel })
+            i18n._(DROP_PENDING.id, { drop: dropLabel })
           : null
 
   const viewerIsSenior = !!viewerId && viewerId === project.seniorId

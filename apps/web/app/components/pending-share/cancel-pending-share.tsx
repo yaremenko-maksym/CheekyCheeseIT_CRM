@@ -102,7 +102,7 @@ export function useCancelPendingShare(scope: PendingShareScope, id: string) {
       toast.success(
         percent === null
           ? i18n._(CANCELLED_KEEPS_PREVIOUS)
-          : i18n._(CANCELLED_KEEPS_PERCENT, { percent }),
+          : i18n._(CANCELLED_KEEPS_PERCENT.id, { percent }),
       )
       invalidate()
     },
