@@ -87,19 +87,19 @@ function renderCard(application: VacancyApplication) {
 }
 
 describe('CandidateCard — NEW derivation (§5)', () => {
-  it('status NEW: renders «Новый» badge + ring highlight', () => {
+  it('status NEW: renders «Новий» badge + ring highlight', () => {
     renderCard(makeApplication({ status: 'NEW' }))
-    expect(screen.getByTestId('candidate-new-badge-app-1')).toHaveTextContent('Новый')
+    expect(screen.getByTestId('candidate-new-badge-app-1')).toHaveTextContent('Новий')
     expect(screen.getByTestId('candidate-card-app-1').className).toMatch(/ring-1/)
   })
 
-  it('status VIEWED: no «Новый» badge, no ring', () => {
+  it('status VIEWED: no «Новий» badge, no ring', () => {
     renderCard(makeApplication({ status: 'VIEWED' }))
     expect(screen.queryByTestId('candidate-new-badge-app-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('candidate-card-app-1').className).not.toMatch(/ring-1/)
   })
 
-  it('status REJECTED: no «Новый» badge, no ring', () => {
+  it('status REJECTED: no «Новий» badge, no ring', () => {
     renderCard(makeApplication({ status: 'REJECTED' }))
     expect(screen.queryByTestId('candidate-new-badge-app-1')).not.toBeInTheDocument()
   })
@@ -178,12 +178,12 @@ describe('CandidateCard — conditional chips + cover letter', () => {
 
   it('does not render the cover letter <details> when empty', () => {
     renderCard(makeApplication({ coverLetter: null }))
-    expect(screen.queryByText('Сопроводительное письмо')).not.toBeInTheDocument()
+    expect(screen.queryByText('Супровідний лист')).not.toBeInTheDocument()
   })
 
   it('renders the collapsible cover letter block when present', () => {
     renderCard(makeApplication({ coverLetter: 'Я хочу у вас работать.' }))
-    expect(screen.getByText('Сопроводительное письмо')).toBeInTheDocument()
+    expect(screen.getByText('Супровідний лист')).toBeInTheDocument()
     expect(screen.getByText('Я хочу у вас работать.')).toBeInTheDocument()
   })
 })
@@ -191,7 +191,7 @@ describe('CandidateCard — conditional chips + cover letter', () => {
 describe('CandidateCard — status toggle (PATCH)', () => {
   beforeEach(() => apiPatch.mockClear())
 
-  it('clicking «Просмотрено» PATCHes the new status', async () => {
+  it('clicking «Переглянутий» PATCHes the new status', async () => {
     renderCard(makeApplication({ status: 'NEW' }))
     fireEvent.click(screen.getByTestId('candidate-status-app-1-VIEWED'))
     await waitFor(() =>
@@ -259,7 +259,7 @@ describe('CandidateCard — resume download (presigned URL, task-candidate-card-
 // / download-inside-dialog) is covered directly in ResumePreviewDialog.test.tsx —
 // this only pins that CandidateCard actually wires the button to it.
 describe('CandidateCard — resume preview button (task-candidate-card-resume AC2)', () => {
-  it('clicking «Просмотр» opens the resume preview dialog with the candidate name in the title', () => {
+  it('clicking «Перегляд» opens the resume preview dialog with the candidate name in the title', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     expect(screen.queryByTestId('resume-preview-dialog')).not.toBeInTheDocument()
 
@@ -287,7 +287,7 @@ describe('CandidateCard — purged resume (resumeSizeBytes null, §2)', () => {
     renderCard(makeApplication({ resumeSizeBytes: null }))
     expect(screen.queryByTestId('candidate-download-app-1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('candidate-preview-app-1')).not.toBeInTheDocument()
-    expect(screen.getByTestId('candidate-resume-purged-app-1')).toHaveTextContent('Резюме удалено')
+    expect(screen.getByTestId('candidate-resume-purged-app-1')).toHaveTextContent('Резюме видалено')
   })
 
   it('still renders the download/preview buttons when resumeSizeBytes is present', () => {
@@ -304,7 +304,7 @@ describe('CandidateCard — delete (AlertDialog confirm gate)', () => {
   it('clicking the delete icon opens a confirm dialog WITHOUT deleting yet', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     fireEvent.click(screen.getByTestId('candidate-delete-app-1'))
-    expect(screen.getByText('Удалить отклик?')).toBeInTheDocument()
+    expect(screen.getByText('Видалити відгук?')).toBeInTheDocument()
     expect(apiDelete).not.toHaveBeenCalled()
   })
 
@@ -312,7 +312,7 @@ describe('CandidateCard — delete (AlertDialog confirm gate)', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     fireEvent.click(screen.getByTestId('candidate-delete-app-1'))
     expect(screen.queryByText(/\.pdf/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Отклик кандидата Иван Петров будет удалён/)).toBeInTheDocument()
+    expect(screen.getByText(/Відгук кандидата Иван Петров буде видалено/)).toBeInTheDocument()
   })
 
   it('confirming calls DELETE /vacancies/:vacancyId/applications/:appId', async () => {

@@ -29,6 +29,13 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { VacancyApplication } from '@crm/shared'
+// task-i18n-stage3c-pr2 — `ResumePreviewDialog` now renders `<Trans>`, which
+// needs an `I18nProvider` in the tree (same convention as CandidateCard.test.tsx).
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const apiGet = vi.fn()
 vi.mock('@/lib/axios', () => ({
@@ -66,14 +73,16 @@ function renderDialog(
 ) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={qc}>
-      <ResumePreviewDialog
-        open={open}
-        onOpenChange={onOpenChange}
-        vacancyId="vac-1"
-        application={application}
-      />
-    </QueryClientProvider>,
+    <I18nTestProvider>
+      <QueryClientProvider client={qc}>
+        <ResumePreviewDialog
+          open={open}
+          onOpenChange={onOpenChange}
+          vacancyId="vac-1"
+          application={application}
+        />
+      </QueryClientProvider>
+    </I18nTestProvider>,
   )
 }
 
@@ -123,9 +132,11 @@ describe('ResumePreviewDialog', () => {
     })
     renderDialog(true)
     expect(screen.queryByTestId('candidate-resume-preview')).not.toBeInTheDocument()
-    expect(screen.getByText(/Предпросмотр недоступен для этого формата файла/)).toBeInTheDocument()
-    expect(screen.queryByText(/браузер не поддерживает/i)).not.toBeInTheDocument()
-    expect(screen.queryByText(/не поддерживается браузером/i)).not.toBeInTheDocument()
+    expect(
+      screen.getByText(/Попередній перегляд недоступний для цього формату файлу/),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/браузер не підтримує/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/не підтримується браузером/i)).not.toBeInTheDocument()
   })
 
   describe('download button — blob already loaded (code-review round 2)', () => {

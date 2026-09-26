@@ -120,7 +120,9 @@ describe('VacancyCard — status action matrix (§4.1.1)', () => {
     // getAllByText, not getByText (which throws on >1 match).
     fireEvent.focus(btn)
     await waitFor(() =>
-      expect(screen.getAllByText('Нельзя удалить вакансию с откликами').length).toBeGreaterThan(0),
+      expect(screen.getAllByText('Неможливо видалити вакансію з відгуками').length).toBeGreaterThan(
+        0,
+      ),
     )
   })
 
@@ -146,7 +148,9 @@ describe('VacancyCard — status action matrix (§4.1.1)', () => {
     expect(screen.getByTestId('vacancy-reopen-vac-1')).toBeInTheDocument()
     fireEvent.focus(btn)
     await waitFor(() =>
-      expect(screen.getAllByText('Нельзя удалить вакансию с откликами').length).toBeGreaterThan(0),
+      expect(screen.getAllByText('Неможливо видалити вакансію з відгуками').length).toBeGreaterThan(
+        0,
+      ),
     )
   })
 
@@ -232,5 +236,22 @@ describe('VacancyCard — salary-range publish gate (task-vacancy-salary-range)'
   it('DRAFT WITH a filled salary range: publish button ENABLED', () => {
     renderCard(makeVacancy({ status: 'DRAFT' }))
     expect(screen.getByTestId('vacancy-publish-vac-1')).toBeEnabled()
+  })
+})
+
+// task-i18n-stage3c-pr2 (AC2, danger "manual plural forms") — the applications
+// counter is a <Plural>, not the removed `pluralizeOtklik` helper. Verified
+// across the uk plural-category boundaries (one/few/many), not just n=1.
+describe('VacancyCard — applications counter pluralization (task-i18n-stage3c-pr2 AC2)', () => {
+  it.each([
+    [0, '0 відгуків'],
+    [1, '1 відгук'],
+    [2, '2 відгуки'],
+    [5, '5 відгуків'],
+    [11, '11 відгуків'],
+    [21, '21 відгук'],
+  ])('applicationsCount=%i renders "%s"', (applicationsCount, expected) => {
+    renderCard(makeVacancy({ applicationsCount }))
+    expect(screen.getAllByText(expected).length).toBeGreaterThan(0)
   })
 })

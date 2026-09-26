@@ -1,6 +1,6 @@
 /**
  * ResumePreviewDialog — task-candidate-card-resume (AC2). Modal PDF preview
- * for a vacancy application's resume, opened from CandidateCard's «Просмотр»
+ * for a vacancy application's resume, opened from CandidateCard's «View»
  * button.
  *
  * Reuses the SAME generic preview surface DocumentDetailDialog uses for
@@ -16,6 +16,7 @@
  * comment) — this dialog never fetches the resume through any other path.
  */
 import { useState } from 'react'
+import { Trans } from '@lingui/react/macro'
 import { Download, ExternalLink, FileWarning } from 'lucide-react'
 import { sanitizeDownloadFilename, type VacancyApplication } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -112,10 +113,10 @@ export function ResumePreviewDialog({
       <CrmDialogContent maxWidth="sm:max-w-3xl" data-testid="resume-preview-dialog">
         <CrmDialogHeader>
           <DialogTitle data-testid="resume-preview-title" className="line-clamp-1 pr-8">
-            Резюме — {application.fullName}
+            <Trans>Резюме — {application.fullName}</Trans>
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Предпросмотр резюме кандидата {application.fullName}
+            <Trans>Попередній перегляд резюме кандидата {application.fullName}</Trans>
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -132,7 +133,10 @@ export function ResumePreviewDialog({
               <div className="flex h-full w-full flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
                 <FileWarning className="h-16 w-16 text-muted-foreground/50" />
                 <p className="text-sm">
-                  Предпросмотр недоступен для этого формата файла — скачайте, чтобы открыть.
+                  <Trans>
+                    Попередній перегляд недоступний для цього формату файлу — завантажте, щоб
+                    відкрити.
+                  </Trans>
                 </p>
               </div>
             ) : (
@@ -154,7 +158,7 @@ export function ResumePreviewDialog({
             onClick={() => onOpenChange(false)}
             data-testid="resume-preview-close"
           >
-            Закрыть
+            <Trans>Закрити</Trans>
           </Button>
           <Button
             onClick={() => void handleDownload()}
@@ -166,7 +170,7 @@ export function ResumePreviewDialog({
             ) : (
               <Download className="mr-1.5 h-4 w-4" />
             )}
-            Скачать
+            <Trans>Завантажити</Trans>
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

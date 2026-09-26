@@ -285,7 +285,7 @@ describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2
 
     // Fallback toast — fires unconditionally on any invalid submit.
     await waitFor(() =>
-      expect(toast.error).toHaveBeenCalledWith('Проверьте поля формы — есть ошибки'),
+      expect(toast.error).toHaveBeenCalledWith('Перевірте поля форми — є помилки'),
     )
     // Submission itself must be blocked.
     expect(apiPost).not.toHaveBeenCalled()
@@ -295,7 +295,7 @@ describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2
     await waitFor(() =>
       expect(screen.getByTestId('vacancy-translation-ru-title')).toBeInTheDocument(),
     )
-    expect(screen.getByText('Минимум 3 символов')).toBeInTheDocument()
+    expect(screen.getByText('Мінімум 3 символи')).toBeInTheDocument()
     expect(screen.getByTestId('vacancy-translation-tab-ru')).toHaveAttribute('data-state', 'active')
 
     // design-review round 2 (PR #422, MED) — the error must be linked to its
@@ -309,7 +309,7 @@ describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2
     // `toHaveAccessibleDescription` resolves aria-describedby the way assistive
     // tech does, so it proves the id RESOLVES to that text — the thing this
     // test is about — without `document.getElementById` (task-lint-teeth).
-    expect(ruTitleInput).toHaveAccessibleDescription('Минимум 3 символов')
+    expect(ruTitleInput).toHaveAccessibleDescription('Мінімум 3 символи')
   })
 })
 
@@ -322,7 +322,7 @@ describe('VacancySheet — edit mode', () => {
     expect(screen.getByTestId('vacancy-form-description')).toHaveValue('Existing description here.')
     expect(screen.queryByTestId('vacancy-form-seniority')).not.toBeInTheDocument()
     expect(screen.queryByTestId('vacancy-form-location')).not.toBeInTheDocument()
-    expect(screen.getByText('Сохранить изменения')).toBeInTheDocument()
+    expect(screen.getByText('Зберегти зміни')).toBeInTheDocument()
   })
 
   it('submits PATCH /vacancies/:id', async () => {
