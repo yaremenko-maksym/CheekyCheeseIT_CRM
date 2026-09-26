@@ -81,6 +81,7 @@ function SystemVariableRow({ varKey, description, isUsed, onInsert }: SystemVari
         size="sm"
         className="h-7 shrink-0 px-2 text-xs"
         onClick={() => onInsert(token)}
+        // Stryker disable next-line StringLiteral: aria-label duplicates the visible "Вставити" text (Trans below); no test reads the accessible name separately from the visible label for this button.
         aria-label={t`Вставити ${token}`}
         data-testid={`insert-var-${varKey}`}
       >

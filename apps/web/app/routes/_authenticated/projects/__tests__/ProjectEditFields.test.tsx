@@ -194,6 +194,97 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
   })
 })
 
+// task-i18n-stage3c-pr4 — every field label in "info" mode used to be a
+// LOCAL `Record<string, string>` inside the render (invisible to `lingui
+// extract`, hoisted to module-level `EDIT_FIELD_LABEL_MESSAGES` per template
+// G) — and none of them had a test reading the label text itself (only the
+// `data-testid`s of their inputs were asserted). The mutation gate caught
+// this: every label string, and the module-level map's own shape, survived
+// mutation with every existing test green.
+describe('ProjectEditFields — info-mode field labels (i18n)', () => {
+  it('renders every field label text, once each, in the info form', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId="drop-1" viewerRole="ADMIN" />)
+    for (const label of [
+      'Логотип компанії',
+      'Назва проєкту',
+      'Компанія',
+      'Домен',
+      'Тип оплати',
+      'Технологічний стек',
+      'Склад команди',
+      'Бенефіти',
+      'Перегляд зарплати',
+      'Корпоративна техніка',
+      'Загальні нотатки',
+      'Ставка',
+      'Частка сеньйора (%)',
+      'Частка дропа (%)',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+  })
+})
+
+// task-i18n-stage3c-pr4 — `cn(err && 'text-destructive')` on each Label
+// mutates cleanly to `cn(true && …)`/`cn(false && …)` with every existing
+// test green: nothing ever triggered the validators and read the Label's
+// OWN class (only the separate `<p>` error message below each field was
+// implicitly exercised by other Surface tests). One field per validator
+// family — a `min(1)` string field and the senior/drop custom integer
+// validators — is enough to exercise all four call sites (they share one
+// `cn(err && …)` expression, so covering the branch pins them together).
+describe('ProjectEditFields — error styling on Label (i18n)', () => {
+  it('"Назва проєкту" label gains text-destructive after a min(1) validation error', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText('AI Platform v2')
+    const label = screen.getByText('Назва проєкту')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+  })
+
+  it('"Компанія" label gains text-destructive after a min(1) validation error', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText('TechCorp AI')
+    const label = screen.getByText('Компанія')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+  })
+
+  it('"Частка сеньйора (%)" label gains text-destructive after a non-integer value', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByTestId('project-edit-senior-share-override')
+    const label = screen.getByText('Частка сеньйора (%)')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '50.5' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+    expect(screen.getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
+  })
+
+  it('"Частка дропа (%)" label gains text-destructive after a non-integer value', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId="drop-1" viewerRole="ADMIN" />)
+    const input = screen.getByTestId('project-edit-drop-share-override')
+    const label = screen.getByText('Частка дропа (%)')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '50.5' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+    expect(screen.getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
+  })
+})
+
 describe('ProjectEditFields — Surface C (paymentType Select)', () => {
   it('renders 3 payment-type options, editable for ADMIN', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)

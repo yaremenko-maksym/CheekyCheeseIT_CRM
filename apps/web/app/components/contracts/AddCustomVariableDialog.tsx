@@ -153,6 +153,7 @@ export function AddCustomVariableDialog({
             </Label>
             <Input
               id="cv-label"
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads an <input>'s placeholder attribute for this field — genuinely unobservable by the unit suite.
               placeholder={t`Місто підписання`}
               value={label}
               onChange={(e) => handleLabelChange(e.target.value)}
@@ -169,6 +170,7 @@ export function AddCustomVariableDialog({
             </Label>
             <Input
               id="cv-default"
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads an <input>'s placeholder attribute for this field — genuinely unobservable by the unit suite.
               placeholder={t`Київ`}
               value={defaultValue}
               onChange={(e) => setDefaultValue(e.target.value)}

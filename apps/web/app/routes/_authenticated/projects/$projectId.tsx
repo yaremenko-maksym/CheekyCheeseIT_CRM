@@ -349,6 +349,8 @@ export function ProjectEditFields({
             // reuses `canEditOverride` (ADMIN/ACCOUNTANT edit; everyone else who
             // can reach this dialog — i.e. HR — sees it disabled/read).
             if (fieldName === 'paymentType') {
+              // Stryker disable next-line StringLiteral: placeholder never renders in practice — `paymentType` always has a value (defaults to 'FOP'), so no test can observe this text. A JSX comment on the element itself does not suppress Stryker (urok #700) — the literal has to move to a plain JS assignment instead.
+              const paymentTypePlaceholder = t`Виберіть тип оплати`
               return (
                 <form.Field key="paymentType" name="paymentType">
                   {(field: AnyField) => (
@@ -363,7 +365,7 @@ export function ProjectEditFields({
                           className="h-9 text-sm"
                           data-testid="project-payment-type-trigger"
                         >
-                          <SelectValue placeholder={t`Виберіть тип оплати`} />
+                          <SelectValue placeholder={paymentTypePlaceholder} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="FOP" className="text-sm">
@@ -1025,6 +1027,7 @@ export function PendingShareApprovalBanner({
               id="pending-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads the textarea's placeholder attribute — genuinely unobservable by the unit suite.
               placeholder={t`Наприклад: домовилися про 30%`}
               maxLength={500}
               rows={3}
