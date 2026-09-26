@@ -25,8 +25,13 @@ msgstr " · Senior: "
 msgid " · усі"
 msgstr " · all"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "— додати —"
+msgstr "— add —"
+
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "— не обрано —"
 msgstr "— not selected —"
 
@@ -249,6 +254,10 @@ msgstr "No HR yet — ask an admin to add one"
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "HR ще немає — спершу додайте HR"
 msgstr "No HR yet — add one first"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "HR-скринінг"
+msgstr "HR screen"
 
 #. placeholder {0}: hrMembers.map((m) => m.displayName).join(', ')
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -512,6 +521,11 @@ msgstr "There is no active senior on the team."
 msgid "api-error.ACTIVE_MEMBER_NOT_FOUND"
 msgstr "Active member not found in the project"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Англійська"
+msgstr "English"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Архів"
@@ -599,6 +613,10 @@ msgstr "Sole proprietor bank details"
 msgid "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
 msgstr "Without payout details we cannot pay you — add a USDT wallet or a bank account"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Бенефіти"
+msgstr "Benefits"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "CRM side navigation — move between sections of the system."
@@ -619,6 +637,7 @@ msgstr "A senior account will be created and a team formed with you as HR."
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Бухгалтер"
 msgstr "Accountant"
@@ -705,6 +724,10 @@ msgstr "Vacancy hidden"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Вакансію створено"
 msgstr "Vacancy created"
+
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Вакансія"
+msgstr "Vacancy"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -823,6 +846,11 @@ msgstr "Enter an email"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_INVALID"
 msgstr "Enter an email like name@domain"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Введіть коректний URL (https://...)"
+msgstr "Enter a valid URL (https://...)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1014,6 +1042,7 @@ msgstr "Only an admin can withdraw dividends"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Видалити"
 msgstr "Delete"
 
@@ -1050,6 +1079,14 @@ msgstr "Delete the resume?"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Видалити рядок {position}"
 msgstr "Delete row {position}"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Видалити співбесіду"
+msgstr "Delete the interview"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Видалити співбесіду?"
+msgstr "Delete the interview?"
 
 #: apps/web/app/components/layout/notifications-bell.tsx
 #: apps/web/app/components/layout/notifications-bell.tsx
@@ -1163,6 +1200,10 @@ msgstr "Open"
 msgid "Відкрити «{0}»"
 msgstr "Open “{0}”"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Відкрити вакансію"
+msgstr "Open the vacancy"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.VACANCY_APPLICATION"
@@ -1234,6 +1275,10 @@ msgstr "Open Finance"
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
 msgstr "Open interviews"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Відмова"
+msgstr "Rejected"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Відновити"
@@ -1567,6 +1612,10 @@ msgstr "The date must be in YYYYMMDD format"
 msgid "contract-variable.onboardingDate"
 msgstr "Contract signing date"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Дата початку"
+msgstr "Start date"
+
 #. placeholder {0}: formatDate(user.createdAt, locale, 'long')
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "Дата реєстрації: {0}"
@@ -1581,11 +1630,16 @@ msgstr "The transaction date cannot be in the future"
 msgid "Дашборд"
 msgstr "Dashboard"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Деталі співбесіди"
+msgstr "Interview details"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Джерело зображення"
 msgstr "Image source"
 
 #: apps/web/app/components/ui/role-select.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Джуніор"
 msgstr "Junior"
 
@@ -1606,6 +1660,10 @@ msgstr "Junior assigned"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_JUNIOR_FORBIDDEN"
 msgstr "Juniors can't access interviews"
+
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Дзвінок"
+msgstr "Call"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1679,6 +1737,14 @@ msgstr "The daily limit for automatic recognition is used up. Fill in the resume
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Ліміт оновиться {when} — до того часу заповніть резюме вручну, форма нижче працює."
 msgstr "The daily limit for automatic recognition is used up. The limit resets on {when} — until then, fill in the resume by hand, the form below works."
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Довільні нотатки…"
+msgstr "Free-form notes…"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+msgid "Додайте нову співбесіду на дошку."
+msgstr "Add a new interview to the board."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -1811,6 +1877,11 @@ msgstr "Documents"
 msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Домен"
+msgstr "Domain"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SETTLEMENT_CURRENCY_MISMATCH_MANUAL_ONLY"
@@ -1839,6 +1910,10 @@ msgstr "Your access to the CRM has been turned off. If this is a mistake, contac
 #: apps/web/app/routes/login.tsx
 msgid "Доступ до CRM закрито. Якщо це помилка, напишіть адміністратору."
 msgstr "Your access to the CRM has been turned off. If this is a mistake, contact an admin."
+
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
+msgid "Доступ до співбесід відкриється, щойно ви створите або оберете команду."
+msgstr "Access to interviews will open as soon as you create or choose a team."
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Доступ лише для адміністратора"
@@ -1956,6 +2031,10 @@ msgstr "You have unsaved changes"
 msgid "Є незбережені зміни — якщо перейти, їх буде втрачено"
 msgstr "You have unsaved changes — leaving now will lose them"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Є незбережені зміни. Зберегти перед закриттям?"
+msgstr "There are unsaved changes. Save before closing?"
+
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 msgid "Є незбережені правки — інші розділи недоступні, поки ви не збережете або не скасуєте їх."
 msgstr "There are unsaved edits — other sections are unavailable until you save or cancel them."
@@ -1975,6 +2054,10 @@ msgstr "The only accountant in the system"
 #: apps/web/app/components/user-profile/contract/MissingFieldsBanner.tsx
 msgid "З картки співробітника (заповніть у профілі):"
 msgstr "From the employee’s card (fill in on the profile):"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "З клієнтом"
+msgstr "Client"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За датою додавання"
@@ -2074,6 +2157,10 @@ msgstr "Loading the Terms of Service…"
 msgid "Завжди"
 msgstr "Always"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Загальні нотатки"
+msgstr "General notes"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Задано для команди. Діє на всіх її проєктах, крім тих, де є індивідуальна частка за проєктом."
 msgstr "Set for the team. Applies to all its projects except those with an individual project share."
@@ -2146,6 +2233,10 @@ msgstr "Only an admin can fill in missed salary months"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Заповнити реквізити"
 msgstr "Fill in payout details"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Заповніть дані нового проєкту та додайте учасників."
+msgstr "Fill in the new project's details and add members."
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Заповніть розділи вручну або спробуйте завантажити файл ще раз."
@@ -2239,6 +2330,8 @@ msgstr "Payout request not found"
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберегти"
 msgstr "Save"
@@ -2252,6 +2345,7 @@ msgid "Зберегти чернетку"
 msgstr "Save draft"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Збереження…"
 msgstr "Saving…"
 
@@ -2618,6 +2712,9 @@ msgstr "company"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Компанія"
 msgstr "Company"
 
@@ -2795,6 +2892,10 @@ msgstr "No users found"
 msgid "Користувачів поки немає"
 msgstr "No users yet"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Корпоративна техніка"
+msgstr "Corporate hardware"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyCountry"
@@ -2860,6 +2961,10 @@ msgstr "Emails:"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.LOGO_SOURCE_XOR"
 msgstr "The logo is either an uploaded file or a link, not both"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Логотип компанії"
+msgstr "Company logo"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "м. Київ, вул. Хрещатик, 1"
@@ -3008,6 +3113,11 @@ msgstr "Bank name (optional)"
 msgid "Назва команди"
 msgstr "Team name"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Назва компанії"
+msgstr "Company name"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyName"
@@ -3020,6 +3130,14 @@ msgstr "Link title, row {position}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "назва проєкту"
 msgstr "project name"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Назва проєкту"
+msgstr "Project name"
+
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Найнято"
+msgstr "Hired"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Найнято за місяць"
@@ -3432,6 +3550,10 @@ msgstr "How much was already paid on one of the shares isn't recorded — a manu
 msgid "Не заповнено"
 msgstr "Not filled in"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Не зберігати"
+msgstr "Discard"
+
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Не можна архівувати себе"
@@ -3477,6 +3599,10 @@ msgstr "You don't have permission for this action."
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Незакриті транзакції, що чекають виплати ({0}) — залишаться в системі і підлягатимуть виплаті"
 msgstr "Unsettled transactions awaiting payout ({0}) — they stay in the system and remain payable"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Незбережені зміни"
+msgstr "Unsaved changes"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3561,6 +3687,10 @@ msgstr "No access to this password"
 msgid "api-error.INVOICE_ACCESS_DENIED"
 msgstr "You don't have access to this invoice"
 
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
+msgid "Немає доступу до цього розділу — якщо він потрібен для роботи, напишіть адміністратору"
+msgstr "No access to this section — if you need it for work, contact an admin"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_NOT_IN_YOUR_TEAMS"
@@ -3638,6 +3768,10 @@ msgstr "No contract template for the “{roleLabel}” role"
 msgid "Необов’язково. Канал для спілкування команди."
 msgstr "Optional. A channel for the team to talk in."
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Ні"
+msgstr "No"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_FORMAT"
@@ -3670,6 +3804,11 @@ msgstr "A new team — pick HR and an accountant below."
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Нова команда сеньйора. Оберіть склад нижче."
 msgstr "A new team led by this senior. Pick its members below."
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
+msgid "Нова співбесіда"
+msgstr "New interview"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -3715,6 +3854,10 @@ msgstr "Note (max 2000 characters)"
 msgid "Нотатка адміністратора"
 msgstr "Admin note"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Нотатки сеньйора"
+msgstr "Senior’s notes"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Нотатку збережено"
 msgstr "Note saved"
@@ -3735,6 +3878,10 @@ msgstr "Choose a senior for the team."
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Оберіть спосіб виплати і заповніть реквізити"
 msgstr "Choose a payout method and fill in the details"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Оберіть, зберегти зміни чи закрити без збереження."
+msgstr "Choose whether to save the changes or close without saving."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Оберіть, кого додати до команди."
@@ -3848,6 +3995,7 @@ msgid "Основна навігація"
 msgstr "Main navigation"
 
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Основне"
 msgstr "Basics"
 
@@ -3952,6 +4100,10 @@ msgstr "Formatting"
 msgid "Оформлення оновлено"
 msgstr "Layout updated"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Оффер"
+msgstr "Offer received"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
 msgstr "Clear"
@@ -4004,6 +4156,10 @@ msgstr "Check the fields you filled in"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Перегляд архівної версії v{0}"
 msgstr "Viewing archived version v{0}"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Перегляд зарплати"
+msgstr "Salary review"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -4107,6 +4263,10 @@ msgstr "Employee's full legal name for the contract"
 msgid "api-error.FINANCE_SHARE_LEFT_PENDING_DURING_SAVE"
 msgstr "One of the shares changed status while saving — nothing was saved, refresh the page and try again"
 
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
+msgid "Підбір вакансій"
+msgstr "Vacancy sourcing"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Підготовка файлу…"
 msgstr "Preparing file…"
@@ -4176,6 +4336,10 @@ msgstr "Archive confirmation. Enter the name to confirm the action."
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.APPROVAL_NOT_FOUND_OR_CLOSED"
 msgstr "Approval not found or already closed"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Підтвердження незворотної дії."
+msgstr "Confirmation of an irreversible action."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Підтвердження…"
@@ -4392,6 +4556,15 @@ msgstr "The link must start with https://t.me/"
 msgid "Посилання на Telegram-чат команди"
 msgstr "Link to the team's Telegram chat"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Посилання на вакансію"
+msgstr "Vacancy link"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+msgid "Посилання на дзвінок"
+msgstr "Call link"
+
 #: apps/web/app/routes/login.tsx
 msgid "Посилання не працює. Відкрийте посилання з останнього листа, а якщо його немає — попросіть адміністратора надіслати запрошення ще раз."
 msgstr "This link doesn't work. Open the link from the latest email — if there isn't one, ask an admin to resend the invitation."
@@ -4510,6 +4683,10 @@ msgstr "PrivatBank"
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
 msgstr "Only a senior can be added to a drop team"
 
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Приєднатися до дзвінка"
+msgstr "Join the call"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Приєднатися до команди дропа"
 msgstr "Join a drop's team"
@@ -4597,6 +4774,10 @@ msgstr "Project {projectName}"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Проєкт <0>{entityName}</0> піде в архів, від нього буде відв’язано <1>{0, plural, one {# активного джуніора} few {# активних джуніорів} many {# активних джуніорів} other {# активного джуніора}}</1>. Сеньйор і команда в архів <2>не</2> підуть. Фінансова історія (транзакції, рахунки) залишається доступною."
 msgstr "The project <0>{entityName}</0> will be archived, and <1>{0, plural, one {# active junior} other {# active juniors}}</1> will be unassigned from it. The senior and the team will <2>not</2> be archived. Financial history (transactions, invoices) remains accessible."
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Проєкт буде створено на основі цієї співбесіди."
+msgstr "The project will be created based on this interview."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -4699,9 +4880,15 @@ msgid "Професія"
 msgstr "Profession"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Профіль"
 msgstr "Profile"
+
+#. placeholder {0}: interview.hrName
+#: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
+msgid "Профіль HR: {0}"
+msgstr "HR profile: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -4995,6 +5182,10 @@ msgstr "Sections"
 msgid "Розділи адміністратора"
 msgstr "Admin sections"
 
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Розмір команди"
+msgstr "Team size"
+
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Розмір шрифту"
@@ -5036,6 +5227,7 @@ msgid "Свою роль змінити не можна"
 msgstr "You can't change your own role"
 
 #: apps/web/app/components/ui/role-select.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 msgid "Сеньйор"
 msgstr "Senior"
 
@@ -5048,6 +5240,15 @@ msgstr "Seniors and admins are paid in USDT ERC-20 only"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_SENIOR_ALREADY_ON_ANOTHER_TEAM"
 msgstr "The senior is already on another active team"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Сеньйор:"
+msgstr "Senior:"
+
+#. placeholder {0}: interview.seniorName
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Сеньйор: {0}"
+msgstr "Senior: {0}"
 
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "сеньйора"
@@ -5102,6 +5303,9 @@ msgstr "Cancelled"
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -5138,6 +5342,10 @@ msgstr "Reset the contract to the template?"
 msgid "Скільки дроп залишає собі з кожної виплати"
 msgstr "How much the drop keeps from each payout"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Склад"
+msgstr "Members"
+
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Скопійовано"
 msgstr "Copied"
@@ -5168,6 +5376,15 @@ msgstr "Interviews"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Співбесіди"
 msgstr "Interviews"
+
+#. placeholder {0}: interview.companyName
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Співбесіду «{0}» буде видалено безповоротно."
+msgstr "The interview “{0}” will be deleted permanently."
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Співбесіду збережено"
+msgstr "Interview saved"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -5234,6 +5451,14 @@ msgstr "Newest first"
 msgid "Спочатку старі"
 msgstr "Oldest first"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Ставка"
+msgstr "Rate"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Стадія"
+msgstr "Stage"
+
 #: apps/web/app/lib/telemetry/ErrorBoundary.tsx
 msgid "Сталася непередбачена помилка. Ми вже знаємо про неї — спробуйте оновити сторінку."
 msgstr "An unexpected error occurred. We've been notified — try reloading the page."
@@ -5278,18 +5503,24 @@ msgstr "Create or edit a user"
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Only an admin can create a drop"
 
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Створення…"
+msgstr "Creating…"
+
 #. placeholder {0}: formatDate(team.createdAt, locale, 'long')
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Створено {0}"
 msgstr "Created {0}"
 
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Створити"
 msgstr "Create"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
 msgid "Створити або обрати команду"
 msgstr "Create or choose a team"
 
@@ -5307,6 +5538,23 @@ msgstr "Create payout"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.DROP_CREATE_VIA_DEDICATED_ENDPOINT"
 msgstr "A drop can't be created this way"
+
+#. placeholder {0}: hiredInterview?.companyName
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Створити новий проєкт на основі співбесіди «{0}»?"
+msgstr "Create a new project based on the interview “{0}”?"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Створити проєкт"
+msgstr "Create project"
+
+#: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+msgid "Створити проєкт — {seniorName}"
+msgstr "Create project — {seniorName}"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Створити проєкт?"
+msgstr "Create the project?"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5332,9 +5580,14 @@ msgstr "Create a contract template for this role to generate a contract"
 
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Створюємо…"
 msgstr "Creating…"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Стек технологій"
+msgstr "Tech stack"
 
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
 msgid "Сторінка оновиться сама, щойно контракт буде готовий"
@@ -5423,6 +5676,14 @@ msgstr "This payment's amount is recorded together with the transfer rate — it
 msgid "Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само."
 msgstr "It looks like the file has no text layer (a scan or an image). Paste the resume text — recognition will work the same way."
 
+#: apps/web/app/routes/_authenticated/interviews/components/ArchiveSection.tsx
+msgid "Сюди потрапляють завершені співбесіди"
+msgstr "Finished interviews land here"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Так, перейти"
+msgstr "Yes, go there"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_MIME_NOT_ALLOWED"
@@ -5465,6 +5726,10 @@ msgstr "The invite has expired"
 msgid "Термін дії запрошення закінчився. Попросіть адміністратора надіслати його ще раз."
 msgstr "The invitation has expired. Ask an admin to send it again."
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Технічна"
+msgstr "Technical"
+
 #: apps/web/app/components/user-profile/self-edit/ProfileEditFields.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5484,6 +5749,10 @@ msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Тип команди"
 msgstr "Team type"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "Тип оплати"
+msgstr "Payment type"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -5574,6 +5843,7 @@ msgid "Тут з’являться події за вашими проєкта�
 msgstr "Events about your projects, money and documents will appear here"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
+#: apps/web/app/routes/_authenticated/interviews/index.tsx
 msgid "У вас немає активної команди"
 msgstr "You have no active team"
 
@@ -5832,6 +6102,10 @@ msgstr "Team filter"
 msgid "Фільтр користувачів"
 msgstr "User filter"
 
+#: apps/web/app/routes/_authenticated/interviews/constants.ts
+msgid "Фінальна"
+msgstr "Final"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Фінальний вигляд документа «Умови використання» — як PDF."
 msgstr "Final look of the “Terms of Service” document — as a PDF."
@@ -5859,6 +6133,10 @@ msgstr "Only an admin or an accountant can see the finance summary"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "ФОП (UAH)"
 msgstr "Sole proprietor (UAH)"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "ФОП / гіг-контракт / USDT"
+msgstr "FOP / gig contract / USDT"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Формат файлу не підтримується."
@@ -6106,6 +6384,10 @@ msgstr "Awaiting confirmation from {0} — <0>{1}%</0> applies until then"
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Чекають рішення"
 msgstr "Awaiting decision"
+
+#: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+msgid "через 3 місяці"
+msgstr "in 3 months"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Чернетка"

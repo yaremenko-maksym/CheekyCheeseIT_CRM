@@ -88,7 +88,7 @@ test.describe('HR sees a drop-team senior board on /interviews (task-hr-drop-tea
       // Board actually opened for HIM — the Kanban column header renders and
       // no RBAC/error state replaced it (mirrors interviews.spec.ts's own
       // `waitForBoardReady` signal).
-      await expect(page.getByText('HR Screen').first()).toBeVisible()
+      await expect(page.getByText('HR-скринінг').first()).toBeVisible()
 
       // ── Negative — an HR with NO relationship to Artem sees neither the
       // option NOR the board (both the new endpoint AND the OLD list
