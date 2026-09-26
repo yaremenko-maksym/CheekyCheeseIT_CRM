@@ -12,7 +12,7 @@
  * use for a route whose component isn't exported by name) under an ADMIN
  * viewer (`canCreate === true`, so the gate is the ONLY reason the button
  * could be hidden) and asserts the entry point is gone while its sibling
- * «Новая карточка» button — gated by `canCreate` alone, no
+ * «Нова співбесіда» button — gated by `canCreate` alone, no
  * `JOB_SOURCING_ENTRY_ENABLED` — still renders. That is exactly what kills
  * `false → true` (the button would reappear) and both `&& → ||` mutants (a
  * `||` on either guard renders unconditionally, independent of `canCreate`/
@@ -34,6 +34,7 @@
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const mockNavigate = vi.fn()
 
@@ -119,11 +120,13 @@ function renderPage() {
     <QueryClientProvider client={qc}>
       <InterviewsPage />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  await loadCatalog('uk')
   vi.mocked(api.get).mockResolvedValue({ data: [] })
   vi.mocked(useAuth).mockReturnValue({
     user: { id: 'admin-uuid-1', role: 'ADMIN' },
@@ -132,19 +135,19 @@ beforeEach(() => {
 })
 
 describe('/interviews — job-sourcing entry point (paused, task-hide-job-sourcing-button)', () => {
-  it('does not render the «Подбор вакансий» button for an ADMIN viewer (canCreate=true)', async () => {
+  it('does not render the «Підбір вакансій» button for an ADMIN viewer (canCreate=true)', async () => {
     renderPage()
 
     expect(await screen.findByTestId('interviews-page')).toBeInTheDocument()
     expect(screen.queryByTestId('open-job-sourcing')).not.toBeInTheDocument()
-    expect(screen.queryByText('Подбор вакансий')).not.toBeInTheDocument()
+    expect(screen.queryByText('Підбір вакансій')).not.toBeInTheDocument()
   })
 
-  it('still renders «Новая карточка» — the gate does not take its sibling button down with it', async () => {
+  it('still renders «Нова співбесіда» — the gate does not take its sibling button down with it', async () => {
     renderPage()
 
     await screen.findByTestId('interviews-page')
-    expect(screen.getByText('Новая карточка')).toBeInTheDocument()
+    expect(screen.getByText('Нова співбесіда')).toBeInTheDocument()
   })
 
   it('never mounts JobSuggestionDialog, even indirectly — the dialog import stays, its render does not', async () => {
