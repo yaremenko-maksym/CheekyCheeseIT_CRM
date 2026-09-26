@@ -164,7 +164,7 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
     expect(section).toBeInTheDocument()
     expect(screen.getByTestId('project-edit-drop-share-override')).toBeDisabled()
     expect(
-      within(section).getByText('Змінювати може лише ADMIN або ACCOUNTANT.'),
+      within(section).getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
     ).toBeInTheDocument()
   })
 
@@ -301,7 +301,9 @@ describe('ProjectEditFields — Surface C (paymentType Select)', () => {
   it('is disabled with a hint for non-ADMIN/ACCOUNTANT viewers (e.g. HR)', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={false} dropId={null} viewerRole="HR" />)
     expect(screen.getByTestId('project-payment-type-trigger')).toBeDisabled()
-    expect(screen.getByText('Змінювати може лише ADMIN або ACCOUNTANT.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
+    ).toBeInTheDocument()
   })
 
   it('selecting an option makes the form dirty and reaches submit', async () => {

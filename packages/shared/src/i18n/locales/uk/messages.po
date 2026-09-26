@@ -239,15 +239,10 @@ msgstr "<0>{{{key}}}</0> — використовується, але не за�
 msgid "<0>{{{key}}}</0> — додана, але не використовується в тексті"
 msgstr "<0>{{{key}}}</0> — додана, але не використовується в тексті"
 
-#. placeholder {0}: project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "<0>{0}</0> буде відв’язаний від проєкту. Гроші за проєктом більше не йтимуть через його реквізити."
-msgstr "<0>{0}</0> буде відв’язаний від проєкту. Гроші за проєктом більше не йтимуть через його реквізити."
-
 #. placeholder {0}: removeMemberTarget?.displayName
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "<0>{0}</0> буде прибраний зі складу проєкту."
-msgstr "<0>{0}</0> буде прибраний зі складу проєкту."
+msgid "<0>{0}</0> більше не буде у складі проєкту."
+msgstr "<0>{0}</0> більше не буде у складі проєкту."
 
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.seniorName || '—'
@@ -255,6 +250,11 @@ msgstr "<0>{0}</0> буде прибраний зі складу проєкту.
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
+
+#. placeholder {0}: project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "<0>{0}</0>: доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці реквізити."
+msgstr "<0>{0}</0>: доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці реквізити."
 
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
@@ -986,8 +986,8 @@ msgstr "Вашу частку за замовчуванням пропонуют
 
 #. placeholder {0}: pending.percent
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. "
-msgstr "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. "
+msgid "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
+msgstr "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -1372,11 +1372,6 @@ msgstr "Видаляти транзакцію, яка є джерелом зоб
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Вийти"
 msgstr "Вийти"
-
-#. placeholder {0}: formatDate(member.leftAt, locale, 'short')
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "вийшов {0}"
-msgstr "вийшов {0}"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Виключити"
@@ -1995,6 +1990,11 @@ msgstr "Дата"
 msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION"
 msgstr "Дата виплати не може бути раніше дати виникнення зобов’язання"
 
+#. placeholder {0}: formatDate(member.leftAt, locale, 'short')
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "дата виходу: {0}"
+msgstr "дата виходу: {0}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_FORMAT_YYYYMMDD"
@@ -2183,6 +2183,10 @@ msgstr "Добовий ліміт автоматичного розпізнав�
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Довільні нотатки…"
 msgstr "Довільні нотатки…"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Додаємо…"
+msgstr "Додаємо…"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Додайте кастомну змінну. Співробітник заповнить її значення під час підписання."
@@ -3127,8 +3131,8 @@ msgid "Змінна <0>{{{variableKey}}}</0> буде видалена зі сп
 msgstr "Змінна <0>{{{variableKey}}}</0> буде видалена зі списку кастомних. Токен лишиться в тексті як нерозпізнаний — видаліть його вручну з редактора."
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
-msgid "Змінна з таким ключом уже існує"
-msgstr "Змінна з таким ключом уже існує"
+msgid "Змінна з таким ключем уже існує"
+msgstr "Змінна з таким ключем уже існує"
 
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Змінні шаблону"
@@ -3143,15 +3147,15 @@ msgstr "Змінну {{{0}}} додано"
 msgid "Змінну {{{key}}} видалено"
 msgstr "Змінну {{{key}}} видалено"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "Змінювати може лише ADMIN або ACCOUNTANT."
-msgstr "Змінювати може лише ADMIN або ACCOUNTANT."
-
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Змінювати може тільки адмін або бухгалтер."
 msgstr "Змінювати може тільки адмін або бухгалтер."
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Змінювати можуть лише {adminLabel} або {accountantLabel}."
+msgstr "Змінювати можуть лише {adminLabel} або {accountantLabel}."
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Значення за замовчуванням (необов’язково)"
@@ -4630,6 +4634,11 @@ msgstr "Немає зв’язку із сервером. Перевірте п�
 msgid "Немає зобов’язань"
 msgstr "Немає зобов’язань"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Немає кого додати"
+msgstr "Немає кого додати"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Немає команд дропа без активного сеньйора."
@@ -4710,11 +4719,6 @@ msgstr "Ні"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TELEGRAM_FORMAT"
 msgstr "Нік у Telegram: 5–32 символи — латиниця, цифри або _"
-
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-msgid "Нікого додавати"
-msgstr "Нікого додавати"
 
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Нікого не обрано"
@@ -5912,6 +5916,10 @@ msgstr "Приєднатися до дзвінка"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Приєднатися до команди дропа"
 msgstr "Приєднатися до команди дропа"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Призначаємо…"
+msgstr "Призначаємо…"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx

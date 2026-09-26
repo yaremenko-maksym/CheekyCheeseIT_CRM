@@ -231,7 +231,7 @@ describe('PendingShareApprovalBanner — the sentence the senior actually reads'
   it('reads as a comparison when a percent is proposed', () => {
     renderBanner()
     expect(bannerParagraph()).toBe(
-      'Вашу частку по проєкту пропонують змінити: зараз 26%, пропонують 55%. ' +
+      'Вашу частку по проєкту пропонують змінити: зараз 26%, нова — 55%. ' +
         'Поки ви не підтвердите, діє 26%.',
     )
   })

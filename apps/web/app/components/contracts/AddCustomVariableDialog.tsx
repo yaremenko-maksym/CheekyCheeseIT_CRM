@@ -75,7 +75,7 @@ export function AddCustomVariableDialog({
       setKeyError(t`Ключ зарезервовано системою`)
       valid = false
     } else if (existingCustomKeys.includes(key.trim())) {
-      setKeyError(t`Змінна з таким ключом уже існує`)
+      setKeyError(t`Змінна з таким ключем уже існує`)
       valid = false
     }
 

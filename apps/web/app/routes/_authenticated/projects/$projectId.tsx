@@ -232,6 +232,12 @@ export function ProjectEditFields({
   pendingShare?: ProjectDetailDto['pendingSeniorShare'] | undefined
 }) {
   const { t, i18n } = useLingui()
+  // FIX-H-2 (spec SPEC-M-1 / copy COPY-H-1): a raw role enum in visible text
+  // is a finding (urok #702 п.13) — ADMIN/ACCOUNTANT are not on the
+  // exemption list. Resolved once here, reused by the three "who can edit
+  // this" hints below (paymentType / senior share / drop share).
+  const adminLabel = useRoleLabel('ADMIN')
+  const accountantLabel = useRoleLabel('ACCOUNTANT')
   if (mode === 'info') {
     return (
       <div className="space-y-3">
@@ -381,7 +387,9 @@ export function ProjectEditFields({
                       </Select>
                       {!canEditOverride && (
                         <p className="text-xs text-muted-foreground italic">
-                          <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
+                          <Trans>
+                            Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                          </Trans>
                         </p>
                       )}
                     </div>
@@ -537,7 +545,9 @@ export function ProjectEditFields({
                   )}
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
+                      <Trans>
+                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                      </Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -601,7 +611,9 @@ export function ProjectEditFields({
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
+                      <Trans>
+                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                      </Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -970,7 +982,7 @@ export function PendingShareApprovalBanner({
         ) : (
           <Trans>
             Вашу частку по проєкту пропонують змінити: зараз{' '}
-            <span className="font-medium tabular-nums">{currentPercent}%</span>, пропонують{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, нова —{' '}
             <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
           </Trans>
         )}
@@ -1881,7 +1893,7 @@ function ProjectDetailPage() {
                         </TooltipTrigger>
                         {availableToAdd.length === 0 && (
                           <TooltipContent>
-                            <Trans>Нікого додавати</Trans>
+                            <Trans>Немає кого додати</Trans>
                           </TooltipContent>
                         )}
                       </Tooltip>
@@ -2116,7 +2128,7 @@ function ProjectDetailPage() {
                   <span className="font-medium text-foreground">
                     {removeMemberTarget?.displayName}
                   </span>{' '}
-                  буде прибраний зі складу проєкту.
+                  більше не буде у складі проєкту.
                 </Trans>
               </p>
             </CrmDialogBody>
@@ -2156,7 +2168,7 @@ function ProjectDetailPage() {
               <div className="max-h-72 space-y-1.5 overflow-y-auto">
                 {availableToAdd.length === 0 && (
                   <p className="text-sm text-muted-foreground py-2">
-                    <Trans>Нікого додавати</Trans>
+                    <Trans>Немає кого додати</Trans>
                   </p>
                 )}
                 {availableToAdd.map((u) => {
@@ -2193,7 +2205,7 @@ function ProjectDetailPage() {
                           addMemberMutation.mutate(u.id)
                         }}
                       >
-                        {isAdded ? t`Додано` : isPending ? '...' : t`Додати`}
+                        {isAdded ? t`Додано` : isPending ? t`Додаємо…` : t`Додати`}
                       </Button>
                     </div>
                   )
@@ -2246,7 +2258,7 @@ function ProjectDetailPage() {
                       aria-label={t`Призначити ${u.displayName} дропом`}
                       data-testid={`assign-drop-btn-${u.id}`}
                     >
-                      {dropMutation.isPending ? '...' : t`Призначити`}
+                      {dropMutation.isPending ? t`Призначаємо…` : t`Призначити`}
                     </Button>
                   </li>
                 ))}
@@ -2273,8 +2285,8 @@ function ProjectDetailPage() {
                 <Trans>
                   <span className="font-medium text-foreground">
                     {project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)}
-                  </span>{' '}
-                  буде відв’язаний від проєкту. Гроші за проєктом більше не йтимуть через його
+                  </span>
+                  : доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці
                   реквізити.
                 </Trans>
               </p>
@@ -2573,7 +2585,7 @@ function MemberRow({
   onRemove: () => void
 }) {
   const locale = useLocale()
-  const roleLabel = useRoleLabel(member.role as Role)
+  const roleLabel = useRoleLabel(member.role)
   return (
     <div className={cn('flex items-center gap-2', member.leftAt && 'opacity-50')}>
       <Link
@@ -2591,7 +2603,7 @@ function MemberRow({
           </p>
           {member.leftAt && (
             <p className="text-[10px] text-muted-foreground">
-              <Trans>вийшов {formatDate(member.leftAt, locale, 'short')}</Trans>
+              <Trans>дата виходу: {formatDate(member.leftAt, locale, 'short')}</Trans>
             </p>
           )}
         </div>
