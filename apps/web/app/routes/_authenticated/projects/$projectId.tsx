@@ -1154,6 +1154,7 @@ function ProjectDropShareInfo({
     'dropSharePercentOverride' | 'dropSharePercentDefault' | 'effectiveDropSharePercent'
   >
 }) {
+  const { t } = useLingui()
   const overrideRaw = project.dropSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.dropSharePercentDefault ?? 5
@@ -1169,15 +1170,15 @@ function ProjectDropShareInfo({
               className="text-[10px]"
               data-testid="project-drop-share-override-badge"
             >
-              Override
+              <Trans>Override</Trans>
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            Установлено для этого проекта; глобальная доля дропа: {fallback}%
+            <Trans>Встановлено для цього проєкту; глобальна частка дропа: {fallback}%</Trans>
           </TooltipContent>
         </Tooltip>
       ) : (
-        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+        <span className="text-xs text-muted-foreground">{t`(за замовчуванням)`}</span>
       )}
     </span>
   )
@@ -1393,7 +1394,7 @@ function ProjectDetailPage() {
       setDetachDropConfirmOpen(false)
     },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, 'Не удалось изменить дропа'))
+      toast.error(getApiErrorMessage(err, t`Не вдалося змінити дропа`))
     },
   })
 
@@ -1684,10 +1685,10 @@ function ProjectDetailPage() {
           {(() => {
             type ProjectTab = 'overview' | 'members' | 'finance'
             const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
-              { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
-              { value: 'members', label: 'Состав', testId: 'tab-members' },
+              { value: 'overview', label: t`Огляд`, testId: 'tab-overview' },
+              { value: 'members', label: t`Склад`, testId: 'tab-members' },
               ...(canSeeProjectFinance
-                ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
+                ? [{ value: 'finance', label: t`Фінанси`, testId: 'tab-finance' } as const]
                 : []),
             ]
             // Fallback: если HR оказался на «finance» табе — переключить на «overview».
@@ -1700,7 +1701,7 @@ function ProjectDetailPage() {
                 value={safeActiveTab}
                 onChange={(v) => setActiveTab(v)}
                 options={tabOptions}
-                ariaLabel="Разделы проекта"
+                ariaLabel={t`Розділи проєкту`}
                 variant="tabs"
                 size="sm"
                 layoutId={`project-detail-tabs-${projectId}`}
@@ -2347,7 +2348,7 @@ function ProjectUnarchiveHeaderButton({
       data-testid="project-unarchive-button"
     >
       <ArchiveRestore className="h-3.5 w-3.5" />
-      Восстановить
+      <Trans>Відновити</Trans>
     </Button>
   )
 }
@@ -2395,6 +2396,7 @@ function ProjectCascadeUnarchiveModal({
  * (ADMIN/ACCOUNTANT/SENIOR/DROP — same audience that sees the Финансы tab).
  */
 function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
+  const { t } = useLingui()
   // Use $1000 as the canonical example. Numbers shown without currency
   // suffix to keep the formula abstract — actual amounts vary per income.
   const seniorPct = project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
@@ -2413,25 +2415,25 @@ function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
     <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="project-drop-distribution">
       <CardHeader className="pb-2">
         <CardTitle className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
-          Распределение прихода (пример {fmt(exampleIncome)})
+          {t`Розподіл доходу (приклад ${fmt(exampleIncome)})`}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-1.5 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Доля синьора ({seniorPct}%)</span>
+          <span className="text-muted-foreground">{t`Частка сеньйора (${seniorPct}%)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-senior-share">
             {fmt(seniorShare)}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Доля дропа ({dropPct}%)</span>
+          <span className="text-muted-foreground">{t`Частка дропа (${dropPct}%)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-drop-share">
             {fmt(dropShare)}
           </span>
         </div>
         <div className="h-px bg-border/60 my-1" />
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Партнёрам (50 / 50)</span>
+          <span className="text-muted-foreground">{t`Партнерам (50 / 50)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-partner-share">
             {fmt(partnerEach)} / {fmt(partnerEach)}
           </span>
@@ -2448,6 +2450,7 @@ function ProjectTransactions({
   projectId: string
   project: ProjectDetailDto
 }) {
+  const { t } = useLingui()
   const { user } = useAuth()
   // task-648-fix-round-2 (UX-H-3(r2)): same ADMIN/ACCOUNTANT gate the page
   // computes for its own copy of this widget — the backend's cancel endpoint
@@ -2492,7 +2495,7 @@ function ProjectTransactions({
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              Финансы по проекту
+              {t`Фінанси по проєкту`}
             </CardTitle>
             {/* Effective senior share — applies to every SENIOR_INCOME
                 row in the table below. Mirrors the read-only marker in
@@ -2519,18 +2522,18 @@ function ProjectTransactions({
             </div>
           ) : !transactions?.length ? (
             <p className="text-sm text-muted-foreground px-4 pb-4">
-              Транзакций по проекту пока нет
+              <Trans>Транзакцій по проєкту ще немає</Trans>
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-xs text-muted-foreground">
-                    <th className="py-2 px-4 text-left font-medium">Тип</th>
-                    <th className="py-2 px-4 text-left font-medium">Стороны</th>
-                    <th className="py-2 px-4 text-left font-medium">Сумма</th>
-                    <th className="py-2 px-4 text-left font-medium">Дата</th>
-                    <th className="py-2 px-4 text-left font-medium">Статус</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Тип`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Сторони`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Сума`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Дата`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Статус`}</th>
                     <th className="py-2 px-4" />
                   </tr>
                 </thead>
