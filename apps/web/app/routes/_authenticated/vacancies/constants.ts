@@ -290,6 +290,14 @@ const PUBLISH_GATE_TOOLTIP = msg`Вкажіть вилку зарплати у �
 // through the module-level `i18n` singleton — same convention as
 // `axios-utils.ts`'s `messageForStatus`: a plain function called inline
 // during render (not a hook), so there is no `useLingui()` to read here.
+//
+// fix-round A (CI-CATALOG) — `i18n._({ ...TOO_SMALL_MSG, values: {...} })`
+// crashes `lingui extract`'s babel plugin (`extractFromObjectExpression`
+// reads `.key.name` off every property, including the `SpreadElement`,
+// which has none — "Cannot read properties of undefined (reading 'name')").
+// `axios-utils.ts`'s `translateApiError`/`translateZodError` already
+// document this exact trap and use the id/values/options triple instead —
+// same fix here.
 // ---------------------------------------------------------------------------
 
 const TOO_SMALL_MSG = msg`{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}`
@@ -297,15 +305,24 @@ const TOO_BIG_MSG = msg`{n, plural, one {Максимум # символ} few {�
 const INVALID_FORMAT_MSG = msg`Неприпустимий формат`
 const INVALID_VALUE_MSG = msg`Неприпустиме значення`
 
+// `MessageOptions.message` is `message?: string` — under
+// `exactOptionalPropertyTypes`, an omitted key and an explicit `undefined`
+// are different types, so `{ message: descriptor.message }` doesn't
+// type-check even though `msg` always sets it — same guard as
+// `axios-utils.ts`'s `translateApiError`/`translateZodError`.
+function messageOptions(message: string | undefined): { message: string } | undefined {
+  return message !== undefined ? { message } : undefined
+}
+
 export function zodIssueRu(
   issue: z.core.$ZodIssue | undefined,
   patternMsg?: string,
 ): string | undefined {
   if (!issue) return undefined
   if (issue.code === 'too_small' && 'minimum' in issue)
-    return i18n._({ ...TOO_SMALL_MSG, values: { n: issue.minimum } })
+    return i18n._(TOO_SMALL_MSG.id, { n: issue.minimum }, messageOptions(TOO_SMALL_MSG.message))
   if (issue.code === 'too_big' && 'maximum' in issue)
-    return i18n._({ ...TOO_BIG_MSG, values: { n: issue.maximum } })
+    return i18n._(TOO_BIG_MSG.id, { n: issue.maximum }, messageOptions(TOO_BIG_MSG.message))
   if (issue.code === 'invalid_format') return patternMsg ?? i18n._(INVALID_FORMAT_MSG)
   return i18n._(INVALID_VALUE_MSG)
 }
