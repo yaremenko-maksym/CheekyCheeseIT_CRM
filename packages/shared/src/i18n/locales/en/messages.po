@@ -1375,6 +1375,7 @@ msgstr "Open interviews"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Відмова"
 msgstr "Rejected"
 
@@ -2253,6 +2254,7 @@ msgstr "Loading the contract…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Завантажити"
 msgstr "Download"
@@ -4067,6 +4069,10 @@ msgstr "New interview"
 msgid "Новий"
 msgstr "New"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Новий ({newCount})"
+msgstr "New ({newCount})"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.title"
@@ -4088,7 +4094,6 @@ msgstr "New notification type"
 msgid "Новий:"
 msgstr "New:"
 
-#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Нові ({newCount})"
 msgstr "New ({newCount})"
@@ -4243,7 +4248,7 @@ msgstr "Only a salary can be paid"
 #. placeholder {0}: counts.PUBLISHED
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Опубл. ({0})"
-msgstr "Publ. ({0})"
+msgstr "Published ({0})"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Опублікована"
@@ -4459,6 +4464,7 @@ msgid "Перевірте поля форми — є помилки"
 msgstr "Check the form fields — there are errors"
 
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Перегляд"
 msgstr "View"
@@ -5880,6 +5886,7 @@ msgid "Статус"
 msgstr "Status"
 
 #. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Статус відгуку кандидата {0}"
 msgstr "Application status for {0}"

@@ -297,9 +297,16 @@ function VacancyDetailPage() {
 
   // task-i18n-stage3c-pr2 (COPY-L-proj-20) — one counter format everywhere:
   // canon «Усі (N)» (parentheses carry over to any language unchanged).
+  //
+  // fix-round B (COPY-L-2) — NEW was «Нові (N)» (plural adjective) sitting
+  // next to VIEWED/REJECTED's singular adjective forms
+  // («Переглянутий»/«Відхилений») — mismatched grammatical number in the
+  // same row. «Новий (N)» agrees in number (singular) with its neighbours;
+  // the mobile variant below is unaffected (its VIEWED/REJECTED are already
+  // short NOUNS, not adjectives, so there is no agreement to break).
   const applicationsFilterOptions: ReadonlyArray<SegmentedToggleOption<ApplicationsFilter>> = [
     { value: 'ALL', label: t`Усі (${applications.length})` },
-    { value: 'NEW', label: t`Нові (${newCount})` },
+    { value: 'NEW', label: t`Новий (${newCount})` },
     { value: 'VIEWED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.VIEWED) },
     { value: 'REJECTED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.REJECTED) },
   ]

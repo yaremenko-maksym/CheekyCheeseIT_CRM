@@ -229,11 +229,26 @@ describe('CandidateCard — status toggle (PATCH)', () => {
     expect(rejectedButton.innerHTML).toContain('bg-destructive/20')
   })
 
-  it('the status toggle group names the candidate in its accessible name', () => {
+  it('the status toggle group names the candidate in its accessible name (both breakpoint variants)', () => {
+    // fix-round B (COPY-H-1) — the toggle is now TWO instances swapped by
+    // breakpoint (desktop full labels, mobile short forms), same
+    // convention as `../index.tsx`'s status filter — both carry the same
+    // accessible name.
     renderCard(makeApplication({ fullName: 'Ada Lovelace' }))
     expect(
-      screen.getByRole('radiogroup', { name: 'Статус відгуку кандидата Ada Lovelace' }),
-    ).toBeInTheDocument()
+      screen.getAllByRole('radiogroup', { name: 'Статус відгуку кандидата Ada Lovelace' }),
+    ).toHaveLength(2)
+  })
+
+  it('the mobile variant uses the short noun forms («Перегляд»/«Відмова»), not the full adjectives', () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    expect(screen.getByTestId('candidate-status-app-1-mobile-VIEWED')).toHaveTextContent('Перегляд')
+    expect(screen.getByTestId('candidate-status-app-1-mobile-REJECTED')).toHaveTextContent(
+      'Відмова',
+    )
+    // The desktop instance is untouched — still the full adjective forms.
+    expect(screen.getByTestId('candidate-status-app-1-VIEWED')).toHaveTextContent('Переглянутий')
+    expect(screen.getByTestId('candidate-status-app-1-REJECTED')).toHaveTextContent('Відхилений')
   })
 })
 

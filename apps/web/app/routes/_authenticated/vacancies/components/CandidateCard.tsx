@@ -68,6 +68,25 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
     },
   ]
 
+  // task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — at 320px the footer's
+  // status toggle sits next to the download button in the same row; the
+  // full «Переглянутий»/«Відхилений» adjective forms don't fit there and
+  // visually collide, same defect `$vacancyId.tsx`'s own applications
+  // filter already hit and fixed (PR #396 fidelity review) — mirror that
+  // fix's SHORT NOUN forms («Перегляд»/«Відмова», not truncated
+  // abbreviations) instead of inventing a new pair. Same msgid as
+  // `$vacancyId.tsx` (and, for «Перегляд», this file's own preview button
+  // above) — reused catalog entries, not new ones.
+  const STATUS_OPTIONS_MOBILE: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
+    { value: 'NEW', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW) },
+    { value: 'VIEWED', label: t`Перегляд` },
+    {
+      value: 'REJECTED',
+      label: t`Відмова`,
+      activeVariant: 'destructive',
+    },
+  ]
+
   const isNew = application.status === 'NEW'
   const relativeDate = (() => {
     try {
@@ -203,7 +222,17 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 data-testid={`candidate-download-${application.id}`}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
-                <Trans>Завантажити резюме</Trans>
+                {/* task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — same
+                    breakpoint-swap convention as the status toggle below
+                    and the create-button pair in `../index.tsx` (full text
+                    ≥640px, short text below) — «резюме» is redundant next
+                    to the Download icon + surrounding preview/download pair. */}
+                <span className="hidden sm:inline">
+                  <Trans>Завантажити резюме</Trans>
+                </span>
+                <span className="sm:hidden">
+                  <Trans>Завантажити</Trans>
+                </span>
               </Button>
             </>
           ) : (
@@ -260,6 +289,25 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           </AlertDialog>
         </div>
 
+        {/* task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — two variants,
+           swapped by breakpoint, same convention as `../index.tsx`'s
+           status filter and `$vacancyId.tsx`'s applications filter (both
+           already fixed for the identical <640px overflow). Desktop keeps
+           the ORIGINAL testId (`candidate-status-${id}`) so every existing
+           unit/E2E selector for it is untouched — only the mobile variant
+           is new. */}
+        <SegmentedToggle<VacancyApplicationStatus>
+          value={application.status}
+          onChange={(status) => updateStatus.mutate({ appId: application.id, status })}
+          options={STATUS_OPTIONS_MOBILE}
+          ariaLabel={t`Статус відгуку кандидата ${application.fullName}`}
+          variant="pill"
+          size="sm"
+          disabled={updateStatus.isPending}
+          layoutId={`candidate-status-pill-${application.id}-mobile`}
+          className="sm:hidden"
+          testId={`candidate-status-${application.id}-mobile`}
+        />
         <SegmentedToggle<VacancyApplicationStatus>
           value={application.status}
           onChange={(status) => updateStatus.mutate({ appId: application.id, status })}
@@ -268,6 +316,8 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           variant="pill"
           size="sm"
           disabled={updateStatus.isPending}
+          layoutId={`candidate-status-pill-${application.id}`}
+          className="hidden sm:grid"
           testId={`candidate-status-${application.id}`}
         />
       </div>

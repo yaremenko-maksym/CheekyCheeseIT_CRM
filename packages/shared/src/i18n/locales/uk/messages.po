@@ -1375,6 +1375,7 @@ msgstr "Відкриті співбесіди"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Відмова"
 msgstr "Відмова"
 
@@ -2253,6 +2254,7 @@ msgstr "Завантаження контракту…"
 msgid "Завантаження…"
 msgstr "Завантаження…"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Завантажити"
 msgstr "Завантажити"
@@ -4067,6 +4069,10 @@ msgstr "Нова співбесіда"
 msgid "Новий"
 msgstr "Новий"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Новий ({newCount})"
+msgstr "Новий ({newCount})"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.title"
@@ -4088,7 +4094,6 @@ msgstr "Новий тип сповіщень"
 msgid "Новий:"
 msgstr "Новий:"
 
-#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Нові ({newCount})"
 msgstr "Нові ({newCount})"
@@ -4459,6 +4464,7 @@ msgid "Перевірте поля форми — є помилки"
 msgstr "Перевірте поля форми — є помилки"
 
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Перегляд"
 msgstr "Перегляд"
@@ -5880,6 +5886,7 @@ msgid "Статус"
 msgstr "Статус"
 
 #. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Статус відгуку кандидата {0}"
 msgstr "Статус відгуку кандидата {0}"
