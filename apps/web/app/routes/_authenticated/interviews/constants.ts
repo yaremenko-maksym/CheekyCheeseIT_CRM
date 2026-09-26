@@ -24,7 +24,11 @@ export const STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor> = {
   TECH_INTERVIEW: msg`Технічна`, // en: Technical
   FINAL_INTERVIEW: msg`Фінальна`, // en: Final
   CLIENT_INTERVIEW: msg`З клієнтом`, // en: Client
-  OFFER_RECEIVED: msg`Оффер отримано`, // en: Offer received
+  // uk shortened to one word (UX-M-1, fix-round B): "Оффер отримано" truncated
+  // to "ОФФЕР ОТРИМА…" in the fixed w-44 (176px) Kanban column at every width
+  // — the column is not fluid. Anglicism kept per owner decision; only the
+  // length changed. en unaffected, already fits.
+  OFFER_RECEIVED: msg`Оффер`, // en: Offer received
   HIRED: msg`Найнято`, // en: Hired
   REJECTED: msg`Відмова`, // en: Rejected
   ARCHIVED: msg`Архів`, // en: Archived

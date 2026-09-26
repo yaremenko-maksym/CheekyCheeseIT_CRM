@@ -4101,7 +4101,7 @@ msgid "Оформлення оновлено"
 msgstr "Layout updated"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
-msgid "Оффер отримано"
+msgid "Оффер"
 msgstr "Offer received"
 
 #: apps/web/app/components/ui/image-upload-field.tsx

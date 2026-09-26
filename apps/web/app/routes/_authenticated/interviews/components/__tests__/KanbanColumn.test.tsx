@@ -28,7 +28,7 @@ describe('KanbanColumn — stage label from the catalog (COPY-H-proj-1)', () => 
     ['uk', 'TECH_INTERVIEW', 'Технічна'],
     ['uk', 'FINAL_INTERVIEW', 'Фінальна'],
     ['uk', 'CLIENT_INTERVIEW', 'З клієнтом'],
-    ['uk', 'OFFER_RECEIVED', 'Оффер отримано'],
+    ['uk', 'OFFER_RECEIVED', 'Оффер'],
     ['uk', 'HIRED', 'Найнято'],
     ['uk', 'REJECTED', 'Відмова'],
     ['uk', 'ARCHIVED', 'Архів'],

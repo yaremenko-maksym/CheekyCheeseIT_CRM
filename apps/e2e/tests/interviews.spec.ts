@@ -147,7 +147,7 @@ test.describe('Interviews (Kanban) page', () => {
         assertInCatalog(uk, 'Технічна'),
         assertInCatalog(uk, 'Фінальна'),
         assertInCatalog(uk, 'З клієнтом'),
-        assertInCatalog(uk, 'Оффер отримано'),
+        assertInCatalog(uk, 'Оффер'),
       ]) {
         await expect(page.getByText(label, { exact: false }).first()).toBeVisible()
       }
@@ -571,7 +571,7 @@ test.describe('Interviews (Kanban) page', () => {
         page.getByText(assertInCatalog(uk, 'З клієнтом'), { exact: true }).first(),
       ).toBeVisible()
       await expect(
-        page.getByText(assertInCatalog(uk, 'Оффер отримано'), { exact: true }).first(),
+        page.getByText(assertInCatalog(uk, 'Оффер'), { exact: true }).first(),
       ).toBeVisible()
     })
   })

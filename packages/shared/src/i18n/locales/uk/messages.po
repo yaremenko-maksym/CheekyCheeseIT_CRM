@@ -4101,8 +4101,8 @@ msgid "Оформлення оновлено"
 msgstr "Оформлення оновлено"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
-msgid "Оффер отримано"
-msgstr "Оффер отримано"
+msgid "Оффер"
+msgstr "Оффер"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Очистити"
