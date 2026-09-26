@@ -3,9 +3,10 @@ import { useDroppable } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { useLingui, Trans } from '@lingui/react/macro'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { cn } from '@/lib/utils'
-import { STAGE_BADGE_COLORS, STAGE_LABELS, TERMINAL_STAGES } from '../constants'
+import { STAGE_BADGE_COLORS, STAGE_LABEL_MESSAGES, TERMINAL_STAGES } from '../constants'
 import { InterviewCard } from './KanbanColumn'
 
 function TerminalColumn({
@@ -19,6 +20,7 @@ function TerminalColumn({
   onCardClick: (interview: InterviewDto) => void
   canDrag: boolean
 }) {
+  const { i18n } = useLingui()
   const { setNodeRef, isOver } = useDroppable({ id: stage })
 
   return (
@@ -30,7 +32,7 @@ function TerminalColumn({
             STAGE_BADGE_COLORS[stage as InterviewStage],
           )}
         >
-          {STAGE_LABELS[stage as InterviewStage]}
+          {i18n._(STAGE_LABEL_MESSAGES[stage as InterviewStage])}
         </span>
         <span className="ml-auto text-xs text-muted-foreground">{cards.length}</span>
       </div>
@@ -51,7 +53,9 @@ function TerminalColumn({
             />
           ))}
           {cards.length === 0 && (
-            <p className="text-xs text-muted-foreground text-center py-4">Пусто</p>
+            <p className="text-xs text-muted-foreground text-center py-4">
+              <Trans>Сюди потрапляють завершені співбесіди</Trans>
+            </p>
           )}
         </div>
       </SortableContext>
@@ -68,6 +72,7 @@ export function ArchiveSection({
   onCardClick: (interview: InterviewDto) => void
   canDrag?: boolean
 }) {
+  const { i18n } = useLingui()
   const [open, setOpen] = useState(false)
   const totalArchived = TERMINAL_STAGES.reduce((sum, s) => sum + (byStage[s]?.length ?? 0), 0)
 
@@ -86,7 +91,7 @@ export function ArchiveSection({
         >
           <ChevronRight className="h-4 w-4" />
         </motion.span>
-        <span>Архив</span>
+        <span>{i18n._(STAGE_LABEL_MESSAGES.ARCHIVED)}</span>
         <span className="ml-1 text-xs bg-muted rounded-full px-2 py-0.5">{totalArchived}</span>
       </button>
       <AnimatePresence initial={false}>

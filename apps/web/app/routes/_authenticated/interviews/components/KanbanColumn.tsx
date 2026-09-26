@@ -3,11 +3,14 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities'
 import { ExternalLink, Phone } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
+import { useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { getInitials } from '@/components/users/UserAvatar'
-import { COLUMN_BG, COLUMN_HEADER_BG, STAGE_COLORS, STAGE_LABELS, formatDate } from '../constants'
+import { COLUMN_BG, COLUMN_HEADER_BG, STAGE_COLORS, STAGE_LABEL_MESSAGES } from '../constants'
 
 // ── Sortable card ─────────────────────────────────────────────────────────
 
@@ -20,6 +23,8 @@ export function InterviewCard({
   onClick: () => void
   draggable?: boolean
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: interview.id,
     disabled: !draggable,
@@ -59,7 +64,7 @@ export function InterviewCard({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            aria-label="Открыть вакансию"
+            aria-label={t`Відкрити вакансію`}
             className={cn(
               'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5',
               'text-xs text-muted-foreground',
@@ -69,7 +74,7 @@ export function InterviewCard({
             )}
           >
             <ExternalLink className="h-3 w-3 shrink-0" />
-            <span>Вакансия</span>
+            <span>{t`Вакансія`}</span>
           </a>
         )}
 
@@ -79,7 +84,7 @@ export function InterviewCard({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            aria-label="Присоединиться к звонку"
+            aria-label={t`Приєднатися до дзвінка`}
             className={cn(
               'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5',
               'text-xs text-muted-foreground',
@@ -89,7 +94,7 @@ export function InterviewCard({
             )}
           >
             <Phone className="h-3 w-3 shrink-0" />
-            <span>Звонок</span>
+            <span>{t`Дзвінок`}</span>
           </a>
         )}
       </div>
@@ -101,7 +106,7 @@ export function InterviewCard({
             to="/profile/$userId"
             params={{ userId: interview.hrId }}
             onClick={(e) => e.stopPropagation()}
-            aria-label={`Профиль HR: ${interview.hrName}`}
+            aria-label={t`Профіль HR: ${interview.hrName}`}
             className={cn(
               'flex items-center gap-1.5 min-w-0',
               'rounded-md p-0.5 -m-0.5',
@@ -134,7 +139,7 @@ export function InterviewCard({
         ) : null}
 
         <span className="text-xs text-muted-foreground/70 ml-auto tabular-nums shrink-0">
-          {formatDate(interview.createdAt)}
+          {formatDate(interview.createdAt, locale)}
         </span>
       </div>
     </div>
@@ -144,6 +149,7 @@ export function InterviewCard({
 // ── Static overlay card used during drag ─────────────────────────────────
 
 export function InterviewCardStatic({ interview }: { interview: InterviewDto }) {
+  const locale = useLocale()
   return (
     <div
       className={cn(
@@ -169,7 +175,7 @@ export function InterviewCardStatic({ interview }: { interview: InterviewDto }) 
           </div>
         )}
         <span className="text-xs text-muted-foreground/70 ml-auto tabular-nums shrink-0">
-          {formatDate(interview.createdAt)}
+          {formatDate(interview.createdAt, locale)}
         </span>
       </div>
     </div>
@@ -189,6 +195,7 @@ export function KanbanColumn({
   onCardClick: (interview: InterviewDto) => void
   canDrag?: boolean
 }) {
+  const { i18n } = useLingui()
   const { setNodeRef, isOver } = useDroppable({ id: stage })
 
   return (
@@ -203,7 +210,7 @@ export function KanbanColumn({
         )}
       >
         <span className="font-semibold text-xs truncate tracking-wide uppercase opacity-80">
-          {STAGE_LABELS[stage]}
+          {i18n._(STAGE_LABEL_MESSAGES[stage])}
         </span>
         <span
           className={cn(
