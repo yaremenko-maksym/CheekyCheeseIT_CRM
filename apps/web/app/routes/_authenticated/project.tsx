@@ -301,6 +301,9 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
 // ProjectInfoCard — project meta + embedded HrInline (no separate HrContactCard)
 // ---------------------------------------------------------------------------
 
+const PROJECT_STATUS_ACTIVE: MessageDescriptor = msg`Активний`
+const PROJECT_STATUS_ARCHIVED: MessageDescriptor = msg`В архіві`
+
 function ProjectInfoCard({
   project,
   hrContact,
@@ -310,6 +313,8 @@ function ProjectInfoCard({
   hrContact: HrContactDto | null
   hrLoading: boolean
 }) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const isActive = !project.archivedAt
   const statusVariant = isActive ? ('status-active' as const) : ('status-closed' as const)
 
@@ -336,27 +341,23 @@ function ProjectInfoCard({
         <div className="space-y-2">
           {project.startDate && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground text-xs">Старт</span>
+              <span className="text-muted-foreground text-xs">{t`Старт`}</span>
               <span className="font-medium text-xs">
-                {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })}
+                {formatDate(project.startDate, locale, 'long')}
               </span>
             </div>
           )}
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground text-xs">Статус</span>
+            <span className="text-muted-foreground text-xs">{t`Статус`}</span>
             <Badge variant={statusVariant} className="text-xs">
-              {isActive ? 'Активный' : 'Завершён'}
+              {isActive ? i18n._(PROJECT_STATUS_ACTIVE) : i18n._(PROJECT_STATUS_ARCHIVED)}
             </Badge>
           </div>
         </div>
 
         {/* HR contact — embedded, no separate Card */}
         <Separator className="opacity-30" />
-        <section aria-label="Контакт HR">
+        <section aria-label={t`Контакт HR`}>
           <HrInline hrContact={hrContact} isLoading={hrLoading} />
         </section>
       </CardContent>
@@ -378,7 +379,9 @@ function HrInline({
   if (isLoading) {
     return (
       <div data-testid="hr-inline">
-        <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+        <p className="text-xs text-muted-foreground mb-1">
+          <Trans>Ваш HR</Trans>
+        </p>
         <Skeleton className="h-4 w-32" />
       </div>
     )
@@ -388,9 +391,13 @@ function HrInline({
 
   return (
     <div data-testid="hr-inline">
-      <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+      <p className="text-xs text-muted-foreground mb-1">
+        <Trans>Ваш HR</Trans>
+      </p>
       {!hasContact ? (
-        <p className="text-xs text-muted-foreground/60 italic">HR не назначен</p>
+        <p className="text-xs text-muted-foreground/60 italic">
+          <Trans>HR не призначений</Trans>
+        </p>
       ) : (
         <div className="space-y-1.5">
           {hrContact?.displayName && (
@@ -447,6 +454,7 @@ interface PersonaCardProps {
 }
 
 function PersonaCard({ legend, isLoading }: PersonaCardProps) {
+  const { t } = useLingui()
   const navigate = useNavigate()
 
   const fullName = legend?.fullName ?? null
@@ -457,7 +465,9 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
     return (
       <Card className="border-border/40 bg-card" data-testid="persona-card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            <Trans>Сеньйор проєкту</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex items-center gap-3">
           <Skeleton className="h-10 w-10 rounded-full shrink-0" />
@@ -473,7 +483,9 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
   return (
     <Card className="border-border/40 bg-card" data-testid="persona-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
+        <CardTitle className="text-sm font-semibold">
+          <Trans>Сеньйор проєкту</Trans>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
@@ -501,10 +513,10 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
           className="w-full gap-2"
           onClick={() => void navigate({ to: '/legend' })}
           data-testid="persona-open-legend-btn"
-          aria-label="Открыть легенду"
+          aria-label={t`Відкрити легенду`}
         >
           <BookOpen className="h-3.5 w-3.5" />
-          Открыть легенду
+          <Trans>Відкрити легенду</Trans>
         </Button>
       </CardContent>
     </Card>
