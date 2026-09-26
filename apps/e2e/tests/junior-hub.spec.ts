@@ -123,6 +123,13 @@ const TX_BASE = {
   txDate: null,
   recipientId: null,
   createdBy: 'a0000000-0000-4000-8000-000000000001', // admin uuid
+  // task-i18n-stage3c-pr4: `transactionSchema` requires this field
+  // (`.nullable()`, not `.optional()`) — its absence made every
+  // `transactionSchema.parse()` call throw, and `useSalaryTransactions`'s
+  // `catch` silently swallowed it into `[]`. Pre-existing fixture drift,
+  // unrelated to the i18n migration — confirmed by reading
+  // `packages/shared/src/schemas/finance.ts`'s `transactionSchema`.
+  txFromAddress: null,
 }
 
 const SALARY_TX_PAID = {

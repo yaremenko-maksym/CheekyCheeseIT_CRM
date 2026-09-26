@@ -107,9 +107,9 @@ test.describe('Drop-project create — UI flow (AC5)', () => {
       // Navigate to detail and verify badges + breakdown.
       await page.goto(`/projects/${created.id}`)
       await expect(page.getByTestId('project-drop-badge')).toBeVisible({ timeout: 10_000 })
-      await expect(page.getByText('Drop-проект', { exact: false })).toBeVisible()
+      await expect(page.getByText('Проєкт з дропом', { exact: false })).toBeVisible()
 
-      // Distribution breakdown lives on the «Финансы» tab — switch to it.
+      // Distribution breakdown lives on the «Фінанси» tab — switch to it.
       // SegmentedToggle renders the tab as a <button role="tab"> with
       // data-testid="tab-finance" (set on the option in $projectId.tsx).
       await page.getByTestId('tab-finance').click()

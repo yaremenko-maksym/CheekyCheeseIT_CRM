@@ -371,7 +371,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
 
     // "Добавить" in the overview team card — exclude credentials-add-btn
     const addBtn = page
-      .getByRole('button', { name: /^додати$/i })
+      .getByRole('button', { name: /^додати до складу$/i })
       .and(page.locator(':not([data-testid="credentials-add-btn"])'))
     await expect(addBtn).toBeVisible()
     await addBtn.click()
@@ -418,7 +418,7 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
     await page.getByTestId('tab-overview').click()
 
     const addBtn = page
-      .getByRole('button', { name: /^додати$/i })
+      .getByRole('button', { name: /^додати до складу$/i })
       .and(page.locator(':not([data-testid="credentials-add-btn"])'))
     await expect(addBtn).toBeVisible()
     await addBtn.click()
@@ -427,8 +427,9 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
     await expect(dialog).toBeVisible()
     await expect(dialog.getByText(USERS.junior.displayName)).toBeVisible()
 
-    // Click "Добавить" button for Junior inside the dialog.
-    // The dialog has one Добавить button per candidate; Junior is first in
+    // Click "Додати" button for Junior inside the dialog (row-level action —
+    // distinct from the card-level "Додати до складу" button that opened it).
+    // The dialog has one Додати button per candidate; Junior is first in
     // availableToAdd (HR already in team, accountant in team, junior is free).
     // Using first() avoids strict-mode violation from nested div matches.
     await dialog
