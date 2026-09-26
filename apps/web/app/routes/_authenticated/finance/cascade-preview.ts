@@ -11,9 +11,11 @@
  */
 import {
   amountsDiffer,
+  classifyEditedRowLedgerFact,
   remainingAgainstAccumulator,
   settledCurrencyMismatch,
   type CascadeEditPreviewResponse,
+  type CascadeLedgerFactReason,
   type CurrencyEnum,
 } from '@crm/shared'
 import { extractBackendMessage, getAxiosStatus } from '@/lib/axios-utils'
@@ -310,4 +312,51 @@ export function settlementSplit(tx: {
     settledCurrency,
     remaining: remainingAgainstAccumulator(Number(tx.amount), settled, mismatch),
   }
+}
+
+/**
+ * task-paid-salary-amount-edit — is this PAID row's amount pinned BEFORE the
+ * operator types anything? The answer disables the field on open instead of
+ * letting someone type a figure and then refusing it.
+ *
+ * Not a second description of the rule: it asks `classifyEditedRowLedgerFact`
+ * — the classifier both server entrances use — with the columns the row DTO
+ * already carries, at the row's own amount (a salary is pinned only when its
+ * obligation at the recorded rate could not be stored, which the stored
+ * figure never is).
+ *
+ * One predicate cannot be answered from the DTO: `hasClosedObligation` (a
+ * pre-#599 row closing an obligation). It is passed `false`, so such a row
+ * keeps today's behaviour — the preview refuses it after typing. Weakening in
+ * the safe direction only: the server still refuses the write.
+ */
+export function paidRowAmountLockReason(
+  tx:
+    | {
+        status: string
+        type: string
+        amount: string | number
+        originalAmount?: string | null | undefined
+        settledAmount?: string | null | undefined
+      }
+    | null
+    | undefined,
+): CascadeLedgerFactReason | null {
+  if (!tx || tx.status !== 'PAID') return null
+  return classifyEditedRowLedgerFact(
+    {
+      type: tx.type,
+      originalAmount: tx.originalAmount == null ? null : Number(tx.originalAmount),
+      // Deliberately NOT the row's rate. The rate decides only between a
+      // salary's editable branches — recomputed, no rate recorded, or a figure
+      // whose obligation is out of range (CR-M-1: a property of the FIGURE,
+      // answered by the preview for what the operator types, never a reason
+      // to close the field). Every other type ignores the rate. So a salary
+      // with a payment fact always stays open here, whatever its rate.
+      exchangeRate: null,
+      settledAmount: tx.settledAmount == null ? null : Number(tx.settledAmount),
+      hasClosedObligation: false,
+    },
+    Number(tx.amount),
+  )
 }

@@ -1984,6 +1984,11 @@ msgstr "За датою додавання"
 msgid "За замовчуванням 5%"
 msgstr "За замовчуванням 5%"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE"
+msgstr "За записаним курсом переказу ця сума дає зобов’язання поза допустимими межами — перевірте суму"
+
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"
 msgstr "За ім’ям"
@@ -2385,6 +2390,10 @@ msgstr "Зобов’язання вже закрито або скасован�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY"
 msgstr "Зобов’язання дропа записане не в USDT — закрити його з конверсією не можна, потрібна ручна звірка"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}"
+msgstr "Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2809,6 +2818,10 @@ msgstr "Кроки створення користувача"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
 msgstr "Курс НБУ недоступний — спробуйте пізніше"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
+msgstr "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Ласкаво просимо до CRM"
@@ -4748,6 +4761,10 @@ msgstr "Рахунок на підпис"
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Рахунок не знайдено"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок не перевипущено — збережіть транзакцію ще раз"
+msgstr "Рахунок не перевипущено — збережіть транзакцію ще раз"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
@@ -4761,6 +4778,10 @@ msgstr "Рахунок підписано"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.INVOICE_SIGNED.title"
 msgstr "Рахунок підписано"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"
+msgstr "Рахунок розійшовся із сумою — потрібна ручна звірка"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5392,6 +5413,11 @@ msgstr "Сума транзакції в мережі має точно збіг
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SHARES_SUM_EXCEEDS_100"
 msgstr "Сума часток сеньйора і дропа перевищує 100%"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
+msgstr "Суму цього платежу зафіксовано разом із курсом переказу — тут її не змінити, виправте сторнувальною транзакцією"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само."
@@ -6141,3 +6167,7 @@ msgstr "Юридичне ПІБ ще не заповнено — напишіт�
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "Якщо він потрібен для роботи, напишіть адміністратору"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
+msgstr "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"

@@ -115,6 +115,7 @@ const stubInvoices = {
   autoCreateForSeniorPayout: () => Promise.resolve(),
   autoCreateForSalary: () => Promise.resolve(),
   voidAndReissueInvoiceForAmountEdit: () => Promise.resolve(),
+  reissueSalaryInvoiceIfVoided: () => Promise.resolve('NOT_NEEDED'),
 } as never
 const stubDocuments = {} as never
 

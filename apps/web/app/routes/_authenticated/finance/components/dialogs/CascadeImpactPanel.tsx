@@ -22,20 +22,17 @@
  * missed.
  */
 import { AlertCircle, AlertTriangle, ArrowRight, Ban, RefreshCw, RotateCcw } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
+import { formatNumber } from '@crm/shared'
 
-import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
+import type { CascadeDerivativePlan, CascadeEditPreviewResponse, CascadePlan } from '@crm/shared'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 
-import {
-  CASCADE_BLOCKED_FALLBACK_MESSAGE,
-  CASCADE_BLOCKED_REASON_MESSAGES,
-  TYPE_COLORS,
-  TYPE_LABELS,
-  fmtAmount,
-} from '../../constants'
+import { cascadeBlockedReasonMessage, TYPE_COLORS, TYPE_LABELS, fmtAmount } from '../../constants'
 
 // Stryker disable next-line StringLiteral: the two variants are decided by `=== 'mobile'`, so ANY non-'mobile' value (including '') selects the desktop rendering — the mutant is equivalent by construction. Which layout each id lands in is pinned by PR-29/PR-30
 const DESKTOP = 'desktop' as const
@@ -354,6 +351,94 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
   )
 }
 
+/**
+ * task-paid-salary-amount-edit — what saving does to an edited PAID salary.
+ *
+ * The obligation follows the corrected paid figure at the RECORDED rate of
+ * that transfer (owner decision 2026-09-25) — or, with no rate recorded, is
+ * deliberately left as it was, and the screen says so instead of quoting a
+ * figure nobody will store. Either way the invoice is voided and re-issued for
+ * signing (`voidAndReissueInvoiceForAmountEdit`). New strings, so uk/en via the
+ * catalog (`russian-language.md`), inside a module otherwise not migrated yet.
+ */
+function SalaryPaymentFactBlock({
+  fact,
+  paidCurrency,
+}: {
+  fact: NonNullable<CascadePlan['sourcePaymentFact']>
+  /** The currency the salary was PAID in (`plan.sourceCurrency`) — the numerator of the rate. */
+  paidCurrency: string
+}) {
+  const locale = useLocale()
+  // `paySalary` stamps `original_currency` together with `original_amount`, so
+  // null is a legacy/defensive case — shown as a bare figure, never as «null».
+  const currency = fact.originalCurrency ?? ''
+  const oldAmount = fmtAmount(fact.oldOriginalAmount, currency)
+  const newAmount = fmtAmount(fact.newOriginalAmount, currency)
+  // COPY-M-2 — the rate by locale («41,25» in uk, never a bare «41.25» next to
+  // «1 024,24»), with its pair so the admin can check it against what they
+  // know: paid-currency units per one unit of the obligation («UAH/USD»). The
+  // non-breaking space keeps the figure and its unit on one line at 320px.
+  // Read only on the `recomputed` branch, where a rate was recorded by
+  // definition (`resolveSalaryPaymentFactEdit`).
+  //
+  // COPY-M-7 — SIGNIFICANT digits, not decimal places. Four decimals read
+  // fine at «41,25» and lose the rate entirely in the other direction: a
+  // salary owed in UAH and paid in USDT gives «0,0241 USDT/UAH», which no
+  // admin can check against the eight digits actually recorded. Six
+  // significant digits keep «41,25» as it is and give the small rate its
+  // meaning back.
+  const rateFigure = formatNumber(Number(fact.exchangeRate), locale, {
+    maximumSignificantDigits: 6,
+  })
+  const rate = currency ? `${rateFigure}\u00a0${paidCurrency}/${currency}` : rateFigure
+  return (
+    <div className="space-y-2">
+      {fact.recomputed ? (
+        <p
+          className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs tabular-nums"
+          data-testid="cascade-salary-obligation"
+        >
+          {/* COPY-M-1 — «зобов’язання», not «зарплата»: the field above is the
+              paid salary row, and this is what was OWED; old → new, the same
+              direction as every other row of this panel. */}
+          <Trans>
+            Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}
+          </Trans>
+        </p>
+      ) : (
+        <p
+          className="flex items-start gap-1.5 text-xs text-amber-400"
+          data-testid="cascade-salary-rate-missing"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+          <span>
+            {/* COPY-M-4 — shown BEFORE saving, so future tense throughout. */}
+            <Trans>
+              Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише
+              виплачена сума
+            </Trans>
+          </span>
+        </p>
+      )}
+      <p
+        className="flex items-start gap-1.5 text-xs text-amber-400"
+        data-testid="cascade-salary-invoice-reissue"
+      >
+        <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
+        <span>
+          {/* COPY-M-3 — conditional: the server voids and re-issues only when
+              an invoice exists (imported history may have none). COPY-H-1 —
+              «співробітник» per the glossary. */}
+          <Trans>
+            Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий
+          </Trans>
+        </span>
+      </p>
+    </div>
+  )
+}
+
 export function CascadeImpactPanel({
   preview,
   isLoading,
@@ -439,11 +524,7 @@ export function CascadeImpactPanel({
           data-testid="cascade-blocked-banner"
         >
           <Ban className="h-4 w-4 shrink-0 mt-0.5" aria-hidden />
-          <span>
-            {preview.blockedReason
-              ? CASCADE_BLOCKED_REASON_MESSAGES[preview.blockedReason]
-              : CASCADE_BLOCKED_FALLBACK_MESSAGE}
-          </span>
+          <span>{cascadeBlockedReasonMessage(preview.blockedReason)}</span>
         </div>
       )}
 
@@ -474,7 +555,12 @@ export function CascadeImpactPanel({
             className={cn(staleMessage && 'pointer-events-none opacity-60')}
             data-testid="cascade-plan-body"
           >
-            {preview.plan.derivatives.length === 0 ? (
+            {preview.plan.sourcePaymentFact ? (
+              <SalaryPaymentFactBlock
+                fact={preview.plan.sourcePaymentFact}
+                paidCurrency={preview.plan.sourceCurrency}
+              />
+            ) : preview.plan.derivatives.length === 0 ? (
               <p
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs"
                 data-testid="cascade-preview-empty"

@@ -88,7 +88,7 @@ import {
 } from './onchain-tx'
 // HIGH-1: the SINGLE hash-extraction rule, shared with the Zod write boundary.
 import { extractOnChainTxHash } from '@crm/shared'
-import { InvoicesService } from '../invoices/invoices.service'
+import { InvoicesService, type InvoiceReissueOutcome } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
@@ -218,6 +218,19 @@ type TxWithRelations = Transaction & {
     seniorSharePercent: number | null
     seniorSharePercentSource?: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null
   } | null
+}
+
+/**
+ * SR-M-1 — which stage of an invoice void/re-issue failed, if any. `undefined`
+ * (a caller or double that reports nothing) is not a failure: the only
+ * failures are the ones someone actually reported.
+ */
+function invoiceFailureStage(
+  outcome: InvoiceReissueOutcome | undefined,
+): 'VOID' | 'REISSUE' | null {
+  if (outcome === 'VOID_FAILED') return 'VOID'
+  if (outcome === 'REISSUE_FAILED') return 'REISSUE'
+  return null
 }
 
 @Injectable()
@@ -3261,6 +3274,11 @@ export class TransactionsService {
     try {
       cascadeApplied = await this.db.db.transaction(async (dbtx) => {
         let applied: { changedDerivativeIds: string[] } | undefined
+        // task-paid-salary-amount-edit — what the plan (built on the LOCKED
+        // snapshot) says about the edited salary's payment fact. Read by the
+        // source-row UPDATE and the journal below, never re-derived there:
+        // the preview showed exactly this figure.
+        let paymentFact: CascadePlan['sourcePaymentFact'] = null
         // task-cascade-apply (task 3, AC2/AC3/AC4-AC7). Runs FIRST inside the
         // transaction: it takes every lock the rest of this callback needs, in
         // the one order that does not invert `settleByCompany`'s, and it
@@ -3274,7 +3292,7 @@ export class TransactionsService {
           // amount move at all? Asked FIRST because "this row is not editable"
           // is a different, more fundamental answer than "your preview is
           // stale", and the operator should get the one that is actually true.
-          this.assertEditedRowAmountIsOwnRecord(snapshot.source)
+          this.assertEditedRowAmountIsOwnRecord(snapshot.source, data.amount!)
 
           // AC2 — re-derive the version from the state we just locked and
           // compare. A MISMATCH means the world moved between the preview and
@@ -3289,6 +3307,7 @@ export class TransactionsService {
           // The server computes the cascade itself. The client's version is an
           // input for comparison, never a plan to execute (ADR AC5 §11).
           const plan = resolveEditCascade(snapshot, { amount: data.amount! })
+          paymentFact = plan.sourcePaymentFact ?? null
           applied = await this.applyEditCascade(
             dbtx,
             snapshot,
@@ -3351,6 +3370,21 @@ export class TransactionsService {
           .update(transactions)
           .set({
             ...(amountToWrite !== undefined && { amount: String(amountToWrite) }),
+            // task-paid-salary-amount-edit — the obligation at the recorded
+            // rate, in the SAME statement as the amount so the pair is never
+            // observed half-written. `exchangeRate` / `originalCurrency` are
+            // deliberately absent: the rate of a transfer that happened does
+            // not change because its figure was mistyped.
+            //
+            // No `amountToWrite !== undefined` beside it: a non-null
+            // `paymentFact` already means the plan saw the stored figure move
+            // (`resolveEditCascade` sets it only when `sourceAmountChanged`),
+            // on a salary with no accumulator — where the floored comparison
+            // `amountChanged` makes is the same comparison. The extra operand
+            // was an equivalent mutant, i.e. a second rule saying nothing.
+            ...(paymentFact?.recomputed && {
+              originalAmount: String(paymentFact.newOriginalAmount),
+            }),
             ...(data.currency !== undefined && {
               currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
             }),
@@ -3449,6 +3483,28 @@ export class TransactionsService {
                   ...(flooredByAccumulator && { flooredFrom: data.amount }),
                 },
               }),
+              // task-paid-salary-amount-edit — «старое/новое по всем трём»:
+              // amount above, the obligation and the rate here. `recomputed:
+              // false` is owner decision 2 (no rate recorded → the obligation
+              // is left as it was), and the note makes the resulting
+              // disagreement between the three a recorded choice, not a bug.
+              // (Non-null only on an amount change — see the UPDATE above.)
+              ...(paymentFact && {
+                paymentFact: {
+                  originalAmount: {
+                    before: String(paymentFact.oldOriginalAmount),
+                    after: String(paymentFact.newOriginalAmount),
+                  },
+                  exchangeRate: {
+                    before: paymentFact.exchangeRate,
+                    after: paymentFact.exchangeRate,
+                  },
+                  recomputed: paymentFact.recomputed,
+                  ...(!paymentFact.recomputed && {
+                    note: 'exchange rate not recorded — obligation not recomputed',
+                  }),
+                },
+              }),
               ...(currencyChanged && {
                 currency: { before: tx.currency, after: data.currency },
               }),
@@ -3508,26 +3564,106 @@ export class TransactionsService {
     //
     // OUTSIDE the DB transaction on purpose: that method opens its OWN
     // transaction with `FOR UPDATE`, so calling it from inside this one would
-    // self-deadlock. Failures are logged and swallowed — the same
-    // fire-and-forget contract every other invoice trigger in this file
-    // already has (`autoCreateForSeniorPayout` above, `settleByCompany`'s
-    // trigger): a PDF/S3 hiccup must not undo a cascade that has already
-    // committed, and the invoice can be re-triggered.
+    // self-deadlock. A PDF/S3 hiccup must not undo a cascade that has already
+    // committed — so a failure does not throw.
+    //
+    // SR-M-1 (security-review, PR #721): but it is no longer SILENT either.
+    // Before, a failed void left the old, counterparty-signed invoice live
+    // (the public QR check still confirmed the old figure) and a failed
+    // re-issue left a salary with no invoice forever — both visible only in
+    // the server log. Now each failure is a journal line
+    // (`INVOICE_REISSUE_FAILED`) and the response carries
+    // `invoiceReissueIncomplete`, so the edit is not reported as a clean
+    // success. And the repair exists: re-saving a PAID salary whose invoice
+    // was voided and never replaced re-issues it (below).
+    const actorId = currentUser.impersonatorId ?? currentUser.id
+    const failedStages: Array<{ id: string; stage: 'VOID' | 'REISSUE' }> = []
     if (cascadeApplied) {
-      const actorId = currentUser.impersonatorId ?? currentUser.id
       for (const reissueId of [id, ...cascadeApplied.changedDerivativeIds]) {
+        let outcome: InvoiceReissueOutcome | undefined
         try {
-          await this.invoicesService.voidAndReissueInvoiceForAmountEdit(reissueId, actorId)
+          outcome = await this.invoicesService.voidAndReissueInvoiceForAmountEdit(
+            reissueId,
+            actorId,
+          )
         } catch (invoiceErr) {
           this.logger.error(
             `adminUpdateTransaction: invoice void+reissue failed for transaction=${reissueId}: ${(invoiceErr as Error).message}`,
             (invoiceErr as Error).stack,
           )
+          outcome = 'VOID_FAILED'
         }
+        const stage = invoiceFailureStage(outcome)
+        if (stage) failedStages.push({ id: reissueId, stage })
+      }
+    } else if (tx.type === 'SALARY' && tx.status === 'PAID') {
+      // «Повторное сохранение чинит»: a save that did not move the amount is
+      // the operator's way back to an invoice an earlier edit left broken —
+      // whether the void failed (the old signed document is still current) or
+      // the re-issue did (no document at all). SR-M-3: both stages, so the
+      // toast's advice is actionable in either. A salary that never had an
+      // invoice is left alone (see the method).
+      let outcome: InvoiceReissueOutcome | undefined
+      try {
+        outcome = await this.invoicesService.reissueSalaryInvoiceIfVoided(id, actorId)
+      } catch (invoiceErr) {
+        this.logger.error(
+          `adminUpdateTransaction: salary invoice repair failed for transaction=${id}: ${(invoiceErr as Error).message}`,
+        )
+        outcome = 'REISSUE_FAILED'
+      }
+      const stage = invoiceFailureStage(outcome)
+      if (stage) failedStages.push({ id, stage })
+    }
+
+    // SR-L-5 (security-review round 2) — fire-and-forget, like every other
+    // audit write in this file. The edit itself is already committed: letting
+    // a journal failure throw would turn a saved edit into a 500 AND lose the
+    // `invoiceReissueIncomplete` flag, which is the one thing that tells the
+    // operator to save again.
+    for (const failed of failedStages) {
+      try {
+        await this.db.db.insert(transactionAuditLog).values({
+          actorId,
+          targetId: failed.id,
+          action: 'INVOICE_REISSUE_FAILED',
+          metadata: { stage: failed.stage },
+        })
+      } catch (journalErr) {
+        this.logger.error(
+          `adminUpdateTransaction: could not journal INVOICE_REISSUE_FAILED for transaction=${failed.id} (stage=${failed.stage}): ${(journalErr as Error).message}`,
+        )
       }
     }
 
-    return this.findOne(id, currentUser)
+    const updatedDto = await this.findOne(id, currentUser)
+    if (failedStages.length === 0) return updatedDto
+    // COPY-M-6 — «save it again» is true for the EDITED salary's own invoice
+    // and false for a derived row, where no repair path exists at all. Asking
+    // the invoice service keeps the promise tied to what it will actually do,
+    // instead of to which row happened to fail.
+    const onlyThisRow = failedStages.every((f) => f.id === id)
+    const repairable = onlyThisRow && (await this.canRepairInvoiceQuietly(id))
+    return {
+      ...updatedDto,
+      invoiceReissueIncomplete: repairable ? 'SELF_REPAIRABLE' : 'MANUAL_CHECK',
+    }
+  }
+
+  /**
+   * COPY-M-6 — only ever asked to pick a MESSAGE, on a path where something
+   * has already failed. A throw here would replace a saved edit with a 500,
+   * so an unanswerable question means «do not promise a repair».
+   */
+  private async canRepairInvoiceQuietly(id: string): Promise<boolean> {
+    try {
+      return await this.invoicesService.canRepairSalaryInvoice(id)
+    } catch (err) {
+      this.logger.error(
+        `adminUpdateTransaction: could not determine invoice repairability for transaction=${id}: ${(err as Error).message}`,
+      )
+      return false
+    }
   }
 
   // ── Edit cascade preview (read-only) ────────────────────────────────────
@@ -3878,6 +4014,12 @@ export class TransactionsService {
         hasSignedInvoice: signedIds.has(source.id),
         originalAmount:
           (source.originalAmount ?? null) === null ? null : Number(source.originalAmount),
+        // task-paid-salary-amount-edit — the rest of the triplet: a paid
+        // SALARY's obligation is recomputed at THIS rate. `?? null` for the
+        // same partial-projection reason as the two below: `undefined` would
+        // read as "a rate was recorded" in the resolver.
+        originalCurrency: source.originalCurrency ?? null,
+        exchangeRate: source.exchangeRate ?? null,
         // AC13 — the two "second carrier" facts about the edited row itself.
         //
         // `?? null` rather than a bare `!== null`: these two feed a REFUSAL,
@@ -3920,13 +4062,28 @@ export class TransactionsService {
    * ordinary work. Calling this from `applyEditCascade` would make the cascade
    * refuse itself. Both directions are pinned by tests.
    */
-  private assertEditedRowAmountIsOwnRecord(source: CascadeSourceSnapshot): void {
+  private assertEditedRowAmountIsOwnRecord(
+    source: CascadeSourceSnapshot,
+    requestedAmount: number,
+  ): void {
     // CR-M-1 (code-review round 3) — the predicates and their texts moved to
     // `@crm/shared` so `GET :id/edit-preview` answers from the SAME
     // description this refusal is built on. Two copies of "what is editable"
     // is precisely how a preview starts promising a save that cannot happen
     // (risk 1 of the main ADR's AC6).
-    const reason = classifyEditedRowLedgerFact(source)
+    //
+    // task-paid-salary-amount-edit — the requested amount is an input now: a
+    // paid salary passes unless its obligation at the recorded rate could not
+    // be stored, and only the figure can tell.
+    const reason = classifyEditedRowLedgerFact(source, requestedAmount)
+    if (reason === 'PAYMENT_FACT_RECORDED') {
+      throw apiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', HttpStatus.BAD_REQUEST)
+    }
+    // CR-M-1 — not a pinned row, a figure that gives an unstorable obligation:
+    // the remedy is another amount, so it is told so, not sent to a reversal.
+    if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
+      throw apiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', HttpStatus.BAD_REQUEST)
+    }
     if (reason) throw new BadRequestException(CASCADE_LEDGER_FACT_MESSAGES[reason])
   }
 
@@ -4559,7 +4716,7 @@ export class TransactionsService {
         requestedAmount: amount,
       })
     ) {
-      const ledgerFact = classifyEditedRowLedgerFact(snapshot.source)
+      const ledgerFact = classifyEditedRowLedgerFact(snapshot.source, amount)
       if (ledgerFact) {
         return cascadeEditPreviewResponseSchema.parse({
           editable: false,

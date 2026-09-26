@@ -258,6 +258,28 @@ describe('transactionSchema.receiptExternalUrl', () => {
     updatedAt: '2026-06-01T10:00:00.000Z',
   }
 
+  /**
+   * task-paid-salary-amount-edit (COPY-M-6) — the dialog picks its text from
+   * this value, so both spellings are a contract: blank either one and the
+   * operator is either told to save again where that does nothing, or sent to
+   * a manual check where a re-save would have fixed it.
+   */
+  it('carries exactly the two invoice-repair outcomes, spelled out', () => {
+    for (const outcome of ['SELF_REPAIRABLE', 'MANUAL_CHECK'] as const) {
+      expect(
+        transactionSchema.parse({ ...baseTx, invoiceReissueIncomplete: outcome })
+          .invoiceReissueIncomplete,
+      ).toBe(outcome)
+    }
+  })
+
+  it('rejects any other outcome, and stays absent on an ordinary read', () => {
+    expect(() =>
+      transactionSchema.parse({ ...baseTx, invoiceReissueIncomplete: 'SOMETHING_ELSE' }),
+    ).toThrow()
+    expect(transactionSchema.parse(baseTx).invoiceReissueIncomplete).toBeUndefined()
+  })
+
   it('accepts null receiptExternalUrl', () => {
     expect(() => transactionSchema.parse({ ...baseTx, receiptExternalUrl: null })).not.toThrow()
   })

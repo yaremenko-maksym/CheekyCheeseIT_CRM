@@ -15,6 +15,8 @@ import {
   CASCADE_LEDGER_FACT_MESSAGES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
+  recomputeObligationAtRecordedRate,
+  resolveSalaryPaymentFactEdit,
   type CascadeDerivativeSnapshot,
   type CascadeSnapshot,
   type CascadeWarning,
@@ -41,6 +43,8 @@ function makeSource(overrides: Partial<CascadeSnapshot['source']> = {}): Cascade
     updatedAt: '2026-08-01T00:00:00.000Z',
     hasSignedInvoice: false,
     originalAmount: null,
+    originalCurrency: null,
+    exchangeRate: null,
     settledAmount: null,
     hasClosedObligation: false,
     ...overrides,
@@ -226,13 +230,13 @@ describe('isCascadeAmountEdit — asked by both entrances (CR-M-2)', () => {
 
 describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
   it('names the fact-of-payment triplet', () => {
-    expect(classifyEditedRowLedgerFact(makeSource({ originalAmount: 41500 }))).toBe(
+    expect(classifyEditedRowLedgerFact(makeSource({ originalAmount: 41500 }), 2000)).toBe(
       'PAYMENT_FACT_RECORDED',
     )
   })
 
   it('names the accumulator of actual payouts', () => {
-    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 260 }))).toBe(
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 260 }), 2000)).toBe(
       'SETTLED_AMOUNT_RECORDED',
     )
   })
@@ -240,19 +244,19 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
   it('counts a zero accumulator as recorded — it is a settle that happened, not an absent one', () => {
     // `0` is a figure someone wrote down; `null` is "never settled". Reading
     // the first as the second is how a truthiness check would get this wrong.
-    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 0 }))).toBe(
+    expect(classifyEditedRowLedgerFact(makeSource({ settledAmount: 0 }), 2000)).toBe(
       'SETTLED_AMOUNT_RECORDED',
     )
   })
 
   it('names a closed obligation the row stands behind', () => {
-    expect(classifyEditedRowLedgerFact(makeSource({ hasClosedObligation: true }))).toBe(
+    expect(classifyEditedRowLedgerFact(makeSource({ hasClosedObligation: true }), 2000)).toBe(
       'CLOSES_OBLIGATION',
     )
   })
 
   it('names an on-chain deposit', () => {
-    expect(classifyEditedRowLedgerFact(makeSource({ type: 'COMPANY_DEPOSIT' }))).toBe(
+    expect(classifyEditedRowLedgerFact(makeSource({ type: 'COMPANY_DEPOSIT' }), 2000)).toBe(
       'ONCHAIN_DEPOSIT',
     )
   })
@@ -260,7 +264,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
   it.each(['ADMIN_INCOME', 'EXPENSE', 'DIVIDEND_TO_ADMIN'])(
     'leaves %s editable — it has no second carrier of the amount',
     (type) => {
-      expect(classifyEditedRowLedgerFact(makeSource({ type }))).toBeNull()
+      expect(classifyEditedRowLedgerFact(makeSource({ type }), 2000)).toBeNull()
     },
   )
 
@@ -270,21 +274,33 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
     expect(
       classifyEditedRowLedgerFact(
         makeSource({ originalAmount: 800, settledAmount: 260, hasClosedObligation: true }),
+        2000,
       ),
     ).toBe('PAYMENT_FACT_RECORDED')
     expect(
-      classifyEditedRowLedgerFact(makeSource({ settledAmount: 260, hasClosedObligation: true })),
+      classifyEditedRowLedgerFact(
+        makeSource({ settledAmount: 260, hasClosedObligation: true }),
+        2000,
+      ),
     ).toBe('SETTLED_AMOUNT_RECORDED')
   })
 
   it('has a distinct operator-facing message for every reason, each naming a carrier', () => {
+    // task-paid-salary-amount-edit: PAYMENT_FACT_RECORDED left this Russian
+    // table — its refusal is the catalogued api-error
+    // `FINANCE_PAYMENT_FACT_AMOUNT_LOCKED` now (uk/en), on the 400 and on the
+    // banner alike. The other three keep their texts until finance migrates.
+    expect(Object.keys(CASCADE_LEDGER_FACT_MESSAGES).sort()).toEqual([
+      'CLOSES_OBLIGATION',
+      'ONCHAIN_DEPOSIT',
+      'SETTLED_AMOUNT_RECORDED',
+    ])
     const messages = Object.values(CASCADE_LEDGER_FACT_MESSAGES)
-    expect(messages).toHaveLength(cascadeLedgerFactReasonSchema.options.length)
     expect(new Set(messages).size).toBe(messages.length)
     for (const m of messages) expect(m.length).toBeGreaterThan(20)
   })
 
-  it('carries exactly these four codes, spelled out', () => {
+  it('carries exactly these five codes, spelled out', () => {
     // Written as literals ON PURPOSE. Reading the expected values back out of
     // `cascadeLedgerFactReasonSchema.options` would make this pass by
     // construction — the tautology the mutation gate catches by blanking an
@@ -295,6 +311,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
       'SETTLED_AMOUNT_RECORDED',
       'CLOSES_OBLIGATION',
       'ONCHAIN_DEPOSIT',
+      'SALARY_OBLIGATION_OUT_OF_RANGE',
     ])
   })
 
@@ -306,6 +323,7 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
       'SETTLED_AMOUNT_RECORDED',
       'CLOSES_OBLIGATION',
       'ONCHAIN_DEPOSIT',
+      'SALARY_OBLIGATION_OUT_OF_RANGE',
     ] as const) {
       expect(cascadeLedgerFactReasonSchema.safeParse(reason).success).toBe(true)
       expect(cascadeEditPreviewBlockedReasonSchema.safeParse(reason).success).toBe(true)
@@ -795,12 +813,14 @@ describe("resolveEditCascade — HIGH-2-residual (security-review round 2): comp
 })
 
 describe('resolveEditCascade — MED-1 (security-review round 1): warnings about the SOURCE row itself', () => {
-  it('flags SOURCE_ORIGINAL_AMOUNT_SET when the row being edited already carries a fact-of-payment originalAmount', () => {
+  it('no longer flags SOURCE_ORIGINAL_AMOUNT_SET — the refusal says it now (task-paid-salary-amount-edit, COPY-L-2)', () => {
+    // A salary's triplet follows the edit; every other row carrying one is
+    // refused before a plan is ever shown. The warning had no reachable reader
+    // and carried a Russian remedy that does not exist; the code stays in the
+    // wire enum for compatibility only.
     const s = snapshot({ originalAmount: 800 }, [])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    expect(plan.sourceWarnings).toEqual([
-      { code: 'SOURCE_ORIGINAL_AMOUNT_SET', message: expect.stringContaining('800') },
-    ])
+    expect(plan.sourceWarnings).toEqual([])
   })
 
   it('flags SOURCE_SIGNED_INVOICE when the row being edited already carries a counterparty-signed invoice', () => {
@@ -1446,6 +1466,7 @@ describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
     expect(
       classifyEditedRowLedgerFact(
         makeSource({ type: 'PAYOUT_DROP', originalAmount: null, settledAmount: 130 }),
+        2000,
       ),
     ).toBe('SETTLED_AMOUNT_RECORDED')
   })
@@ -1460,6 +1481,7 @@ describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
           settledAmount: null,
           hasClosedObligation: true,
         }),
+        2000,
       ),
     ).toBe('CLOSES_OBLIGATION')
   })
@@ -1469,7 +1491,9 @@ describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
     (type) => {
       // The other direction. 3b adds no predicate here, and an income row is
       // exactly what this whole decomposition exists to let people fix.
-      expect(classifyEditedRowLedgerFact(makeSource({ type, originalAmount: null }))).toBeNull()
+      expect(
+        classifyEditedRowLedgerFact(makeSource({ type, originalAmount: null }), 2000),
+      ).toBeNull()
     },
   )
 
@@ -1483,5 +1507,224 @@ describe('AC13 after task 3b: clearing the triplet opens nothing', () => {
       isCascadeAmountEdit({ status: 'PENDING_PAYMENT', storedAmount: 130, requestedAmount: 5 }),
     ).toBe(false)
     expect(floorAmountAtAccumulator(5, 130)).toBe(130)
+  })
+})
+
+/**
+ * task-paid-salary-amount-edit — the owner's decision (2026-09-25): a PAID
+ * salary's paid-out figure (`amount`) is correctable; the obligation
+ * (`originalAmount`) follows at the RECORDED rate of that transfer, and the
+ * rate itself never moves. Every expected figure below is worked out by hand,
+ * never by repeating the division the code does.
+ */
+describe('recomputeObligationAtRecordedRate — the obligation at the recorded rate', () => {
+  it('divides the paid figure by the recorded rate', () => {
+    expect(recomputeObligationAtRecordedRate(41500, '41.50000000')).toBe(1000)
+    expect(recomputeObligationAtRecordedRate(200, '0.02500000')).toBe(8000)
+  })
+
+  it('rounds to the six decimals `original_amount` stores', () => {
+    // 41.25 × 1184 = 48 840; the remaining 27 / 41.25 = 0.654545… → 0.654545
+    expect(recomputeObligationAtRecordedRate(48867, '41.25000000')).toBe(1184.654545)
+    expect(recomputeObligationAtRecordedRate(100, '3.00000000')).toBe(33.333333)
+  })
+
+  it('accepts both ends of the storable range', () => {
+    expect(recomputeObligationAtRecordedRate(500000, '1.00000000')).toBe(500000)
+    expect(recomputeObligationAtRecordedRate(0.000001, '1.00000000')).toBe(0.000001)
+  })
+
+  it('refuses an obligation above the transaction ceiling', () => {
+    expect(recomputeObligationAtRecordedRate(500000, '0.50000000')).toBeNull()
+  })
+
+  it('refuses an obligation that rounds below the smallest storable amount', () => {
+    expect(recomputeObligationAtRecordedRate(0.000001, '100.00000000')).toBeNull()
+  })
+
+  it.each(['0', '0.00000000', '-41.5', 'abc', '', 'Infinity'])(
+    'refuses a rate it cannot divide by honestly (%s)',
+    (rate) => {
+      expect(recomputeObligationAtRecordedRate(41500, rate)).toBeNull()
+    },
+  )
+
+  it('keeps `exchangeRate == amount / originalAmount` within the precision paySalary keeps', () => {
+    // paySalary stores the rate at 8 decimals and the obligation at 6, so the
+    // pair can disagree by half a unit in the last place of either.
+    const cases: Array<[number, string]> = [
+      [48867, '41.25000000'],
+      [100, '3.00000000'],
+      [1234.56, '0.02412345'],
+      [499999.999999, '41.12345678'],
+      [1, '0.99999999'],
+    ]
+    for (const [amount, rate] of cases) {
+      const obligation = recomputeObligationAtRecordedRate(amount, rate)
+      expect(obligation).not.toBeNull()
+      const o = obligation as number
+      const r = Number(rate)
+      expect(Math.abs(o * r - amount)).toBeLessThanOrEqual(r * 5e-7 + o * 5e-9)
+    }
+  })
+})
+
+const PAID_SALARY_FACT = {
+  type: 'SALARY',
+  originalAmount: 1180,
+  originalCurrency: 'USD' as const,
+  exchangeRate: '41.25000000',
+}
+
+describe('resolveSalaryPaymentFactEdit — which of the owner-decided branches a row falls into', () => {
+  it('recomputes a salary whose rate was recorded', () => {
+    expect(resolveSalaryPaymentFactEdit(makeSource(PAID_SALARY_FACT), 48867)).toEqual({
+      kind: 'RECOMPUTED',
+      newOriginalAmount: 1184.654545,
+    })
+  })
+
+  it('leaves the obligation alone when no rate was recorded (owner decision 2)', () => {
+    expect(
+      resolveSalaryPaymentFactEdit(makeSource({ ...PAID_SALARY_FACT, exchangeRate: null }), 48867),
+    ).toEqual({ kind: 'RATE_NOT_RECORDED' })
+  })
+
+  it('reports a recomputation that cannot be stored instead of storing it', () => {
+    expect(
+      resolveSalaryPaymentFactEdit(
+        makeSource({ ...PAID_SALARY_FACT, exchangeRate: '0.50000000' }),
+        500000,
+      ),
+    ).toEqual({ kind: 'UNREPRESENTABLE' })
+  })
+
+  it('does not apply to a salary with no payment fact on it', () => {
+    expect(
+      resolveSalaryPaymentFactEdit(
+        makeSource({ ...PAID_SALARY_FACT, originalAmount: null }),
+        48867,
+      ),
+    ).toBeNull()
+  })
+
+  it.each(['PAYOUT_DROP', 'DROP_INCOME', 'SENIOR_INCOME', 'ADMIN_INCOME'])(
+    'does not apply to %s — only a salary is recomputed',
+    (type) => {
+      expect(
+        resolveSalaryPaymentFactEdit(makeSource({ ...PAID_SALARY_FACT, type }), 48867),
+      ).toBeNull()
+    },
+  )
+})
+
+describe('classifyEditedRowLedgerFact — a paid salary is its own record now', () => {
+  it('lets a salary with a recorded rate through', () => {
+    expect(classifyEditedRowLedgerFact(makeSource(PAID_SALARY_FACT), 48867)).toBeNull()
+  })
+
+  it('lets a salary with no recorded rate through (owner decision 2)', () => {
+    expect(
+      classifyEditedRowLedgerFact(makeSource({ ...PAID_SALARY_FACT, exchangeRate: null }), 48867),
+    ).toBeNull()
+  })
+
+  it('still refuses when the recomputed obligation could not be stored', () => {
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ ...PAID_SALARY_FACT, exchangeRate: '0.50000000' }),
+        500000,
+      ),
+    ).toBe('SALARY_OBLIGATION_OUT_OF_RANGE')
+  })
+
+  it('still refuses a drop payout carrying the same triplet', () => {
+    expect(
+      classifyEditedRowLedgerFact(makeSource({ ...PAID_SALARY_FACT, type: 'PAYOUT_DROP' }), 48867),
+    ).toBe('PAYMENT_FACT_RECORDED')
+  })
+
+  it('falls through to the other carriers — lifting the triplet lifts nothing else', () => {
+    expect(
+      classifyEditedRowLedgerFact(makeSource({ ...PAID_SALARY_FACT, settledAmount: 48000 }), 48867),
+    ).toBe('SETTLED_AMOUNT_RECORDED')
+    expect(
+      classifyEditedRowLedgerFact(
+        makeSource({ ...PAID_SALARY_FACT, hasClosedObligation: true }),
+        48867,
+      ),
+    ).toBe('CLOSES_OBLIGATION')
+  })
+})
+
+describe('resolveEditCascade — the payment fact of an edited salary', () => {
+  const paidSalary = {
+    ...PAID_SALARY_FACT,
+    amount: 48675,
+    currency: 'UAH' as const,
+  }
+
+  it('describes the obligation at the recorded rate', () => {
+    const plan = resolveEditCascade(snapshot(paidSalary, []), { amount: 48867 })
+    expect(plan.sourcePaymentFact).toEqual({
+      originalCurrency: 'USD',
+      exchangeRate: '41.25000000',
+      oldOriginalAmount: 1180,
+      newOriginalAmount: 1184.654545,
+      recomputed: true,
+    })
+  })
+
+  it('says out loud that nothing was recomputed when no rate was recorded', () => {
+    const plan = resolveEditCascade(snapshot({ ...paidSalary, exchangeRate: null }, []), {
+      amount: 48867,
+    })
+    expect(plan.sourcePaymentFact).toEqual({
+      originalCurrency: 'USD',
+      exchangeRate: null,
+      oldOriginalAmount: 1180,
+      newOriginalAmount: 1180,
+      recomputed: false,
+    })
+  })
+
+  it('describes no figure for an obligation that could not be stored — that edit is refused', () => {
+    const plan = resolveEditCascade(
+      snapshot({ ...paidSalary, amount: 400000, exchangeRate: '0.50000000' }, []),
+      { amount: 500000 },
+    )
+    expect(plan.sourcePaymentFact).toBeNull()
+  })
+
+  it('has nothing to say when the amount does not move', () => {
+    const plan = resolveEditCascade(snapshot(paidSalary, []), { amount: 48675 })
+    expect(plan.sourcePaymentFact).toBeNull()
+  })
+
+  it('has nothing to say about a row that is not a salary', () => {
+    const plan = resolveEditCascade(snapshot({ ...paidSalary, type: 'ADMIN_INCOME' }, []), {
+      amount: 48867,
+    })
+    expect(plan.sourcePaymentFact).toBeNull()
+  })
+
+  it('does not tell the operator a salary edit desyncs the rate — it no longer does', () => {
+    const plan = resolveEditCascade(snapshot(paidSalary, []), { amount: 48867 })
+    expect(plan.sourceWarnings.map((w) => w.code)).not.toContain('SOURCE_ORIGINAL_AMOUNT_SET')
+  })
+
+  it('no longer emits the dead Russian SOURCE_ORIGINAL_AMOUNT_SET warning for any row (COPY-L-2)', () => {
+    const plan = resolveEditCascade(snapshot({ ...paidSalary, type: 'PAYOUT_DROP' }, []), {
+      amount: 48867,
+    })
+    expect(plan.sourceWarnings).toEqual([])
+  })
+
+  it('crosses the wire with the payment fact intact', () => {
+    const plan = resolveEditCascade(
+      snapshot({ ...paidSalary, id: '22222222-2222-4222-8222-222222222222' }, []),
+      { amount: 48867 },
+    )
+    expect(cascadePlanSchema.parse(plan).sourcePaymentFact).toEqual(plan.sourcePaymentFact)
   })
 })

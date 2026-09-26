@@ -55,6 +55,11 @@ function makeDefaultInvoicesStub(): InvoicesService {
     autoCreateForIncome: vi.fn().mockResolvedValue(undefined),
     autoCreateForSeniorPayout: vi.fn().mockResolvedValue(undefined),
     autoCreateForSalary: vi.fn().mockResolvedValue(undefined),
+    // task-paid-salary-amount-edit (SR-M-1): every save of a PAID salary asks
+    // whether a voided invoice needs re-issuing. «Nothing to do» by default.
+    voidAndReissueInvoiceForAmountEdit: vi.fn().mockResolvedValue('NOT_NEEDED'),
+    reissueSalaryInvoiceIfVoided: vi.fn().mockResolvedValue('NOT_NEEDED'),
+    canRepairSalaryInvoice: vi.fn().mockResolvedValue(false),
   } as unknown as InvoicesService
 }
 

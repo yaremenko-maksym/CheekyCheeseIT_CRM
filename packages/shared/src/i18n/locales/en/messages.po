@@ -1984,6 +1984,11 @@ msgstr "By date added"
 msgid "За замовчуванням 5%"
 msgstr "5% by default"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE"
+msgstr "At the recorded transfer rate this amount gives a salary obligation outside the allowed range — check the amount"
+
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "За ім’ям"
 msgstr "By name"
@@ -2385,6 +2390,10 @@ msgstr "The obligation is already closed or cancelled"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DROP_OBLIGATION_CORRUPTED_CURRENCY"
 msgstr "The drop's obligation isn't recorded in USDT — it can't be closed with conversion and needs a manual reconciliation"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Зобов’язання за зарплатою: {oldAmount} → {newAmount} за курсом переказу {rate}"
+msgstr "Salary obligation: {oldAmount} → {newAmount} at the transfer rate of {rate}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2809,6 +2818,10 @@ msgstr "User creation steps"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
 msgstr "The NBU exchange rate is unavailable — try again later"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
+msgstr "No transfer rate is recorded — the salary obligation stays at {oldAmount}, only the paid amount changes"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Ласкаво просимо до CRM"
@@ -4748,6 +4761,10 @@ msgstr "Invoice to sign"
 msgid "api-error.INVOICE_NOT_FOUND"
 msgstr "Invoice not found"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок не перевипущено — збережіть транзакцію ще раз"
+msgstr "The invoice wasn't reissued — save the transaction again"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_NOT_APPLICABLE_FOR_TX_TYPE"
@@ -4761,6 +4778,10 @@ msgstr "Invoice signed"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.INVOICE_SIGNED.title"
 msgstr "Invoice signed"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
+msgid "Рахунок розійшовся із сумою — потрібна ручна звірка"
+msgstr "The invoice is out of step with the amount — it needs a manual check"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5392,6 +5413,11 @@ msgstr "The on-chain transaction amount must exactly match the payout amount"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_SHARES_SUM_EXCEEDS_100"
 msgstr "The senior's and drop's shares add up to more than 100%"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
+msgstr "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само."
@@ -6141,3 +6167,7 @@ msgstr "Your legal name isn’t filled in yet — message an admin, and signing 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "If you need it for work, contact an admin"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
+msgstr "Any issued invoice will be voided and reissued for the employee to sign"

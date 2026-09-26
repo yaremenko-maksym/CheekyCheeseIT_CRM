@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
+import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { getAxiosStatus } from '@/lib/axios-utils'
@@ -27,8 +29,14 @@ import {
   cascadeSaveErrorMessage,
   cascadeStaleMessage,
   needsCascadePreview,
+  paidRowAmountLockReason,
 } from '../../cascade-preview'
-import { EXPENSE_CATEGORIES, TYPE_LABELS, fmtAmount } from '../../constants'
+import {
+  EXPENSE_CATEGORIES,
+  TYPE_LABELS,
+  cascadeBlockedReasonMessage,
+  fmtAmount,
+} from '../../constants'
 import { CascadeImpactPanel } from './CascadeImpactPanel'
 import {
   ReceiptInput,
@@ -49,6 +57,7 @@ export function AdminEditTransactionDialog({
   onClose: () => void
 }) {
   const qc = useQueryClient()
+  const { t } = useLingui()
 
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
@@ -137,6 +146,14 @@ export function AdminEditTransactionDialog({
   // «is this a cascade edit»: the two are locked by the ledger having recorded
   // a payment, which is true whether or not the amount is being touched.
   const isPaidRow = tx?.status === 'PAID'
+
+  // task-paid-salary-amount-edit — a PAID row whose amount has a second
+  // carrier (a converted payment fact, an accumulator of payouts, an on-chain
+  // deposit) is locked on OPEN, with the reason under the field, instead of
+  // being refused after the operator has typed a figure. A paid SALARY is not
+  // one of them any more — its obligation follows the edit at the recorded
+  // rate. Same classifier the server asks (`paidRowAmountLockReason`).
+  const amountLockReason = paidRowAmountLockReason(tx)
 
   // The TEXT still distinguishes the two kinds, which is what CP-19 protects:
   // sending someone to check their wifi over a message the server took the
@@ -318,7 +335,23 @@ export function AdminEditTransactionDialog({
       // see its own doc.
       setStaleMessage(getAxiosStatus(err) === 409 ? cascadeStaleMessage(err) : null)
     },
-    onSuccess: () => {
+    onSuccess: (saved: TransactionDto) => {
+      // SR-M-1 — the edit committed, but the invoice is not in step with it.
+      // Not a silent success: the operator hears it.
+      //
+      // COPY-M-6 — and hears the RIGHT thing. «Save it again» repairs only the
+      // edited salary's own invoice; on a derived row there is no repair path,
+      // and following that advice would return a plain «Зміни збережено» —
+      // a false confirmation. The server says which case this is.
+      // COPY-L-3 — action first, and no «це записано в журнал»: there is no
+      // transaction journal in the UI, so the reader cannot act on it.
+      // No `?.`: the endpoint always answers with the row (`findOne`), and an
+      // optional chain here was a branch no response can take.
+      if (saved.invoiceReissueIncomplete === 'SELF_REPAIRABLE') {
+        toast.warning(t`Рахунок не перевипущено — збережіть транзакцію ще раз`)
+      } else if (saved.invoiceReissueIncomplete === 'MANUAL_CHECK') {
+        toast.warning(t`Рахунок розійшовся із сумою — потрібна ручна звірка`)
+      }
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
       void qc.invalidateQueries({ queryKey: ['transaction', tx?.id] })
@@ -453,7 +486,16 @@ export function AdminEditTransactionDialog({
                 onAmountChange={setAmount}
                 onCurrencyChange={setCurrency}
                 disableCurrency={isPaidRow}
+                disableAmount={amountLockReason !== null}
               />
+              {amountLockReason !== null && (
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-testid="admin-edit-locked-amount-note"
+                >
+                  {cascadeBlockedReasonMessage(amountLockReason)}
+                </p>
+              )}
               {isPaidRow && (
                 <p
                   className="text-xs text-muted-foreground"
