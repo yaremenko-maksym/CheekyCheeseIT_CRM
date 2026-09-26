@@ -24,11 +24,28 @@ import {
   createRootRoute,
   createRouter,
 } from '@tanstack/react-router'
+import { formatDate } from '@crm/shared'
 import type { ProjectDto, ProjectMemberDto } from '@crm/shared'
 import type { Role } from '@/lib/route-access'
 
 import { ProjectRow } from '../ProjectRow'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+// task-i18n-stage3c-pr3 fix-round A (CI-MUT, third pass): `formatDate` is
+// spied (delegating to the REAL implementation — every other assertion in
+// this file that reads rendered date text stays exactly as-is) so the
+// "renders the start date" test below can assert the exact `style` argument
+// ProjectRow.tsx passes, rather than inferring it from rendered OUTPUT. A
+// `process.env.TZ` override (tried first) passed locally but the mutant
+// SURVIVED on CI's runner — ICU's default-timezone resolution is cached
+// per-process on first use in some Node builds, and by the time this test
+// ran, an earlier test in the same file/worker had already warmed that
+// cache to the runner's own TZ, silently defeating the override. Asserting
+// the call argument directly has no such host-dependent failure mode.
+vi.mock('@crm/shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@crm/shared')>()
+  return { ...actual, formatDate: vi.fn(actual.formatDate) }
+})
 
 beforeEach(async () => {
   await loadCatalog('uk')
@@ -259,27 +276,22 @@ describe('ProjectRow — rate/date column + sr-only role labels (mutation-gate c
     expect(rateColumn).toHaveTextContent(/4 500\s+USD/)
   })
 
-  it('renders the start date as DD.MM.YYYY (uk-UA, UTC-pinned) — independently computed via Intl, not via formatDate', async () => {
-    // task-i18n-stage3c-pr3 fix-round A (CI-MUT, second pass): a CI runner's
-    // default timezone IS UTC, so mutating the `'short'` style arg to `''`
-    // (which drops `formatDate`'s `timeZone: 'UTC'` option) renders the SAME
-    // string there — the mutant survived CI even though this test passed
-    // locally on a non-UTC machine. Forcing a negative-offset host timezone
-    // makes the assertion timezone-INDEPENDENT: at 2026-01-01T00:00:00Z,
-    // America/Los_Angeles (UTC-8) local time is still 2025-12-31 — so ONLY
-    // the explicit `timeZone: 'UTC'` option can produce "01.01.2026" here,
-    // regardless of what timezone the test happens to run in otherwise.
-    const originalTZ = process.env.TZ
-    process.env.TZ = 'America/Los_Angeles'
-    try {
-      const project = makeProject({ startDate: '2026-01-01T00:00:00.000Z' })
-      renderProjectRow(project)
+  it('renders the start date via formatDate called with style "short" (UTC-pinned)', async () => {
+    // task-i18n-stage3c-pr3 fix-round A (CI-MUT, third pass): asserts the
+    // exact `formatDate` call ProjectRow.tsx makes — the `'short'` style arg
+    // kills the mutant that turns it into `''` regardless of host timezone
+    // (see the `vi.mock` comment above for why a TZ-override approach was
+    // tried first and abandoned).
+    vi.mocked(formatDate).mockClear()
+    const project = makeProject({ startDate: '2026-01-01T00:00:00.000Z' })
+    renderProjectRow(project)
 
-      const rateColumn = await screen.findByTestId(`project-row-${project.id}-rate-column`)
-      expect(rateColumn).toHaveTextContent('01.01.2026')
-    } finally {
-      process.env.TZ = originalTZ
-    }
+    await screen.findByTestId(`project-row-${project.id}-rate-column`)
+    expect(formatDate).toHaveBeenCalledWith(project.startDate, expect.any(String), 'short')
+    // The real implementation still ran (delegate, not a bare stub) — the
+    // rendered text is the byte-identical value it always was.
+    const rateColumn = screen.getByTestId(`project-row-${project.id}-rate-column`)
+    expect(rateColumn).toHaveTextContent('01.01.2026')
   })
 
   it('renders the sr-only «Сеньйор» role label alongside the senior link', async () => {
