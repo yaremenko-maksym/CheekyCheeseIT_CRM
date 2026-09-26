@@ -116,6 +116,11 @@ const JUNIOR_PROJECT = {
   seniorSharePercentOverride: null,
   seniorSharePercentDefault: 26,
   startDate: '2024-01-15T00:00:00.000Z',
+  // task-i18n-stage3c-pr3 fix-round A: pre-existing gap — this fixture never
+  // set `status`, which `ProjectStatusBadge`'s exhaustiveness guard (task-
+  // project-page-status-badge, predates this wave) throws on when undefined.
+  // Real backend responses always carry one; only this synthetic fixture did not.
+  status: 'ACTIVE' as const,
   archivedAt: null,
   createdAt: '2024-01-15T00:00:00.000Z',
   updatedAt: '2024-01-15T00:00:00.000Z',
@@ -137,6 +142,8 @@ const ADMIN_PROJECT = {
   seniorSharePercentOverride: null,
   seniorSharePercentDefault: 26,
   startDate: '2024-01-15T00:00:00.000Z',
+  // task-i18n-stage3c-pr3 fix-round A: same pre-existing gap as JUNIOR_PROJECT above.
+  status: 'ACTIVE' as const,
   archivedAt: null,
   createdAt: '2024-01-15T00:00:00.000Z',
   updatedAt: '2024-01-15T00:00:00.000Z',
@@ -328,7 +335,7 @@ test.describe('JUNIOR hub — credentials-section empty state', () => {
     await expect(section).toBeVisible()
 
     // Empty state message
-    await expect(section.getByText('Нет сохранённых паролей')).toBeVisible()
+    await expect(section.getByText('Немає збережених паролів')).toBeVisible()
 
     // round 3: JUNIOR has canAdd=true (passed from hub) → add button IS present
     // (previously canEdit=false made it absent, but now canAdd is explicitly set)
@@ -465,7 +472,7 @@ test.describe('JUNIOR hub — reveal flow', () => {
     // Inline error
     const errorEl = section.getByTestId(`credentials-error-${CRED_ID_1}`)
     await expect(errorEl).toBeVisible()
-    await expect(errorEl).toContainText('Нет доступа к этому паролю')
+    await expect(errorEl).toContainText('Немає доступу до цього пароля')
 
     // Plaintext отсутствует
     await expect(section.getByTestId(`credentials-password-display-${CRED_ID_1}`)).toHaveCount(0)
@@ -556,7 +563,7 @@ test.describe('ADMIN project detail — credentials section', () => {
     await expect(dialog.getByTestId('credentials-input-notes')).toBeVisible()
 
     // Заголовок — создание
-    await expect(dialog.getByText('Добавить аккаунт')).toBeVisible()
+    await expect(dialog.getByText('Додати акаунт')).toBeVisible()
   })
 
   test('cancel в add-диалоге — диалог закрывается', async ({ asAdmin: page }) => {
@@ -572,7 +579,7 @@ test.describe('ADMIN project detail — credentials section', () => {
     await expect(dialog).toBeVisible()
 
     // Кнопка Отмена
-    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await dialog.getByRole('button', { name: 'Скасувати' }).click()
     await expect(dialog).not.toBeVisible({ timeout: 3000 })
   })
 
@@ -679,12 +686,12 @@ test.describe('ADMIN project detail — credentials section', () => {
     // Confirm-диалог
     const confirmDialog = page.getByTestId('credentials-delete-confirm')
     await expect(confirmDialog).toBeVisible()
-    await expect(confirmDialog.getByText('Удалить аккаунт?')).toBeVisible()
+    await expect(confirmDialog.getByText('Видалити акаунт?')).toBeVisible()
     // Описание содержит label удаляемой записи
     await expect(confirmDialog.getByText('GitHub', { exact: false })).toBeVisible()
 
     // Подтверждаем удаление
-    await confirmDialog.getByRole('button', { name: 'Удалить' }).click()
+    await confirmDialog.getByRole('button', { name: 'Видалити' }).click()
 
     // Запись исчезла
     await expect(section.getByTestId(`credentials-item-${CRED_ID_1}`)).not.toBeVisible({
@@ -759,7 +766,7 @@ test.describe('Round 3 — credential dialog form reset on reopen', () => {
     await dialog.getByTestId('credentials-input-password').fill('oldpassword123')
 
     // Закрываем через Отмена
-    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await dialog.getByRole('button', { name: 'Скасувати' }).click()
     await expect(dialog).not.toBeVisible({ timeout: 3000 })
 
     // Второе открытие — поля должны быть ПУСТЫМИ (dialog unmounted → state reset)

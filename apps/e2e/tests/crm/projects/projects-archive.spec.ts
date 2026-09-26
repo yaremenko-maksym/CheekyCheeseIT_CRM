@@ -89,11 +89,11 @@ test.describe('Projects archive — list page tab', () => {
     await page.goto('/projects')
     const tabs = page.getByTestId('projects-status-tabs')
     await expect(tabs).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'Ждут решения' })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Активні' })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Очікують рішення' })).toBeVisible()
     // The two ADMIN-only values are genuinely absent, not just unselected.
-    await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toHaveCount(0)
-    await expect(tabs.getByRole('tab', { name: 'Архив' })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'Відхилені' })).toHaveCount(0)
+    await expect(tabs.getByRole('tab', { name: 'Архів' })).toHaveCount(0)
   })
 
   // HR/ACCOUNTANT/JUNIOR/DROP: the SPEC-M-5 exception above is SENIOR-only —
@@ -137,7 +137,7 @@ test.describe('Projects archive — list page tab', () => {
     // Tabs row IS visible (SPEC-M-5) — but the ACTIVE tab is the one selected.
     const tabs = page.getByTestId('projects-status-tabs')
     await expect(tabs).toBeVisible()
-    await expect(tabs.getByRole('tab', { name: 'Активные' })).toHaveAttribute(
+    await expect(tabs.getByRole('tab', { name: 'Активні' })).toHaveAttribute(
       'aria-selected',
       'true',
     )
@@ -160,7 +160,7 @@ test.describe('Projects archive — list page tab', () => {
     const card = page.getByTestId(`project-card-${archivedProject.id}`)
     await expect(card).toBeVisible()
     await expect(card).toHaveAttribute('data-archived', 'true')
-    await expect(card.getByText('В архиве')).toBeVisible()
+    await expect(card.getByText('В архіві')).toBeVisible()
     // ut-38: inline unarchive button removed from list cards — unarchive now
     // lives on the project detail page header.
     await expect(page.getByTestId(`project-unarchive-${archivedProject.id}`)).toHaveCount(0)

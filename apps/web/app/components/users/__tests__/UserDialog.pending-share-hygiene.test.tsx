@@ -322,8 +322,8 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
   it('a null percent shows the RESOLVED value, not «0%»', async () => {
     render(<UserDialog mode="edit" user={seniorWithClearingProposal} onClose={vi.fn()} />)
     const notice = await screen.findByTestId('pending-share-edit-notice-user')
-    expect(notice).toHaveTextContent('Предложено 26%')
-    expect(notice).not.toHaveTextContent('Предложено 0%')
+    expect(notice).toHaveTextContent('Запропоновано 26%')
+    expect(notice).not.toHaveTextContent('Запропоновано 0%')
   })
 
   // The other direction. With `percent === effectivePercentAfterApproval` in
@@ -342,8 +342,8 @@ describe('UserDialog — edit dialog announces a live proposal', () => {
     } as unknown as UserProfileDto
     render(<UserDialog mode="edit" user={divergent} onClose={vi.fn()} />)
     const notice = await screen.findByTestId('pending-share-edit-notice-user')
-    expect(notice).toHaveTextContent('Предложено 40%')
-    expect(notice).not.toHaveTextContent('Предложено 26%')
+    expect(notice).toHaveTextContent('Запропоновано 40%')
+    expect(notice).not.toHaveTextContent('Запропоновано 26%')
   })
 
   beforeEach(() => {

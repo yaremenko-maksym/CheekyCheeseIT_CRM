@@ -299,7 +299,7 @@ describe('ProjectEditFields — live proposal notice', () => {
       />,
     )
     const notice = screen.getByTestId('pending-share-edit-notice-project')
-    expect(notice).toHaveTextContent('Предложено 26%')
+    expect(notice).toHaveTextContent('Запропоновано 26%')
     expect(notice).not.toHaveTextContent('null')
   })
 
@@ -317,8 +317,8 @@ describe('ProjectEditFields — live proposal notice', () => {
       />,
     )
     const notice = screen.getByTestId('pending-share-edit-notice-project')
-    expect(notice).toHaveTextContent('Предложено 55%')
-    expect(notice).not.toHaveTextContent('Предложено 26%')
+    expect(notice).toHaveTextContent('Запропоновано 55%')
+    expect(notice).not.toHaveTextContent('Запропоновано 26%')
   })
 
   it('the slider hint tells the reader the new value is not live until confirmed', () => {

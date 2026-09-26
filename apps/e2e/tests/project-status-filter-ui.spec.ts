@@ -87,15 +87,15 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
 
       // All 4 tabs present for ADMIN.
       const tabs = page.getByTestId('projects-status-tabs')
-      await expect(tabs.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabs.getByRole('tab', { name: 'Ждут решения' })).toBeVisible()
-      await expect(tabs.getByRole('tab', { name: 'Отклонённые' })).toBeVisible()
-      await expect(tabs.getByRole('tab', { name: 'Архив' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'Активні' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'Очікують рішення' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'Відхилені' })).toBeVisible()
+      await expect(tabs.getByRole('tab', { name: 'Архів' })).toBeVisible()
 
       // AC2: the draft is invisible on Active, visible on Pending — ADMIN
       // is an "invited approver" population, so this also proves AC2's
       // "viewed by ADMIN" half.
-      await tabs.getByRole('tab', { name: 'Ждут решения' }).click()
+      await tabs.getByRole('tab', { name: 'Очікують рішення' }).click()
       await expect(page.getByText(`AC1 Draft Co ${suffix}`)).toBeVisible()
       await expect(page.getByText(`AC1 Active Co ${suffix}`)).not.toBeVisible()
       await expect(page.getByTestId(`project-row-${draftId}-status-pending`)).toBeVisible()
@@ -133,12 +133,12 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
       await page.goto('/projects')
 
       const tabsMobile = page.getByTestId('projects-status-tabs')
-      await expect(tabsMobile.getByRole('tab', { name: 'Активные' })).toBeVisible()
-      await expect(tabsMobile.getByRole('tab', { name: 'Ждут решения' })).toBeVisible()
-      await expect(tabsMobile.getByRole('tab', { name: 'Отклонённые' })).not.toBeVisible()
+      await expect(tabsMobile.getByRole('tab', { name: 'Активні' })).toBeVisible()
+      await expect(tabsMobile.getByRole('tab', { name: 'Очікують рішення' })).toBeVisible()
+      await expect(tabsMobile.getByRole('tab', { name: 'Відхилені' })).not.toBeVisible()
       await expect(page.getByTestId('toggle-archived-projects')).not.toBeVisible()
 
-      await tabsMobile.getByRole('tab', { name: 'Ждут решения' }).click()
+      await tabsMobile.getByRole('tab', { name: 'Очікують рішення' }).click()
       await expect(page.getByText(`AC1 Senior Own Co ${suffix}`)).toBeVisible()
       // AC2: not-my-draft is invisible even on the Pending tab.
       await expect(page.getByText(`AC1 Senior Other Co ${suffix}`)).not.toBeVisible()
@@ -164,7 +164,7 @@ test.describe('Project status filter — AC1 (tabs) + AC2 (visibility)', () => {
     // kept showing Active with no visible sign why.
     await expect(page).toHaveURL(/\/projects$/)
     const tabs = page.getByTestId('projects-status-tabs')
-    await expect(tabs.getByRole('tab', { name: 'Активные', selected: true })).toBeVisible()
+    await expect(tabs.getByRole('tab', { name: 'Активні', selected: true })).toBeVisible()
   })
 
   test("AC2: HR (not an invited approver) never sees the status tabs, and the draft never leaks into HR's active list", async ({
@@ -260,7 +260,7 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       await expect(submit).not.toBeDisabled()
       await submit.click()
 
-      await expect(page.getByText('Отклонить проект')).not.toBeVisible()
+      await expect(page.getByText('Відхилити проєкт')).not.toBeVisible()
       await expect(row).not.toBeVisible({ timeout: 10_000 })
 
       // SR-M-5 (PR #646 fix-round 2): rejectionReason is ADMIN-only now —
@@ -298,7 +298,7 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       // COPY-M-1 (PR #670 fix-round 2): "Отклонено" → "Отклонён" (masculine,
       // agrees with "проект"; matches the project detail page badge).
       await expect(row.getByTestId(`project-row-${projectId}-status-rejected`)).toContainText(
-        'Отклонён',
+        'Відхилений',
       )
       await expect(row.getByText('«нет бюджета на Q3»')).toBeVisible()
     } finally {
@@ -460,16 +460,16 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       await page.goto('/')
       const widgetItem = page.getByTestId(`pending-project-approval-${projectId}`)
       await expect(widgetItem).toBeVisible()
-      await expect(widgetItem.getByText('Подтвердить')).toBeVisible()
-      await expect(widgetItem.getByText('Отклонить')).toBeVisible()
+      await expect(widgetItem.getByText('Підтвердити')).toBeVisible()
+      await expect(widgetItem.getByText('Відхилити')).toBeVisible()
 
       // The SAME project's row, on the ONE surface that sets `compact`.
       await page.goto('/projects?status=PENDING')
       const row = page.getByTestId(`project-row-${projectId}`)
       await expect(row).toBeVisible()
       await expect(row.getByTestId(`project-approval-approve-${projectId}`)).toBeVisible()
-      await expect(row.getByText('Подтвердить')).not.toBeVisible()
-      await expect(row.getByText('Отклонить')).not.toBeVisible()
+      await expect(row.getByText('Підтвердити')).not.toBeVisible()
+      await expect(row.getByText('Відхилити')).not.toBeVisible()
 
       // 1280px (`xl:`): `compact`'s OWN `xl:inline` reverts the row back to
       // icon+label too — row and widget converge again here, same as
@@ -478,13 +478,13 @@ test.describe('Project status filter — AC3 (confirm/reject) + AC4 (badge/reaso
       // permanently.
       await page.setViewportSize({ width: 1280, height: 900 })
       await page.waitForTimeout(50)
-      await expect(row.getByText('Подтвердить')).toBeVisible()
-      await expect(row.getByText('Отклонить')).toBeVisible()
+      await expect(row.getByText('Підтвердити')).toBeVisible()
+      await expect(row.getByText('Відхилити')).toBeVisible()
 
       await page.goto('/')
       const widgetItemAt1280 = page.getByTestId(`pending-project-approval-${projectId}`)
-      await expect(widgetItemAt1280.getByText('Подтвердить')).toBeVisible()
-      await expect(widgetItemAt1280.getByText('Отклонить')).toBeVisible()
+      await expect(widgetItemAt1280.getByText('Підтвердити')).toBeVisible()
+      await expect(widgetItemAt1280.getByText('Відхилити')).toBeVisible()
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await deleteProjectViaAPI(page, projectId)
@@ -674,8 +674,8 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const row = page.getByTestId(`project-row-${projectId}`)
       await expect(row).toBeVisible()
 
-      const seniorLabel = row.getByText('Синьор', { exact: true })
-      const juniorLabel = row.getByText('Джун', { exact: true })
+      const seniorLabel = row.getByText('Сеньйор', { exact: true })
+      const juniorLabel = row.getByText('Джуніор', { exact: true })
 
       for (const width of [320, 375]) {
         await page.setViewportSize({ width, height: 900 })
@@ -1041,12 +1041,12 @@ test.describe('Project status filter — AC5 (responsive)', () => {
         await assertNoOwnOverflow(`project-row-${projectId}-status-pending`, 'SENIOR badge', width)
         await assertNoOwnOverflow(
           `project-approval-approve-${projectId}`,
-          'SENIOR Подтвердить button',
+          'SENIOR Підтвердити button',
           width,
         )
         await assertNoOwnOverflow(
           `project-approval-reject-${projectId}`,
-          'SENIOR Отклонить button',
+          'SENIOR Відхилити button',
           width,
         )
       }
@@ -1218,8 +1218,8 @@ test.describe('Project status filter — AC5 (responsive)', () => {
       const expectShort = SHORT_LABEL_WIDTHS.has(width)
       const visibleTabs = expectShort ? shortTabs : fullTabs
       const hiddenTabs = expectShort ? fullTabs : shortTabs
-      const expectedLabel = expectShort ? 'Ждут' : 'Ждут решения'
-      const otherLabel = expectShort ? 'Ждут решения' : 'Ждут'
+      const expectedLabel = expectShort ? 'Чекають' : 'Очікують рішення'
+      const otherLabel = expectShort ? 'Очікують рішення' : 'Чекають'
 
       await expect(
         visibleTabs,

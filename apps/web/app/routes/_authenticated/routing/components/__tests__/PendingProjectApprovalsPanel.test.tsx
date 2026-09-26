@@ -199,7 +199,7 @@ describe('PendingProjectApprovalsPanel', () => {
     // ProjectApprovalActions' `compact` prop hides the text label at `lg:`
     // via `lg:hidden xl:inline` — asserting the plain, unconditional class
     // (no responsive hide) proves this mount point never passes `compact`.
-    const approveLabel = screen.getByText('Подтвердить')
+    const approveLabel = screen.getByText('Підтвердити')
     expect(approveLabel.className).not.toMatch(/lg:hidden/)
   })
 })

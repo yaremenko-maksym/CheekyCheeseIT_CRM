@@ -1034,7 +1034,7 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
     const cancelButton = page.getByTestId('cancel-pending-share-project').first()
     await expect(cancelButton).toBeVisible()
     // task-648-fix-round-3 (COPY-H-7): a NAMED text button, not a bare cross.
-    await expect(cancelButton).toHaveText('Отменить предложение')
+    await expect(cancelButton).toHaveText('Скасувати пропозицію')
     await cancelButton.click()
     // task-648-fix-round-3 (COPY-M-14): confirmation before an irreversible act.
     await page.getByTestId('cancel-pending-share-confirm-button-project').click()
@@ -1054,7 +1054,7 @@ test.describe('R — ADMIN can withdraw a pending proposal', () => {
 
     const cancelButton = page.getByTestId('cancel-pending-share-user').first()
     await expect(cancelButton).toBeVisible()
-    await expect(cancelButton).toHaveText('Отменить предложение')
+    await expect(cancelButton).toHaveText('Скасувати пропозицію')
     await cancelButton.click()
     await page.getByTestId('cancel-pending-share-confirm-button-user').click()
 
@@ -1565,8 +1565,8 @@ test.describe('Y - withdrawing asks first', () => {
 
     const dialog = page.getByTestId('cancel-pending-share-confirm-project')
     await expect(dialog).toBeVisible()
-    await expect(dialog).toContainText(`Отменить предложение ${PENDING_PERCENT}%?`)
-    await expect(dialog).toContainText('Действующая доля не изменится')
+    await expect(dialog).toContainText(`Скасувати пропозицію ${PENDING_PERCENT}%?`)
+    await expect(dialog).toContainText('Діюча частка не зміниться')
 
     await page.getByTestId('cancel-pending-share-keep-project').click()
     await expect(dialog).toBeHidden()

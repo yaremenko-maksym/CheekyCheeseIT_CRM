@@ -23,49 +23,61 @@
  * checked `status`/`label`, so blanking out `variant: 'outline'` or a whole
  * `className` string left every assertion passing. Full-object/attribute
  * assertions are what pins them.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 3): `label` now resolves through the
+ * REAL compiled catalog (SPEC-H-1) — `loadCatalog('uk')` before each test,
+ * same pattern as `role-select.locale.test.tsx`. Canon: DRAFT → "Очікує
+ * рішення" (glossary «Статус согласования проекта»), REJECTED → "Відхилений"
+ * (masculine, agrees with "проєкт" — same reasoning as the old RU
+ * "Отклонён"), ACTIVE → "Активний", archived → "В архіві".
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { Clock, XCircle } from 'lucide-react'
 import type { ProjectStatus } from '@crm/shared'
+import { loadCatalog } from '@/test/i18n'
 import { projectStatusBadge, ProjectStatusBadge } from '../ProjectStatusBadge'
 
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 describe('projectStatusBadge (pure function)', () => {
-  it('DRAFT, not archived → "Ждёт решения" / status DRAFT, outline variant, amber classes (AC1)', () => {
+  it('DRAFT, not archived → "Очікує рішення" / status DRAFT, outline variant, amber classes (AC1)', () => {
     expect(projectStatusBadge({ status: 'DRAFT', archivedAt: null })).toEqual({
       status: 'DRAFT',
-      label: 'Ждёт решения',
+      label: 'Очікує рішення',
       variant: 'outline',
       className: 'gap-1 border-amber-500/30 bg-amber-500/20 text-amber-300',
       icon: Clock,
     })
   })
 
-  it('REJECTED, not archived → "Отклонён" / status REJECTED, outline variant, destructive classes (AC2)', () => {
+  it('REJECTED, not archived → "Відхилений" / status REJECTED, outline variant, destructive classes (AC2)', () => {
     expect(projectStatusBadge({ status: 'REJECTED', archivedAt: null })).toEqual({
       status: 'REJECTED',
-      label: 'Отклонён',
+      label: 'Відхилений',
       variant: 'outline',
       className: 'gap-1 border-destructive/30 bg-destructive/10 text-destructive',
       icon: XCircle,
     })
   })
 
-  it('ACTIVE, not archived → "Активный" / status ACTIVE, default variant, no extra classes (AC3)', () => {
+  it('ACTIVE, not archived → "Активний" / status ACTIVE, default variant, no extra classes (AC3)', () => {
     expect(projectStatusBadge({ status: 'ACTIVE', archivedAt: null })).toEqual({
       status: 'ACTIVE',
-      label: 'Активный',
+      label: 'Активний',
       variant: 'default',
       className: '',
       icon: null,
     })
   })
 
-  it('archive wins over DRAFT — archived draft reads "В архиве", not "Ждёт решения" (AC3)', () => {
+  it('archive wins over DRAFT — archived draft reads "В архіві", not "Очікує рішення" (AC3)', () => {
     expect(projectStatusBadge({ status: 'DRAFT', archivedAt: '2026-01-01T00:00:00.000Z' })).toEqual(
       {
         status: 'ARCHIVED',
-        label: 'В архиве',
+        label: 'В архіві',
         variant: 'outline',
         className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
         icon: null,
@@ -73,12 +85,12 @@ describe('projectStatusBadge (pure function)', () => {
     )
   })
 
-  it('archive wins over REJECTED — archived rejected project reads "В архиве" (AC3)', () => {
+  it('archive wins over REJECTED — archived rejected project reads "В архіві" (AC3)', () => {
     expect(
       projectStatusBadge({ status: 'REJECTED', archivedAt: '2026-01-01T00:00:00.000Z' }),
     ).toEqual({
       status: 'ARCHIVED',
-      label: 'В архиве',
+      label: 'В архіві',
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
       icon: null,
@@ -90,7 +102,7 @@ describe('projectStatusBadge (pure function)', () => {
       projectStatusBadge({ status: 'ACTIVE', archivedAt: '2026-01-01T00:00:00.000Z' }),
     ).toEqual({
       status: 'ARCHIVED',
-      label: 'В архиве',
+      label: 'В архіві',
       variant: 'outline',
       className: 'border-amber-500/30 bg-amber-500/10 text-amber-500',
       icon: null,
@@ -105,13 +117,13 @@ describe('projectStatusBadge (pure function)', () => {
 })
 
 describe('<ProjectStatusBadge /> (render)', () => {
-  it('DRAFT renders "Ждёт решения", not "Активный", with data-testid + data-status + the outline/amber classes', () => {
+  it('DRAFT renders "Очікує рішення", not "Активний", with data-testid + data-status + the outline/amber classes', () => {
     render(<ProjectStatusBadge project={{ status: 'DRAFT', archivedAt: null }} />)
     const badge = screen.getByTestId('project-status-badge')
-    expect(badge).toHaveTextContent('Ждёт решения')
+    expect(badge).toHaveTextContent('Очікує рішення')
     expect(badge).toHaveAttribute('data-status', 'DRAFT')
     expect(badge).toHaveClass('text-xs', 'border-amber-500/30', 'bg-amber-500/20', 'text-amber-300')
-    expect(screen.queryByText('Активный')).not.toBeInTheDocument()
+    expect(screen.queryByText('Активний')).not.toBeInTheDocument()
   })
 
   /**
@@ -136,10 +148,10 @@ describe('<ProjectStatusBadge /> (render)', () => {
     expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('REJECTED renders "Отклонён" with the destructive classes', () => {
+  it('REJECTED renders "Відхилений" with the destructive classes', () => {
     render(<ProjectStatusBadge project={{ status: 'REJECTED', archivedAt: null }} />)
     const badge = screen.getByTestId('project-status-badge')
-    expect(badge).toHaveTextContent('Отклонён')
+    expect(badge).toHaveTextContent('Відхилений')
     expect(badge).toHaveAttribute('data-status', 'REJECTED')
     expect(badge).toHaveClass(
       'text-xs',
@@ -164,20 +176,20 @@ describe('<ProjectStatusBadge /> (render)', () => {
     expect(icon).toHaveAttribute('aria-hidden', 'true')
   })
 
-  it('ACTIVE, not archived, renders "Активный" with only the base text-xs class', () => {
+  it('ACTIVE, not archived, renders "Активний" with only the base text-xs class', () => {
     render(<ProjectStatusBadge project={{ status: 'ACTIVE', archivedAt: null }} />)
     const badge = screen.getByTestId('project-status-badge')
-    expect(badge).toHaveTextContent('Активный')
+    expect(badge).toHaveTextContent('Активний')
     expect(badge).toHaveAttribute('data-status', 'ACTIVE')
     expect(badge).toHaveClass('text-xs')
   })
 
-  it('archived project renders "В архиве" and keeps the legacy project-archived-badge testid (existing spec: projects-archive.spec.ts)', () => {
+  it('archived project renders "В архіві" and keeps the legacy project-archived-badge testid (existing spec: projects-archive.spec.ts)', () => {
     render(
       <ProjectStatusBadge project={{ status: 'ACTIVE', archivedAt: '2026-01-01T00:00:00.000Z' }} />,
     )
     const badge = screen.getByTestId('project-archived-badge')
-    expect(badge).toHaveTextContent('В архиве')
+    expect(badge).toHaveTextContent('В архіві')
     expect(badge).toHaveAttribute('data-status', 'ARCHIVED')
     expect(badge).toHaveClass('text-xs', 'border-amber-500/30', 'bg-amber-500/10', 'text-amber-500')
     expect(screen.queryByTestId('project-status-badge')).not.toBeInTheDocument()

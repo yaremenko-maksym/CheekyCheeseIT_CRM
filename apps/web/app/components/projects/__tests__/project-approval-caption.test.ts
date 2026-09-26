@@ -3,8 +3,17 @@
  * `resolveProjectApprovalCaption` — the shared helper `ProjectRow.tsx` and
  * the project detail page header both call for the SAME caption text (see
  * that function's own doc for why it exists and what each branch means).
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 3, template K, COPY-H-proj-2). The
+ * function now resolves against the REAL compiled catalog (SPEC-H-1) via
+ * the shared `@lingui/core` `i18n` singleton — `loadCatalog` activates the
+ * locale BEFORE each call, same pattern as every other catalog-backed unit
+ * test in this repo (`role-select.locale.test.tsx`). The old "от <имя>"
+ * (nominative-only, wrong case) frame is gone — no test asserts it, and the
+ * new frame has no case to get wrong on either language.
  */
 import { describe, expect, it } from 'vitest'
+import { loadCatalog } from '@/test/i18n'
 import type { ProjectDto } from '@crm/shared'
 import {
   resolveProjectApprovalCaption,
@@ -41,13 +50,15 @@ function makeInput(
   return { ...base, ...overrides }
 }
 
-describe('resolveProjectApprovalCaption', () => {
-  it('DRAFT, senior-only project, still pending — "от <синьор>"', () => {
+describe('resolveProjectApprovalCaption (uk)', () => {
+  it('DRAFT, senior-only project, still pending — "Підтверджує <сеньйор>"', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(makeInput(), undefined)
-    expect(caption).toBe('от Oleksiy Kovalenko')
+    expect(caption).toBe('Підтверджує Oleksiy Kovalenko')
   })
 
-  it('DRAFT, drop-project, BOTH still pending — "от <дроп> и <синьор>" (drop first)', () => {
+  it('DRAFT, drop-project, BOTH still pending — "Підтверджують: <дроп>, <сеньйор>" (drop first)', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -56,10 +67,11 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       undefined,
     )
-    expect(caption).toBe('от Nadiya Dropivska и Oleksiy Kovalenko')
+    expect(caption).toBe('Підтверджують: Nadiya Dropivska, Oleksiy Kovalenko')
   })
 
-  it('DRAFT, drop-project, senior already confirmed (один подтвердил), dropName known — third-party caption names the drop (COPY-M-2: symmetric with the "both pending" branch)', () => {
+  it('DRAFT, drop-project, senior already confirmed (один подтвердил), dropName known — third-party caption names the drop (COPY-M-2: symmetric with the "both pending" branch)', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -69,10 +81,11 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       undefined,
     )
-    expect(caption).toBe('от Nadiya Dropivska')
+    expect(caption).toBe('Підтверджує Nadiya Dropivska')
   })
 
-  it('DRAFT, drop-project, senior already confirmed, dropName masked to null (e.g. SENIOR viewer) — third-party caption falls back to generic "дропа"', () => {
+  it('DRAFT, drop-project, senior already confirmed, dropName masked to null (e.g. SENIOR viewer) — third-party caption falls back to generic "дропа"', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -82,10 +95,11 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       undefined,
     )
-    expect(caption).toBe('от дропа')
+    expect(caption).toBe('Підтверджує дропа')
   })
 
-  it('DRAFT, drop-project, drop already confirmed (один подтвердил) — third-party caption names only the senior', () => {
+  it('DRAFT, drop-project, drop already confirmed (один подтвердил) — third-party caption names only the senior', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -95,10 +109,11 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       undefined,
     )
-    expect(caption).toBe('от Oleksiy Kovalenko')
+    expect(caption).toBe('Підтверджує Oleksiy Kovalenko')
   })
 
-  it('DRAFT, viewer IS the senior and already confirmed (зритель подтвердил) — first-person caption, waiting on the drop', () => {
+  it('DRAFT, viewer IS the senior and already confirmed — first-person caption, waiting on the drop', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -108,10 +123,11 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       SENIOR_ID,
     )
-    expect(caption).toBe('Вы подтвердили. Ждём дропа')
+    expect(caption).toBe('Ви підтвердили. Чекаємо дропа')
   })
 
-  it('DRAFT, viewer IS the drop and already confirmed (зритель подтвердил) — first-person caption, waiting on the senior', () => {
+  it('DRAFT, viewer IS the drop and already confirmed — first-person caption, waiting on the senior', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -121,15 +137,16 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       DROP_ID,
     )
-    expect(caption).toBe('Вы подтвердили. Ждём синьора')
+    expect(caption).toBe('Ви підтвердили. Чекаємо сеньйора')
   })
 
-  it("DRAFT, viewer has an id but is NOT the senior (e.g. ADMIN viewing someone else's draft), senior already confirmed — third-party caption, NOT the first-person one", () => {
+  it("DRAFT, viewer has an id but is NOT the senior (e.g. ADMIN viewing someone else's draft), senior already confirmed — third-party caption, NOT the first-person one", async () => {
     // Kills the `viewerId === project.seniorId` equality check specifically
     // (both a `&&`→`||` LogicalOperator mutant and a `true`-substitution
     // ConditionalExpression mutant on `viewerIsSenior`): a truthy but
     // NON-MATCHING viewerId must still fall through to the generic caption,
-    // not the "Вы подтвердили…" one a broken equality would wrongly produce.
+    // not the "Ви підтвердили…" one a broken equality would wrongly produce.
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -139,12 +156,13 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       THIRD_PARTY_ID,
     )
-    expect(caption).toBe('от Nadiya Dropivska')
+    expect(caption).toBe('Підтверджує Nadiya Dropivska')
   })
 
-  it('DRAFT, viewer has an id but is NOT the drop, drop already confirmed — third-party caption, NOT the first-person one', () => {
+  it('DRAFT, viewer has an id but is NOT the drop, drop already confirmed — third-party caption, NOT the first-person one', async () => {
     // Same mutant class as above, mirrored onto `viewerIsDrop`'s own
     // equality check.
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -154,16 +172,18 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       THIRD_PARTY_ID,
     )
-    expect(caption).toBe('от Oleksiy Kovalenko')
+    expect(caption).toBe('Підтверджує Oleksiy Kovalenko')
   })
 
-  it('DRAFT, senior-only project, seniorName is null on the DTO — falls back to "от синьора", never prints "null" (COPY-M-4)', () => {
+  it('DRAFT, senior-only project, seniorName is null on the DTO — falls back to "сеньйора", never prints "null" (COPY-M-4)', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(makeInput({ seniorName: null }), undefined)
-    expect(caption).toBe('от синьора')
+    expect(caption).toBe('Підтверджує сеньйора')
     expect(caption).not.toContain('null')
   })
 
-  it('DRAFT, drop-project, BOTH pending, seniorName is empty string on the DTO — falls back to "от синьора" (COPY-M-4, empty string is also falsy)', () => {
+  it('DRAFT, drop-project, BOTH pending, seniorName is empty string on the DTO — falls back to "сеньйора" (COPY-M-4, empty string is also falsy)', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({
         dropId: DROP_ID,
@@ -173,18 +193,20 @@ describe('resolveProjectApprovalCaption', () => {
       }),
       undefined,
     )
-    expect(caption).toBe('от Nadiya Dropivska и синьора')
+    expect(caption).toBe('Підтверджують: Nadiya Dropivska, сеньйора')
   })
 
-  it('REJECTED with a reason (отклонён с причиной) — quoted caption', () => {
+  it('REJECTED with a reason (отклонён с причиной) — quoted caption, verbatim, no translation', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
-      makeInput({ status: 'REJECTED', rejectionReason: 'нет бюджета на Q3' }),
+      makeInput({ status: 'REJECTED', rejectionReason: 'немає бюджету на Q3' }),
       undefined,
     )
-    expect(caption).toBe('«нет бюджета на Q3»')
+    expect(caption).toBe('«немає бюджету на Q3»')
   })
 
-  it('REJECTED with no reason on the DTO (отклонён без причины, e.g. non-ADMIN masking) — null', () => {
+  it('REJECTED with no reason on the DTO (masked) — null', async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(
       makeInput({ status: 'REJECTED', rejectionReason: null }),
       undefined,
@@ -192,8 +214,53 @@ describe('resolveProjectApprovalCaption', () => {
     expect(caption).toBeNull()
   })
 
-  it("ACTIVE — null (nothing to say; archival itself is a separate axis — archivedAt — not modeled by this helper at all, see ProjectRow.tsx's own isArchived-first priority)", () => {
+  it("ACTIVE — null (nothing to say; archival itself is a separate axis — archivedAt — not modeled by this helper at all, see ProjectRow.tsx's own isArchived-first priority)", async () => {
+    await loadCatalog('uk')
     const caption = resolveProjectApprovalCaption(makeInput({ status: 'ACTIVE' }), undefined)
     expect(caption).toBeNull()
+  })
+})
+
+describe('resolveProjectApprovalCaption (en second original)', () => {
+  it('DRAFT, senior-only project, still pending', async () => {
+    await loadCatalog('en')
+    const caption = resolveProjectApprovalCaption(makeInput(), undefined)
+    expect(caption).toBe('Awaiting Oleksiy Kovalenko')
+  })
+
+  it('DRAFT, viewer IS the senior and already confirmed — first-person, waiting on the drop', async () => {
+    await loadCatalog('en')
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: false,
+        dropApprovalPending: true,
+      }),
+      SENIOR_ID,
+    )
+    expect(caption).toBe('You confirmed. Awaiting the drop')
+  })
+
+  // Fix-round B (COPY-H-1, BLOCK — meaning inversion). The `{drop}` branch's
+  // en translation read "Confirmed by {drop}" — the OPPOSITE of what it
+  // means (the drop has NOT confirmed yet; this is the third-party caption
+  // shown WHILE waiting). No test previously exercised this specific branch
+  // in en at all — only the `{senior}` branch (above) and the first-person
+  // branches were pinned, which is exactly how the inversion shipped
+  // unnoticed. Mirrors the uk test above one-for-one.
+  it('COPY-H-1: DRAFT, drop-project, senior already confirmed, dropName known — third-party caption says "Awaiting <drop>", never "Confirmed by"', async () => {
+    await loadCatalog('en')
+    const caption = resolveProjectApprovalCaption(
+      makeInput({
+        dropId: DROP_ID,
+        dropName: 'Nadiya Dropivska',
+        seniorApprovalPending: false,
+        dropApprovalPending: true,
+      }),
+      undefined,
+    )
+    expect(caption).toBe('Awaiting Nadiya Dropivska')
+    expect(caption).not.toContain('Confirmed')
   })
 })

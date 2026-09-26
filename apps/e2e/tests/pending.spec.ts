@@ -16,6 +16,7 @@
  * own "Разделение на две половины" note.
  */
 import { test, expect, REAL_API_BASE, SEED_ADMIN_EMAIL, SEED_EMAILS } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import {
   loginViaApi,
   createSeniorProjectViaAPI,
@@ -42,6 +43,11 @@ async function deleteProjectViaAPI(page: import('@playwright/test').Page, projec
  * renders when `mine.length > 0`), never throws, so callers can always
  * assert unconditionally instead of branching on presence.
  */
+let uk: Awaited<ReturnType<typeof loadMessages>>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
+
 async function navPendingBadgeCount(page: import('@playwright/test').Page): Promise<number> {
   const badge = page.getByTestId('nav-pending-badge').first()
   if ((await badge.count()) === 0) return 0
@@ -75,14 +81,20 @@ test.describe('/pending — AC4: project approval actions', () => {
       await page.getByTestId(`project-approval-approve-${projectId}`).click()
 
       // Anchored on the ROW, not on the company name as free text: the
-      // success toast QUOTES that same name ("Проект «…» подтверждён"), so a
+      // success toast QUOTES that same name ("Проєкт «…» підтверджено"), so a
       // text-based `not.toBeVisible()` would wait out the toast's own 4s
       // lifetime and then assert against a page where it is already gone —
       // which is exactly how this line failed before (measured, not guessed).
       await expect(row).toBeHidden()
-      // COPY-M-8 wording ("Проект «X» подтверждён" / "Вы подтвердили. Ждём …") —
-      // asserting the shared substring both branches carry.
-      await expect(page.getByText(/подтвержд/i)).toBeVisible()
+      // COPY-M-8 wording ("Проєкт «X» підтверджено" / "Ви підтвердили. Чекаємо …") —
+      // asserting the shared substring both branches carry (task-i18n-stage3c-pr3
+      // fix-round A: stale RU root updated to the uk translation's own root).
+      // Scoped to the Sonner toast container (`[data-sonner-toast]`), not a bare
+      // page-wide text match — with real seed data on this page there is ALSO a
+      // live "Підтвердити" (Confirm) button on another pending row that shares
+      // the same "підтверд" root, which a bare `getByText` resolves as a
+      // strict-mode violation (found live, not guessed).
+      await expect(page.locator('[data-sonner-toast]').getByText(/підтверд/i)).toBeVisible()
 
       const badgeAfter = await navPendingBadgeCount(page)
       expect(badgeAfter).toBe(badgeBefore - 1)
@@ -109,7 +121,7 @@ test.describe('/pending — AC4: project approval actions', () => {
       await page.goto('/pending')
       // Row-anchored for the same reason as the confirm test above — plus
       // the reject DIALOG's own heading quotes the company name too
-      // («Отклонить проект «…»»), so bare text here is a strict-mode
+      // («Відхилити проєкт «…»»), so bare text here is a strict-mode
       // violation the moment the dialog opens.
       const row = page.getByTestId(`pending-item-row-PROJECT_APPROVAL-${projectId}`)
       await expect(row).toBeVisible()
@@ -124,7 +136,9 @@ test.describe('/pending — AC4: project approval actions', () => {
       await submit.click()
 
       await expect(row).toBeHidden()
-      await expect(page.getByText('Проект отклонён, админ увидит причину')).toBeVisible()
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Проєкт відхилено, адмін побачить причину')),
+      ).toBeVisible()
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await deleteProjectViaAPI(page, projectId)

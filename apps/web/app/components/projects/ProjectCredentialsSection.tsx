@@ -11,6 +11,7 @@
  * revealed value auto-hides after 30s via a CSS timer bar.
  */
 import { forwardRef, useEffect, useRef, useState } from 'react'
+import { useLingui } from '@lingui/react/macro'
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   Check,
@@ -93,7 +94,8 @@ export function ProjectCredentialsSection({
   canAdd,
   twoColumn = false,
 }: ProjectCredentialsSectionProps) {
-  // «+ Добавить» shows for editors (ADMIN/HR) and for JUNIOR with explicit canAdd.
+  const { t } = useLingui()
+  // «+ Додати» shows for editors (ADMIN/HR) and for JUNIOR with explicit canAdd.
   const showAddButton = canEdit || (canAdd ?? false)
   const { data: credentials, isLoading, isError } = useCredentials(projectId)
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -118,7 +120,7 @@ export function ProjectCredentialsSection({
       <CardHeader className="flex flex-row items-center justify-between pb-3">
         <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
           <KeyRound className="h-3.5 w-3.5" />
-          Пароли проекта
+          {t`Паролі проєкту`}
         </CardTitle>
         {showAddButton && (
           <Button
@@ -126,11 +128,11 @@ export function ProjectCredentialsSection({
             size="sm"
             onClick={openAdd}
             data-testid="credentials-add-btn"
-            title="Добавить аккаунт проекта"
+            title={t`Додати акаунт проєкту`}
             className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
           >
             <Plus className="h-3 w-3" />
-            Добавить
+            {t`Додати`}
           </Button>
         )}
       </CardHeader>
@@ -141,7 +143,7 @@ export function ProjectCredentialsSection({
             <Skeleton className="h-12 w-full rounded-md" />
           </div>
         ) : !credentials || credentials.length === 0 ? (
-          <p className="text-sm text-muted-foreground/60 italic">Нет сохранённых паролей</p>
+          <p className="text-sm text-muted-foreground/60 italic">{t`Немає збережених паролів`}</p>
         ) : (
           <CredentialList
             credentials={credentials}
@@ -226,6 +228,7 @@ function CredentialRow({
   canEdit: boolean
   onEdit: (cred: ProjectCredential) => void
 }) {
+  const { t } = useLingui()
   const reveal = useRevealCredential(projectId)
   const del = useDeleteCredential(projectId)
 
@@ -281,12 +284,13 @@ function CredentialRow({
     } catch (err: unknown) {
       const status = getAxiosStatus(err)
       if (status === 403) {
-        setError('Нет доступа к этому паролю')
+        // COPY-M-proj-13: причина + що робити далі, а не тупик без наступного кроку.
+        setError(t`Немає доступу до цього пароля. Зверніться до адміністратора.`)
       } else if (status === 429) {
-        setError('Слишком много запросов. Попробуйте через минуту.')
+        setError(t`Занадто багато запитів. Спробуйте через хвилину.`)
         setCooldownUntil(Date.now() + 60_000)
       } else {
-        setError('Не удалось получить пароль. Попробуйте ещё раз.')
+        setError(t`Не вдалося отримати пароль. Спробуйте ще раз.`)
       }
     }
   }
@@ -300,10 +304,10 @@ function CredentialRow({
         await navigator.clipboard.writeText(plaintext)
       }
       setCopied(true)
-      setClipboardStatus('Пароль скопирован')
+      setClipboardStatus(t`Пароль скопійовано`)
     } catch {
       // Clipboard blocked — surface a soft inline error, keep plaintext visible.
-      setError('Не удалось скопировать. Скопируйте вручную.')
+      setError(t`Не вдалося скопіювати. Скопіюйте вручну.`)
     }
   }
 
@@ -363,10 +367,10 @@ function CredentialRow({
           <IconButton
             ref={revealBtnRef}
             testId={`credentials-reveal-btn-${credential.id}`}
-            label={revealed ? 'Скрыть пароль' : 'Показать пароль'}
+            label={revealed ? t`Сховати пароль` : t`Показати пароль`}
             ariaPressed={revealed}
             disabled={revealDisabled}
-            title={cooldownSeconds > 0 ? `Доступно через ${cooldownSeconds}с` : undefined}
+            title={cooldownSeconds > 0 ? t`Доступно через ${cooldownSeconds}с` : undefined}
             onClick={() => void handleToggleReveal()}
           >
             {reveal.isPending ? (
@@ -381,7 +385,7 @@ function CredentialRow({
           {revealed && (
             <IconButton
               testId={`credentials-copy-btn-${credential.id}`}
-              label={copied ? 'Скопировано' : 'Копировать пароль'}
+              label={copied ? t`Скопійовано` : t`Копіювати пароль`}
               onClick={() => void handleCopy()}
             >
               {copied ? <Check className="h-4 w-4 text-primary" /> : <Copy className="h-4 w-4" />}
@@ -392,14 +396,14 @@ function CredentialRow({
             <>
               <IconButton
                 testId={`credentials-edit-btn-${credential.id}`}
-                label="Редактировать"
+                label={t`Редагувати`}
                 onClick={() => onEdit(credential)}
               >
                 <Pencil className="h-4 w-4" />
               </IconButton>
               <IconButton
                 testId={`credentials-delete-btn-${credential.id}`}
-                label="Удалить"
+                label={t`Видалити`}
                 onClick={() => setConfirmOpen(true)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -462,13 +466,13 @@ function CredentialRow({
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent data-testid="credentials-delete-confirm">
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить аккаунт?</AlertDialogTitle>
+            <AlertDialogTitle>{t`Видалити акаунт?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              Запись «{credential.label}» будет удалена безвозвратно.
+              {t`Запис «${credential.label}» буде видалено безповоротно.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>{t`Скасувати`}</AlertDialogCancel>
             <AlertDialogAction
               onClick={(e) => {
                 e.preventDefault()
@@ -478,7 +482,7 @@ function CredentialRow({
               className="bg-destructive text-white hover:bg-destructive/90"
             >
               {del.isPending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Удалить
+              {t`Видалити`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -500,6 +504,7 @@ function CredentialDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
+  const { t } = useLingui()
   const create = useCreateCredential(projectId)
   const update = useUpdateCredential(projectId)
   const [showPassword, setShowPassword] = useState(false)
@@ -546,7 +551,7 @@ function CredentialDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" data-testid="credentials-dialog">
         <DialogHeader>
-          <DialogTitle>{isEdit ? 'Редактировать аккаунт' : 'Добавить аккаунт'}</DialogTitle>
+          <DialogTitle>{isEdit ? t`Редагувати акаунт` : t`Додати акаунт`}</DialogTitle>
         </DialogHeader>
         <form
           onSubmit={(e) => {
@@ -559,7 +564,7 @@ function CredentialDialog({
           <form.Field name="label">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="credentials-label">Название *</Label>
+                <Label htmlFor="credentials-label">{t`Назва *`}</Label>
                 <Input
                   id="credentials-label"
                   data-testid="credentials-input-label"
@@ -576,7 +581,7 @@ function CredentialDialog({
           <form.Field name="login">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="credentials-login">Логин</Label>
+                <Label htmlFor="credentials-login">{t`Логін`}</Label>
                 <Input
                   id="credentials-login"
                   data-testid="credentials-input-login"
@@ -594,7 +599,9 @@ function CredentialDialog({
           <form.Field name="password">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="credentials-password">{isEdit ? 'Новый пароль' : 'Пароль *'}</Label>
+                <Label htmlFor="credentials-password">
+                  {isEdit ? t`Новий пароль` : t`Пароль *`}
+                </Label>
                 <div className="relative">
                   <Input
                     id="credentials-password"
@@ -606,13 +613,13 @@ function CredentialDialog({
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
-                    placeholder={isEdit ? 'Оставьте пустым, чтобы не менять' : 'Пароль аккаунта'}
+                    placeholder={isEdit ? t`Залиште порожнім, щоб не змінювати` : t`Пароль акаунта`}
                     className="pr-9"
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword((s) => !s)}
-                    aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+                    aria-label={showPassword ? t`Сховати пароль` : t`Показати пароль`}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                     tabIndex={-1}
                   >
@@ -646,7 +653,7 @@ function CredentialDialog({
           <form.Field name="notes">
             {(field) => (
               <div className="space-y-1">
-                <Label htmlFor="credentials-notes">Заметки</Label>
+                <Label htmlFor="credentials-notes">{t`Примітки`}</Label>
                 <Textarea
                   id="credentials-notes"
                   data-testid="credentials-input-notes"
@@ -654,7 +661,7 @@ function CredentialDialog({
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
-                  placeholder="Дополнительная информация..."
+                  placeholder={t`Додаткова інформація…`}
                 />
               </div>
             )}
@@ -662,11 +669,11 @@ function CredentialDialog({
 
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button type="submit" disabled={pending} data-testid="credentials-dialog-submit">
               {pending && <Loader2 className="h-4 w-4 animate-spin mr-1" />}
-              Сохранить
+              {t`Зберегти`}
             </Button>
           </DialogFooter>
         </form>

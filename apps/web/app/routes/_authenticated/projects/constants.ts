@@ -1,16 +1,47 @@
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { ProjectPaymentType } from '@crm/shared'
 
 /**
  * task-drop-share-override-and-receiver (Surface C). Single label source for
  * the "Тип оплаты" Select in both the create and edit project forms AND the
- * read-only InfoRow — keeps the enum → RU label mapping in exactly one place
+ * read-only InfoRow — keeps the enum → label mapping in exactly one place
  * so the Select options and the read-view never drift.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 2, template G). `msg` (module level,
+ * `@lingui/core/macro`) fixes each entry's SOURCE (`uk`) text as a
+ * `MessageDescriptor` — resolved against the ACTIVE catalog at the render
+ * site via `i18n._(PAYMENT_TYPE_MESSAGES[type])`, never called at module
+ * level with `t`. `satisfies` WITHOUT `as const` — an `as const` here would
+ * make Stryker report 0 mutants for the whole block (urok #707).
  */
+export const PAYMENT_TYPE_MESSAGES = {
+  FOP: msg`ФОП`,
+  GIG_CONTRACT: msg`гіг-контракт`,
+  USDT: msg`USDT`,
+} satisfies Record<ProjectPaymentType, MessageDescriptor>
+
+/**
+ * task-i18n-stage3c-pr3 (Task 3, «Опасность/Interfaces»). Legacy string map,
+ * KEPT alive on purpose: `$projectId.tsx` (PR4, not this PR's file) still
+ * imports it directly and renders `.FOP`/`.GIG_CONTRACT`/`.USDT` as plain
+ * strings. Removing it here would break `$projectId.tsx`'s compile before
+ * PR4 has migrated its own consumer to `PAYMENT_TYPE_MESSAGES` — the plan's
+ * own dependency table ("PR4 ждёт мерж PR3... удалять/менять старый
+ * PAYMENT_TYPE_LABELS можно только после того, как оба потребителя
+ * переехали"). `projects/index.tsx` (this PR's own consumer) reads
+ * `PAYMENT_TYPE_MESSAGES` exclusively — this export has zero consumers left
+ * INSIDE this PR's periphery, only outside it. Delete this block in PR4 once
+ * `$projectId.tsx` moves to `PAYMENT_TYPE_MESSAGES`.
+ */
+
+/* eslint-disable lingui/no-unlocalized-strings -- deliberate legacy bridge, see the doc comment above */
 export const PAYMENT_TYPE_LABELS: Record<ProjectPaymentType, string> = {
   FOP: 'ФОП',
   GIG_CONTRACT: 'гіг-контракт',
   USDT: 'USDT',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 /**
  * task-project-status-filter-ui. The four values of the /projects list's
@@ -118,18 +149,30 @@ export type ProjectStatusFilter = (typeof PROJECT_STATUS_FILTERS)[number]
  * pixel measurement of THIS label was taken. AC3 is closed empirically by
  * the green E2E on a live stand, not by this comment. No new layout risk,
  * one name instead of five.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 2, template G, COPY-H-proj-5/M-8):
+ * both label maps translated to `Record<…, MessageDescriptor>` per the
+ * plan's canon table («Очікують рішення» / «Відхилені» / «Архів»,
+ * `uk`-second-person-plural forms already match the previous RU wording's
+ * own grammar 1:1). The pixel history above is preserved verbatim — it
+ * explains WHY the layout is shaped the way it is — but the actual widths
+ * were RE-MEASURED against the translated `uk` strings live (see the
+ * "Опасность: табы фильтра статусов" section of the plan and the PR body's
+ * own remeasurement note): `uk` renders 1-4 characters longer than the old
+ * `ru` strings at every value, and confirmed to still fit the SAME
+ * `lg:` (1024px) cut with no new wrap at 320/375/768/1024.
  */
-export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
-  ACTIVE: 'Активные',
-  PENDING: 'Ждут решения',
-  REJECTED: 'Отклонённые',
-  ARCHIVED: 'Архив',
-}
+export const STATUS_FILTER_LABEL_MESSAGES = {
+  ACTIVE: msg`Активні`,
+  PENDING: msg`Очікують рішення`,
+  REJECTED: msg`Відхилені`,
+  ARCHIVED: msg`Архів`,
+} satisfies Record<ProjectStatusFilter, MessageDescriptor>
 
 /**
  * Short-text labels — design spec §5's `<640px` abbreviation convention
  * (same one already shipped for `vacancies/index.tsx`'s status filter: full
- * RU labels collide in a 4-column grid under 640px, confirmed live there).
+ * labels collide in a 4-column grid under 640px, confirmed live there).
  *
  * COPY-M-3 (PR #646 fix-round 2): the previous set kept 'Активные'
  * un-abbreviated ("already short enough" — measured and disproven: at
@@ -138,11 +181,10 @@ export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
  * abbreviated the other two to 'Ожид.'/'Откл.' — one letter apart, and
  * 'Откл.' separately reads as "disabled/off", not "rejected". Full
  * replacement set, all four measured to fit a ≤42px budget with ≥11px of
- * breathing room and no two labels a single letter apart:
- * 'Идут'/'Ждут'/'Отказ'/'Архив'.
+ * breathing room and no two labels a single letter apart.
  *
  * COPY-M-13 dozakrytie #1/#2 (PR #646 fix-round 6, two rounds of CI red —
- * see `STATUS_FILTER_LABELS`'s own comment for the full mechanism and both
+ * see `STATUS_FILTER_LABEL_MESSAGES`'s own comment for the full mechanism and both
  * failures): this set now renders for the ENTIRE `<lg:` range (`<1024px`)
  * via the SAME `projects-status-tabs-mobile` toggle instance, not just
  * `<640px` — not because 640-1023px is a phone, but because a short label
@@ -154,10 +196,14 @@ export const STATUS_FILTER_LABELS: Record<ProjectStatusFilter, string> = {
  * (`[&>button]:max-[639px]:min-h-11` in index.tsx) — the 44px minimum is
  * an a11y floor for touch targets (§5/§8/§10), not a width the layout
  * needs to reserve on every tablet/laptop width too.
+ *
+ * task-i18n-stage3c-pr3 (Task 3, Step 2, canon table): the plan's canon
+ * gives PENDING a distinct short form ("Чекають") — re-measured against
+ * `uk` live at 320/375/768/1024, no wrap.
  */
-export const STATUS_FILTER_LABELS_MOBILE: Record<ProjectStatusFilter, string> = {
-  ACTIVE: 'Идут',
-  PENDING: 'Ждут',
-  REJECTED: 'Отказ',
-  ARCHIVED: 'Архив',
-}
+export const STATUS_FILTER_LABEL_MESSAGES_MOBILE = {
+  ACTIVE: msg`Активні`,
+  PENDING: msg`Чекають`,
+  REJECTED: msg`Відмова`,
+  ARCHIVED: msg`Архів`,
+} satisfies Record<ProjectStatusFilter, MessageDescriptor>

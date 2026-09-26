@@ -1,4 +1,8 @@
 import { useState } from 'react'
+import { useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { Check, Loader2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -80,10 +84,17 @@ export interface ProjectApprovalActionsProps {
  * an actual payout — this is neither; and it names no next step. Mapped to
  * an own, actionable string here instead — the backend message stays
  * accurate for logs/support, this is what the USER sees.
+ *
+ * task-i18n-stage3c-pr3: resolved through the shared `@lingui/core` `i18n`
+ * singleton (not a hook) — same non-component pattern as
+ * `project-approval-caption.ts` — since this function is called from
+ * mutation `onError` callbacks, not from render.
  */
+const CONFIRMATION_UNAVAILABLE: MessageDescriptor = msg`Підтвердження недоступне: воно застаріло або адресоване не вам. Оновіть сторінку.`
+
 function friendlyErrorMessage(err: unknown): string {
   if (getAxiosStatus(err) === 404) {
-    return 'Подтверждение недоступно: оно устарело или адресовано не вам. Обновите страницу.'
+    return i18n._(CONFIRMATION_UNAVAILABLE)
   }
   return getUserFacingErrorMessage(err)
 }
@@ -95,6 +106,7 @@ export function ProjectApprovalActions({
   className,
   compact,
 }: ProjectApprovalActionsProps) {
+  const { t } = useLingui()
   const approve = useApproveProjectDraft()
   const reject = useRejectProjectDraft()
   const [rejectOpen, setRejectOpen] = useState(false)
@@ -103,8 +115,8 @@ export function ProjectApprovalActions({
   // the native hover/inspection tooltip (title) — the whole point of the
   // finding was these two silently disagreeing once the visible text hides
   // at `lg:` (compact) with no other way to reach the word.
-  const approveLabel = approve.isPending ? 'Подтверждение…' : 'Подтвердить'
-  const rejectLabel = 'Отклонить'
+  const approveLabel = approve.isPending ? t`Підтвердження…` : t`Підтвердити`
+  const rejectLabel = t`Відхилити`
   // COPY-M-14: only the `compact` mount point (ProjectRow) hides the visible
   // label at `lg:` — the default (PendingProjectApprovalsPanel) never does.
   const labelClassName = compact ? 'lg:hidden xl:inline' : undefined
@@ -145,10 +157,10 @@ export function ProjectApprovalActions({
         // the actual missing side instead of a generic placeholder.
         toast.success(
           project.status === 'ACTIVE'
-            ? `Проект «${companyName}» подтверждён`
+            ? t`Проєкт «${companyName}» підтверджено`
             : project.dropApprovalPending
-              ? 'Вы подтвердили. Ждём дропа'
-              : 'Вы подтвердили. Ждём синьора',
+              ? t`Ви підтвердили. Чекаємо дропа`
+              : t`Ви підтвердили. Чекаємо сеньйора`,
         )
         onActed?.()
       },
@@ -182,7 +194,7 @@ export function ProjectApprovalActions({
           // COPY-H-2: same "success used to be silent" fix as approve — a
           // reject is a real, final, financially-relevant decision and
           // deserves the same one-line confirmation.
-          toast.success('Проект отклонён, админ увидит причину')
+          toast.success(t`Проєкт відхилено, адмін побачить причину`)
           onActed?.()
         },
         onError: (err) => {
@@ -375,14 +387,14 @@ export function ProjectApprovalActions({
                 `line-clamp-2` caps it — real company names are nowhere near
                 this length, this is a defensive cap, not a truncation most
                 users will ever see. */}
-            <DialogTitle className="line-clamp-2">Отклонить проект «{companyName}»</DialogTitle>
+            <DialogTitle className="line-clamp-2">{t`Відхилити проєкт «${companyName}»`}</DialogTitle>
             {/* COPY-L-5 (PR #646 fix-round 3): "причины отказа от
                 подтверждения проекта" was four genitive nouns in a row — a
                 screen-reader-only string, so it is read aloud, never seen,
                 and this is exactly the register where a genitive chain
                 reads worst. Shortened to the same two words the visible
                 title already uses. */}
-            <DialogDescription className="sr-only">Форма отказа: причина</DialogDescription>
+            <DialogDescription className="sr-only">{t`Форма відмови: причина`}</DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="space-y-3">
             {/* COPY-L-3 (PR #646 fix-round 2, optional): this paragraph's
@@ -398,7 +410,7 @@ export function ProjectApprovalActions({
                 time ("Причина обязательна —"), then repeat the same fact.
                 Trimmed to what the `*` doesn't already cover. */}
             <p className="text-sm text-muted-foreground">
-              Админ увидит причину и сможет предложить проект заново.
+              {t`Адмін побачить причину і зможе запропонувати проєкт знову.`}
             </p>
             <div className="space-y-1.5">
               {/* CR-bm-1 (PR #646 fix-round 4). This `id` sat unused since
@@ -411,13 +423,13 @@ export function ProjectApprovalActions({
                   free correctness signal that "the pairing is real" this
                   attribute wasn't previously providing either). */}
               <Label className="text-xs" htmlFor="project-approval-reject-reason-input">
-                Причина отказа *
+                {t`Причина відмови *`}
               </Label>
               <Textarea
                 id="project-approval-reject-reason-input"
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Например: нет бюджета на Q3"
+                placeholder={t`Наприклад: немає бюджету на Q3`}
                 rows={3}
                 // SR-L-2 (PR #646 fix-round 1): matches rejectProjectSchema's
                 // / rejectApprovalInputSchema's own `.max(500, ...)` — without
@@ -462,7 +474,7 @@ export function ProjectApprovalActions({
                 setReason('')
               }}
             >
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button
               variant="destructive"
@@ -470,7 +482,7 @@ export function ProjectApprovalActions({
               disabled={reject.isPending || !reason.trim()}
               data-testid="project-approval-reject-submit"
             >
-              {reject.isPending ? 'Отклонение…' : 'Отклонить'}
+              {reject.isPending ? t`Відхилення…` : t`Відхилити`}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
