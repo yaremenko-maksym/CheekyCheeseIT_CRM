@@ -122,7 +122,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   // closed tab is never invisible.
   const [translationFocusRequest, setTranslationFocusRequest] =
     useState<VacancyTranslationFocusRequest | null>(null)
-  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → catalog-resolved message
   // from the last failed submit. Deliberately NOT stored in TanStack Form's
   // own field state — see `VacancyTranslationFields`'s module doc for why.
   const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)

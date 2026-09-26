@@ -104,7 +104,7 @@ export interface VacancyFormFieldsProps {
   onSlugAutoLinkedChange: (linked: boolean) => void
   /** Bumped by the parent when submit validation found an error inside a translation tab, to force that tab open. */
   focusRequest?: VacancyTranslationFocusRequest | null
-  /** Dot-path → Russian message, from the last failed submit (HIGH-2) — forwarded to `VacancyTranslationFields`. */
+  /** Dot-path → catalog-resolved message, from the last failed submit (HIGH-2) — forwarded to `VacancyTranslationFields`. */
   submitFieldErrors?: Record<string, string> | null
   /** Forwarded to `VacancyTranslationFields` — see that component's doc. */
   onFieldEdited?: (path: string) => void

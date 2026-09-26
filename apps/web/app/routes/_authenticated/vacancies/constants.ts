@@ -303,9 +303,9 @@ export function zodIssueRu(
 ): string | undefined {
   if (!issue) return undefined
   if (issue.code === 'too_small' && 'minimum' in issue)
-    return i18n._(TOO_SMALL_MSG, { n: issue.minimum })
+    return i18n._({ ...TOO_SMALL_MSG, values: { n: issue.minimum } })
   if (issue.code === 'too_big' && 'maximum' in issue)
-    return i18n._(TOO_BIG_MSG, { n: issue.maximum })
+    return i18n._({ ...TOO_BIG_MSG, values: { n: issue.maximum } })
   if (issue.code === 'invalid_format') return patternMsg ?? i18n._(INVALID_FORMAT_MSG)
   return i18n._(INVALID_VALUE_MSG)
 }

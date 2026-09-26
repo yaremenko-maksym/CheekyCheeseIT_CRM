@@ -110,7 +110,7 @@ export type { VacancyTranslationFocusRequest }
 export interface VacancyTranslationFieldsProps {
   form: AnyForm
   focusRequest?: VacancyTranslationFocusRequest | null | undefined
-  /** Dot-path → Russian message, from the last failed submit (HIGH-2). Not TanStack field state — see module doc. */
+  /** Dot-path → catalog-resolved message, from the last failed submit (HIGH-2). Not TanStack field state — see module doc. */
   submitFieldErrors?: Record<string, string> | null | undefined
   /** Called with a field's dot-path the moment the user edits it, so the parent can drop its now-stale `submitFieldErrors` entry. */
   onFieldEdited?: ((path: string) => void) | undefined
