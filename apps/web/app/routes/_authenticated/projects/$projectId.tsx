@@ -3,6 +3,8 @@ import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/rea
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
@@ -123,6 +125,28 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
   component: ProjectDetailPage,
 })
 
+/**
+ * task-i18n-stage3c-pr4 (Task 4, Step 2, template G). Was a `Record<string,
+ * string>` LOCAL to `ProjectEditFields`'s render — invisible to `lingui
+ * extract`, which only walks module-level `msg` calls. Hoisted to module
+ * level, `satisfies` WITHOUT `as const` (urok #707: `as const` here would
+ * make Stryker report 0 mutants for the whole block). COPY-H-proj-3: the
+ * edit-form label and the read-only `InfoRow` label below both resolve
+ * through this ONE map now, so "Корп. технологии" / "Корп. техника" (two
+ * spellings of the same field) collapse into one canonical text.
+ */
+const EDIT_FIELD_LABEL_MESSAGES = {
+  techStack: msg`Технологічний стек`,
+  teamSize: msg`Склад команди`,
+  benefits: msg`Бенефіти`,
+  paymentType: msg`Тип оплати`,
+  salaryReview: msg`Перегляд зарплати`,
+  corpTech: msg`Корпоративна техніка`,
+} satisfies Record<
+  'techStack' | 'teamSize' | 'benefits' | 'paymentType' | 'salaryReview' | 'corpTech',
+  MessageDescriptor
+>
+
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
   SENIOR: 'senior',
@@ -207,11 +231,12 @@ export function ProjectEditFields({
    */
   pendingShare?: ProjectDetailDto['pendingSeniorShare'] | undefined
 }) {
+  const { t, i18n } = useLingui()
   if (mode === 'info') {
     return (
       <div className="space-y-3">
         <div className="space-y-1.5">
-          <Label>Логотип компании</Label>
+          <Label>{t`Логотип компанії`}</Label>
           <ImageUploadField
             value={{
               documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
@@ -242,7 +267,7 @@ export function ProjectEditFields({
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
+                <Label className={cn(err && 'text-destructive')}>{t`Назва проєкту`}</Label>
                 <Input
                   value={field.state.value}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -271,7 +296,7 @@ export function ProjectEditFields({
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn(err && 'text-destructive')}>Компания</Label>
+                <Label className={cn(err && 'text-destructive')}>{t`Компанія`}</Label>
                 <Input
                   value={field.state.value}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -290,7 +315,7 @@ export function ProjectEditFields({
         <form.Field name="domain">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label>Домен</Label>
+              <Label>{t`Домен`}</Label>
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                 value={field.state.value}
@@ -319,14 +344,6 @@ export function ProjectEditFields({
               'corpTech',
             ] as const
           ).map((fieldName) => {
-            const labels: Record<string, string> = {
-              techStack: 'Стек технологий',
-              teamSize: 'Состав команды',
-              benefits: 'Бенефиты',
-              paymentType: 'Тип оплаты',
-              salaryReview: 'Пересмотр ЗП',
-              corpTech: 'Корп. технологии',
-            }
             // task-drop-share-override-and-receiver (Surface C). paymentType
             // moves from free-text Input to a 3-value Select. Field-scoped RBAC
             // reuses `canEditOverride` (ADMIN/ACCOUNTANT edit; everyone else who
@@ -336,7 +353,7 @@ export function ProjectEditFields({
                 <form.Field key="paymentType" name="paymentType">
                   {(field: AnyField) => (
                     <div className="space-y-1.5">
-                      <Label>Тип оплаты</Label>
+                      <Label>{i18n._(EDIT_FIELD_LABEL_MESSAGES.paymentType)}</Label>
                       <Select
                         value={field.state.value as string}
                         onValueChange={(v) => field.handleChange(v)}
@@ -346,23 +363,23 @@ export function ProjectEditFields({
                           className="h-9 text-sm"
                           data-testid="project-payment-type-trigger"
                         >
-                          <SelectValue placeholder="Выберите тип оплаты" />
+                          <SelectValue placeholder={t`Виберіть тип оплати`} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="FOP" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.FOP}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.FOP)}
                           </SelectItem>
                           <SelectItem value="GIG_CONTRACT" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.GIG_CONTRACT}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.GIG_CONTRACT)}
                           </SelectItem>
                           <SelectItem value="USDT" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.USDT}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.USDT)}
                           </SelectItem>
                         </SelectContent>
                       </Select>
                       {!canEditOverride && (
                         <p className="text-xs text-muted-foreground italic">
-                          Менять может только ADMIN или ACCOUNTANT.
+                          <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
                         </p>
                       )}
                     </div>
@@ -374,7 +391,7 @@ export function ProjectEditFields({
               <form.Field key={fieldName} name={fieldName}>
                 {(field: AnyField) => (
                   <div className="space-y-1.5">
-                    <Label>{labels[fieldName]}</Label>
+                    <Label>{i18n._(EDIT_FIELD_LABEL_MESSAGES[fieldName])}</Label>
                     <Input
                       value={field.state.value as string}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -390,7 +407,7 @@ export function ProjectEditFields({
           <form.Field name="notesGeneral">
             {(field: AnyField) => (
               <div className="space-y-1.5">
-                <Label>Общие заметки</Label>
+                <Label>{t`Загальні нотатки`}</Label>
                 <textarea
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
                   value={field.state.value as string}
@@ -418,7 +435,7 @@ export function ProjectEditFields({
               onCurrencyChange={(v) =>
                 form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
               }
-              label="Ставка"
+              label={t`Ставка`}
               placeholder="5000"
             />
           )}
@@ -438,7 +455,7 @@ export function ProjectEditFields({
                   return undefined
                 const num = Number(value)
                 if (!Number.isInteger(num) || num < 0 || num > 100) {
-                  return 'Введите целое число от 0 до 100'
+                  return t`Введіть ціле число від 0 до 100`
                 }
                 return undefined
               },
@@ -452,7 +469,7 @@ export function ProjectEditFields({
               const sliderValue = hasOverride ? (raw as number) : defaultSharePercent
               return (
                 <div className="space-y-2" data-testid="project-edit-senior-share-section">
-                  <Label className={cn(err && 'text-destructive')}>Доля синьора (%)</Label>
+                  <Label className={cn(err && 'text-destructive')}>{t`Частка сеньйора (%)`}</Label>
                   <ShareSlider
                     value={sliderValue}
                     min={0}
@@ -493,8 +510,11 @@ export function ProjectEditFields({
                       fixed one round ago and what «снимает» in the review's
                       suggested phrasing would have undone. */}
                   <p className="text-xs text-muted-foreground">
-                    Любое изменение начнёт действовать после подтверждения синьора. По умолчанию —{' '}
-                    {defaultSharePercent}%: это же значение снимет индивидуальную долю по проекту.
+                    <Trans>
+                      Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням —{' '}
+                      {defaultSharePercent}%: те саме значення знімає індивідуальну частку по
+                      проєкту.
+                    </Trans>
                   </p>
                   {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN who opens
                       this form to "fix" the percent saw a slider holding the
@@ -515,7 +535,7 @@ export function ProjectEditFields({
                   )}
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      Менять может только ADMIN или ACCOUNTANT.
+                      <Trans>Змінювати може лише ADMIN або ACCOUNTANT.</Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -540,7 +560,7 @@ export function ProjectEditFields({
                   return undefined
                 const num = Number(value)
                 if (!Number.isInteger(num) || num < 0 || num > 100) {
-                  return 'Введите целое число от 0 до 100'
+                  return t`Введіть ціле число від 0 до 100`
                 }
                 return undefined
               },
