@@ -37,13 +37,14 @@ import { VACANCY_DOMAINS, VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
 
 // language names, not UI copy: a language never needs translating into
 // itself (same convention as LanguageSection.tsx's LOCALE_LABELS).
+/* eslint-disable lingui/no-unlocalized-strings -- language names, not UI copy (see comment above) */
 export const VACANCY_TRANSLATION_LOCALE_LABELS: Record<VacancyTranslationLocale, string> = {
-  // eslint-disable-next-line lingui/no-unlocalized-strings
   uk: 'Українська',
   ru: 'Русский',
   es: 'Español',
   pt: 'Português',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 // ---------------------------------------------------------------------------
 // task-vacancy-i18n-jobposting — form <-> DTO conversion for translations
