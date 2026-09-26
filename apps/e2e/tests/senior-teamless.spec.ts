@@ -81,8 +81,8 @@ test.describe('Senior teamless surfaces — AC5/AC7', () => {
     await expect(page.getByTestId('interviews-teamless-empty-state')).toBeVisible({
       timeout: 8_000,
     })
-    await expect(page.getByText(/У вас нет активной команды/i)).toBeVisible()
-    await page.getByRole('button', { name: /Создать или выбрать команду/i }).click()
+    await expect(page.getByText(/У вас немає активної команди/i)).toBeVisible()
+    await page.getByRole('button', { name: /Створити або обрати команду/i }).click()
     await expect(page.getByTestId('rejoin-team-dialog')).toBeVisible()
   })
 
