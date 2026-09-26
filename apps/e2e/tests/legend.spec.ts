@@ -154,8 +154,8 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     await expect(page.getByRole('heading', { name: 'Senior Dev' })).toBeVisible()
 
     await expect(page.getByTestId('legend-section')).toBeVisible()
-    await expect(page.getByText('Легенда не заполнена')).toBeVisible()
-    await expect(page.getByTestId('legend-edit-button')).toHaveText(/Создать/)
+    await expect(page.getByText('Легенда не заповнена')).toBeVisible()
+    await expect(page.getByTestId('legend-edit-button')).toHaveText(/Створити/)
   })
 
   test('ADMIN can open edit form, fill and save legend', async ({ asAdmin: page }) => {

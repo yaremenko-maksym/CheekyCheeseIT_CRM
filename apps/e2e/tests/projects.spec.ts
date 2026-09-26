@@ -21,17 +21,17 @@ test.describe('Projects page', () => {
       await page.goto('/projects')
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       // No create button
-      await expect(page.getByRole('button', { name: /новый проект/i })).not.toBeVisible()
+      await expect(page.getByRole('button', { name: /новий проєкт/i })).not.toBeVisible()
     })
 
     test('HR sees create button', async ({ asHr: page }) => {
       await page.goto('/projects')
-      await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /новий проєкт/i })).toBeVisible()
     })
 
     test('ADMIN sees create and archive buttons', async ({ asAdmin: page }) => {
       await page.goto('/projects')
-      await expect(page.getByRole('button', { name: /новый проект/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /новий проєкт/i })).toBeVisible()
       // ut-27 (PR 34 round 1) removed the inline trash/archive icon button from cards.
       // The archive action lives on the project detail header now. The list page only
       // exposes the «Архив» tab — guarded behind ADMIN role.
@@ -58,7 +58,7 @@ test.describe('Projects page', () => {
     // (ADMIN-only) — that part of the old comment stays true.
     test('"Активные" tab shows only non-archived projects', async ({ asAdmin: page }) => {
       await page.goto('/projects')
-      await page.getByRole('tab', { name: 'Активные' }).click()
+      await page.getByRole('tab', { name: 'Активні' }).click()
       await expect(page.getByText('AI Platform v2')).toBeVisible()
       // Archived fixture project is excluded by the API (?archived=false).
       await expect(page.getByText('EdTech Portal')).not.toBeVisible()
@@ -83,9 +83,9 @@ test.describe('Projects page', () => {
   test.describe('Create project', () => {
     test('opens dialog with correct title', async ({ asAdmin: page }) => {
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
-      await expect(page.getByRole('heading', { name: 'Новый проект' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Новий проєкт' })).toBeVisible()
     })
 
     test('submits POST with all required fields filled', async ({ asAdmin: page }) => {
@@ -94,7 +94,7 @@ test.describe('Projects page', () => {
       )
 
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       const dialog = page.getByRole('dialog')
@@ -117,7 +117,7 @@ test.describe('Projects page', () => {
       await rateInput.fill('4000')
       await rateInput.blur()
 
-      await page.getByRole('button', { name: 'Создать' }).click()
+      await page.getByRole('button', { name: 'Створити' }).click()
 
       const req = await postReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -126,7 +126,7 @@ test.describe('Projects page', () => {
 
     test('validation: empty required fields show errors on blur', async ({ asAdmin: page }) => {
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
 
       const nameInput = page.getByPlaceholder('AI Platform v2')
       await nameInput.clear()
@@ -142,8 +142,8 @@ test.describe('Projects page', () => {
       })
 
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
-      await page.getByRole('button', { name: 'Отмена' }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
+      await page.getByRole('button', { name: 'Скасувати' }).click()
       await expect(page.getByRole('dialog')).not.toBeVisible()
       expect(postCalled).toBe(false)
     })
@@ -196,7 +196,7 @@ test.describe('Projects page', () => {
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
       await membersAddBtn.click()
       // Dialog has Отмена or close via Escape
-      const cancelBtn = page.getByRole('button', { name: 'Отмена' })
+      const cancelBtn = page.getByRole('button', { name: 'Скасувати' })
       if (await cancelBtn.isVisible()) {
         await cancelBtn.click()
       } else {
@@ -213,15 +213,15 @@ test.describe('Projects page', () => {
   test.describe('Project metadata fields', () => {
     test('create dialog shows new metadata fields', async ({ asAdmin: page }) => {
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       const dialog = page.getByRole('dialog')
 
       // Check for metadata field labels in create dialog
-      await expect(dialog.getByText('Стек технологий')).toBeVisible()
-      await expect(dialog.getByText('Состав команды')).toBeVisible()
-      await expect(dialog.getByText('Бенефиты')).toBeVisible()
+      await expect(dialog.getByText('Стек технологій')).toBeVisible()
+      await expect(dialog.getByText('Склад команди')).toBeVisible()
+      await expect(dialog.getByText('Бенефіти')).toBeVisible()
     })
 
     test('create project with all metadata fields filled', async ({ asAdmin: page }) => {
@@ -230,7 +230,7 @@ test.describe('Projects page', () => {
       )
 
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       const dialog = page.getByRole('dialog')
@@ -251,7 +251,7 @@ test.describe('Projects page', () => {
       // nothing. Pinning the expected value to `filledX` also makes the absent
       // case an assertion instead of a silent skip. (task-lint-teeth)
       const techStackField = dialog
-        .getByPlaceholder(/стек технологий/i)
+        .getByPlaceholder(/стек технологій/i)
         .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
       const filledTechStack = await techStackField.isVisible()
       if (filledTechStack) {
@@ -259,7 +259,7 @@ test.describe('Projects page', () => {
       }
 
       const teamSizeField = dialog
-        .getByPlaceholder(/размер команды/i)
+        .getByPlaceholder(/склад команди/i)
         .or(dialog.locator('input[name*="team"]'))
       const filledTeamSize = await teamSizeField.isVisible()
       if (filledTeamSize) {
@@ -267,7 +267,7 @@ test.describe('Projects page', () => {
       }
 
       const benefitsField = dialog
-        .getByPlaceholder(/benefi|льгот/i)
+        .getByPlaceholder(/benefi|бенефіт/i)
         .or(dialog.locator('textarea[name*="benefit"]'))
       const filledBenefits = await benefitsField.isVisible()
       if (filledBenefits) {
@@ -283,14 +283,14 @@ test.describe('Projects page', () => {
       await page.getByRole('option', { name: 'USDT', exact: true }).click()
 
       const salaryReviewField = dialog
-        .getByPlaceholder(/пересмотр зп/i)
+        .getByPlaceholder(/перегляд зп/i)
         .or(dialog.locator('input[name*="salary"]'))
       const filledSalaryReview = await salaryReviewField.isVisible()
       if (filledSalaryReview) {
         await salaryReviewField.fill('Every 6 months')
       }
 
-      await page.getByRole('button', { name: 'Создать' }).click()
+      await page.getByRole('button', { name: 'Створити' }).click()
 
       const req = await postReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -363,8 +363,8 @@ test.describe('Projects page', () => {
       // runtime skip reports the same situation as SKIPPED, which is what it
       // actually is, and lets every assertion below be unconditional.
       const editButton = page
-        .getByRole('button', { name: /редактир/i })
-        .or(page.getByTitle(/редактир/i))
+        .getByRole('button', { name: /редагув/i })
+        .or(page.getByTitle(/редагув/i))
       const hasEditButton = await editButton.isVisible()
       test.skip(!hasEditButton, 'project detail did not render an edit button in this build')
 
@@ -375,10 +375,10 @@ test.describe('Projects page', () => {
 
       // Verify metadata fields are pre-filled
       const techStackField = dialog
-        .getByPlaceholder(/стек технологий/i)
+        .getByPlaceholder(/стек технологій/i)
         .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
       const teamSizeField = dialog
-        .getByPlaceholder(/размер команды/i)
+        .getByPlaceholder(/склад команди/i)
         .or(dialog.locator('input[name*="team"]'))
       const hasMetadataFields =
         (await techStackField.isVisible()) && (await teamSizeField.isVisible())
@@ -392,7 +392,7 @@ test.describe('Projects page', () => {
       asAdmin: page,
     }) => {
       await page.goto('/projects')
-      await page.getByRole('button', { name: /новый проект/i }).click()
+      await page.getByRole('button', { name: /новий проєкт/i }).click()
       await expect(page.getByRole('dialog')).toBeVisible()
 
       const dialog = page.getByRole('dialog')
@@ -403,10 +403,10 @@ test.describe('Projects page', () => {
       // used to make this test pass while checking no limit at all.
       // (task-lint-teeth)
       const techStackField = dialog
-        .getByPlaceholder(/стек технологий/i)
+        .getByPlaceholder(/стек технологій/i)
         .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
       const notesField = dialog
-        .getByPlaceholder(/заметк|notes/i)
+        .getByPlaceholder(/приміт|notes/i)
         .or(dialog.locator('textarea[name*="notes"]'))
       const hasLimitFields = (await techStackField.isVisible()) && (await notesField.isVisible())
       test.skip(
@@ -493,7 +493,7 @@ test.describe('Projects page', () => {
       await page.goto('/projects')
       await page.getByTestId('toggle-archived-projects').click()
       await expect(page.getByText('AI Platform v2')).not.toBeVisible()
-      await expect(page.getByText('Архив пуст')).toBeVisible()
+      await expect(page.getByText('Архів порожній')).toBeVisible()
     })
 
     test('JUNIOR on /projects → redirected to /project (route-guard PR #184)', async ({

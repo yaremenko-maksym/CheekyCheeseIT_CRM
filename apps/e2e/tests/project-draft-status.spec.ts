@@ -164,18 +164,18 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await page.goto(`/projects/${projectId}`)
       const badge = page.getByTestId('project-status-badge')
-      await expect(badge).toHaveText('Ждёт решения')
+      await expect(badge).toHaveText('Очікує рішення')
       await expect(badge).toHaveAttribute('data-status', 'DRAFT')
       // The old bug: the header badge ignored `status` and always rendered
       // this string for any non-archived project.
-      await expect(page.getByText('Активный', { exact: true })).not.toBeVisible()
+      await expect(page.getByText('Активний', { exact: true })).not.toBeVisible()
       // task-projects-followups-web (backlog 201, AC7): DRAFT — the header
       // also names who the approval is still waiting on, same text
       // `ProjectRow.tsx`'s own caption uses (shared helper). Real display
       // name fetched from the API, not guessed from the seed email.
       const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
       await expect(page.getByTestId('project-header-approval-caption')).toHaveText(
-        `от ${senior?.displayName}`,
+        `Підтверджує ${senior?.displayName}`,
       )
 
       // `rejectProjectViaAPI` switches the page's session to the invited
@@ -191,7 +191,7 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await page.goto(`/projects/${projectId}`)
       const badgeAfter = page.getByTestId('project-status-badge')
-      await expect(badgeAfter).toHaveText('Отклонён')
+      await expect(badgeAfter).toHaveText('Відхилений')
       await expect(badgeAfter).toHaveAttribute('data-status', 'REJECTED')
       // task-projects-followups-web (backlog 201, AC7): REJECTED — ADMIN
       // sees the reason directly in the header, quoted, same as the row.
@@ -219,7 +219,7 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await page.goto(`/projects/${projectId}`)
-      await expect(page.getByTestId('project-status-badge')).toHaveText('Ждёт решения')
+      await expect(page.getByTestId('project-status-badge')).toHaveText('Очікує рішення')
 
       const approved = await approveProjectViaAPI(page, projectId, SEED_EMAILS.seniorA)
       expect(approved.status).toBe('ACTIVE')
@@ -227,7 +227,7 @@ test.describe('Project draft-status — confirmation gate (task-project-draft-st
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       await page.goto(`/projects/${projectId}`)
       const badgeAfter = page.getByTestId('project-status-badge')
-      await expect(badgeAfter).toHaveText('Активный')
+      await expect(badgeAfter).toHaveText('Активний')
       await expect(badgeAfter).toHaveAttribute('data-status', 'ACTIVE')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
