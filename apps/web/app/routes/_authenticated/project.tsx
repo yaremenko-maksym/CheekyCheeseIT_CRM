@@ -542,6 +542,8 @@ function SalarySnapshotCard({
   isLoading,
   className,
 }: SalarySnapshotCardProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const baseClass = 'border-border/40 bg-card flex flex-col'
   const cardClass = className ? `${baseClass} ${className}` : baseClass
 
@@ -549,7 +551,9 @@ function SalarySnapshotCard({
     return (
       <Card className={cardClass} data-testid="salary-snapshot-card">
         <CardHeader className="pb-3 shrink-0">
-          <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            <Trans>Моя зарплата</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col flex-1 pt-0 gap-0">
           <Skeleton className="h-10 w-40 mb-4" />
@@ -561,13 +565,15 @@ function SalarySnapshotCard({
 
   const hasRate = salaryMeta?.monthlySalary != null
   const currency = salaryMeta?.salaryCurrency ?? 'USD'
-  const amount = hasRate ? Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU') : null
+  const amount = hasRate ? formatNumber(Number(salaryMeta!.monthlySalary), locale) : null
 
   return (
     <Card className={cardClass} data-testid="salary-snapshot-card">
       {/* Header — shrink-0 prevents compression when card grows via flex-1 */}
       <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-        <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
+        <CardTitle className="text-sm font-semibold">
+          <Trans>Моя зарплата</Trans>
+        </CardTitle>
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
       </CardHeader>
 
@@ -585,12 +591,14 @@ function SalarySnapshotCard({
             <span className="text-base text-muted-foreground uppercase tracking-wide">
               {currency}
             </span>
-            <span className="text-sm text-muted-foreground">/ месяц</span>
+            <span className="text-sm text-muted-foreground">
+              <Trans>/ місяць</Trans>
+            </span>
           </div>
         ) : (
           <div className="pb-1">
             <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
-              Ставка не назначена
+              <Trans>Ставку не призначено</Trans>
             </p>
           </div>
         )}
@@ -599,12 +607,8 @@ function SalarySnapshotCard({
         {hasRate && (
           <p className="text-xs text-muted-foreground pb-1" data-testid="salary-changed-at">
             {salaryMeta?.changedAt != null
-              ? `Изменена ${new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}`
-              : 'Ставка ещё не менялась'}
+              ? t`Змінено ${formatDate(salaryMeta.changedAt, locale, 'long')}`
+              : t`Ставку ще не змінювали`}
           </p>
         )}
 
@@ -613,20 +617,25 @@ function SalarySnapshotCard({
         {/* Payments zone */}
         <div className="space-y-0" data-testid="salary-tx-list">
           <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Последние выплаты
+            <Trans>Останні виплати</Trans>
           </p>
           {salaryTxs.length === 0 ? (
-            <p className="text-xs text-muted-foreground/60 italic py-2">Выплат ещё не было</p>
+            <p className="text-xs text-muted-foreground/60 italic py-2">
+              <Trans>Виплат ще не було</Trans>
+            </p>
           ) : (
             salaryTxs.map((tx) => {
               const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
               const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
-              const label =
-                tx.salaryMonth ??
-                new Date(tx.createdAt).toLocaleDateString('ru-RU', {
-                  month: 'long',
-                  year: 'numeric',
-                })
+              // COPY-H-proj-6: `salaryMonth` ("2026-04") is parsed into a date
+              // and formatted with the SAME function as the `createdAt`
+              // fallback, so both branches of this ternary go through the
+              // locale together instead of one staying a bare string.
+              const label = formatDate(
+                tx.salaryMonth ? `${tx.salaryMonth}-01` : tx.createdAt,
+                locale,
+                'monthYear',
+              )
               return (
                 <div
                   key={tx.id}
@@ -636,10 +645,10 @@ function SalarySnapshotCard({
                   <span className="text-sm text-muted-foreground capitalize">{label}</span>
                   <div className="flex items-center gap-3">
                     <span className="tabular-nums text-sm font-medium">
-                      {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
+                      {formatNumber(Number(tx.amount), locale)} {tx.currency}
                     </span>
                     <Badge variant={txVariant} className="text-xs min-w-[72px] justify-center">
-                      {isPaid ? 'Выплачено' : 'Ожидание'}
+                      {isPaid ? t`Виплачено` : t`Очікування`}
                     </Badge>
                   </div>
                 </div>
