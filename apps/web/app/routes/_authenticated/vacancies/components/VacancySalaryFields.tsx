@@ -21,6 +21,9 @@
  * Shared by `VacancySheet` (create/edit) and `$vacancyId.tsx` (inline edit) —
  * same pattern as `VacancySeoFields`.
  */
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
 import { VACANCY_SALARY_CURRENCIES, VACANCY_SALARY_PERIODS } from '@crm/shared'
 import { cn, normalizeDecimalInput } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -32,7 +35,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { SALARY_PERIOD_LABELS } from '../constants'
+import { SALARY_PERIOD_LABEL_MESSAGES } from '../constants'
 import type { AnyField, AnyForm } from './VacancyFormFields'
 
 export interface VacancySalaryFieldsProps {
@@ -54,20 +57,30 @@ export interface VacancySalaryFieldsProps {
  * the fallback toast in `onSubmitInvalid`) — this validator only catches an
  * invalid (non-positive) value once something has actually been typed.
  */
+const POSITIVE_NUMBER_MSG = msg`Введіть додатне число`
+const MAX_BELOW_MIN_MSG = msg`Максимум не може бути меншим за мінімум`
+
+// task-i18n-stage3c-pr2 — resolved through the module-level `i18n` singleton,
+// not `useLingui()`: this is a plain validator function called from
+// `form.Field`'s `validators.onBlur`, outside any component render (same
+// convention as `zodIssueRu`/`getVacancyPublishGate` in `../constants`).
 function validateAmount(value: string): string | undefined {
   const trimmed = value.trim()
   if (trimmed === '') return undefined
   const n = Number(trimmed)
-  if (!Number.isFinite(n) || n <= 0) return 'Введите положительное число'
+  if (!Number.isFinite(n) || n <= 0) return i18n._(POSITIVE_NUMBER_MSG)
   return undefined
 }
 
 export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
+  const { i18n } = useLingui()
   return (
     <div className="space-y-3">
-      <Label>Вилка зарплаты</Label>
+      <Label>
+        <Trans>Вилка зарплати</Trans>
+      </Label>
       <p className="text-xs text-muted-foreground">
-        Обязательна для всех вакансий — используется в разметке для Google.
+        <Trans>Обов’язкова для всіх вакансій — використовується в розмітці для Google.</Trans>
       </p>
 
       <div className="grid grid-cols-2 gap-[14px]">
@@ -79,7 +92,9 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn('text-xs', err && 'text-destructive')}>Минимум</Label>
+                <Label className={cn('text-xs', err && 'text-destructive')}>
+                  <Trans>Мінімум</Trans>
+                </Label>
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -113,7 +128,7 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
               const min = minRaw === '' ? null : Number(minRaw)
               const max = Number(value)
               if (min !== null && Number.isFinite(min) && max < min) {
-                return 'Максимум не может быть меньше минимума'
+                return i18n._(MAX_BELOW_MIN_MSG)
               }
               return undefined
             },
@@ -123,7 +138,9 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn('text-xs', err && 'text-destructive')}>Максимум</Label>
+                <Label className={cn('text-xs', err && 'text-destructive')}>
+                  <Trans>Максимум</Trans>
+                </Label>
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -147,7 +164,9 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
         <form.Field name="salaryCurrency">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label className="text-xs">Валюта</Label>
+              <Label className="text-xs">
+                <Trans>Валюта</Trans>
+              </Label>
               <Select value={field.state.value} onValueChange={(v) => field.handleChange(v)}>
                 <SelectTrigger data-testid="vacancy-form-salary-currency">
                   <SelectValue />
@@ -167,7 +186,9 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
         <form.Field name="salaryPeriod">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label className="text-xs">Период</Label>
+              <Label className="text-xs">
+                <Trans>Період</Trans>
+              </Label>
               <Select value={field.state.value} onValueChange={(v) => field.handleChange(v)}>
                 <SelectTrigger data-testid="vacancy-form-salary-period">
                   <SelectValue />
@@ -175,7 +196,7 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
                 <SelectContent>
                   {VACANCY_SALARY_PERIODS.map((p) => (
                     <SelectItem key={p} value={p}>
-                      {SALARY_PERIOD_LABELS[p]}
+                      {i18n._(SALARY_PERIOD_LABEL_MESSAGES[p])}
                     </SelectItem>
                   ))}
                 </SelectContent>
