@@ -1,10 +1,10 @@
 /**
  * /vacancies/$vacancyId — task-crm-vacancies-ui §4.3. Detail page: header
  * (back link, title, status badge, status/site actions), tag row, tabs
- * («Детали» inline-edit form / «Отклики» candidate list).
+ * («Details» inline-edit form / «Applications» candidate list).
  *
  * §4.3 wants an INLINE edit form here (NOT a Sheet, unlike the list page's
- * «Редактировать» button) — reuses the SAME `VacancyFormFields` as
+ * «Edit» button) — reuses the SAME `VacancyFormFields` as
  * `VacancySheet` (golden rule #8, no duplicated field JSX).
  *
  * Hooks-order safety: ALL hooks (useForm/useState/useEffect/queries) are
@@ -20,8 +20,9 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
 import { toast } from 'sonner'
 import { z } from 'zod'
-import { format } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { ArrowLeft, ArrowUp, Globe, RotateCcw, Users, X } from 'lucide-react'
 import type {
   Vacancy,
@@ -49,12 +50,12 @@ import { DeleteVacancyButton, VacancyPublishGate } from './components/VacancyCar
 import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
 import {
-  APPLICATION_STATUS_LABELS,
+  APPLICATION_STATUS_LABEL_MESSAGES,
   buildVacancyDto,
   computeVacancySubmitErrors,
   domainDotColor,
   DOMAIN_LABELS,
-  EMPLOYMENT_TYPE_LABELS,
+  EMPLOYMENT_TYPE_LABEL_MESSAGES,
   emptySalaryFormValues,
   emptySeoFormValues,
   emptyTranslationsFormValues,
@@ -64,7 +65,7 @@ import {
   SENIORITY_LABELS,
   translationsFormValuesFromVacancy,
   VACANCY_STATUS_BADGE,
-  VACANCY_STATUS_LABELS,
+  VACANCY_STATUS_LABEL_MESSAGES,
   type VacancySalaryFormValues,
   type VacancySeoFormValues,
   type VacancyTranslationFocusRequest,
@@ -146,6 +147,8 @@ function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
 }
 
 function VacancyDetailPage() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   const { vacancyId } = Route.useParams()
   const search = Route.useSearch()
@@ -160,14 +163,14 @@ function VacancyDetailPage() {
   )
   const [applicationsFilter, setApplicationsFilter] = useState<ApplicationsFilter>('ALL')
   // Never auto-links on the detail page — the vacancy already has a live
-  // slug; typing in "Название" here must not silently rewrite it.
+  // slug; typing in the title field here must not silently rewrite it.
   const [slugAutoLinked, setSlugAutoLinked] = useState(false)
   // design-review round 1 (PR #422, HIGH-2) — see VacancyTranslationFields'
   // module doc / VacancySheet.tsx's matching comment: forces the translation
   // Tabs to the locale of the first reported error on a failed submit.
   const [translationFocusRequest, setTranslationFocusRequest] =
     useState<VacancyTranslationFocusRequest | null>(null)
-  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → catalog-resolved message
   // from the last failed submit. Deliberately NOT stored in TanStack Form's
   // own field state — see `VacancyTranslationFields`'s module doc for why.
   const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)
@@ -182,7 +185,9 @@ function VacancyDetailPage() {
     validators: {
       onSubmit: ({ value }) => {
         const dto = buildVacancyDto(value)
-        return updateVacancySchema.safeParse(dto).success ? null : { form: 'Форма содержит ошибки' }
+        return updateVacancySchema.safeParse(dto).success
+          ? null
+          : { form: t`Форма містить помилки` }
       },
     },
     // Guaranteed by TanStack Form to run whenever `handleSubmit()` finds the
@@ -196,7 +201,7 @@ function VacancyDetailPage() {
       if (result?.firstTranslationLocale) {
         setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
       }
-      toast.error('Проверьте поля формы — есть ошибки')
+      toast.error(t`Перевірте поля форми — є помилки`)
     },
     onSubmit: async ({ value }) => {
       if (!vacancy) return
@@ -266,9 +271,13 @@ function VacancyDetailPage() {
           className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
           data-testid="vacancy-not-found"
         >
-          <p className="text-sm font-medium">Вакансия не найдена</p>
+          <p className="text-sm font-medium">
+            <Trans>Вакансію не знайдено</Trans>
+          </p>
           <Button asChild size="sm" variant="outline" className="mt-4">
-            <Link to="/vacancies">Ко всем вакансиям</Link>
+            <Link to="/vacancies">
+              <Trans>До всіх вакансій</Trans>
+            </Link>
           </Button>
         </div>
       </div>
@@ -286,27 +295,39 @@ function VacancyDetailPage() {
       ? applications
       : applications.filter((a) => a.status === applicationsFilter)
 
+  // task-i18n-stage3c-pr2 (COPY-L-proj-20) — one counter format everywhere:
+  // canon «Усі (N)» (parentheses carry over to any language unchanged).
+  //
+  // fix-round B (COPY-L-2) — NEW was «Нові (N)» (plural adjective) sitting
+  // next to VIEWED/REJECTED's singular adjective forms
+  // («Переглянутий»/«Відхилений») — mismatched grammatical number in the
+  // same row. «Новий (N)» agrees in number (singular) with its neighbours;
+  // the mobile variant below is unaffected (its VIEWED/REJECTED are already
+  // short NOUNS, not adjectives, so there is no agreement to break).
   const applicationsFilterOptions: ReadonlyArray<SegmentedToggleOption<ApplicationsFilter>> = [
-    { value: 'ALL', label: `Все ${applications.length}` },
-    { value: 'NEW', label: `Новые ${newCount}` },
-    { value: 'VIEWED', label: APPLICATION_STATUS_LABELS.VIEWED },
-    { value: 'REJECTED', label: APPLICATION_STATUS_LABELS.REJECTED },
+    { value: 'ALL', label: t`Усі (${applications.length})` },
+    { value: 'NEW', label: t`Новий (${newCount})` },
+    { value: 'VIEWED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.VIEWED) },
+    { value: 'REJECTED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.REJECTED) },
   ]
 
   // Mobile variant (design-fidelity fix, ui-ux-designer Mode D, PR #396 review):
-  // at 320px the 4 equal grid columns give each option ~66px — «Просмотрено»/
-  // «Отклонено» (9-11 chars) don't fit and, with no wrap/truncate on the label
-  // span, visually overlap the neighbouring column instead of shrinking. Same
-  // fix already applied to the vacancy-list status filter (`filterOptionsMobile`
-  // in `../index.tsx`) — mirror that convention here instead of touching the
-  // shared `SegmentedToggle` primitive (narrower blast radius for a
-  // single-screen fix; see PR #396 fidelity review).
+  // at 320px the 4 equal grid columns give each option ~66px — the full
+  // «Переглянутий»/«Відхилений» forms don't fit and, with no wrap/truncate on
+  // the label span, visually overlap the neighbouring column instead of
+  // shrinking. Same fix already applied to the vacancy-list status filter
+  // (`filterOptionsMobile` in `../index.tsx`) — mirror that convention here
+  // instead of touching the shared `SegmentedToggle` primitive (narrower
+  // blast radius for a single-screen fix; see PR #396 fidelity review).
+  // task-i18n-stage3c-pr2 (COPY-M-proj-11) — short forms are full words
+  // («Відмова»/«Перегляд»), not truncated abbreviations like the old
+  // «Откл.»/«Просм.» («Откл.» in particular reads as "toggled off").
   const applicationsFilterOptionsMobile: ReadonlyArray<SegmentedToggleOption<ApplicationsFilter>> =
     [
-      { value: 'ALL', label: `Все ${applications.length}` },
-      { value: 'NEW', label: `Новые ${newCount}` },
-      { value: 'VIEWED', label: 'Просм.' },
-      { value: 'REJECTED', label: 'Откл.' },
+      { value: 'ALL', label: t`Усі (${applications.length})` },
+      { value: 'NEW', label: t`Нові (${newCount})` },
+      { value: 'VIEWED', label: t`Перегляд` },
+      { value: 'REJECTED', label: t`Відмова` },
     ]
 
   return (
@@ -321,7 +342,7 @@ function VacancyDetailPage() {
             className="h-8 w-8 shrink-0"
             data-testid="back-button"
           >
-            <Link to="/vacancies" aria-label="Все вакансии">
+            <Link to="/vacancies" aria-label={t`Всі вакансії`}>
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -333,7 +354,7 @@ function VacancyDetailPage() {
                 className={statusBadge.className}
                 data-testid="vacancy-detail-status-badge"
               >
-                {VACANCY_STATUS_LABELS[vacancy.status]}
+                {i18n._(VACANCY_STATUS_LABEL_MESSAGES[vacancy.status])}
               </Badge>
             </div>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -348,7 +369,9 @@ function VacancyDetailPage() {
                 {DOMAIN_LABELS[vacancy.domain]}
               </Badge>
               <Badge variant="secondary">{SENIORITY_LABELS[vacancy.seniority]}</Badge>
-              <Badge variant="secondary">{EMPLOYMENT_TYPE_LABELS[vacancy.employmentType]}</Badge>
+              <Badge variant="secondary">
+                {i18n._(EMPLOYMENT_TYPE_LABEL_MESSAGES[vacancy.employmentType])}
+              </Badge>
               <span className="text-xs text-muted-foreground">{vacancy.location}</span>
             </div>
           </div>
@@ -364,7 +387,7 @@ function VacancyDetailPage() {
                 data-testid="vacancy-view-on-site"
               >
                 <Globe className="mr-1.5 h-3.5 w-3.5" />
-                На сайте
+                <Trans>На сайті</Trans>
               </a>
             </Button>
           )}
@@ -377,7 +400,7 @@ function VacancyDetailPage() {
               data-testid="vacancy-detail-close"
             >
               <X className="mr-1.5 h-3.5 w-3.5" />
-              Закрыть вакансию
+              <Trans>Закрити вакансію</Trans>
             </Button>
           )}
           {vacancy.status === 'CLOSED' && (
@@ -393,7 +416,7 @@ function VacancyDetailPage() {
                   data-testid="vacancy-detail-reopen"
                 >
                   <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  Восстановить
+                  <Trans>Відновити</Trans>
                 </Button>
               )}
             </VacancyPublishGate>
@@ -403,10 +426,12 @@ function VacancyDetailPage() {
 
       <AnimatedTabs
         tabs={[
-          { value: 'details', label: 'Детали' },
+          { value: 'details', label: t`Деталі` },
           {
             value: 'applications',
-            label: `Отклики${vacancy.applicationsCount ? ` · ${vacancy.applicationsCount}` : ''}`,
+            label: vacancy.applicationsCount
+              ? t`Відгуки · ${vacancy.applicationsCount}`
+              : t`Відгуки`,
           },
         ]}
         value={activeTab}
@@ -417,7 +442,9 @@ function VacancyDetailPage() {
         <div className="flex flex-col gap-[22px] lg:flex-row">
           <Card className="flex-1 lg:min-w-[420px]">
             <CardContent className="p-4 space-y-4">
-              <h2 className="text-sm font-semibold">Общая информация</h2>
+              <h2 className="text-sm font-semibold">
+                <Trans>Загальна інформація</Trans>
+              </h2>
               <VacancyFormFields
                 form={form}
                 slugAutoLinked={slugAutoLinked}
@@ -432,14 +459,14 @@ function VacancyDetailPage() {
                   onClick={() => form.reset(valuesFromVacancy(vacancy))}
                   data-testid="vacancy-edit-cancel"
                 >
-                  Отмена
+                  <Trans>Скасувати</Trans>
                 </Button>
                 <Button
                   onClick={() => void form.handleSubmit()}
                   disabled={updateMutation.isPending}
                   data-testid="vacancy-edit-submit"
                 >
-                  Сохранить изменения
+                  <Trans>Зберегти зміни</Trans>
                 </Button>
               </div>
             </CardContent>
@@ -448,9 +475,11 @@ function VacancyDetailPage() {
           <div className="flex flex-col gap-[22px] lg:w-[308px] lg:shrink-0">
             <Card>
               <CardContent className="p-4 space-y-2">
-                <h2 className="text-sm font-semibold">Статус</h2>
+                <h2 className="text-sm font-semibold">
+                  <Trans>Статус</Trans>
+                </h2>
                 <Badge variant={statusBadge.variant} className={statusBadge.className}>
-                  {VACANCY_STATUS_LABELS[vacancy.status]}
+                  {i18n._(VACANCY_STATUS_LABEL_MESSAGES[vacancy.status])}
                 </Badge>
                 {vacancy.status === 'DRAFT' && (
                   <VacancyPublishGate vacancy={vacancy}>
@@ -466,7 +495,7 @@ function VacancyDetailPage() {
                         data-track="vacancy-publish"
                       >
                         <ArrowUp className="mr-1.5 h-3.5 w-3.5" />
-                        Опубликовать
+                        <Trans>Опублікувати</Trans>
                       </Button>
                     )}
                   </VacancyPublishGate>
@@ -476,28 +505,34 @@ function VacancyDetailPage() {
 
             <Card>
               <CardContent className="p-4 space-y-2">
-                <h2 className="text-sm font-semibold">Статистика</h2>
+                <h2 className="text-sm font-semibold">
+                  <Trans>Статистика</Trans>
+                </h2>
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Users className="h-3.5 w-3.5" />
-                  <span>Откликов: {vacancy.applicationsCount}</span>
+                  <span>
+                    <Trans>Відгуків: {vacancy.applicationsCount}</Trans>
+                  </span>
                   {newCount > 0 && <Badge>{newCount}</Badge>}
                 </div>
                 <Separator />
                 <p className="text-xs text-muted-foreground">
-                  Создано: {format(new Date(vacancy.createdAt), 'd MMM yyyy', { locale: ru })}
+                  <Trans>Створено: {formatDate(vacancy.createdAt, locale, 'long')}</Trans>
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  Опубликовано:{' '}
-                  {vacancy.publishedAt
-                    ? format(new Date(vacancy.publishedAt), 'd MMM yyyy', { locale: ru })
-                    : '—'}
+                  <Trans>
+                    Опубліковано:{' '}
+                    {vacancy.publishedAt ? formatDate(vacancy.publishedAt, locale, 'long') : '—'}
+                  </Trans>
                 </p>
               </CardContent>
             </Card>
 
             <Card className="border-destructive/30">
               <CardContent className="p-4 space-y-2">
-                <h2 className="text-sm font-semibold text-destructive">Опасная зона</h2>
+                <h2 className="text-sm font-semibold text-destructive">
+                  <Trans>Небезпечна зона</Trans>
+                </h2>
                 <DeleteVacancyButton
                   vacancy={vacancy}
                   canDelete={canDelete}
@@ -524,7 +559,7 @@ function VacancyDetailPage() {
             value={applicationsFilter}
             onChange={setApplicationsFilter}
             options={applicationsFilterOptionsMobile}
-            ariaLabel="Фильтр откликов по статусу"
+            ariaLabel={t`Фільтр відгуків за статусом`}
             variant="tabs"
             size="sm"
             layoutId="applications-status-filter-mobile"
@@ -535,7 +570,7 @@ function VacancyDetailPage() {
             value={applicationsFilter}
             onChange={setApplicationsFilter}
             options={applicationsFilterOptions}
-            ariaLabel="Фильтр откликов по статусу"
+            ariaLabel={t`Фільтр відгуків за статусом`}
             variant="tabs"
             size="sm"
             layoutId="applications-status-filter"
@@ -556,11 +591,18 @@ function VacancyDetailPage() {
             >
               <Users className="h-10 w-10 text-muted-foreground/30" />
               <p className="mt-4 text-sm font-medium">
-                {applications.length === 0 ? 'Пока нет откликов' : 'Нет откликов с таким статусом'}
+                {applications.length === 0 ? (
+                  <Trans>Поки немає відгуків</Trans>
+                ) : (
+                  <Trans>Немає відгуків із таким статусом</Trans>
+                )}
               </p>
               {applications.length === 0 && (
                 <p className="mt-1 text-xs text-muted-foreground max-w-md">
-                  Кандидаты появятся здесь, как только отправят заявку через страницу карьеры.
+                  <Trans>
+                    Кандидати з’являться тут, щойно надішлють відгук через розділ «Вакансії» на
+                    сайті.
+                  </Trans>
                 </p>
               )}
               {applications.length === 0 &&
@@ -571,7 +613,7 @@ function VacancyDetailPage() {
                       target="_blank"
                       rel="noopener noreferrer"
                     >
-                      Посмотреть на сайте
+                      <Trans>Переглянути на сайті</Trans>
                     </a>
                   </Button>
                 )}

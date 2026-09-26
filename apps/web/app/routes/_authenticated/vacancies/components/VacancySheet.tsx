@@ -1,7 +1,7 @@
 /**
  * VacancySheet — task-crm-vacancies-ui §4.2. Right-side Sheet for BOTH
  * creating a new vacancy and editing an existing one from the LIST page's
- * card «Редактировать» button (the DETAIL page's own edit form is a
+ * card «Edit» button (the DETAIL page's own edit form is a
  * separate INLINE form — spec §4.3 — reusing the same `VacancyFormFields`).
  *
  * ≈448px width — `w-full sm:max-w-md`, the closest existing Tailwind
@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react'
 import { useForm, useStore } from '@tanstack/react-form'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { Vacancy, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
 import { createVacancySchema, updateVacancySchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -107,6 +108,7 @@ function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
 }
 
 export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
+  const { t } = useLingui()
   const isEdit = vacancy !== null
   const createMutation = useCreateVacancy()
   const updateMutation = useUpdateVacancy()
@@ -120,7 +122,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   // closed tab is never invisible.
   const [translationFocusRequest, setTranslationFocusRequest] =
     useState<VacancyTranslationFocusRequest | null>(null)
-  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → catalog-resolved message
   // from the last failed submit. Deliberately NOT stored in TanStack Form's
   // own field state — see `VacancyTranslationFields`'s module doc for why.
   const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)
@@ -135,7 +137,16 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
       onSubmit: ({ value }) => {
         const dto = buildVacancyDto(value)
         const schema = isEdit ? updateVacancySchema : createVacancySchema
-        return schema.safeParse(dto).success ? null : { form: 'Форма содержит ошибки' }
+        // fix-round A (CI-MUT) — `form.state.errorMap` (where this object
+        // lands) is never read anywhere in this file or `VacancyFormFields`;
+        // the actual user-visible feedback is `onSubmitInvalid`'s toast
+        // below. Only "truthy vs null" gates `handleSubmit()`'s onSubmit
+        // call — verified by the existing "apiPost not called" tests — so
+        // both the `{}` (ObjectLiteral) and `` (StringLiteral) mutants on
+        // this line are genuinely unobservable: either still yields a
+        // truthy object, which gates identically.
+        // Stryker disable next-line ObjectLiteral,StringLiteral: gating is truthy-vs-null only, this message string is never rendered — see comment above
+        return schema.safeParse(dto).success ? null : { form: t`Форма містить помилки` }
       },
     },
     // Guaranteed by TanStack Form to run whenever `handleSubmit()` finds the
@@ -150,7 +161,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
       if (result?.firstTranslationLocale) {
         setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
       }
-      toast.error('Проверьте поля формы — есть ошибки')
+      toast.error(t`Перевірте поля форми — є помилки`)
     },
     onSubmit: async ({ value }) => {
       const dto = buildVacancyDto(value)
@@ -194,7 +205,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   // back to create). `vacancy?.id` alone is NOT a sufficient key here: the
   // parent (`vacancies/index.tsx`) keeps this Sheet permanently mounted and
   // passes `vacancy={null}` both while CLOSED and while OPEN-for-create, so
-  // two consecutive "Создать вакансию" sessions never flip the dep — without
+  // two consecutive "Create vacancy" sessions never flip the dep — without
   // `open` in the deps the effect wouldn't re-run and the first session's
   // field values / `slugAutoLinked` would leak into the second. `open` is
   // deliberately the first dep specifically because it's decoupled from
@@ -234,7 +245,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
         data-testid="vacancy-sheet"
         onOpenAutoFocus={(event) => {
           // task-crm-vacancies-ui §9 (focus order): opening the Sheet should
-          // move focus to the first field («Название вакансии»). Radix's
+          // move focus to the first field («Vacancy title»). Radix's
           // default autofocus (first tabbable descendant) lands on the [X]
           // close button instead, since it's rendered before the form.
           // Query for the input directly rather than forwarding a ref
@@ -247,9 +258,11 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
         }}
       >
         <SheetHeader className="mb-2 shrink-0">
-          <SheetTitle>{isEdit ? 'Редактировать вакансию' : 'Создать вакансию'}</SheetTitle>
+          <SheetTitle>
+            {isEdit ? <Trans>Редагувати вакансію</Trans> : <Trans>Створити вакансію</Trans>}
+          </SheetTitle>
           <SheetDescription className="sr-only">
-            {isEdit ? 'Редактирование вакансии' : 'Создание новой вакансии'}
+            {isEdit ? <Trans>Редагування вакансії</Trans> : <Trans>Створення нової вакансії</Trans>}
           </SheetDescription>
         </SheetHeader>
 
@@ -271,7 +284,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
             onClick={onClose}
             data-testid="vacancy-sheet-cancel"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             className="h-11 sm:h-9 flex-1"
@@ -280,7 +293,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
             data-testid="vacancy-sheet-submit"
             data-track={isEdit ? undefined : 'vacancy-create'}
           >
-            {isEdit ? 'Сохранить изменения' : 'Создать вакансию'}
+            {isEdit ? <Trans>Зберегти зміни</Trans> : <Trans>Створити вакансію</Trans>}
           </Button>
         </SheetFooter>
       </SheetContent>

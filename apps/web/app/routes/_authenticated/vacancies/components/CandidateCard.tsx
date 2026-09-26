@@ -1,6 +1,6 @@
 /**
  * CandidateCard — task-crm-vacancies-ui §5. Vacancy application card: avatar
- * initials + name + «Новый»-badge + date, email + contact chips
+ * initials + name + «New»-badge + date, email + contact chips
  * (telegram/github/linkedin — only when present), collapsible cover letter,
  * footer (download resume · delete · status SegmentedToggle).
  *
@@ -9,8 +9,9 @@
  * generation artifact, the real schema has no such field).
  */
 import { useState } from 'react'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { useLocale } from '@/lib/i18n'
+import { formatRelativeTime } from '@crm/shared'
 // lucide-react@1.x dropped brand/logo icons (Github/Linkedin) — ExternalLink
 // is the generic stand-in; the visible "GitHub"/"LinkedIn" text label already
 // distinguishes the two chips.
@@ -40,14 +41,8 @@ import {
   useDeleteVacancyApplication,
   useUpdateVacancyApplication,
 } from '@/hooks/use-vacancies'
-import { APPLICATION_STATUS_LABELS, safeExternalHref } from '../constants'
+import { APPLICATION_STATUS_LABEL_MESSAGES, safeExternalHref } from '../constants'
 import { ResumePreviewDialog } from './ResumePreviewDialog'
-
-const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
-  { value: 'NEW', label: APPLICATION_STATUS_LABELS.NEW },
-  { value: 'VIEWED', label: APPLICATION_STATUS_LABELS.VIEWED },
-  { value: 'REJECTED', label: APPLICATION_STATUS_LABELS.REJECTED, activeVariant: 'destructive' },
-]
 
 interface CandidateCardProps {
   vacancyId: string
@@ -55,16 +50,47 @@ interface CandidateCardProps {
 }
 
 export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const [coverLetterOpen, setCoverLetterOpen] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const resumeUrlQuery = useApplicationResumeUrl(vacancyId, application.id, { enabled: false })
   const updateStatus = useUpdateVacancyApplication(vacancyId)
   const deleteApplication = useDeleteVacancyApplication(vacancyId)
 
+  const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
+    { value: 'NEW', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW) },
+    { value: 'VIEWED', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.VIEWED) },
+    {
+      value: 'REJECTED',
+      label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.REJECTED),
+      activeVariant: 'destructive',
+    },
+  ]
+
+  // task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — at 320px the footer's
+  // status toggle sits next to the download button in the same row; the
+  // full «Переглянутий»/«Відхилений» adjective forms don't fit there and
+  // visually collide, same defect `$vacancyId.tsx`'s own applications
+  // filter already hit and fixed (PR #396 fidelity review) — mirror that
+  // fix's SHORT NOUN forms («Перегляд»/«Відмова», not truncated
+  // abbreviations) instead of inventing a new pair. Same msgid as
+  // `$vacancyId.tsx` (and, for «Перегляд», this file's own preview button
+  // above) — reused catalog entries, not new ones.
+  const STATUS_OPTIONS_MOBILE: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
+    { value: 'NEW', label: i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW) },
+    { value: 'VIEWED', label: t`Перегляд` },
+    {
+      value: 'REJECTED',
+      label: t`Відмова`,
+      activeVariant: 'destructive',
+    },
+  ]
+
   const isNew = application.status === 'NEW'
   const relativeDate = (() => {
     try {
-      return formatDistanceToNow(new Date(application.createdAt), { addSuffix: true, locale: ru })
+      return formatRelativeTime(application.createdAt, locale)
     } catch {
       return application.createdAt
     }
@@ -109,6 +135,19 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
 
   const telegramHref = application.telegram ? safeTelegramHref(application.telegram) : undefined
 
+  // fix-round B round 2 (CI-MUT) — `layoutId` only scopes framer-motion's
+  // shared-layout animation between the two SegmentedToggle instances below;
+  // it is never read by anything a test can assert on (no visual-diff
+  // harness here), so both string mutants on it are genuinely unobservable.
+  // Hoisted into plain `const`s (same reason as `VacancyFormFields.tsx`'s
+  // `descriptionLabelClassName`) because a JSX `{/* */}` comment inside the
+  // opening tag below does NOT work as a Stryker suppression — only a real
+  // `//`-commented JS statement does.
+  // Stryker disable next-line StringLiteral: layoutId only scopes a framer-motion animation, never asserted by a test — see comment above
+  const statusToggleLayoutIdMobile = `candidate-status-pill-${application.id}-mobile`
+  // Stryker disable next-line StringLiteral: layoutId only scopes a framer-motion animation, never asserted by a test — see comment above
+  const statusToggleLayoutIdDesktop = `candidate-status-pill-${application.id}`
+
   return (
     <div
       className={cn(
@@ -127,7 +166,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
               <span className="text-sm font-semibold truncate">{application.fullName}</span>
               {isNew && (
                 <Badge data-testid={`candidate-new-badge-${application.id}`}>
-                  {APPLICATION_STATUS_LABELS.NEW}
+                  {i18n._(APPLICATION_STATUS_LABEL_MESSAGES.NEW)}
                 </Badge>
               )}
             </div>
@@ -165,7 +204,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           onToggle={(e) => setCoverLetterOpen(e.currentTarget.open)}
         >
           <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">
-            Сопроводительное письмо
+            <Trans>Супровідний лист</Trans>
           </summary>
           <p className="mt-2 whitespace-pre-wrap text-sm text-foreground/90">
             {application.coverLetter}
@@ -186,7 +225,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 data-testid={`candidate-preview-${application.id}`}
               >
                 <Eye className="mr-1 h-3.5 w-3.5" />
-                Просмотр
+                <Trans>Перегляд</Trans>
               </Button>
               <Button
                 size="sm"
@@ -196,7 +235,17 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 data-testid={`candidate-download-${application.id}`}
               >
                 <Download className="mr-1 h-3.5 w-3.5" />
-                Скачать резюме
+                {/* task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — same
+                    breakpoint-swap convention as the status toggle below
+                    and the create-button pair in `../index.tsx` (full text
+                    ≥640px, short text below) — «резюме» is redundant next
+                    to the Download icon + surrounding preview/download pair. */}
+                <span className="hidden sm:inline">
+                  <Trans>Завантажити резюме</Trans>
+                </span>
+                <span className="sm:hidden">
+                  <Trans>Завантажити</Trans>
+                </span>
               </Button>
             </>
           ) : (
@@ -208,7 +257,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
               className="text-xs text-muted-foreground"
               data-testid={`candidate-resume-purged-${application.id}`}
             >
-              Резюме удалено (истёк срок хранения)
+              <Trans>Резюме видалено (минув термін зберігання)</Trans>
             </span>
           )}
 
@@ -218,7 +267,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
                 size="sm"
                 variant="ghost"
                 className="text-muted-foreground hover:text-destructive"
-                aria-label="Удалить отклик"
+                aria-label={t`Видалити відгук`}
                 data-testid={`candidate-delete-${application.id}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -226,35 +275,62 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogHeader>
-                <AlertDialogTitle>Удалить отклик?</AlertDialogTitle>
+                <AlertDialogTitle>
+                  <Trans>Видалити відгук?</Trans>
+                </AlertDialogTitle>
                 <AlertDialogDescription>
-                  Отклик кандидата {application.fullName} будет удалён. Загруженный файл резюме
-                  также будет удалён с сервера. Это действие необратимо.
+                  <Trans>
+                    Відгук кандидата {application.fullName} буде видалено. Завантажений файл резюме
+                    також буде видалено з сервера. Цю дію не можна скасувати.
+                  </Trans>
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
-                <AlertDialogCancel>Отмена</AlertDialogCancel>
+                <AlertDialogCancel>
+                  <Trans>Скасувати</Trans>
+                </AlertDialogCancel>
                 <AlertDialogAction
                   className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                   onClick={() => deleteApplication.mutate(application.id)}
                   disabled={deleteApplication.isPending}
                   data-testid={`candidate-delete-confirm-${application.id}`}
                 >
-                  Удалить
+                  <Trans>Видалити</Trans>
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
         </div>
 
+        {/* task-i18n-stage3c-pr2 (COPY-H-1, fix-round B) — two variants,
+           swapped by breakpoint, same convention as `../index.tsx`'s
+           status filter and `$vacancyId.tsx`'s applications filter (both
+           already fixed for the identical <640px overflow). Desktop keeps
+           the ORIGINAL testId (`candidate-status-${id}`) so every existing
+           unit/E2E selector for it is untouched — only the mobile variant
+           is new. */}
+        <SegmentedToggle<VacancyApplicationStatus>
+          value={application.status}
+          onChange={(status) => updateStatus.mutate({ appId: application.id, status })}
+          options={STATUS_OPTIONS_MOBILE}
+          ariaLabel={t`Статус відгуку кандидата ${application.fullName}`}
+          variant="pill"
+          size="sm"
+          disabled={updateStatus.isPending}
+          layoutId={statusToggleLayoutIdMobile}
+          className="sm:hidden"
+          testId={`candidate-status-${application.id}-mobile`}
+        />
         <SegmentedToggle<VacancyApplicationStatus>
           value={application.status}
           onChange={(status) => updateStatus.mutate({ appId: application.id, status })}
           options={STATUS_OPTIONS}
-          ariaLabel={`Статус отклика кандидата ${application.fullName}`}
+          ariaLabel={t`Статус відгуку кандидата ${application.fullName}`}
           variant="pill"
           size="sm"
           disabled={updateStatus.isPending}
+          layoutId={statusToggleLayoutIdDesktop}
+          className="hidden sm:grid"
           testId={`candidate-status-${application.id}`}
         />
       </div>

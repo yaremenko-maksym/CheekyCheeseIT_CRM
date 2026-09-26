@@ -11,6 +11,7 @@
  * Shared by `VacancySheet` (create/edit) and `$vacancyId.tsx` (inline edit) —
  * same pattern as `VacancyFormFields`.
  */
+import { Trans, useLingui } from '@lingui/react/macro'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -21,17 +22,22 @@ export interface VacancySeoFieldsProps {
 }
 
 export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
+  const { t } = useLingui()
   return (
     <div className="space-y-3">
-      <Label>Google for Jobs (необязательно)</Label>
+      <Label>
+        <Trans>Google for Jobs (необов’язково)</Trans>
+      </Label>
       <p className="text-xs text-muted-foreground">
-        Дополнительные поля для более полной разметки вакансии в поиске Google.
+        <Trans>Додаткові поля для повнішої розмітки вакансії в пошуку Google.</Trans>
       </p>
 
       <form.Field name="skills">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Навыки (через запятую)</Label>
+            <Label className="text-xs">
+              <Trans>Навички (через кому)</Trans>
+            </Label>
             <Input
               value={field.state.value ?? ''}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -48,7 +54,9 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
       <form.Field name="experienceMonths">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Требуемый опыт (месяцев)</Label>
+            <Label className="text-xs">
+              <Trans>Необхідний досвід (місяців)</Trans>
+            </Label>
             <Input
               type="number"
               inputMode="numeric"
@@ -69,7 +77,9 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
       <form.Field name="qualifications">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Квалификация</Label>
+            <Label className="text-xs">
+              <Trans>Кваліфікація</Trans>
+            </Label>
             <Textarea
               value={field.state.value ?? ''}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -86,7 +96,9 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
       <form.Field name="responsibilities">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Обязанности</Label>
+            <Label className="text-xs">
+              <Trans>Обов’язки</Trans>
+            </Label>
             <Textarea
               value={field.state.value ?? ''}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -103,7 +115,9 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
       <form.Field name="jobBenefits">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Бенефиты</Label>
+            <Label className="text-xs">
+              <Trans>Бенефіти</Trans>
+            </Label>
             <Textarea
               value={field.state.value ?? ''}
               onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
@@ -120,14 +134,16 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
       <form.Field name="workHours">
         {(field: AnyField) => (
           <div className="space-y-1.5">
-            <Label className="text-xs">Рабочие часы</Label>
+            <Label className="text-xs">
+              <Trans>Робочі години</Trans>
+            </Label>
             <Input
               value={field.state.value ?? ''}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 field.handleChange(e.target.value)
               }
               onBlur={field.handleBlur}
-              placeholder="40 часов в неделю"
+              placeholder={t`40 годин на тиждень`}
               data-testid="vacancy-form-work-hours"
             />
           </div>

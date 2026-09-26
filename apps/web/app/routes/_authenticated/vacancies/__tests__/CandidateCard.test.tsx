@@ -87,19 +87,19 @@ function renderCard(application: VacancyApplication) {
 }
 
 describe('CandidateCard — NEW derivation (§5)', () => {
-  it('status NEW: renders «Новый» badge + ring highlight', () => {
+  it('status NEW: renders «Новий» badge + ring highlight', () => {
     renderCard(makeApplication({ status: 'NEW' }))
-    expect(screen.getByTestId('candidate-new-badge-app-1')).toHaveTextContent('Новый')
+    expect(screen.getByTestId('candidate-new-badge-app-1')).toHaveTextContent('Новий')
     expect(screen.getByTestId('candidate-card-app-1').className).toMatch(/ring-1/)
   })
 
-  it('status VIEWED: no «Новый» badge, no ring', () => {
+  it('status VIEWED: no «Новий» badge, no ring', () => {
     renderCard(makeApplication({ status: 'VIEWED' }))
     expect(screen.queryByTestId('candidate-new-badge-app-1')).not.toBeInTheDocument()
     expect(screen.getByTestId('candidate-card-app-1').className).not.toMatch(/ring-1/)
   })
 
-  it('status REJECTED: no «Новый» badge, no ring', () => {
+  it('status REJECTED: no «Новий» badge, no ring', () => {
     renderCard(makeApplication({ status: 'REJECTED' }))
     expect(screen.queryByTestId('candidate-new-badge-app-1')).not.toBeInTheDocument()
   })
@@ -178,12 +178,12 @@ describe('CandidateCard — conditional chips + cover letter', () => {
 
   it('does not render the cover letter <details> when empty', () => {
     renderCard(makeApplication({ coverLetter: null }))
-    expect(screen.queryByText('Сопроводительное письмо')).not.toBeInTheDocument()
+    expect(screen.queryByText('Супровідний лист')).not.toBeInTheDocument()
   })
 
   it('renders the collapsible cover letter block when present', () => {
     renderCard(makeApplication({ coverLetter: 'Я хочу у вас работать.' }))
-    expect(screen.getByText('Сопроводительное письмо')).toBeInTheDocument()
+    expect(screen.getByText('Супровідний лист')).toBeInTheDocument()
     expect(screen.getByText('Я хочу у вас работать.')).toBeInTheDocument()
   })
 })
@@ -191,7 +191,7 @@ describe('CandidateCard — conditional chips + cover letter', () => {
 describe('CandidateCard — status toggle (PATCH)', () => {
   beforeEach(() => apiPatch.mockClear())
 
-  it('clicking «Просмотрено» PATCHes the new status', async () => {
+  it('clicking «Переглянутий» PATCHes the new status', async () => {
     renderCard(makeApplication({ status: 'NEW' }))
     fireEvent.click(screen.getByTestId('candidate-status-app-1-VIEWED'))
     await waitFor(() =>
@@ -205,6 +205,102 @@ describe('CandidateCard — status toggle (PATCH)', () => {
     renderCard(makeApplication({ status: 'NEW' }))
     fireEvent.click(screen.getByTestId('candidate-status-app-1-NEW'))
     expect(apiPatch).not.toHaveBeenCalled()
+  })
+
+  // task-i18n-stage3c-pr2 (CI-MUT, fix-round A) — the REJECTED option's own
+  // `value`/`label`/`activeVariant: 'destructive'` entry had no direct
+  // coverage (only VIEWED/NEW were exercised above).
+  it('clicking «Відхилений» PATCHes status: REJECTED', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-REJECTED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'REJECTED',
+      }),
+    )
+  })
+
+  it('REJECTED renders as the destructive (red) pill when active, not the default gold one', () => {
+    renderCard(makeApplication({ status: 'REJECTED' }))
+    const rejectedButton = screen.getByTestId('candidate-status-app-1-REJECTED')
+    // The active pill is an inner `aria-hidden` div with no dedicated
+    // testid — asserting on the button's own markup (not a live DOM query)
+    // avoids `testing-library/no-node-access` without losing the check.
+    expect(rejectedButton.innerHTML).toContain('bg-destructive/20')
+  })
+
+  it('the status toggle group names the candidate in its accessible name (both breakpoint variants)', () => {
+    // fix-round B (COPY-H-1) — the toggle is now TWO instances swapped by
+    // breakpoint (desktop full labels, mobile short forms), same
+    // convention as `../index.tsx`'s status filter — both carry the same
+    // accessible name.
+    renderCard(makeApplication({ fullName: 'Ada Lovelace' }))
+    expect(
+      screen.getAllByRole('radiogroup', { name: 'Статус відгуку кандидата Ada Lovelace' }),
+    ).toHaveLength(2)
+  })
+
+  it('the mobile variant uses the short noun forms («Перегляд»/«Відмова»), not the full adjectives', () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    expect(screen.getByTestId('candidate-status-app-1-mobile-VIEWED')).toHaveTextContent('Перегляд')
+    expect(screen.getByTestId('candidate-status-app-1-mobile-REJECTED')).toHaveTextContent(
+      'Відмова',
+    )
+    // The desktop instance is untouched — still the full adjective forms.
+    expect(screen.getByTestId('candidate-status-app-1-VIEWED')).toHaveTextContent('Переглянутий')
+    expect(screen.getByTestId('candidate-status-app-1-REJECTED')).toHaveTextContent('Відхилений')
+  })
+
+  // task-i18n-stage3c-pr2 (CI-MUT, fix-round B round 2) — the desktop click/
+  // destructive-render tests above never touch the MOBILE toggle's own
+  // `onChange`/`options`/`layoutId` wiring; the mutation gate found the
+  // mobile instance's NEW/REJECTED entries and its `onChange` handler
+  // completely unobserved.
+  it('clicking the mobile toggle PATCHes the new status (own onChange wiring, not just the desktop one)', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-VIEWED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'VIEWED',
+      }),
+    )
+  })
+
+  it('clicking the mobile NEW option (from a different status) PATCHes status: NEW', async () => {
+    // The mobile array's own `{ value: 'NEW', ... }` entry had no click
+    // coverage — every mobile test above starts FROM 'NEW', so clicking
+    // NEW was always the already-active no-op case, never a real
+    // transition into it.
+    renderCard(makeApplication({ status: 'VIEWED' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-NEW'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'NEW',
+      }),
+    )
+  })
+
+  it('clicking the mobile REJECTED option PATCHes status: REJECTED', async () => {
+    renderCard(makeApplication({ status: 'NEW' }))
+    fireEvent.click(screen.getByTestId('candidate-status-app-1-mobile-REJECTED'))
+    await waitFor(() =>
+      expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1', {
+        status: 'REJECTED',
+      }),
+    )
+  })
+
+  it('the mobile REJECTED option also renders as the destructive (red) pill when active', () => {
+    renderCard(makeApplication({ status: 'REJECTED' }))
+    const rejectedButton = screen.getByTestId('candidate-status-app-1-mobile-REJECTED')
+    expect(rejectedButton.innerHTML).toContain('bg-destructive/20')
+  })
+})
+
+describe('CandidateCard — delete button accessible name (CI-MUT, fix-round A)', () => {
+  it('the delete icon button is named "Видалити відгук" for assistive tech', () => {
+    renderCard(makeApplication())
+    expect(screen.getByRole('button', { name: 'Видалити відгук' })).toBeInTheDocument()
   })
 })
 
@@ -259,7 +355,7 @@ describe('CandidateCard — resume download (presigned URL, task-candidate-card-
 // / download-inside-dialog) is covered directly in ResumePreviewDialog.test.tsx —
 // this only pins that CandidateCard actually wires the button to it.
 describe('CandidateCard — resume preview button (task-candidate-card-resume AC2)', () => {
-  it('clicking «Просмотр» opens the resume preview dialog with the candidate name in the title', () => {
+  it('clicking «Перегляд» opens the resume preview dialog with the candidate name in the title', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     expect(screen.queryByTestId('resume-preview-dialog')).not.toBeInTheDocument()
 
@@ -287,7 +383,7 @@ describe('CandidateCard — purged resume (resumeSizeBytes null, §2)', () => {
     renderCard(makeApplication({ resumeSizeBytes: null }))
     expect(screen.queryByTestId('candidate-download-app-1')).not.toBeInTheDocument()
     expect(screen.queryByTestId('candidate-preview-app-1')).not.toBeInTheDocument()
-    expect(screen.getByTestId('candidate-resume-purged-app-1')).toHaveTextContent('Резюме удалено')
+    expect(screen.getByTestId('candidate-resume-purged-app-1')).toHaveTextContent('Резюме видалено')
   })
 
   it('still renders the download/preview buttons when resumeSizeBytes is present', () => {
@@ -304,7 +400,7 @@ describe('CandidateCard — delete (AlertDialog confirm gate)', () => {
   it('clicking the delete icon opens a confirm dialog WITHOUT deleting yet', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     fireEvent.click(screen.getByTestId('candidate-delete-app-1'))
-    expect(screen.getByText('Удалить отклик?')).toBeInTheDocument()
+    expect(screen.getByText('Видалити відгук?')).toBeInTheDocument()
     expect(apiDelete).not.toHaveBeenCalled()
   })
 
@@ -312,7 +408,7 @@ describe('CandidateCard — delete (AlertDialog confirm gate)', () => {
     renderCard(makeApplication({ fullName: 'Иван Петров' }))
     fireEvent.click(screen.getByTestId('candidate-delete-app-1'))
     expect(screen.queryByText(/\.pdf/i)).not.toBeInTheDocument()
-    expect(screen.getByText(/Отклик кандидата Иван Петров будет удалён/)).toBeInTheDocument()
+    expect(screen.getByText(/Відгук кандидата Иван Петров буде видалено/)).toBeInTheDocument()
   })
 
   it('confirming calls DELETE /vacancies/:vacancyId/applications/:appId', async () => {

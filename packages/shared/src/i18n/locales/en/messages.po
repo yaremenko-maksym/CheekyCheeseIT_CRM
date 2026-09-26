@@ -59,6 +59,12 @@ msgstr "· No senior assigned"
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR can only create seniors)"
 
+#. placeholder {0}: vacancy.applicationsCount
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "{0, plural, one {# відгук} few {# відгуки} many {# відгуків} other {# відгука}}"
+msgstr "{0, plural, one {# response} other {# responses}}"
+
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "{0, plural, one {# дохід чекає на вашу перевірку} few {# доходи чекають на вашу перевірку} many {# доходів чекають на вашу перевірку} other {# доходу чекає на вашу перевірку}}"
@@ -155,6 +161,14 @@ msgstr "{memberName} · team {teamName}"
 msgid "notification.INVOICE_SIGNED.detail"
 msgstr "{money} · {counterpartyName}"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "{n, plural, one {Максимум # символ} few {Максимум # символи} many {Максимум # символів} other {Максимум # символа}}"
+msgstr "{n, plural, one {Maximum # character} other {Maximum # characters}}"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}"
+msgstr "{n, plural, one {Minimum # character} other {Minimum # characters}}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
@@ -210,6 +224,10 @@ msgstr "<0>{received}/{total}</0> receipts from companies this month"
 msgid "10 цифр"
 msgstr "10 digits"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "40 годин на тиждень"
+msgstr "40 hours a week"
+
 #: apps/web/app/routes/login.tsx
 msgid "Dev Login (лише для тестування)"
 msgstr "Dev Login (testing only)"
@@ -226,6 +244,10 @@ msgstr "Email is linked to the Google account and cannot be changed"
 #: apps/web/app/components/ui/amount-currency-input.tsx
 msgid "ERC-20, прив’язаний до долара"
 msgstr "ERC-20, pegged to the dollar"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Google for Jobs (необов’язково)"
+msgstr "Google for Jobs (optional)"
 
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -331,6 +353,10 @@ msgstr "Telegram chat"
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "UA + 27 цифр"
 msgstr "UA + 27 digits"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "URL-слаг"
+msgstr "URL slug"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "USDT (ERC-20) — мережа Ethereum"
@@ -609,11 +635,16 @@ msgstr "Counterparty company's bank details"
 msgid "Банківські реквізити ФОП"
 msgstr "Sole proprietor bank details"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "Без перекладу цією мовою показується основний текст вакансії."
+msgstr "Without a translation, this language shows the vacancy’s original text."
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок"
 msgstr "Without payout details we cannot pay you — add a USDT wallet or a bank account"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
 msgstr "Benefits"
 
@@ -713,6 +744,10 @@ msgstr "Vacancies"
 msgid "Вакансію видалено"
 msgstr "Vacancy deleted"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Вакансію не знайдено"
+msgstr "Vacancy not found"
+
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Вакансію оновлено"
 msgstr "Vacancy updated"
@@ -728,6 +763,12 @@ msgstr "Vacancy created"
 #: apps/web/app/routes/_authenticated/interviews/components/KanbanColumn.tsx
 msgid "Вакансія"
 msgstr "Vacancy"
+
+#. placeholder {0}: vacancy.title
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Вакансія «{0}» буде видалена назавжди. Цю дію не можна скасувати."
+msgstr "The vacancy “{0}” will be deleted permanently. This action cannot be undone."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -753,6 +794,7 @@ msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
 msgstr "Only senior or drop income can be validated"
 
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Валюта"
 msgstr "Currency"
 
@@ -846,6 +888,10 @@ msgstr "Enter an email"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.EMAIL_INVALID"
 msgstr "Enter an email like name@domain"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Введіть додатне число"
+msgstr "Enter a positive number"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -1043,6 +1089,10 @@ msgstr "Only an admin can withdraw dividends"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Видалити"
 msgstr "Delete"
 
@@ -1053,6 +1103,28 @@ msgstr "Remove {tag}"
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Видалити адресу"
 msgstr "Remove address"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Видалити вакансію"
+msgstr "Delete vacancy"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Видалити вакансію (недоступно)"
+msgstr "Delete vacancy (unavailable)"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Видалити вакансію?"
+msgstr "Delete vacancy?"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Видалити відгук"
+msgstr "Delete application"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Видалити відгук?"
+msgstr "Delete application?"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -1132,6 +1204,10 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 msgid "Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові."
 msgstr "Used in the MSA contract instead of your first and last name — write it as in your passport."
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Вилка зарплати"
+msgstr "Salary range"
+
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Виняток видалено"
 msgstr "Exclusion deleted"
@@ -1184,6 +1260,27 @@ msgstr "Source file"
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Відгук видалено"
 msgstr "Application deleted"
+
+#. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Відгук кандидата {0} буде видалено. Завантажений файл резюме також буде видалено з сервера. Цю дію не можна скасувати."
+msgstr "The application from {0} will be deleted. The uploaded resume file will also be deleted from the server. This action cannot be undone."
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Відгуки"
+msgstr "Applications"
+
+#. placeholder {0}: vacancy.applicationsCount
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Відгуки · {0}"
+msgstr "Applications · {0}"
+
+#. placeholder {0}: vacancy.applicationsCount
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Відгуків: {0}"
+msgstr "Applications: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -1277,10 +1374,15 @@ msgid "Відкриті співбесіди"
 msgstr "Open interviews"
 
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Відмова"
 msgstr "Rejected"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Відновити"
 msgstr "Restore"
 
@@ -1337,6 +1439,10 @@ msgstr "The sender must be an admin"
 msgid "Відпустіть зображення"
 msgstr "Drop the image"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Відхилений"
+msgstr "Rejected"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
@@ -1363,6 +1469,10 @@ msgstr "Relaxed"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_WALLET_REQUIRED"
 msgstr "Enter the USDT ERC-20 address"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Вкажіть вилку зарплати у формі редагування перед публікацією"
+msgstr "Specify the salary range in the edit form before publishing"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1484,6 +1594,10 @@ msgstr "Internal note, visible only to admins"
 msgid "Внутрішня нотатка, видна лише адміністраторам…"
 msgstr "Internal note, visible only to admins…"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Всі вакансії"
+msgstr "All vacancies"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Вставити текстом"
 msgstr "Paste as text"
@@ -1534,6 +1648,14 @@ msgstr "USDT ERC-20 wallet (if provided)"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_WALLET_NOT_CONFIGURED"
 msgstr "The company wallet isn't configured"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "Генерується автоматично з назви. Можна редагувати."
+msgstr "Generated automatically from the title. You can edit it."
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Година"
+msgstr "Hour"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
@@ -1630,6 +1752,14 @@ msgstr "The transaction date cannot be in the future"
 msgid "Дашборд"
 msgstr "Dashboard"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "День"
+msgstr "Day"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Деталі"
+msgstr "Details"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
 msgstr "Interview details"
@@ -1725,6 +1855,10 @@ msgstr "Seniors and admins can only be paid to USDT ERC-20"
 msgid "До активної версії"
 msgstr "Back to active version"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "До всіх вакансій"
+msgstr "To all vacancies"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
@@ -1811,6 +1945,10 @@ msgstr "Add member"
 msgid "Додаткові змінні (заповніть нижче):"
 msgstr "Additional variables (fill in below):"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Додаткові поля для повнішої розмітки вакансії в пошуку Google."
+msgstr "Additional fields for fuller vacancy markup in Google search."
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
 msgstr "Only PNG, JPEG, GIF, WebP are allowed"
@@ -1879,6 +2017,7 @@ msgstr "Only a senior can be added to a drop team"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 msgid "Домен"
 msgstr "Domain"
 
@@ -2115,6 +2254,11 @@ msgstr "Loading the contract…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
+msgid "Завантажити"
+msgstr "Download"
+
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Завантажити PDF"
@@ -2123,6 +2267,10 @@ msgstr "Download PDF"
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Завантажити для перегляду"
 msgstr "Download to view"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Завантажити резюме"
+msgstr "Download resume"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Завантажити файл"
@@ -2157,6 +2305,10 @@ msgstr "Loading the Terms of Service…"
 msgid "Завжди"
 msgstr "Always"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Загальна інформація"
+msgstr "General information"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Загальні нотатки"
 msgstr "General notes"
@@ -2169,16 +2321,37 @@ msgstr "Set for the team. Applies to all its projects except those with an indiv
 msgid "Зазвичай займає кілька секунд. Сторінка оновиться сама."
 msgstr "Usually takes a few seconds. The page will refresh on its own."
 
+#. placeholder {0}: counts.CLOSED
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Закр. ({0})"
+msgstr "Closed ({0})"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_OBLIGATION_CLOSE_FORBIDDEN"
 msgstr "Only an admin or an accountant can close a company obligation"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Закрита"
+msgstr "Closed"
+
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Закрити"
 msgstr "Close"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Закрити вакансію"
+msgstr "Close vacancy"
+
+#. placeholder {0}: counts.CLOSED
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Закриті ({0})"
+msgstr "Closed ({0})"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Залишитися"
@@ -2335,6 +2508,11 @@ msgstr "Payout request not found"
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберегти"
 msgstr "Save"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Зберегти зміни"
+msgstr "Save changes"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зберегти реквізити"
@@ -2600,9 +2778,17 @@ msgstr "Crop"
 msgid "zod-error.TELEGRAM_CHANNEL_FORMAT"
 msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Кандидати з’являться тут, щойно надішлють відгук через розділ «Вакансії» на сайті."
+msgstr "Candidates will appear here as soon as they submit an application through the “Vacancies” section on the site."
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Картка співробітника"
 msgstr "Employee card"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Кваліфікація"
+msgstr "Qualifications"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Керувати в розділі «Проєкти» →"
@@ -2970,6 +3156,18 @@ msgstr "Company logo"
 msgid "м. Київ, вул. Хрещатик, 1"
 msgstr "1 Khreshchatyk St, Kyiv"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Максимум"
+msgstr "Maximum"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Максимум не може бути меншим за мінімум"
+msgstr "Maximum cannot be less than minimum"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "Малі латинські літери, цифри та дефіс"
+msgstr "Lowercase Latin letters, digits and a hyphen"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Масштаб"
 msgstr "Zoom"
@@ -2991,9 +3189,17 @@ msgstr "My balance (share)"
 msgid "Мій проєкт"
 msgstr "My project"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Мінімум"
+msgstr "Minimum"
+
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Місце роботи {position}"
 msgstr "Job {position}"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Місяць"
+msgstr "Month"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Місячна зарплата"
@@ -3056,6 +3262,10 @@ msgstr "My projects"
 msgid "contract-variable.companyAuthorityBasis"
 msgstr "Basis on which the company representative acts"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "На сайті"
+msgstr "On the site"
+
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "На цю адресу одразу піде запрошення — увійти нею співробітник зможе лише після того, як підтвердить адресу"
 msgstr "An invitation will be sent to this address right away — the employee will be able to sign in with it only after confirming it"
@@ -3069,6 +3279,10 @@ msgstr "An invitation goes to this address right away. The employee can sign in 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Навички"
 msgstr "Skills"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Навички (через кому)"
+msgstr "Skills (comma-separated)"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Навігація"
@@ -3098,6 +3312,7 @@ msgstr "Back to Terms of Service"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва"
 msgstr "Name"
 
@@ -3108,6 +3323,14 @@ msgstr "Name A→Z"
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Назва банку (необов’язково)"
 msgstr "Bank name (optional)"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "Назва вакансії"
+msgstr "Vacancy title"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "Назва і опис вакансії для лендингу іншими мовами."
+msgstr "The vacancy’s title and description for the landing page in other languages."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Назва команди"
@@ -3574,6 +3797,10 @@ msgstr "You can't archive yourself"
 msgid "api-error.CANNOT_EDIT_ANOTHER_ADMIN"
 msgstr "You can't edit another admin's account"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "не перекладено"
+msgstr "not translated"
+
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "не підтверджено"
 msgstr "not confirmed"
@@ -3581,6 +3808,10 @@ msgstr "not confirmed"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Не прийнято"
 msgstr "Not accepted"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Небезпечна зона"
+msgstr "Danger zone"
 
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Невідомо"
@@ -3646,6 +3877,14 @@ msgstr "No active contract template for this role. Add one under Contracts"
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Немає активної версії умов використання. Створіть першу версію."
 msgstr "There is no active Terms of Service version. Create the first one."
+
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Немає вакансій із таким статусом"
+msgstr "No vacancies with this status"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Немає відгуків із таким статусом"
+msgstr "No applications with this status"
 
 #: apps/web/app/components/user-profile/tabs/TeamTab.tsx
 msgid "Немає даних про склад команди"
@@ -3763,10 +4002,26 @@ msgstr "No members"
 msgid "Немає шаблону контракту для ролі «{roleLabel}»"
 msgstr "No contract template for the “{roleLabel}” role"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Неможливо видалити вакансію з відгуками"
+msgstr "A vacancy with applications cannot be deleted"
+
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Необов’язково. Канал для спілкування команди."
 msgstr "Optional. A channel for the team to talk in."
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Необхідний досвід (місяців)"
+msgstr "Required experience (months)"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Неприпустиме значення"
+msgstr "Invalid value"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Неприпустимий формат"
+msgstr "Invalid format"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Ні"
@@ -3810,6 +4065,14 @@ msgstr "A new team led by this senior. Pick its members below."
 msgid "Нова співбесіда"
 msgstr "New interview"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Новий"
+msgstr "New"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Новий ({newCount})"
+msgstr "New ({newCount})"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.title"
@@ -3830,6 +4093,10 @@ msgstr "New notification type"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Новий:"
 msgstr "New:"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Нові ({newCount})"
+msgstr "New ({newCount})"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
@@ -3896,6 +4163,14 @@ msgstr "Choose which emails you get. In-app notifications are always on"
 msgid "api-error.INVITE_GOOGLE_ACCOUNT_MISMATCH"
 msgstr "This Google account doesn't match the email the invite was sent to"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Обов’язки"
+msgstr "Responsibilities"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
+msgid "Обов’язкова для всіх вакансій — використовується в розмітці для Google."
+msgstr "Required for every vacancy — used in Google markup."
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "обов’язково"
 msgstr "required"
@@ -3951,6 +4226,11 @@ msgstr "Refresh the page or try again later"
 msgid "zod-error.COMPANY_ACCOUNT_USDT_ONLY"
 msgstr "Company account operations are in USDT only"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "Опис (Markdown)"
+msgstr "Description (Markdown)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_RELEASE"
@@ -3965,12 +4245,38 @@ msgstr "Pay"
 msgid "api-error.FINANCE_PAY_SALARY_ONLY"
 msgstr "Only a salary can be paid"
 
+#. placeholder {0}: counts.PUBLISHED
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Опубл. ({0})"
+msgstr "Published ({0})"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Опублікована"
+msgstr "Published"
+
+#. placeholder {0}: counts.PUBLISHED
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Опубліковані ({0})"
+msgstr "Published ({0})"
+
 #: apps/web/app/components/onboarding/TosUpdateBanner.tsx
 msgid "Опубліковано нову версію Умов використання. <0>Читати →</0>"
 msgstr "A new version of the Terms of Service was published. <0>Read →</0>"
 
+#. placeholder {0}: vacancy.publishedAt ? formatDate(vacancy.publishedAt, locale, 'long') : '—'
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Опубліковано: {0}"
+msgstr "Published: {0}"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Опубліковану вакансію потрібно спочатку закрити"
+msgstr "Close the published vacancy first"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Опублікувати"
 msgstr "Publish"
 
@@ -4152,6 +4458,17 @@ msgstr "Review income ({0})"
 msgid "zod-error.VALIDATION_FAILED_FORM"
 msgstr "Check the fields you filled in"
 
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Перевірте поля форми — є помилки"
+msgstr "Check the form fields — there are errors"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Перегляд"
+msgstr "View"
+
 #. placeholder {0}: previewVersion.version
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "Перегляд архівної версії v{0}"
@@ -4165,6 +4482,14 @@ msgstr "Salary review"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_VIEW_SELF_ONLY"
 msgstr "You can only view your own contract"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Переглянути на сайті"
+msgstr "View on the site"
+
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Переглянутий"
+msgstr "Viewed"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Перейти до шаблонів"
@@ -4182,6 +4507,14 @@ msgstr "You can only transfer to another admin"
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
 msgstr "Translation is still in progress — some screens remain in Russian."
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "перекладено"
+msgstr "translated"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "Переклади (необов’язково)"
+msgstr "Translations (optional)"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
@@ -4214,6 +4547,7 @@ msgid "Перетягніть файл у вікно або натисніть �
 msgstr "Drag a file into the window or click the button above"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Період"
 msgstr "Period"
 
@@ -4412,6 +4746,10 @@ msgstr "Back to the list"
 msgid "Повернуто стандартний аватар"
 msgstr "Default avatar restored"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Повна зайнятість"
+msgstr "Full-time"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -4454,6 +4792,14 @@ msgstr "Show password"
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
 msgstr "Only an admin or an accountant can see the “total earned” figure"
 
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Поки немає вакансій"
+msgstr "No vacancies yet"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Поки немає відгуків"
+msgstr "No applications yet"
+
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Покинути"
 msgstr "Leave"
@@ -4462,6 +4808,10 @@ msgstr "Leave"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Покинути вкладку «{0}»?"
 msgstr "Leave the “{0}” tab?"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
+msgid "помилка"
+msgstr "error"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Помилка завантаження балансу"
@@ -4491,10 +4841,19 @@ msgstr "PDF preview"
 msgid "Попередній перегляд контракту"
 msgstr "Contract preview"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
+msgid "Попередній перегляд недоступний для цього формату файлу — завантажте, щоб відкрити."
+msgstr "Preview is unavailable for this file format — download it to open."
+
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Попередній перегляд персонального контракту"
 msgstr "Personal contract preview"
+
+#. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
+msgid "Попередній перегляд резюме кандидата {0}"
+msgstr "Resume preview for {0}"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд умов"
@@ -4678,6 +5037,10 @@ msgstr "The senior can't be removed from a team — delete the team instead"
 msgid "ПриватБанк"
 msgstr "PrivatBank"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "Придумайте коротку URL-адресу (латиниця, цифри, дефіс)."
+msgstr "Come up with a short URL (Latin letters, digits, hyphen)."
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.JOIN_DROP_TEAM_SENIOR_ONLY"
@@ -4847,6 +5210,10 @@ msgstr "Your projects as senior"
 msgid "Проєктів не оплачено цього місяця"
 msgstr "Projects unpaid this month"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Проєктна робота"
+msgstr "Contract"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.APPROVAL_REJECTED.title"
@@ -4980,6 +5347,10 @@ msgstr "The invoice is already signed"
 msgid "api-error.INVOICE_NOT_GENERATED_YET"
 msgstr "The invoice hasn't been generated yet — try again later"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Редагування вакансії"
+msgstr "Editing the vacancy"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Edit the team's name, Telegram link and notes."
@@ -4988,6 +5359,7 @@ msgstr "Edit the team's name, Telegram link and notes."
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Редагувати"
 msgstr "Edit"
 
@@ -4996,6 +5368,11 @@ msgstr "Edit"
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Редагувати {0}"
 msgstr "Edit {0}"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Редагувати вакансію"
+msgstr "Edit vacancy"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Редагувати команду"
@@ -5042,6 +5419,11 @@ msgstr "resume"
 msgid "Резюме"
 msgstr "Resume"
 
+#. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
+msgid "Резюме — {0}"
+msgstr "Resume — {0}"
+
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Резюме — {name}.pdf"
 msgstr "Resume — {name}.pdf"
@@ -5053,6 +5435,10 @@ msgstr "Resume is queued for recognition"
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме видалено"
 msgstr "Resume deleted"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Резюме видалено (минув термін зберігання)"
+msgstr "Resume deleted (retention period expired)"
 
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме збережено"
@@ -5112,6 +5498,10 @@ msgstr "Payment details updated"
 msgid "Рівень"
 msgstr "Level"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Рік"
+msgstr "Year"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.approvalSuperseded"
@@ -5165,6 +5555,10 @@ msgstr "The work email must be different from the personal email"
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.employeeEmail"
 msgstr "Employee's work email"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
+msgid "Робочі години"
+msgstr "Working hours"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
@@ -5310,6 +5704,11 @@ msgstr "Cancelled"
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
 msgid "Скасувати"
 msgstr "Cancel"
 
@@ -5476,13 +5875,21 @@ msgid "Старий:"
 msgstr "Old:"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Статистика"
 msgstr "Statistics"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Статус"
 msgstr "Status"
+
+#. placeholder {0}: application.fullName
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Статус відгуку кандидата {0}"
+msgstr "Application status for {0}"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
@@ -5503,6 +5910,10 @@ msgstr "Create or edit a user"
 msgid "api-error.DROP_CREATE_ADMIN_ONLY"
 msgstr "Only an admin can create a drop"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Створення нової вакансії"
+msgstr "Creating a new vacancy"
+
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Створення…"
 msgstr "Creating…"
@@ -5512,9 +5923,15 @@ msgstr "Creating…"
 msgid "Створено {0}"
 msgstr "Created {0}"
 
+#. placeholder {0}: formatDate(vacancy.createdAt, locale, 'long')
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Створено: {0}"
+msgstr "Created: {0}"
+
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Створити"
 msgstr "Create"
 
@@ -5528,6 +5945,12 @@ msgstr "Create or choose a team"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.ADMIN_CREATION_FORBIDDEN"
 msgstr "You can't create an admin — the pool is fixed"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Створити вакансію"
+msgstr "Create vacancy"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
@@ -5543,6 +5966,10 @@ msgstr "A drop can't be created this way"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Створити новий проєкт на основі співбесіди «{0}»?"
 msgstr "Create a new project based on the interview “{0}”?"
+
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Створити першу вакансію"
+msgstr "Create the first vacancy"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Створити проєкт"
@@ -5565,6 +5992,10 @@ msgstr "Create your own team"
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Створити сеньйора"
 msgstr "Create senior"
+
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Створіть першу вакансію, щоб почати приймати відгуки кандидатів. Вона з’явиться в розділі «Вакансії» на сайті після публікації."
+msgstr "Create the first vacancy to start receiving candidate applications. It will appear in the “Vacancies” section on the site after publishing."
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Створіть свою команду або приєднайтеся до команди дропа, щоб повернути доступ до проєктів і співбесід"
@@ -5672,6 +6103,10 @@ msgstr "The senior's and drop's shares add up to more than 100%"
 msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
 msgstr "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction"
 
+#: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
+msgid "Супровідний лист"
+msgstr "Cover letter"
+
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Схоже, у файлі немає текстового шару (скан або картинка). Вставте текст резюме — розпізнавання спрацює так само."
 msgstr "It looks like the file has no text layer (a scan or an image). Paste the resume text — recognition will work the same way."
@@ -5737,6 +6172,10 @@ msgstr "Technical"
 msgid "Технології"
 msgstr "Tech stack"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Тиждень"
+msgstr "Week"
+
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Тип"
@@ -5745,6 +6184,10 @@ msgstr "Type"
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Тип {mimeType} не підтримується. Можна завантажити PNG, JPEG або WebP"
 msgstr "Type {mimeType} is not supported. You can upload PNG, JPEG or WebP"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
+msgid "Тип зайнятості"
+msgstr "Employment type"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Тип команди"
@@ -6001,6 +6444,15 @@ msgstr "Everything awaiting a decision"
 msgid "Усі"
 msgstr "All"
 
+#. placeholder {0}: applications.length
+#. placeholder {0}: counts.ALL
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Усі ({0})"
+msgstr "All ({0})"
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Усі поля заповнено"
 msgstr "All fields are filled in"
@@ -6094,6 +6546,16 @@ msgstr "No file was received — choose a file and try again"
 msgid "Файл резюме"
 msgstr "Resume file"
 
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Фільтр вакансій за статусом"
+msgstr "Vacancy status filter"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+msgid "Фільтр відгуків за статусом"
+msgstr "Application status filter"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Фільтр команд"
 msgstr "Team filter"
@@ -6137,6 +6599,11 @@ msgstr "Sole proprietor (UAH)"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "ФОП / гіг-контракт / USDT"
 msgstr "FOP / gig contract / USDT"
+
+#: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancySheet.tsx
+msgid "Форма містить помилки"
+msgstr "The form contains errors"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Формат файлу не підтримується."
@@ -6360,6 +6827,10 @@ msgstr "Employee's share, % (senior/drop)"
 msgid "Частка: {0}%"
 msgstr "Share: {0}%"
 
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
+msgid "Часткова зайнятість"
+msgstr "Part-time"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
@@ -6389,9 +6860,20 @@ msgstr "Awaiting decision"
 msgid "через 3 місяці"
 msgstr "in 3 months"
 
+#. placeholder {0}: counts.DRAFT
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Черн. ({0})"
+msgstr "Draft ({0})"
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
+#: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Чернетка"
 msgstr "Draft"
+
+#. placeholder {0}: counts.DRAFT
+#: apps/web/app/routes/_authenticated/vacancies/index.tsx
+msgid "Чернетки ({0})"
+msgstr "Drafts ({0})"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Читання файлу…"
@@ -6401,6 +6883,10 @@ msgstr "Reading the file…"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Contract template not found"
+
+#: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
+msgid "Ще дії"
+msgstr "More actions"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Щільність"

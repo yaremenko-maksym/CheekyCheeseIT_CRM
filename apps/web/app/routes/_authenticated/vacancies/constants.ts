@@ -2,9 +2,16 @@
  * task-crm-vacancies-ui — labels / colors / small pure helpers shared by the
  * list route, detail route and the card components. Kept separate from the
  * route files so tests can import (slug generation, label maps) without
- * mounting the full page. Русский UI everywhere EXCEPT domain badges and
- * seniority (spec §0 / §3.5 / §3.6 — deliberate exceptions, not oversights).
+ * mounting the full page.
+ *
+ * task-i18n-stage3c-pr2 — every label map below is `uk`/`en` through the
+ * Lingui catalog (`Record<…, MessageDescriptor>`, resolved via `i18n._()`)
+ * EXCEPT `DOMAIN_LABELS` and `SENIORITY_LABELS` (spec §3.4 / §3.6 —
+ * deliberate exceptions: industry-term/grade proper nouns, not oversights).
  */
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
 import type { z } from 'zod'
 import type {
   CreateVacancyInput,
@@ -28,12 +35,16 @@ import { VACANCY_DOMAINS, VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
 // never a new tab/field wired by hand.
 // ---------------------------------------------------------------------------
 
+// language names, not UI copy: a language never needs translating into
+// itself (same convention as LanguageSection.tsx's LOCALE_LABELS).
+/* eslint-disable lingui/no-unlocalized-strings -- language names, not UI copy (see comment above) */
 export const VACANCY_TRANSLATION_LOCALE_LABELS: Record<VacancyTranslationLocale, string> = {
   uk: 'Українська',
   ru: 'Русский',
   es: 'Español',
   pt: 'Português',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 // ---------------------------------------------------------------------------
 // task-vacancy-i18n-jobposting — form <-> DTO conversion for translations
@@ -250,9 +261,11 @@ export function getVacancyPublishGate(
     vacancy.salaryPeriod != null
   return {
     canPublish: hasSalaryRange,
-    tooltip: 'Укажите вилку зарплаты в форме редактирования перед публикацией',
+    tooltip: i18n._(PUBLISH_GATE_TOOLTIP),
   }
 }
+
+const PUBLISH_GATE_TOOLTIP = msg`Вкажіть вилку зарплати у формі редагування перед публікацією`
 
 // ---------------------------------------------------------------------------
 // design-review round 1 (PR #422, HIGH-2) — shared Zod-issue → Russian
@@ -264,22 +277,65 @@ export function getVacancyPublishGate(
 // Zod's default `.message` is raw English ("Invalid string: must match
 // pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
 // characters") — leaking that straight into the UI violates the project's
-// hard "always Russian UI" rule (rules/common/russian-language.md). Maps the
-// small set of issue codes these fields can actually produce (regex/min/max
-// on plain strings) to Russian text instead of relying on the schema's
-// message. `patternMsg` lets a field give a field-specific hint (e.g. slug's
-// "латиница/цифры/дефис") instead of a generic "неверный формат".
+// hard "always uk/en UI" rule (rules/common/russian-language.md's successor).
+// Maps the small set of issue codes these fields can actually produce
+// (regex/min/max on plain strings) to catalog text instead of relying on the
+// schema's message. `patternMsg` lets a field give a field-specific hint
+// (e.g. slug's "lowercase latin/digits/hyphen") instead of a generic
+// "invalid format" — the CALLER resolves that one through its own
+// `useLingui()` (`t` macro), since it's typed at the call site, not here.
+//
+// task-i18n-stage3c-pr2 (shape J) — `too_small`/`too_big` carry the character
+// count as an ICU plural (`uk` needs `one`/`few`/`many`/`other`); resolved
+// through the module-level `i18n` singleton — same convention as
+// `axios-utils.ts`'s `messageForStatus`: a plain function called inline
+// during render (not a hook), so there is no `useLingui()` to read here.
+//
+// fix-round A (CI-CATALOG) — `i18n._({ ...TOO_SMALL_MSG, values: {...} })`
+// crashes `lingui extract`'s babel plugin (`extractFromObjectExpression`
+// reads `.key.name` off every property, including the `SpreadElement`,
+// which has none — "Cannot read properties of undefined (reading 'name')").
+// `axios-utils.ts`'s `translateApiError`/`translateZodError` already
+// document this exact trap and use the id/values/options triple instead —
+// same fix here.
 // ---------------------------------------------------------------------------
+
+const TOO_SMALL_MSG = msg`{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}`
+const TOO_BIG_MSG = msg`{n, plural, one {Максимум # символ} few {Максимум # символи} many {Максимум # символів} other {Максимум # символа}}`
+const INVALID_FORMAT_MSG = msg`Неприпустимий формат`
+const INVALID_VALUE_MSG = msg`Неприпустиме значення`
+
+// `MessageOptions.message` is `message?: string` — under
+// `exactOptionalPropertyTypes`, an omitted key and an explicit `undefined`
+// are different types, so `{ message: descriptor.message }` doesn't
+// type-check even though `msg` always sets it — same guard as
+// `axios-utils.ts`'s `translateApiError`/`translateZodError`.
+//
+// fix-round A (CI-MUT) — every call site passes a `msg` descriptor's
+// `.message`, which the macro always fills in, so `message` is never
+// actually `undefined` in this codebase; the fallback branch (`{message}`
+// forced to always/never render) is unobservable through any test that
+// loads a real catalog, because `i18n._`'s own third argument is only ever
+// consulted as a raw string fallback when the catalog lookup itself fails —
+// which none of our tests do on purpose (that would defeat the point of
+// asserting the actual rendered catalog text).
+// Stryker disable next-line BlockStatement: emptying this function's body always returns `undefined` — same fallback-only reasoning as the `return` line below
+function messageOptions(message: string | undefined): { message: string } | undefined {
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,ObjectLiteral: fallback-only branch, unreachable with a loaded catalog — see comment above
+  return message !== undefined ? { message } : undefined
+}
 
 export function zodIssueRu(
   issue: z.core.$ZodIssue | undefined,
   patternMsg?: string,
 ): string | undefined {
   if (!issue) return undefined
-  if (issue.code === 'too_small' && 'minimum' in issue) return `Минимум ${issue.minimum} символов`
-  if (issue.code === 'too_big' && 'maximum' in issue) return `Максимум ${issue.maximum} символов`
-  if (issue.code === 'invalid_format') return patternMsg ?? 'Недопустимый формат'
-  return 'Недопустимое значение'
+  if (issue.code === 'too_small' && 'minimum' in issue)
+    return i18n._(TOO_SMALL_MSG.id, { n: issue.minimum }, messageOptions(TOO_SMALL_MSG.message))
+  if (issue.code === 'too_big' && 'maximum' in issue)
+    return i18n._(TOO_BIG_MSG.id, { n: issue.maximum }, messageOptions(TOO_BIG_MSG.message))
+  if (issue.code === 'invalid_format') return patternMsg ?? i18n._(INVALID_FORMAT_MSG)
+  return i18n._(INVALID_VALUE_MSG)
 }
 
 // ---------------------------------------------------------------------------
@@ -331,7 +387,7 @@ export function buildVacancyDto(value: VacancyDtoFormValues) {
  * invisible even if the user DID look at the form.
  *
  * Turns a failed `safeParse` into:
- *   - `fields`: a `{ 'translations.uk.title': 'Минимум 3 символа', ... }` map
+ *   - `fields`: a `{ 'translations.uk.title': 'Мінімум 3 символи', ... }` map
  *     (dot-path keyed, matching nested field names) — consumed by
  *     `computeVacancySubmitErrors` below.
  *   - `firstTranslationLocale`: which locale (if any) the FIRST issue
@@ -355,7 +411,7 @@ export function collectVacancyValidationErrors(
   let firstTranslationLocale: VacancyTranslationLocale | null = null
   for (const issue of parsed.error.issues) {
     const path = issue.path.join('.')
-    if (!(path in fields)) fields[path] = zodIssueRu(issue) ?? 'Недопустимое значение'
+    if (!(path in fields)) fields[path] = zodIssueRu(issue) ?? i18n._(INVALID_VALUE_MSG)
     if (
       !firstTranslationLocale &&
       issue.path[0] === 'translations' &&
@@ -424,7 +480,10 @@ export function computeVacancySubmitErrors(
 
 /**
  * Latin on purpose (spec §3.4 — domain names are industry terms, unlike
- * `EMPLOYMENT_TYPE_LABELS` which are ordinary Russian words). The map is
+ * `EMPLOYMENT_TYPE_LABEL_MESSAGES` which are ordinary translated words). Not
+ * a `MessageDescriptor` map, not translated (task-i18n-stage3c-pr2, canon
+ * table "Домены вакансий") — proper-noun industry terms, same in every
+ * language. The map is
  * `Record<VacancyDomain, …>`, so adding a value to `VACANCY_DOMAINS`
  * (`@crm/shared`) fails typecheck here until it has a label — the compiler,
  * not a reviewer, is what keeps a new domain from rendering as a raw
@@ -487,7 +546,11 @@ export function domainDotColor(domain: VacancyDomain): string | null {
 
 // ---------------------------------------------------------------------------
 // §3.6 — seniority stays latin (public job-title convention, not an internal
-// CRM role — do not confuse with RoleSelect's SENIOR → «Синьор» translation).
+// CRM role — do not confuse with RoleSelect's SENIOR → «Сеньйор» translation).
+// task-i18n-stage3c-pr2 (canon table, "Уровни") — proper-noun grades, same on
+// every language, same treatment as `DOMAIN_LABELS` above. NOT translated,
+// NOT a `MessageDescriptor` map — the guard on `[ыэъё]` doesn't touch these
+// either way (no such letters in "Senior"/"Lead").
 // ---------------------------------------------------------------------------
 
 export const SENIORITY_LABELS: Record<VacancySeniority, string> = {
@@ -496,38 +559,45 @@ export const SENIORITY_LABELS: Record<VacancySeniority, string> = {
 }
 
 // ---------------------------------------------------------------------------
-// §4.2 — employment type IS translated (ordinary Russian words, no clash).
+// §4.2 — employment type IS translated (ordinary words, no proper-noun
+// clash — unlike SENIORITY_LABELS/DOMAIN_LABELS above).
+// task-i18n-stage3c-pr2 (shape G) — `Record<…, MessageDescriptor>`,
+// `satisfies` WITHOUT `as const` (Stryker, see constants.ts module doc in
+// interviews/constants.ts for the exact 0-mutant trap this avoids).
 // ---------------------------------------------------------------------------
 
-export const EMPLOYMENT_TYPE_LABELS: Record<VacancyEmploymentType, string> = {
-  FULL_TIME: 'Полная занятость',
-  PART_TIME: 'Частичная занятость',
-  CONTRACT: 'Проектная работа',
-}
+export const EMPLOYMENT_TYPE_LABEL_MESSAGES = {
+  FULL_TIME: msg`Повна зайнятість`, // en: Full-time
+  PART_TIME: msg`Часткова зайнятість`, // en: Part-time
+  CONTRACT: msg`Проєктна робота`, // en: Contract
+} satisfies Record<VacancyEmploymentType, MessageDescriptor>
 
 // ---------------------------------------------------------------------------
-// task-vacancy-salary-range — period Select labels (Russian, translated —
-// same convention as EMPLOYMENT_TYPE_LABELS above). Currency codes are shown
-// verbatim (USDT/USD/EUR/UAH) — universal codes, not translated.
+// task-vacancy-salary-range — period Select labels (translated — same
+// convention as EMPLOYMENT_TYPE_LABEL_MESSAGES above). Currency codes are
+// shown verbatim (USDT/USD/EUR/UAH) — universal codes, not translated.
 // ---------------------------------------------------------------------------
 
-export const SALARY_PERIOD_LABELS: Record<VacancySalaryPeriod, string> = {
-  HOUR: 'Час',
-  DAY: 'День',
-  WEEK: 'Неделя',
-  MONTH: 'Месяц',
-  YEAR: 'Год',
-}
+export const SALARY_PERIOD_LABEL_MESSAGES = {
+  HOUR: msg`Година`, // en: Hour
+  DAY: msg`День`, // en: Day
+  WEEK: msg`Тиждень`, // en: Week
+  MONTH: msg`Місяць`, // en: Month
+  YEAR: msg`Рік`, // en: Year
+} satisfies Record<VacancySalaryPeriod, MessageDescriptor>
 
 // ---------------------------------------------------------------------------
 // §3.5 — vacancy status: label + badge variant + optional className override
+// task-i18n-stage3c-pr2 (COPY-M-proj-7) — gender agrees with «вакансія»
+// (feminine): «Опублікована», «Закрита» — not the neuter participle a
+// literal port of the old Russian text would give.
 // ---------------------------------------------------------------------------
 
-export const VACANCY_STATUS_LABELS: Record<VacancyStatus, string> = {
-  DRAFT: 'Черновик',
-  PUBLISHED: 'Опубликовано',
-  CLOSED: 'Закрыто',
-}
+export const VACANCY_STATUS_LABEL_MESSAGES = {
+  DRAFT: msg`Чернетка`, // en: Draft
+  PUBLISHED: msg`Опублікована`, // en: Published
+  CLOSED: msg`Закрита`, // en: Closed
+} satisfies Record<VacancyStatus, MessageDescriptor>
 
 export const VACANCY_STATUS_BADGE: Record<
   VacancyStatus,
@@ -557,23 +627,30 @@ export function getVacancyDeleteGate(
   vacancy: Pick<Vacancy, 'status' | 'applicationsCount'>,
 ): VacancyDeleteGate {
   if (vacancy.status === 'PUBLISHED') {
-    return { canDelete: false, tooltip: 'Опубликованную вакансию нужно сначала закрыть' }
+    return { canDelete: false, tooltip: i18n._(DELETE_GATE_CLOSE_FIRST_TOOLTIP) }
   }
   return {
     canDelete: vacancy.applicationsCount === 0,
-    tooltip: 'Нельзя удалить вакансию с откликами',
+    tooltip: i18n._(DELETE_GATE_HAS_APPLICATIONS_TOOLTIP),
   }
 }
 
+const DELETE_GATE_CLOSE_FIRST_TOOLTIP = msg`Опубліковану вакансію потрібно спочатку закрити`
+const DELETE_GATE_HAS_APPLICATIONS_TOOLTIP = msg`Неможливо видалити вакансію з відгуками`
+
 // ---------------------------------------------------------------------------
 // §3.5 — application status: label + SegmentedToggle option order
+// task-i18n-stage3c-pr2 (COPY-M-proj-7) — gender agrees with «відгук»
+// (masculine): «Переглянутий», «Відхилений» — not the neuter participle a
+// literal port of the old Russian text would give; avoids the abbreviated
+// «Откл.»/«Просм.» forms flagged by COPY-M-proj-11 too (canon table).
 // ---------------------------------------------------------------------------
 
-export const APPLICATION_STATUS_LABELS: Record<VacancyApplicationStatus, string> = {
-  NEW: 'Новый',
-  VIEWED: 'Просмотрено',
-  REJECTED: 'Отклонено',
-}
+export const APPLICATION_STATUS_LABEL_MESSAGES = {
+  NEW: msg`Новий`, // en: New
+  VIEWED: msg`Переглянутий`, // en: Viewed
+  REJECTED: msg`Відхилений`, // en: Rejected
+} satisfies Record<VacancyApplicationStatus, MessageDescriptor>
 
 export const APPLICATION_STATUS_ORDER: readonly VacancyApplicationStatus[] = [
   'NEW',
