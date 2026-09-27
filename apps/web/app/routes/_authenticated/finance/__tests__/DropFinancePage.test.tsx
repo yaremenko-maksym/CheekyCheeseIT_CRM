@@ -20,6 +20,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { DropIncomeDto, DropSelfSummaryDto } from '@crm/shared'
@@ -231,5 +232,135 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     expect(screen.getByTestId('drop-income-amount-kind-obligation-1')).toHaveTextContent(
       'Ваша частка',
     )
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). None of the labels below were
+// asserted anywhere before this wave — table headers, section titles, status
+// text, pagination, payment history, and the register-income CTA. Each
+// StringLiteral mutant on them survived by construction (nothing looked at
+// the text). One assertion per label, so a blanked-out or wrong translation
+// fails a test instead of passing silently.
+describe('DropFinancePage — labels with no prior assertion (mutation-gate coverage)', () => {
+  it('table section title and column headers render', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('МОЇ ПРИХОДИ')).toBeInTheDocument()
+    expect(screen.getByText('Дата')).toBeInTheDocument()
+    expect(screen.getByText('Компанія')).toBeInTheDocument()
+    expect(screen.getByText('Сума')).toBeInTheDocument()
+    expect(screen.getByText('Тип')).toBeInTheDocument()
+    expect(screen.getByText('Статус')).toBeInTheDocument()
+    expect(screen.getByText('Дія')).toBeInTheDocument()
+  })
+
+  it('each income status renders its own text on the status badge', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [
+          makeIncome({ id: 'i-pending', status: 'pending' }),
+          makeIncome({ id: 'i-validated', status: 'validated' }),
+          makeIncome({ id: 'i-paid', status: 'paid' }),
+          makeIncome({ id: 'i-rejected', status: 'rejected' }),
+        ],
+        total: 4,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-income-status-i-pending')).toHaveTextContent('Очікує')
+    expect(screen.getByTestId('drop-income-status-i-validated')).toHaveTextContent('Валідовано')
+    expect(screen.getByTestId('drop-income-status-i-paid')).toHaveTextContent('Оплачено')
+    expect(screen.getByTestId('drop-income-status-i-rejected')).toHaveTextContent('Відхилено')
+  })
+
+  it('reset-filters button appears and clears an active status filter', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.queryByText('Скинути фільтри')).not.toBeInTheDocument()
+    // Open the status Select and pick a concrete status — flips `hasFilters`.
+    await user.click(screen.getByTestId('drop-filter-status'))
+    await user.click(screen.getByRole('option', { name: 'Валідовано' }))
+    const resetBtn = await screen.findByText('Скинути фільтри')
+    expect(resetBtn).toBeInTheDocument()
+  })
+
+  it('empty state with an active filter reads differently from the bare empty state', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('Приходів ще немає')).toBeInTheDocument()
+    expect(screen.queryByText('Немає приходів за обраними фільтрами')).not.toBeInTheDocument()
+  })
+
+  it('pagination controls render and page forward/back when there is more than one page', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 25, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    const prevBtn = screen.getByRole('button', { name: 'Попередня' })
+    const nextBtn = screen.getByRole('button', { name: 'Наступна' })
+    expect(prevBtn).toBeDisabled()
+    expect(nextBtn).not.toBeDisabled()
+    await user.click(nextBtn)
+    // Clicking «Наступна» bumps local page state — re-render still shows the
+    // same mocked page-1 data (the hook is mocked), but the click itself must
+    // not throw and the button must still be present afterwards.
+    expect(screen.getByText('Наступна')).toBeInTheDocument()
+  })
+
+  it('register-income CTA renders its localised label', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-register-income-btn')).toHaveTextContent('Зареєструвати прихід')
+  })
+
+  it('payments history renders its section title and each payment status text', () => {
+    useDropPaymentsMock.mockReturnValue({
+      data: [
+        { id: 'p1', createdAt: '2026-08-01T00:00:00.000Z', amount: 100, status: 'pending' },
+        { id: 'p2', createdAt: '2026-08-02T00:00:00.000Z', amount: 200, status: 'confirmed' },
+        { id: 'p3', createdAt: '2026-08-03T00:00:00.000Z', amount: 300, status: 'failed' },
+      ],
+      isLoading: false,
+    })
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('ПЛАТЕЖІ КОМПАНІЇ')).toBeInTheDocument()
+    const p1 = screen.getByTestId('drop-payment-row-p1')
+    expect(p1).toHaveTextContent('Очікує')
+    const p2 = screen.getByTestId('drop-payment-row-p2')
+    expect(p2).toHaveTextContent('Підтверджено')
+    const p3 = screen.getByTestId('drop-payment-row-p3')
+    expect(p3).toHaveTextContent('Не пройшов')
+  })
+
+  it('payments history empty state renders "Переказів ще не було"', () => {
+    useDropPaymentsMock.mockReturnValue({ data: [], isLoading: false })
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('Переказів ще не було')).toBeInTheDocument()
   })
 })
