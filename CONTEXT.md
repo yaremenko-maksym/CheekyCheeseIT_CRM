@@ -308,7 +308,7 @@ copy-review круга 1 PR #706 (COPY-L-2): на момент этого PR э�
 | `TYPE_LABELS.ADMIN_INCOME`           | Прихід адміна                              | Admin income                            | «Прихід Admin» (латиниця)                                     |
 | `TYPE_LABELS.ADMIN_INCOME_CASH`      | Прихід адміна (готівка)                    | Admin income (cash)                     | «Прихід Admin (наличные)»                                     |
 | `TYPE_LABELS.ADMIN_INCOME_CRYPTO`    | Прихід адміна (USDT)                       | Admin income (USDT)                     | «крипто» як синонім USDT                                      |
-| `TYPE_LABELS.DIVIDEND_TO_ADMIN`      | Дивіденди адміну                           | Dividend to admin                       | «Дивіденди Admin»                                             |
+| `TYPE_LABELS.DIVIDEND_TO_ADMIN`      | Дивіденди адміну                           | Dividends to admin                      | «Дивіденди Admin»                                             |
 | `TYPE_LABELS.TOV_INCOME`             | Прихід (архів)                             | Income (archived)                       | «Прихід ТОВ» (легасі-значення)                                |
 | `TYPE_DESCRIPTIONS.DROP_INCOME`      | Дохід дропа з проєкту                      | Drop income from a project              | «дохід дропа з drop-проєкту» (латиниця)                       |
 | `STATUS_LABELS.PENDING`              | Очікує валідації                           | Awaiting validation                     | «Очікує» без об’єкта                                          |

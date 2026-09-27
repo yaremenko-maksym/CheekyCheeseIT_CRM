@@ -15,7 +15,13 @@ import { describe, expect, it } from 'vitest'
 import { i18n } from '@lingui/core'
 import { loadCatalog } from '@/test/i18n'
 import type { TransactionType, TransactionStatus } from '@crm/shared'
-import { TYPE_LABEL_MESSAGES, STATUS_LABEL_MESSAGES, fmtUsd, fmtDate } from '../constants'
+import {
+  TYPE_LABEL_MESSAGES,
+  STATUS_LABEL_MESSAGES,
+  CASCADE_BLOCKED_REASON_OWN_MESSAGES,
+  fmtUsd,
+  fmtDate,
+} from '../constants'
 
 const TYPE_EXPECTED: Record<TransactionType, [uk: string, en: string]> = {
   ADMIN_INCOME: ['Прихід адміна', 'Admin income'],
@@ -125,6 +131,36 @@ describe('STATUS_LABEL_MESSAGES — every transaction status, uk + en', () => {
     ][]) {
       expect(i18n._(STATUS_LABEL_MESSAGES[status])).toBe(en)
     }
+  })
+})
+
+// FIX-CASCADE-1 (fix-round, PR #730 mutation-gate follow-up): not yet wired
+// into `cascadeBlockedReasonMessage()` (see the deprecation note on
+// `CASCADE_BLOCKED_REASON_MESSAGES` in constants.ts), but the module-level
+// `satisfies Record<..., MessageDescriptor>` literal is still evaluated at
+// import time by every test that imports `constants.ts` — an emptied object
+// or an emptied `msg` template inside it survives every test in this repo
+// UNLESS something reads its actual translated text, exactly the class of
+// mutant this file exists to kill for its siblings above.
+describe('CASCADE_BLOCKED_REASON_OWN_MESSAGES — uk + en', () => {
+  it('uk', async () => {
+    await loadCatalog('uk')
+    expect(i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES.PAYOUT_FAMILY)).toBe(
+      'Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією',
+    )
+    expect(i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES.LINKED_TO_PAYOUT_REQUEST)).toBe(
+      'Рядок включено до оформленої заявки на виплату — сума вже увійшла до розрахунку переказу, виправляйте сторнувальною транзакцією',
+    )
+  })
+
+  it('en', async () => {
+    await loadCatalog('en')
+    expect(i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES.PAYOUT_FAMILY)).toBe(
+      'This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction',
+    )
+    expect(i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES.LINKED_TO_PAYOUT_REQUEST)).toBe(
+      'The row is included in a submitted payout request — the amount is already part of the transfer calculation, fix it with a reversing transaction',
+    )
   })
 })
 
