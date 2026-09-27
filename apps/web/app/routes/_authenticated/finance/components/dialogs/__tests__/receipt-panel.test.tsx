@@ -76,7 +76,14 @@ describe('ReceiptPanel — external PDF / http:// (blocked embed → honest card
     expect(screen.getByTestId('receipt-panel-external')).toBeInTheDocument()
     expect(document.querySelector('object')).toBeNull()
     expect(document.querySelector('iframe')).toBeNull()
+    expect(
+      screen.getByText('Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці'),
+    ).toBeInTheDocument()
     const links = screen.getAllByRole('link', { name: /відкрити чек|чек зберігається/i })
+    // Two links: the external card itself + the bottom "Відкрити чек" link —
+    // an empty caption would silently drop one from this query without
+    // failing the loop below.
+    expect(links).toHaveLength(2)
     for (const link of links) {
       expect(link).toHaveAttribute('href', tx.receiptExternalUrl)
       expect(link).toHaveAttribute('target', '_blank')
@@ -195,6 +202,7 @@ describe('ReceiptPanel — own (presigned) receipts still preview inline (regres
       'data',
       'https://acct.r2.cloudflarestorage.com/bucket/key.pdf?X-Amz-Signature=abc',
     )
+    expect(screen.getByText('Браузер не підтримує перегляд PDF.')).toBeInTheDocument()
   })
 
   it('renders the "Чек" section header and the bottom "Відкрити чек" link', () => {
