@@ -196,4 +196,44 @@ describe('ReceiptPanel — own (presigned) receipts still preview inline (regres
       'https://acct.r2.cloudflarestorage.com/bucket/key.pdf?X-Amz-Signature=abc',
     )
   })
+
+  it('renders the "Чек" section header and the bottom "Відкрити чек" link', () => {
+    useDocumentDownloadUrlMock.mockReturnValue({
+      data: { url: 'https://acct.r2.cloudflarestorage.com/bucket/key.png?X-Amz-Signature=abc' },
+      isLoading: false,
+    })
+    const tx = {
+      ...BASE_TX,
+      receiptDocumentId: 'doc-1',
+      receiptExternalUrl: null,
+    } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Чек')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Відкрити чек/i })).toBeInTheDocument()
+  })
+
+  it('an unrecognised own file type shows "Попередній перегляд недоступний"', () => {
+    useDocumentDownloadUrlMock.mockReturnValue({
+      data: { url: 'https://acct.r2.cloudflarestorage.com/bucket/key.zip?X-Amz-Signature=abc' },
+      isLoading: false,
+    })
+    const tx = {
+      ...BASE_TX,
+      receiptDocumentId: 'doc-3',
+      receiptExternalUrl: null,
+    } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Попередній перегляд недоступний')).toBeInTheDocument()
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). The "no receipt attached"
+// placeholder was never rendered by any existing test — every fixture above
+// sets `receiptDocumentId` or `receiptExternalUrl`.
+describe('ReceiptPanel — no receipt attached', () => {
+  it('shows "Немає прикріпленого чека" when neither field is set', () => {
+    const tx = { ...BASE_TX, receiptDocumentId: null, receiptExternalUrl: null } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Немає прикріпленого чека')).toBeInTheDocument()
+  })
 })
