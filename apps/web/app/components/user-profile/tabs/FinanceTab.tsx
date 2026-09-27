@@ -20,8 +20,8 @@ import { useAuth } from '@/context/auth'
 import { formatAmount } from '@/lib/format-amount'
 import { financeApi } from '@/routes/_authenticated/finance/api'
 import {
-  STATUS_LABELS,
-  TYPE_LABELS,
+  STATUS_LABEL_MESSAGES,
+  TYPE_LABEL_MESSAGES,
   type ExchangeRates,
 } from '@/routes/_authenticated/finance/constants'
 import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
@@ -43,7 +43,7 @@ import { TransactionDetailDialog } from '@/routes/_authenticated/finance/compone
 const EARNED_TARGET_ROLES: ReadonlyArray<Role> = ['SENIOR', 'DROP', 'JUNIOR', 'HR']
 
 export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?: Role }) {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   // Unreachable placeholders — `typeFilter`/`statusFilter` are initialised
   // to 'all', which always has a matching SelectItem, so Radix shows the
   // item's own label, never these placeholders (only shown for an
@@ -103,12 +103,16 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   const [statusFilter, setStatusFilter] = useState('all')
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
 
-  // task-i18n-stage3b (Task 1), Step 7 — moved off the module level: `wave (d)`
-  // still owns `finance/constants.ts` and its two legacy Russian maps
-  // (`TYPE_LABELS`/`STATUS_LABELS`) — this wave reads them as-is (see plan's
-  // "Опасность: карты финансов"), only the derived array now lives inside the
-  // component so a future locale-aware `TYPE_LABELS` doesn't need a module-
-  // level freeze here.
+  // task-i18n-stage3d-pr1 (Task 1, Step 6, template G-fin). `TYPE_LABELS`/
+  // `STATUS_LABELS` (plain Russian string maps) are replaced by
+  // `TYPE_LABEL_MESSAGES`/`STATUS_LABEL_MESSAGES` (`Record<…,
+  // MessageDescriptor>`, `finance/constants.ts`) — the lookup happens INSIDE
+  // this component via `i18n._()`, never at module level (a module-level
+  // `i18n._()` call would freeze the label at whatever locale was active on
+  // first import; see that file's own `activeLocale()` doc). `i18n` is
+  // included in this `useMemo`'s deps precisely so a live locale switch
+  // recomputes the option list instead of keeping the label text of
+  // whichever locale was active when this component first mounted.
   // The derived list is only observable by OPENING the Radix Select and
   // enumerating its portalled `SelectItem`s — Radix listens for real
   // pointer-capture events (`pointerdown` + `hasPointerCapture`) to open,
@@ -116,15 +120,23 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   // `fireEvent.pointerDown` on the trigger both leave `data-state="closed"`
   // in this test environment (verified: every `*.test.tsx` in this repo
   // that touches a Radix `<Select>` only ever asserts the CLOSED trigger's
-  // text/disabled state, never an opened option list). The `[]` deps
-  // mutant is additionally unobservable on first render regardless
-  // (useMemo always computes once on mount).
-  // prettier-ignore
-  // Stryker disable next-line ArrowFunction,ArrayDeclaration: see comment above — one line so the directive's "next-line" covers both the arrow body AND the [] deps mutant (Stryker matches by the enclosing statement's start line, not the comment's own line)
-  const TYPE_OPTIONS = useMemo(() => Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label })), [])
-  // prettier-ignore
-  // Stryker disable next-line ArrowFunction,ArrayDeclaration: same reasoning as TYPE_OPTIONS above
-  const STATUS_OPTIONS = useMemo(() => Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label })), [])
+  // text/disabled state, never an opened option list).
+  const TYPE_OPTIONS = useMemo(
+    () =>
+      Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({
+        value,
+        label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
+      })),
+    [i18n],
+  )
+  const STATUS_OPTIONS = useMemo(
+    () =>
+      Object.keys(STATUS_LABEL_MESSAGES).map((value) => ({
+        value,
+        label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
+      })),
+    [i18n],
+  )
 
   // Pre-parse timestamps once per transactions change — avoids constructing new
   // Date objects on every comparison in sort (O(N log N) × 2 Date() → O(N) once).

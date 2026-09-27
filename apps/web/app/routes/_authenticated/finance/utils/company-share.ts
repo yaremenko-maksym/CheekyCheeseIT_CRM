@@ -1,5 +1,12 @@
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
 import { fmtAmount } from '../constants'
+
+/** Same non-component pattern as `constants.ts`'s `activeLocale()` — a
+ * plain (non-component) function reads the active catalog through the
+ * `@lingui/core` singleton directly, not `useLingui()`. */
+const MIXED_CURRENCY_PLACEHOLDER = msg`3+ валюти — точна сума в модалці`
 
 /**
  * task-company-share-cta — shared calculation/grouping helpers for the
@@ -183,8 +190,12 @@ export function groupByProject(txs: TransactionDto[]): ProjectIncomeGroup[] {
 // ---------------------------------------------------------------------------
 
 /**
- * ru-RU plural helper for «N проект / N проекта / N проектов» — same
- * declension pattern as `pluralizeDrops` in `KpiCards.tsx`.
+ * @deprecated task-i18n-stage3d-pr1 (template J-fin, COPY-H-fin-4 partial).
+ * `CompanySharePayoutStrip.tsx` (this PR) reads its own project count
+ * through Lingui's `<Plural>` component now — this ru-RU-only helper stays
+ * only because `CompanySharePayoutModal.tsx` (PR4) still imports it. Removed
+ * in PR4 alongside that file's own migration (COPY-H-fin-4 closes fully
+ * there — see the wave (d) plan's finding-trace table).
  */
 export function pluralizeProjects(n: number): string {
   const mod10 = n % 10
@@ -196,9 +207,8 @@ export function pluralizeProjects(n: number): string {
 }
 
 /**
- * ru-RU plural helper for «N приход / N прихода / N приходов» — same
- * declension pattern as `pluralizeProjects` above. Used by the step-2
- * summary line («№a1b2c3 · 2 проекта, 4 прихода», fidelity-review finding #2).
+ * @deprecated task-i18n-stage3d-pr1. Same deprecation note as
+ * `pluralizeProjects` above — kept for `CompanySharePayoutModal.tsx` (PR4).
  */
 export function pluralizeIncomes(n: number): string {
   const mod10 = n % 10
@@ -225,5 +235,5 @@ export function buildAmountLabel(byCurrency: Map<string, number>): string {
   if (entries.length <= 3) {
     return entries.map(([currency, sum]) => fmtAmount(sum, currency)).join(' + ')
   }
-  return '3+ валюты — точная сумма в модалке'
+  return i18n._(MIXED_CURRENCY_PLACEHOLDER)
 }

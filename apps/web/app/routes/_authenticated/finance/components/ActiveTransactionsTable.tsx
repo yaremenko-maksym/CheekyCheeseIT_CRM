@@ -1,4 +1,5 @@
 import { AnimatePresence } from 'framer-motion'
+import { useLingui } from '@lingui/react/macro'
 import type { AdminActiveTransaction, TransactionDto } from '@crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { TransactionRow } from './TransactionRow'
@@ -115,8 +116,11 @@ export function ActiveTransactionsTable({
   onConfirmPayout,
   onSettleSeniorPayout,
   onPaySalary,
-  emptyMessage = 'Нет активных транзакций',
+  emptyMessage,
 }: ActiveTransactionsTableProps) {
+  const { t } = useLingui()
+  const resolvedEmptyMessage = emptyMessage ?? t`Активних транзакцій немає`
+
   if (loading) {
     return (
       <div className="p-6 space-y-3" data-testid="admin-active-tx-loading">
@@ -133,7 +137,7 @@ export function ActiveTransactionsTable({
         className="flex flex-col items-center justify-center gap-1 py-12 text-center"
         data-testid="admin-active-tx-empty"
       >
-        <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+        <p className="text-sm text-muted-foreground">{resolvedEmptyMessage}</p>
       </div>
     )
   }
@@ -145,12 +149,12 @@ export function ActiveTransactionsTable({
       <table className="w-full">
         <thead>
           <tr className="border-b border-border text-xs text-muted-foreground">
-            <th className="py-3 px-4 text-left font-medium">Тип</th>
-            <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
-            <th className="py-3 px-4 text-left font-medium">Сумма</th>
-            <th className="py-3 px-4 text-left font-medium">Дата</th>
-            <th className="py-3 px-4 text-left font-medium">Статус</th>
-            <th className="py-3 px-4 text-left font-medium">Действия</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Тип`}</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Учасник / Проєкт`}</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Сума`}</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Дата`}</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Статус`}</th>
+            <th className="py-3 px-4 text-left font-medium">{t`Дії`}</th>
           </tr>
         </thead>
         <tbody>

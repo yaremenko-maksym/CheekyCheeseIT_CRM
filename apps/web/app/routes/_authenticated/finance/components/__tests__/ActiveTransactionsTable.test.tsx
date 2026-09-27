@@ -14,10 +14,24 @@
  * the component renders without a router (same pattern as the TransactionRow
  * tests).
  */
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import type { AdminActiveTransaction } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `ActiveTransactionsTable` and the `TransactionRow` it renders both call
+// `useLingui()` now — every render in this file needs the provider, so this
+// file's own `render` shadows RTL's with the wrapper baked in rather than
+// repeating `{ wrapper: I18nTestProvider }` at every call site.
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,

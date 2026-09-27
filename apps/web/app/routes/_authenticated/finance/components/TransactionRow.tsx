@@ -12,13 +12,14 @@ import {
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
+import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
-  TYPE_LABELS,
+  TYPE_LABEL_MESSAGES,
   TYPE_COLORS,
-  STATUS_LABELS,
+  STATUS_LABEL_MESSAGES,
   STATUS_COLORS,
   fmtAmount,
   fmtUsd,
@@ -29,6 +30,7 @@ import { settlementSplit } from '../cascade-preview'
 import { canAttachReceipt } from './receipt-permissions'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
+  const { i18n } = useLingui()
   return (
     <span
       className={cn(
@@ -36,12 +38,13 @@ function TypeBadge({ type }: { type: TransactionDto['type'] }) {
         TYPE_COLORS[type],
       )}
     >
-      {TYPE_LABELS[type]}
+      {i18n._(TYPE_LABEL_MESSAGES[type])}
     </span>
   )
 }
 
 function StatusBadge({ status }: { status: TransactionDto['status'] }) {
+  const { i18n } = useLingui()
   return (
     <span
       className={cn(
@@ -50,7 +53,7 @@ function StatusBadge({ status }: { status: TransactionDto['status'] }) {
       )}
       data-testid={`tx-status-badge-${status.toLowerCase()}`}
     >
-      {STATUS_LABELS[status]}
+      {i18n._(STATUS_LABEL_MESSAGES[status])}
     </span>
   )
 }
@@ -61,13 +64,14 @@ function StatusBadge({ status }: { status: TransactionDto['status'] }) {
 // title-tooltip rather than a second visible line — keeps the row height
 // unchanged for the common (non-deleted) case.
 function DeletedBadge({ reason }: { reason: string | null | undefined }) {
+  const { t } = useLingui()
   return (
     <span
       className="inline-flex items-center rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive whitespace-nowrap"
       title={reason ?? undefined}
       data-testid="tx-deleted-badge"
     >
-      Удалено
+      {t`Видалено`}
     </span>
   )
 }
@@ -129,12 +133,20 @@ function Party({
 // read consistently with the rest of the UI. Any other label (e.g. an
 // admin's displayName on an ADMIN_PERSONAL-funded row) passes through
 // unchanged; a missing label falls back to the existing company alias.
-function displaySenderLabel(label: string | null | undefined): string {
-  if (label === 'COMPANY') return 'Счёт компании'
+//
+// `companyLabel` is passed in (not read from a module-level constant) —
+// this is a plain helper called from `FromTo`, a component, which is the one
+// place that may call `useLingui()`. `CheekyCheeseIT` is the product's own
+// brand name, not a translatable phrase (`russian-language.md` proper-noun
+// carve-out) — it stays as a literal on both locales.
+function displaySenderLabel(label: string | null | undefined, companyLabel: string): string {
+  if (label === 'COMPANY') return companyLabel
   return label ?? 'CheekyCheeseIT'
 }
 
 function FromTo({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
+  const companyLabel = t`Рахунок компанії`
   switch (tx.type) {
     case 'ADMIN_INCOME':
     case 'SENIOR_INCOME':
@@ -222,7 +234,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'SENIOR_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={displaySenderLabel(tx.senderLabel)} type="user" />
+          <Party
+            id={null}
+            name={null}
+            label={displaySenderLabel(tx.senderLabel, companyLabel)}
+            type="user"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -236,7 +253,12 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'DROP_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={displaySenderLabel(tx.senderLabel)} type="user" />
+          <Party
+            id={null}
+            name={null}
+            label={displaySenderLabel(tx.senderLabel, companyLabel)}
+            type="user"
+          />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -270,7 +292,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
           <Party
             id={tx.senderId}
             name={tx.senderName}
-            label={displaySenderLabel(tx.senderLabel)}
+            label={displaySenderLabel(tx.senderLabel, companyLabel)}
             type="user"
           />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
@@ -291,7 +313,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
         <div className="flex items-center gap-1.5 min-w-0">
           <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
-          <Party id={null} name={null} label={tx.receiverLabel ?? 'Счёт компании'} type="user" />
+          <Party id={null} name={null} label={tx.receiverLabel ?? companyLabel} type="user" />
         </div>
       )
 
@@ -301,7 +323,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'DIVIDEND_TO_ADMIN':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? 'Счёт компании'} type="user" />
+          <Party id={null} name={null} label={tx.senderLabel ?? companyLabel} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -414,6 +436,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     },
     ref,
   ) {
+    const { t, i18n } = useLingui()
     const isAdmin = role === 'ADMIN'
     const isAccountant = role === 'ACCOUNTANT'
     const isSenior = role === 'SENIOR'
@@ -541,7 +564,9 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
             : undefined
         }
         tabIndex={onClick ? 0 : undefined}
-        aria-label={onClick ? `Открыть транзакцию ${tx.type}` : undefined}
+        aria-label={
+          onClick ? t`Відкрити транзакцію: ${i18n._(TYPE_LABEL_MESSAGES[tx.type])}` : undefined
+        }
         data-testid={`tx-row-${tx.id}`}
         data-tx-type={tx.type}
         data-tx-deleted={isDeleted ? 'true' : undefined}
@@ -588,7 +613,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               className="text-[11px] font-normal text-amber-400"
               data-testid={`tx-row-settled-${tx.id}`}
             >
-              Выплачено {fmtAmount(settlement.settled, settlement.settledCurrency)}
+              {t`Сплачено ${fmtAmount(settlement.settled, settlement.settledCurrency)}`}
               {/* COPY-M-2: «к доплате», the same name the detail dialog, the
                   cascade panel and the settle dialog use for the SAME number
                   from the SAME function. It was «осталось» here alone, and the
@@ -606,7 +631,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                   it. Collapsing to a single narrowed value satisfies both.
                   Cross-currency (`null`) and fully closed (`0`) mean the same
                   thing here: no actionable remainder. */}
-              {remainingToPay > 0 && ` · к доплате ${fmtAmount(remainingToPay, tx.currency)}`}
+              {remainingToPay > 0 && t` · до сплати ${fmtAmount(remainingToPay, tx.currency)}`}
             </p>
           )}
           {/* SENIOR_INCOME — show the snapshot share % so ADMIN/ACCOUNTANT/SENIOR
@@ -623,17 +648,17 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-senior-share-${tx.id}`}
                 title={
                   tx.seniorSharePercentSource
-                    ? `Источник процента доли: ${
+                    ? t`Джерело відсотка частки: ${
                         tx.seniorSharePercentSource === 'PROJECT'
-                          ? 'переопределён на уровне проекта'
+                          ? t`перевизначено на рівні проєкту`
                           : tx.seniorSharePercentSource === 'TEAM'
-                            ? 'переопределён на уровне команды'
-                            : 'глобальное значение по умолчанию'
+                            ? t`перевизначено на рівні команди`
+                            : t`глобальне значення за замовчуванням`
                       }`
-                    : 'Процент доли синьора от этой транзакции'
+                    : t`Відсоток частки сеньйора від цієї транзакції`
                 }
               >
-                Доля: {tx.seniorSharePercent}%
+                {t`Частка: ${tx.seniorSharePercent}%`}
                 {tx.seniorSharePercentSource ? (
                   <span
                     className="ml-1 text-[10px] uppercase tracking-wide opacity-75"
@@ -642,10 +667,10 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                   >
                     ·{' '}
                     {tx.seniorSharePercentSource === 'PROJECT'
-                      ? 'проект'
+                      ? t`проєкт`
                       : tx.seniorSharePercentSource === 'TEAM'
-                        ? 'команда'
-                        : 'по умолчанию'}
+                        ? t`команда`
+                        : t`за замовчуванням`}
                   </span>
                 ) : null}
               </p>
@@ -685,7 +710,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-restore-${tx.id}`}
               >
                 <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                Восстановить
+                {t`Відновити`}
               </Button>
             )}
             {canValidate && onValidate && (
@@ -697,7 +722,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-validate-${tx.id}`}
               >
                 <CheckCircle2 className="h-3.5 w-3.5 mr-1" />
-                Проверить
+                {t`Перевірити`}
               </Button>
             )}
             {showInitiatePayout && onInitiatePayout && (
@@ -709,7 +734,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-initiate-payout-${tx.id}`}
               >
                 <Wallet className="h-3.5 w-3.5 mr-1" />
-                Выплатить
+                {t`Виплатити`}
               </Button>
             )}
             {showPayPayout && onOpenPayoutDetail && tx.payoutRequestId && (
@@ -721,7 +746,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`row-pay-payout-${tx.id}`}
               >
                 <Wallet className="h-3.5 w-3.5 mr-1" />
-                Оплатить
+                {t`Оплатити`}
               </Button>
             )}
             {showConfirmPayout && onConfirmPayout && (
@@ -733,7 +758,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`confirm-payout-button-${tx.id}`}
               >
                 <BadgeCheck className="h-3.5 w-3.5 mr-1" />
-                Подтвердить оплату
+                {t`Підтвердити оплату`}
               </Button>
             )}
             {canEdit && onEdit && (
@@ -745,7 +770,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-edit-${tx.id}`}
               >
                 <Edit2 className="h-3.5 w-3.5 mr-1" />
-                Исправить
+                {t`Виправити`}
               </Button>
             )}
             {canPaySalary && onPaySalary && (
@@ -756,7 +781,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 onClick={() => onPaySalary(tx)}
                 data-testid={`tx-row-pay-salary-${tx.id}`}
               >
-                Выплатить
+                {t`Розрахуватися`}
               </Button>
             )}
             {canSettleSeniorPayout && onSettleSeniorPayout && (
@@ -767,7 +792,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 onClick={() => onSettleSeniorPayout(tx)}
                 data-testid={`tx-row-settle-senior-payout-${tx.id}`}
               >
-                Выплатить
+                {t`Розрахуватися`}
               </Button>
             )}
             {canAdminEdit && onAdminEdit && (
@@ -776,7 +801,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 size="sm"
                 className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-muted/60"
                 onClick={() => onAdminEdit(tx)}
-                title="Редактировать"
+                title={t`Редагувати`}
               >
                 <Edit2 className="h-3.5 w-3.5" />
               </Button>
@@ -787,7 +812,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 size="sm"
                 className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
                 onClick={() => onDelete(tx)}
-                title="Удалить"
+                title={t`Видалити`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
@@ -808,8 +833,8 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                   )}
                   onClick={() => onAttachReceipt?.(tx)}
-                  title={hasReceipt ? 'Заменить чек' : 'Прикрепить чек'}
-                  aria-label={hasReceipt ? 'Заменить чек' : 'Прикрепить чек'}
+                  title={hasReceipt ? t`Замінити чек` : t`Прикріпити чек`}
+                  aria-label={hasReceipt ? t`Замінити чек` : t`Прикріпити чек`}
                   data-testid={`tx-row-attach-receipt-${tx.id}`}
                 >
                   <Receipt className="h-3.5 w-3.5" />
@@ -817,8 +842,8 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
               ) : hasReceipt ? (
                 <span
                   className="inline-flex h-7 w-7 items-center justify-center text-emerald-400/60"
-                  title="Чек прикреплён"
-                  aria-label="Чек прикреплён"
+                  title={t`Чек прикріплено`}
+                  aria-label={t`Чек прикріплено`}
                   data-testid={`tx-row-receipt-indicator-${tx.id}`}
                 >
                   <Receipt className="h-3.5 w-3.5" />

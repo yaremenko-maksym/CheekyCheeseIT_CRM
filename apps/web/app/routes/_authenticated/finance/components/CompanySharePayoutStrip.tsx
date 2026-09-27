@@ -1,8 +1,9 @@
 import { useMemo } from 'react'
 import { Coins } from 'lucide-react'
+import { Trans, Plural, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
-import { buildAmountLabel, buildPreviewRows, pluralizeProjects } from '../utils/company-share'
+import { buildAmountLabel, buildPreviewRows } from '../utils/company-share'
 
 /**
  * CompanySharePayoutStrip — quiet yellow-accent CTA strip surfacing
@@ -29,6 +30,7 @@ export function CompanySharePayoutStrip({
   userSeniorSharePercent: number | undefined
   onOpen: () => void
 }) {
+  const { t } = useLingui()
   const outstanding = useMemo(
     () =>
       transactions.filter(
@@ -69,18 +71,28 @@ export function CompanySharePayoutStrip({
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-semibold">Доля CheekyCheeseIT к оплате</span>
+          <span className="text-sm font-semibold">
+            <Trans>Частка CheekyCheeseIT до сплати</Trans>
+          </span>
           <Badge
             variant="outline"
             className="rounded-full border-orange-500/30 bg-orange-500/15 text-orange-400"
           >
-            {projectsCount} {pluralizeProjects(projectsCount)}
+            <Plural
+              value={projectsCount}
+              one="# проєкт"
+              few="# проєкти"
+              many="# проєктів"
+              other="# проєкту"
+            />
           </Badge>
         </span>
         <span className="mt-0.5 block text-xs text-muted-foreground">
-          {isMixedCurrency
-            ? 'Несколько валют — точная сумма в модалке'
-            : 'По проверенным приходам, ещё не включённым в заявку на выплату'}
+          {isMixedCurrency ? (
+            <Trans>Кілька валют — точна сума в модалці</Trans>
+          ) : (
+            <Trans>За перевіреними приходами, які ще не включено в заявку на виплату</Trans>
+          )}
         </span>
       </span>
       <span className="flex shrink-0 items-center gap-3 max-[479px]:w-full">
@@ -91,7 +103,7 @@ export function CompanySharePayoutStrip({
           {amountLabel}
         </span>
         <span className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground max-[479px]:flex-1">
-          Оплатить
+          {t`Оплатити`}
         </span>
       </span>
     </button>

@@ -19,10 +19,15 @@
  * so the component renders without a router. SENIOR_PENDING_PAYOUT rows hit the
  * FromTo default branch (no <Link>) anyway, but the mock keeps the test robust.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
@@ -121,6 +126,7 @@ function renderRow(props: {
         />
       </tbody>
     </table>,
+    { wrapper: I18nTestProvider },
   )
 }
 
@@ -130,7 +136,7 @@ describe('TransactionRow — settle senior payout button', () => {
   it('ADMIN sees «Выплатить» on a SENIOR_PENDING_PAYOUT / PENDING_PAYMENT row', () => {
     renderRow({ tx: makeTx(), role: 'ADMIN', onSettleSeniorPayout: () => {} })
     expect(screen.getByTestId(SETTLE_TESTID)).toBeInTheDocument()
-    expect(screen.getByTestId(SETTLE_TESTID)).toHaveTextContent('Выплатить')
+    expect(screen.getByTestId(SETTLE_TESTID)).toHaveTextContent('Розрахуватися')
   })
 
   it('ACCOUNTANT sees «Выплатить»', () => {
@@ -215,7 +221,7 @@ describe('TransactionRow — settle drop payout button (mirror of settle senior)
   it('ADMIN sees «Выплатить» on a DROP_PENDING_PAYOUT / PENDING_PAYMENT row', () => {
     renderRow({ tx: makeDropTx(), role: 'ADMIN', onSettleSeniorPayout: () => {} })
     expect(screen.getByTestId(DROP_SETTLE_TESTID)).toBeInTheDocument()
-    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toHaveTextContent('Выплатить')
+    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toHaveTextContent('Розрахуватися')
   })
 
   it('ACCOUNTANT sees «Выплатить» on a DROP_PENDING_PAYOUT row', () => {

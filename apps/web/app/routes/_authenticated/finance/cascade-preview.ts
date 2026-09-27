@@ -9,6 +9,9 @@
  * answer for itself: may the operator press Save, and what does a partly-paid
  * row show about its own accumulator.
  */
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
 import {
   amountsDiffer,
   classifyEditedRowLedgerFact,
@@ -122,11 +125,16 @@ export function canSaveCascadeEdit(preview: CascadeEditPreviewResponse | undefin
  * the CRM, and "reload the page" is the right advice on all of them except
  * this one.
  */
-const CASCADE_STALE_FALLBACK =
-  'Данные изменились с момента предпросмотра — нажмите «Обновить предпросмотр»'
+// task-i18n-stage3d-pr1 (Task 1, Step 5, COPY-L-fin-21). Reformulated as an
+// instruction rather than a quote of the button's own label («Обновити
+// перегляд») — quoting a UI label duplicates it outside the button, and the
+// two copies can drift the moment either one's wording changes independently
+// (the same reasoning `CASCADE_PREVIEW_LEAD_IN` below already follows for the
+// register, not the specific words).
+const CASCADE_STALE_FALLBACK = msg`Дані змінилися з моменту перегляду — оновіть перегляд`
 
 export function cascadeStaleMessage(err: unknown): string {
-  return extractBackendMessage(err) ?? CASCADE_STALE_FALLBACK
+  return extractBackendMessage(err) ?? i18n._(CASCADE_STALE_FALLBACK)
 }
 
 /**
@@ -153,7 +161,16 @@ export function cascadeStaleMessage(err: unknown): string {
  * width without shortening what it actually says, which is a different
  * finding than this one).
  */
-export const CASCADE_PREVIEW_LEAD_IN = 'Предпросмотр недоступен'
+// task-i18n-stage3d-pr1 (Task 1, Step 5). `msg` (module level) only — a
+// module-level `i18n._()` call would freeze this string at whatever locale
+// was active when this module first loaded (`Global Constraints`: `t`/
+// `i18n._` are call-time, never module-level). `AdminEditTransactionDialog.tsx`
+// (PR3 — not yet migrated otherwise) reads this descriptor through `i18n._()`
+// itself, at its own render time, exactly the same way it already resolves
+// `cascadePreviewErrorMessage`'s return value — so the network-only branch
+// stays locale-correct across a live language switch, not just at whichever
+// locale happened to be active on mount.
+export const CASCADE_PREVIEW_LEAD_IN_MESSAGE: MessageDescriptor = msg`Перегляд недоступний`
 
 /**
  * The text for a FAILED cascade-preview GET (`previewQuery.isError`) — the
@@ -180,12 +197,20 @@ export const CASCADE_PREVIEW_LEAD_IN = 'Предпросмотр недосту�
  * generic tail is replaced, and only here; `axios-utils.ts`'s table is
  * untouched and still correct for every other screen in the CRM.
  */
+// task-i18n-stage3d-pr1 (Task 1, Step 5). Full sentences, not lead-in + tail
+// concatenated at call time — `i18n._()` per branch, so each ICU string is
+// one catalog entry a translator sees whole, not a lead-in fragment glued to
+// three different tail fragments that only make sense joined.
+const CASCADE_PREVIEW_FORBIDDEN_MESSAGE = msg`Перегляд недоступний — недостатньо прав`
+const CASCADE_PREVIEW_SERVER_ERROR_MESSAGE = msg`Перегляд недоступний — помилка на нашому боці, спробуйте пізніше`
+const CASCADE_PREVIEW_GENERIC_MESSAGE = msg`Перегляд недоступний — спробуйте ще раз`
+
 export function cascadePreviewErrorMessage(err: unknown): string {
   const backendMessage = extractBackendMessage(err)
   if (backendMessage !== undefined) return backendMessage
 
   const status = getAxiosStatus(err)
-  if (status === 403) return `${CASCADE_PREVIEW_LEAD_IN} — недостаточно прав`
+  if (status === 403) return i18n._(CASCADE_PREVIEW_FORBIDDEN_MESSAGE)
   // `(status ?? -Infinity)`, not a `status !== undefined &&` guard: a missing
   // status must never read as ">= 500" (absent means no response was ever
   // received — the opposite of "the server answered with a 5xx"), and
@@ -195,9 +220,9 @@ export function cascadePreviewErrorMessage(err: unknown): string {
   // a `number`, not `number | undefined`, and this satisfies that without a
   // conditional branch a test would have to pin.
   if ((status ?? -Infinity) >= 500) {
-    return `${CASCADE_PREVIEW_LEAD_IN} — ошибка на нашей стороне, попробуйте позже`
+    return i18n._(CASCADE_PREVIEW_SERVER_ERROR_MESSAGE)
   }
-  return `${CASCADE_PREVIEW_LEAD_IN} — попробуйте ещё раз`
+  return i18n._(CASCADE_PREVIEW_GENERIC_MESSAGE)
 }
 
 /**
@@ -233,6 +258,11 @@ export function cascadePreviewErrorMessage(err: unknown): string {
  * reaches the cascade-voice status branches below; the latter's own message
  * — the whole point of throwing it — is returned as-is.
  */
+const CASCADE_SAVE_GENERIC_MESSAGE = msg`Не вдалося зберегти — спробуйте ще раз`
+const CASCADE_SAVE_NETWORK_MESSAGE = msg`Не вдалося зберегти — перевірте з’єднання`
+const CASCADE_SAVE_FORBIDDEN_MESSAGE = msg`Не вдалося зберегти — недостатньо прав`
+const CASCADE_SAVE_SERVER_ERROR_MESSAGE = msg`Не вдалося зберегти — помилка на нашому боці, спробуйте пізніше`
+
 export function cascadeSaveErrorMessage(err: unknown): string {
   const backendMessage = extractBackendMessage(err)
   if (backendMessage !== undefined) return backendMessage
@@ -243,14 +273,14 @@ export function cascadeSaveErrorMessage(err: unknown): string {
     (err as Record<string, unknown>)['isAxiosError'] === true
 
   if (!isAxiosFailure) {
-    return err instanceof Error ? err.message : 'Не удалось сохранить — попробуйте ещё раз'
+    return err instanceof Error ? err.message : i18n._(CASCADE_SAVE_GENERIC_MESSAGE)
   }
 
   const status = getAxiosStatus(err)
-  if (status === undefined) return 'Не удалось сохранить — проверьте соединение'
-  if (status === 403) return 'Не удалось сохранить — недостаточно прав'
-  if (status >= 500) return 'Не удалось сохранить — ошибка на нашей стороне, попробуйте позже'
-  return 'Не удалось сохранить — попробуйте ещё раз'
+  if (status === undefined) return i18n._(CASCADE_SAVE_NETWORK_MESSAGE)
+  if (status === 403) return i18n._(CASCADE_SAVE_FORBIDDEN_MESSAGE)
+  if (status >= 500) return i18n._(CASCADE_SAVE_SERVER_ERROR_MESSAGE)
+  return i18n._(CASCADE_SAVE_GENERIC_MESSAGE)
 }
 
 export interface SettlementSplit {

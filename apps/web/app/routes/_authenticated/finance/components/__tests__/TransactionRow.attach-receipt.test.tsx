@@ -15,10 +15,15 @@
  *    even for a privileged role (mirrors every other row action in this
  *    component, which all gate on `handler &&`).
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
@@ -116,6 +121,7 @@ function renderRow(props: {
         />
       </tbody>
     </table>,
+    { wrapper: I18nTestProvider },
   )
 }
 

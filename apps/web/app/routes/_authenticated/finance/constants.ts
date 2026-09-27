@@ -378,23 +378,39 @@ export function fmtYyyymmdd(yyyymmdd: string) {
   return fmtDate(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`)
 }
 
+const FMT_DATE_INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
+
 /**
  * @deprecated task-i18n-stage3d-pr1 (template L-fin). Signature unchanged —
  * many PR2–PR4 files and the cross-slice `InProgressPanel.tsx` call this
  * without a locale argument — but the body now reads the active catalog
  * locale through `activeLocale()` (the `@lingui/core` singleton, same
  * pattern `project-approval-caption.ts` uses) instead of the hardcoded
- * `uk-UA`. Removed in PR4 alongside `TYPE_LABELS`/`STATUS_LABELS` once the
- * last caller reads locale-aware `formatDate` directly.
+ * `uk-UA`. Deliberately NOT delegated to `@crm/shared`'s `formatDate` —
+ * that helper's `'short'` style has no explicit `day`/`month`/`year`
+ * options, so `Intl` falls back to a 4-digit year (`31.07.2026`) instead of
+ * this function's existing 2-digit shape (`31.07.26`), which
+ * `SettleSeniorPayoutDialog.test.tsx` (PR4, not yet migrated at this PR)
+ * pins verbatim — only the LANGUAGE the digits are grouped in changes here,
+ * not the shape, so that not-yet-touched test keeps passing unmodified.
+ * Removed in PR4 alongside `TYPE_LABELS`/`STATUS_LABELS` once the last
+ * caller reads locale-aware `formatDate` directly.
  */
 export function fmtDate(iso: string) {
-  return formatDate(iso, activeLocale(), 'short')
+  return new Date(iso).toLocaleDateString(FMT_DATE_INTL_TAG[activeLocale()], {
+    day: '2-digit',
+    month: '2-digit',
+    year: '2-digit',
+  })
 }
 
 /**
  * @deprecated task-i18n-stage3d-pr1 (template L-fin, COPY-M-fin-9). Same
  * deprecation note as `fmtDate` above — the hardcoded `ru-RU` is replaced by
- * `activeLocale()`, signature unchanged.
+ * `activeLocale()`, signature unchanged. Delegates to the shared
+ * `formatDate`'s `'monthYear'` style (full month name + year, no day) —
+ * unlike `fmtDate` above, no existing deprecated-consumer test pins this
+ * one's exact digit shape, so the shared helper is safe to use as-is.
  */
 export function fmtMonth(ym: string | null | undefined): string {
   if (!ym) return '—'

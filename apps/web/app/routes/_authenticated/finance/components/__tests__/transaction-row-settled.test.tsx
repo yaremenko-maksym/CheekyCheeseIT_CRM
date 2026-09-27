@@ -13,11 +13,16 @@
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import { TransactionRow } from '../TransactionRow'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
@@ -67,6 +72,7 @@ function renderRow(tx: TransactionDto) {
         </tbody>
       </table>
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 

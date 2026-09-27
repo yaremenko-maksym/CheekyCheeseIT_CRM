@@ -294,6 +294,40 @@ copy-review круга 1 PR #706 (COPY-L-2): на момент этого PR э�
 владельца 2026-09-26. Избегаем только доменных подмен (юзер → користувач, воркер → співробітник,
 шер → частка) и сленга (крипта вместо USDT).
 
+### Волна d — `web-finance` (добавлено PR feat/i18n-3d-pr1-finance-ledger)
+
+| Термин (русский, для справки)        | `uk`                                       | `en`                                    | `_Избегать_` в продукте (`uk`/`en`)                           |
+| ------------------------------------ | ------------------------------------------ | --------------------------------------- | ------------------------------------------------------------- |
+| Транзакция (`transactions`)          | транзакція                                 | transaction                             | «платіж» / payment                                            |
+| `TYPE_LABELS.PAYOUT`                 | Виплата                                    | Payout                                  | —                                                             |
+| `TYPE_LABELS.SENIOR_PAID`            | Розрахунок із сеньйором                    | Senior settlement                       | «Виплата синьору»                                             |
+| `TYPE_LABELS.SENIOR_PENDING_PAYOUT`  | Очікуваний розрахунок із сеньйором         | Pending senior settlement               | «Очікувана виплата синьору»                                   |
+| `TYPE_LABELS.DROP_PENDING_PAYOUT`    | Очікуваний розрахунок із дропом            | Pending drop settlement                 | «Очікувана виплата дропу»                                     |
+| `TYPE_LABELS.PAYOUT_CONFIRMED`       | Підтверджений розрахунок                   | Confirmed settlement                    | «Підтверджена виплата»                                        |
+| `TYPE_DESCRIPTIONS.SALARY`           | Зарплата співробітнику                     | Employee salary                         | —                                                             |
+| `TYPE_LABELS.ADMIN_INCOME`           | Прихід адміна                              | Admin income                            | «Прихід Admin» (латиниця)                                     |
+| `TYPE_LABELS.ADMIN_INCOME_CASH`      | Прихід адміна (готівка)                    | Admin income (cash)                     | «Прихід Admin (наличные)»                                     |
+| `TYPE_LABELS.ADMIN_INCOME_CRYPTO`    | Прихід адміна (USDT)                       | Admin income (USDT)                     | «крипто» як синонім USDT                                      |
+| `TYPE_LABELS.DIVIDEND_TO_ADMIN`      | Дивіденди адміну                           | Dividend to admin                       | «Дивіденди Admin»                                             |
+| `TYPE_LABELS.TOV_INCOME`             | Прихід (архів)                             | Income (archived)                       | «Прихід ТОВ» (легасі-значення)                                |
+| `TYPE_DESCRIPTIONS.DROP_INCOME`      | Дохід дропа з проєкту                      | Drop income from a project              | «дохід дропа з drop-проєкту» (латиниця)                       |
+| `STATUS_LABELS.PENDING`              | Очікує валідації                           | Awaiting validation                     | «Очікує» без об’єкта                                          |
+| `STATUS_LABELS.PENDING_CASH_CONFIRM` | Очікує підтвердження бухгалтером (готівка) | Awaiting accountant confirmation (cash) | «Очікує підтвердження нала» («нал» — сленг)                   |
+| Роль `DROP` (у статистиці)           | Дроп                                       | Drop                                    | «Посередник», «підставна особа», «номінал», «проксі»          |
+| Роль `SENIOR` / `ADMIN_SENIOR`       | Сеньйор / Адмін-сеньйор                    | Senior / Admin-senior                   | «Senior»/«Admin-Senior» латиницею в `uk`                      |
+| Расчёт (settle)                      | розрахунок                                 | settlement                              | «виплата» у сенсі «віддати гроші людині»                      |
+| Заявка на выплату                    | заявка на виплату                          | payout request                          | —                                                             |
+| Счёт (`invoices`)                    | рахунок                                    | invoice                                 | «інвойс», «акт», «платіжка»                                   |
+| Счёт компании (Phase 8, USDT wallet) | рахунок компанії                           | company account                         | смішування з «рахунком» (invoice) — контекст завжди розрізняє |
+| `SIG_METHOD_LABEL.MANUAL_CLICK`      | Підписано контрагентом вручну              | Signed manually by counterparty         | «Підписано вручну (click + audit)»                            |
+| Хеш транзакции                       | Хеш транзакції                             | Transaction hash                        | «TX Hash» як заголовок колонки                                |
+| Etherscan                            | Etherscan                                  | Etherscan                               | «etherscan» з малої                                           |
+| Факт перевода                        | Факт переказу                              | Transfer record                         | «Факт платежу»                                                |
+| Расход-категория «Комиссия»          | Банківський збір                           | Bank fee                                | «Комісія» (зайнято глоссарієм під частку дропа)               |
+
+Полная таблица находок (COPY-H/M/L-fin-1…21) и обоснование выбора форм —
+`docs/superpowers/plans/2026-09-27-crm-i18n-stage3d-web-finance.md` §«Канон терминов волны (d)».
+
 ---
 
 ## Связи
