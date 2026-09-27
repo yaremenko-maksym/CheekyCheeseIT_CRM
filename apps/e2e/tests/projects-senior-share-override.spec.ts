@@ -261,13 +261,18 @@ test.describe('per-project SENIOR share override', () => {
       asAdmin: page,
     }) => {
       // FIX-SPEC-M-2 (fix-round, PR #730): `t\`Частка: ${percent}%\`` is a
-      // VARIABLE message — its compiled catalog id maps to the template
-      // "Частка: {0}%", not to any one rendered value. `assertInCatalog`
+      // VARIABLE message. The compiled catalog's own flattened shape for a
+      // placeholder is the LITERAL substitution string "0" (`fixtures/
+      // catalog.ts`'s `loadMessages` does `.join('')` over the compiled AST
+      // array `["Частка: ", ["0"], "%"]` — a one-element array stringifies
+      // to its own element, not to `{0}`), so the freshness check below is
+      // against "Частка: 0%", not the ICU `{0}` placeholder syntax. This
       // still catches a copy-review wording drift on the template; the
-      // interpolated "30%" below is checked with a plain literal, same as
-      // every other test in this file asserts a snapshot NUMBER.
+      // interpolated "30%" a few lines down is checked with a plain
+      // literal, same as every other test in this file asserts a snapshot
+      // NUMBER.
       const uk = await loadMessages('uk')
-      assertInCatalog(uk, 'Частка: {0}%')
+      assertInCatalog(uk, 'Частка: 0%')
       const incomeTx = {
         id: 'tx-snapshot-1',
         type: 'SENIOR_INCOME',
