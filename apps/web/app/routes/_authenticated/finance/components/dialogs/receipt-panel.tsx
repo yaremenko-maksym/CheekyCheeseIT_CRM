@@ -42,6 +42,7 @@
  * rows keep opening via link, per AC4.
  */
 import { ExternalLink, File as FileIcon, Receipt, XCircle } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDocumentDownloadUrl } from '@/hooks/use-documents'
@@ -102,6 +103,7 @@ interface ReceiptPanelProps {
  * - No receipt: shows a dashed placeholder.
  */
 export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
+  const { t } = useLingui()
   const { url, isLoading } = useReceiptUrl(tx)
   const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
   const isExternal = !tx.receiptDocumentId && !!tx.receiptExternalUrl
@@ -117,7 +119,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         data-testid="receipt-panel-empty"
       >
         <FileIcon className="h-10 w-10 text-muted-foreground/40" />
-        <p className="text-sm text-muted-foreground">Нет прикреплённого чека</p>
+        <p className="text-sm text-muted-foreground">{t`Немає прикріпленого чека`}</p>
       </div>
     )
   }
@@ -132,7 +134,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-destructive/40 bg-destructive/5 p-6 text-center`}
       >
         <XCircle className="h-10 w-10 text-destructive/60" />
-        <p className="text-sm text-destructive">Чек недоступен</p>
+        <p className="text-sm text-destructive">{t`Чек недоступний`}</p>
       </div>
     )
   }
@@ -149,7 +151,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Receipt className="h-3.5 w-3.5" />
-        <span>Чек</span>
+        <span>{t`Чек`}</span>
       </div>
       {showExternalCard && (
         <a
@@ -161,7 +163,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         >
           <ExternalLink className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">
-            Чек хранится по внешней ссылке — откроется в новой вкладке
+            {t`Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці`}
           </p>
         </a>
       )}
@@ -174,7 +176,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         >
           <img
             src={url}
-            alt="Чек"
+            alt={t`Чек`}
             className="w-full h-full object-contain"
             onError={(e) => {
               ;(e.currentTarget as HTMLImageElement).style.display = 'none'
@@ -185,7 +187,9 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
       {!showExternalCard && isPdf && (
         <div className={frameClass}>
           <object data={url} type="application/pdf" className="w-full h-full">
-            <p className="p-3 text-xs text-muted-foreground">PDF не поддерживается браузером.</p>
+            <p className="p-3 text-xs text-muted-foreground">
+              {t`Браузер не підтримує перегляд PDF.`}
+            </p>
           </object>
         </div>
       )}
@@ -194,7 +198,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
           className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6`}
         >
           <FileIcon className="h-10 w-10 text-muted-foreground/40" />
-          <p className="text-sm text-muted-foreground">Предпросмотр недоступен</p>
+          <p className="text-sm text-muted-foreground">{t`Попередній перегляд недоступний`}</p>
         </div>
       )}
       <a
@@ -204,7 +208,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         className="inline-flex items-center gap-1.5 text-xs text-primary hover:underline"
       >
         <ExternalLink className="h-3 w-3" />
-        Открыть чек
+        {t`Відкрити чек`}
       </a>
     </div>
   )

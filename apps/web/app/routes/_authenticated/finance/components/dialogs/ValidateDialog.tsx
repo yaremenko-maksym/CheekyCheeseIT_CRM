@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useLingui, Plural } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,7 +33,7 @@ import {
   fmtDate,
   fmtRate,
   fmtUsd,
-  TYPE_LABELS,
+  TYPE_LABEL_MESSAGES,
   type ExchangeRates,
 } from '../../constants'
 
@@ -66,6 +68,7 @@ export function ValidateDialog({
    */
   onAdvance: (nextTx: TransactionDto) => void
 }) {
+  const { t, i18n } = useLingui()
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -115,7 +118,10 @@ export function ValidateDialog({
     },
   })
 
-  const error = mutation.error instanceof Error ? mutation.error.message : null
+  // COPY-H-fin-3: never the raw `.message` of an unknown error — status-based
+  // resolution through the SAME resolver every other finance screen uses
+  // (`getApiErrorMessage`; see `axios-utils.spec.ts` for its contract).
+  const error = mutation.error ? getApiErrorMessage(mutation.error) : null
 
   if (!tx) return null
 
@@ -135,8 +141,8 @@ export function ValidateDialog({
       >
         <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="validate-transaction-dialog">
           <CrmDialogHeader>
-            <DialogTitle>Валидация транзакции</DialogTitle>
-            <DialogDescription className="sr-only">Валидация транзакции</DialogDescription>
+            <DialogTitle>{t`Валідація транзакції`}</DialogTitle>
+            <DialogDescription className="sr-only">{t`Валідація транзакції`}</DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody className="space-y-4 pb-4">
@@ -152,24 +158,26 @@ export function ValidateDialog({
                 >
                   {remainingCount}
                 </span>
-                <span>
-                  {remainingCount === 1
-                    ? 'транзакция'
-                    : remainingCount >= 2 && remainingCount <= 4
-                      ? 'транзакции'
-                      : 'транзакций'}{' '}
-                  осталось в очереди
-                </span>
+                {/* J-fin (урок #700): ICU `<Plural>`, not a hand-rolled
+                    mod-based ternary — uk needs three forms (one/few/many),
+                    not the two this used to hardcode. */}
+                <Plural
+                  value={remainingCount}
+                  one="транзакція залишилась в черзі"
+                  few="транзакції залишилось в черзі"
+                  many="транзакцій залишилось в черзі"
+                  other="транзакції залишилось в черзі"
+                />
               </div>
             )}
 
             <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Тип</span>
-                <span className="font-medium">{TYPE_LABELS[tx.type]}</span>
+                <span className="text-muted-foreground">{t`Тип`}</span>
+                <span className="font-medium">{i18n._(TYPE_LABEL_MESSAGES[tx.type])}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Сумма</span>
+                <span className="text-muted-foreground">{t`Сума`}</span>
                 <span className="font-medium tabular-nums">
                   {fmtAmount(tx.amount, tx.currency)}
                 </span>
@@ -177,14 +185,14 @@ export function ValidateDialog({
               {needsRate && rates && (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Курс (USD)</span>
+                    <span className="text-muted-foreground">{t`Курс (USD)`}</span>
                     <span className="text-xs text-muted-foreground">
                       {fmtRate(tx.currency, rates)}
-                      <span className="ml-1.5 opacity-50">· НБУ</span>
+                      <span className="ml-1.5 opacity-50">{t`· НБУ`}</span>
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">В USD</span>
+                    <span className="text-muted-foreground">{t`В USD`}</span>
                     <span className="font-medium tabular-nums">
                       {fmtUsd(tx.amount, tx.currency, rates)}
                     </span>
@@ -193,23 +201,23 @@ export function ValidateDialog({
               )}
               {tx.senderName && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Отправитель</span>
+                  <span className="text-muted-foreground">{t`Відправник`}</span>
                   <span className="font-medium">{tx.senderName}</span>
                 </div>
               )}
               {tx.projectName && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Проект</span>
+                  <span className="text-muted-foreground">{t`Проєкт`}</span>
                   <span className="font-medium">{tx.projectName}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Дата</span>
+                <span className="text-muted-foreground">{t`Дата`}</span>
                 <span className="font-medium">{fmtDate(tx.createdAt)}</span>
               </div>
               {tx.notes && (
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Заметки</span>
+                  <span className="text-muted-foreground">{t`Примітки`}</span>
                   <span className="text-right max-w-48">{tx.notes}</span>
                 </div>
               )}
@@ -219,11 +227,11 @@ export function ValidateDialog({
             {(tx.receiptDocumentId || tx.receiptExternalUrl) && <ReceiptPanel tx={tx} compact />}
 
             <div className="space-y-1">
-              <Label className="text-xs">Причина отклонения (при отклонении)</Label>
+              <Label className="text-xs">{t`Причина відмови (у разі відмови)`}</Label>
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Укажите причину при отклонении..."
+                placeholder={t`Вкажіть причину у разі відмови…`}
                 rows={2}
                 className="text-sm resize-none"
               />
@@ -238,7 +246,7 @@ export function ValidateDialog({
               onClick={handleDialogClose}
               data-testid="validate-transaction-cancel"
             >
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button
               variant="destructive"
@@ -246,7 +254,7 @@ export function ValidateDialog({
               disabled={mutation.isPending || !reason.trim()}
               data-testid="validate-transaction-reject"
             >
-              Отклонить
+              {t`Відхилити`}
             </Button>
             {/* AC2: счётчик на кнопке; при клике — AlertDialog confirm-попап */}
             <Button
@@ -255,10 +263,10 @@ export function ValidateDialog({
               data-testid="validate-transaction-confirm"
             >
               {mutation.isPending
-                ? 'Сохранение...'
+                ? t`Збереження…`
                 : remainingCount > 1
-                  ? `Подтвердить (${remainingCount})`
-                  : 'Подтвердить'}
+                  ? t`Підтвердити (${remainingCount})`
+                  : t`Підтвердити`}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -268,16 +276,18 @@ export function ValidateDialog({
       <AlertDialog open={showConfirm} onOpenChange={setShowConfirm}>
         <AlertDialogContent data-testid="validate-confirm-alert">
           <AlertDialogHeader>
-            <AlertDialogTitle>Подтвердить валидацию?</AlertDialogTitle>
+            <AlertDialogTitle>{t`Підтвердити валідацію?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              Транзакция будет подтверждена и переведена в статус «Валидирована».
+              {t`Транзакцію буде підтверджено і переведено у статус «Валідовано».`}
               {remainingCount > 1 && (
-                <> После подтверждения очередь перейдёт к следующей транзакции.</>
+                <> {t`Після підтвердження черга перейде до наступної транзакції.`}</>
               )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="validate-confirm-cancel">Отмена</AlertDialogCancel>
+            <AlertDialogCancel data-testid="validate-confirm-cancel">
+              {t`Скасувати`}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 setShowConfirm(false)
@@ -285,7 +295,7 @@ export function ValidateDialog({
               }}
               data-testid="validate-confirm-ok"
             >
-              Подтвердить
+              {t`Підтвердити`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

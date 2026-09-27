@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { parseStrictAmount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -27,6 +31,11 @@ import {
 
 type ProjectOption = { id: string; name: string; seniorId: string }
 
+// task-i18n-stage3d-pr2 (COPY-H-fin-3). Thrown from `mutationFn` — a plain
+// event-handler callback, not a component render — so `i18n._()` (the
+// runtime function) is used here, not the `t` macro (component-scope only).
+const INVALID_AMOUNT_MESSAGE = msg`Некоректна сума`
+
 export function EditSeniorIncomeDialog({
   tx,
   onClose,
@@ -34,6 +43,7 @@ export function EditSeniorIncomeDialog({
   tx: TransactionDto | null
   onClose: () => void
 }) {
+  const { t } = useLingui()
   const { user } = useAuth()
   const qc = useQueryClient()
 
@@ -68,7 +78,7 @@ export function EditSeniorIncomeDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const amt = parseStrictAmount(amount)
-      if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
+      if (isNaN(amt) || amt <= 0) throw new Error(i18n._(INVALID_AMOUNT_MESSAGE))
       const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
       const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       // fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
@@ -97,7 +107,11 @@ export function EditSeniorIncomeDialog({
     },
   })
 
-  const error = mutation.error instanceof Error ? mutation.error.message : null
+  // COPY-H-fin-3: `getApiErrorMessage` handles BOTH the local `Error` thrown
+  // above (falls through to its own `.message`, already localised via
+  // `i18n._`) and a real axios failure (status-based resolution) — no raw
+  // `.message` of an UNKNOWN shape ever reaches the screen.
+  const error = mutation.error ? getApiErrorMessage(mutation.error) : null
 
   if (!tx) return null
 
@@ -110,8 +124,8 @@ export function EditSeniorIncomeDialog({
     >
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
-          <DialogTitle>Исправить транзакцию</DialogTitle>
-          <DialogDescription className="sr-only">Исправление транзакции</DialogDescription>
+          <DialogTitle>{t`Виправити транзакцію`}</DialogTitle>
+          <DialogDescription className="sr-only">{t`Виправлення транзакції`}</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">
@@ -120,7 +134,7 @@ export function EditSeniorIncomeDialog({
               className="rounded-lg border border-destructive/40 bg-destructive/5 p-3"
               data-testid="edit-senior-income-rejection-panel"
             >
-              <p className="text-xs font-medium text-destructive mb-1">Причина отклонения:</p>
+              <p className="text-xs font-medium text-destructive mb-1">{t`Причина відмови:`}</p>
               <p className="text-sm" data-testid="edit-senior-income-rejection-reason">
                 {tx.rejectionReason}
               </p>
@@ -129,7 +143,7 @@ export function EditSeniorIncomeDialog({
 
           {tx.projectName && (
             <div className="space-y-1">
-              <Label className="text-xs">Проект</Label>
+              <Label className="text-xs">{t`Проєкт`}</Label>
               <p className="text-sm font-medium px-1">{tx.projectName}</p>
             </div>
           )}
@@ -144,11 +158,11 @@ export function EditSeniorIncomeDialog({
           <ReceiptInput state={receipt} onChange={setReceipt} />
 
           <div className="space-y-1">
-            <Label className="text-xs">Заметки</Label>
+            <Label className="text-xs">{t`Примітки`}</Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Дополнительная информация..."
+              placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
             />
@@ -159,14 +173,14 @@ export function EditSeniorIncomeDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={onClose} data-testid="edit-senior-income-cancel">
-            Отмена
+            {t`Скасувати`}
           </Button>
           <Button
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending}
             data-testid="edit-senior-income-resubmit"
           >
-            {mutation.isPending ? 'Сохранение...' : 'Переотправить'}
+            {mutation.isPending ? t`Збереження…` : t`Надіслати повторно`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

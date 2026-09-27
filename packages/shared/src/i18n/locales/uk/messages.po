@@ -65,6 +65,11 @@ msgstr "— оберіть команду дропа —"
 msgid "— оберіть сеньйора —"
 msgstr "— оберіть сеньйора —"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "· НБУ"
+msgstr "· НБУ"
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "· Сеньйора не призначено"
 msgstr "· Сеньйора не призначено"
@@ -72,6 +77,11 @@ msgstr "· Сеньйора не призначено"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR може створювати лише сеньйорів)"
+
+#. placeholder {0}: fmtAmount( (parseFloat(tx.amount) * (1 - tx.seniorSharePercent / 100)).toFixed(2), tx.currency, )
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "(до отримання: {0})"
+msgstr "(до отримання: {0})"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -226,6 +236,10 @@ msgstr ""
 "{quote}\n"
 "Відхилено: {money}"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
+msgstr "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.percentText"
@@ -239,6 +253,11 @@ msgstr "/ місяць"
 #: apps/web/app/routes/_authenticated/onboarding/route.tsx
 msgid "© {0} Cheeky Cheese IT. Усі права захищено."
 msgstr "© {0} Cheeky Cheese IT. Усі права захищено."
+
+#. placeholder {0}: fmtAmount(pr.payableAmount, 'USDT')
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "→ виплачено: {0}"
+msgstr "→ виплачено: {0}"
 
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "+ Зареєструвати"
@@ -391,6 +410,15 @@ msgstr "IBAN має бути у форматі UA + 27 цифр (29 символ
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN обов’язковий"
 
+#. placeholder {0}: tx.id.slice(0, 8)
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "ID: {0}…"
+msgstr "ID: {0}…"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "JPG, PNG, PDF — до 10 МБ"
+msgstr "JPG, PNG, PDF — до 10 МБ"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Override"
@@ -404,6 +432,10 @@ msgstr "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки 
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_PDF_MODIFIED_AFTER_SIGNATURE"
 msgstr "PDF змінено після першого підпису — зверніться до адміністратора"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "PDF-документ"
+msgstr "PDF-документ"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "PDF-документ. За потреби скористайтеся кнопкою «Завантажити для перегляду» нижче, щоб переглянути контракт у зовнішній програмі"
@@ -781,6 +813,10 @@ msgstr "Бенефіти"
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "Бічна навігація CRM — перехід між розділами системи."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Браузер не підтримує перегляд PDF."
+msgstr "Браузер не підтримує перегляд PDF."
+
 #. placeholder {0}: resume.sourceFileName
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Буде видалено заповнені розділи та завантажений вихідний файл («{0}»). Відновити їх не можна — резюме доведеться завантажити або заповнити заново."
@@ -819,6 +855,10 @@ msgstr "Бухгалтерів ще немає — зверніться до а�
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Бухгалтерів ще немає — спершу додайте бухгалтера"
 msgstr "Бухгалтерів ще немає — спершу додайте бухгалтера"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "В USD"
+msgstr "В USD"
 
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "В активних стадіях"
@@ -919,6 +959,15 @@ msgstr "Вакансія «{vacancyTitle}»"
 msgid "Валідація доходів"
 msgstr "Валідація доходів"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Валідація транзакції"
+msgstr "Валідація транзакції"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Валідовано"
+msgstr "Валідовано"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідовано за місяць"
 msgstr "Валідовано за місяць"
@@ -933,6 +982,11 @@ msgstr "Валідовано: {money}"
 msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
 msgstr "Валідувати можна лише дохід сеньйора або дропа"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Валовий прихід"
+msgstr "Валовий прихід"
+
+#: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Валюта"
@@ -985,6 +1039,10 @@ msgstr "Ваш контракт"
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
 msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
 msgstr "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Ваша частка"
+msgstr "Ваша частка"
 
 #. placeholder {0}: item.viewerSharePercent
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
@@ -1390,6 +1448,10 @@ msgstr "Видалити сповіщення"
 msgid "Видалити транзакцію?"
 msgstr "Видалити транзакцію?"
 
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Видалити файл"
+msgstr "Видалити файл"
+
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її"
 msgstr "Видаліть — і вхід за цією адресою закриється одразу, навіть якщо співробітник уже підтвердив її"
@@ -1468,6 +1530,10 @@ msgstr "Виплата"
 msgid "Виплата (USDT)"
 msgstr "Виплата (USDT)"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+msgid "Виплата (оплачена)"
+msgstr "Виплата (оплачена)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_SINGLE_PROJECT_ONLY"
@@ -1483,6 +1549,7 @@ msgstr "Виплата не очікує оплати — можливо, її �
 msgid "api-error.FINANCE_DROP_PAYMENTS_FORBIDDEN"
 msgstr "Виплати дропа бачить лише дроп"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Виплатити"
 msgstr "Виплатити"
@@ -1502,6 +1569,7 @@ msgstr "Виплату видалити не можна"
 msgid "api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN"
 msgstr "Виплату редагувати не можна"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
@@ -1514,6 +1582,14 @@ msgstr "Виплачено за місяць"
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Виправити"
 msgstr "Виправити"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+msgid "Виправити транзакцію"
+msgstr "Виправити транзакцію"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+msgid "Виправлення транзакції"
+msgstr "Виправлення транзакції"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Витрата"
@@ -1668,6 +1744,10 @@ msgstr "Відкрити фінанси"
 msgid "notification.action.TRANSACTION_STATUS_CHANGED"
 msgstr "Відкрити фінанси"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Відкрити чек"
+msgstr "Відкрити чек"
+
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 msgid "Відкриті співбесіди"
 msgstr "Відкриті співбесіди"
@@ -1733,6 +1813,11 @@ msgstr "Відновлення…"
 msgid "Відновлено: проєкт, сеньйор, команда"
 msgstr "Відновлено: проєкт, сеньйор, команда"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Відправник"
+msgstr "Відправник"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SENDER_RECEIVER_SAME"
@@ -1769,6 +1854,7 @@ msgstr "Відхилені"
 msgid "Відхилення…"
 msgstr "Відхилення…"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Відхилено"
 msgstr "Відхилено"
@@ -1782,6 +1868,7 @@ msgstr "Відхилено: {money}"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Відхилити"
@@ -1893,6 +1980,10 @@ msgstr "Вкажіть причину відхилення"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_HASH_RELEASE_REASON_REQUIRED"
 msgstr "Вкажіть причину звільнення хешу — вона потрапить до журналу"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Вкажіть причину у разі відмови…"
+msgstr "Вкажіть причину у разі відмови…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2087,6 +2178,9 @@ msgstr "Дані компанії"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -2160,6 +2254,10 @@ msgstr "День"
 msgid "Деталі"
 msgstr "Деталі"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+msgid "Деталі виплати"
+msgstr "Деталі виплати"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Деталі проєкту"
 msgstr "Деталі проєкту"
@@ -2167,6 +2265,14 @@ msgstr "Деталі проєкту"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
 msgstr "Деталі співбесіди"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Деталі транзакції"
+msgstr "Деталі транзакції"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Джерело"
+msgstr "Джерело"
 
 #. placeholder {0}: tx.seniorSharePercentSource === 'PROJECT' ? t`перевизначено на рівні проєкту` : tx.seniorSharePercentSource === 'TEAM' ? t`перевизначено на рівні команди` : t`глобальне значення за замовчуванням`
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
@@ -2241,6 +2347,10 @@ msgstr "Дії"
 msgid "Діюча частка не зміниться."
 msgstr "Діюча частка не зміниться."
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Дія"
+msgstr "Дія"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_USDT_LINK_ONLY"
@@ -2294,6 +2404,11 @@ msgstr "До всіх вакансій"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_MEMBER_ROLE_RESTRICTED"
 msgstr "До складу проєкту можна додати лише джуніора, HR або бухгалтера"
+
+#. placeholder {0}: fmtAmount(remainingToPay, tx.currency)
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "До сплати: {0}"
+msgstr "До сплати: {0}"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Добовий ліміт автоматичного розпізнавання вичерпано. Заповніть резюме вручну — форма нижче працює."
@@ -2419,6 +2534,7 @@ msgstr "Додати учасника"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Додаткова інформація…"
 msgstr "Додаткова інформація…"
 
@@ -2433,6 +2549,11 @@ msgstr "Додаткові поля для повнішої розмітки в�
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
 msgstr "Дозволено лише PNG, JPEG, GIF, WebP"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Документ"
+msgstr "Документ"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -2582,6 +2703,7 @@ msgid "Дохід за місяць"
 msgstr "Дохід за місяць"
 
 #: apps/web/app/lib/invoice-labels.ts
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Дохід сеньйора"
 msgstr "Дохід сеньйора"
 
@@ -2711,6 +2833,7 @@ msgstr "За датою додавання"
 msgid "За датою початку"
 msgstr "За датою початку"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "за замовчуванням"
 msgstr "за замовчуванням"
@@ -2859,6 +2982,10 @@ msgstr "Завжди"
 msgid "Загальна інформація"
 msgstr "Загальна інформація"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Загальний дохід"
+msgstr "Загальний дохід"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -2895,6 +3022,8 @@ msgstr "Закрита"
 #: apps/web/app/components/ui/dialog.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Закрити"
 msgstr "Закрити"
@@ -2926,10 +3055,22 @@ msgstr "Залишитися"
 msgid "Залиште порожнім, щоб не змінювати"
 msgstr "Залиште порожнім, щоб не змінювати"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Замінити"
+msgstr "Замінити"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Замінити наявний чек?"
+msgstr "Замінити наявний чек?"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Замінити файл"
 msgstr "Замінити файл"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Замінити чек"
@@ -3045,6 +3186,10 @@ msgstr "Запрошення недійсне"
 msgid "Зараз не призначено на проєкт"
 msgstr "Зараз не призначено на проєкт"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Зареєструвати прихід"
+msgstr "Зареєструвати прихід"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Заробітку за останні місяці ще немає"
 msgstr "Заробітку за останні місяці ще немає"
@@ -3127,6 +3272,8 @@ msgid "Зберегти чернетку"
 msgstr "Зберегти чернетку"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Збереження…"
@@ -3459,6 +3606,10 @@ msgstr "Кастомні змінні"
 msgid "Кастомні змінні не додані"
 msgstr "Кастомні змінні не додані"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Категорія"
+msgstr "Категорія"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Кваліфікація"
 msgstr "Кваліфікація"
@@ -3502,6 +3653,7 @@ msgstr "Кожну людину можна додати до підтвердж�
 msgid "Команд поки немає"
 msgstr "Команд поки немає"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "команда"
 msgstr "команда"
@@ -3596,6 +3748,7 @@ msgstr "компанії"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -3820,6 +3973,11 @@ msgstr "Крок {0} із {1}"
 msgid "Кроки створення користувача"
 msgstr "Кроки створення користувача"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Курс (USD)"
+msgstr "Курс (USD)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_NBU_RATE_UNAVAILABLE"
@@ -3828,6 +3986,13 @@ msgstr "Курс НБУ недоступний — спробуйте пізні
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
 msgstr "Курс переказу не записано — зобов’язання залишиться {oldAmount}, зміниться лише виплачена сума"
+
+#. placeholder {0}: tx.originalCurrency ?? tx.currency
+#. placeholder {1}: Number(tx.exchangeRate).toFixed(4)
+#. placeholder {2}: tx.currency
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Курс: 1 {0} = {1} {2}"
+msgstr "Курс: 1 {0} = {1} {2}"
 
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Ласкаво просимо до CRM"
@@ -3912,6 +4077,10 @@ msgstr "Масштаб"
 msgid "Меню користувача"
 msgstr "Меню користувача"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Минулий місяць"
+msgstr "Минулий місяць"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Мій баланс"
@@ -3995,6 +4164,10 @@ msgstr "Можна додати не більше 50 власних змінни
 msgid "Можна прикріпити пізніше в розділі «Проєкти»"
 msgstr "Можна прикріпити пізніше в розділі «Проєкти»"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "МОЇ ПРИХОДИ"
+msgstr "МОЇ ПРИХОДИ"
+
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Мої проєкти"
 msgstr "Мої проєкти"
@@ -4042,6 +4215,10 @@ msgstr "Навчальний заклад"
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 msgid "Надіслати запрошення знову"
 msgstr "Надіслати запрошення знову"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+msgid "Надіслати повторно"
+msgstr "Надіслати повторно"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Надходження від компаній за цей місяць"
@@ -4175,6 +4352,19 @@ msgstr "Напрямок сортування: за зростанням"
 msgid "Напрямок сортування: за спаданням"
 msgstr "Напрямок сортування: за спаданням"
 
+#. placeholder {0}: fmtAmount(tx.originalAmount, tx.originalCurrency ?? tx.currency)
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Нараховано: {0}"
+msgstr "Нараховано: {0}"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Нарахування"
+msgstr "Нарахування"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Наступна"
+msgstr "Наступна"
+
 #. placeholder {0}: currentTos.version + 1
 #. placeholder {1}: currentTos.version
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -4196,6 +4386,10 @@ msgstr "Натисніть «Створити сеньйора», щоб сфо�
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Натисніть ще раз, щоб повторити завантаження."
 msgstr "Натисніть ще раз, щоб повторити завантаження."
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Натисніть, щоб вибрати файл"
+msgstr "Натисніть, щоб вибрати файл"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -4335,6 +4529,10 @@ msgstr "Не вдалося завантажити файл"
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Не вдалося завантажити фінансове зведення"
 msgstr "Не вдалося завантажити фінансове зведення"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Не вдалося завантажити чек"
+msgstr "Не вдалося завантажити чек"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Не вдалося зберегти — недостатньо прав"
@@ -4649,6 +4847,10 @@ msgstr "Не призначено"
 msgid "Не прийнято"
 msgstr "Не прийнято"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Не пройшов"
+msgstr "Не пройшов"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Небезпечна зона"
 msgstr "Небезпечна зона"
@@ -4684,6 +4886,10 @@ msgstr "Некоректна адреса гаманця — потрібні 0x
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_INVALID_ROLE"
 msgstr "Некоректна роль шаблону контракту"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+msgid "Некоректна сума"
+msgstr "Некоректна сума"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Некоректний URL"
@@ -4840,6 +5046,14 @@ msgstr "Немає прав прикріпити цей документ чек�
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_ATTACH_FORBIDDEN"
 msgstr "Немає прав прикріпити чек до цієї транзакції"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Немає прикріпленого чека"
+msgstr "Немає прикріпленого чека"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Немає приходів за обраними фільтрами"
+msgstr "Немає приходів за обраними фільтрами"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Немає проєктів без активного джуніора"
@@ -5144,6 +5358,7 @@ msgstr "Оплатити"
 msgid "api-error.FINANCE_PAY_SALARY_ONLY"
 msgstr "Оплатити можна лише зарплату"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Оплачено"
 msgstr "Оплачено"
@@ -5259,6 +5474,10 @@ msgstr "Особисту адресу видалено — увійти чере
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Останні 3 міс."
+msgstr "Останні 3 міс."
+
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Останні виплати"
 msgstr "Останні виплати"
@@ -5269,6 +5488,11 @@ msgstr "Остання сторінка"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Отримувач"
 msgstr "Отримувач"
 
@@ -5347,6 +5571,11 @@ msgstr "Очікуваний розрахунок із сеньйором"
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "Очікування"
 msgstr "Очікування"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Очікує"
+msgstr "Очікує"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує валідації"
@@ -5430,6 +5659,10 @@ msgstr "Перевірити"
 msgid "Перевірити доходи ({0})"
 msgstr "Перевірити доходи ({0})"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+msgid "Перевірка…"
+msgstr "Перевірка…"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.VALIDATION_FAILED_FORM"
@@ -5501,10 +5734,18 @@ msgstr "Перейшли в «Найнято»"
 msgid "Переказ"
 msgstr "Переказ"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Переказ не пройшов — зверніться до адміністратора"
+msgstr "Переказ не пройшов — зверніться до адміністратора"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TRANSFER_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Переказати можна лише іншому адміністратору"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Переказів ще не було"
+msgstr "Переказів ще не було"
 
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Переклад ще триває — частина екранів поки що російською."
@@ -5549,6 +5790,7 @@ msgid "Перетягніть файл у вікно або натисніть �
 msgstr "Перетягніть файл у вікно або натисніть кнопку вище"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Період"
 msgstr "Період"
@@ -5730,6 +5972,7 @@ msgstr "Підтвердження незворотної дії."
 msgid "Підтвердження…"
 msgstr "Підтвердження…"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Підтверджено"
 msgstr "Підтверджено"
@@ -5754,9 +5997,23 @@ msgstr "Підтверджують: {drop}, {senior}"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Підтвердити"
 msgstr "Підтвердити"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Підтвердити ({remainingCount})"
+msgstr "Підтвердити ({remainingCount})"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Підтвердити валідацію?"
+msgstr "Підтвердити валідацію?"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+msgid "Підтвердити виплату"
+msgstr "Підтвердити виплату"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Підтвердити зміну"
@@ -5767,6 +6024,7 @@ msgstr "Підтвердити зміну"
 msgid "api-error.FINANCE_CONFIRM_PAYOUT_ONLY"
 msgstr "Підтвердити можна лише виплату"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Підтвердити оплату"
 msgstr "Підтвердити оплату"
@@ -5775,6 +6033,14 @@ msgstr "Підтвердити оплату"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_ROUNDED_PAYOUT_AMOUNT_ZERO"
 msgstr "Після округлення сума виплати стала нульовою, хоча зобов’язання не нульове — виберіть іншу валюту виплати"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Після підтвердження черга перейде до наступної транзакції."
+msgstr "Після підтвердження черга перейде до наступної транзакції."
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "ПЛАТЕЖІ НА КОМПАНІЮ"
+msgstr "ПЛАТЕЖІ НА КОМПАНІЮ"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "По одній навичці в рядку"
@@ -5832,6 +6098,10 @@ msgstr "Повернуто стандартний аватар"
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Повна зайнятість"
 msgstr "Повна зайнятість"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Повна інформація про фінансову транзакцію, статус і прикріплений чек."
+msgstr "Повна інформація про фінансову транзакцію, статус і прикріплений чек."
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
@@ -5943,6 +6213,10 @@ msgstr "Попередній перегляд PDF — {roleLabel}"
 msgid "Попередній перегляд контракту"
 msgstr "Попередній перегляд контракту"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Попередній перегляд недоступний"
+msgstr "Попередній перегляд недоступний"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Попередній перегляд недоступний для цього формату файлу — завантажте, щоб відкрити."
 msgstr "Попередній перегляд недоступний для цього формату файлу — завантажте, щоб відкрити."
@@ -5965,6 +6239,10 @@ msgstr "Попередній перегляд умов"
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 msgid "Попередній перегляд умов використання"
 msgstr "Попередній перегляд умов використання"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Попередня"
+msgstr "Попередня"
 
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "Попередня сторінка"
@@ -6002,6 +6280,7 @@ msgstr "Посада, місце роботи {position}"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Посилання"
 msgstr "Посилання"
 
@@ -6027,6 +6306,10 @@ msgstr "Посилання має починатися з https://t.me/"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TEAM_TELEGRAM_LINK_FORMAT"
 msgstr "Посилання має починатися з https://t.me/"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)"
+msgstr "Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Посилання на Telegram-чат команди"
@@ -6065,6 +6348,10 @@ msgstr "Поточна версія: v{0}"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Поточний аватар"
 msgstr "Поточний аватар"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Поточний місяць"
+msgstr "Поточний місяць"
 
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 msgid "Поточний проєкт"
@@ -6148,6 +6435,10 @@ msgstr "Пошук країни…"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Пошук…"
 msgstr "Пошук…"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Прев’ю чека"
+msgstr "Прев’ю чека"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Прибрати"
@@ -6239,21 +6530,47 @@ msgstr "Прийняти Умови використання"
 msgid "Прийнято: {0}"
 msgstr "Прийнято: {0}"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Прикріпити"
+msgstr "Прикріпити"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_RECEIPT_DOCUMENT_WRONG_CATEGORY"
 msgstr "Прикріпити до транзакції можна лише документ категорії «Чек»"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Прикріпити чек"
 msgstr "Прикріпити чек"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Прикріпіть чек або вкажіть посилання на підтвердження"
+msgstr "Прикріпіть чек або вкажіть посилання на підтвердження"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Прикріплення підтверджувального документа до транзакції"
+msgstr "Прикріплення підтверджувального документа до транзакції"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Примітки"
 msgstr "Примітки"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Прихід"
+msgstr "Прихід"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Прихід (архів)"
@@ -6292,6 +6609,10 @@ msgstr "Приховати «{label}»"
 msgid "Приховати пароль"
 msgstr "Приховати пароль"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Приходів ще немає"
+msgstr "Приходів ще немає"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Причина видалення (обов’язково)"
 msgstr "Причина видалення (обов’язково)"
@@ -6301,16 +6622,28 @@ msgstr "Причина видалення (обов’язково)"
 msgid "Причина видалення: <0>{0}</0>"
 msgstr "Причина видалення: <0>{0}</0>"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Причина відмови"
+msgstr "Причина відмови"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REJECTION_REASON_TOO_LONG"
 msgstr "Причина відмови — не більше 500 символів"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Причина відмови (у разі відмови)"
+msgstr "Причина відмови (у разі відмови)"
 
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Причина відмови *"
 msgstr "Причина відмови *"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+msgid "Причина відмови:"
+msgstr "Причина відмови:"
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Причина відновлення (обов’язково)"
@@ -6330,12 +6663,18 @@ msgstr "Про себе"
 msgid "Продовжити"
 msgstr "Продовжити"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "проєкт"
 msgstr "проєкт"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Проєкт"
 msgstr "Проєкт"
@@ -6927,6 +7266,8 @@ msgstr "Свою роль змінити не можна"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/ui/role-select.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Сеньйор"
@@ -7032,6 +7373,12 @@ msgstr "Скасовуємо пропозицію…"
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
@@ -7097,6 +7444,11 @@ msgstr "Скинути до шаблону"
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Скинути контракт до шаблону?"
 msgstr "Скинути контракт до шаблону?"
+
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Скинути фільтри"
+msgstr "Скинути фільтри"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Скільки дроп залишає собі з кожної виплати"
@@ -7256,6 +7608,10 @@ msgstr "Сталася помилка. Спробуйте ще раз."
 msgid "Стандартно"
 msgstr "Стандартно"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Старий файл/посилання буде видалено без можливості відновлення."
+msgstr "Старий файл/посилання буде видалено без можливості відновлення."
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Старий:"
 msgstr "Старий:"
@@ -7273,6 +7629,7 @@ msgstr "Статистика"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -7452,10 +7809,13 @@ msgstr "Сторони"
 msgid "Ступінь / спеціальність"
 msgstr "Ступінь / спеціальність"
 
+#: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -7623,6 +7983,8 @@ msgstr "Тиждень"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -7680,6 +8042,10 @@ msgstr "Транзакцій поки немає"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Транзакцій ще немає — створіть першу кнопкою «Нова транзакція»"
 msgstr "Транзакцій ще немає — створіть першу кнопкою «Нова транзакція»"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
+msgid "Транзакцію буде підтверджено і переведено у статус «Валідовано»."
+msgstr "Транзакцію буде підтверджено і переведено у статус «Валідовано»."
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -7927,6 +8293,11 @@ msgstr "Усі ({0})"
 msgid "Усі відповідальні"
 msgstr "Усі відповідальні"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Усі періоди"
+msgstr "Усі періоди"
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Усі поля заповнено"
 msgstr "Усі поля заповнено"
@@ -7938,6 +8309,8 @@ msgstr "Усі ролі"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Усі статуси"
 msgstr "Усі статуси"
@@ -7979,6 +8352,7 @@ msgstr "Учасників додано"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Файл"
 msgstr "Файл"
 
@@ -7998,6 +8372,10 @@ msgstr "Файл більший за {MAX_MB} МБ — виберіть інши
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_TOO_LARGE"
 msgstr "Файл більший за {maxMb} МБ"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Файл завантажено"
+msgstr "Файл завантажено"
 
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Файл завантажено, розпізнаємо резюме"
@@ -8024,6 +8402,10 @@ msgstr "Файл не передано — виберіть файл і спро
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Файл резюме"
 msgstr "Файл резюме"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Факт переказу"
+msgstr "Факт переказу"
 
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
@@ -8106,6 +8488,9 @@ msgstr "Форма містить помилки"
 msgid "Формат файлу не підтримується."
 msgstr "Формат файлу не підтримується."
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Хеш транзакції"
 msgstr "Хеш транзакції"
@@ -8131,6 +8516,14 @@ msgstr "Хеш транзакції: 0x + 64 hex — або посилання �
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Хобі"
 msgstr "Хобі"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Хто перевірив"
+msgstr "Хто перевірив"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Хто створив"
+msgstr "Хто створив"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -8335,6 +8728,8 @@ msgstr "Частка невідома. Оновіть сторінку"
 msgid "Частка партнера"
 msgstr "Частка партнера"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Частка сеньйора"
 msgstr "Частка сеньйора"
@@ -8381,21 +8776,43 @@ msgstr "Частка: {0}%"
 msgid "Часткова зайнятість"
 msgstr "Часткова зайнятість"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Чек"
+msgstr "Чек"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_BOTH_NOT_ALLOWED"
 msgstr "Чек — це файл або посилання, не обидва одночасно"
+
+#: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
+msgid "Чек / підтвердження"
+msgstr "Чек / підтвердження"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
+msgid "Чек замінено"
+msgstr "Чек замінено"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці"
+msgstr "Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_RECEIPT_SELF_ONLY"
 msgstr "Чек можна завантажити лише для себе"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
+msgid "Чек недоступний"
+msgstr "Чек недоступний"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RECEIPT_REQUIRED"
 msgstr "Чек обов’язковий — додайте файл або посилання"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/AttachReceiptSheet.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Чек прикріплено"

@@ -1,6 +1,9 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
+import { useLingui } from '@lingui/react/macro'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import {
   ExternalLink,
   ArrowRight,
@@ -35,14 +38,13 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   fmtAmount,
-  fmtDate,
   fmtMonth,
   fmtRate,
   fmtUsd,
-  TYPE_LABELS,
+  TYPE_LABEL_MESSAGES,
   TYPE_COLORS,
   STATUS_COLORS,
-  STATUS_LABELS,
+  STATUS_LABEL_MESSAGES,
   type ExchangeRates,
 } from '../../constants'
 import { financeApi } from '../../api'
@@ -144,20 +146,43 @@ function TxHashLink({ hash }: { hash: string }) {
 
 // ── Type-specific content blocks ───────────────────────────────────────────────
 
+/** Localised share-source tag — «· проєкт»/«· команда»/«· за замовчуванням»,
+ * shared by SeniorIncomeContent and PayoutContent (same snapshot-source enum
+ * as TransactionRow's own inline copy of this switch). */
+function ShareSourceTag({
+  source,
+  testId,
+}: {
+  source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT'
+  testId: string
+}) {
+  const { t } = useLingui()
+  return (
+    <span
+      className="text-[11px] text-muted-foreground ml-2 uppercase tracking-wide"
+      data-testid={testId}
+      data-share-source={source}
+    >
+      · {source === 'PROJECT' ? t`проєкт` : source === 'TEAM' ? t`команда` : t`за замовчуванням`}
+    </span>
+  )
+}
+
 function AdminIncomeContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Получатель">
+      <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         {/* seed: senderId = admin, receiverId = null */}
         <UserLink id={tx.senderId} name={tx.senderName} />
       </Row>
       {tx.projectId && (
-        <Row icon={<Briefcase className="h-4 w-4" />} label="Проект">
+        <Row icon={<Briefcase className="h-4 w-4" />} label={t`Проєкт`}>
           <ProjectLink id={tx.projectId} name={tx.projectName} />
         </Row>
       )}
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -166,61 +191,53 @@ function AdminIncomeContent({ tx }: { tx: TransactionDto }) {
 }
 
 function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Синьор">
+      <Row icon={<User className="h-4 w-4" />} label={t`Сеньйор`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
       {tx.projectId && (
-        <Row icon={<Briefcase className="h-4 w-4" />} label="Проект">
+        <Row icon={<Briefcase className="h-4 w-4" />} label={t`Проєкт`}>
           <ProjectLink id={tx.projectId} name={tx.projectName} />
         </Row>
       )}
       {tx.seniorSharePercent != null && (
-        <Row icon={<Percent className="h-4 w-4" />} label="Доля синьора">
+        <Row icon={<Percent className="h-4 w-4" />} label={t`Частка сеньйора`}>
           <span>{tx.seniorSharePercent}%</span>
           {/* task-team-senior-share-override. Show the snapshot source
               right next to the percent so the SENIOR can see whether the
               split came from a project / team override or the user default.
               Legacy rows (no source) keep the previous rendering. */}
           {tx.seniorSharePercentSource ? (
-            <span
-              className="text-[11px] text-muted-foreground ml-2 uppercase tracking-wide"
-              data-testid={`tx-detail-senior-share-source`}
-              data-share-source={tx.seniorSharePercentSource}
-            >
-              ·{' '}
-              {tx.seniorSharePercentSource === 'PROJECT'
-                ? 'проект'
-                : tx.seniorSharePercentSource === 'TEAM'
-                  ? 'команда'
-                  : 'по умолчанию'}
-            </span>
+            <ShareSourceTag
+              source={tx.seniorSharePercentSource}
+              testId="tx-detail-senior-share-source"
+            />
           ) : null}
           <span className="text-xs text-muted-foreground ml-2">
-            (к выплате:{' '}
-            {fmtAmount(
+            {t`(до отримання: ${fmtAmount(
               (parseFloat(tx.amount) * (1 - tx.seniorSharePercent / 100)).toFixed(2),
               tx.currency,
-            )}
-            )
+            )})`}
           </span>
         </Row>
       )}
       {tx.validatedAt && (
-        <Row icon={<CheckCircle2 className="h-4 w-4" />} label="Проверил">
+        <Row icon={<CheckCircle2 className="h-4 w-4" />} label={t`Хто перевірив`}>
           <span className="text-muted-foreground text-xs">
-            {tx.validatedAt ? fmtDate(tx.validatedAt) : ''}
+            {tx.validatedAt ? formatDate(tx.validatedAt, locale) : ''}
           </span>
         </Row>
       )}
       {tx.rejectionReason && (
-        <Row icon={<XCircle className="h-4 w-4" />} label="Причина отказа">
+        <Row icon={<XCircle className="h-4 w-4" />} label={t`Причина відмови`}>
           <span className="text-red-400">{tx.rejectionReason}</span>
         </Row>
       )}
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -229,16 +246,17 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
 }
 
 function ExpenseContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Кто создал">
+      <Row icon={<User className="h-4 w-4" />} label={t`Хто створив`}>
         <UserLink id={tx.senderId} name={tx.senderName} />
       </Row>
-      <Row icon={<FileText className="h-4 w-4" />} label="Категория">
+      <Row icon={<FileText className="h-4 w-4" />} label={t`Категорія`}>
         <span>{tx.receiverLabel ?? '—'}</span>
       </Row>
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -247,16 +265,17 @@ function ExpenseContent({ tx }: { tx: TransactionDto }) {
 }
 
 function SalaryContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Получатель">
+      <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
-      <Row icon={<Calendar className="h-4 w-4" />} label="Период">
+      <Row icon={<Calendar className="h-4 w-4" />} label={t`Період`}>
         <span>{fmtMonth(tx.salaryMonth)}</span>
       </Row>
       {tx.projectId && (
-        <Row icon={<Briefcase className="h-4 w-4" />} label="Проект">
+        <Row icon={<Briefcase className="h-4 w-4" />} label={t`Проєкт`}>
           <ProjectLink id={tx.projectId} name={tx.projectName} />
         </Row>
       )}
@@ -266,12 +285,12 @@ function SalaryContent({ tx }: { tx: TransactionDto }) {
           mandatory ReceiptInput → ReceiptPanel (rendered by the split-view
           above), so the two never show simultaneously. */}
       {tx.txHash && !tx.receiptDocumentId && !tx.receiptExternalUrl && (
-        <Row icon={<Hash className="h-4 w-4" />} label="TX Hash">
+        <Row icon={<Hash className="h-4 w-4" />} label={t`Хеш транзакції`}>
           <TxHashLink hash={tx.txHash} />
         </Row>
       )}
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -280,16 +299,17 @@ function SalaryContent({ tx }: { tx: TransactionDto }) {
 }
 
 function AdminTransferContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Отправитель">
+      <Row icon={<User className="h-4 w-4" />} label={t`Відправник`}>
         <UserLink id={tx.senderId} name={tx.senderName} />
       </Row>
-      <Row icon={<User className="h-4 w-4" />} label="Получатель">
+      <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -298,54 +318,47 @@ function AdminTransferContent({ tx }: { tx: TransactionDto }) {
 }
 
 function PayoutContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   const pr = tx.payoutRequest
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Синьор">
+      <Row icon={<User className="h-4 w-4" />} label={t`Сеньйор`}>
         <UserLink id={tx.senderId} name={tx.senderName} />
       </Row>
-      <Row icon={<Briefcase className="h-4 w-4" />} label="Получатель">
+      <Row icon={<Briefcase className="h-4 w-4" />} label={t`Отримувач`}>
         <span className="text-muted-foreground">{tx.receiverLabel ?? 'CheekyCheeseIT'}</span>
       </Row>
       {pr && (
         <>
-          <Row icon={<Percent className="h-4 w-4" />} label="Доход синьора">
+          <Row icon={<Percent className="h-4 w-4" />} label={t`Дохід сеньйора`}>
             <span>{fmtAmount(pr.incomeAmount, 'USDT')}</span>
           </Row>
           {pr.seniorSharePercent != null && (
-            <Row icon={<Percent className="h-4 w-4" />} label="Доля синьора">
+            <Row icon={<Percent className="h-4 w-4" />} label={t`Частка сеньйора`}>
               <span>{pr.seniorSharePercent}%</span>
               {/* task-team-senior-share-override. Mirror the source badge
                   on the payout view so SENIORs can see "why this %" without
                   drilling into the originating SENIOR_INCOME row. */}
               {pr.seniorSharePercentSource ? (
-                <span
-                  className="text-[11px] text-muted-foreground ml-2 uppercase tracking-wide"
-                  data-testid="payout-detail-senior-share-source"
-                  data-share-source={pr.seniorSharePercentSource}
-                >
-                  ·{' '}
-                  {pr.seniorSharePercentSource === 'PROJECT'
-                    ? 'проект'
-                    : pr.seniorSharePercentSource === 'TEAM'
-                      ? 'команда'
-                      : 'по умолчанию'}
-                </span>
+                <ShareSourceTag
+                  source={pr.seniorSharePercentSource}
+                  testId="payout-detail-senior-share-source"
+                />
               ) : null}
               <span className="text-xs text-muted-foreground ml-2">
-                → выплачено: {fmtAmount(pr.payableAmount, 'USDT')}
+                {t`→ виплачено: ${fmtAmount(pr.payableAmount, 'USDT')}`}
               </span>
             </Row>
           )}
         </>
       )}
       {tx.txHash && (
-        <Row icon={<Hash className="h-4 w-4" />} label="TX Hash">
+        <Row icon={<Hash className="h-4 w-4" />} label={t`Хеш транзакції`}>
           <TxHashLink hash={tx.txHash} />
         </Row>
       )}
       {tx.notes && (
-        <Row icon={<FileText className="h-4 w-4" />} label="Заметки">
+        <Row icon={<FileText className="h-4 w-4" />} label={t`Примітки`}>
           <span className="text-muted-foreground">{tx.notes}</span>
         </Row>
       )}
@@ -354,22 +367,23 @@ function PayoutContent({ tx }: { tx: TransactionDto }) {
 }
 
 function PayoutAdminContent({ tx }: { tx: TransactionDto }) {
+  const { t } = useLingui()
   const pr = tx.payoutRequest
   return (
     <>
-      <Row icon={<User className="h-4 w-4" />} label="Источник">
+      <Row icon={<User className="h-4 w-4" />} label={t`Джерело`}>
         <UserLink id={tx.senderId} name={tx.senderName} />
       </Row>
-      <Row icon={<User className="h-4 w-4" />} label="Получатель">
+      <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
       {pr && (
-        <Row icon={<Percent className="h-4 w-4" />} label="Общий доход">
+        <Row icon={<Percent className="h-4 w-4" />} label={t`Загальний дохід`}>
           <span className="text-muted-foreground">{fmtAmount(pr.payableAmount, 'USDT')} × 50%</span>
         </Row>
       )}
       {tx.txHash && (
-        <Row icon={<Hash className="h-4 w-4" />} label="TX Hash">
+        <Row icon={<Hash className="h-4 w-4" />} label={t`Хеш транзакції`}>
           <TxHashLink hash={tx.txHash} />
         </Row>
       )}
@@ -429,6 +443,7 @@ export function TransactionDetailDialog({
   onQuickPayout?: (tx: TransactionDto) => void
 }) {
   const { user } = useAuth()
+  const { t, i18n } = useLingui()
   // task-receipts-frontend: attach/replace-receipt Sheet, opened from the
   // button below ReceiptPanel (primary entry point on mobile — the row icon
   // in TransactionRow is hidden below md).
@@ -449,15 +464,35 @@ export function TransactionDetailDialog({
     staleTime: 1000 * 60 * 60,
   })
 
-  const t = detail ?? tx
+  // Renamed from bare `t` (pre-existing) — `useLingui()`'s own `t` macro
+  // occupies that name in this function's scope now.
+  const row = detail ?? tx
 
   // Transactions that can carry a receipt — split view applies only when a
   // receipt is meaningful. For purely on-chain transactions (PAYOUT,
   // PAYOUT_ADMIN) the receipt panel becomes an «Open in Etherscan» surface
   // via TX hash links inline instead.
-  const showReceiptPanel = t ? RECEIPT_ELIGIBLE_TYPES.has(t.type) : false
-  const hasExistingReceipt = !!(t?.receiptDocumentId || t?.receiptExternalUrl)
-  const showAttachButton = t ? canAttachReceipt(t, user?.id, user?.role ?? '') : false
+  // Stryker disable next-line BooleanLiteral: the `false` alternative only
+  // matters when `row` is falsy, and `row` is falsy exactly when `tx` is
+  // (`<Dialog open={!!tx}>`) — the dialog is closed and its content
+  // unmounted, so `showReceiptPanel` never reaches any JSX a test could
+  // observe on that branch.
+  const showReceiptPanel = row ? RECEIPT_ELIGIBLE_TYPES.has(row.type) : false
+  const hasExistingReceipt = !!(row?.receiptDocumentId || row?.receiptExternalUrl)
+  const showAttachButton = row
+    ? canAttachReceipt(
+        row,
+        user?.id,
+        // Stryker disable next-line StringLiteral: canAttachReceipt only compares
+        // role against the literals 'ADMIN'/'ACCOUNTANT' — any other string
+        // (the '' fallback or the mutant's "Stryker was here!") is equally
+        // non-matching, so no test can observe a difference between them.
+        user?.role ?? '',
+      )
+    : // Stryker disable next-line BooleanLiteral: same reasoning as
+      // `showReceiptPanel` above — reached only when `row` is falsy, i.e. the
+      // dialog is closed and unmounted.
+      false
   // Same audience the server already uses for the audit fields on this DTO.
   const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
@@ -467,25 +502,25 @@ export function TransactionDetailDialog({
         <CrmDialogContent maxWidth={showReceiptPanel ? 'sm:max-w-5xl' : 'sm:max-w-lg'}>
           <CrmDialogHeader>
             <DialogTitle className="flex items-center gap-2.5 text-base">
-              {t && (
+              {row && (
                 <span
                   className={cn(
                     'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                    TYPE_COLORS[t.type],
+                    TYPE_COLORS[row.type],
                   )}
                 >
-                  {TYPE_LABELS[t.type]}
+                  {i18n._(TYPE_LABEL_MESSAGES[row.type])}
                 </span>
               )}
-              Детали транзакции
+              {t`Деталі транзакції`}
             </DialogTitle>
             <DialogDescription className="sr-only">
-              Полная информация о финансовой транзакции, статус и прикреплённый чек.
+              {t`Повна інформація про фінансову транзакцію, статус і прикріплений чек.`}
             </DialogDescription>
           </CrmDialogHeader>
 
           <CrmDialogBody className="pb-4">
-            {!t ? (
+            {!row ? (
               <DetailSkeleton />
             ) : showReceiptPanel ? (
               // Split view: info (≈40%) left, large receipt preview (≈60%) right.
@@ -495,7 +530,7 @@ export function TransactionDetailDialog({
               <div className="grid grid-cols-1 md:grid-cols-[40%_1fr] gap-6">
                 <div className="space-y-0 min-w-0">
                   <TransactionInfoBlock
-                    t={t}
+                    t={row}
                     rates={rates}
                     isLoading={isLoading}
                     detailReady={!!detail}
@@ -503,7 +538,7 @@ export function TransactionDetailDialog({
                   />
                 </div>
                 <div className="min-w-0 space-y-2">
-                  <ReceiptPanel tx={t} />
+                  <ReceiptPanel tx={row} />
                   {/* task-receipts-frontend: primary attach/replace entry point —
                     full-width 44px on mobile (hard responsive-design.md gate),
                     compact secondary button from sm+ (row icon already covers
@@ -517,7 +552,7 @@ export function TransactionDetailDialog({
                       data-testid="detail-attach-receipt"
                     >
                       <Receipt className="h-3.5 w-3.5 mr-1.5" />
-                      {hasExistingReceipt ? 'Заменить чек' : 'Прикрепить чек'}
+                      {hasExistingReceipt ? t`Замінити чек` : t`Прикріпити чек`}
                     </Button>
                   )}
                 </div>
@@ -525,7 +560,7 @@ export function TransactionDetailDialog({
             ) : (
               <div className="space-y-0">
                 <TransactionInfoBlock
-                  t={t}
+                  t={row}
                   rates={rates}
                   isLoading={isLoading}
                   detailReady={!!detail}
@@ -538,14 +573,18 @@ export function TransactionDetailDialog({
           {/* Footer surfaces the quick payout shortcut alongside the implicit
             close button (Esc / backdrop). Only rendered when the parent
             signals eligibility — RBAC + status checks live there. */}
-          {t && canQuickPayout && onQuickPayout && (
+          {row && canQuickPayout && onQuickPayout && (
             <CrmDialogFooter>
               <Button variant="outline" size="sm" onClick={onClose}>
-                Закрыть
+                {t`Закрити`}
               </Button>
-              <Button size="sm" onClick={() => onQuickPayout(t)} data-testid="detail-quick-payout">
+              <Button
+                size="sm"
+                onClick={() => onQuickPayout(row)}
+                data-testid="detail-quick-payout"
+              >
                 <Wallet className="h-3.5 w-3.5 mr-1" />
-                Выплатить
+                {t`Виплатити`}
               </Button>
             </CrmDialogFooter>
           )}
@@ -555,7 +594,7 @@ export function TransactionDetailDialog({
           (Sheet is ALSO a Dialog.Root under the hood — sibling, not nested,
           avoids stacking two Radix dialog roots which can fight over
           Escape/focus-trap). */}
-      <AttachReceiptSheet tx={attachOpen ? t : null} onClose={() => setAttachOpen(false)} />
+      <AttachReceiptSheet tx={attachOpen ? row : null} onClose={() => setAttachOpen(false)} />
     </>
   )
 }
@@ -563,7 +602,7 @@ export function TransactionDetailDialog({
 // ── Info block (left column or full-width depending on layout) ─────────────────
 
 function TransactionInfoBlock({
-  t,
+  t: tx,
   rates,
   isLoading,
   detailReady,
@@ -576,8 +615,12 @@ function TransactionInfoBlock({
   /** ADMIN/ACCOUNTANT — the audience for the internal payment-fact triplet. */
   privileged: boolean
 }) {
+  // Prop kept as `t` at the call sites (unchanged) — renamed to `tx` on
+  // destructure so `useLingui()`'s own `t` macro is free to bind below.
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   // task-cascade-preview-ui (task 5): null on every row without an accumulator.
-  const settlement = settlementSplit(t)
+  const settlement = settlementSplit(tx)
   // UX-8: ONE narrowed value, the same shape `TransactionRow` settled on for
   // this exact question. A separate `remaining !== null` test would be dead at
   // RUNTIME — `null > 0` is already false in JS, which the mutation gate proved
@@ -596,22 +639,22 @@ function TransactionInfoBlock({
               source value (AC3). USD is the only currency whose source == the
               big figure, so it's the sole exclusion — USDT still shows
               «7 777,00 USDT» to make the currency explicit. */}
-          <p className="text-2xl font-bold tabular-nums">{fmtUsd(t.amount, t.currency, rates)}</p>
-          {t.currency !== 'USD' && (
+          <p className="text-2xl font-bold tabular-nums">{fmtUsd(tx.amount, tx.currency, rates)}</p>
+          {tx.currency !== 'USD' && (
             <p className="text-xs text-muted-foreground mt-0.5">
-              {fmtAmount(t.amount, t.currency)}
+              {fmtAmount(tx.amount, tx.currency)}
             </p>
           )}
         </div>
         <div className="flex items-center gap-2">
-          <StatusIcon status={t.status} />
+          <StatusIcon status={tx.status} />
           <span
             className={cn(
               'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-              STATUS_COLORS[t.status],
+              STATUS_COLORS[tx.status],
             )}
           >
-            {STATUS_LABELS[t.status]}
+            {i18n._(STATUS_LABEL_MESSAGES[tx.status])}
           </span>
         </div>
       </div>
@@ -621,7 +664,7 @@ function TransactionInfoBlock({
           an accumulator — the split is meaningless on a row that was never
           partly settled, and until tasks 3/3b such a row could not exist. */}
       {settlement && (
-        <Row icon={<Wallet className="h-4 w-4" />} label="Выплачено">
+        <Row icon={<Wallet className="h-4 w-4" />} label={t`Виплачено`}>
           <span className="tabular-nums" data-testid="tx-detail-settled">
             {fmtAmount(settlement.settled, settlement.settledCurrency)}
           </span>
@@ -633,7 +676,7 @@ function TransactionInfoBlock({
               obligation whose own badge already says «Оплачено». */}
           {remainingToPay > 0 && (
             <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
-              К доплате: {fmtAmount(remainingToPay, t.currency)}
+              {t`До сплати: ${fmtAmount(remainingToPay, tx.currency)}`}
             </span>
           )}
         </Row>
@@ -652,14 +695,14 @@ function TransactionInfoBlock({
           mask it — so `privileged` hides it from the SCREEN and nothing more.
           Reading it as a server-side restriction would be wrong. Pre-existing
           on the wire; recorded here so the next reader is not misled. */}
-      {privileged && t.originalAmount != null && (
-        <Row icon={<Percent className="h-4 w-4" />} label="Факт платежа">
+      {privileged && tx.originalAmount != null && (
+        <Row icon={<Percent className="h-4 w-4" />} label={t`Факт переказу`}>
           {/* COPY-M-6: «Обязательство» is the glossary name of a
               `pending_obligations` row, and a SALARY — one of the two writers
               of this triplet (`paySalary`, drop-settle) — has none. Plain words
               that are true for both writers. */}
           <span className="tabular-nums" data-testid="tx-detail-payment-fact">
-            Было должно: {fmtAmount(t.originalAmount, t.originalCurrency ?? t.currency)}
+            {t`Нараховано: ${fmtAmount(tx.originalAmount, tx.originalCurrency ?? tx.currency)}`}
           </span>
           {/* COPY-M-5: the same shape `fmtRate` prints one row up
               («1 EUR = 1.0800 USD»). «×0.0243» did not say what to multiply by
@@ -667,34 +710,29 @@ function TransactionInfoBlock({
               the one screen that exists so an accountant can CHECK the figure.
               `exchangeRate` is paid-currency units per 1 unit of what was owed,
               so the owed currency is the left-hand side. */}
-          {t.exchangeRate != null && (
+          {tx.exchangeRate != null && (
             <span className="mt-0.5 block text-xs text-muted-foreground tabular-nums">
-              Курс: 1 {t.originalCurrency ?? t.currency} = {Number(t.exchangeRate).toFixed(4)}{' '}
-              {t.currency}
+              {t`Курс: 1 ${tx.originalCurrency ?? tx.currency} = ${Number(tx.exchangeRate).toFixed(4)} ${tx.currency}`}
             </span>
           )}
         </Row>
       )}
 
       {/* Date */}
-      <Row icon={<Calendar className="h-4 w-4" />} label="Дата">
+      <Row icon={<Calendar className="h-4 w-4" />} label={t`Дата`}>
         <span className="text-muted-foreground">
-          {new Date(t.txDate ?? t.createdAt).toLocaleDateString('ru-RU', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric',
-          })}
+          {formatDate(tx.txDate ?? tx.createdAt, locale, 'long')}
         </span>
       </Row>
 
       {/* Conversion rate — only for non-USD/USDT. Uses the shared fmtRate
           helper so the «1 EUR = … USD» copy is identical across detail
           dialogs (AC3 single source of truth). */}
-      {(t.currency === 'EUR' || t.currency === 'UAH') && rates && (
-        <Row icon={<RefreshCw className="h-4 w-4" />} label="Курс (USD)">
+      {(tx.currency === 'EUR' || tx.currency === 'UAH') && rates && (
+        <Row icon={<RefreshCw className="h-4 w-4" />} label={t`Курс (USD)`}>
           <span className="text-muted-foreground text-xs">
-            {fmtRate(t.currency, rates)}
-            <span className="ml-2 opacity-50">· НБУ</span>
+            {fmtRate(tx.currency, rates)}
+            <span className="ml-2 opacity-50">{t`· НБУ`}</span>
           </span>
         </Row>
       )}
@@ -704,22 +742,20 @@ function TransactionInfoBlock({
         <DetailSkeleton />
       ) : (
         <>
-          {t.type === 'ADMIN_INCOME' && <AdminIncomeContent tx={t} />}
-          {t.type === 'SENIOR_INCOME' && <SeniorIncomeContent tx={t} />}
-          {t.type === 'EXPENSE' && <ExpenseContent tx={t} />}
-          {t.type === 'SALARY' && <SalaryContent tx={t} />}
-          {t.type === 'ADMIN_TRANSFER' && <AdminTransferContent tx={t} />}
-          {t.type === 'PAYOUT' && <PayoutContent tx={t} />}
-          {t.type === 'PAYOUT_ADMIN' && <PayoutAdminContent tx={t} />}
+          {tx.type === 'ADMIN_INCOME' && <AdminIncomeContent tx={tx} />}
+          {tx.type === 'SENIOR_INCOME' && <SeniorIncomeContent tx={tx} />}
+          {tx.type === 'EXPENSE' && <ExpenseContent tx={tx} />}
+          {tx.type === 'SALARY' && <SalaryContent tx={tx} />}
+          {tx.type === 'ADMIN_TRANSFER' && <AdminTransferContent tx={tx} />}
+          {tx.type === 'PAYOUT' && <PayoutContent tx={tx} />}
+          {tx.type === 'PAYOUT_ADMIN' && <PayoutAdminContent tx={tx} />}
         </>
       )}
 
       {/* Direction summary footer */}
       <div className="pt-3 mt-1 border-t border-border flex items-center gap-2 text-xs text-muted-foreground">
         <ArrowRight className="h-3 w-3 shrink-0" />
-        <span>
-          ID: <span className="font-mono">{t.id.slice(0, 8)}…</span>
-        </span>
+        <span>{t`ID: ${tx.id.slice(0, 8)}…`}</span>
       </div>
     </>
   )

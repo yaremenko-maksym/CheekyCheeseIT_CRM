@@ -512,7 +512,9 @@ test.describe('Finance — валидация транзакции', () => {
     await asAdmin.goto('/finance')
     await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Перевірити') }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: /Валидация транзакции/i })).toBeVisible()
+    await expect(
+      asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Валідація транзакції') }),
+    ).toBeVisible()
   })
 
   test('ADMIN: валидирует транзакцию кнопкой Подтвердить (AC2: confirm popup)', async ({
@@ -540,7 +542,9 @@ test.describe('Finance — валидация транзакции', () => {
     const rejectBtn = asAdmin.getByTestId('validate-transaction-reject')
     await expect(rejectBtn).toBeDisabled()
 
-    await asAdmin.getByPlaceholder('Укажите причину при отклонении...').fill('Чек не подходит')
+    await asAdmin
+      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
+      .fill('Чек не подходит')
     await expect(rejectBtn).not.toBeDisabled()
     await rejectBtn.click()
     await expect(asAdmin.getByTestId('validate-transaction-dialog')).not.toBeVisible()
@@ -582,7 +586,9 @@ test.describe('Finance — исправление REJECTED транзакции 
     await asSenior.goto('/finance')
     await asSenior.getByRole('button', { name: assertInCatalog(uk, 'Виправити') }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
-    await expect(asSenior.getByRole('heading', { name: /Исправить транзакцию/i })).toBeVisible()
+    await expect(
+      asSenior.getByRole('heading', { name: assertInCatalog(uk, 'Виправити транзакцію') }),
+    ).toBeVisible()
   })
 
   test('SENIOR: показывает причину отклонения в диалоге', async ({ asSenior }) => {
@@ -595,7 +601,7 @@ test.describe('Finance — исправление REJECTED транзакции 
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/finance')
     await asSenior.getByRole('button', { name: assertInCatalog(uk, 'Виправити') }).click()
-    await expect(asSenior.getByText('Причина отклонения:')).toBeVisible()
+    await expect(asSenior.getByText(assertInCatalog(uk, 'Причина відмови:'))).toBeVisible()
     await expect(asSenior.getByRole('dialog').getByText('Чек недействителен')).toBeVisible()
   })
 
@@ -766,7 +772,9 @@ test.describe('Finance — детали транзакции', () => {
     await asAdmin.goto('/finance')
     await asAdmin.getByText(assertInCatalog(uk, 'Прихід сеньйора')).first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: /Детали транзакции/i })).toBeVisible()
+    await expect(
+      asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Деталі транзакції') }),
+    ).toBeVisible()
   })
 })
 

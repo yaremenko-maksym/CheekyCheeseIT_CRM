@@ -12,7 +12,7 @@
  */
 
 import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
-import { loadMessages } from '../fixtures/catalog'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Origin-agnostic patterns — Playwright intercepts at the browser layer
 // (http://localhost:3000/api/*). Using '**/api' glob for string routes and
@@ -292,9 +292,10 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
     await expect(dlg).toBeVisible()
 
     // Project name is dynamic seed data — text assertion is the contract for
-    // "the dialog actually surfaced the row I clicked". Same for the Russian
-    // type label «Приход синьора» — it's how the user verifies the row type.
-    await expect(dlg).toContainText('Приход синьора')
+    // "the dialog actually surfaced the row I clicked". Same for the type
+    // label «Прихід сеньйора» — it's how the user verifies the row type.
+    const uk = await loadMessages('uk')
+    await expect(dlg).toContainText(assertInCatalog(uk, 'Прихід сеньйора'))
     await expect(dlg).toContainText(PROJECT_NAME)
   })
 
@@ -316,8 +317,11 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
 
     await page.getByTestId(`tx-row-validate-${tx.id}`).click()
     // Placeholder copy is part of the form contract for the rejection reason
-    // textarea — kept as-is.
-    await page.getByPlaceholder('Укажите причину при отклонении...').fill('Чек нечитаем')
+    // textarea — verified against the catalog, not a hardcoded literal.
+    const uk = await loadMessages('uk')
+    await page
+      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
+      .fill('Чек нечитаем')
     await expect(page.getByTestId('validate-transaction-reject')).not.toBeDisabled()
   })
 
@@ -348,7 +352,10 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
 
     await page.goto('/finance')
     await page.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
-    await page.getByPlaceholder('Укажите причину при отклонении...').fill('Чек нечитаем')
+    const uk = await loadMessages('uk')
+    await page
+      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
+      .fill('Чек нечитаем')
     await page.getByTestId('validate-transaction-reject').click()
 
     await expect(page.getByTestId('validate-transaction-dialog')).not.toBeVisible()
@@ -938,7 +945,10 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await accountantPage.goto('/finance')
     await expect(accountantPage.getByTestId('tx-status-badge-pending').first()).toBeVisible()
     await accountantPage.getByTestId(`tx-row-validate-${pendingTx.id}`).click()
-    await accountantPage.getByPlaceholder('Укажите причину при отклонении...').fill('Нет чека')
+    const uk = await loadMessages('uk')
+    await accountantPage
+      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
+      .fill('Нет чека')
     await accountantPage.getByTestId('validate-transaction-reject').click()
     await expect(accountantPage.getByTestId('validate-transaction-dialog')).not.toBeVisible()
 

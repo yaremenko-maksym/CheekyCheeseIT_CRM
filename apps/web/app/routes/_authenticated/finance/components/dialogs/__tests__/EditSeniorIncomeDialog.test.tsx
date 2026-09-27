@@ -112,3 +112,40 @@ describe('EditSeniorIncomeDialog — MED-2: unchanged legacy http:// receipt doe
     expect(payload.receiptExternalUrl).toBe('http://still-not-https.example/new-receipt.jpg')
   })
 })
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). Title, rejection panel,
+// project label, notes label/placeholder, and the cancel button were never
+// asserted anywhere — this dialog's two existing tests only inspect the
+// mutation payload, never the rendered copy.
+describe('EditSeniorIncomeDialog — static labels (mutation-gate coverage)', () => {
+  beforeEach(() => {
+    updateSeniorIncomeMock.mockClear()
+  })
+
+  it('renders title, rejection panel, project name, notes field, and cancel button', () => {
+    renderDialog(LEGACY_HTTP_TX)
+    expect(screen.getByText('Виправити транзакцію')).toBeInTheDocument()
+    expect(screen.getByText('Виправлення транзакції')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-senior-income-resubmit')).toHaveTextContent(
+      'Надіслати повторно',
+    )
+    expect(screen.getByText('Причина відмови:')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-senior-income-rejection-reason')).toHaveTextContent(
+      'Чек нечитаем',
+    )
+    expect(screen.getByText('Проєкт')).toBeInTheDocument()
+    expect(screen.getByText('AI Platform v2')).toBeInTheDocument()
+    expect(screen.getByText('Примітки')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Додаткова інформація…')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-senior-income-cancel')).toHaveTextContent('Скасувати')
+  })
+
+  it('an invalid (zero) amount surfaces the localised "Некоректна сума" error, not a raw exception', async () => {
+    renderDialog(LEGACY_HTTP_TX)
+    const amountInput = screen.getByPlaceholderText('0.00')
+    fireEvent.change(amountInput, { target: { value: '0' } })
+    fireEvent.click(screen.getByTestId('edit-senior-income-resubmit'))
+    expect(await screen.findByText('Некоректна сума')).toBeInTheDocument()
+    expect(updateSeniorIncomeMock).not.toHaveBeenCalled()
+  })
+})

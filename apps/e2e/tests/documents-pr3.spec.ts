@@ -19,6 +19,7 @@
  */
 
 import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
@@ -154,7 +155,8 @@ test.describe('PR-3 receipt replace — AC1: SENIOR resubmit flow', () => {
     // Dialog opens
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Исправить транзакцию')).toBeVisible()
+    const uk = await loadMessages('uk')
+    await expect(dialog.getByText(assertInCatalog(uk, 'Виправити транзакцію'))).toBeVisible()
 
     // Switch to URL mode and enter new receipt URL
     await dialog.getByTestId('receipt-input-mode-url').click()

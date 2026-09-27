@@ -17,9 +17,22 @@
  * auth/router/sonner and the query/mutation hooks so the dialog renders without
  * a network. The payout query data is injected via the mocked useQuery.
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { useQuery } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `PayoutDetailDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `ActiveTransactionsTable.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ── Mutable auth role so each test can pick the persona ─────────────────────
 let currentRole = 'SENIOR'
@@ -88,6 +101,33 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     expect(screen.getByTestId('payout-detail-copy-address')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
+  })
+
+  // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
+  // and the footer's cancel/submit buttons were never asserted — every
+  // existing test in this file only checks testids inside `PayoutPaymentForm`
+  // (a different component, out of this wave's scope), never
+  // `PayoutDetailDialog`'s own chrome.
+  it('renders the "Підтвердити виплату" title, description, and footer buttons (PENDING payout)', () => {
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-title')).toHaveTextContent('Підтвердити виплату')
+    expect(screen.getByText('Деталі виплати')).toBeInTheDocument()
+    expect(screen.getByText('Скасувати')).toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-submit')).toHaveTextContent('Підтвердити оплату')
+  })
+
+  it('a PAID payout swaps the title to "Виплата (оплачена)" and the footer button to "Закрити"', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: { ...PAYOUT, status: 'PAID' },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useQuery>)
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-title')).toHaveTextContent('Виплата (оплачена)')
+    expect(screen.getByText('Закрити')).toBeInTheDocument()
+    expect(screen.queryByText('Скасувати')).not.toBeInTheDocument()
+    // The submit button (guarded by `!state.isPaid`) must be gone entirely.
+    expect(screen.queryByTestId('payout-detail-submit')).not.toBeInTheDocument()
   })
 })
 

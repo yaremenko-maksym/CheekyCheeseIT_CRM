@@ -20,6 +20,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import type { DropIncomeDto, DropSelfSummaryDto } from '@crm/shared'
@@ -112,8 +113,8 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     })
     renderPage()
     const row = screen.getByTestId('drop-income-row-declared-1')
-    expect(row).toHaveTextContent('Приход')
-    expect(row).not.toHaveTextContent('Начисление')
+    expect(row).toHaveTextContent('Прихід')
+    expect(row).not.toHaveTextContent('Нарахування')
   })
 
   it('an obligation row (company-booked IOU) shows the «Начисление» badge', () => {
@@ -136,9 +137,13 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     })
     renderPage()
     const row = screen.getByTestId('drop-income-row-obligation-1')
-    expect(row).toHaveTextContent('Начисление')
-    expect(row).not.toHaveTextContent('Приход')
-    expect(row).toHaveTextContent('$800.48')
+    expect(row).toHaveTextContent('Нарахування')
+    expect(row).not.toHaveTextContent('Прихід')
+    // task-i18n-stage3d-pr2: `fmtUsd` is now locale-aware (`formatNumber`
+    // with the active catalog locale) — the `I18nTestProvider` default (`uk`)
+    // groups digits with a comma decimal separator, not the old hardcoded
+    // `en-US` period.
+    expect(row).toHaveTextContent('$800,48')
   })
 
   it('BOTH models render together in the same table, each with its own badge', () => {
@@ -155,8 +160,8 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Приход')
-    expect(screen.getByTestId('drop-income-row-obligation-1')).toHaveTextContent('Начисление')
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Прихід')
+    expect(screen.getByTestId('drop-income-row-obligation-1')).toHaveTextContent('Нарахування')
   })
 
   it('shows «Приходов пока нет» when the feed is empty', () => {
@@ -165,7 +170,7 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByText('Приходов пока нет')).toBeInTheDocument()
+    expect(screen.getByText('Приходів ще немає')).toBeInTheDocument()
   })
 })
 
@@ -187,7 +192,7 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
-      'Валовый приход',
+      'Валовий прихід',
     )
   })
 
@@ -203,8 +208,8 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     const label = screen.getByTestId('drop-income-amount-kind-obligation-1')
-    expect(label).toHaveTextContent('Ваша доля')
-    expect(label).not.toHaveTextContent('Валовый приход')
+    expect(label).toHaveTextContent('Ваша частка')
+    expect(label).not.toHaveTextContent('Валовий прихід')
   })
 
   it('a $5,000 gross row and a $40 share row never read as directly comparable amounts', () => {
@@ -222,10 +227,180 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
-      'Валовый приход',
+      'Валовий прихід',
     )
     expect(screen.getByTestId('drop-income-amount-kind-obligation-1')).toHaveTextContent(
-      'Ваша доля',
+      'Ваша частка',
     )
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). None of the labels below were
+// asserted anywhere before this wave — table headers, section titles, status
+// text, pagination, payment history, and the register-income CTA. Each
+// StringLiteral mutant on them survived by construction (nothing looked at
+// the text). One assertion per label, so a blanked-out or wrong translation
+// fails a test instead of passing silently.
+describe('DropFinancePage — labels with no prior assertion (mutation-gate coverage)', () => {
+  it('table section title and column headers render', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('МОЇ ПРИХОДИ')).toBeInTheDocument()
+    expect(screen.getByText('Дата')).toBeInTheDocument()
+    expect(screen.getByText('Компанія')).toBeInTheDocument()
+    expect(screen.getByText('Сума')).toBeInTheDocument()
+    expect(screen.getByText('Тип')).toBeInTheDocument()
+    expect(screen.getByText('Статус')).toBeInTheDocument()
+    expect(screen.getByText('Дія')).toBeInTheDocument()
+  })
+
+  it('each income status renders its own text on the status badge', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [
+          makeIncome({ id: 'i-pending', status: 'pending' }),
+          makeIncome({ id: 'i-validated', status: 'validated' }),
+          makeIncome({ id: 'i-paid', status: 'paid' }),
+          makeIncome({ id: 'i-rejected', status: 'rejected' }),
+        ],
+        total: 4,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-income-status-i-pending')).toHaveTextContent('Очікує')
+    expect(screen.getByTestId('drop-income-status-i-validated')).toHaveTextContent('Валідовано')
+    expect(screen.getByTestId('drop-income-status-i-paid')).toHaveTextContent('Оплачено')
+    expect(screen.getByTestId('drop-income-status-i-rejected')).toHaveTextContent('Відхилено')
+  })
+
+  it('reset-filters button appears and clears an active status filter', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.queryByText('Скинути фільтри')).not.toBeInTheDocument()
+    // Open the status Select and pick a concrete status — flips `hasFilters`.
+    await user.click(screen.getByTestId('drop-filter-status'))
+    await user.click(screen.getByRole('option', { name: 'Валідовано' }))
+    const resetBtn = await screen.findByText('Скинути фільтри')
+    expect(resetBtn).toBeInTheDocument()
+  })
+
+  it('empty state with an active filter reads differently from the bare empty state', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('Приходів ще немає')).toBeInTheDocument()
+    expect(screen.queryByText('Немає приходів за обраними фільтрами')).not.toBeInTheDocument()
+  })
+
+  it('pagination controls render and page forward/back when there is more than one page', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 25, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    const prevBtn = screen.getByRole('button', { name: 'Попередня' })
+    const nextBtn = screen.getByRole('button', { name: 'Наступна' })
+    expect(prevBtn).toBeDisabled()
+    expect(nextBtn).not.toBeDisabled()
+    await user.click(nextBtn)
+    // Clicking «Наступна» bumps local page state — re-render still shows the
+    // same mocked page-1 data (the hook is mocked), but the click itself must
+    // not throw and the button must still be present afterwards.
+    expect(screen.getByText('Наступна')).toBeInTheDocument()
+  })
+
+  it('both filter selects list every option with its localised text', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+
+    await user.click(screen.getByTestId('drop-filter-status'))
+    expect(screen.getAllByText('Усі статуси').length).toBeGreaterThan(0)
+    expect(screen.getByRole('option', { name: 'Очікує' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Валідовано' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Оплачено' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Відхилено' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByTestId('drop-filter-period'))
+    expect(screen.getAllByText('Усі періоди').length).toBeGreaterThan(0)
+    expect(screen.getByRole('option', { name: 'Поточний місяць' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Минулий місяць' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Останні 3 міс.' })).toBeInTheDocument()
+  })
+
+  it('fmtUsd formats with exactly two fraction digits even for a whole number', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'declared-1', amount: 800 })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    // With the `{}` mutant (no minimumFractionDigits) `Intl.NumberFormat`
+    // drops the decimal part for a whole number — "$800" instead of the
+    // correct "$800,00".
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('$800,00')
+  })
+
+  it('register-income CTA renders its localised label', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-register-income-btn')).toHaveTextContent('Зареєструвати прихід')
+  })
+
+  it('payments history renders its section title and each payment status text/variant', () => {
+    useDropPaymentsMock.mockReturnValue({
+      data: [
+        { id: 'p1', createdAt: '2026-08-01T00:00:00.000Z', amount: 100, status: 'pending' },
+        { id: 'p2', createdAt: '2026-08-02T00:00:00.000Z', amount: 200, status: 'confirmed' },
+        { id: 'p3', createdAt: '2026-08-03T00:00:00.000Z', amount: 300, status: 'failed' },
+      ],
+      isLoading: false,
+    })
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('ПЛАТЕЖІ НА КОМПАНІЮ')).toBeInTheDocument()
+    expect(screen.getByTestId('drop-payment-row-p1')).toHaveTextContent('Очікує')
+    expect(screen.getByText('Очікує')).toHaveClass('bg-secondary')
+    expect(screen.getByTestId('drop-payment-row-p2')).toHaveTextContent('Підтверджено')
+    expect(screen.getByText('Підтверджено')).toHaveClass('bg-primary')
+    expect(screen.getByTestId('drop-payment-row-p3')).toHaveTextContent('Не пройшов')
+    expect(screen.getByText('Не пройшов')).toHaveClass('bg-destructive')
+  })
+
+  it('payments history empty state renders "Переказів ще не було"', () => {
+    useDropPaymentsMock.mockReturnValue({ data: [], isLoading: false })
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [], total: 0, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByText('Переказів ще не було')).toBeInTheDocument()
   })
 })

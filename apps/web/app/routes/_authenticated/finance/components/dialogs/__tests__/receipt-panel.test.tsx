@@ -32,9 +32,21 @@
  * 7. LOW — the external card itself is a single clickable <a>, not a
  *    non-interactive element with clickable-looking copy.
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
+import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `ReceiptPanel` calls `useLingui()` now — wrap every render (same pattern
+// as `ActiveTransactionsTable.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 const useDocumentDownloadUrlMock = vi.fn()
 vi.mock('@/hooks/use-documents', () => ({
@@ -64,7 +76,14 @@ describe('ReceiptPanel — external PDF / http:// (blocked embed → honest card
     expect(screen.getByTestId('receipt-panel-external')).toBeInTheDocument()
     expect(document.querySelector('object')).toBeNull()
     expect(document.querySelector('iframe')).toBeNull()
-    const links = screen.getAllByRole('link', { name: /открыть чек|чек хранится/i })
+    expect(
+      screen.getByText('Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці'),
+    ).toBeInTheDocument()
+    const links = screen.getAllByRole('link', { name: /відкрити чек|чек зберігається/i })
+    // Two links: the external card itself + the bottom "Відкрити чек" link —
+    // an empty caption would silently drop one from this query without
+    // failing the loop below.
+    expect(links).toHaveLength(2)
     for (const link of links) {
       expect(link).toHaveAttribute('href', tx.receiptExternalUrl)
       expect(link).toHaveAttribute('target', '_blank')
@@ -92,7 +111,7 @@ describe('ReceiptPanel — external PDF / http:// (blocked embed → honest card
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.queryByText(/не поддерживается браузером/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/не підтримує перегляд pdf/i)).not.toBeInTheDocument()
   })
 
   it('LOW: the external card is itself a single clickable <a> (whole card, not just the caption)', () => {
@@ -130,7 +149,7 @@ describe('ReceiptPanel — unsafe scheme never reaches href/src (MED-1 defence-i
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.getByText('Чек недоступен')).toBeInTheDocument()
+    expect(screen.getByText('Чек недоступний')).toBeInTheDocument()
     expect(document.querySelector('a[href^="javascript:"]')).toBeNull()
     expect(document.querySelector('[href*="alert"]')).toBeNull()
   })
@@ -142,7 +161,7 @@ describe('ReceiptPanel — unsafe scheme never reaches href/src (MED-1 defence-i
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.getByText('Чек недоступен')).toBeInTheDocument()
+    expect(screen.getByText('Чек недоступний')).toBeInTheDocument()
     expect(document.querySelector('a[href^="data:"]')).toBeNull()
   })
 })
@@ -183,5 +202,46 @@ describe('ReceiptPanel — own (presigned) receipts still preview inline (regres
       'data',
       'https://acct.r2.cloudflarestorage.com/bucket/key.pdf?X-Amz-Signature=abc',
     )
+    expect(screen.getByText('Браузер не підтримує перегляд PDF.')).toBeInTheDocument()
+  })
+
+  it('renders the "Чек" section header and the bottom "Відкрити чек" link', () => {
+    useDocumentDownloadUrlMock.mockReturnValue({
+      data: { url: 'https://acct.r2.cloudflarestorage.com/bucket/key.png?X-Amz-Signature=abc' },
+      isLoading: false,
+    })
+    const tx = {
+      ...BASE_TX,
+      receiptDocumentId: 'doc-1',
+      receiptExternalUrl: null,
+    } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Чек')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Відкрити чек/i })).toBeInTheDocument()
+  })
+
+  it('an unrecognised own file type shows "Попередній перегляд недоступний"', () => {
+    useDocumentDownloadUrlMock.mockReturnValue({
+      data: { url: 'https://acct.r2.cloudflarestorage.com/bucket/key.zip?X-Amz-Signature=abc' },
+      isLoading: false,
+    })
+    const tx = {
+      ...BASE_TX,
+      receiptDocumentId: 'doc-3',
+      receiptExternalUrl: null,
+    } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Попередній перегляд недоступний')).toBeInTheDocument()
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). The "no receipt attached"
+// placeholder was never rendered by any existing test — every fixture above
+// sets `receiptDocumentId` or `receiptExternalUrl`.
+describe('ReceiptPanel — no receipt attached', () => {
+  it('shows "Немає прикріпленого чека" when neither field is set', () => {
+    const tx = { ...BASE_TX, receiptDocumentId: null, receiptExternalUrl: null } as TransactionDto
+    render(<ReceiptPanel tx={tx} />)
+    expect(screen.getByText('Немає прикріпленого чека')).toBeInTheDocument()
   })
 })
