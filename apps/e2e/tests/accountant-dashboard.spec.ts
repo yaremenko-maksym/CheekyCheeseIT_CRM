@@ -193,13 +193,14 @@ test.describe('D. Finance status deep-link', () => {
     await expect(page).toHaveURL(/\/finance\?status=PENDING/, { timeout: 8_000 })
 
     // The status FilterSelect trigger (Radix combobox) should show the seeded
-    // PENDING label «Ожидает» (STATUS_LABELS['PENDING']) as its value — proving
-    // the ?status= deep-link initialised the filter (default would be «Все
-    // статусы»). This is the load-bearing assertion for AC6.
-    const statusTrigger = page.getByRole('combobox').filter({ hasText: 'Ожидает' })
+    // PENDING label «Очікує валідації» (STATUS_LABEL_MESSAGES['PENDING']) as
+    // its value — proving the ?status= deep-link initialised the filter
+    // (default would be «Усі статуси»). This is the load-bearing assertion
+    // for AC6.
+    const statusTrigger = page.getByRole('combobox').filter({ hasText: 'Очікує валідації' })
     await expect(statusTrigger).toBeVisible({ timeout: 8_000 })
-    // The default «Все статусы» placeholder must NOT be the active value.
-    await expect(page.getByRole('combobox').filter({ hasText: 'Все статусы' })).toHaveCount(0)
+    // The default «Усі статуси» placeholder must NOT be the active value.
+    await expect(page.getByRole('combobox').filter({ hasText: 'Усі статуси' })).toHaveCount(0)
   })
 })
 

@@ -256,7 +256,7 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario D — SENIOR_INCOME row shows snapshot %', () => {
-    test('row "Доля: 30%" pulled from tx.seniorSharePercent snapshot', async ({
+    test('row "Частка: 30%" pulled from tx.seniorSharePercent snapshot', async ({
       asAdmin: page,
     }) => {
       const incomeTx = {
@@ -299,14 +299,14 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto('/finance')
       const row = page.getByTestId(`tx-row-senior-share-${incomeTx.id}`)
       await expect(row).toBeVisible()
-      await expect(row).toContainText('Доля: 30%')
+      await expect(row).toContainText('Частка: 30%')
     })
   })
 
   // Scenario E удалён в task-payout-auto-on-validate: PayoutDialog с per-tx
   // share% preview больше не существует. Snapshot share% теперь применяется
   // backend в auto-created PAYOUT row (amount = income * (1 - share/100)).
-  // Покрытие snapshot — Scenario D (SENIOR_INCOME row показывает "Доля: 30%")
+  // Покрытие snapshot — Scenario D (SENIOR_INCOME row показывает "Частка: 30%")
   // плюс finance-senior-flow.spec.ts шаг 5 (PayoutDetailDialog показывает
   // payable amount уже после server-side вычисления).
 

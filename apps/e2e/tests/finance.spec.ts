@@ -208,7 +208,7 @@ test.describe('Finance — page load', () => {
     await mockTransactions(asAdmin, [])
     await asAdmin.goto('/finance')
     await expect(asAdmin.getByTestId('finance-page')).toBeVisible()
-    await expect(asAdmin.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
+    await expect(asAdmin.getByRole('button', { name: /Нова транзакція/i })).toBeVisible()
   })
 
   test('SENIOR: видит кнопку создания, нет batch-кнопки Выплатить (удалена в task-payout-auto-on-validate)', async ({
@@ -216,7 +216,7 @@ test.describe('Finance — page load', () => {
   }) => {
     await mockTransactions(asSenior, [])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Нова транзакція/i })).toBeVisible()
     // batch-button «Выплатить (N)» в шапке удалена — auto-create flow создаёт PAYOUT row при validate.
     await expect(asSenior.getByRole('button', { name: /Выплатить \(/i })).not.toBeVisible()
   })
@@ -231,7 +231,7 @@ test.describe('Finance — page load', () => {
     await mockTransactions(asHr, [TX_SALARY_HR])
     await asHr.goto('/finance')
     await expect(asHr.getByTestId('finance-page')).toBeVisible()
-    await expect(asHr.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
+    await expect(asHr.getByRole('button', { name: /Нова транзакція/i })).not.toBeVisible()
   })
 
   // PR #167: JUNIOR добавлен в useRoleGuard(['...', 'JUNIOR']) +
@@ -242,7 +242,7 @@ test.describe('Finance — page load', () => {
     await mockTransactions(asJunior, [])
     await asJunior.goto('/finance')
     await expect(asJunior.getByTestId('finance-page')).toBeVisible()
-    await expect(asJunior.getByRole('button', { name: /Новая транзакция/i })).not.toBeVisible()
+    await expect(asJunior.getByRole('button', { name: /Нова транзакція/i })).not.toBeVisible()
   })
 
   test('JUNIOR: видит свою SALARY строку с колонкой TX Hash', async ({ asJunior }) => {
@@ -253,7 +253,7 @@ test.describe('Finance — page load', () => {
     // Месяц — fmtMonth('2026-05') → 'май 2026 г.' (ru-RU)
     await expect(asJunior.getByText(/2026|май/i).first()).toBeVisible()
     // TX Hash колонка — заголовок
-    await expect(asJunior.getByRole('columnheader', { name: /TX Hash/i })).toBeVisible()
+    await expect(asJunior.getByRole('columnheader', { name: /Хеш транзакції/i })).toBeVisible()
     // Значение хэша — обрезан до 14 символов
     await expect(asJunior.getByText(/0xabc123def456/).first()).toBeVisible()
   })
@@ -261,7 +261,7 @@ test.describe('Finance — page load', () => {
   test('JUNIOR: пустое состояние показывает "Выплат пока нет"', async ({ asJunior }) => {
     await mockTransactions(asJunior, [])
     await asJunior.goto('/finance')
-    await expect(asJunior.getByText('Выплат пока нет')).toBeVisible()
+    await expect(asJunior.getByText('Виплат ще немає')).toBeVisible()
   })
 
   test('ACCOUNTANT: видит полную таблицу и кнопку создания транзакции', async ({ page }) => {
@@ -269,13 +269,13 @@ test.describe('Finance — page load', () => {
     await mockTransactions(page, [TX_PENDING_SENIOR])
     await page.goto('/finance')
     await expect(page.getByTestId('finance-page')).toBeVisible()
-    await expect(page.getByRole('button', { name: /Новая транзакция/i })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Нова транзакція/i })).toBeVisible()
   })
 
   test('пустое состояние: "Нет данных"', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Нет данных')).toBeVisible()
+    await expect(asAdmin.getByText('Транзакцій ще немає')).toBeVisible()
   })
 })
 
@@ -287,21 +287,21 @@ test.describe('Finance — таблица транзакций', () => {
   test('ADMIN: отображает строки для всех типов транзакций', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE, TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Приход синьора').first()).toBeVisible()
-    await expect(asAdmin.getByText('Расход').first()).toBeVisible()
+    await expect(asAdmin.getByText('Прихід сеньйора').first()).toBeVisible()
+    await expect(asAdmin.getByText('Витрата').first()).toBeVisible()
     await expect(asAdmin.getByText('Зарплата').first()).toBeVisible()
   })
 
   test('ADMIN: статус-бейдж "Ожидает" виден на PENDING транзакции', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Ожидает').first()).toBeVisible()
+    await expect(asAdmin.getByText('Очікує валідації').first()).toBeVisible()
   })
 
   test('ADMIN: статус-бейдж "Отклонено" и причина на REJECTED транзакции', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_REJECTED_SENIOR])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Отклонено').first()).toBeVisible()
+    await expect(asAdmin.getByText('Відхилено').first()).toBeVisible()
     await expect(asAdmin.getByText('Чек недействителен').first()).toBeVisible()
   })
 
@@ -315,7 +315,7 @@ test.describe('Finance — таблица транзакций', () => {
     }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByRole('button', { name: /Исправить/i })).toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Виправити/i })).toBeVisible()
   })
 
   test('ADMIN/ACCOUNTANT: кнопка "Проверить" видна на PENDING SENIOR_INCOME', async ({
@@ -323,7 +323,7 @@ test.describe('Finance — таблица транзакций', () => {
   }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByRole('button', { name: /Проверить/i })).toBeVisible()
+    await expect(asAdmin.getByRole('button', { name: /Перевірити/i })).toBeVisible()
   })
 
   test('ADMIN: кнопки редактирования и удаления видны на не-PAYOUT транзакциях', async ({
@@ -331,8 +331,8 @@ test.describe('Finance — таблица транзакций', () => {
   }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByTitle('Редактировать').first()).toBeVisible()
-    await expect(asAdmin.getByTitle('Удалить').first()).toBeVisible()
+    await expect(asAdmin.getByTitle('Редагувати').first()).toBeVisible()
+    await expect(asAdmin.getByTitle('Видалити').first()).toBeVisible()
   })
 
   test('ADMIN: кнопка "Выплатить" видна на SALARY PENDING', async ({ asAdmin }) => {
@@ -362,27 +362,27 @@ test.describe('Finance — фильтры и поиск', () => {
   test('поиск фильтрует строки по имени', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Приход синьора').first()).toBeVisible()
-    await expect(asAdmin.getByText('Расход').first()).toBeVisible()
-    await asAdmin.getByPlaceholder('Поиск…').fill(USERS.senior.displayName)
-    await expect(asAdmin.getByText('Приход синьора').first()).toBeVisible()
-    await expect(asAdmin.getByText('Расход')).not.toBeVisible()
+    await expect(asAdmin.getByText('Прихід сеньйора').first()).toBeVisible()
+    await expect(asAdmin.getByText('Витрата').first()).toBeVisible()
+    await asAdmin.getByPlaceholder('Пошук…').fill(USERS.senior.displayName)
+    await expect(asAdmin.getByText('Прихід сеньйора').first()).toBeVisible()
+    await expect(asAdmin.getByText('Витрата')).not.toBeVisible()
   })
 
   test('поиск без результатов показывает "Ничего не найдено"', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByPlaceholder('Поиск…').fill('zzznomatch')
-    await expect(asAdmin.getByText('Ничего не найдено')).toBeVisible()
+    await asAdmin.getByPlaceholder('Пошук…').fill('zzznomatch')
+    await expect(asAdmin.getByText('Нічого не знайдено')).toBeVisible()
   })
 
   test('кнопка "Сбросить" появляется при активном фильтре и очищает его', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByPlaceholder('Поиск…').fill('что-то')
-    await expect(asAdmin.getByRole('button', { name: /Сбросить/i })).toBeVisible()
-    await asAdmin.getByRole('button', { name: /Сбросить/i }).click()
-    await expect(asAdmin.getByPlaceholder('Поиск…')).toHaveValue('')
+    await asAdmin.getByPlaceholder('Пошук…').fill('что-то')
+    await expect(asAdmin.getByRole('button', { name: /Скинути/i })).toBeVisible()
+    await asAdmin.getByRole('button', { name: /Скинути/i }).click()
+    await expect(asAdmin.getByPlaceholder('Пошук…')).toHaveValue('')
   })
 })
 
@@ -394,15 +394,15 @@ test.describe('Finance — создание транзакции', () => {
   test('ADMIN: открывает диалог создания', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asAdmin.getByRole('button', { name: /Нова транзакція/i }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: /Новая транзакция/i })).toBeVisible()
+    await expect(asAdmin.getByRole('heading', { name: /Нова транзакція/i })).toBeVisible()
   })
 
   test('ADMIN: закрывает диалог по кнопке Отмена', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asAdmin.getByRole('button', { name: /Нова транзакція/i }).click()
     await dismissDialog(asAdmin)
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
@@ -410,11 +410,11 @@ test.describe('Finance — создание транзакции', () => {
   test('SENIOR: открывает диалог, видит только тип SENIOR_INCOME', async ({ asSenior }) => {
     await mockTransactions(asSenior, [])
     await asSenior.goto('/finance')
-    await asSenior.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asSenior.getByRole('button', { name: /Нова транзакція/i }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
     // SENIOR доступен только тип "Приход синьора"
     const dialog = asSenior.getByRole('dialog')
-    await expect(dialog.getByText('Приход синьора')).toBeVisible()
+    await expect(dialog.getByText('Прихід сеньйора')).toBeVisible()
     await expect(dialog.getByText('Расход компании')).not.toBeVisible()
   })
 
@@ -435,7 +435,7 @@ test.describe('Finance — создание транзакции', () => {
       }),
     )
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Новая транзакция/i }).click()
+    await asAdmin.getByRole('button', { name: /Нова транзакція/i }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
 
     // ADMIN видит EXPENSE (Расход компании) в списке типов — кликаем по карточке
@@ -453,7 +453,7 @@ test.describe('Finance — валидация транзакции', () => {
   test('ADMIN: открывает диалог валидации по "Проверить"', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Проверить/i }).click()
+    await asAdmin.getByRole('button', { name: /Перевірити/i }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
     await expect(asAdmin.getByRole('heading', { name: /Валидация транзакции/i })).toBeVisible()
   })
@@ -463,7 +463,7 @@ test.describe('Finance — валидация транзакции', () => {
   }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Проверить/i }).click()
+    await asAdmin.getByRole('button', { name: /Перевірити/i }).click()
     // AC2: кнопка «Подтвердить» открывает AlertDialog confirm
     await asAdmin.getByTestId('validate-transaction-confirm').click()
     await expect(asAdmin.getByTestId('validate-confirm-alert')).toBeVisible()
@@ -475,7 +475,7 @@ test.describe('Finance — валидация транзакции', () => {
   test('ADMIN: отклоняет транзакцию — требует причину', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: /Проверить/i }).click()
+    await asAdmin.getByRole('button', { name: /Перевірити/i }).click()
 
     // Без причины — кнопка "Отклонить" disabled
     const rejectBtn = asAdmin.getByTestId('validate-transaction-reject')
@@ -493,8 +493,8 @@ test.describe('Finance — валидация транзакции', () => {
     await mockAuthAs(page, USERS.accountant)
     await mockTransactions(page, [TX_PENDING_SENIOR])
     await page.goto('/finance')
-    await expect(page.getByRole('button', { name: /Проверить/i })).toBeVisible()
-    await page.getByRole('button', { name: /Проверить/i }).click()
+    await expect(page.getByRole('button', { name: /Перевірити/i })).toBeVisible()
+    await page.getByRole('button', { name: /Перевірити/i }).click()
     await expect(page.getByTestId('validate-transaction-dialog')).toBeVisible()
     // AC2: confirm popup перед валидацией
     await page.getByTestId('validate-transaction-confirm').click()
@@ -517,7 +517,7 @@ test.describe('Finance — исправление REJECTED транзакции 
     }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/finance')
-    await asSenior.getByRole('button', { name: /Исправить/i }).click()
+    await asSenior.getByRole('button', { name: /Виправити/i }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
     await expect(asSenior.getByRole('heading', { name: /Исправить транзакцию/i })).toBeVisible()
   })
@@ -530,7 +530,7 @@ test.describe('Finance — исправление REJECTED транзакции 
     }
     await mockTransactions(asSenior, [myRejected])
     await asSenior.goto('/finance')
-    await asSenior.getByRole('button', { name: /Исправить/i }).click()
+    await asSenior.getByRole('button', { name: /Виправити/i }).click()
     await expect(asSenior.getByText('Причина отклонения:')).toBeVisible()
     await expect(asSenior.getByRole('dialog').getByText('Чек недействителен')).toBeVisible()
   })
@@ -543,7 +543,7 @@ test.describe('Finance — исправление REJECTED транзакции 
     }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Виправити/i })).not.toBeVisible()
   })
 })
 
@@ -555,7 +555,7 @@ test.describe('Finance — редактирование транзакции (AD
   test('ADMIN: открывает диалог редактирования', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Редактировать').first().click()
+    await asAdmin.getByTitle('Редагувати').first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
     await expect(asAdmin.getByRole('heading', { name: /Редактировать транзакцию/i })).toBeVisible()
   })
@@ -563,7 +563,7 @@ test.describe('Finance — редактирование транзакции (AD
   test('ADMIN: отменяет редактирование', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Редактировать').first().click()
+    await asAdmin.getByTitle('Редагувати').first().click()
     await dismissDialog(asAdmin)
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
@@ -576,7 +576,7 @@ test.describe('Finance — редактирование транзакции (AD
     }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByTitle('Редактировать')).not.toBeVisible()
+    await expect(asSenior.getByTitle('Редагувати')).not.toBeVisible()
   })
 })
 
@@ -588,16 +588,16 @@ test.describe('Finance — удаление транзакции (ADMIN)', () =>
   test('ADMIN: открывает диалог подтверждения удаления', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Удалить').first().click()
+    await asAdmin.getByTitle('Видалити').first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByText(/удалить транзакцию/i).first()).toBeVisible()
+    await expect(asAdmin.getByText(/видалити транзакцію/i).first()).toBeVisible()
   })
 
   test('ADMIN: отменяет удаление', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Удалить').first().click()
-    await asAdmin.getByRole('button', { name: /Отмена/i }).click()
+    await asAdmin.getByTitle('Видалити').first().click()
+    await asAdmin.getByRole('button', { name: /Скасувати/i }).click()
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
 
@@ -607,7 +607,7 @@ test.describe('Finance — удаление транзакции (ADMIN)', () =>
   test('ADMIN: причина обязательна — кнопка удаления неактивна без неё', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Удалить').first().click()
+    await asAdmin.getByTitle('Видалити').first().click()
     await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeDisabled()
     await asAdmin.getByTestId('delete-tx-reason-input').fill('ош')
     await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeDisabled()
@@ -616,7 +616,7 @@ test.describe('Finance — удаление транзакции (ADMIN)', () =>
   test('ADMIN: подтверждает удаление, указав причину', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Удалить').first().click()
+    await asAdmin.getByTitle('Видалити').first().click()
     await asAdmin.getByTestId('delete-tx-reason-input').fill('Ошибочно созданная транзакция')
     await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeEnabled()
     await asAdmin.getByTestId('delete-tx-confirm-button').click()
@@ -632,7 +632,7 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
   test('ADMIN: открывает диалог выплаты зарплаты', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: 'Выплатить' }).click()
+    await asAdmin.getByRole('button', { name: 'Розрахуватися' }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
     await expect(asAdmin.getByRole('heading', { name: 'Выплатить зарплату' })).toBeVisible()
   })
@@ -645,7 +645,7 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
   test('ADMIN: выплачивает зарплату с чеком (explorer-ссылка)', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
-    await asAdmin.getByRole('button', { name: 'Выплатить' }).click()
+    await asAdmin.getByRole('button', { name: 'Розрахуватися' }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
 
     const receiptUrlInput = asAdmin.getByTestId('receipt-input-url-field')
@@ -676,7 +676,7 @@ test.describe('Finance — детали транзакции', () => {
   test('ADMIN: клик по строке открывает диалог деталей', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByText('Приход синьора').first().click()
+    await asAdmin.getByText('Прихід сеньйора').first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
     await expect(asAdmin.getByRole('heading', { name: /Детали транзакции/i })).toBeVisible()
   })
@@ -690,9 +690,9 @@ test.describe('Finance — RBAC', () => {
   test('HR: не видит кнопки действий (validate/edit/delete)', async ({ asHr }) => {
     await mockTransactions(asHr, [TX_SALARY_HR])
     await asHr.goto('/finance')
-    await expect(asHr.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
-    await expect(asHr.getByTitle('Редактировать')).not.toBeVisible()
-    await expect(asHr.getByTitle('Удалить')).not.toBeVisible()
+    await expect(asHr.getByRole('button', { name: /Перевірити/i })).not.toBeVisible()
+    await expect(asHr.getByTitle('Редагувати')).not.toBeVisible()
+    await expect(asHr.getByTitle('Видалити')).not.toBeVisible()
   })
 
   test('SENIOR: не видит кнопку Проверить', async ({ asSenior }) => {
@@ -703,7 +703,7 @@ test.describe('Finance — RBAC', () => {
     }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Перевірити/i })).not.toBeVisible()
   })
 
   test('SENIOR: не видит кнопку удаления', async ({ asSenior }) => {
@@ -714,7 +714,7 @@ test.describe('Finance — RBAC', () => {
     }
     await mockTransactions(asSenior, [myPending])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByTitle('Удалить')).not.toBeVisible()
+    await expect(asSenior.getByTitle('Видалити')).not.toBeVisible()
   })
 
   test('SENIOR: видит кнопку Исправить только на своей REJECTED транзакции', async ({
@@ -728,7 +728,7 @@ test.describe('Finance — RBAC', () => {
     }
     await mockTransactions(asSenior, [notMine])
     await asSenior.goto('/finance')
-    await expect(asSenior.getByRole('button', { name: /Исправить/i })).not.toBeVisible()
+    await expect(asSenior.getByRole('button', { name: /Виправити/i })).not.toBeVisible()
   })
 
   // PR #167: JUNIOR RBAC — видит только свои выплаты, не видит чужих сумм и полной таблицы.
@@ -739,9 +739,9 @@ test.describe('Finance — RBAC', () => {
     // у junior-view нет TransactionsTable с кнопками действий
     await mockTransactions(asJunior, [TX_SALARY_JUNIOR])
     await asJunior.goto('/finance')
-    await expect(asJunior.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
-    await expect(asJunior.getByTitle('Редактировать')).not.toBeVisible()
-    await expect(asJunior.getByTitle('Удалить')).not.toBeVisible()
+    await expect(asJunior.getByRole('button', { name: /Перевірити/i })).not.toBeVisible()
+    await expect(asJunior.getByTitle('Редагувати')).not.toBeVisible()
+    await expect(asJunior.getByTitle('Видалити')).not.toBeVisible()
   })
 
   test('JUNIOR: не видит чужих SALARY строк (мок бэкенда фильтрует по receiverId)', async ({
@@ -771,7 +771,7 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
   }) => {
     await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText('Ожидает выплаты').first()).toBeVisible()
+    await expect(asAdmin.getByText('Очікує виплати').first()).toBeVisible()
   })
 
   test('SENIOR: не видит кнопку Выплатить при наличии только PENDING_PAYMENT транзакций', async ({
@@ -801,15 +801,15 @@ test.describe('Finance — PENDING_PAYMENT status', () => {
     await mockAuthAs(page, USERS.accountant)
     await mockTransactions(page, [TX_PENDING_PAYMENT_SENIOR])
     await page.goto('/finance')
-    await expect(page.getByText('Ожидает выплаты').first()).toBeVisible()
+    await expect(page.getByText('Очікує виплати').first()).toBeVisible()
     // Нет кнопки "Проверить" для PENDING_PAYMENT статуса
-    await expect(page.getByRole('button', { name: /Проверить/i })).not.toBeVisible()
+    await expect(page.getByRole('button', { name: /Перевірити/i })).not.toBeVisible()
   })
 
   test('ADMIN: может редактировать PENDING_PAYMENT транзакцию', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_PENDING_PAYMENT_SENIOR])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByTitle('Редактировать').first()).toBeVisible()
+    await expect(asAdmin.getByTitle('Редагувати').first()).toBeVisible()
   })
 })
 
@@ -866,7 +866,7 @@ test.describe('Finance — правка суммы оплаченной зарп
     )
 
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Редактировать').first().click()
+    await asAdmin.getByTitle('Редагувати').first().click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
@@ -896,7 +896,7 @@ test.describe('Finance — правка суммы оплаченной зарп
       { ...TX_SALARY_PAID, id: 'tx-senior-converted', type: 'SENIOR_INCOME', salaryMonth: null },
     ])
     await asAdmin.goto('/finance')
-    await asAdmin.getByTitle('Редактировать').first().click()
+    await asAdmin.getByTitle('Редагувати').first().click()
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog.getByTestId('amount-currency-amount-input')).toBeDisabled()
     await expect(dialog.getByTestId('admin-edit-locked-amount-note')).toBeVisible()

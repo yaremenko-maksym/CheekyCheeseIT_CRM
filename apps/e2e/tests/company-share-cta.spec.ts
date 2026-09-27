@@ -280,7 +280,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     // The created payout is visible in the table as PENDING_PAYMENT with an
     // «Оплатить» pill — nothing was lost by closing mid-flow.
     await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toBeVisible()
-    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toContainText('Оплатить')
+    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toContainText('Оплатити')
   })
 
   test('a second click while creation is in flight does not create two payout requests (AC5)', async ({
