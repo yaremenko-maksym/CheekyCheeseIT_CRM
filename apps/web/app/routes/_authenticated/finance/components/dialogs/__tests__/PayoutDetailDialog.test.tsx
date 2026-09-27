@@ -101,6 +101,19 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
   })
+
+  // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
+  // and the footer's cancel/submit buttons were never asserted — every
+  // existing test in this file only checks testids inside `PayoutPaymentForm`
+  // (a different component, out of this wave's scope), never
+  // `PayoutDetailDialog`'s own chrome.
+  it('renders the "Підтвердити виплату" title, description, and footer buttons (PENDING payout)', () => {
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-title')).toHaveTextContent('Підтвердити виплату')
+    expect(screen.getByText('Деталі виплати')).toBeInTheDocument()
+    expect(screen.getByText('Скасувати')).toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-submit')).toHaveTextContent('Підтвердити оплату')
+  })
 })
 
 describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
