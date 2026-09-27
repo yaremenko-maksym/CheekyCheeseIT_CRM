@@ -113,9 +113,10 @@ describe('AttachReceiptSheet — attach flow (no existing receipt)', () => {
     attachReceiptMock.mockClear()
   })
 
-  it('submit is disabled until a receipt is entered', () => {
+  it('submit is disabled until a receipt is entered, and carries the "Прикріпити" label', () => {
     renderSheet(NO_RECEIPT_TX)
     expect(screen.getByTestId('attach-receipt-sheet-submit')).toBeDisabled()
+    expect(screen.getByTestId('attach-receipt-sheet-submit')).toHaveTextContent('Прикріпити')
     fireEvent.click(screen.getByTestId('receipt-input-mode-url'))
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://example.com/receipt.png' },
@@ -158,13 +159,14 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
     attachReceiptMock.mockClear()
   })
 
-  it('pre-seeds the form from the existing receipt and enables submit immediately', () => {
+  it('pre-seeds the form from the existing receipt, shows the "Замінити чек" title, and enables submit immediately', () => {
     renderSheet(EXISTING_RECEIPT_TX)
     expect(screen.getByTestId('receipt-input-url-field')).toHaveValue(
       'https://etherscan.io/tx/0xold',
     )
     expect(screen.getByTestId('attach-receipt-sheet-submit')).toBeEnabled()
-    expect(screen.getByText('Замінити')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Замінити чек' })).toBeInTheDocument()
+    expect(screen.getByTestId('attach-receipt-sheet-submit')).toHaveTextContent('Замінити')
   })
 
   it('submitting opens the destructive confirm dialog FIRST — does not call attachReceipt yet', () => {
@@ -193,6 +195,7 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
       target: { value: 'https://etherscan.io/tx/0xnew' },
     })
     fireEvent.click(screen.getByTestId('attach-receipt-sheet-submit'))
+    expect(screen.getByTestId('attach-receipt-confirm-submit')).toHaveTextContent('Замінити')
     fireEvent.click(screen.getByTestId('attach-receipt-confirm-submit'))
     await waitFor(() => expect(attachReceiptMock).toHaveBeenCalledTimes(1))
     const [id, payload] = attachReceiptMock.mock.calls[0] as [string, Record<string, unknown>]
