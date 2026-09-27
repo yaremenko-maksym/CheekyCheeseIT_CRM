@@ -211,3 +211,19 @@ describe('TransactionRow — canEdit ("Виправити") button', () => {
     expect(screen.getByTestId(`tx-row-edit-${TX_ID}`)).toHaveTextContent('Виправити')
   })
 })
+
+// task-i18n-3d-pr1-fix (mutation-gate follow-up, round 2). `canAdminEdit`/
+// `canAdminDelete` icon-only buttons carry ONLY a `title` attribute (no
+// visible text) — no unit test rendered them at all (only the E2E
+// `finance.spec.ts` "ADMIN: кнопки редактирования и удаления" case, which
+// the mutation gate's Vitest runner never executes).
+describe('TransactionRow — canAdminEdit/canAdminDelete icon buttons (title text)', () => {
+  it('ADMIN sees "Редагувати" + "Видалити" titles on a non-PAYOUT, non-deleted row', () => {
+    renderRow({
+      tx: makeTx({ type: 'ADMIN_INCOME', status: 'VALIDATED', payoutRequestId: null }),
+      role: 'ADMIN',
+    })
+    expect(screen.getByTitle('Редагувати')).toBeInTheDocument()
+    expect(screen.getByTitle('Видалити')).toBeInTheDocument()
+  })
+})

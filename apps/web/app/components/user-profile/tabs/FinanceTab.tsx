@@ -123,6 +123,13 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   // text/disabled state, never an opened option list).
   const TYPE_OPTIONS = useMemo(
     () =>
+      // Stryker disable next-line ObjectLiteral: an emptied `{}` return still
+      // produces a non-empty array of (property-less) objects — the ArrowFunction
+      // mutant on this same map callback IS killed (FinanceTab.type-options.test.tsx,
+      // real unmocked TYPE_LABEL_MESSAGES crashes `o.value` on render when the
+      // callback returns `undefined`), but `{}` doesn't crash, and the resulting
+      // `value`/`label` are only OBSERVABLE by opening the Radix `<Select>` — same
+      // happy-dom limitation as the deps array below.
       Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({
         value,
         label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
@@ -136,6 +143,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
   )
   const STATUS_OPTIONS = useMemo(
     () =>
+      // Stryker disable next-line ObjectLiteral: same reasoning as TYPE_OPTIONS' map callback above.
       Object.keys(STATUS_LABEL_MESSAGES).map((value) => ({
         value,
         label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
