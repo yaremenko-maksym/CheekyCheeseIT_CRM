@@ -453,7 +453,7 @@ test.describe('C. DROP finance cabinet — /finance', () => {
 
     const table = page.getByTestId('drop-incomes-table')
     await expect(table).toBeVisible({ timeout: 8_000 })
-    await expect(table.getByText(/Приходов пока нет/)).toBeVisible()
+    await expect(table.getByText(/Приходів ще немає/)).toBeVisible()
   })
 
   test('finance cabinet filter status select is rendered', async ({ asDrop: page }) => {

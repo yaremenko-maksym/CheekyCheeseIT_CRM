@@ -263,7 +263,7 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-title')).toContainText(/Подтвердить выплату/i)
+    await expect(dialog.getByTestId('payout-detail-title')).toContainText(/Підтвердити виплату/i)
 
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(STUB_CONTRACT)
 
@@ -530,7 +530,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
 
     await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
     await expect(dialog.locator('img[alt="Чек"]')).not.toBeVisible()
-    const link = dialog.getByRole('link', { name: /Открыть чек/i })
+    const link = dialog.getByRole('link', { name: /Відкрити чек/i })
     await expect(link).toHaveAttribute('href', txWithHttpImage.receiptExternalUrl!)
     await expect(link).toHaveAttribute('target', '_blank')
   })
@@ -552,8 +552,8 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
 
     await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
     await expect(dialog.locator('object[type="application/pdf"]')).not.toBeVisible()
-    await expect(dialog.getByText(/не поддерживается браузером/i)).not.toBeVisible()
-    const link = dialog.getByRole('link', { name: /Открыть чек/i })
+    await expect(dialog.getByText(/не підтримує перегляд pdf/i)).not.toBeVisible()
+    const link = dialog.getByRole('link', { name: /Відкрити чек/i })
     await expect(link).toHaveAttribute('href', txWithExternalPdf.receiptExternalUrl!)
   })
 })

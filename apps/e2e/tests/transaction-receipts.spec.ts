@@ -582,20 +582,20 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     await row.getByTestId(`tx-row-attach-receipt-${salaryTx.id}`).click()
     const sheet = page.getByTestId('attach-receipt-sheet')
     await expect(sheet).toBeVisible()
-    await expect(sheet.getByText('Прикрепить чек')).toBeVisible()
+    await expect(sheet.getByText('Прикріпити чек')).toBeVisible()
     await sheet.getByTestId('receipt-input-mode-url').click()
     await sheet
       .getByTestId('receipt-input-url-field')
       .fill('https://drive.example.com/attach-1.pdf')
     await sheet.getByTestId('attach-receipt-sheet-submit').click()
     await expect(sheet).not.toBeVisible()
-    await expect(page.getByText('Чек прикреплён')).toBeVisible()
+    await expect(page.getByText('Чек прикріплено')).toBeVisible()
 
     // Second click — now a REPLACE (existing receipt) → confirm dialog gate.
     await row.getByTestId(`tx-row-attach-receipt-${salaryTx.id}`).click()
     const sheet2 = page.getByTestId('attach-receipt-sheet')
     await expect(sheet2).toBeVisible()
-    await expect(sheet2.getByText('Заменить чек')).toBeVisible()
+    await expect(sheet2.getByText('Замінити чек')).toBeVisible()
     await sheet2.getByTestId('receipt-input-mode-url').click()
     await sheet2
       .getByTestId('receipt-input-url-field')
@@ -606,7 +606,7 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     await expect(confirm).toBeVisible()
     await confirm.getByTestId('attach-receipt-confirm-submit').click()
     await expect(confirm).not.toBeVisible()
-    await expect(page.getByText('Чек заменён')).toBeVisible()
+    await expect(page.getByText('Чек замінено')).toBeVisible()
   })
 
   // Note: `canAttachReceipt` allows the author on ANY non-PAID row regardless
@@ -758,9 +758,9 @@ test.describe('Transaction receipts — регрессия истории', () =
     await expect(row).toBeVisible()
     await row.click()
 
-    await expect(page.getByRole('heading', { name: /Детали транзакции/i })).toBeVisible()
+    await expect(page.getByRole('heading', { name: /Деталі транзакції/i })).toBeVisible()
     await expect(page.getByTestId('receipt-panel-empty')).toBeVisible()
-    await expect(page.getByText('Нет прикреплённого чека')).toBeVisible()
+    await expect(page.getByText('Немає прикріпленого чека')).toBeVisible()
     // Privileged viewer (ADMIN) + no receipt yet → the attach entry-point is
     // offered, proving the empty-state doesn't dead-end the flow.
     await expect(page.getByTestId('detail-attach-receipt')).toBeVisible()

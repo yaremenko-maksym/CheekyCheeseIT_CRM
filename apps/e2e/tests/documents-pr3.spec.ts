@@ -154,7 +154,7 @@ test.describe('PR-3 receipt replace — AC1: SENIOR resubmit flow', () => {
     // Dialog opens
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Исправить транзакцию')).toBeVisible()
+    await expect(dialog.getByText('Виправити транзакцію')).toBeVisible()
 
     // Switch to URL mode and enter new receipt URL
     await dialog.getByTestId('receipt-input-mode-url').click()
