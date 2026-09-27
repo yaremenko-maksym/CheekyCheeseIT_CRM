@@ -1,11 +1,29 @@
+import { msg } from '@lingui/core/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
 import {
   CASCADE_LEDGER_FACT_MESSAGES,
+  DEFAULT_LOCALE,
+  formatDate,
+  formatNumber,
   type CascadeEditPreviewBlockedReason,
   type TransactionType,
   type TransactionStatus,
+  type Locale,
 } from '@crm/shared'
 import { formatAmount } from '@/lib/format-amount'
 import { translateApiError } from '@/lib/axios-utils'
+
+/** Active catalog locale, read through the `@lingui/core` singleton — the
+ * same pattern `axios-utils.ts`'s `getUserFacingErrorMessage` and
+ * `project-approval-caption.ts` use for a plain (non-component) function
+ * that needs the active locale. `fmtDate`/`fmtMonth`/`fmtUsd` below keep
+ * their existing signatures (many call sites across PR2–PR4 and the
+ * cross-slice `InProgressPanel.tsx` are not migrated yet) — this is how
+ * they become locale-aware without a breaking signature change. */
+function activeLocale(): Locale {
+  return (i18n.locale as Locale) ?? DEFAULT_LOCALE
+}
 
 /**
  * task-cascade-preview-ui (task 5) — why the amount on THIS row cannot be
@@ -71,6 +89,67 @@ export function cascadeBlockedReasonMessage(
   return CASCADE_BLOCKED_REASON_MESSAGES[reason]
 }
 
+/**
+ * task-i18n-stage3d-pr1 (Task 1, Step 3, template G). `msg` (module level,
+ * `@lingui/core/macro`) fixes each entry's SOURCE (`uk`) text as a
+ * `MessageDescriptor` — resolved against the ACTIVE catalog at the render
+ * site via `i18n._(TYPE_LABEL_MESSAGES[type])`, never called at module
+ * level with `t`. `satisfies` WITHOUT `as const` — an `as const` here would
+ * make Stryker report 0 mutants for the whole block (урок #707).
+ *
+ * Terms follow the wave (d) canon (`CONTEXT.md` → «Волна d»): `PAYOUT` is
+ * always «Виплата» (the senior pays the company); the `SENIOR_*`/`DROP_*`
+ * settlement family uses «розрахунок», never «виплата» (COPY-H-fin-1).
+ * `ADMIN_INCOME*`/`DIVIDEND_TO_ADMIN` stay in Ukrainian throughout — no
+ * Latin "Admin" leaking into the label (COPY-M-fin-11).
+ */
+export const TYPE_LABEL_MESSAGES = {
+  ADMIN_INCOME: msg`Прихід адміна`, // en: Admin income
+  SENIOR_INCOME: msg`Прихід сеньйора`, // en: Senior income
+  EXPENSE: msg`Витрата`, // en: Expense
+  SALARY: msg`Зарплата`, // en: Salary
+  ADMIN_TRANSFER: msg`Переказ`, // en: Transfer
+  PAYOUT: msg`Виплата`, // en: Payout
+  PAYOUT_ADMIN: msg`Частка партнера`, // en: Partner share
+  DROP_INCOME: msg`Прихід дропа`, // en: Drop income
+  PAYOUT_DROP: msg`Частка дропа`, // en: Drop share
+  PAYOUT_CONFIRMED: msg`Підтверджений розрахунок`, // en: Confirmed settlement
+  TOV_INCOME: msg`Прихід (архів)`, // en: Income (archived)
+  SENIOR_PENDING_PAYOUT: msg`Очікуваний розрахунок із сеньйором`, // en: Pending senior settlement
+  SENIOR_PAID: msg`Розрахунок із сеньйором`, // en: Senior settlement
+  ADMIN_INCOME_CASH: msg`Прихід адміна (готівка)`, // en: Admin income (cash)
+  ADMIN_INCOME_CRYPTO: msg`Прихід адміна (USDT)`, // en: Admin income (USDT)
+  SENIOR_INCOME_CRYPTO: msg`Прихід сеньйора (USDT)`, // en: Senior income (USDT)
+  DIVIDEND_TO_ADMIN: msg`Дивіденди адміну`, // en: Dividend to admin
+  DIVIDEND_TAX: msg`Податок на дивіденди`, // en: Dividend tax
+  COMPANY_DEPOSIT: msg`Поповнення рахунку компанії`, // en: Company account deposit
+  DROP_PENDING_PAYOUT: msg`Очікуваний розрахунок із дропом`, // en: Pending drop settlement
+} satisfies Record<TransactionType, MessageDescriptor>
+
+/**
+ * task-i18n-stage3d-pr1 (Task 1, Step 3, COPY-M-fin-13): `PENDING`/
+ * `PENDING_CASH_CONFIRM` name WHAT is being awaited instead of a bare
+ * «Очікує» — an object-less wait reads as ambiguous next to the other five
+ * statuses, which all name a concrete state.
+ */
+export const STATUS_LABEL_MESSAGES = {
+  PENDING: msg`Очікує валідації`, // en: Awaiting validation
+  VALIDATED: msg`Підтверджено`, // en: Validated
+  PENDING_PAYMENT: msg`Очікує виплати`, // en: Awaiting payout
+  REJECTED: msg`Відхилено`, // en: Rejected
+  PAID: msg`Оплачено`, // en: Paid
+  LOCKED: msg`Заблоковано`, // en: Locked
+  PENDING_CASH_CONFIRM: msg`Очікує підтвердження бухгалтером (готівка)`, // en: Awaiting accountant confirmation (cash)
+} satisfies Record<TransactionStatus, MessageDescriptor>
+
+/**
+ * @deprecated task-i18n-stage3d-pr1. Superseded by `TYPE_LABEL_MESSAGES`
+ * (`i18n._(TYPE_LABEL_MESSAGES[type])`). Kept — not deleted — because
+ * `PR2`/`PR3`/`PR4` files and the cross-slice `InProgressPanel.tsx` still
+ * import this string map; it is removed in PR4 once every consumer has
+ * migrated (`git grep -nP '\bTYPE_LABELS\b' -- apps/web/app` returns only
+ * this definition + `PR4`'s removal comment at that point).
+ */
 export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_INCOME: 'Приход Admin',
   SENIOR_INCOME: 'Приход синьора',
@@ -79,20 +158,9 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   ADMIN_TRANSFER: 'Перевод',
   PAYOUT: 'Выплата',
   PAYOUT_ADMIN: 'Доля партнёра',
-  // Drop role - phase 2. Minimal labels to satisfy the exhaustive Record<>
-  // contract. UI polish (icons / placement in lists) lands in the Phase 2
-  // frontend task.
   DROP_INCOME: 'Приход дропа',
   PAYOUT_DROP: 'Доля дропа',
-  // Drop role - phase 3 (manual payout confirmation, spec §8.4). Distinct from
-  // «Доля партнёра» (auto 50/50 PAYOUT_ADMIN) so a row created by the
-  // ACCOUNTANT's manual confirmation reads as a deliberate action in the
-  // table.
   PAYOUT_CONFIRMED: 'Подтверждённая выплата',
-  // Drop role - phase 4-A. Minimal labels to satisfy the exhaustive Record<>
-  // contract — the actual UI for these flows lands in Phase 4-B. They never
-  // appear in the legacy lists until then because no flow currently emits
-  // these enum values.
   TOV_INCOME: 'Приход ТОВ',
   SENIOR_PENDING_PAYOUT: 'Ожидаемая выплата синьору',
   SENIOR_PAID: 'Выплата синьору',
@@ -101,18 +169,14 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   SENIOR_INCOME_CRYPTO: 'Приход синьора (крипто)',
   DIVIDEND_TO_ADMIN: 'Дивиденды Admin',
   DIVIDEND_TAX: 'Налог на дивиденды',
-  // task-company-account-backend. Minimal label to satisfy the exhaustive
-  // Record<TransactionType, string> contract — the dedicated company-account
-  // FRONTEND task owns the real UI (deposit progress bar, balance card). This
-  // backend phase only adds the enum value; no current web flow renders it.
   COMPANY_DEPOSIT: 'Пополнение счёта компании',
-  // task-drop-share-override-and-receiver (D4). Minimal label to satisfy the
-  // exhaustive Record<TransactionType, string> contract — mirror of
-  // SENIOR_PENDING_PAYOUT. The company owes the drop their share after an admin
-  // declares USDT income; the full dialog/list UI lands in the frontend task.
   DROP_PENDING_PAYOUT: 'Ожидаемая выплата дропу',
 }
 
+/**
+ * @deprecated task-i18n-stage3d-pr1. Superseded by `STATUS_LABEL_MESSAGES`.
+ * Kept until PR4 migrates the last consumer — see `TYPE_LABELS`'s own note.
+ */
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
   PENDING: 'Ожидает',
   VALIDATED: 'Подтверждено',
@@ -120,8 +184,6 @@ export const STATUS_LABELS: Record<TransactionStatus, string> = {
   REJECTED: 'Отклонено',
   PAID: 'Оплачено',
   LOCKED: 'Заблокировано',
-  // Drop role - phase 4-B round 2. Cash-channel placeholder while DROP awaits
-  // accountant confirmation of which admin received the cash.
   PENDING_CASH_CONFIRM: 'Ожидает подтверждения нала',
 }
 
@@ -278,7 +340,13 @@ export function fmtUsd(
 ): string {
   if (!rates) return fmtAmount(amount, currency)
   const usd = toUsd(amount, currency, rates)
-  return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  // task-i18n-stage3d-pr1 (template L-fin). Signature unchanged — `$projectId`
+  // (web-projects) calls this too and is out of this wave's file list. Kept
+  // the `$` prefix (not `formatMoney`'s "<amount> USD" suffix form) precisely
+  // so that external caller's rendered text does not change without its own
+  // fidelity review; only the digit grouping/decimal separator becomes
+  // locale-aware via `formatNumber` instead of the hardcoded `en-US`.
+  return `$${formatNumber(usd, activeLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 /**
@@ -310,20 +378,27 @@ export function fmtYyyymmdd(yyyymmdd: string) {
   return fmtDate(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`)
 }
 
+/**
+ * @deprecated task-i18n-stage3d-pr1 (template L-fin). Signature unchanged —
+ * many PR2–PR4 files and the cross-slice `InProgressPanel.tsx` call this
+ * without a locale argument — but the body now reads the active catalog
+ * locale through `activeLocale()` (the `@lingui/core` singleton, same
+ * pattern `project-approval-caption.ts` uses) instead of the hardcoded
+ * `uk-UA`. Removed in PR4 alongside `TYPE_LABELS`/`STATUS_LABELS` once the
+ * last caller reads locale-aware `formatDate` directly.
+ */
 export function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString('uk-UA', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  })
+  return formatDate(iso, activeLocale(), 'short')
 }
 
+/**
+ * @deprecated task-i18n-stage3d-pr1 (template L-fin, COPY-M-fin-9). Same
+ * deprecation note as `fmtDate` above — the hardcoded `ru-RU` is replaced by
+ * `activeLocale()`, signature unchanged.
+ */
 export function fmtMonth(ym: string | null | undefined): string {
   if (!ym) return '—'
   const [year, month] = ym.split('-').map(Number)
   if (!year || !month) return ym
-  return new Date(year, month - 1, 1).toLocaleDateString('ru-RU', {
-    month: 'long',
-    year: 'numeric',
-  })
+  return formatDate(new Date(year, month - 1, 1), activeLocale(), 'monthYear')
 }
