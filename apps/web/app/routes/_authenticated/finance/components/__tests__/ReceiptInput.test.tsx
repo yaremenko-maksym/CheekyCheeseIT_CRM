@@ -70,9 +70,16 @@ function renderHarness(initialExplorerOnly = false) {
 describe('ReceiptInput — explorerOnly rendering', () => {
   it('default (explorerOnly=false): tab-toggle renders with both modes', () => {
     renderHarness(false)
-    expect(screen.getByTestId('receipt-input-mode-file')).toBeInTheDocument()
-    expect(screen.getByTestId('receipt-input-mode-url')).toBeInTheDocument()
+    expect(screen.getByTestId('receipt-input-mode-file')).toHaveTextContent('Файл')
+    expect(screen.getByTestId('receipt-input-mode-url')).toHaveTextContent('Посилання')
     expect(screen.queryByTestId('receipt-input-explorer-hint')).not.toBeInTheDocument()
+    // task-i18n-stage3d-pr2 (mutation gate): the default `label` prop —
+    // resolved via `label ?? t\`...\`` since a module-level default would
+    // freeze before the macro can run — was never asserted anywhere.
+    expect(screen.getByText('Чек / підтвердження')).toBeInTheDocument()
+    // Empty-state picker CTA (both lines) — also unasserted before this wave.
+    expect(screen.getByText('Натисніть, щоб вибрати файл')).toBeInTheDocument()
+    expect(screen.getByText('JPG, PNG, PDF — до 10 МБ')).toBeInTheDocument()
   })
 
   it('explorerOnly=true: tab-toggle is entirely absent, only the url field + hint render', () => {
@@ -80,7 +87,9 @@ describe('ReceiptInput — explorerOnly rendering', () => {
     expect(screen.queryByTestId('receipt-input-mode-file')).not.toBeInTheDocument()
     expect(screen.queryByTestId('receipt-input-mode-url')).not.toBeInTheDocument()
     expect(screen.getByTestId('receipt-input-url-field')).toBeInTheDocument()
-    expect(screen.getByTestId('receipt-input-explorer-hint')).toBeInTheDocument()
+    expect(screen.getByTestId('receipt-input-explorer-hint')).toHaveTextContent(
+      'Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)',
+    )
   })
 
   it('toggling explorerOnly back off restores the tab-toggle', () => {
@@ -151,5 +160,88 @@ describe('ReceiptInput — explorerOnly auto-normalization (file → url)', () =
     expect(screen.getByTestId('mode-probe')).toHaveTextContent('url')
     expect(screen.getByTestId('doc-probe')).toHaveTextContent('')
     expect(screen.getByTestId('receipt-input-url-field')).toHaveValue('')
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). The three file-selected
+// sub-branches (image-with-preview / pdf / anything else) and the
+// delete/replace controls were never rendered by any existing test — none
+// of them seed `state.previewUrl`, and the FileHarness above only reaches
+// the fallback ("Файл завантажено") branch without asserting its text.
+describe('ReceiptInput — file-selected preview branches (mutation-gate coverage)', () => {
+  function renderWithState(state: ReceiptState) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <ReceiptInput state={state} onChange={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+  }
+
+  it('image mimetype with a previewUrl renders the <img> preview (no fallback text)', () => {
+    renderWithState({
+      mode: 'file',
+      documentId: null,
+      externalUrl: '',
+      fileName: 'photo.png',
+      previewUrl: 'blob:local-preview',
+      mimeType: 'image/png',
+    })
+    expect(screen.getByAltText("Прев'ю чека")).toBeInTheDocument()
+    expect(screen.queryByText('Файл завантажено')).not.toBeInTheDocument()
+    expect(screen.queryByText('PDF-документ')).not.toBeInTheDocument()
+  })
+
+  it('pdf mimetype (no previewUrl) renders the fileName + "PDF-документ" caption', () => {
+    renderWithState({
+      mode: 'file',
+      documentId: 'doc-1',
+      externalUrl: '',
+      fileName: 'contract.pdf',
+      previewUrl: null,
+      mimeType: 'application/pdf',
+    })
+    expect(screen.getByText('contract.pdf')).toBeInTheDocument()
+    expect(screen.getByText('PDF-документ')).toBeInTheDocument()
+  })
+
+  it('an unrecognised mimetype falls back to fileName + "Файл завантажено"', () => {
+    renderWithState({
+      mode: 'file',
+      documentId: 'doc-1',
+      externalUrl: '',
+      fileName: 'archive.zip',
+      previewUrl: null,
+      mimeType: 'application/zip',
+    })
+    expect(screen.getByText('archive.zip')).toBeInTheDocument()
+    expect(screen.getByText('Файл завантажено')).toBeInTheDocument()
+  })
+
+  it('a nameless file falls back to the generic "Документ" caption', () => {
+    renderWithState({
+      mode: 'file',
+      documentId: 'doc-1',
+      externalUrl: '',
+      fileName: '',
+      previewUrl: null,
+      mimeType: 'application/zip',
+    })
+    expect(screen.getByText('Документ')).toBeInTheDocument()
+  })
+
+  it('delete and replace controls carry their localised labels', () => {
+    renderWithState({
+      mode: 'file',
+      documentId: 'doc-1',
+      externalUrl: '',
+      fileName: 'contract.pdf',
+      previewUrl: null,
+      mimeType: 'application/pdf',
+    })
+    expect(screen.getByLabelText('Видалити файл')).toBeInTheDocument()
+    expect(screen.getByText('Замінити')).toBeInTheDocument()
   })
 })
