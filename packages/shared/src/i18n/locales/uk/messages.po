@@ -289,8 +289,8 @@ msgid "10 цифр"
 msgstr "10 цифр"
 
 #: apps/web/app/routes/_authenticated/finance/utils/company-share.ts
-msgid "3+ валюти — точна сума в модалці"
-msgstr "3+ валюти — точна сума в модалці"
+msgid "3+ валюти — точна сума у вікні"
+msgstr "3+ валюти — точна сума у вікні"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "40 годин на тиждень"
@@ -1899,6 +1899,11 @@ msgstr "Вкажіть причину звільнення хешу — вона
 msgid "api-error.FINANCE_TX_HASH_REQUIRED"
 msgstr "Вкажіть хеш транзакції"
 
+#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/index.tsx
+msgid "Вкажіть щонайменше 3 символи причини"
+msgstr "Вкажіть щонайменше 3 символи причини"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.AT_LEAST_ONE_PREFERENCE"
@@ -3472,8 +3477,8 @@ msgid "Київ, вул. Хрещатик, 1"
 msgstr "Київ, вул. Хрещатик, 1"
 
 #: apps/web/app/routes/_authenticated/finance/components/CompanySharePayoutStrip.tsx
-msgid "Кілька валют — точна сума в модалці"
-msgstr "Кілька валют — точна сума в модалці"
+msgid "Кілька валют — точна сума у вікні"
+msgstr "Кілька валют — точна сума у вікні"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Ключ зарезервовано системою"
@@ -4932,6 +4937,7 @@ msgstr "Нова команда сеньйора. Оберіть склад ни
 msgid "Нова співбесіда"
 msgstr "Нова співбесіда"
 
+#: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Нова транзакція"
 msgstr "Нова транзакція"
@@ -6906,6 +6912,10 @@ msgstr "Роль"
 msgid "contract-variable.role"
 msgstr "Роль співробітника в компанії"
 
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Рядок включено до оформленої заявки на виплату — сума вже увійшла до розрахунку переказу, виправляйте сторнувальною транзакцією"
+msgstr "Рядок включено до оформленої заявки на виплату — сума вже увійшла до розрахунку переказу, виправляйте сторнувальною транзакцією"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
@@ -8126,6 +8136,10 @@ msgstr "Хобі"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "Це не зобов’язання компанії"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією"
+msgstr "Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"

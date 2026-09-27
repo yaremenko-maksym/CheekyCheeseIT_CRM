@@ -6,7 +6,7 @@ import { fmtAmount } from '../constants'
 /** Same non-component pattern as `constants.ts`'s `activeLocale()` — a
  * plain (non-component) function reads the active catalog through the
  * `@lingui/core` singleton directly, not `useLingui()`. */
-const MIXED_CURRENCY_PLACEHOLDER = msg`3+ валюти — точна сума в модалці`
+const MIXED_CURRENCY_PLACEHOLDER = msg`3+ валюти — точна сума у вікні`
 
 /**
  * task-company-share-cta — shared calculation/grouping helpers for the

@@ -289,7 +289,7 @@ msgid "10 цифр"
 msgstr "10 digits"
 
 #: apps/web/app/routes/_authenticated/finance/utils/company-share.ts
-msgid "3+ валюти — точна сума в модалці"
+msgid "3+ валюти — точна сума у вікні"
 msgstr "3+ currencies — see the dialog for the exact amount"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
@@ -1899,6 +1899,11 @@ msgstr "Give a reason for releasing the hash — it goes into the audit log"
 msgid "api-error.FINANCE_TX_HASH_REQUIRED"
 msgstr "Enter the transaction hash"
 
+#: apps/web/app/routes/_authenticated/finance/index.tsx
+#: apps/web/app/routes/_authenticated/finance/index.tsx
+msgid "Вкажіть щонайменше 3 символи причини"
+msgstr "Enter at least 3 characters of the reason"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.AT_LEAST_ONE_PREFERENCE"
@@ -3472,7 +3477,7 @@ msgid "Київ, вул. Хрещатик, 1"
 msgstr "1 Khreshchatyk St, Kyiv"
 
 #: apps/web/app/routes/_authenticated/finance/components/CompanySharePayoutStrip.tsx
-msgid "Кілька валют — точна сума в модалці"
+msgid "Кілька валют — точна сума у вікні"
 msgstr "Multiple currencies — see the dialog for the exact amount"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
@@ -4932,6 +4937,7 @@ msgstr "A new team led by this senior. Pick its members below."
 msgid "Нова співбесіда"
 msgstr "New interview"
 
+#: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Нова транзакція"
 msgstr "New transaction"
@@ -6906,6 +6912,10 @@ msgstr "Role"
 msgid "contract-variable.role"
 msgstr "Employee's role in the company"
 
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Рядок включено до оформленої заявки на виплату — сума вже увійшла до розрахунку переказу, виправляйте сторнувальною транзакцією"
+msgstr "The row is included in a submitted payout request — the amount is already part of the transfer calculation, fix it with a reversing transaction"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.REJOIN_TEAM_MUST_BE_FORMER_MEMBER"
@@ -8126,6 +8136,10 @@ msgstr "Hobbies"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_NOT_COMPANY_TYPE"
 msgstr "This isn't a company obligation"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією"
+msgstr "This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction"
 
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Це скине підпис і онбординг співробітника (видалить прийняття Умов використання) — дію не можна скасувати"

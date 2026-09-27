@@ -186,7 +186,7 @@ describe('CompanySharePayoutStrip', () => {
       { wrapper: I18nTestProvider },
     )
     expect(screen.getByTestId('company-share-cta-strip')).toHaveTextContent(
-      'Кілька валют — точна сума в модалці',
+      'Кілька валют — точна сума у вікні',
     )
   })
 })

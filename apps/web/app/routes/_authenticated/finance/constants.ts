@@ -29,18 +29,24 @@ function activeLocale(): Locale {
  * task-cascade-preview-ui (task 5) — why the amount on THIS row cannot be
  * edited, in the operator's language.
  *
- * Four of the six come straight from `@crm/shared`: the write path's 400 body
- * and the preview's blocked reason are two renderings of ONE sentence, and this
- * screen is the third — restating them here would be a second description of a
- * refusal, which is exactly the drift the shared constant exists to prevent.
- *
- * Two are written here because they have no server-side counterpart to reuse:
- * `PAYOUT_FAMILY` and `LINKED_TO_PAYOUT_REQUEST` are decided by
- * `getEditCascadePreview` before a plan is built. They follow the register of
- * the four above deliberately — name the CARRIER of the number, then name the
- * remedy, one sentence, no closing period — because they are rendered in the
- * same banner, one after another, and a register change reads as a different
- * system talking.
+ * @deprecated task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). Kept — not
+ * migrated — because THREE of its five entries are `...CASCADE_LEDGER_FACT_MESSAGES`,
+ * a `@crm/shared` constant this PR does not own (server-authored, stays
+ * Russian until finance's shared layer migrates — see the note on
+ * `CASCADE_LEDGER_FACT_MESSAGES` in `edit-cascade.ts`). The remaining two
+ * (`PAYOUT_FAMILY`, `LINKED_TO_PAYOUT_REQUEST`) are consumed through the SAME
+ * `cascadeBlockedReasonMessage()` call as the shared three, by BOTH
+ * `AdminEditTransactionDialog.tsx` (this PR's periphery) AND
+ * `CascadeImpactPanel.tsx` (outside it — `git grep` shows it as the only
+ * other consumer). `cascade-impact-panel.render.test.tsx` (untouched by this
+ * PR) pins the CURRENT Russian sentences for exactly these two reasons
+ * (PR-20, PR-20b) — translating them here would render different text to
+ * that component without migrating it, breaking its test. Splitting the
+ * lookup by caller would mean two functions returning different answers for
+ * the same domain fact, which is the drift this table exists to prevent.
+ * Superseded, for the two own-authored reasons only, by
+ * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below — wired in once
+ * `CascadeImpactPanel.tsx` migrates (PR2+).
  */
 export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
   Exclude<
@@ -55,6 +61,18 @@ export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
   LINKED_TO_PAYOUT_REQUEST:
     'Строка включена в оформленную заявку на выплату — сумма уже вошла в расчёт перевода, правьте сторнирующей транзакцией',
 }
+
+/**
+ * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). The catalog-backed rendering of
+ * the two reasons `CASCADE_BLOCKED_REASON_MESSAGES` authors itself (not
+ * `@crm/shared`'s). Not yet wired into `cascadeBlockedReasonMessage()` — see
+ * the deprecation note above for why — but declared now so the migration of
+ * `CascadeImpactPanel.tsx` does not also have to author the translated text.
+ */
+export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
+  PAYOUT_FAMILY: msg`Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією`, // en: This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction
+  LINKED_TO_PAYOUT_REQUEST: msg`Рядок включено до оформленої заявки на виплату — сума вже увійшла до розрахунку переказу, виправляйте сторнувальною транзакцією`, // en: The row is included in a submitted payout request — the amount is already part of the transfer calculation, fix it with a reversing transaction
+} satisfies Record<'PAYOUT_FAMILY' | 'LINKED_TO_PAYOUT_REQUEST', MessageDescriptor>
 
 /**
  * Shown when `editable` is false but `blockedReason` is not one of the six —

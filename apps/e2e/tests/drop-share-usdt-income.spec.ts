@@ -46,6 +46,7 @@
  */
 
 import { test, expect } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -118,6 +119,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
   test('ADMIN declares USDT income via UI (receiver = ADMIN partner) → both obligations booked → senior + drop settle via UI flip the SAME row in place (no second transaction, no repeat settle)', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const { dropId, dropEmail, projectId, projectName, seniorId } =
       await provisionUsdtDropProject(page)
 
@@ -192,8 +194,10 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       const dropRow = page.getByTestId(`tx-row-${dropPending!.id}`)
       await expect(seniorRow).toBeVisible()
       await expect(dropRow).toBeVisible()
-      await expect(seniorRow).toContainText('Очікуваний розрахунок із сеньйором')
-      await expect(dropRow).toContainText('Очікуваний розрахунок із дропом')
+      await expect(seniorRow).toContainText(
+        assertInCatalog(uk, 'Очікуваний розрахунок із сеньйором'),
+      )
+      await expect(dropRow).toContainText(assertInCatalog(uk, 'Очікуваний розрахунок із дропом'))
 
       // ── Settle the SENIOR obligation via the existing UI action ─────────
       // Fund from Kostya's ADMIN_PERSONAL account (avoids the company-account

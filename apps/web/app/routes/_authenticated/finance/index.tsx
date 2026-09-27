@@ -946,7 +946,16 @@ function FinancePage() {
         {/* Header */}
         <div className="flex items-start justify-between">
           <div />
-          <div className="flex gap-2">
+          {/* FIX-UX-M-1 (fix-round, PR #730): with the payout badge active
+              («Виплатити (N)»), two full-width buttons overflow the right
+              edge at ≤363px — reachable but past the viewport, no scroll
+              indicator. `flex-wrap` is the safety net; the primary fix is
+              icon-only «Нова транзакція» below `sm` (foundation.md §10
+              «Фильтры / тулбары» — mobile toolbar collapses, it does not
+              scroll). The `Wallet` payout button keeps its digit-count label
+              at every width — it is the rarer, count-bearing action, and
+              icon-only there would hide the number the badge exists for. */}
+          <div className="flex flex-wrap justify-end gap-2">
             {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
               incomes into one payout via the header button. Badge shows count. */}
             {isSenior && validatedSeniorIncomes.length > 0 && (
@@ -966,8 +975,10 @@ function FinancePage() {
               <Button
                 onClick={() => setShowCreate(true)}
                 data-testid="finance-create-transaction-button"
+                aria-label={t`Нова транзакція`}
               >
-                <Plus className="h-4 w-4 mr-1" /> {t`Нова транзакція`}
+                <Plus className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">{t`Нова транзакція`}</span>
               </Button>
             )}
           </div>
@@ -1128,6 +1139,15 @@ function FinancePage() {
                     className="min-h-16 text-sm"
                     data-testid="delete-tx-reason-input"
                   />
+                  {/* FIX-SPEC-M-1 (fix-round, PR #730 / COPY-M-fin-5): the
+                      confirm button below was silently `disabled` below 3
+                      characters with no visible reason why — a mandatory
+                      field that refuses without saying so. */}
+                  {deleteReason.length > 0 && deleteReason.trim().length < 3 && (
+                    <p className="text-xs text-destructive" data-testid="delete-tx-reason-hint">
+                      {t`Вкажіть щонайменше 3 символи причини`}
+                    </p>
+                  )}
                 </div>
               </CrmDialogBody>
               <CrmDialogFooter>
@@ -1214,6 +1234,13 @@ function FinancePage() {
                     className="min-h-16 text-sm"
                     data-testid="restore-tx-reason-input"
                   />
+                  {/* FIX-SPEC-M-1 (fix-round, PR #730 / COPY-M-fin-5) — same
+                      visible hint as the delete dialog above. */}
+                  {restoreReason.length > 0 && restoreReason.trim().length < 3 && (
+                    <p className="text-xs text-destructive" data-testid="restore-tx-reason-hint">
+                      {t`Вкажіть щонайменше 3 символи причини`}
+                    </p>
+                  )}
                 </div>
               </CrmDialogBody>
               <CrmDialogFooter>

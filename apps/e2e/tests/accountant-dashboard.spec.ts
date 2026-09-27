@@ -149,6 +149,7 @@ test.describe('D. Finance status deep-link', () => {
   test('/finance?status=PENDING seeds the status filter to «Ожидают валидации»', async ({
     asAccountant: page,
   }) => {
+    const uk = await loadMessages('uk')
     // Seed a couple of transactions so the table + filter render.
     await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({
@@ -197,10 +198,14 @@ test.describe('D. Finance status deep-link', () => {
     // its value — proving the ?status= deep-link initialised the filter
     // (default would be «Усі статуси»). This is the load-bearing assertion
     // for AC6.
-    const statusTrigger = page.getByRole('combobox').filter({ hasText: 'Очікує валідації' })
+    const statusTrigger = page
+      .getByRole('combobox')
+      .filter({ hasText: assertInCatalog(uk, 'Очікує валідації') })
     await expect(statusTrigger).toBeVisible({ timeout: 8_000 })
     // The default «Усі статуси» placeholder must NOT be the active value.
-    await expect(page.getByRole('combobox').filter({ hasText: 'Усі статуси' })).toHaveCount(0)
+    await expect(
+      page.getByRole('combobox').filter({ hasText: assertInCatalog(uk, 'Усі статуси') }),
+    ).toHaveCount(0)
   })
 })
 

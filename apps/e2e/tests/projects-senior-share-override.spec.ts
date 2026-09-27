@@ -56,6 +56,7 @@ import {
   API_RE,
   buildAdminViewingUser,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
@@ -259,6 +260,14 @@ test.describe('per-project SENIOR share override', () => {
     test('row "Частка: 30%" pulled from tx.seniorSharePercent snapshot', async ({
       asAdmin: page,
     }) => {
+      // FIX-SPEC-M-2 (fix-round, PR #730): `t\`Частка: ${percent}%\`` is a
+      // VARIABLE message — its compiled catalog id maps to the template
+      // "Частка: {0}%", not to any one rendered value. `assertInCatalog`
+      // still catches a copy-review wording drift on the template; the
+      // interpolated "30%" below is checked with a plain literal, same as
+      // every other test in this file asserts a snapshot NUMBER.
+      const uk = await loadMessages('uk')
+      assertInCatalog(uk, 'Частка: {0}%')
       const incomeTx = {
         id: 'tx-snapshot-1',
         type: 'SENIOR_INCOME',

@@ -89,7 +89,7 @@ export function CompanySharePayoutStrip({
         </span>
         <span className="mt-0.5 block text-xs text-muted-foreground">
           {isMixedCurrency ? (
-            <Trans>Кілька валют — точна сума в модалці</Trans>
+            <Trans>Кілька валют — точна сума у вікні</Trans>
           ) : (
             <Trans>За перевіреними приходами, які ще не включено в заявку на виплату</Trans>
           )}
