@@ -118,16 +118,25 @@ describe('AmountCurrencyInput — task-mobile-keyboards.md', () => {
     expect(calls).not.toContain('1000')
   })
 
-  // MUT-1 (fix-round 2): the `label`/`currencyLabel` DEFAULTS (`?? 'Сумма'`
-  // / `?? 'Валюта'`) are deliberately kept as pre-migration Russian
-  // literals (out of this wave's perimeter — see the source's own comment)
-  // — but nothing pinned them at all, so either could have been mutated to
-  // empty (or the `??` flipped to `&&`, which also produces empty for a
-  // non-empty amount) with no test noticing.
-  it('falls back to the (deliberately untranslated) default labels when label/currencyLabel are omitted', () => {
+  // MUT-1 (fix-round 2): the `label`/`currencyLabel` DEFAULTS were pinned
+  // to the pre-migration Russian literals (`?? 'Сумма'` / `?? 'Валюта'`).
+  // task-i18n-3d-pr2 fix-round (FIX-UX-H-1): that default leaked straight
+  // through `EditSeniorIncomeDialog` (a caller INSIDE this wave's
+  // perimeter) into the en/uk locales — the defaults are now resolved
+  // against the catalog (`i18n._(msg\`...\`)`), same as every other
+  // migrated label in this file. Pinned here so the resolution itself
+  // (not just the absence of a crash) stays covered.
+  it('resolves the default labels against the active catalog when label/currencyLabel are omitted', () => {
     renderInput(() => {})
-    expect(screen.getByText('Сумма')).toBeInTheDocument()
+    expect(screen.getByText('Сума')).toBeInTheDocument()
     expect(screen.getByText('Валюта')).toBeInTheDocument()
+  })
+
+  it('resolves the default labels in English when the active catalog is "en"', async () => {
+    await loadCatalog('en')
+    renderInput(() => {})
+    expect(screen.getByText('Amount')).toBeInTheDocument()
+    expect(screen.getByText('Currency')).toBeInTheDocument()
   })
 })
 

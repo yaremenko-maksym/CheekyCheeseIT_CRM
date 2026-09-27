@@ -986,6 +986,7 @@ msgstr "Only senior or drop income can be validated"
 msgid "Валовий прихід"
 msgstr "Gross income"
 
+#: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Валюта"
@@ -1588,7 +1589,7 @@ msgstr "Fix transaction"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Виправлення транзакції"
-msgstr "Fixing the transaction"
+msgstr "Transaction correction"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Витрата"
@@ -1981,8 +1982,8 @@ msgid "api-error.FINANCE_TX_HASH_RELEASE_REASON_REQUIRED"
 msgstr "Give a reason for releasing the hash — it goes into the audit log"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-msgid "Вкажіть причину у разі відмови..."
-msgstr "State the reason if rejecting..."
+msgid "Вкажіть причину у разі відмови…"
+msgstr "Reason for rejection…"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2531,12 +2532,9 @@ msgstr "Only an administrator can add a senior to a team"
 msgid "Додати учасника"
 msgstr "Add member"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
-msgid "Додаткова інформація..."
-msgstr "Additional information..."
-
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 msgid "Додаткова інформація…"
 msgstr "Additional information…"
 
@@ -3273,12 +3271,9 @@ msgstr "Save payout details"
 msgid "Зберегти чернетку"
 msgstr "Save draft"
 
+#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-msgid "Збереження..."
-msgstr "Saving..."
-
-#: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Збереження…"
@@ -5655,10 +5650,6 @@ msgstr "overridden at the team level"
 msgid "перевизначено на рівні проєкту"
 msgstr "overridden at the project level"
 
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
-msgid "Перевірив"
-msgstr "Reviewed by"
-
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Перевірити"
 msgstr "Check"
@@ -6048,7 +6039,7 @@ msgid "Після підтвердження черга перейде до на
 msgstr "After confirming, the queue moves to the next transaction."
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "ПЛАТЕЖІ КОМПАНІЇ"
+msgid "ПЛАТЕЖІ НА КОМПАНІЮ"
 msgstr "PAYMENTS TO THE COMPANY"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -7818,6 +7809,7 @@ msgstr "Parties"
 msgid "Ступінь / спеціальність"
 msgstr "Degree / field"
 
+#: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -8052,7 +8044,7 @@ msgid "Транзакцій ще немає — створіть першу кн
 msgstr "No transactions yet — create the first one with “New transaction”"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-msgid "Транзакцію буде підтверджено і переведено у статус «Валідована»."
+msgid "Транзакцію буде підтверджено і переведено у статус «Валідовано»."
 msgstr "The transaction will be confirmed and moved to “Validated” status."
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
@@ -8524,6 +8516,10 @@ msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Хобі"
 msgstr "Hobbies"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+msgid "Хто перевірив"
+msgstr "Reviewed by"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Хто створив"

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { Trans } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { kyivToday, formatDate, formatMoney } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -91,19 +92,21 @@ export function AmountCurrencyInput({
   errorTestId?: string | undefined
 }) {
   const locale = useLocale()
-  // task-i18n-stage3a (Task 1) — `label`/`currencyLabel` DEFAULTS deliberately
-  // stay the pre-migration Russian literals: `_authenticated/finance/**`
-  // (three consumers — EditSeniorIncomeDialog.tsx, AdminEditTransactionDialog.tsx,
-  // CreateTransactionDialog.tsx — omit both props and rely on this default)
-  // is explicitly OUT of this wave's perimeter (plan Допущение 1). Swapping
-  // the default to a `msg`-resolved value would silently change THEIR
-  // rendered text ahead of their own migration wave — same reasoning that
-  // kept `role-select.tsx`'s former `ROLE_LABELS` export (removed
-  // task-i18n-stage3b-pr3) legacy until its last consumer migrated. A caller
-  // inside this wave's perimeter that wants a translated label passes one
-  // explicitly.
-  const resolvedLabel = label ?? 'Сумма'
-  const resolvedCurrencyLabel = currencyLabel ?? 'Валюта'
+  const { i18n } = useLingui()
+  // task-i18n-3d-pr2 fix-round (FIX-UX-H-1) — the DEFAULTS were the
+  // pre-migration Russian literals ('Сумма'/'Валюта'), reasoned as "out of
+  // perimeter" because three consumers (EditSeniorIncomeDialog.tsx,
+  // AdminEditTransactionDialog.tsx, CreateTransactionDialog.tsx) omit both
+  // props and rely on this default. That reasoning missed that
+  // EditSeniorIncomeDialog IS inside this wave's perimeter — the Russian
+  // default leaked straight through it into the en/uk locales. The default
+  // itself is a shared, generic label ("Amount"/"Currency"), not tied to any
+  // one caller's migration wave, so resolving it against the catalog here
+  // cannot desync from AdminEditTransactionDialog/CreateTransactionDialog's
+  // own future migration — it only ever improves on the Russian literal they
+  // currently inherit too.
+  const resolvedLabel = label ?? i18n._(msg`Сума`)
+  const resolvedCurrencyLabel = currencyLabel ?? i18n._(msg`Валюта`)
   const needsRate = currency === 'EUR' || currency === 'UAH' || currency === 'USD'
 
   // ut-20: cache key is the **calendar day** (YYYY-MM-DD) — so when the
