@@ -12,7 +12,12 @@
 import { useState } from 'react'
 import { ArrowUpRight, CheckCircle, CircleCheck, Clock, Plus, XCircle } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto } from '@crm/shared'
+import { useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { formatNumber } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
+import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto, Locale } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
@@ -37,100 +42,128 @@ import { useDropSummary, DROP_SUMMARY_QUERY_KEY } from '@/hooks/use-drop-summary
 import { useDropIncomes, useDropPayments } from '@/hooks/use-drop-incomes'
 import { DropBalanceCard } from '@/routes/_authenticated/routing/components/DropBalanceCard'
 import { CreateTransactionDialog } from './dialogs/CreateTransactionDialog'
+// COPY-M-fin-8: this file used to carry its OWN `fmtDate` — a `ru-RU`-locked
+// shadow of the one `constants.ts` already exports. Two functions with the
+// same name and the same job is exactly the drift `fmtDate`'s own deprecation
+// note (constants.ts) warns about; imported here instead of duplicated.
+import { fmtDate } from '../constants'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function fmtUsd(value: number): string {
-  return value.toLocaleString('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })
-}
-
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('ru-RU', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+/**
+ * task-i18n-stage3d-pr2 (template L-fin). `$<amount>` — the SAME shape
+ * `constants.ts`'s own `fmtUsd` renders for the transaction table/detail
+ * dialog (`$7 777,00`, not `formatMoney`'s "<amount> USD" suffix form) — kept
+ * distinct from that function rather than imported because its signature
+ * takes `(amount, currency, rates)` for cross-currency conversion, and every
+ * value here is ALREADY a USD number (drop income/payment amounts have no
+ * other currency in this flow). Locale-aware via `formatNumber` instead of
+ * the hardcoded `en-US` this function used to carry.
+ */
+function fmtUsd(value: number, locale: Locale): string {
+  return `$${formatNumber(value, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 // ── Status Badge ───────────────────────────────────────────────────────────────
 
 type DropPaymentStatus = 'pending' | 'confirmed' | 'failed'
 
+// task-i18n-stage3d-pr2 (template G-fin). `satisfies` WITHOUT `as const` —
+// an `as const` here would zero out Stryker's mutant count for the whole
+// block (урок #707, same reasoning as `TYPE_LABEL_MESSAGES` in constants.ts).
+const INCOME_STATUS_MESSAGES = {
+  pending: msg`Очікує`,
+  validated: msg`Валідовано`,
+  paid: msg`Оплачено`,
+  rejected: msg`Відхилено`,
+} satisfies Record<DropIncomeStatus, MessageDescriptor>
+
 function IncomeStatusBadge({ status, id }: { status: DropIncomeStatus; id: string }) {
+  const { i18n } = useLingui()
   const config: Record<
     DropIncomeStatus,
     {
       variant: 'secondary' | 'default' | 'outline' | 'destructive'
       icon: React.ReactNode
-      label: string
     }
   > = {
     pending: {
       variant: 'secondary',
       icon: <Clock className="mr-1 h-3 w-3" />,
-      label: 'Ожидает',
     },
     validated: {
       variant: 'default',
       icon: <CheckCircle className="mr-1 h-3 w-3" />,
-      label: 'Валидирован',
     },
     paid: {
       variant: 'outline',
       icon: <CircleCheck className="mr-1 h-3 w-3" />,
-      label: 'Оплачен',
     },
     rejected: {
       variant: 'destructive',
       icon: <XCircle className="mr-1 h-3 w-3" />,
-      label: 'Отклонён',
     },
   }
-  const { variant, icon, label } = config[status]
+  const { variant, icon } = config[status]
   return (
     <Badge variant={variant} data-testid={`drop-income-status-${id}`} className="text-xs">
       {icon}
-      {label}
+      {i18n._(INCOME_STATUS_MESSAGES[status])}
     </Badge>
   )
 }
 
 // task-drop-sees-own-obligations (§AC3): the feed now covers TWO income
-// models — this badge is the "понятное различение" the task asks for.
+// models — this badge is the distinction that task asks for.
 // 'declared'   — the old self-declared DROP_INCOME row (drop registers it).
 // 'obligation' — a company-booked IOU (DROP_PENDING_PAYOUT/PAYOUT_DROP, from
 //                the admin-USDT declare path or the drop-payout cascade).
 function IncomeModelBadge({ model }: { model: DropIncomeDto['model'] }) {
+  const { t } = useLingui()
   return model === 'obligation' ? (
     <Badge variant="secondary" className="text-xs">
-      Начисление
+      {t`Нарахування`}
     </Badge>
   ) : (
     <Badge variant="outline" className="text-xs">
-      Приход
+      {t`Прихід`}
     </Badge>
   )
 }
 
+// task-i18n-stage3d-pr2 (COPY-M-fin-12). `failed` used to read a bare
+// «Ошибка» — a generic word with no next step. «Не пройшов» names WHAT
+// happened (the payment did not go through); the tooltip on the badge below
+// carries the "what to do" half (contact an admin) that a badge alone has no
+// room for.
+const PAYMENT_STATUS_MESSAGES = {
+  pending: msg`Очікує`,
+  confirmed: msg`Підтверджено`,
+  failed: msg`Не пройшов`,
+} satisfies Record<DropPaymentStatus, MessageDescriptor>
+
 function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
-  const config: Record<
-    DropPaymentStatus,
-    { variant: 'secondary' | 'default' | 'outline' | 'destructive'; label: string }
-  > = {
-    pending: { variant: 'secondary', label: 'Ожидает' },
-    confirmed: { variant: 'default', label: 'Подтверждён' },
-    failed: { variant: 'destructive', label: 'Ошибка' },
+  const { t, i18n } = useLingui()
+  const variant: Record<DropPaymentStatus, 'secondary' | 'default' | 'outline' | 'destructive'> = {
+    pending: 'secondary',
+    confirmed: 'default',
+    failed: 'destructive',
   }
-  const { variant, label } = config[status]
-  return (
-    <Badge variant={variant} className="text-xs">
-      {label}
+  const badge = (
+    <Badge variant={variant[status]} className="text-xs">
+      {i18n._(PAYMENT_STATUS_MESSAGES[status])}
     </Badge>
+  )
+  if (status !== 'failed') return badge
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>{badge}</TooltipTrigger>
+        <TooltipContent side="top" className="text-xs max-w-56">
+          {t`Переказ не пройшов — зверніться до адміністратора`}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   )
 }
 
@@ -160,6 +193,8 @@ function periodToDates(period: Period): { from?: string; to?: string } {
 // ── DropIncomesTable ───────────────────────────────────────────────────────────
 
 function DropIncomesTable() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const [statusFilter, setStatusFilter] = useState<DropIncomeStatus | 'all'>('all')
   const [periodFilter, setPeriodFilter] = useState<Period>('all')
   const [page, setPage] = useState(1)
@@ -191,7 +226,7 @@ function DropIncomesTable() {
       <CardHeader className="pb-2 pt-4 px-5">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            МОИ ПРИХОДЫ
+            {t`МОЇ ПРИХОДИ`}
           </span>
 
           {/* Filters */}
@@ -207,14 +242,16 @@ function DropIncomesTable() {
                 className="h-8 text-xs w-auto min-w-32"
                 data-testid="drop-filter-status"
               >
-                <SelectValue placeholder="Все статусы" />
+                <SelectValue placeholder={t`Усі статуси`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все статусы</SelectItem>
-                <SelectItem value="pending">Ожидает</SelectItem>
-                <SelectItem value="validated">Валидирован</SelectItem>
-                <SelectItem value="paid">Оплачен</SelectItem>
-                <SelectItem value="rejected">Отклонён</SelectItem>
+                <SelectItem value="all">{t`Усі статуси`}</SelectItem>
+                <SelectItem value="pending">{i18n._(INCOME_STATUS_MESSAGES.pending)}</SelectItem>
+                <SelectItem value="validated">
+                  {i18n._(INCOME_STATUS_MESSAGES.validated)}
+                </SelectItem>
+                <SelectItem value="paid">{i18n._(INCOME_STATUS_MESSAGES.paid)}</SelectItem>
+                <SelectItem value="rejected">{i18n._(INCOME_STATUS_MESSAGES.rejected)}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -229,13 +266,13 @@ function DropIncomesTable() {
                 className="h-8 text-xs w-auto min-w-36"
                 data-testid="drop-filter-period"
               >
-                <SelectValue placeholder="Все периоды" />
+                <SelectValue placeholder={t`Усі періоди`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">Все периоды</SelectItem>
-                <SelectItem value="current">Текущий месяц</SelectItem>
-                <SelectItem value="prev">Прошлый месяц</SelectItem>
-                <SelectItem value="3m">Последние 3 мес.</SelectItem>
+                <SelectItem value="all">{t`Усі періоди`}</SelectItem>
+                <SelectItem value="current">{t`Поточний місяць`}</SelectItem>
+                <SelectItem value="prev">{t`Минулий місяць`}</SelectItem>
+                <SelectItem value="3m">{t`Останні 3 міс.`}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -246,7 +283,7 @@ function DropIncomesTable() {
                 className="h-8 text-xs text-muted-foreground"
                 onClick={resetFilters}
               >
-                Сбросить фильтры
+                {t`Скинути фільтри`}
               </Button>
             )}
           </div>
@@ -263,11 +300,11 @@ function DropIncomesTable() {
         ) : incomes.length === 0 ? (
           <div className="px-5 py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              {hasFilters ? 'Нет приходов по выбранным фильтрам.' : 'Приходов пока нет'}
+              {hasFilters ? t`Немає приходів за обраними фільтрами` : t`Приходів ще немає`}
             </p>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={resetFilters}>
-                Сбросить фильтры
+                {t`Скинути фільтри`}
               </Button>
             )}
           </div>
@@ -276,12 +313,12 @@ function DropIncomesTable() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className="text-xs">Дата</TableHead>
-                  <TableHead className="text-xs">Компания</TableHead>
-                  <TableHead className="text-xs">Сумма</TableHead>
-                  <TableHead className="text-xs">Тип</TableHead>
-                  <TableHead className="text-xs">Статус</TableHead>
-                  <TableHead className="text-xs">Действие</TableHead>
+                  <TableHead className="text-xs">{t`Дата`}</TableHead>
+                  <TableHead className="text-xs">{t`Компанія`}</TableHead>
+                  <TableHead className="text-xs">{t`Сума`}</TableHead>
+                  <TableHead className="text-xs">{t`Тип`}</TableHead>
+                  <TableHead className="text-xs">{t`Статус`}</TableHead>
+                  <TableHead className="text-xs">{t`Дія`}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -292,7 +329,7 @@ function DropIncomesTable() {
                     </TableCell>
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
-                      {fmtUsd(income.amount)}
+                      {fmtUsd(income.amount, locale)}
                       {/* task-drop-sees-own-obligations (security-review PR #523
                           round 1, MED-5): `amount` means TWO DIFFERENT things
                           depending on `model` — a declared row's amount is the
@@ -306,7 +343,7 @@ function DropIncomesTable() {
                         className="block text-[10px] font-normal text-muted-foreground"
                         data-testid={`drop-income-amount-kind-${income.id}`}
                       >
-                        {income.model === 'declared' ? 'Валовый приход' : 'Ваша доля'}
+                        {income.model === 'declared' ? t`Валовий прихід` : t`Ваша частка`}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -333,7 +370,7 @@ function DropIncomesTable() {
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
             >
-              Предыдущая
+              {t`Попередня`}
             </Button>
             <span className="text-xs text-muted-foreground tabular-nums">
               {page} / {totalPages}
@@ -345,7 +382,7 @@ function DropIncomesTable() {
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Следующая
+              {t`Наступна`}
             </Button>
           </div>
         )}
@@ -363,6 +400,8 @@ function DropPaymentsHistory({
   payments: DropPaymentDto[] | undefined
   isLoading: boolean
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   if (isLoading) {
     return (
       <div className="space-y-2" data-testid="drop-payments-history-skeleton">
@@ -383,13 +422,13 @@ function DropPaymentsHistory({
           <div className="flex items-center gap-2">
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              ПЛАТЕЖИ КОМПАНИИ
+              {t`ПЛАТЕЖІ КОМПАНІЇ`}
             </span>
           </div>
         </CardHeader>
         <CardContent className="px-5 pb-4">
           {payments.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-2">Нет истории платежей</p>
+            <p className="text-sm text-muted-foreground py-2">{t`Переказів ще не було`}</p>
           ) : (
             <ul className="space-y-3">
               {payments.map((p) => (
@@ -401,7 +440,9 @@ function DropPaymentsHistory({
                   <span className="text-xs text-muted-foreground tabular-nums">
                     {fmtDate(p.createdAt)}
                   </span>
-                  <span className="text-sm font-semibold tabular-nums">{fmtUsd(p.amount)}</span>
+                  <span className="text-sm font-semibold tabular-nums">
+                    {fmtUsd(p.amount, locale)}
+                  </span>
 
                   {p.txHash ? (
                     <Tooltip>
@@ -432,6 +473,7 @@ function DropPaymentsHistory({
 // ── DropFinancePage (main export) ──────────────────────────────────────────────
 
 export function DropFinancePage() {
+  const { t } = useLingui()
   const qc = useQueryClient()
   const { data: summary, isLoading: summaryLoading, isError: summaryError } = useDropSummary()
   const { data: payments, isLoading: paymentsLoading } = useDropPayments()
@@ -451,7 +493,7 @@ export function DropFinancePage() {
           data-testid="drop-register-income-btn"
         >
           <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
-          Зарегистрировать приход
+          {t`Зареєструвати прихід`}
         </Button>
       </div>
       <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
