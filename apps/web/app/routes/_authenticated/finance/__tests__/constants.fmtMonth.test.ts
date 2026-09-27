@@ -22,11 +22,16 @@
  * assertions in `constants.i18n.test.ts`.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { formatDate as FormatDate } from '@crm/shared'
 
 // `vi.mock` factories are hoisted above plain top-level `const`s — `vi.hoisted`
 // is the documented way to define a value the (also hoisted) factory can close
-// over without a "Cannot access before initialization" TDZ error.
-const { formatDateSpy } = vi.hoisted(() => ({ formatDateSpy: vi.fn(() => 'STUBBED') }))
+// over without a "Cannot access before initialization" TDZ error. Typed
+// against the real `formatDate` signature so `.mock.calls[0]` below is a
+// 3-tuple, not an inferred `[]`.
+const { formatDateSpy } = vi.hoisted(() => ({
+  formatDateSpy: vi.fn<typeof FormatDate>(() => 'STUBBED'),
+}))
 
 vi.mock('@crm/shared', async () => {
   const actual = await vi.importActual<typeof import('@crm/shared')>('@crm/shared')
@@ -47,8 +52,8 @@ describe('fmtMonth — month arithmetic + style, via a formatDate spy (Arithmeti
     fmtMonth('2026-05')
     expect(formatDateSpy).toHaveBeenCalledTimes(1)
     const call = formatDateSpy.mock.calls[0]!
-    const dateArg = call[0] as Date
-    const styleArg = call[2]
+    const [dateArgRaw, , styleArg] = call
+    const dateArg = new Date(dateArgRaw)
     // `month - 1` mutated to `month + 1` would pass month index 5 (June)
     // instead of 4 (May, 0-indexed) — `getMonth()` reads it back exactly as
     // constructed, no formatting/timezone round-trip involved.
