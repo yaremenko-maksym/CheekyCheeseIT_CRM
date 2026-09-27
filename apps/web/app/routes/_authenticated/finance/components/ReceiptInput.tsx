@@ -312,7 +312,7 @@ export function ReceiptInput({
               {state.mimeType.startsWith('image/') && state.previewUrl ? (
                 <img
                   src={state.previewUrl}
-                  alt={t`Прев'ю чека`}
+                  alt={t`Прев’ю чека`}
                   className="w-full max-h-40 object-contain"
                 />
               ) : state.mimeType === 'application/pdf' ? (

@@ -6446,8 +6446,8 @@ msgid "Пошук…"
 msgstr "Пошук…"
 
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
-msgid "Прев'ю чека"
-msgstr "Прев'ю чека"
+msgid "Прев’ю чека"
+msgstr "Прев’ю чека"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Прибрати"

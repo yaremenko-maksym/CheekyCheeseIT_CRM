@@ -189,7 +189,7 @@ describe('ReceiptInput — file-selected preview branches (mutation-gate coverag
       previewUrl: 'blob:local-preview',
       mimeType: 'image/png',
     })
-    expect(screen.getByAltText("Прев'ю чека")).toBeInTheDocument()
+    expect(screen.getByAltText('Прев’ю чека')).toBeInTheDocument()
     expect(screen.queryByText('Файл завантажено')).not.toBeInTheDocument()
     expect(screen.queryByText('PDF-документ')).not.toBeInTheDocument()
   })
