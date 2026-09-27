@@ -322,6 +322,46 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     expect(screen.getByText('Наступна')).toBeInTheDocument()
   })
 
+  it('both filter selects list every option with its localised text', async () => {
+    const user = userEvent.setup()
+    useDropIncomesMock.mockReturnValue({
+      data: { items: [makeIncome({ id: 'declared-1' })], total: 1, page: 1, limit: 20 },
+      isLoading: false,
+    })
+    renderPage()
+
+    await user.click(screen.getByTestId('drop-filter-status'))
+    expect(screen.getAllByText('Усі статуси').length).toBeGreaterThan(0)
+    expect(screen.getByRole('option', { name: 'Очікує' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Валідовано' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Оплачено' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Відхилено' })).toBeInTheDocument()
+    await user.keyboard('{Escape}')
+
+    await user.click(screen.getByTestId('drop-filter-period'))
+    expect(screen.getAllByText('Усі періоди').length).toBeGreaterThan(0)
+    expect(screen.getByRole('option', { name: 'Поточний місяць' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Минулий місяць' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Останні 3 міс.' })).toBeInTheDocument()
+  })
+
+  it('fmtUsd formats with exactly two fraction digits even for a whole number', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'declared-1', amount: 800 })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    // With the `{}` mutant (no minimumFractionDigits) `Intl.NumberFormat`
+    // drops the decimal part for a whole number — "$800" instead of the
+    // correct "$800,00".
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('$800,00')
+  })
+
   it('register-income CTA renders its localised label', () => {
     useDropIncomesMock.mockReturnValue({
       data: { items: [], total: 0, page: 1, limit: 20 },
@@ -331,7 +371,7 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     expect(screen.getByTestId('drop-register-income-btn')).toHaveTextContent('Зареєструвати прихід')
   })
 
-  it('payments history renders its section title and each payment status text', () => {
+  it('payments history renders its section title and each payment status text/variant', () => {
     useDropPaymentsMock.mockReturnValue({
       data: [
         { id: 'p1', createdAt: '2026-08-01T00:00:00.000Z', amount: 100, status: 'pending' },
@@ -346,12 +386,12 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     })
     renderPage()
     expect(screen.getByText('ПЛАТЕЖІ КОМПАНІЇ')).toBeInTheDocument()
-    const p1 = screen.getByTestId('drop-payment-row-p1')
-    expect(p1).toHaveTextContent('Очікує')
-    const p2 = screen.getByTestId('drop-payment-row-p2')
-    expect(p2).toHaveTextContent('Підтверджено')
-    const p3 = screen.getByTestId('drop-payment-row-p3')
-    expect(p3).toHaveTextContent('Не пройшов')
+    expect(screen.getByTestId('drop-payment-row-p1')).toHaveTextContent('Очікує')
+    expect(screen.getByText('Очікує')).toHaveClass('bg-secondary')
+    expect(screen.getByTestId('drop-payment-row-p2')).toHaveTextContent('Підтверджено')
+    expect(screen.getByText('Підтверджено')).toHaveClass('bg-primary')
+    expect(screen.getByTestId('drop-payment-row-p3')).toHaveTextContent('Не пройшов')
+    expect(screen.getByText('Не пройшов')).toHaveClass('bg-destructive')
   })
 
   it('payments history empty state renders "Переказів ще не було"', () => {

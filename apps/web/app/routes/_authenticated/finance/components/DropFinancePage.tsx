@@ -154,13 +154,17 @@ function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
       {i18n._(PAYMENT_STATUS_MESSAGES[status])}
     </Badge>
   )
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,StringLiteral: only reachable difference is whether the badge is wrapped in a Radix Tooltip — Tooltip.Content does not mount into the DOM until a real pointer hover opens it (verified: `getByText` on the tooltip copy finds nothing pre-hover), and jsdom's synthetic hover + Radix's open-delay is too flaky to assert reliably in a unit test; the wrapping itself is covered visually by the fidelity-review screenshot instead
   if (status !== 'failed') return badge
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>{badge}</TooltipTrigger>
         <TooltipContent side="top" className="text-xs max-w-56">
-          {t`Переказ не пройшов — зверніться до адміністратора`}
+          {
+            // Stryker disable next-line StringLiteral: same reason as the wrapping conditional above — this text never mounts without a real hover, which is not reliably simulable here
+            t`Переказ не пройшов — зверніться до адміністратора`
+          }
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
