@@ -1,9 +1,11 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { api } from '@/lib/axios'
 import { contractTargetRoleSchema, CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
-import type { ContractTargetRole, ContractTemplateRow, CustomVariable } from '@crm/shared'
+import type { ContractTemplateRow, CustomVariable } from '@crm/shared'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
@@ -67,14 +69,6 @@ const CodeMirrorEditor = lazy(async () => {
   }
   return { default: LazyEditor }
 })
-
-const ROLE_LABELS: Record<ContractTargetRole, string> = {
-  HR: 'HR-менеджер',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  DROP: 'Дроп',
-  ACCOUNTANT: 'Бухгалтер',
-}
 
 const SYSTEM_KEYS = new Set(Object.keys(CONTRACT_VARIABLE_DESCRIPTIONS))
 const TOKEN_SPLIT_RE = /(\{\{[a-zA-Z0-9_]+\}\})/g
@@ -230,6 +224,7 @@ export function ContractPreview({
 }
 
 function ContractEditorPage() {
+  const { t, i18n } = useLingui()
   const { role: roleParam } = Route.useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -249,6 +244,7 @@ function ContractEditorPage() {
   // class as stats.tsx / the sibling route pages fixed alongside this one.
   // Stryker disable next-line StringLiteral: covers exactly 1 mutant, provably equivalent. This literal is the placeholder branch, reachable ONLY when `parsed.success` is false — and in that state every consumer of `role` is inert: the query carries `enabled: parsed.success`, the mutation callbacks need a user action on JSX that never mounts, and the guard-return below yields null before any render that reads it. Emptying the literal therefore cannot change observable behaviour. Its value matters only to a human reading the fallback, which is why it names a real role rather than ''.
   const role = parsed.success ? parsed.data : 'SENIOR'
+  const roleLabel = i18n._(ROLE_LABEL_MESSAGES[role])
 
   useEffect(() => {
     if (!parsed.success) {
@@ -316,13 +312,13 @@ function ContractEditorPage() {
       })
     },
     onSuccess: () => {
-      toast.success(`Шаблон для роли ${ROLE_LABELS[role]} опубликован`)
+      toast.success(t`Шаблон договору для ролі «${roleLabel}» опубліковано`)
       void qc.invalidateQueries({ queryKey: ['contract-templates-all'] })
       void qc.invalidateQueries({ queryKey: ['contract-template', role] })
       setShowConfirm(false)
     },
     onError: () => {
-      toast.error('Ошибка при публикации шаблона')
+      toast.error(t`Не вдалося опублікувати шаблон`)
       setShowConfirm(false)
     },
   })
@@ -428,16 +424,20 @@ function ContractEditorPage() {
             size="icon"
             onClick={() => void navigate({ to: '/admin/contracts' })}
             data-testid="back-button"
-            aria-label="Назад к списку"
+            aria-label={t`Назад до списку`}
           >
             <ChevronLeft className="h-4 w-4" />
           </Button>
           <div>
             <h2 className="text-lg font-semibold">
-              Редактор: <span className="text-primary">{ROLE_LABELS[role]}</span>
+              <Trans>
+                Редактор: <span className="text-primary">{roleLabel}</span>
+              </Trans>
             </h2>
             {template && (
-              <p className="text-xs text-muted-foreground">Текущая версия: v{template.version}</p>
+              <p className="text-xs text-muted-foreground">
+                <Trans>Поточна версія: v{template.version}</Trans>
+              </p>
             )}
           </div>
           <Badge variant="outline">{role}</Badge>
@@ -452,14 +452,14 @@ function ContractEditorPage() {
             data-testid="preview-template-button"
           >
             <Eye className="mr-1.5 h-4 w-4" />
-            Предпросмотр
+            <Trans>Попередній перегляд</Trans>
           </Button>
           <Button
             onClick={() => setShowConfirm(true)}
             disabled={publishMutation.isPending || currentBody.trim() === ''}
             data-testid="publish-template-button"
           >
-            Опубликовать
+            <Trans>Опублікувати</Trans>
           </Button>
         </div>
       </div>
@@ -510,7 +510,7 @@ function ContractEditorPage() {
         data-testid="variables-panel-wrapper"
       >
         <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-          Переменные шаблона
+          <Trans>Змінні шаблону</Trans>
         </div>
         <div className="p-3">
           <VariablesPanel
@@ -532,12 +532,14 @@ function ContractEditorPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Eye className="h-4 w-4" />
-              Предпросмотр PDF — {ROLE_LABELS[role]}
+              <Trans>Попередній перегляд PDF — {roleLabel}</Trans>
             </DialogTitle>
             <DialogDescription>
-              Так контракт будет выглядеть в PDF. Токены вида {'{{...}}'} остаются видимыми — они
-              подставятся автоматически при подписании. Блок «Реквизиты компании» добавляется в
-              конце.
+              <Trans>
+                Так виглядатиме договір у PDF. Токени виду {'{{...}}'} лишаються видимими — вони
+                підставляться автоматично під час підписання. Блок «Реквізити компанії» додається в
+                кінці.
+              </Trans>
             </DialogDescription>
           </DialogHeader>
 
@@ -563,14 +565,14 @@ function ContractEditorPage() {
               disabled={pdfLoading}
               data-testid="preview-dialog-refresh"
             >
-              Обновить
+              <Trans>Оновити</Trans>
             </Button>
             <Button
               variant="outline"
               onClick={() => setShowPreview(false)}
               data-testid="preview-dialog-close"
             >
-              Закрыть
+              <Trans>Закрити</Trans>
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -582,12 +584,14 @@ function ContractEditorPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="h-5 w-5 text-amber-500" />
-              Опубликовать новую версию (v{(template?.version ?? 0) + 1})?
+              <Trans>Опублікувати нову версію (v{(template?.version ?? 0) + 1})?</Trans>
             </DialogTitle>
             <DialogDescription>
-              Текущая версия шаблона для роли <strong>{ROLE_LABELS[role]}</strong> будет
-              деактивирована (сохранится в истории). Новые сотрудники увидят обновлённый текст при
-              следующем онбординге.
+              <Trans>
+                Поточна версія шаблону для ролі <strong>{roleLabel}</strong> буде деактивована
+                (збережеться в історії). Нові співробітники побачать оновлений текст під час
+                наступного онбордингу.
+              </Trans>
             </DialogDescription>
           </DialogHeader>
           <Suspense fallback={<Skeleton className="h-20 w-full rounded-md" />}>
@@ -599,14 +603,14 @@ function ContractEditorPage() {
               onClick={() => setShowConfirm(false)}
               data-testid="cancel-button"
             >
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               onClick={() => publishMutation.mutate()}
               disabled={publishMutation.isPending}
               data-testid="confirm-publish-button"
             >
-              {publishMutation.isPending ? 'Публикация…' : 'Опубликовать'}
+              {publishMutation.isPending ? t`Публікація…` : t`Опублікувати`}
             </Button>
           </DialogFooter>
         </DialogContent>

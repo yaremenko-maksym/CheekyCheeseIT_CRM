@@ -2,6 +2,9 @@ import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm, type FieldApi, type ReactFormExtendedApi } from '@tanstack/react-form'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
@@ -29,8 +32,15 @@ import type {
   ProjectMemberDto,
   UpdateProjectDto,
   TransactionDto,
+  Role,
 } from '@crm/shared'
-import { createProjectSchema, IT_DOMAINS, type ItDomain } from '@crm/shared'
+import {
+  createProjectSchema,
+  IT_DOMAINS,
+  type ItDomain,
+  formatDate,
+  formatNumber,
+} from '@crm/shared'
 import { financeApi } from '@/routes/_authenticated/finance/api'
 import { TransactionDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog'
 import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
@@ -41,7 +51,9 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { seniorShareErrorMessage } from '@/hooks/use-user-profile'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { ROLE_LABEL_MESSAGES, useRoleLabel } from '@/components/ui/role-select'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
 import { ProjectStatusBadge } from '@/components/projects/ProjectStatusBadge'
@@ -80,7 +92,7 @@ import {
 } from '@/components/ui/select'
 import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { ShareSlider } from '@/components/ui/share-slider'
-import { PAYMENT_TYPE_LABELS } from './constants'
+import { PAYMENT_TYPE_MESSAGES } from './constants'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -113,13 +125,27 @@ export const Route = createFileRoute('/_authenticated/projects/$projectId')({
   component: ProjectDetailPage,
 })
 
-const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
-}
+/**
+ * task-i18n-stage3c-pr4 (Task 4, Step 2, template G). Was a `Record<string,
+ * string>` LOCAL to `ProjectEditFields`'s render — invisible to `lingui
+ * extract`, which only walks module-level `msg` calls. Hoisted to module
+ * level, `satisfies` WITHOUT `as const` (urok #707: `as const` here would
+ * make Stryker report 0 mutants for the whole block). COPY-H-proj-3: the
+ * edit-form label and the read-only `InfoRow` label below both resolve
+ * through this ONE map now, so "Корп. технологии" / "Корп. техника" (two
+ * spellings of the same field) collapse into one canonical text.
+ */
+const EDIT_FIELD_LABEL_MESSAGES = {
+  techStack: msg`Технологічний стек`,
+  teamSize: msg`Склад команди`,
+  benefits: msg`Бенефіти`,
+  paymentType: msg`Тип оплати`,
+  salaryReview: msg`Перегляд зарплати`,
+  corpTech: msg`Корпоративна техніка`,
+} satisfies Record<
+  'techStack' | 'teamSize' | 'benefits' | 'paymentType' | 'salaryReview' | 'corpTech',
+  MessageDescriptor
+>
 
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
@@ -205,11 +231,18 @@ export function ProjectEditFields({
    */
   pendingShare?: ProjectDetailDto['pendingSeniorShare'] | undefined
 }) {
+  const { t, i18n } = useLingui()
+  // FIX-H-2 (spec SPEC-M-1 / copy COPY-H-1): a raw role enum in visible text
+  // is a finding (urok #702 п.13) — ADMIN/ACCOUNTANT are not on the
+  // exemption list. Resolved once here, reused by the three "who can edit
+  // this" hints below (paymentType / senior share / drop share).
+  const adminLabel = useRoleLabel('ADMIN')
+  const accountantLabel = useRoleLabel('ACCOUNTANT')
   if (mode === 'info') {
     return (
       <div className="space-y-3">
         <div className="space-y-1.5">
-          <Label>Логотип компании</Label>
+          <Label>{t`Логотип компанії`}</Label>
           <ImageUploadField
             value={{
               documentId: (form.state.values as { logoDocumentId: string | null }).logoDocumentId,
@@ -240,7 +273,7 @@ export function ProjectEditFields({
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn(err && 'text-destructive')}>Название проекта</Label>
+                <Label className={cn(err && 'text-destructive')}>{t`Назва проєкту`}</Label>
                 <Input
                   value={field.state.value}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -269,7 +302,7 @@ export function ProjectEditFields({
             const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
             return (
               <div className="space-y-1.5">
-                <Label className={cn(err && 'text-destructive')}>Компания</Label>
+                <Label className={cn(err && 'text-destructive')}>{t`Компанія`}</Label>
                 <Input
                   value={field.state.value}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -288,7 +321,7 @@ export function ProjectEditFields({
         <form.Field name="domain">
           {(field: AnyField) => (
             <div className="space-y-1.5">
-              <Label>Домен</Label>
+              <Label>{t`Домен`}</Label>
               <select
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
                 value={field.state.value}
@@ -317,24 +350,18 @@ export function ProjectEditFields({
               'corpTech',
             ] as const
           ).map((fieldName) => {
-            const labels: Record<string, string> = {
-              techStack: 'Стек технологий',
-              teamSize: 'Состав команды',
-              benefits: 'Бенефиты',
-              paymentType: 'Тип оплаты',
-              salaryReview: 'Пересмотр ЗП',
-              corpTech: 'Корп. технологии',
-            }
             // task-drop-share-override-and-receiver (Surface C). paymentType
             // moves from free-text Input to a 3-value Select. Field-scoped RBAC
             // reuses `canEditOverride` (ADMIN/ACCOUNTANT edit; everyone else who
             // can reach this dialog — i.e. HR — sees it disabled/read).
             if (fieldName === 'paymentType') {
+              // Stryker disable next-line StringLiteral: placeholder never renders in practice — `paymentType` always has a value (defaults to 'FOP'), so no test can observe this text. A JSX comment on the element itself does not suppress Stryker (urok #700) — the literal has to move to a plain JS assignment instead.
+              const paymentTypePlaceholder = t`Виберіть тип оплати`
               return (
                 <form.Field key="paymentType" name="paymentType">
                   {(field: AnyField) => (
                     <div className="space-y-1.5">
-                      <Label>Тип оплаты</Label>
+                      <Label>{i18n._(EDIT_FIELD_LABEL_MESSAGES.paymentType)}</Label>
                       <Select
                         value={field.state.value as string}
                         onValueChange={(v) => field.handleChange(v)}
@@ -344,23 +371,25 @@ export function ProjectEditFields({
                           className="h-9 text-sm"
                           data-testid="project-payment-type-trigger"
                         >
-                          <SelectValue placeholder="Выберите тип оплаты" />
+                          <SelectValue placeholder={paymentTypePlaceholder} />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="FOP" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.FOP}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.FOP)}
                           </SelectItem>
                           <SelectItem value="GIG_CONTRACT" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.GIG_CONTRACT}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.GIG_CONTRACT)}
                           </SelectItem>
                           <SelectItem value="USDT" className="text-sm">
-                            {PAYMENT_TYPE_LABELS.USDT}
+                            {i18n._(PAYMENT_TYPE_MESSAGES.USDT)}
                           </SelectItem>
                         </SelectContent>
                       </Select>
                       {!canEditOverride && (
                         <p className="text-xs text-muted-foreground italic">
-                          Менять может только ADMIN или ACCOUNTANT.
+                          <Trans>
+                            Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                          </Trans>
                         </p>
                       )}
                     </div>
@@ -372,7 +401,7 @@ export function ProjectEditFields({
               <form.Field key={fieldName} name={fieldName}>
                 {(field: AnyField) => (
                   <div className="space-y-1.5">
-                    <Label>{labels[fieldName]}</Label>
+                    <Label>{i18n._(EDIT_FIELD_LABEL_MESSAGES[fieldName])}</Label>
                     <Input
                       value={field.state.value as string}
                       onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -388,7 +417,7 @@ export function ProjectEditFields({
           <form.Field name="notesGeneral">
             {(field: AnyField) => (
               <div className="space-y-1.5">
-                <Label>Общие заметки</Label>
+                <Label>{t`Загальні нотатки`}</Label>
                 <textarea
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring min-h-20 resize-y"
                   value={field.state.value as string}
@@ -416,7 +445,7 @@ export function ProjectEditFields({
               onCurrencyChange={(v) =>
                 form.setFieldValue('currency', v as 'USDT' | 'USD' | 'EUR' | 'UAH')
               }
-              label="Ставка"
+              label={t`Ставка`}
               placeholder="5000"
             />
           )}
@@ -436,7 +465,7 @@ export function ProjectEditFields({
                   return undefined
                 const num = Number(value)
                 if (!Number.isInteger(num) || num < 0 || num > 100) {
-                  return 'Введите целое число от 0 до 100'
+                  return t`Введіть ціле число від 0 до 100`
                 }
                 return undefined
               },
@@ -450,7 +479,7 @@ export function ProjectEditFields({
               const sliderValue = hasOverride ? (raw as number) : defaultSharePercent
               return (
                 <div className="space-y-2" data-testid="project-edit-senior-share-section">
-                  <Label className={cn(err && 'text-destructive')}>Доля синьора (%)</Label>
+                  <Label className={cn(err && 'text-destructive')}>{t`Частка сеньйора (%)`}</Label>
                   <ShareSlider
                     value={sliderValue}
                     min={0}
@@ -491,8 +520,11 @@ export function ProjectEditFields({
                       fixed one round ago and what «снимает» in the review's
                       suggested phrasing would have undone. */}
                   <p className="text-xs text-muted-foreground">
-                    Любое изменение начнёт действовать после подтверждения синьора. По умолчанию —{' '}
-                    {defaultSharePercent}%: это же значение снимет индивидуальную долю по проекту.
+                    <Trans>
+                      Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням —{' '}
+                      {defaultSharePercent}%: те саме значення знімає індивідуальну частку по
+                      проєкту.
+                    </Trans>
                   </p>
                   {/* task-648-fix-round-2 (UX-H-3(r2)): an ADMIN who opens
                       this form to "fix" the percent saw a slider holding the
@@ -513,7 +545,9 @@ export function ProjectEditFields({
                   )}
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      Менять может только ADMIN или ACCOUNTANT.
+                      <Trans>
+                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                      </Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -538,7 +572,7 @@ export function ProjectEditFields({
                   return undefined
                 const num = Number(value)
                 if (!Number.isInteger(num) || num < 0 || num > 100) {
-                  return 'Введите целое число от 0 до 100'
+                  return t`Введіть ціле число від 0 до 100`
                 }
                 return undefined
               },
@@ -552,7 +586,7 @@ export function ProjectEditFields({
               const sliderValue = hasOverride ? (raw as number) : defaultDropSharePercent
               return (
                 <div className="space-y-2" data-testid="project-edit-drop-share-section">
-                  <Label className={cn(err && 'text-destructive')}>Доля дропа (%)</Label>
+                  <Label className={cn(err && 'text-destructive')}>{t`Частка дропа (%)`}</Label>
                   <ShareSlider
                     value={sliderValue}
                     min={0}
@@ -570,12 +604,16 @@ export function ProjectEditFields({
                       would put two words for one operation in ONE dialog —
                       the defect COPY-M-16 is about, merely moved. */}
                   <p className="text-xs text-muted-foreground">
-                    По умолчанию — {defaultDropSharePercent}%. Это же значение снимет индивидуальную
-                    долю дропа по проекту.
+                    <Trans>
+                      За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає
+                      індивідуальну частку дропа по проєкту.
+                    </Trans>
                   </p>
                   {!canEditOverride && (
                     <p className="text-xs text-muted-foreground italic">
-                      Менять может только ADMIN или ACCOUNTANT.
+                      <Trans>
+                        Змінювати можуть лише {adminLabel} або {accountantLabel}.
+                      </Trans>
                     </p>
                   )}
                   {err && <p className="text-xs text-destructive">{err}</p>}
@@ -692,6 +730,7 @@ function ProjectShareInfo({
    */
   viewerId?: string | null | undefined
 }) {
+  const { t } = useLingui()
   const overrideRaw = project.seniorSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.seniorSharePercentDefault ?? 26
@@ -714,21 +753,25 @@ function ProjectShareInfo({
       )}
       data-testid={testId}
     >
-      {variant === 'inline' && <span className="text-muted-foreground">Доля синьора:</span>}
+      {variant === 'inline' && (
+        <span className="text-muted-foreground">
+          <Trans>Частка сеньйора:</Trans>
+        </span>
+      )}
       <span className="font-medium tabular-nums">{effective}%</span>
       {hasOverride ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Badge variant="secondary" className="text-[10px]" data-testid={badgeTestId}>
-              Override
+              <Trans>Override</Trans>
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            Установлено для этого проекта; глобальная доля синьора: {fallback}%
+            <Trans>Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%</Trans>
           </TooltipContent>
         </Tooltip>
       ) : (
-        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+        <span className="text-xs text-muted-foreground">{t`(за замовчуванням)`}</span>
       )}
       {/* task-pending-share (position 5): значение выше — ДЕЙСТВУЮЩЕЕ, не
           меняется пока согласование открыто (AC2). Индикатор — отдельная
@@ -764,14 +807,14 @@ function ProjectShareInfo({
                 className="text-[10px] border-amber-500/50 text-amber-600 dark:text-amber-400 whitespace-nowrap tabular-nums"
                 data-testid="project-senior-share-pending-badge"
               >
-                {`Предложено ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
+                {t`Запропоновано ${pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent}%`}
               </Badge>
             </TooltipTrigger>
             {/* task-648-fix-round-2 (UX-M-3(r2)): capped + wrapping.
                 Measured at 468px (ordinary name) and 709px (long name)
                 against a 320px viewport before this cap. */}
             <TooltipContent className="max-w-[calc(100vw-2rem)] whitespace-normal">
-              Действует прежний процент, пока новый не подтверждён.
+              <Trans>Діє попередній відсоток, поки новий не підтверджено.</Trans>
             </TooltipContent>
           </Tooltip>
           {/* task-648-fix-round-2 (COPY-M-12 / UX-M-3(r2)): name and the
@@ -786,8 +829,10 @@ function ProjectShareInfo({
               Oleksiy Kovalenko» was the finding. */}
           {audience === 'observer' && (
             <span className="block text-xs text-muted-foreground break-words">
-              Подтверждает {pending.approverName} — пока действует{' '}
-              <span className="tabular-nums">{effective}%</span>
+              <Trans>
+                Підтверджує {pending.approverName} — поки діє{' '}
+                <span className="tabular-nums">{effective}%</span>
+              </Trans>
             </span>
           )}
           {/* task-648-fix-round-2 (UX-H-3(r2)): the withdraw control lives
@@ -834,6 +879,7 @@ export function PendingShareApprovalBanner({
   currentPercent: number
   pending: NonNullable<ProjectDetailDto['pendingSeniorShare']>
 }) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
@@ -850,7 +896,7 @@ export function PendingShareApprovalBanner({
       // task-648-fix-round-1 (COPY-M-3): names the ACTUAL confirmed value —
       // see the identical comment on useApproveSeniorShareChange (base-share
       // twin of this mutation) for the full reasoning.
-      toast.success(`Доля по проекту теперь ${data.effectiveSeniorSharePercent}%`)
+      toast.success(t`Частка в проєкті тепер ${data.effectiveSeniorSharePercent}%`)
       invalidate()
     },
     onError: (err: unknown) => {
@@ -864,7 +910,7 @@ export function PendingShareApprovalBanner({
       // carrying neither `.response` nor a string `.message` fell through to
       // the generic house text, and the reader could not tell which of the
       // two buttons on this banner had failed.
-      toast.error(seniorShareErrorMessage(err, 'Не удалось подтвердить'))
+      toast.error(seniorShareErrorMessage(err, t`Не вдалося підтвердити`))
       invalidate()
     },
   })
@@ -890,14 +936,16 @@ export function PendingShareApprovalBanner({
       // so the same object was «предложение» on the button and «доля» in the
       // answer. It is also the more accurate of the two: the доля did not
       // move — the next clause of this very sentence says so.
-      toast.success('Предложение отклонено — действует прежний процент. Админ увидит причину')
+      toast.success(
+        t`Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину`,
+      )
       setRejectOpen(false)
       setReason('')
       invalidate()
     },
     onError: (err: unknown) => {
       // task-648-fix-round-3 (COPY-L-9): reject twin of the fallback above.
-      toast.error(seniorShareErrorMessage(err, 'Не удалось отклонить'))
+      toast.error(seniorShareErrorMessage(err, t`Не вдалося відхилити`))
       invalidate()
     },
   })
@@ -923,23 +971,25 @@ export function PendingShareApprovalBanner({
           the wording the profile twin already used. */}
       <p className="text-sm">
         {pending.percent === null ? (
-          <>
-            По проекту предлагают снять индивидуальную долю: сейчас{' '}
-            <span className="font-medium tabular-nums">{currentPercent}%</span>, станет{' '}
+          <Trans>
+            По проєкту пропонують зняти індивідуальну частку: зараз{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, стане{' '}
             <span className="font-medium tabular-nums">
               {pending.effectivePercentAfterApproval}%
             </span>
             .{' '}
-          </>
+          </Trans>
         ) : (
-          <>
-            Вашу долю по проекту предлагают изменить: сейчас{' '}
-            <span className="font-medium tabular-nums">{currentPercent}%</span>, предлагают{' '}
+          <Trans>
+            Вашу частку по проєкту пропонують змінити: зараз{' '}
+            <span className="font-medium tabular-nums">{currentPercent}%</span>, нова —{' '}
             <span className="font-medium tabular-nums">{pending.percent}%</span>.{' '}
-          </>
+          </Trans>
         )}
-        Пока вы не подтвердите, действует{' '}
-        <span className="font-medium tabular-nums">{currentPercent}%</span>.
+        <Trans>
+          Поки ви не підтвердите, діє{' '}
+          <span className="font-medium tabular-nums">{currentPercent}%</span>.
+        </Trans>
       </p>
       <div className="flex flex-wrap gap-2">
         <Button
@@ -951,7 +1001,7 @@ export function PendingShareApprovalBanner({
         >
           {/* task-648-fix-round-1 (COPY-M-9): same in-flight convention as
               OverviewTab.tsx's identical banner. */}
-          {approveMutation.isPending ? 'Подтверждение…' : 'Подтвердить'}
+          {approveMutation.isPending ? <Trans>Підтвердження…</Trans> : <Trans>Підтвердити</Trans>}
         </Button>
         <Button
           size="sm"
@@ -961,7 +1011,7 @@ export function PendingShareApprovalBanner({
           disabled={approveMutation.isPending}
           data-testid="pending-share-reject-button"
         >
-          Отклонить
+          <Trans>Відхилити</Trans>
         </Button>
       </div>
 
@@ -971,21 +1021,26 @@ export function PendingShareApprovalBanner({
             {/* task-648-fix-round-4 (COPY-M-18): same rename as the profile
                 twin in OverviewTab.tsx — one object, one name, on both
                 halves. */}
-            <DialogTitle>Отклонить предложение</DialogTitle>
-            <DialogDescription>Причина обязательна и будет видна администратору.</DialogDescription>
+            <DialogTitle>
+              <Trans>Відхилити пропозицію</Trans>
+            </DialogTitle>
+            <DialogDescription>
+              <Trans>Причина обов’язкова і буде видна адміністратору.</Trans>
+            </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody>
             {/* task-648-fix-round-1 (COPY-M-8): same fix as
                 OverviewTab.tsx's identical dialog — mirrors
                 ProjectApprovalActions.tsx (#646). */}
             <Label htmlFor="pending-share-reject-reason" className="text-xs">
-              Причина отказа *
+              <Trans>Причина відмови *</Trans>
             </Label>
             <Textarea
               id="pending-share-reject-reason"
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              placeholder="Например: договаривались на 30%"
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads the textarea's placeholder attribute — genuinely unobservable by the unit suite.
+              placeholder={t`Наприклад: домовилися про 30%`}
               maxLength={500}
               rows={3}
               data-testid="pending-share-reject-reason"
@@ -996,7 +1051,7 @@ export function PendingShareApprovalBanner({
           </CrmDialogBody>
           <CrmDialogFooter>
             <Button variant="outline" className="h-11 sm:h-9" onClick={() => setRejectOpen(false)}>
-              Отмена
+              <Trans>Скасувати</Trans>
             </Button>
             <Button
               variant="destructive"
@@ -1005,7 +1060,7 @@ export function PendingShareApprovalBanner({
               disabled={!reason.trim() || rejectMutation.isPending}
               data-testid="pending-share-reject-confirm"
             >
-              {rejectMutation.isPending ? 'Отклонение…' : 'Отклонить'}
+              {rejectMutation.isPending ? <Trans>Відхиляємо…</Trans> : <Trans>Відхилити</Trans>}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>
@@ -1114,6 +1169,7 @@ function ProjectDropShareInfo({
     'dropSharePercentOverride' | 'dropSharePercentDefault' | 'effectiveDropSharePercent'
   >
 }) {
+  const { t } = useLingui()
   const overrideRaw = project.dropSharePercentOverride
   const hasOverride = overrideRaw !== null && overrideRaw !== undefined
   const fallback = project.dropSharePercentDefault ?? 5
@@ -1129,21 +1185,23 @@ function ProjectDropShareInfo({
               className="text-[10px]"
               data-testid="project-drop-share-override-badge"
             >
-              Override
+              <Trans>Override</Trans>
             </Badge>
           </TooltipTrigger>
           <TooltipContent>
-            Установлено для этого проекта; глобальная доля дропа: {fallback}%
+            <Trans>Встановлено для цього проєкту; глобальна частка дропа: {fallback}%</Trans>
           </TooltipContent>
         </Tooltip>
       ) : (
-        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+        <span className="text-xs text-muted-foreground">{t`(за замовчуванням)`}</span>
       )}
     </span>
   )
 }
 
 function ProjectDetailPage() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'])
   const { projectId } = Route.useParams()
   const { user } = useAuth()
@@ -1351,7 +1409,7 @@ function ProjectDetailPage() {
       setDetachDropConfirmOpen(false)
     },
     onError: (err) => {
-      toast.error(getApiErrorMessage(err, 'Не удалось изменить дропа'))
+      toast.error(getApiErrorMessage(err, t`Не вдалося змінити дропа`))
     },
   })
 
@@ -1514,7 +1572,7 @@ function ProjectDetailPage() {
                         className="border-blue-500/30 bg-blue-500/10 text-blue-400 text-xs"
                         data-testid="project-drop-badge"
                       >
-                        Drop-проект
+                        <Trans>Проєкт з дропом</Trans>
                       </Badge>
                     )}
                   <Badge variant="outline" className="text-xs">
@@ -1537,7 +1595,7 @@ function ProjectDetailPage() {
                   data-testid="project-edit-button"
                 >
                   <Pencil className="h-3.5 w-3.5" />
-                  Редактировать
+                  <Trans>Редагувати</Trans>
                 </Button>
               )}
               {isAdmin && !project.archivedAt && (
@@ -1549,7 +1607,7 @@ function ProjectDetailPage() {
                   data-testid="project-archive-button"
                 >
                   <Archive className="h-3.5 w-3.5" />
-                  Архивировать
+                  <Trans>Архівувати</Trans>
                 </Button>
               )}
               {isAdmin && project.archivedAt && (
@@ -1571,10 +1629,10 @@ function ProjectDetailPage() {
                 <DollarSign className="h-4 w-4 text-emerald-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Ставка
+                    {t`Ставка`}
                   </p>
                   <p className="text-sm font-semibold tabular-nums">
-                    {project.rate.toLocaleString()} {project.currency}
+                    {formatNumber(project.rate, locale)} {project.currency}
                   </p>
                   {rates && project.currency !== 'USD' && project.currency !== 'USDT' && (
                     <p className="text-[10px] text-muted-foreground tabular-nums">
@@ -1587,13 +1645,9 @@ function ProjectDetailPage() {
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Calendar className="h-4 w-4 text-blue-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Старт</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{t`Старт`}</p>
                 <p className="text-sm font-semibold">
-                  {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                  })}
+                  {formatDate(project.startDate, locale, 'short')}
                 </p>
               </div>
             </div>
@@ -1602,14 +1656,10 @@ function ProjectDetailPage() {
                 <Calendar className="h-4 w-4 text-amber-400 shrink-0" />
                 <div>
                   <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
-                    Завершён
+                    {t`В архіві з`}
                   </p>
                   <p className="text-sm font-semibold">
-                    {new Date(project.archivedAt).toLocaleDateString('ru-RU', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: 'numeric',
-                    })}
+                    {formatDate(project.archivedAt, locale, 'short')}
                   </p>
                 </div>
               </div>
@@ -1617,7 +1667,7 @@ function ProjectDetailPage() {
             <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-muted/20 px-4 py-2.5 flex-1 min-w-[140px]">
               <Globe className="h-4 w-4 text-violet-400 shrink-0" />
               <div>
-                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Домен</p>
+                <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{t`Домен`}</p>
                 <p className="text-sm font-semibold">{project.domain}</p>
               </div>
             </div>
@@ -1650,10 +1700,10 @@ function ProjectDetailPage() {
           {(() => {
             type ProjectTab = 'overview' | 'members' | 'finance'
             const tabOptions: ReadonlyArray<SegmentedToggleOption<ProjectTab>> = [
-              { value: 'overview', label: 'Обзор', testId: 'tab-overview' },
-              { value: 'members', label: 'Состав', testId: 'tab-members' },
+              { value: 'overview', label: t`Огляд`, testId: 'tab-overview' },
+              { value: 'members', label: t`Склад`, testId: 'tab-members' },
               ...(canSeeProjectFinance
-                ? ([{ value: 'finance', label: 'Финансы', testId: 'tab-finance' }] as const)
+                ? [{ value: 'finance', label: t`Фінанси`, testId: 'tab-finance' } as const]
                 : []),
             ]
             // Fallback: если HR оказался на «finance» табе — переключить на «overview».
@@ -1666,7 +1716,7 @@ function ProjectDetailPage() {
                 value={safeActiveTab}
                 onChange={(v) => setActiveTab(v)}
                 options={tabOptions}
-                ariaLabel="Разделы проекта"
+                ariaLabel={t`Розділи проєкту`}
                 variant="tabs"
                 size="sm"
                 layoutId={`project-detail-tabs-${projectId}`}
@@ -1698,25 +1748,34 @@ function ProjectDetailPage() {
               <Card className="min-w-0 border-border/40">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                    Детали проекта
+                    {t`Деталі проєкту`}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-0 divide-y divide-border/40">
-                  <InfoRow icon={<Briefcase className="h-3.5 w-3.5" />} label="Стек">
+                  <InfoRow
+                    icon={<Briefcase className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.techStack)}
+                  >
                     {project.techStack ? (
                       <span className="font-medium">{project.techStack}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Users className="h-3.5 w-3.5" />} label="Команда">
+                  <InfoRow
+                    icon={<Users className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.teamSize)}
+                  >
                     {project.teamSize ? (
                       <span className="font-medium">{project.teamSize}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Building2 className="h-3.5 w-3.5" />} label="Бенефиты">
+                  <InfoRow
+                    icon={<Building2 className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.benefits)}
+                  >
                     {project.benefits ? (
                       <span className="font-medium">{project.benefits}</span>
                     ) : (
@@ -1729,24 +1788,33 @@ function ProjectDetailPage() {
                   spec, not relying solely on the null value). HR still sees it
                   (read value), only JUNIOR loses the row entirely. */}
                   {user?.role !== 'JUNIOR' && (
-                    <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
+                    <InfoRow
+                      icon={<CreditCard className="h-3.5 w-3.5" />}
+                      label={i18n._(EDIT_FIELD_LABEL_MESSAGES.paymentType)}
+                    >
                       {project.paymentType ? (
                         <span className="font-medium">
-                          {PAYMENT_TYPE_LABELS[project.paymentType]}
+                          {i18n._(PAYMENT_TYPE_MESSAGES[project.paymentType])}
                         </span>
                       ) : (
                         <span className="text-muted-foreground/40 italic">—</span>
                       )}
                     </InfoRow>
                   )}
-                  <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
+                  <InfoRow
+                    icon={<RefreshCw className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.salaryReview)}
+                  >
                     {project.salaryReview ? (
                       <span className="font-medium">{project.salaryReview}</span>
                     ) : (
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<Laptop className="h-3.5 w-3.5" />} label="Корп. техника">
+                  <InfoRow
+                    icon={<Laptop className="h-3.5 w-3.5" />}
+                    label={i18n._(EDIT_FIELD_LABEL_MESSAGES.corpTech)}
+                  >
                     {project.corpTech ? (
                       <span className="font-medium">{project.corpTech}</span>
                     ) : (
@@ -1756,7 +1824,7 @@ function ProjectDetailPage() {
                   <div className="flex items-start gap-2 py-3 text-sm">
                     <StickyNote className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
                     <div className="min-w-0">
-                      <p className="text-xs text-muted-foreground mb-1">Общие заметки</p>
+                      <p className="text-xs text-muted-foreground mb-1">{t`Загальні нотатки`}</p>
                       {project.notesGeneral ? (
                         <p className="text-sm whitespace-pre-wrap leading-relaxed">
                           {project.notesGeneral}
@@ -1773,7 +1841,7 @@ function ProjectDetailPage() {
                   {canSeeProjectFinance && (
                     <InfoRow
                       icon={<Percent className="h-3.5 w-3.5" />}
-                      label="Доля синьора"
+                      label={t`Частка сеньйора`}
                       // task-648-fix-round-3 (COPY-H-7): only when a proposal
                       // is live does this row carry a named button; only then
                       // does it need the full width. Without a proposal it is
@@ -1790,7 +1858,7 @@ function ProjectDetailPage() {
                   {/* task-drop-share-override-and-receiver (Surface A). Same
                   read-only pattern as «Доля синьора» above, drop-projects only. */}
                   {canSeeProjectFinance && project.dropId != null && (
-                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля дропа">
+                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label={t`Частка дропа`}>
                       <ProjectDropShareInfo project={project} />
                     </InfoRow>
                   )}
@@ -1802,7 +1870,7 @@ function ProjectDetailPage() {
                 <CardHeader className="pb-3">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                      Команда
+                      {t`Склад`}
                     </CardTitle>
                     {canManage && !project.archivedAt && (
                       <Tooltip>
@@ -1819,12 +1887,14 @@ function ProjectDetailPage() {
                               }}
                             >
                               <UserPlus className="h-3 w-3" />
-                              Добавить
+                              <Trans>Додати до складу</Trans>
                             </Button>
                           </span>
                         </TooltipTrigger>
                         {availableToAdd.length === 0 && (
-                          <TooltipContent>Некого добавлять</TooltipContent>
+                          <TooltipContent>
+                            <Trans>Немає кого додати</Trans>
+                          </TooltipContent>
                         )}
                       </Tooltip>
                     )}
@@ -1859,7 +1929,7 @@ function ProjectDetailPage() {
                           {senior.displayName}
                         </span>
                         <Badge variant="senior" className="shrink-0 text-[9px] ml-auto">
-                          Синьор
+                          {i18n._(ROLE_LABEL_MESSAGES.SENIOR)}
                         </Badge>
                       </ProfileNameLink>
                     </div>
@@ -1896,7 +1966,7 @@ function ProjectDetailPage() {
                             variant="outline"
                             className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"
                           >
-                            Дроп
+                            {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                           </Badge>
                         </ProfileNameLink>
                       </div>
@@ -1905,7 +1975,7 @@ function ProjectDetailPage() {
                   {/* HR */}
                   <div className="pt-3 pb-3">
                     {activeHRs.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                      <p className="text-xs text-muted-foreground/50 italic">{t`Не призначено`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeHRs.map((m) => (
@@ -1923,7 +1993,7 @@ function ProjectDetailPage() {
                   {/* Accountants */}
                   <div className="pt-3 pb-3">
                     {activeAccountants.length === 0 ? (
-                      <p className="text-xs text-muted-foreground/50 italic">Не назначен</p>
+                      <p className="text-xs text-muted-foreground/50 italic">{t`Не призначено`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeAccountants.map((m) => (
@@ -1941,7 +2011,7 @@ function ProjectDetailPage() {
                   {/* Junior */}
                   <div className="pt-3">
                     {activeJuniors.length === 0 ? (
-                      <p className="text-xs text-amber-500/80 font-medium">Джун не назначен</p>
+                      <p className="text-xs text-amber-500/80 font-medium">{t`Джуніор не призначений`}</p>
                     ) : (
                       <div className="space-y-1.5">
                         {activeJuniors.map((m) => (
@@ -1960,7 +2030,7 @@ function ProjectDetailPage() {
                   {pastMembers.length > 0 && (
                     <div className="pt-3">
                       <p className="text-[10px] font-semibold text-muted-foreground/40 uppercase tracking-wider mb-2">
-                        Покинули проект
+                        {t`Залишили проєкт`}
                       </p>
                       <div className="space-y-1.5 opacity-50">
                         {pastMembers.map((m) => (
@@ -1999,9 +2069,13 @@ function ProjectDetailPage() {
         <Dialog open={editOpen} onOpenChange={(v) => !v && setEditOpen(false)}>
           <CrmDialogContent maxWidth="max-w-lg">
             <CrmDialogHeader>
-              <DialogTitle>Редактировать — {project.companyName}</DialogTitle>
+              <DialogTitle>
+                <Trans>Редагувати — {project.companyName}</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Редактирование параметров проекта: ставка, валюта, домен и настройки доли.
+                <Trans>
+                  Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки.
+                </Trans>
               </DialogDescription>
             </CrmDialogHeader>
 
@@ -2025,13 +2099,13 @@ function ProjectDetailPage() {
             {canOpenEdit && (
               <CrmDialogFooter>
                 <Button variant="outline" onClick={() => setEditOpen(false)}>
-                  Отмена
+                  <Trans>Скасувати</Trans>
                 </Button>
                 <Button
                   onClick={() => void editForm.handleSubmit()}
                   disabled={editMutation.isPending}
                 >
-                  {editMutation.isPending ? 'Сохранение...' : 'Сохранить'}
+                  {editMutation.isPending ? t`Збереження…` : t`Зберегти`}
                 </Button>
               </CrmDialogFooter>
             )}
@@ -2041,22 +2115,26 @@ function ProjectDetailPage() {
         <Dialog open={!!removeMemberTarget} onOpenChange={(v) => !v && setRemoveMemberTarget(null)}>
           <CrmDialogContent maxWidth="sm:max-w-sm">
             <CrmDialogHeader>
-              <DialogTitle>Убрать участника?</DialogTitle>
+              <DialogTitle>
+                <Trans>Прибрати зі складу?</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Подтверждение удаления участника из проекта.
+                <Trans>Підтвердження видалення учасника зі складу проєкту.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody className="pb-2">
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {removeMemberTarget?.displayName}
-                </span>{' '}
-                будет убран из проекта.
+                <Trans>
+                  <span className="font-medium text-foreground">
+                    {removeMemberTarget?.displayName}
+                  </span>{' '}
+                  більше не буде у складі проєкту.
+                </Trans>
               </p>
             </CrmDialogBody>
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setRemoveMemberTarget(null)}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 variant="destructive"
@@ -2065,7 +2143,7 @@ function ProjectDetailPage() {
                 }
                 disabled={removeMemberMutation.isPending}
               >
-                Убрать
+                <Trans>Прибрати</Trans>
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
@@ -2079,15 +2157,19 @@ function ProjectDetailPage() {
         >
           <CrmDialogContent maxWidth="max-w-sm">
             <CrmDialogHeader>
-              <DialogTitle>Добавить участника</DialogTitle>
+              <DialogTitle>
+                <Trans>Додати до складу</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Выбор участников для добавления в проект.
+                <Trans>Вибір учасників для додавання до складу проєкту.</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
               <div className="max-h-72 space-y-1.5 overflow-y-auto">
                 {availableToAdd.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">Некого добавлять</p>
+                  <p className="text-sm text-muted-foreground py-2">
+                    <Trans>Немає кого додати</Trans>
+                  </p>
                 )}
                 {availableToAdd.map((u) => {
                   const isAdded = addedMemberIds.has(u.id)
@@ -2108,7 +2190,7 @@ function ProjectDetailPage() {
                         variant={ROLE_VARIANT[u.role] ?? 'junior'}
                         className="shrink-0 text-[9px]"
                       >
-                        {ROLE_LABELS[u.role] ?? u.role}
+                        {i18n._(ROLE_LABEL_MESSAGES[u.role as Role])}
                       </Badge>
                       <Button
                         size="sm"
@@ -2123,7 +2205,7 @@ function ProjectDetailPage() {
                           addMemberMutation.mutate(u.id)
                         }}
                       >
-                        {isAdded ? 'Добавлено' : isPending ? '...' : 'Добавить'}
+                        {isAdded ? t`Додано` : isPending ? t`Додаємо…` : t`Додати`}
                       </Button>
                     </div>
                   )
@@ -2136,13 +2218,19 @@ function ProjectDetailPage() {
         <Dialog open={dropPickerOpen} onOpenChange={(v) => !v && setDropPickerOpen(false)}>
           <CrmDialogContent maxWidth="max-w-sm" data-testid="attach-drop-dialog">
             <CrmDialogHeader>
-              <DialogTitle>Привязать дропа</DialogTitle>
-              <DialogDescription className="sr-only">Выбор дропа для проекта</DialogDescription>
+              <DialogTitle>
+                <Trans>Прив’язати дропа</Trans>
+              </DialogTitle>
+              <DialogDescription className="sr-only">
+                <Trans>Вибір дропа для проєкту</Trans>
+              </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
               <ul className="max-h-72 space-y-1.5 overflow-y-auto">
                 {dropCandidates.length === 0 && (
-                  <p className="py-2 text-sm text-muted-foreground">Нет доступных дропов</p>
+                  <p className="py-2 text-sm text-muted-foreground">
+                    <Trans>Немає доступних дропів</Trans>
+                  </p>
                 )}
                 {dropCandidates.map((u) => (
                   <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
@@ -2160,17 +2248,17 @@ function ProjectDetailPage() {
                       variant="outline"
                       className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
                     >
-                      Дроп
+                      {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                     </Badge>
                     <Button
                       size="sm"
                       className="h-7 min-h-[44px] min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0"
                       disabled={dropMutation.isPending}
                       onClick={() => dropMutation.mutate(u.id)}
-                      aria-label={`Назначить ${u.displayName} дропом`}
+                      aria-label={t`Призначити ${u.displayName} дропом`}
                       data-testid={`assign-drop-btn-${u.id}`}
                     >
-                      {dropMutation.isPending ? '...' : 'Назначить'}
+                      {dropMutation.isPending ? t`Призначаємо…` : t`Призначити`}
                     </Button>
                   </li>
                 ))}
@@ -2185,22 +2273,27 @@ function ProjectDetailPage() {
         >
           <CrmDialogContent maxWidth="sm:max-w-sm" data-testid="detach-drop-dialog">
             <CrmDialogHeader>
-              <DialogTitle>Снять дропа?</DialogTitle>
+              <DialogTitle>
+                <Trans>Відв’язати дропа?</Trans>
+              </DialogTitle>
               <DialogDescription className="sr-only">
-                Подтверждение снятия дропа с проекта
+                <Trans>Підтвердження відв’язання дропа від проєкту</Trans>
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody className="pb-2">
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">
-                  {project.effectiveTeam?.drop?.displayName ?? 'Дроп'}
-                </span>{' '}
-                будет снят с проекта. Приходы больше не будут проходить через него.
+                <Trans>
+                  <span className="font-medium text-foreground">
+                    {project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)}
+                  </span>
+                  : доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці
+                  реквізити.
+                </Trans>
               </p>
             </CrmDialogBody>
             <CrmDialogFooter>
               <Button variant="outline" onClick={() => setDetachDropConfirmOpen(false)}>
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 variant="destructive"
@@ -2208,7 +2301,7 @@ function ProjectDetailPage() {
                 disabled={dropMutation.isPending}
                 data-testid="detach-drop-confirm-btn"
               >
-                Снять
+                <Trans>Відв’язати</Trans>
               </Button>
             </CrmDialogFooter>
           </CrmDialogContent>
@@ -2270,7 +2363,7 @@ function ProjectUnarchiveHeaderButton({
       data-testid="project-unarchive-button"
     >
       <ArchiveRestore className="h-3.5 w-3.5" />
-      Восстановить
+      <Trans>Відновити</Trans>
     </Button>
   )
 }
@@ -2318,6 +2411,7 @@ function ProjectCascadeUnarchiveModal({
  * (ADMIN/ACCOUNTANT/SENIOR/DROP — same audience that sees the Финансы tab).
  */
 function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
+  const { t } = useLingui()
   // Use $1000 as the canonical example. Numbers shown without currency
   // suffix to keep the formula abstract — actual amounts vary per income.
   const seniorPct = project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
@@ -2336,25 +2430,25 @@ function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
     <Card className="border-blue-500/20 bg-blue-500/[0.03]" data-testid="project-drop-distribution">
       <CardHeader className="pb-2">
         <CardTitle className="text-xs font-semibold text-blue-400 uppercase tracking-wider">
-          Распределение прихода (пример {fmt(exampleIncome)})
+          {t`Розподіл доходу (приклад ${fmt(exampleIncome)})`}
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-1.5 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Доля синьора ({seniorPct}%)</span>
+          <span className="text-muted-foreground">{t`Частка сеньйора (${seniorPct}%)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-senior-share">
             {fmt(seniorShare)}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Доля дропа ({dropPct}%)</span>
+          <span className="text-muted-foreground">{t`Частка дропа (${dropPct}%)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-drop-share">
             {fmt(dropShare)}
           </span>
         </div>
         <div className="h-px bg-border/60 my-1" />
         <div className="flex items-center justify-between">
-          <span className="text-muted-foreground">Партнёрам (50 / 50)</span>
+          <span className="text-muted-foreground">{t`Партнерам (50 / 50)`}</span>
           <span className="font-semibold tabular-nums" data-testid="dist-partner-share">
             {fmt(partnerEach)} / {fmt(partnerEach)}
           </span>
@@ -2371,6 +2465,7 @@ function ProjectTransactions({
   projectId: string
   project: ProjectDetailDto
 }) {
+  const { t } = useLingui()
   const { user } = useAuth()
   // task-648-fix-round-2 (UX-H-3(r2)): same ADMIN/ACCOUNTANT gate the page
   // computes for its own copy of this widget — the backend's cancel endpoint
@@ -2415,7 +2510,7 @@ function ProjectTransactions({
         <CardHeader className="pb-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <CardTitle className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-              Финансы по проекту
+              {t`Фінанси по проєкту`}
             </CardTitle>
             {/* Effective senior share — applies to every SENIOR_INCOME
                 row in the table below. Mirrors the read-only marker in
@@ -2442,18 +2537,18 @@ function ProjectTransactions({
             </div>
           ) : !transactions?.length ? (
             <p className="text-sm text-muted-foreground px-4 pb-4">
-              Транзакций по проекту пока нет
+              <Trans>Транзакцій по проєкту ще немає</Trans>
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border/60 text-xs text-muted-foreground">
-                    <th className="py-2 px-4 text-left font-medium">Тип</th>
-                    <th className="py-2 px-4 text-left font-medium">Стороны</th>
-                    <th className="py-2 px-4 text-left font-medium">Сумма</th>
-                    <th className="py-2 px-4 text-left font-medium">Дата</th>
-                    <th className="py-2 px-4 text-left font-medium">Статус</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Тип`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Сторони`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Сума`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Дата`}</th>
+                    <th className="py-2 px-4 text-left font-medium">{t`Статус`}</th>
                     <th className="py-2 px-4" />
                   </tr>
                 </thead>
@@ -2489,6 +2584,8 @@ function MemberRow({
   canManage: boolean
   onRemove: () => void
 }) {
+  const locale = useLocale()
+  const roleLabel = useRoleLabel(member.role)
   return (
     <div className={cn('flex items-center gap-2', member.leftAt && 'opacity-50')}>
       <Link
@@ -2506,13 +2603,13 @@ function MemberRow({
           </p>
           {member.leftAt && (
             <p className="text-[10px] text-muted-foreground">
-              вышел {new Date(member.leftAt).toLocaleDateString('uk-UA')}
+              <Trans>дата виходу: {formatDate(member.leftAt, locale, 'short')}</Trans>
             </p>
           )}
         </div>
       </Link>
       <Badge variant={ROLE_VARIANT[member.role] ?? 'junior'} className="shrink-0 text-[9px]">
-        {ROLE_LABELS[member.role] ?? member.role}
+        {roleLabel}
       </Badge>
       {canManage && !member.leftAt && (
         <Button
@@ -2552,6 +2649,7 @@ function ProjectEffectiveTeamCard({
   onAttachDrop?: () => void
   onDetachDrop?: () => void
 }) {
+  const { t, i18n } = useLingui()
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
   // Drop role - phase 2. Optional drop row in the «Эффективный состав»
@@ -2652,10 +2750,12 @@ function ProjectEffectiveTeamCard({
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Эффективный состав
-            <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
-              (HR/бухгалтер — из текущей команды синьора)
-            </span>
+            <Trans>
+              Ефективний склад
+              <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
+                (HR/бухгалтер — з поточної команди сеньйора)
+              </span>
+            </Trans>
           </CardTitle>
           {/* Attach drop button — only when canManageDrop and no drop yet */}
           {canManageDrop && project.dropId == null && (
@@ -2671,11 +2771,15 @@ function ProjectEffectiveTeamCard({
                     data-testid="attach-drop-btn"
                   >
                     <UserPlus className="h-3 w-3" />
-                    Привязать дропа
+                    <Trans>Прив’язати дропа</Trans>
                   </Button>
                 </span>
               </TooltipTrigger>
-              {dropCandidates.length === 0 && <TooltipContent>Нет доступных дропов</TooltipContent>}
+              {dropCandidates.length === 0 && (
+                <TooltipContent>
+                  <Trans>Немає доступних дропів</Trans>
+                </TooltipContent>
+              )}
             </Tooltip>
           )}
         </div>
@@ -2686,7 +2790,7 @@ function ProjectEffectiveTeamCard({
             className="text-xs text-muted-foreground/60 italic px-2 py-1.5"
             data-testid="effective-team-senior"
           >
-            Синьор не назначен
+            {t`Сеньйор не призначений`}
           </p>
         )}
         {senior && juniors.length === 0 && (
@@ -2694,7 +2798,7 @@ function ProjectEffectiveTeamCard({
             className="text-xs text-amber-500/80 font-medium px-2 py-1.5"
             data-testid="effective-team-juniors-empty"
           >
-            Джун не назначен
+            {t`Джуніор не призначений`}
           </p>
         )}
         {flatMembers.map((m) => {
@@ -2723,7 +2827,7 @@ function ProjectEffectiveTeamCard({
                   variant="outline"
                   className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px]"
                 >
-                  Дроп
+                  {i18n._(ROLE_LABEL_MESSAGES.DROP)}
                 </Badge>
               ) : (
                 <Badge
@@ -2738,13 +2842,7 @@ function ProjectEffectiveTeamCard({
                   }
                   className="shrink-0 text-[9px]"
                 >
-                  {m.role === 'SENIOR'
-                    ? 'Синьор'
-                    : m.role === 'HR'
-                      ? 'HR'
-                      : m.role === 'ACCOUNTANT'
-                        ? 'Бухгалтер'
-                        : 'Джун'}
+                  {i18n._(ROLE_LABEL_MESSAGES[m.role])}
                 </Badge>
               )}
             </>
@@ -2757,7 +2855,7 @@ function ProjectEffectiveTeamCard({
                   variant="ghost"
                   size="icon"
                   className="h-5 w-5 shrink-0 text-muted-foreground hover:text-destructive"
-                  aria-label="Снять дропа с проекта"
+                  aria-label={t`Відв’язати дропа від проєкту`}
                   data-testid="detach-drop-btn"
                   onClick={(e) => {
                     e.preventDefault()

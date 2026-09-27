@@ -68,6 +68,11 @@ msgstr "· No senior assigned"
 msgid "(HR може створювати лише сеньйорів)"
 msgstr "(HR can only create seniors)"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "(за замовчуванням)"
+msgstr "(default)"
+
 #. placeholder {0}: vacancy.applicationsCount
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -208,15 +213,36 @@ msgstr ""
 msgid "notification.percentText"
 msgstr "{value, select, null {not set} other {{value}%}}"
 
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "/ місяць"
+msgstr "/ month"
+
 #. placeholder {0}: new Date().getFullYear()
 #: apps/web/app/routes/_authenticated/onboarding/route.tsx
 msgid "© {0} Cheeky Cheese IT. Усі права захищено."
 msgstr "© {0} Cheeky Cheese IT. All rights reserved."
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "+ Зареєструвати"
+msgstr "+ Register"
+
 #. placeholder {0}: formatAmount(thisMonthEarned, 'USD')
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "+{0} цього місяця"
 msgstr "+{0} this month"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "<0>{{{key}}}</0> — використовується, але не зареєстрована"
+msgstr "<0>{{{key}}}</0> — used, but not registered"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "<0>{{{key}}}</0> — додана, але не використовується в тексті"
+msgstr "<0>{{{key}}}</0> — added, but not used in the text"
+
+#. placeholder {0}: removeMemberTarget?.displayName
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "<0>{0}</0> більше не буде у складі проєкту."
+msgstr "<0>{0}</0> will no longer be on the project."
 
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.seniorName || '—'
@@ -224,6 +250,11 @@ msgstr "+{0} this month"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "<0>{0}</0> and its senior <1>{1}</1> are a linked pair — you cannot remove just one. Archiving covers: the senior's profile, the team and all its projects ({2, plural, one {# project} other {# projects}}{projectNamesSuffix})."
+
+#. placeholder {0}: project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "<0>{0}</0>: доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці реквізити."
+msgstr "<0>{0}</0>: access to the project will be revoked. Project money will no longer go through these payout details."
 
 #. placeholder {0}: impact.teamName
 #. placeholder {1}: impact.projectsCount ?? 0
@@ -284,6 +315,10 @@ msgstr "HR can only add a senior to their own drop team"
 msgid "api-error.HR_SENIOR_ONLY_CREATION"
 msgstr "HR can only create seniors"
 
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "HR не призначений"
+msgstr "No HR assigned"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "HR ще немає — зверніться до адміністратора"
 msgstr "No HR yet — ask an admin to add one"
@@ -333,6 +368,11 @@ msgstr "Enter the IBAN: UA + 27 digits (29 characters)"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.IBAN_REQUIRED"
 msgstr "IBAN is required"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Override"
+msgstr "Override"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму."
@@ -418,9 +458,22 @@ msgstr "Profile avatar"
 msgid "авто"
 msgstr "auto"
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Авто"
 msgstr "Auto"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Авто (100 − sharePercent)"
+msgstr "Auto (100 − sharePercent)"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Авто (CHK-N-YYYY)"
+msgstr "Auto (CHK-N-YYYY)"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Авто (за методом оплати)"
+msgstr "Auto (by payment method)"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Адмін"
@@ -524,6 +577,7 @@ msgstr "Active version: v{0} · updated {1}"
 
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Активний"
 msgstr "Active"
@@ -610,6 +664,7 @@ msgstr "Only an admin can archive a drop"
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
 #: apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Архівувати"
 msgstr "Archive"
@@ -690,6 +745,7 @@ msgid "Бекстори"
 msgstr "Backstory"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
@@ -711,6 +767,10 @@ msgstr "The filled-in sections and the uploaded source file will be deleted. The
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 msgstr "A senior account will be created and a team formed with you as HR."
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням — {defaultSharePercent}%: те саме значення знімає індивідуальну частку по проєкту."
+msgstr "Any change takes effect once the senior confirms it. The default is {defaultSharePercent}% — setting the same value clears the project-level override."
 
 #: apps/web/app/components/ui/role-select.tsx
 #: apps/web/app/components/users/AccountantChipField.tsx
@@ -766,6 +826,7 @@ msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs 
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserRow.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "В архіві"
@@ -775,6 +836,10 @@ msgstr "Archived"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.subjectArchived.fallback"
 msgstr "Archived"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "В архіві з"
+msgstr "Archived since"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "в команді"
@@ -878,8 +943,14 @@ msgid "notification.PROJECT_MEMBER_ADDED.title"
 msgstr "You were added to a project"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
 msgid "Вас ще не додали до проєкту."
 msgstr "You have not been added to a project yet."
+
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Ваш HR"
+msgstr "Your HR"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Ваш контракт"
@@ -912,6 +983,11 @@ msgstr "Your proposals"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
 msgstr "A change to your default share is proposed: currently <0>{currentPercent}%</0>, proposed <1>{0}%</1>. Until you confirm, {currentPercent}% applies"
+
+#. placeholder {0}: pending.percent
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
+msgstr "A change to your project share is proposed: currently <0>{currentPercent}%</0>, new — <1>{0}%</1>. "
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -969,6 +1045,11 @@ msgstr "Enter the amount as a number — e.g. 1000.50"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.LEGEND_TEXT_REQUIRED"
 msgstr "Enter the text"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Введіть ціле число від 0 до 100"
+msgstr "Enter a whole number from 0 to 100"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Великий"
@@ -1130,6 +1211,7 @@ msgstr "Select a senior"
 msgid "api-error.INTERVIEW_SENIOR_ID_REQUIRED"
 msgstr "Choose a senior"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Виберіть тип оплати"
 msgstr "Choose a payment type"
@@ -1144,9 +1226,21 @@ msgstr "Select at least one HR"
 msgid "zod-error.AT_LEAST_ONE_APPROVER"
 msgstr "Select at least one approver"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Вибір дропа для проєкту"
+msgstr "Choose a drop for the project"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Вибір команди"
 msgstr "Choose a team"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Вибір проєкту"
+msgstr "Project selection"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Вибір учасників для додавання до складу проєкту."
+msgstr "Choose members to add to the project."
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Вибрати зображення"
@@ -1161,6 +1255,7 @@ msgstr "Choose a file"
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Only an admin can withdraw dividends"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -1216,6 +1311,15 @@ msgstr "Only the owner or an administrator can delete a document"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_HARD_DELETE_ADMIN_ONLY"
 msgstr "Only an administrator can permanently delete a document"
+
+#. placeholder {0}: variable.key
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Видалити змінну {0}"
+msgstr "Delete variable {0}"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Видалити змінну?"
+msgstr "Delete variable?"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Видалити місце роботи {position}"
@@ -1281,9 +1385,19 @@ msgstr "A wallet address on the Ethereum network will be used."
 msgid "Використовуватиметься український банківський рахунок ФОП."
 msgstr "A Ukrainian sole-proprietor bank account will be used."
 
+#. placeholder {0}: systemUsed.size
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "використовується {0}"
+msgstr "used {0}"
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові."
 msgstr "Used in the MSA contract instead of your first and last name — write it as in your passport."
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Використовується в тексті"
+msgstr "Used in the text"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Вилка зарплати"
@@ -1296,6 +1410,10 @@ msgstr "Exclusion deleted"
 #: apps/web/app/hooks/use-job-sourcing.ts
 msgid "Виняток додано"
 msgstr "Exclusion added"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Виплат ще не було"
+msgstr "No payouts yet"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Виплата (USDT)"
@@ -1326,6 +1444,7 @@ msgstr "A payout can't be deleted"
 msgid "api-error.FINANCE_EDIT_PAYOUT_FORBIDDEN"
 msgstr "A payout can't be edited"
 
+#: apps/web/app/routes/_authenticated/project.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Виплачено"
 msgstr "Paid"
@@ -1337,6 +1456,18 @@ msgstr "Paid out this month"
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Вихідний файл"
 msgstr "Source file"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Відв’язати"
+msgstr "Detach"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Відв’язати дропа від проєкту"
+msgstr "Detach the drop from the project"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Відв’язати дропа?"
+msgstr "Detach the drop?"
 
 #: apps/web/app/hooks/use-vacancies.ts
 msgid "Відгук видалено"
@@ -1400,6 +1531,11 @@ msgstr "Open team"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TEAM_NEW_MEMBER"
 msgstr "Open team"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Відкрити легенду"
+msgstr "Open legend"
 
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
@@ -1466,6 +1602,7 @@ msgstr "Open interviews"
 msgid "Відмова"
 msgstr "Rejected"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -1553,6 +1690,8 @@ msgstr "Rejected: {money}"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Відхилити"
 msgstr "Reject"
 
@@ -1561,10 +1700,12 @@ msgid "Відхилити проєкт «{companyName}»"
 msgstr "Reject the project “{companyName}”"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Відхилити пропозицію"
 msgstr "Reject the proposal"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Відхиляємо…"
 msgstr "Rejecting…"
 
@@ -1705,6 +1846,16 @@ msgstr "Internal note, visible only to admins…"
 msgid "Всі вакансії"
 msgstr "All vacancies"
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Вставити"
+msgstr "Insert"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Вставити {token}"
+msgstr "Insert {token}"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Вставити текстом"
 msgstr "Paste as text"
@@ -1717,6 +1868,14 @@ msgstr "Paste the full resume text — at least 40 characters"
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Вставте сюди текст резюме цілком"
 msgstr "Paste the whole resume text here"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Встановлено для цього проєкту; глобальна частка дропа: {fallback}%"
+msgstr "Set for this project; the drop’s global share: {fallback}%"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%"
+msgstr "Set for this project; the senior’s global share: {fallback}%"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
 msgid "Всього зароблено · за весь час"
@@ -1822,6 +1981,7 @@ msgstr "Company details"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Дата"
 msgstr "Date"
 
@@ -1829,6 +1989,11 @@ msgstr "Date"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION"
 msgstr "The payout date can't be earlier than the obligation's creation date"
+
+#. placeholder {0}: formatDate(member.leftAt, locale, 'short')
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "дата виходу: {0}"
+msgstr "left on: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -1884,6 +2049,10 @@ msgstr "Day"
 msgid "Деталі"
 msgstr "Details"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Деталі проєкту"
+msgstr "Project details"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Деталі співбесіди"
 msgstr "Interview details"
@@ -1898,6 +2067,11 @@ msgstr "Image source"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 msgid "Джуніор"
 msgstr "Junior"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Джуніор не призначений"
+msgstr "No junior assigned"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -1925,6 +2099,10 @@ msgstr "Call"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Dividends can only be withdrawn to an admin's account"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Діє попередній відсоток, поки новий не підтверджено."
+msgstr "The previous percentage applies until the new one is confirmed."
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Діє попередня частка, поки нову не підтверджено"
@@ -2006,12 +2184,26 @@ msgstr "The daily limit for automatic recognition is used up. The limit resets o
 msgid "Довільні нотатки…"
 msgstr "Free-form notes…"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Додаємо…"
+msgstr "Adding…"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Додайте кастомну змінну. Співробітник заповнить її значення під час підписання."
+msgstr "Add a custom variable. The employee will fill in its value when signing."
+
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 msgid "Додайте нову співбесіду на дошку."
 msgstr "Add a new interview to the board."
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Додано"
+msgstr "Added"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Додати"
 msgstr "Add"
@@ -2037,6 +2229,11 @@ msgstr "Add a project account"
 msgid "Додати до команди дропа"
 msgstr "Add to a drop team"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Додати до складу"
+msgstr "Add to the project"
+
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Додати документ"
 msgstr "Upload document"
@@ -2053,6 +2250,10 @@ msgstr "Add an entry"
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Додати запис у журнал"
 msgstr "Add an entry to the journal"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Додати змінну"
+msgstr "Add variable"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Додати користувача"
@@ -2174,6 +2375,8 @@ msgstr "Only a senior can be added to a drop team"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 msgid "Домен"
@@ -2329,6 +2532,10 @@ msgstr "Drop created"
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Drops can't access interviews"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
+msgstr "Effective team<0>(HR/accountant — from the senior’s current team)</0>"
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Є незбережені зміни"
 msgstr "You have unsaved changes"
@@ -2381,9 +2588,18 @@ msgstr "By date added"
 msgid "За датою початку"
 msgstr "By start date"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає індивідуальну частку дропа по проєкту."
+msgstr "The default is {defaultDropSharePercent}%. Setting the same value clears the project-level drop share override."
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "За замовчуванням 5%"
 msgstr "5% by default"
+
+#. placeholder {0}: variable.defaultValue
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "За замовчуванням: {0}"
+msgstr "Default: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2509,6 +2725,8 @@ msgid "Загальна інформація"
 msgstr "General information"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Загальні нотатки"
 msgstr "General notes"
 
@@ -2540,6 +2758,7 @@ msgstr "Closed"
 
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Закрити"
@@ -2555,6 +2774,10 @@ msgstr "Close vacancy"
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Закриті ({0})"
 msgstr "Closed ({0})"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Залишили проєкт"
+msgstr "Left the project"
 
 #: apps/web/app/components/pending-share/cancel-pending-share.tsx
 msgid "Залишити"
@@ -2643,8 +2866,10 @@ msgstr "Fill in the sections by hand or try uploading the file again."
 msgid "Заповніть усі обов’язкові поля"
 msgstr "Fill in all required fields"
 
+#. placeholder {0}: pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent
 #. placeholder {0}: user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Запропоновано {0}%"
 msgstr "Proposed {0}%"
 
@@ -2737,6 +2962,7 @@ msgstr "Payout request not found"
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберегти"
 msgstr "Save"
@@ -2761,6 +2987,7 @@ msgstr "Save draft"
 
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Збереження…"
 msgstr "Saving…"
 
@@ -2786,6 +3013,10 @@ msgstr "Once saved, the current address stops working for sign-in right away —
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберігаємо…"
 msgstr "Saving…"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Зв’яжіться з вашим HR, щоб він додав вас до проєкту."
+msgstr "Contact your HR to get added to a project."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2834,6 +3065,11 @@ msgstr "Change payout details"
 msgid "api-error.FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW"
 msgstr "Changing a paid transaction's amount recalculates shares and obligations — open the preview first"
 
+#. placeholder {0}: formatDate(salaryMeta.changedAt, locale, 'long')
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Змінено {0}"
+msgstr "Changed {0}"
+
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/hooks/use-credentials.ts
 #: apps/web/app/hooks/use-credentials.ts
@@ -2860,6 +3096,11 @@ msgstr "Change avatar"
 msgid "api-error.FINANCE_COMPANY_WALLET_CHANGE_ADMIN_ONLY"
 msgstr "Only an admin can change the company wallet"
 
+#. placeholder {0}: variable.key
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Змінити мітку {0}"
+msgstr "Change the label {0}"
+
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx
 msgid "Змінити особистий email"
@@ -2885,9 +3126,40 @@ msgstr "Change senior"
 msgid "api-error.TEAM_SENIOR_SHARE_OVERRIDE_TEAM_LEVEL_FORBIDDEN"
 msgstr "Only an administrator or an accountant can change the senior's share at the team level"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Змінна <0>{{{variableKey}}}</0> буде видалена зі списку кастомних. Токен лишиться в тексті як нерозпізнаний — видаліть його вручну з редактора."
+msgstr "The variable <0>{{{variableKey}}}</0> will be removed from the custom list. The token will remain in the text as unrecognized — remove it manually from the editor."
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Змінна з таким ключем уже існує"
+msgstr "A variable with this key already exists"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Змінні шаблону"
+msgstr "Template variables"
+
+#. placeholder {0}: variable.key
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Змінну {{{0}}} додано"
+msgstr "Variable {{{0}}} added"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Змінну {{{key}}} видалено"
+msgstr "Variable {{{key}}} deleted"
+
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Змінювати може тільки адмін або бухгалтер."
 msgstr "Only an admin or an accountant can change this."
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Змінювати можуть лише {adminLabel} або {accountantLabel}."
+msgstr "Only {adminLabel} or {accountantLabel} can change this."
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Значення за замовчуванням (необов’язково)"
+msgstr "Default value (optional)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -3033,9 +3305,18 @@ msgstr "Telegram channel: 5–32 characters — Latin letters, digits or _"
 msgid "Кандидати з’являться тут, щойно надішлють відгук через розділ «Вакансії» на сайті."
 msgstr "Candidates will appear here as soon as they submit an application through the “Vacancies” section on the site."
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Картка співробітника"
 msgstr "Employee card"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Кастомні змінні"
+msgstr "Custom variables"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Кастомні змінні не додані"
+msgstr "No custom variables added"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Кваліфікація"
@@ -3045,10 +3326,22 @@ msgstr "Qualifications"
 msgid "Керувати в розділі «Проєкти» →"
 msgstr "Manage in the Projects section →"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Київ"
+msgstr "Kyiv"
+
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Київ, вул. Хрещатик, 1"
 msgstr "1 Khreshchatyk St, Kyiv"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Ключ зарезервовано системою"
+msgstr "This key is reserved by the system"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Ключ змінної (латиниця, camelCase)"
+msgstr "Variable key (Latin letters, camelCase)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -3157,6 +3450,7 @@ msgstr "company"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Компанія"
 msgstr "Company"
@@ -3173,6 +3467,14 @@ msgstr "The company hasn't signed the invoice yet — contact an admin"
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Компанія, місце роботи {position}"
 msgstr "Company, job {position}"
+
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Константи компанії"
+msgstr "Company constants"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Контакт HR"
+msgstr "HR contact"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Контакти"
@@ -3346,6 +3648,7 @@ msgid "Корп. техніка"
 msgstr "Corporate hardware"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Корпоративна техніка"
 msgstr "Corporate hardware"
 
@@ -3417,6 +3720,10 @@ msgstr "Emails the employee receives. In-app notifications are always on"
 msgid "Листи:"
 msgstr "Emails:"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Лише латиниця, починається з букви, макс. 50 символів"
+msgstr "Latin letters only, starts with a letter, max 50 characters"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Логін"
 msgstr "Login"
@@ -3427,6 +3734,7 @@ msgid "zod-error.LOGO_SOURCE_XOR"
 msgstr "The logo is either an uploaded file or a link, not both"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Логотип компанії"
 msgstr "Company logo"
@@ -3471,6 +3779,10 @@ msgstr "My project"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Мінімум"
 msgstr "Minimum"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Місто підписання"
+msgstr "Signing city"
 
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Місце роботи {position}"
@@ -3536,6 +3848,11 @@ msgstr "You can attach one later in the Projects section"
 msgid "Мої проєкти"
 msgstr "My projects"
 
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Моя зарплата"
+msgstr "My salary"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companyAuthorityBasis"
@@ -3585,6 +3902,10 @@ msgstr "Receipts from companies this month"
 msgid "Назад"
 msgstr "Back"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Назад до списку"
+msgstr "Back to the list"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Назад до умов використання"
 msgstr "Back to Terms of Service"
@@ -3611,6 +3932,10 @@ msgstr "Bank name (optional)"
 msgid "Назва вакансії"
 msgstr "Vacancy title"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Назва для форми"
+msgstr "Form label"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx
 msgid "Назва і опис вакансії для лендингу іншими мовами."
 msgstr "The vacancy’s title and description for the landing page in other languages."
@@ -3629,6 +3954,10 @@ msgstr "Company name"
 msgid "contract-variable.companyName"
 msgstr "Company name (Cheeky Cheese IT)"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Назва обов’язкова"
+msgstr "Label is required"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Назва посилання, рядок {position}"
 msgstr "Link title, row {position}"
@@ -3638,6 +3967,7 @@ msgid "назва проєкту"
 msgstr "project name"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Назва проєкту"
 msgstr "Project name"
@@ -3660,6 +3990,7 @@ msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Settings are outdated — refresh the page"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Наприклад: домовилися про 30%"
 msgstr "e.g. we agreed on 30%"
 
@@ -3766,6 +4097,10 @@ msgstr "Could not restore the user. Try again"
 #: apps/web/app/hooks/use-archive.ts
 msgid "Не вдалося відновити. Спробуйте ще раз"
 msgstr "Could not restore. Try again"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Не вдалося відхилити"
+msgstr "Could not reject"
 
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося відхилити. Спробуйте ще раз"
@@ -3887,6 +4222,10 @@ msgstr "Could not save the profile. Try again"
 msgid "Не вдалося зібрати PDF"
 msgstr "Could not build the PDF"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Не вдалося змінити дропа"
+msgstr "Could not change the drop"
+
 #: apps/web/app/components/user-profile/LanguageSection.tsx
 msgid "Не вдалося змінити мову інтерфейсу. Спробуйте ще раз"
 msgstr "Could not change the interface language. Try again"
@@ -3933,6 +4272,10 @@ msgstr "Could not update the team — try again"
 msgid "Не вдалося оновити реквізити. Спробуйте ще раз"
 msgstr "Could not update the payment details. Try again"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Не вдалося опублікувати шаблон"
+msgstr "Could not publish the template"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.INVOICE_USER_DATA_FETCH_FAILED"
@@ -3961,6 +4304,10 @@ msgstr "Could not sign the contract"
 #: apps/web/app/hooks/use-invoices.ts
 msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
 msgstr "Could not sign the invoice. Try again"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Не вдалося підтвердити"
+msgstr "Could not confirm"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -4114,6 +4461,11 @@ msgstr "not translated"
 msgid "не підтверджено"
 msgstr "not confirmed"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Не призначено"
+msgstr "Not assigned"
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Не прийнято"
 msgstr "Not accepted"
@@ -4203,6 +4555,11 @@ msgstr "No team members to show"
 msgid "Немає джуніора"
 msgstr "No junior"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Немає доступних дропів"
+msgstr "No drops available"
+
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Немає доступних команд дропа."
 msgstr "No drop teams available."
@@ -4276,6 +4633,11 @@ msgstr "No connection to the server. Check your internet connection and try agai
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Немає зобов’язань"
 msgstr "No obligations"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Немає кого додати"
+msgstr "No one to add"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -4377,6 +4739,10 @@ msgstr "No matches — clear the filters"
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нова версія умов"
 msgstr "New Terms version"
+
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Нова змінна"
+msgstr "New variable"
 
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 msgid "Нова команда — оберіть HR і бухгалтера нижче."
@@ -4523,6 +4889,7 @@ msgid "Обробка…"
 msgstr "Processing…"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Огляд"
 msgstr "Overview"
 
@@ -4541,6 +4908,7 @@ msgid "Онбординг завершено!"
 msgstr "Onboarding complete!"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 msgid "Оновити"
 msgstr "Refresh"
 
@@ -4560,6 +4928,10 @@ msgstr "Reload page"
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Оновіть сторінку або спробуйте пізніше"
 msgstr "Refresh the page or try again later"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
+msgid "Оновлено:"
+msgstr "Updated:"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -4612,6 +4984,8 @@ msgstr "Published: {0}"
 msgid "Опубліковану вакансію потрібно спочатку закрити"
 msgstr "Close the published vacancy first"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
@@ -4619,6 +4993,11 @@ msgstr "Close the published vacancy first"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Опублікувати"
 msgstr "Publish"
+
+#. placeholder {0}: (template?.version ?? 0) + 1
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Опублікувати нову версію (v{0})?"
+msgstr "Publish a new version (v{0})?"
 
 #. placeholder {0}: (currentTos?.version ?? 0) + 1
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -4689,6 +5068,10 @@ msgstr "Personal email removed — it can no longer be used to sign in"
 msgid "Особисту адресу підтверджено. Увійдіть через Google — виберіть цю адресу."
 msgstr "Your personal email is confirmed. Sign in with Google — choose this address."
 
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Останні виплати"
+msgstr "Recent payouts"
+
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Отримувач"
@@ -4758,6 +5141,10 @@ msgstr "Clear"
 msgid "Очистити зображення"
 msgstr "Clear image"
 
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Очікування"
+msgstr "Pending"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Очікує вашого рішення"
 msgstr "Awaiting your decision"
@@ -4810,6 +5197,10 @@ msgstr "Password added"
 msgid "Пароль скопійовано"
 msgstr "Password copied"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Партнерам (50 / 50)"
+msgstr "To partners (50 / 50)"
+
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Перевірити доходи ({0})"
@@ -4837,6 +5228,7 @@ msgid "Перегляд архівної версії v{0}"
 msgstr "Viewing archived version v{0}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Перегляд зарплати"
 msgstr "Salary review"
 
@@ -5039,6 +5431,10 @@ msgstr "Sign contract"
 msgid "notification.action.INVOICE_SIGN_REQUIRED"
 msgstr "Sign invoice"
 
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+msgid "Підсумковий токен:"
+msgstr "Resulting token:"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Підтверджені доходи, які ви ще не перерахували"
 msgstr "Confirmed income you have not transferred yet"
@@ -5050,6 +5446,14 @@ msgstr "Confirmation"
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Archive confirmation. Enter the name to confirm the action."
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Підтвердження видалення учасника зі складу проєкту."
+msgstr "Confirm removing the member from the project."
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Підтвердження відв’язання дропа від проєкту"
+msgstr "Confirm detaching the drop from the project"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -5066,8 +5470,14 @@ msgstr "Confirmation of an irreversible action."
 
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Підтвердження…"
 msgstr "Confirming…"
+
+#. placeholder {0}: pending.approverName
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Підтверджує {0} — поки діє <0>{effective}%</0>"
+msgstr "Confirmed by {0} — until then <0>{effective}%</0> applies"
 
 #: apps/web/app/components/projects/project-approval-caption.ts
 msgid "Підтверджує {drop}"
@@ -5084,6 +5494,7 @@ msgstr "Awaiting: {drop}, {senior}"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Підтвердити"
 msgstr "Confirm"
 
@@ -5104,6 +5515,11 @@ msgstr "After rounding, the payout amount became zero even though the obligation
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "По одній навичці в рядку"
 msgstr "One skill per line"
+
+#. placeholder {0}: pending.effectivePercentAfterApproval
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "По проєкту пропонують зняти індивідуальну частку: зараз <0>{currentPercent}%</0>, стане <1>{0}%</1>. "
+msgstr "It is proposed to clear the project-level share: currently <0>{currentPercent}%</0>, will become <1>{0}%</1>. "
 
 #: apps/web/app/components/layout/ImpersonationBanner.tsx
 msgid "Повернення…"
@@ -5197,6 +5613,10 @@ msgstr "Show password"
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
 msgstr "Only an admin or an accountant can see the “total earned” figure"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Поки ви не підтвердите, діє <0>{currentPercent}%</0>."
+msgstr "Until you confirm, <0>{currentPercent}%</0> applies."
+
 #: apps/web/app/routes/_authenticated/vacancies/index.tsx
 msgid "Поки немає вакансій"
 msgstr "No vacancies yet"
@@ -5232,6 +5652,7 @@ msgstr "Failed to publish the Terms version"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Попередній перегляд"
 msgstr "Preview"
@@ -5240,6 +5661,10 @@ msgstr "Preview"
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Попередній перегляд PDF"
 msgstr "PDF preview"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Попередній перегляд PDF — {roleLabel}"
+msgstr "PDF preview — {roleLabel}"
 
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -5348,6 +5773,15 @@ msgstr "Link, row {position}"
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Поточна версія шаблону для ролі <0>{roleLabel}</0> буде деактивована (збережеться в історії). Нові співробітники побачать оновлений текст під час наступного онбордингу."
+msgstr "The current template version for the <0>{roleLabel}</0> role will be deactivated (kept in history). New employees will see the updated text during their next onboarding."
+
+#. placeholder {0}: template.version
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Поточна версія: v{0}"
+msgstr "Current version: v{0}"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Поточний аватар"
 msgstr "Current avatar"
@@ -5434,6 +5868,10 @@ msgstr "Search country…"
 msgid "Пошук…"
 msgstr "Search…"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Прибрати"
+msgstr "Remove"
+
 #. placeholder {0}: u.displayName
 #: apps/web/app/components/users/HrChipsField.tsx
 msgid "Прибрати {0}"
@@ -5443,10 +5881,19 @@ msgstr "Remove {0}"
 msgid "Прибрати бухгалтера"
 msgstr "Remove accountant"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Прибрати зі складу?"
+msgstr "Remove from the project?"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
 msgstr "The senior can't be removed from a team — delete the team instead"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Прив’язати дропа"
+msgstr "Attach a drop"
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -5470,9 +5917,19 @@ msgstr "Join the call"
 msgid "Приєднатися до команди дропа"
 msgstr "Join a drop's team"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Призначаємо…"
+msgstr "Assigning…"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Призначити"
 msgstr "Assign"
+
+#. placeholder {0}: u.displayName
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Призначити {0} дропом"
+msgstr "Assign {0} as the drop"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -5528,8 +5985,13 @@ msgstr "Rejection reason — 500 characters max"
 
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Причина відмови *"
 msgstr "Reason for rejection *"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Причина обов’язкова і буде видна адміністратору."
+msgstr "The reason is required and will be visible to the admin."
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -5586,6 +6048,10 @@ msgstr "Project restored"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Проєкт відхилено, адмін побачить причину"
 msgstr "Project rejected, the admin will see the reason"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Проєкт з дропом"
+msgstr "Project with a drop"
 
 #: apps/web/app/hooks/use-archive.ts
 msgid "Проєкт заархівовано"
@@ -5655,6 +6121,7 @@ msgid "notification.APPROVAL_REJECTED.title"
 msgstr "Proposal rejected"
 
 #: apps/web/app/hooks/use-user-profile.ts
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Proposal rejected — the previous share stays. The admin will see the reason"
 
@@ -5725,6 +6192,7 @@ msgstr "Profile not found"
 msgid "Прочитати все"
 msgstr "Mark all read"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Публікація…"
 msgstr "Publishing…"
@@ -5798,17 +6266,28 @@ msgstr "Editing the vacancy"
 msgid "Редагування назви, Telegram-посилання та заміток команди."
 msgstr "Edit the team's name, Telegram link and notes."
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Редагування параметрів проєкту: ставка, валюта, домен і налаштування частки."
+msgstr "Edit project settings: rate, currency, domain, and share settings."
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Редагувати"
 msgstr "Edit"
+
+#. placeholder {0}: project.companyName
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Редагувати — {0}"
+msgstr "Edit — {0}"
 
 #. placeholder {0}: user.displayName
 #: apps/web/app/components/users/UserRow.tsx
@@ -5864,6 +6343,10 @@ msgstr "Edit section “{title}”"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_EDIT_LINKED_TO_PAYOUT_REQUEST_FORBIDDEN"
 msgstr "A transaction linked to a payout request can't be edited"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Редактор: <0>{roleLabel}</0>"
+msgstr "Editor: <0>{roleLabel}</0>"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -6019,6 +6502,10 @@ msgstr "Employee's work email"
 msgid "Робочі години"
 msgstr "Working hours"
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Розбіжності змінних"
+msgstr "Variable mismatches"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Розгорнути"
 msgstr "Expand"
@@ -6034,6 +6521,10 @@ msgstr "Sections"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 msgid "Розділи адміністратора"
 msgstr "Admin sections"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Розділи проєкту"
+msgstr "Project sections"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Розмір команди"
@@ -6055,6 +6546,11 @@ msgstr "Recognizing the resume"
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Розпізнати текст"
 msgstr "Recognize the text"
+
+#. placeholder {0}: fmt(exampleIncome)
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Розподіл доходу (приклад {0})"
+msgstr "Income distribution (example {0})"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Розширена інформація доступна в таблиці доходів нижче"
@@ -6090,6 +6586,15 @@ msgstr "Senior"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
 msgstr "Seniors and admins are paid in USDT ERC-20 only"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Сеньйор не призначений"
+msgstr "No senior assigned"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Сеньйор проєкту"
+msgstr "Project senior"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -6136,6 +6641,10 @@ msgstr "Senior and team restored"
 msgid "api-error.FINANCE_SIMULATION_TX_NOT_CONFIRMED"
 msgstr "Simulation: the transaction isn't confirmed"
 
+#: apps/web/app/components/contracts/VariablesPanel.tsx
+msgid "Системні змінні"
+msgstr "System variables"
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Скасований"
 msgstr "Cancelled"
@@ -6147,6 +6656,8 @@ msgstr "Cancelling the proposal…"
 
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+#: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -6168,6 +6679,7 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
@@ -6176,6 +6688,10 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -6234,9 +6750,12 @@ msgid "Скільки дроп залишає собі з кожної випл�
 msgstr "How much the drop keeps from each payout"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Склад"
 msgstr "Members"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Склад команди"
 msgstr "Team composition"
@@ -6349,9 +6868,19 @@ msgid "Спочатку старі"
 msgstr "Oldest first"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Ставка"
 msgstr "Rate"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Ставку не призначено"
+msgstr "No rate assigned"
+
+#: apps/web/app/routes/_authenticated/project.tsx
+msgid "Ставку ще не змінювали"
+msgstr "Rate hasn’t changed yet"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Стадія"
@@ -6373,6 +6902,11 @@ msgstr "Standard"
 msgid "Старий:"
 msgstr "Old:"
 
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Старт"
+msgstr "Start"
+
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Статистика"
@@ -6380,6 +6914,8 @@ msgstr "Statistics"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/routes/_authenticated/project.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Статус"
 msgstr "Status"
@@ -6545,6 +7081,10 @@ msgstr "Tech stack"
 msgid "Сторінка оновиться сама, щойно контракт буде готовий"
 msgstr "The page will refresh on its own once the contract is ready"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Сторони"
+msgstr "Parties"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Ступінь / спеціальність"
 msgstr "Degree / field"
@@ -6552,6 +7092,7 @@ msgstr "Degree / field"
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Сума"
 msgstr "Amount"
 
@@ -6641,6 +7182,10 @@ msgstr "It looks like the file has no text layer (a scan or an image). Paste the
 msgid "Сюди потрапляють завершені співбесіди"
 msgstr "Finished interviews land here"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Так виглядатиме договір у PDF. Токени виду {{...}} лишаються видимими — вони підставляться автоматично під час підписання. Блок «Реквізити компанії» додається в кінці."
+msgstr "This is how the contract will look in the PDF. Tokens like {{...}} remain visible — they will be substituted automatically when signing. A “Company details” block is appended at the end."
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Так, перейти"
 msgstr "Yes, go there"
@@ -6698,12 +7243,17 @@ msgstr "Technical"
 msgid "Технології"
 msgstr "Tech stack"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Технологічний стек"
+msgstr "Tech stack"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Тиждень"
 msgstr "Week"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Тип"
 msgstr "Type"
 
@@ -6720,6 +7270,7 @@ msgid "Тип команди"
 msgstr "Team type"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Тип оплати"
@@ -6745,6 +7296,10 @@ msgstr "Employees only"
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"
 msgstr "Transactions in progress"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Транзакцій по проєкту ще немає"
+msgstr "No transactions for the project yet"
 
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 msgid "Транзакцій поки немає"
@@ -7114,8 +7669,13 @@ msgstr "Final look of the “Terms of Service” document — as a PDF."
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Фінанси"
 msgstr "Finance"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Фінанси по проєкту"
+msgstr "Project finances"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Фінанси та команда"
@@ -7315,11 +7875,25 @@ msgstr "Share in “{projectName}” is now {percent}%"
 msgid "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Share in “{projectName}”: proposal rejected — the previous one stays. The admin will see the reason"
 
+#. placeholder {0}: data.effectiveSeniorSharePercent
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка в проєкті тепер {0}%"
+msgstr "The project share is now {0}%"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка в проєкті тепер {percent}%"
 msgstr "Project share is now {percent}%"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка дропа"
+msgstr "Drop’s share"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка дропа ({dropPct}%)"
+msgstr "Drop’s share ({dropPct}%)"
+
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Частка дропа (%)"
 msgstr "Drop's share (%)"
 
@@ -7354,7 +7928,16 @@ msgstr "Company's share, % (100 minus the employee's share)"
 msgid "Частка невідома. Оновіть сторінку"
 msgstr "Share unknown. Refresh the page"
 
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка сеньйора"
+msgstr "Senior’s share"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка сеньйора ({seniorPct}%)"
+msgstr "Senior’s share ({seniorPct}%)"
+
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Частка сеньйора (%)"
 msgstr "Senior's share (%)"
@@ -7370,6 +7953,10 @@ msgstr "Senior’s share at the team level"
 #: apps/web/app/components/ui/share-slider.tsx
 msgid "Частка сеньйора у відсотках"
 msgstr "Senior's share, percent"
+
+#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+msgid "Частка сеньйора:"
+msgstr "Senior’s share:"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -7442,10 +8029,22 @@ msgstr "Reading the file…"
 msgid "Читання, плавання…"
 msgstr "Reading, swimming…"
 
+#: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
+msgid "Шаблон договору для ролі «{roleLabel}» опубліковано"
+msgstr "Contract template for the “{roleLabel}” role published"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.CONTRACT_TEMPLATE_NOT_FOUND"
 msgstr "Contract template not found"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
+msgid "Шаблон не налаштовано"
+msgstr "Template not configured"
+
+#: apps/web/app/routes/_authenticated/admin/contracts.index.tsx
+msgid "Шаблони договорів для кожної ролі. Натисніть «Редагувати», щоб змінити текст."
+msgstr "Contract templates for each role. Click “Edit” to change the text."
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Ще дії"

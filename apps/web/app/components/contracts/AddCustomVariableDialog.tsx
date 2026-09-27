@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { customVariableSchema } from '@crm/shared'
 import type { CustomVariable } from '@crm/shared'
 import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
@@ -33,6 +34,7 @@ export function AddCustomVariableDialog({
   prefillKey = '',
   onAdd,
 }: AddCustomVariableDialogProps) {
+  const { t } = useLingui()
   const [key, setKey] = useState(prefillKey)
   const [label, setLabel] = useState('')
   const [defaultValue, setDefaultValue] = useState('')
@@ -67,18 +69,18 @@ export function AddCustomVariableDialog({
     let valid = true
 
     if (!KEY_REGEX.test(key.trim())) {
-      setKeyError('Только латиница, начинается с буквы, макс 50 символов')
+      setKeyError(t`Лише латиниця, починається з букви, макс. 50 символів`)
       valid = false
     } else if (systemKeys.has(key.trim())) {
-      setKeyError('Ключ зарезервирован системой')
+      setKeyError(t`Ключ зарезервовано системою`)
       valid = false
     } else if (existingCustomKeys.includes(key.trim())) {
-      setKeyError('Переменная с таким ключом уже существует')
+      setKeyError(t`Змінна з таким ключем уже існує`)
       valid = false
     }
 
     if (!label.trim()) {
-      setLabelError('Метка обязательна')
+      setLabelError(t`Назва обов’язкова`)
       valid = false
     }
 
@@ -112,9 +114,13 @@ export function AddCustomVariableDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-sm" data-testid="add-custom-variable-dialog">
         <DialogHeader>
-          <DialogTitle>Новая переменная</DialogTitle>
+          <DialogTitle>
+            <Trans>Нова змінна</Trans>
+          </DialogTitle>
           <DialogDescription>
-            Добавьте кастомную переменную. Сотрудник заполнит её значение при подписании.
+            <Trans>
+              Додайте кастомну змінну. Співробітник заповнить її значення під час підписання.
+            </Trans>
           </DialogDescription>
         </DialogHeader>
 
@@ -122,7 +128,7 @@ export function AddCustomVariableDialog({
           {/* Key */}
           <div className="grid gap-1.5">
             <Label htmlFor="cv-key">
-              Ключ переменной (латиница, camelCase)
+              <Trans>Ключ змінної (латиниця, camelCase)</Trans>
               <span className="text-destructive ml-0.5">*</span>
             </Label>
             <Input
@@ -142,12 +148,13 @@ export function AddCustomVariableDialog({
           {/* Label */}
           <div className="grid gap-1.5">
             <Label htmlFor="cv-label">
-              Русское название для формы
+              <Trans>Назва для форми</Trans>
               <span className="text-destructive ml-0.5">*</span>
             </Label>
             <Input
               id="cv-label"
-              placeholder="Город подписания"
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads an <input>'s placeholder attribute for this field — genuinely unobservable by the unit suite.
+              placeholder={t`Місто підписання`}
               value={label}
               onChange={(e) => handleLabelChange(e.target.value)}
               data-testid="cv-label-input"
@@ -158,10 +165,13 @@ export function AddCustomVariableDialog({
 
           {/* Default value */}
           <div className="grid gap-1.5">
-            <Label htmlFor="cv-default">Значение по умолчанию (необязательно)</Label>
+            <Label htmlFor="cv-default">
+              <Trans>Значення за замовчуванням (необов’язково)</Trans>
+            </Label>
             <Input
               id="cv-default"
-              placeholder="Київ"
+              // Stryker disable next-line StringLiteral: placeholder text only, no test reads an <input>'s placeholder attribute for this field — genuinely unobservable by the unit suite.
+              placeholder={t`Київ`}
               value={defaultValue}
               onChange={(e) => setDefaultValue(e.target.value)}
               data-testid="cv-default-input"
@@ -171,7 +181,9 @@ export function AddCustomVariableDialog({
           {/* Token preview */}
           {previewToken && (
             <div className="flex items-center gap-2 rounded-md border border-border/60 bg-muted/30 px-3 py-2">
-              <span className="text-xs text-muted-foreground">Итоговый токен:</span>
+              <span className="text-xs text-muted-foreground">
+                <Trans>Підсумковий токен:</Trans>
+              </span>
               <code className="rounded bg-amber-500/15 px-1.5 py-0.5 font-mono text-xs text-amber-700 dark:text-amber-300">
                 {previewToken}
               </code>
@@ -185,10 +197,10 @@ export function AddCustomVariableDialog({
             onClick={() => handleOpenChange(false)}
             data-testid="cv-cancel-button"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={handleSubmit} data-testid="cv-add-button">
-            Добавить
+            <Trans>Додати</Trans>
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -216,14 +228,18 @@ export function DeleteCustomVariableDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm" data-testid="delete-custom-variable-dialog">
         <DialogHeader>
-          <DialogTitle>Удалить переменную?</DialogTitle>
+          <DialogTitle>
+            <Trans>Видалити змінну?</Trans>
+          </DialogTitle>
           <DialogDescription>
-            Переменная{' '}
-            <code className="rounded bg-amber-500/15 px-1 font-mono text-xs text-amber-700 dark:text-amber-300">
-              {`{{${variableKey}}}`}
-            </code>{' '}
-            будет удалена из списка кастомных. Токен останется в тексте как нераспознанный — удалите
-            его вручную из редактора.
+            <Trans>
+              Змінна{' '}
+              <code className="rounded bg-amber-500/15 px-1 font-mono text-xs text-amber-700 dark:text-amber-300">
+                {`{{${variableKey}}}`}
+              </code>{' '}
+              буде видалена зі списку кастомних. Токен лишиться в тексті як нерозпізнаний — видаліть
+              його вручну з редактора.
+            </Trans>
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
@@ -232,7 +248,7 @@ export function DeleteCustomVariableDialog({
             onClick={() => onOpenChange(false)}
             data-testid="delete-cv-cancel-button"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             variant="destructive"
@@ -242,7 +258,7 @@ export function DeleteCustomVariableDialog({
             }}
             data-testid="delete-cv-confirm-button"
           >
-            Удалить
+            <Trans>Видалити</Trans>
           </Button>
         </DialogFooter>
       </DialogContent>

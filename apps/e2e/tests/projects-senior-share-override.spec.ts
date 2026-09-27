@@ -140,7 +140,7 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
 
       // Round-3 UI: слайдер виден всегда без toggle. Открываем edit и
       // вбиваем 30 в число-поле слайдера.
@@ -157,7 +157,7 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       // The FRONTEND still sends the same field — the backend is what now
@@ -167,7 +167,7 @@ test.describe('per-project SENIOR share override', () => {
       // task-pending-share AC2: the active value does NOT move — no reload
       // needed to see this, it's the same response that never changed it.
       await expect(page.getByTestId('project-senior-share')).toContainText('26%')
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
       // The PENDING indicator appears instead, naming the proposed value.
       // task-648-fix-round-1 (COPY-M-10): the approver's name is NOT in the
@@ -186,7 +186,7 @@ test.describe('per-project SENIOR share override', () => {
       // banner ($projectId.tsx) — not touched by this PR (wave (d)'s
       // territory), still the original Russian text.
       await expect(page.getByTestId('project-senior-share')).toContainText(
-        `Подтверждает ${USERS.senior.displayName}`,
+        `Підтверджує ${USERS.senior.displayName}`,
       )
     })
   })
@@ -214,7 +214,7 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect('seniorSharePercentOverride' in body).toBe(false)
@@ -240,14 +240,14 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const req = await patchReq
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(35)
 
       // Active value unchanged; the ACCOUNTANT sees the same pending
       // indicator an ADMIN would (both are gated on `fields.share`, not role).
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
@@ -333,14 +333,14 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       // Numeric coercion in the form → backend receives 0, not the empty string.
       expect(body['seniorSharePercentOverride']).toBe(0)
 
       // 0 is a legitimate PROPOSED value, distinct from "nothing proposed" —
       // the pending badge must render it, and the active value must not move.
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
@@ -360,11 +360,11 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(100)
 
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
       const pendingBadge = page.getByTestId('project-senior-share-pending-badge')
       await expect(pendingBadge).toBeVisible()
@@ -389,7 +389,7 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect(body['seniorSharePercentOverride']).toBe(100)
     })
@@ -489,7 +489,7 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       // Фронт отправляет 26 (то что в слайдере) — backend сам решает что это null.
       expect('seniorSharePercentOverride' in body).toBe(true)
@@ -520,7 +520,7 @@ test.describe('per-project SENIOR share override', () => {
       await mockProjectDetail(page, { seniorSharePercentOverride: null })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
       await expect(page.getByTestId('project-senior-share-override-badge')).toBeHidden()
       await expect(page.getByTestId('project-senior-share-pending-badge')).toHaveCount(0)
 
@@ -528,7 +528,7 @@ test.describe('per-project SENIOR share override', () => {
       await page.getByTestId('project-edit-button').click()
       const input = page.getByTestId('project-edit-senior-share-override')
       await input.fill('42')
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
 
       // No reload — the TanStack Query cache invalidation should re-paint the
       // PENDING badge (task-pending-share: the "Override" badge stays absent,
@@ -536,7 +536,7 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share-pending-badge')).toBeVisible()
       await expect(page.getByTestId('project-senior-share-pending-badge')).toContainText('42%')
       await expect(page.getByTestId('project-senior-share-override-badge')).toHaveCount(0)
-      await expect(page.getByTestId('project-senior-share')).toContainText('(по умолчанию)')
+      await expect(page.getByTestId('project-senior-share')).toContainText('(за замовчуванням)')
     })
   })
 
@@ -675,7 +675,7 @@ test.describe('per-project SENIOR share override', () => {
       const patchReq = page.waitForRequest(
         (req) => req.url().includes(`/projects/${PROJECTS[0]!.id}`) && req.method() === 'PATCH',
       )
-      await page.getByRole('button', { name: 'Сохранить' }).click()
+      await page.getByRole('button', { name: 'Зберегти' }).click()
       const body = JSON.parse((await patchReq).postData() ?? '{}') as Record<string, unknown>
       expect('seniorSharePercentOverride' in body).toBe(false)
       // Confirm our 403 guard was never triggered.
@@ -704,13 +704,13 @@ test.describe('per-project SENIOR share override', () => {
       await expect(page.getByTestId('project-senior-share')).toContainText('33%')
 
       // The Финансы по проекту block lives under the «Финансы» tab.
-      await page.getByRole('tab', { name: 'Финансы' }).click()
+      await page.getByRole('tab', { name: 'Фінанси' }).click()
 
       // Финансы по проекту header has the same widget with a distinct testId.
       const financeRow = page.getByTestId('project-transactions-senior-share')
       await expect(financeRow).toBeVisible()
       await expect(financeRow).toContainText('33%')
-      await expect(financeRow).toContainText('Доля синьора')
+      await expect(financeRow).toContainText('Частка сеньйора')
       await expect(
         page.getByTestId('project-transactions-senior-share-override-badge'),
       ).toBeVisible()
@@ -723,12 +723,12 @@ test.describe('per-project SENIOR share override', () => {
       )
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await page.getByRole('tab', { name: 'Финансы' }).click()
+      await page.getByRole('tab', { name: 'Фінанси' }).click()
 
       const financeRow = page.getByTestId('project-transactions-senior-share')
       await expect(financeRow).toBeVisible()
       await expect(financeRow).toContainText('26%')
-      await expect(financeRow).toContainText('(по умолчанию)')
+      await expect(financeRow).toContainText('(за замовчуванням)')
       await expect(
         page.getByTestId('project-transactions-senior-share-override-badge'),
       ).toHaveCount(0)
@@ -745,10 +745,10 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Табы «Обзор» и «Состав» доступны.
-      await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
-      await expect(page.getByRole('tab', { name: 'Состав' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Огляд' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Склад' })).toBeVisible()
       // А «Финансы» — НЕ должно быть.
-      await expect(page.getByRole('tab', { name: 'Финансы' })).toHaveCount(0)
+      await expect(page.getByRole('tab', { name: 'Фінанси' })).toHaveCount(0)
     })
   })
 
@@ -758,7 +758,7 @@ test.describe('per-project SENIOR share override', () => {
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // Sanity — мы на «Обзоре».
-      await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Огляд' })).toBeVisible()
       // Виджет project-senior-share полностью отсутствует в DOM для HR.
       await expect(page.getByTestId('project-senior-share')).toHaveCount(0)
       // Бейдж тоже отсутствует.
@@ -771,7 +771,7 @@ test.describe('per-project SENIOR share override', () => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Фінанси' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
@@ -780,7 +780,7 @@ test.describe('per-project SENIOR share override', () => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Фінанси' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toContainText('30%')
     })
@@ -792,7 +792,7 @@ test.describe('per-project SENIOR share override', () => {
       await mockProjectDetail(page, { seniorSharePercentOverride: 30 })
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
-      await expect(page.getByRole('tab', { name: 'Финансы' })).toBeVisible()
+      await expect(page.getByRole('tab', { name: 'Фінанси' })).toBeVisible()
       await expect(page.getByTestId('project-senior-share')).toBeVisible()
 
       await page.getByTestId('project-edit-button').click()
@@ -1177,7 +1177,7 @@ test.describe('U — the pending badge reads correctly on screen', () => {
       // «Предложено N%» — shorter (it has to fit a 131px column at 320) and
       // one name for the fact across badge, toast and dialog notice.
       const rendered = await badge.evaluate((el) => (el as HTMLElement).innerText)
-      expect(rendered).toMatch(/Предложено \d+%/)
+      expect(rendered).toMatch(/Запропоновано \d+%/)
     })
   }
 
@@ -1509,7 +1509,7 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.goto(`/projects/${PROJECT_ID}`)
     await expect(page.getByTestId('pending-share-approval-banner')).toBeVisible()
     const rendered = await page.evaluate(() => (document.body as HTMLElement).innerText)
-    expect(rendered).toContain('Вашу долю по проекту')
+    expect(rendered).toContain('Вашу частку по проєкту')
     // Project page's own (untouched, still Russian) text — see the
     // matching comment near `project-senior-share` above.
     expect(rendered).not.toContain(`Подтверждает ${USERS.senior.displayName}`)
@@ -1534,8 +1534,8 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     await page.getByTestId('pending-share-reject-button').click()
 
     const dialog = page.getByRole('dialog')
-    await expect(dialog).toContainText('Отклонить предложение')
-    await expect(dialog).not.toContainText('Отклонить новый процент')
+    await expect(dialog).toContainText('Відхилити пропозицію')
+    await expect(dialog).not.toContainText('Відхилити новий відсоток')
 
     await page.getByTestId('pending-share-reject-reason').fill('договаривались на 30%')
     await page.getByTestId('pending-share-reject-confirm').click()
@@ -1547,7 +1547,7 @@ test.describe('X - the pending share addresses the reader, not the route', () =>
     // wave's perimeter (lib/hooks only) and stays Russian. Reverted from an
     // earlier (incorrect) uk assertion once a live run showed the real
     // rendered text.
-    await expect(page.getByText('Предложение отклонено', { exact: false })).toBeVisible()
+    await expect(page.getByText('Пропозицію відхилено', { exact: false })).toBeVisible()
   })
 })
 

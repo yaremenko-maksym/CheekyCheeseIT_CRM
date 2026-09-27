@@ -169,21 +169,23 @@ test.describe('Projects page', () => {
       await expect(page.getByText('Senior Dev')).toBeVisible()
     })
 
-    test('ADMIN sees "Добавить" button on active project detail', async ({ asAdmin: page }) => {
+    test('ADMIN sees "Додати до складу" button on active project detail', async ({
+      asAdmin: page,
+    }) => {
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       // PR #178 added a second «Добавить» button in the credentials section
       // (data-testid="credentials-add-btn" sits ON the button — .filter({hasNot})
       // checks descendants only, so intersect with :not() instead).
       const membersAddBtn = page
-        .getByRole('button', { name: /добавить/i })
+        .getByRole('button', { name: /додати до складу/i })
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
       await expect(membersAddBtn).toBeVisible()
     })
 
-    test('"Добавить" opens edit dialog', async ({ asAdmin: page }) => {
+    test('"Додати до складу" opens edit dialog', async ({ asAdmin: page }) => {
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       const membersAddBtn = page
-        .getByRole('button', { name: /добавить/i })
+        .getByRole('button', { name: /додати до складу/i })
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
       await membersAddBtn.click()
       await expect(page.getByRole('dialog')).toBeVisible()
@@ -192,7 +194,7 @@ test.describe('Projects page', () => {
     test('cancel closes dialog', async ({ asAdmin: page }) => {
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
       const membersAddBtn = page
-        .getByRole('button', { name: /добавить/i })
+        .getByRole('button', { name: /додати до складу/i })
         .and(page.locator(':not([data-testid="credentials-add-btn"])'))
       await membersAddBtn.click()
       // Dialog has Отмена or close via Escape

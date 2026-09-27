@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react'
-import { useLingui } from '@lingui/react/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { CONTRACT_VARIABLE_DESCRIPTIONS } from '@crm/shared'
 import type { CustomVariable } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -10,32 +12,35 @@ import { toast } from 'sonner'
 import { useContractTokens } from '@/hooks/use-contract-tokens'
 import { AddCustomVariableDialog, DeleteCustomVariableDialog } from './AddCustomVariableDialog'
 
-// ── Variable source labels ─────────────────────────────────────────────────
-const SYSTEM_VARIABLE_SOURCE: Partial<Record<string, string>> = {
-  employeeName: 'Карточка сотрудника',
-  employeeEmail: 'Карточка сотрудника',
-  role: 'Карточка сотрудника',
-  onboardingDate: 'Авто',
-  salary: 'Карточка сотрудника',
-  salaryCurrency: 'Карточка сотрудника',
-  sharePercent: 'Карточка сотрудника',
-  companySharePercent: 'Авто (100 − sharePercent)',
-  rnokpp: 'Карточка сотрудника',
-  phone: 'Карточка сотрудника',
-  registrationAddress: 'Карточка сотрудника',
-  companyName: 'Константы компании',
-  companyLegalName: 'Константы компании',
-  companyAddress: 'Константы компании',
-  companyCountry: 'Константы компании',
-  companyRegNumber: 'Константы компании',
-  companyVat: 'Константы компании',
-  companyBank: 'Константы компании',
-  companyAuthorityBasis: 'Константы компании',
-  walletUsdt: 'Карточка сотрудника',
-  bankUahFop: 'Карточка сотрудника',
-  preferredMethod: 'Карточка сотрудника',
-  requisites: 'Авто (по методу оплаты)',
-  contractNumber: 'Авто (CHK-N-YYYY)',
+// ── Variable source labels (template G — `msg`, resolved via `i18n._()`) ───
+const EMPLOYEE_CARD: MessageDescriptor = msg`Картка співробітника`
+const AUTO: MessageDescriptor = msg`Авто`
+const COMPANY_CONSTANTS: MessageDescriptor = msg`Константи компанії`
+const SYSTEM_VARIABLE_SOURCE: Partial<Record<string, MessageDescriptor>> = {
+  employeeName: EMPLOYEE_CARD,
+  employeeEmail: EMPLOYEE_CARD,
+  role: EMPLOYEE_CARD,
+  onboardingDate: AUTO,
+  salary: EMPLOYEE_CARD,
+  salaryCurrency: EMPLOYEE_CARD,
+  sharePercent: EMPLOYEE_CARD,
+  companySharePercent: msg`Авто (100 − sharePercent)`,
+  rnokpp: EMPLOYEE_CARD,
+  phone: EMPLOYEE_CARD,
+  registrationAddress: EMPLOYEE_CARD,
+  companyName: COMPANY_CONSTANTS,
+  companyLegalName: COMPANY_CONSTANTS,
+  companyAddress: COMPANY_CONSTANTS,
+  companyCountry: COMPANY_CONSTANTS,
+  companyRegNumber: COMPANY_CONSTANTS,
+  companyVat: COMPANY_CONSTANTS,
+  companyBank: COMPANY_CONSTANTS,
+  companyAuthorityBasis: COMPANY_CONSTANTS,
+  walletUsdt: EMPLOYEE_CARD,
+  bankUahFop: EMPLOYEE_CARD,
+  preferredMethod: EMPLOYEE_CARD,
+  requisites: msg`Авто (за методом оплати)`,
+  contractNumber: msg`Авто (CHK-N-YYYY)`,
 }
 
 // ── SystemVariableRow ──────────────────────────────────────────────────────
@@ -47,8 +52,9 @@ interface SystemVariableRowProps {
 }
 
 function SystemVariableRow({ varKey, description, isUsed, onInsert }: SystemVariableRowProps) {
+  const { t, i18n } = useLingui()
   const token = `{{${varKey}}}`
-  const source = SYSTEM_VARIABLE_SOURCE[varKey] ?? 'Авто'
+  const source = i18n._(SYSTEM_VARIABLE_SOURCE[varKey] ?? AUTO)
 
   return (
     <div
@@ -63,7 +69,7 @@ function SystemVariableRow({ varKey, description, isUsed, onInsert }: SystemVari
           {isUsed && (
             <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
               <Check className="h-3 w-3" />
-              Используется в тексте
+              <Trans>Використовується в тексті</Trans>
             </span>
           )}
         </div>
@@ -75,10 +81,11 @@ function SystemVariableRow({ varKey, description, isUsed, onInsert }: SystemVari
         size="sm"
         className="h-7 shrink-0 px-2 text-xs"
         onClick={() => onInsert(token)}
-        aria-label={`Вставить ${token}`}
+        // Stryker disable next-line StringLiteral: aria-label duplicates the visible "Вставити" text (Trans below); no test reads the accessible name separately from the visible label for this button.
+        aria-label={t`Вставити ${token}`}
         data-testid={`insert-var-${varKey}`}
       >
-        Вставить
+        <Trans>Вставити</Trans>
       </Button>
     </div>
   )
@@ -100,6 +107,7 @@ function CustomVariableRow({
   onUpdateLabel,
   onDelete,
 }: CustomVariableRowProps) {
+  const { t } = useLingui()
   const token = `{{${variable.key}}}`
   const [editing, setEditing] = useState(false)
   const [labelValue, setLabelValue] = useState(variable.label)
@@ -130,7 +138,7 @@ function CustomVariableRow({
             {isUsed && (
               <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
                 <Check className="h-3 w-3" />
-                Используется в тексте
+                <Trans>Використовується в тексті</Trans>
               </span>
             )}
           </div>
@@ -158,7 +166,7 @@ function CustomVariableRow({
 
           {variable.defaultValue && (
             <p className="text-[10px] text-muted-foreground/60">
-              По умолчанию: {variable.defaultValue}
+              <Trans>За замовчуванням: {variable.defaultValue}</Trans>
             </p>
           )}
         </div>
@@ -169,10 +177,10 @@ function CustomVariableRow({
             size="sm"
             className="h-7 px-2 text-xs"
             onClick={() => onInsert(token)}
-            aria-label={`Вставить ${token}`}
+            aria-label={t`Вставити ${token}`}
             data-testid={`insert-custom-var-${variable.key}`}
           >
-            Вставить
+            <Trans>Вставити</Trans>
           </Button>
           <Button
             variant="ghost"
@@ -182,7 +190,7 @@ function CustomVariableRow({
               setEditing(true)
               setTimeout(() => inputRef.current?.focus(), 0)
             }}
-            aria-label={`Изменить метку ${variable.key}`}
+            aria-label={t`Змінити мітку ${variable.key}`}
             data-testid={`edit-cv-label-${variable.key}`}
           >
             <Pencil className="h-3 w-3" />
@@ -192,7 +200,7 @@ function CustomVariableRow({
             size="icon"
             className="h-7 w-7 text-destructive hover:text-destructive hover:bg-destructive/10"
             onClick={() => setDeleteOpen(true)}
-            aria-label={`Удалить переменную ${variable.key}`}
+            aria-label={t`Видалити змінну ${variable.key}`}
             data-testid={`delete-cv-${variable.key}`}
           >
             <Trash2 className="h-3 w-3" />
@@ -231,21 +239,25 @@ function SyncWarningBanner({
     >
       <div className="flex items-center gap-1.5 text-xs font-medium text-amber-700 dark:text-amber-400">
         <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-        Несоответствия переменных
+        <Trans>Розбіжності змінних</Trans>
       </div>
 
       {orphanedCustom.map((key) => (
         <div key={key} className="text-[11px] text-amber-700 dark:text-amber-300/80">
-          <code className="rounded bg-amber-500/20 px-1 font-mono">{`{{${key}}}`}</code> —
-          добавлена, но не используется в тексте
+          <Trans>
+            <code className="rounded bg-amber-500/20 px-1 font-mono">{`{{${key}}}`}</code> — додана,
+            але не використовується в тексті
+          </Trans>
         </div>
       ))}
 
       {unknownInText.map((key) => (
         <div key={key} className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-amber-700 dark:text-amber-300/80">
-            <code className="rounded bg-amber-500/20 px-1 font-mono">{`{{${key}}}`}</code> —
-            используется, но не зарегистрирована
+            <Trans>
+              <code className="rounded bg-amber-500/20 px-1 font-mono">{`{{${key}}}`}</code> —
+              використовується, але не зареєстрована
+            </Trans>
           </span>
           <Button
             variant="ghost"
@@ -254,7 +266,7 @@ function SyncWarningBanner({
             onClick={() => onRegisterUnknown(key)}
             data-testid={`register-unknown-${key}`}
           >
-            + Зарегистрировать
+            <Trans>+ Зареєструвати</Trans>
           </Button>
         </div>
       ))}
@@ -280,7 +292,7 @@ export function VariablesPanel({
   const [addOpen, setAddOpen] = useState(false)
   const [prefillKey, setPrefillKey] = useState('')
   const [systemCollapsed, setSystemCollapsed] = useState(true)
-  const { i18n } = useLingui()
+  const { t, i18n } = useLingui()
 
   const { tokensInText, systemUsed, orphanedCustom, unknownInText } = useContractTokens(
     body,
@@ -298,12 +310,12 @@ export function VariablesPanel({
   // ── Handlers ──────────────────────────────────────────────────────────────
   function handleAddVariable(variable: CustomVariable) {
     onCustomVariablesChange([...customVariables, variable])
-    toast.success(`Переменная {{${variable.key}}} добавлена`)
+    toast.success(t`Змінну {{${variable.key}}} додано`)
   }
 
   function handleDeleteVariable(key: string) {
     onCustomVariablesChange(customVariables.filter((v) => v.key !== key))
-    toast.success(`Переменная {{${key}}} удалена`)
+    toast.success(t`Змінну {{${key}}} видалено`)
   }
 
   function handleUpdateLabel(key: string, newLabel: string) {
@@ -331,11 +343,13 @@ export function VariablesPanel({
         onRegisterUnknown={handleRegisterUnknown}
       />
 
-      {/* ── Custom variables — первые, чтобы кнопка «Добавить» сразу видна ── */}
+      {/* ── Custom variables — перші, щоб кнопка «Додати» відразу видна ── */}
       <div>
         <div className="flex items-center justify-between gap-2 mb-1.5 px-1">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-foreground">Кастомные переменные</span>
+            <span className="text-xs font-semibold text-foreground">
+              <Trans>Кастомні змінні</Trans>
+            </span>
             <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
               {customVariables.length}
             </Badge>
@@ -348,13 +362,13 @@ export function VariablesPanel({
             data-testid="add-custom-variable-button"
           >
             <Plus className="h-3.5 w-3.5" />
-            Добавить переменную
+            <Trans>Додати змінну</Trans>
           </Button>
         </div>
 
         {customVariables.length === 0 ? (
           <p className="px-2 text-[11px] text-muted-foreground italic">
-            Кастомные переменные не добавлены
+            <Trans>Кастомні змінні не додані</Trans>
           </p>
         ) : (
           <div className="space-y-0.5">
@@ -372,7 +386,7 @@ export function VariablesPanel({
         )}
       </div>
 
-      {/* ── System variables — collapsible, по умолчанию свёрнуты ─────────── */}
+      {/* ── System variables — collapsible, за замовчуванням згорнуті ─────── */}
       <div>
         <button
           type="button"
@@ -386,13 +400,15 @@ export function VariablesPanel({
           ) : (
             <ChevronDown className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           )}
-          <span className="text-xs font-semibold text-foreground">Системные переменные</span>
+          <span className="text-xs font-semibold text-foreground">
+            <Trans>Системні змінні</Trans>
+          </span>
           <Badge variant="secondary" className="text-[10px] h-4 px-1.5">
             {systemEntries.length}
           </Badge>
           {systemUsed.size > 0 && (
             <span className="ml-auto text-[10px] text-muted-foreground">
-              используется {systemUsed.size}
+              {t`використовується ${systemUsed.size}`}
             </span>
           )}
         </button>

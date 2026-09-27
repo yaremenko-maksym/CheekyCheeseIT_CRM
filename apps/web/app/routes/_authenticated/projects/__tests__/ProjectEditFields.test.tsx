@@ -164,7 +164,7 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
     expect(section).toBeInTheDocument()
     expect(screen.getByTestId('project-edit-drop-share-override')).toBeDisabled()
     expect(
-      within(section).getByText('Менять может только ADMIN или ACCOUNTANT.'),
+      within(section).getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
     ).toBeInTheDocument()
   })
 
@@ -194,6 +194,97 @@ describe('ProjectEditFields — Surface A (drop-share ShareSlider)', () => {
   })
 })
 
+// task-i18n-stage3c-pr4 — every field label in "info" mode used to be a
+// LOCAL `Record<string, string>` inside the render (invisible to `lingui
+// extract`, hoisted to module-level `EDIT_FIELD_LABEL_MESSAGES` per template
+// G) — and none of them had a test reading the label text itself (only the
+// `data-testid`s of their inputs were asserted). The mutation gate caught
+// this: every label string, and the module-level map's own shape, survived
+// mutation with every existing test green.
+describe('ProjectEditFields — info-mode field labels (i18n)', () => {
+  it('renders every field label text, once each, in the info form', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId="drop-1" viewerRole="ADMIN" />)
+    for (const label of [
+      'Логотип компанії',
+      'Назва проєкту',
+      'Компанія',
+      'Домен',
+      'Тип оплати',
+      'Технологічний стек',
+      'Склад команди',
+      'Бенефіти',
+      'Перегляд зарплати',
+      'Корпоративна техніка',
+      'Загальні нотатки',
+      'Ставка',
+      'Частка сеньйора (%)',
+      'Частка дропа (%)',
+    ]) {
+      expect(screen.getByText(label)).toBeInTheDocument()
+    }
+  })
+})
+
+// task-i18n-stage3c-pr4 — `cn(err && 'text-destructive')` on each Label
+// mutates cleanly to `cn(true && …)`/`cn(false && …)` with every existing
+// test green: nothing ever triggered the validators and read the Label's
+// OWN class (only the separate `<p>` error message below each field was
+// implicitly exercised by other Surface tests). One field per validator
+// family — a `min(1)` string field and the senior/drop custom integer
+// validators — is enough to exercise all four call sites (they share one
+// `cn(err && …)` expression, so covering the branch pins them together).
+describe('ProjectEditFields — error styling on Label (i18n)', () => {
+  it('"Назва проєкту" label gains text-destructive after a min(1) validation error', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText('AI Platform v2')
+    const label = screen.getByText('Назва проєкту')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+  })
+
+  it('"Компанія" label gains text-destructive after a min(1) validation error', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText('TechCorp AI')
+    const label = screen.getByText('Компанія')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+  })
+
+  it('"Частка сеньйора (%)" label gains text-destructive after a non-integer value', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByTestId('project-edit-senior-share-override')
+    const label = screen.getByText('Частка сеньйора (%)')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '50.5' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+    expect(screen.getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
+  })
+
+  it('"Частка дропа (%)" label gains text-destructive after a non-integer value', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId="drop-1" viewerRole="ADMIN" />)
+    const input = screen.getByTestId('project-edit-drop-share-override')
+    const label = screen.getByText('Частка дропа (%)')
+    expect(label.className).not.toContain('text-destructive')
+
+    fireEvent.change(input, { target: { value: '50.5' } })
+    fireEvent.blur(input)
+
+    expect(label.className).toContain('text-destructive')
+    expect(screen.getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
+  })
+})
+
 describe('ProjectEditFields — Surface C (paymentType Select)', () => {
   it('renders 3 payment-type options, editable for ADMIN', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
@@ -210,7 +301,9 @@ describe('ProjectEditFields — Surface C (paymentType Select)', () => {
   it('is disabled with a hint for non-ADMIN/ACCOUNTANT viewers (e.g. HR)', () => {
     render(<Harness onSubmit={vi.fn()} canEditOverride={false} dropId={null} viewerRole="HR" />)
     expect(screen.getByTestId('project-payment-type-trigger')).toBeDisabled()
-    expect(screen.getByText('Менять может только ADMIN или ACCOUNTANT.')).toBeInTheDocument()
+    expect(
+      screen.getByText('Змінювати можуть лише Адміністратор або Бухгалтер.'),
+    ).toBeInTheDocument()
   })
 
   it('selecting an option makes the form dirty and reaches submit', async () => {
@@ -335,8 +428,8 @@ describe('ProjectEditFields — live proposal notice', () => {
     // promise that the same value CANCELS an open proposal — that gesture
     // no longer does anything (SR-H-2), and text must not promise it.
     const section = screen.getByTestId('project-edit-senior-share-section')
-    expect(section).toHaveTextContent('начнёт действовать после подтверждения синьора')
-    expect(section).not.toHaveTextContent('отменить отправленное предложение')
+    expect(section).toHaveTextContent('почне діяти після підтвердження сеньйора')
+    expect(section).not.toHaveTextContent('скасувати надіслану пропозицію')
   })
 
   // task-648-fix-round-3 (COPY-M-16). The hint used to carry two tenses about
@@ -356,33 +449,33 @@ describe('ProjectEditFields — live proposal notice', () => {
     )
     const section = screen.getByTestId('project-edit-senior-share-section')
     // Both claims about this save are in the FUTURE, because both are.
-    expect(section).toHaveTextContent('снимет индивидуальную долю по проекту')
-    expect(section).toHaveTextContent('Любое изменение начнёт действовать после подтверждения')
+    expect(section).toHaveTextContent('знімає індивідуальну частку по проєкту')
+    expect(section).toHaveTextContent('Будь-яка зміна почне діяти після підтвердження')
     // The present tense promised something that does not happen on save.
-    expect(section).not.toHaveTextContent('сбрасывает')
+    expect(section).not.toHaveTextContent('скидає')
     // CONTEXT.md's «Доля синьора» entry calls the personal level
-    // «(по умолчанию)»; «переопределение» is jargon this UI invented.
-    expect(section).not.toHaveTextContent('переопределение')
+    // «(за замовчуванням)»; «перевизначення» is jargon this UI invented.
+    expect(section).not.toHaveTextContent('перевизначення')
 
     // task-648-fix-round-4 (COPY-L-16): the caveat comes FIRST. Round 3 left
-    // it third, so the reader met «это же значение снимет индивидуальную
-    // долю» as an unqualified promise and learnt only afterwards that it
+    // it third, so the reader met «те саме значення знімає індивідуальну
+    // частку» as an unqualified promise and learnt only afterwards that it
     // waits for the senior — two claims to hold at once to answer one
     // question. Asserted by POSITION, not by presence: both sentences were
     // already on screen when the defect was raised, so a presence assertion
     // could not have caught it and cannot catch its return.
     const hint = section.textContent ?? ''
-    const caveatAt = hint.indexOf('Любое изменение начнёт действовать')
-    const clearsAt = hint.indexOf('снимет индивидуальную долю по проекту')
+    const caveatAt = hint.indexOf('Будь-яка зміна почне діяти')
+    const clearsAt = hint.indexOf('знімає індивідуальну частку по проєкту')
     expect(caveatAt).toBeGreaterThanOrEqual(0)
     expect(clearsAt).toBeGreaterThanOrEqual(0)
     expect(caveatAt).toBeLessThan(clearsAt)
 
     // The percent is glued to the sentence by a `{' '}` JSX fragment, which is
-    // a string literal like any other — empty it and the hint reads «По
-    // умолчанию —26%». Position and presence assertions both stay green on
-    // that; only reading the joint does not. (Found by the mutation gate on
-    // this very line, not guessed.)
-    expect(hint).toContain('По умолчанию — 26%: это же значение снимет')
+    // a string literal like any other — empty it and the hint reads «За
+    // замовчуванням —26%». Position and presence assertions both stay green
+    // on that; only reading the joint does not. (Found by the mutation gate
+    // on this very line, not guessed.)
+    expect(hint).toContain('За замовчуванням — 26%: те саме значення знімає')
   })
 })

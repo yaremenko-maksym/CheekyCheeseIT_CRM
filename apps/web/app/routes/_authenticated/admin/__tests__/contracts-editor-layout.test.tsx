@@ -21,7 +21,7 @@
  *  15. TosNewPage — preview dialog closes on «Закрыть» click
  */
 
-import { render, screen, act, waitFor } from '@testing-library/react'
+import { render, screen, act, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import type { CustomVariable } from '@crm/shared'
@@ -385,6 +385,114 @@ describe('ContractEditorPage layout', () => {
     await waitFor(() => {
       expect(screen.getByTestId('publish-confirm-dialog')).toBeVisible()
     })
+  })
+
+  // task-i18n-stage3c-pr4 — the mutation gate flagged all four of these:
+  // back-button's own aria-label, the confirm dialog's `template.version + 1`
+  // arithmetic, and both states of the publish button's label were never
+  // asserted before this migration.
+  it('preview dialog titles the role and names the appended requisites block', async () => {
+    const user = userEvent.setup()
+    await renderContractEditor()
+    await resolveFlushPromises()
+
+    await user.click(screen.getByTestId('preview-template-button'))
+
+    await waitFor(() => {
+      expect(screen.getByText('Попередній перегляд PDF — Сеньйор')).toBeInTheDocument()
+    })
+    const description = screen.getByTestId('preview-dialog').textContent ?? ''
+    expect(description).toContain('Так виглядатиме договір у PDF')
+    expect(description).toContain('{{...}}')
+    expect(description).toContain('підставляться автоматично під час підписання')
+    expect(description).toContain('Блок «Реквізити компанії» додається в кінці.')
+  })
+
+  it('back-button has an accessible name', async () => {
+    await renderContractEditor()
+    await resolveFlushPromises()
+
+    expect(screen.getByRole('button', { name: 'Назад до списку' })).toBeInTheDocument()
+  })
+
+  it('publish-confirm-dialog titles the NEXT version (template.version + 1)', async () => {
+    const user = userEvent.setup()
+    await renderContractEditor()
+    await resolveFlushPromises()
+
+    await user.click(screen.getByTestId('publish-template-button'))
+
+    // Mocked template.version is 3 — the dialog proposes v4, not v3 or v2.
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Опублікувати нову версію (v4)?' }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('confirm-publish-button reads "Публікація…" once the mutation is pending', async () => {
+    const user = userEvent.setup()
+    // `useMutation` is mocked module-wide (default: `isPending: false`) —
+    // start idle so the dialog can open (the OUTER "publish-template-button"
+    // is itself disabled while `isPending`, per its own `disabled` prop), then
+    // flip the mock and re-render — the same override pattern the TosNewPage
+    // tests below use for their own mutation. Restored at the end so later
+    // tests in this file are unaffected.
+    const { useMutation } = vi.mocked(await import('@tanstack/react-query'))
+    try {
+      const { rerender } = await renderContractEditor()
+      await resolveFlushPromises()
+
+      await user.click(screen.getByTestId('publish-template-button'))
+      const confirmBtn = await screen.findByTestId('confirm-publish-button')
+      expect(confirmBtn).toHaveTextContent('Опублікувати')
+
+      useMutation.mockImplementation(
+        () => ({ mutate: vi.fn(), isPending: true }) as unknown as ReturnType<typeof useMutation>,
+      )
+      const mod = await import('../contracts.$role')
+      const Page = mod.Route.options?.component as React.ComponentType
+      rerender(<Page />)
+
+      expect(screen.getByTestId('confirm-publish-button')).toHaveTextContent('Публікація…')
+    } finally {
+      useMutation.mockImplementation(
+        () => ({ mutate: vi.fn(), isPending: false }) as unknown as ReturnType<typeof useMutation>,
+      )
+    }
+  })
+
+  it('publish-confirm-dialog proposes v1 when there is no active template yet (template is null)', async () => {
+    const user = userEvent.setup()
+    // `template?.version` — a role with no active template ever published
+    // yet (a real state: `useQuery` returns `data: null`, see
+    // `contracts.$role.tsx`'s own `ContractTemplateRow | null` type). The
+    // body still needs typed content for the publish button to enable.
+    const { useQuery } = vi.mocked(await import('@tanstack/react-query'))
+    useQuery.mockReturnValue({ data: null, isLoading: false } as ReturnType<typeof useQuery>)
+
+    await renderContractEditor()
+    await resolveFlushPromises()
+    fireEvent.change(screen.getByTestId('mock-codemirror'), {
+      target: { value: '# First version' },
+    })
+
+    await user.click(screen.getByTestId('publish-template-button'))
+    await waitFor(() => {
+      expect(
+        screen.getByRole('heading', { name: 'Опублікувати нову версію (v1)?' }),
+      ).toBeInTheDocument()
+    })
+  })
+
+  it('confirm-publish-button reads "Опублікувати" when idle', async () => {
+    const user = userEvent.setup()
+    await renderContractEditor()
+    await resolveFlushPromises()
+
+    await user.click(screen.getByTestId('publish-template-button'))
+    const confirmBtn = await screen.findByTestId('confirm-publish-button')
+    expect(confirmBtn).toHaveTextContent('Опублікувати')
   })
 })
 

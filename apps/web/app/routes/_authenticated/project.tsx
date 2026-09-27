@@ -14,14 +14,24 @@
  */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { BookOpen, DollarSign, Phone, Send, UserCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { HrContactDto, ProjectDto, SalaryMetaDto, TransactionDto } from '@crm/shared'
-import { hrContactSchema, salaryMetaSchema, transactionSchema } from '@crm/shared'
+import {
+  hrContactSchema,
+  salaryMetaSchema,
+  transactionSchema,
+  formatDate,
+  formatNumber,
+} from '@crm/shared'
 import { useLegend } from '@/hooks/use-legend'
 import { useJuniorProjects } from '@/hooks/use-junior-projects'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getAxiosStatus } from '@/lib/axios-utils'
 import { Badge } from '@/components/ui/badge'
@@ -163,8 +173,12 @@ function JuniorProjectHub() {
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pt-4 pb-6">
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
             <UserCircle className="h-10 w-10 opacity-30" />
-            <p className="text-sm font-medium">Вас ещё не добавили в проект.</p>
-            <p className="text-xs">Свяжитесь с вашим HR для добавления в проект.</p>
+            <p className="text-sm font-medium">
+              <Trans>Вас ще не додали до проєкту.</Trans>
+            </p>
+            <p className="text-xs">
+              <Trans>Зв’яжіться з вашим HR, щоб він додав вас до проєкту.</Trans>
+            </p>
           </div>
         </div>
       </div>
@@ -210,12 +224,13 @@ function ProjectSwitcher({
   activeIdx: number
   onSelect: (i: number) => void
 }) {
+  const { t } = useLingui()
   return (
     <div
       className="flex gap-2 flex-wrap"
       data-testid="project-switcher"
       role="group"
-      aria-label="Выбор проекта"
+      aria-label={t`Вибір проєкту`}
     >
       {projects.slice(0, 2).map((p, i) => (
         <Button
@@ -286,6 +301,9 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
 // ProjectInfoCard — project meta + embedded HrInline (no separate HrContactCard)
 // ---------------------------------------------------------------------------
 
+const PROJECT_STATUS_ACTIVE: MessageDescriptor = msg`Активний`
+const PROJECT_STATUS_ARCHIVED: MessageDescriptor = msg`В архіві`
+
 function ProjectInfoCard({
   project,
   hrContact,
@@ -295,6 +313,8 @@ function ProjectInfoCard({
   hrContact: HrContactDto | null
   hrLoading: boolean
 }) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const isActive = !project.archivedAt
   const statusVariant = isActive ? ('status-active' as const) : ('status-closed' as const)
 
@@ -321,27 +341,23 @@ function ProjectInfoCard({
         <div className="space-y-2">
           {project.startDate && (
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground text-xs">Старт</span>
+              <span className="text-muted-foreground text-xs">{t`Старт`}</span>
               <span className="font-medium text-xs">
-                {new Date(project.startDate).toLocaleDateString('ru-RU', {
-                  day: '2-digit',
-                  month: 'long',
-                  year: 'numeric',
-                })}
+                {formatDate(project.startDate, locale, 'long')}
               </span>
             </div>
           )}
           <div className="flex items-center justify-between">
-            <span className="text-muted-foreground text-xs">Статус</span>
+            <span className="text-muted-foreground text-xs">{t`Статус`}</span>
             <Badge variant={statusVariant} className="text-xs">
-              {isActive ? 'Активный' : 'Завершён'}
+              {isActive ? i18n._(PROJECT_STATUS_ACTIVE) : i18n._(PROJECT_STATUS_ARCHIVED)}
             </Badge>
           </div>
         </div>
 
         {/* HR contact — embedded, no separate Card */}
         <Separator className="opacity-30" />
-        <section aria-label="Контакт HR">
+        <section aria-label={t`Контакт HR`}>
           <HrInline hrContact={hrContact} isLoading={hrLoading} />
         </section>
       </CardContent>
@@ -363,7 +379,9 @@ function HrInline({
   if (isLoading) {
     return (
       <div data-testid="hr-inline">
-        <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+        <p className="text-xs text-muted-foreground mb-1">
+          <Trans>Ваш HR</Trans>
+        </p>
         <Skeleton className="h-4 w-32" />
       </div>
     )
@@ -373,9 +391,13 @@ function HrInline({
 
   return (
     <div data-testid="hr-inline">
-      <p className="text-xs text-muted-foreground mb-1">Ваш HR</p>
+      <p className="text-xs text-muted-foreground mb-1">
+        <Trans>Ваш HR</Trans>
+      </p>
       {!hasContact ? (
-        <p className="text-xs text-muted-foreground/60 italic">HR не назначен</p>
+        <p className="text-xs text-muted-foreground/60 italic">
+          <Trans>HR не призначений</Trans>
+        </p>
       ) : (
         <div className="space-y-1.5">
           {hrContact?.displayName && (
@@ -432,6 +454,7 @@ interface PersonaCardProps {
 }
 
 function PersonaCard({ legend, isLoading }: PersonaCardProps) {
+  const { t } = useLingui()
   const navigate = useNavigate()
 
   const fullName = legend?.fullName ?? null
@@ -442,7 +465,9 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
     return (
       <Card className="border-border/40 bg-card" data-testid="persona-card">
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            <Trans>Сеньйор проєкту</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex items-center gap-3">
           <Skeleton className="h-10 w-10 rounded-full shrink-0" />
@@ -458,7 +483,9 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
   return (
     <Card className="border-border/40 bg-card" data-testid="persona-card">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-sm font-semibold">Синьор проекта</CardTitle>
+        <CardTitle className="text-sm font-semibold">
+          <Trans>Сеньйор проєкту</Trans>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
         <div className="flex items-center gap-3">
@@ -486,10 +513,10 @@ function PersonaCard({ legend, isLoading }: PersonaCardProps) {
           className="w-full gap-2"
           onClick={() => void navigate({ to: '/legend' })}
           data-testid="persona-open-legend-btn"
-          aria-label="Открыть легенду"
+          aria-label={t`Відкрити легенду`}
         >
           <BookOpen className="h-3.5 w-3.5" />
-          Открыть легенду
+          <Trans>Відкрити легенду</Trans>
         </Button>
       </CardContent>
     </Card>
@@ -515,6 +542,8 @@ function SalarySnapshotCard({
   isLoading,
   className,
 }: SalarySnapshotCardProps) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const baseClass = 'border-border/40 bg-card flex flex-col'
   const cardClass = className ? `${baseClass} ${className}` : baseClass
 
@@ -522,7 +551,9 @@ function SalarySnapshotCard({
     return (
       <Card className={cardClass} data-testid="salary-snapshot-card">
         <CardHeader className="pb-3 shrink-0">
-          <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
+          <CardTitle className="text-sm font-semibold">
+            <Trans>Моя зарплата</Trans>
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col flex-1 pt-0 gap-0">
           <Skeleton className="h-10 w-40 mb-4" />
@@ -534,13 +565,15 @@ function SalarySnapshotCard({
 
   const hasRate = salaryMeta?.monthlySalary != null
   const currency = salaryMeta?.salaryCurrency ?? 'USD'
-  const amount = hasRate ? Number(salaryMeta!.monthlySalary).toLocaleString('ru-RU') : null
+  const amount = hasRate ? formatNumber(Number(salaryMeta!.monthlySalary), locale) : null
 
   return (
     <Card className={cardClass} data-testid="salary-snapshot-card">
       {/* Header — shrink-0 prevents compression when card grows via flex-1 */}
       <CardHeader className="flex flex-row items-center justify-between pb-3 shrink-0">
-        <CardTitle className="text-sm font-semibold">Моя зарплата</CardTitle>
+        <CardTitle className="text-sm font-semibold">
+          <Trans>Моя зарплата</Trans>
+        </CardTitle>
         <DollarSign className="h-4 w-4 text-muted-foreground" aria-hidden />
       </CardHeader>
 
@@ -558,12 +591,14 @@ function SalarySnapshotCard({
             <span className="text-base text-muted-foreground uppercase tracking-wide">
               {currency}
             </span>
-            <span className="text-sm text-muted-foreground">/ месяц</span>
+            <span className="text-sm text-muted-foreground">
+              <Trans>/ місяць</Trans>
+            </span>
           </div>
         ) : (
           <div className="pb-1">
             <p className="text-sm text-muted-foreground/60 italic" data-testid="salary-no-rate">
-              Ставка не назначена
+              <Trans>Ставку не призначено</Trans>
             </p>
           </div>
         )}
@@ -572,12 +607,8 @@ function SalarySnapshotCard({
         {hasRate && (
           <p className="text-xs text-muted-foreground pb-1" data-testid="salary-changed-at">
             {salaryMeta?.changedAt != null
-              ? `Изменена ${new Date(salaryMeta.changedAt).toLocaleDateString('ru-RU', {
-                  day: 'numeric',
-                  month: 'long',
-                  year: 'numeric',
-                })}`
-              : 'Ставка ещё не менялась'}
+              ? t`Змінено ${formatDate(salaryMeta.changedAt, locale, 'long')}`
+              : t`Ставку ще не змінювали`}
           </p>
         )}
 
@@ -586,20 +617,25 @@ function SalarySnapshotCard({
         {/* Payments zone */}
         <div className="space-y-0" data-testid="salary-tx-list">
           <p className="text-xs text-muted-foreground uppercase tracking-wider mb-2">
-            Последние выплаты
+            <Trans>Останні виплати</Trans>
           </p>
           {salaryTxs.length === 0 ? (
-            <p className="text-xs text-muted-foreground/60 italic py-2">Выплат ещё не было</p>
+            <p className="text-xs text-muted-foreground/60 italic py-2">
+              <Trans>Виплат ще не було</Trans>
+            </p>
           ) : (
             salaryTxs.map((tx) => {
               const isPaid = tx.status === 'PAID' || tx.status === 'VALIDATED'
               const txVariant = isPaid ? ('paid' as const) : ('pending' as const)
-              const label =
-                tx.salaryMonth ??
-                new Date(tx.createdAt).toLocaleDateString('ru-RU', {
-                  month: 'long',
-                  year: 'numeric',
-                })
+              // COPY-H-proj-6: `salaryMonth` ("2026-04") is parsed into a date
+              // and formatted with the SAME function as the `createdAt`
+              // fallback, so both branches of this ternary go through the
+              // locale together instead of one staying a bare string.
+              const label = formatDate(
+                tx.salaryMonth ? `${tx.salaryMonth}-01` : tx.createdAt,
+                locale,
+                'monthYear',
+              )
               return (
                 <div
                   key={tx.id}
@@ -609,10 +645,10 @@ function SalarySnapshotCard({
                   <span className="text-sm text-muted-foreground capitalize">{label}</span>
                   <div className="flex items-center gap-3">
                     <span className="tabular-nums text-sm font-medium">
-                      {Number(tx.amount).toLocaleString('ru-RU')} {tx.currency}
+                      {formatNumber(Number(tx.amount), locale)} {tx.currency}
                     </span>
                     <Badge variant={txVariant} className="text-xs min-w-[72px] justify-center">
-                      {isPaid ? 'Выплачено' : 'Ожидание'}
+                      {isPaid ? t`Виплачено` : t`Очікування`}
                     </Badge>
                   </div>
                 </div>

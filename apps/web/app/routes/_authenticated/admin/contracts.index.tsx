@@ -1,14 +1,16 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { api } from '@/lib/axios'
-import { contractTargetRoleSchema } from '@crm/shared'
+import { contractTargetRoleSchema, formatDate } from '@crm/shared'
 import type { ContractTargetRole, ContractTemplateRow } from '@crm/shared'
+import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
+import { useLocale } from '@/lib/i18n'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Pencil, FileText } from 'lucide-react'
-import { format } from 'date-fns'
 
 export const Route = createFileRoute('/_authenticated/admin/contracts/')({
   component: ContractsListPage,
@@ -17,15 +19,9 @@ export const Route = createFileRoute('/_authenticated/admin/contracts/')({
 // All 5 possible roles (ADMIN excluded per spec)
 const ALL_ROLES: ContractTargetRole[] = ['HR', 'SENIOR', 'JUNIOR', 'DROP', 'ACCOUNTANT']
 
-const ROLE_LABELS: Record<ContractTargetRole, string> = {
-  HR: 'HR-менеджер',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
-  DROP: 'Дроп',
-  ACCOUNTANT: 'Бухгалтер',
-}
-
 function ContractsListPage() {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { data: templates = [], isLoading } = useQuery<ContractTemplateRow[]>({
     queryKey: ['contract-templates-all'],
     queryFn: async () => {
@@ -59,7 +55,9 @@ function ContractsListPage() {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          Шаблоны контрактов для каждой роли. Нажмите «Редактировать» для изменения текста.
+          <Trans>
+            Шаблони договорів для кожної ролі. Натисніть «Редагувати», щоб змінити текст.
+          </Trans>
         </p>
       </div>
 
@@ -76,7 +74,9 @@ function ContractsListPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <FileText className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <CardTitle className="text-base font-semibold">{ROLE_LABELS[role]}</CardTitle>
+                    <CardTitle className="text-base font-semibold">
+                      {i18n._(ROLE_LABEL_MESSAGES[role])}
+                    </CardTitle>
                   </div>
                   <Badge variant="outline" className="shrink-0 text-xs">
                     {role}
@@ -87,14 +87,14 @@ function ContractsListPage() {
                 {active ? (
                   <div className="space-y-1 text-sm text-muted-foreground">
                     <p>
-                      Обновлён:{' '}
+                      <Trans>Оновлено:</Trans>{' '}
                       <span className="font-medium text-foreground">
-                        {format(new Date(active.createdAt), 'dd.MM.yyyy')}
+                        {formatDate(active.createdAt, locale, 'short')}
                       </span>
                     </p>
                   </div>
                 ) : (
-                  <p className="text-sm text-amber-500">Шаблон не настроен</p>
+                  <p className="text-sm text-amber-500">{t`Шаблон не налаштовано`}</p>
                 )}
 
                 <Button
@@ -106,7 +106,7 @@ function ContractsListPage() {
                 >
                   <Link to="/admin/contracts/$role" params={{ role: role.toLowerCase() }}>
                     <Pencil className="h-3.5 w-3.5" />
-                    Редактировать
+                    <Trans>Редагувати</Trans>
                   </Link>
                 </Button>
               </CardContent>
