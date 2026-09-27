@@ -653,4 +653,81 @@ describe('TransactionDetailDialog — split-view attach button, footer, and rema
     // (shows nothing until the promise settles) diverge.
     expect(screen.getByText('Прихід адміна')).toBeInTheDocument()
   })
+
+  // task-i18n-stage3d-pr2 (mutation gate, AC10). `tx={null}` is the real shape
+  // the parent passes while the dialog is closed (mount before any row is
+  // selected) — `row` is `null` at the point `hasExistingReceipt` reads
+  // `row?.receiptDocumentId` / `row?.receiptExternalUrl`. No prior test ever
+  // rendered with `tx={null}`, so a mutant dropping either `?.` (which would
+  // throw on this exact shape) never ran against anything that could observe
+  // it.
+  it('tx=null: mounts without throwing (row is null; hasExistingReceipt must stay optional-chained)', () => {
+    mockUser.mockReturnValue({ id: 'viewer-id', role: 'ADMIN' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    expect(() =>
+      render(
+        <QueryClientProvider client={qc}>
+          <TransactionDetailDialog tx={null} onClose={() => {}} />
+        </QueryClientProvider>,
+      ),
+    ).not.toThrow()
+  })
+
+  it('the sr-only dialog description renders the full explanatory sentence', async () => {
+    renderDetail({ ...TX, type: 'ADMIN_INCOME' }, 'ADMIN')
+    expect(
+      await screen.findByText(
+        'Повна інформація про фінансову транзакцію, статус і прикріплений чек.',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  // task-i18n-stage3d-pr2 (mutation gate, AC10). The footer condition is
+  // `row && canQuickPayout && onQuickPayout` — three ANDs. Every existing
+  // test either has all three truthy or (`canQuickPayout` defaulted) all
+  // three falsy together, so an AND→OR mutation on any pair never flips the
+  // observed outcome. These two isolate each remaining truthy/falsy split.
+  it('canQuickPayout is false even though onQuickPayout is provided: footer button still does not render', async () => {
+    currentTx = { ...TX, type: 'SENIOR_INCOME', status: 'VALIDATED' } as TransactionDto
+    mockUser.mockReturnValue({ id: 'viewer-id', role: 'SENIOR' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog
+          tx={currentTx}
+          onClose={() => {}}
+          canQuickPayout={false}
+          onQuickPayout={vi.fn()}
+        />
+      </QueryClientProvider>,
+    )
+    await screen.findByText('Дата')
+    expect(screen.queryByTestId('detail-quick-payout')).not.toBeInTheDocument()
+  })
+
+  it('tx is null even though canQuickPayout+onQuickPayout are provided: footer button still does not render', () => {
+    mockUser.mockReturnValue({ id: 'viewer-id', role: 'SENIOR' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog
+          tx={null}
+          onClose={() => {}}
+          canQuickPayout
+          onQuickPayout={vi.fn()}
+        />
+      </QueryClientProvider>,
+    )
+    expect(screen.queryByTestId('detail-quick-payout')).not.toBeInTheDocument()
+  })
+
+  // task-i18n-stage3d-pr2 (mutation gate, AC10). The EUR/UAH tests above both
+  // have `rates` truthy — nothing before this asserted the negative: a
+  // currency that is neither EUR nor UAH must NOT show the row, even with
+  // rates loaded.
+  it('a USD transaction does not show the "Курс (USD)" row even though rates are loaded', async () => {
+    renderDetail({ ...TX, currency: 'USD', amount: '100.00' } as TransactionDto, 'ADMIN')
+    await screen.findByText('Дата')
+    expect(screen.queryByText('Курс (USD)')).not.toBeInTheDocument()
+  })
 })

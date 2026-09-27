@@ -474,7 +474,17 @@ export function TransactionDetailDialog({
   // via TX hash links inline instead.
   const showReceiptPanel = row ? RECEIPT_ELIGIBLE_TYPES.has(row.type) : false
   const hasExistingReceipt = !!(row?.receiptDocumentId || row?.receiptExternalUrl)
-  const showAttachButton = row ? canAttachReceipt(row, user?.id, user?.role ?? '') : false
+  const showAttachButton = row
+    ? canAttachReceipt(
+        row,
+        user?.id,
+        // Stryker disable next-line StringLiteral: canAttachReceipt only compares
+        // role against the literals 'ADMIN'/'ACCOUNTANT' — any other string
+        // (the '' fallback or the mutant's "Stryker was here!") is equally
+        // non-matching, so no test can observe a difference between them.
+        user?.role ?? '',
+      )
+    : false
   // Same audience the server already uses for the audit fields on this DTO.
   const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
