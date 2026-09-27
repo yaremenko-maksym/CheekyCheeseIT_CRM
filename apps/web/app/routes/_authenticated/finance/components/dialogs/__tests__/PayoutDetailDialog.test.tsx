@@ -19,6 +19,7 @@
  */
 import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -113,6 +114,20 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     expect(screen.getByText('Деталі виплати')).toBeInTheDocument()
     expect(screen.getByText('Скасувати')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-submit')).toHaveTextContent('Підтвердити оплату')
+  })
+
+  it('a PAID payout swaps the title to "Виплата (оплачена)" and the footer button to "Закрити"', () => {
+    vi.mocked(useQuery).mockReturnValueOnce({
+      data: { ...PAYOUT, status: 'PAID' },
+      isLoading: false,
+      isError: false,
+    } as ReturnType<typeof useQuery>)
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-title')).toHaveTextContent('Виплата (оплачена)')
+    expect(screen.getByText('Закрити')).toBeInTheDocument()
+    expect(screen.queryByText('Скасувати')).not.toBeInTheDocument()
+    // The submit button (guarded by `!state.isPaid`) must be gone entirely.
+    expect(screen.queryByTestId('payout-detail-submit')).not.toBeInTheDocument()
   })
 })
 
