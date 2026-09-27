@@ -37,6 +37,7 @@
  */
 
 import { test, expect, API_GLOB, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
 const CRM_ROOT = /\/?$/
@@ -179,7 +180,10 @@ test.describe('A. DROP routing hub — /crm root render', () => {
     await expect(main).toBeVisible({ timeout: 8_000 })
 
     // Page heading — «Дашборд» (PR #198 drop-phase3-frontend)
-    await expect(main.getByRole('heading', { level: 1 })).toContainText('Дашборд')
+    const uk = await loadMessages('uk')
+    await expect(main.getByRole('heading', { level: 1 })).toContainText(
+      assertInCatalog(uk, 'Дашборд'),
+    )
   })
 
   test('hub renders DropBalanceCard with loading → loaded state', async ({ asDrop: page }) => {
@@ -453,7 +457,8 @@ test.describe('C. DROP finance cabinet — /finance', () => {
 
     const table = page.getByTestId('drop-incomes-table')
     await expect(table).toBeVisible({ timeout: 8_000 })
-    await expect(table.getByText(/Приходів ще немає/)).toBeVisible()
+    const uk = await loadMessages('uk')
+    await expect(table.getByText(assertInCatalog(uk, 'Приходів ще немає'))).toBeVisible()
   })
 
   test('finance cabinet filter status select is rendered', async ({ asDrop: page }) => {

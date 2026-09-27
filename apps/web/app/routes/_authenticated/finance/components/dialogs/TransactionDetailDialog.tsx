@@ -225,7 +225,7 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
         </Row>
       )}
       {tx.validatedAt && (
-        <Row icon={<CheckCircle2 className="h-4 w-4" />} label={t`Перевірив`}>
+        <Row icon={<CheckCircle2 className="h-4 w-4" />} label={t`Хто перевірив`}>
           <span className="text-muted-foreground text-xs">
             {tx.validatedAt ? formatDate(tx.validatedAt, locale) : ''}
           </span>

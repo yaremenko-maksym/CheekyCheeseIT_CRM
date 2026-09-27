@@ -385,7 +385,7 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByText('ПЛАТЕЖІ КОМПАНІЇ')).toBeInTheDocument()
+    expect(screen.getByText('ПЛАТЕЖІ НА КОМПАНІЮ')).toBeInTheDocument()
     expect(screen.getByTestId('drop-payment-row-p1')).toHaveTextContent('Очікує')
     expect(screen.getByText('Очікує')).toHaveClass('bg-secondary')
     expect(screen.getByTestId('drop-payment-row-p2')).toHaveTextContent('Підтверджено')

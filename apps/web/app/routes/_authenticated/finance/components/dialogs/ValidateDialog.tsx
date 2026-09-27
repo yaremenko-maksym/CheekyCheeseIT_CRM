@@ -231,7 +231,7 @@ export function ValidateDialog({
               <Textarea
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder={t`Вкажіть причину у разі відмови...`}
+                placeholder={t`Вкажіть причину у разі відмови…`}
                 rows={2}
                 className="text-sm resize-none"
               />
@@ -263,7 +263,7 @@ export function ValidateDialog({
               data-testid="validate-transaction-confirm"
             >
               {mutation.isPending
-                ? t`Збереження...`
+                ? t`Збереження…`
                 : remainingCount > 1
                   ? t`Підтвердити (${remainingCount})`
                   : t`Підтвердити`}
@@ -278,7 +278,7 @@ export function ValidateDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>{t`Підтвердити валідацію?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t`Транзакцію буде підтверджено і переведено у статус «Валідована».`}
+              {t`Транзакцію буде підтверджено і переведено у статус «Валідовано».`}
               {remainingCount > 1 && (
                 <> {t`Після підтвердження черга перейде до наступної транзакції.`}</>
               )}

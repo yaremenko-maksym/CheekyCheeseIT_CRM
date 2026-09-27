@@ -221,7 +221,7 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
   it('enables «Отклонить» when reason is entered', () => {
     const tx = makeTx('tx-1')
     renderDialog({ tx, queue: [tx] })
-    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови...')
+    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови…')
     fireEvent.change(textarea, { target: { value: 'Неверная сумма' } })
     expect(screen.getByTestId('validate-transaction-reject')).not.toBeDisabled()
   })
@@ -229,7 +229,7 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
   it('calls mutation with action=reject and reason on «Отклонить» click', () => {
     const tx = makeTx('tx-1')
     renderDialog({ tx, queue: [tx] })
-    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови...')
+    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови…')
     fireEvent.change(textarea, { target: { value: 'Неверная сумма' } })
     fireEvent.click(screen.getByTestId('validate-transaction-reject'))
     expect(mutateMock).toHaveBeenCalledWith({ action: 'reject' })
@@ -242,7 +242,7 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
     const onClose = vi.fn()
     renderDialog({ tx: tx1, queue: [tx1, tx2], onAdvance, onClose })
 
-    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови...')
+    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови…')
     fireEvent.change(textarea, { target: { value: 'Причина' } })
     fireEvent.click(screen.getByTestId('validate-transaction-reject'))
 
@@ -258,7 +258,7 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
     const onClose = vi.fn()
     renderDialog({ tx, queue: [tx], onAdvance, onClose })
 
-    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови...')
+    const textarea = screen.getByPlaceholderText('Вкажіть причину у разі відмови…')
     fireEvent.change(textarea, { target: { value: 'Причина' } })
     fireEvent.click(screen.getByTestId('validate-transaction-reject'))
 
@@ -317,7 +317,7 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
     fireEvent.click(screen.getByTestId('validate-transaction-confirm'))
     expect(screen.getByText('Підтвердити валідацію?')).toBeInTheDocument()
     expect(
-      screen.getByText(/Транзакцію буде підтверджено і переведено у статус «Валідована»\./),
+      screen.getByText(/Транзакцію буде підтверджено і переведено у статус «Валідовано»\./),
     ).toBeInTheDocument()
     expect(screen.queryByText(/Після підтвердження черга перейде/)).not.toBeInTheDocument()
     expect(screen.getByTestId('validate-confirm-cancel')).toHaveTextContent('Скасувати')
@@ -336,7 +336,7 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
     const tx = makeTx('tx-1')
     renderDialog({ tx, queue: [tx] })
     expect(screen.getByTestId('validate-transaction-reject')).toHaveTextContent('Відхилити')
-    expect(screen.getByPlaceholderText('Вкажіть причину у разі відмови...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Вкажіть причину у разі відмови…')).toBeInTheDocument()
     expect(screen.getByTestId('validate-transaction-cancel')).toHaveTextContent('Скасувати')
   })
 })

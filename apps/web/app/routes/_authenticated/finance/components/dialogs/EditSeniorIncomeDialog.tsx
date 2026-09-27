@@ -162,7 +162,7 @@ export function EditSeniorIncomeDialog({
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={t`Додаткова інформація...`}
+              placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
             />
@@ -180,7 +180,7 @@ export function EditSeniorIncomeDialog({
             disabled={mutation.isPending}
             data-testid="edit-senior-income-resubmit"
           >
-            {mutation.isPending ? t`Збереження...` : t`Надіслати повторно`}
+            {mutation.isPending ? t`Збереження…` : t`Надіслати повторно`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

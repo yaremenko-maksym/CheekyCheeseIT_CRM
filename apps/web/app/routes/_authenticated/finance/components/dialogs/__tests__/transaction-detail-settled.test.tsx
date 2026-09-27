@@ -326,7 +326,7 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     expect(await screen.findByText('Нотатка')).toBeInTheDocument()
   })
 
-  it('SENIOR_INCOME: Сеньйор / Проєкт / Частка сеньйора / Перевірив / Причина відмови', async () => {
+  it('SENIOR_INCOME: Сеньйор / Проєкт / Частка сеньйора / Хто перевірив / Причина відмови', async () => {
     renderDetail(
       {
         ...TX,
@@ -349,7 +349,7 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     expect(await screen.findByText('Частка сеньйора')).toBeInTheDocument()
     expect(await screen.findByText('команда', { exact: false })).toBeInTheDocument()
     expect(await screen.findByText(/до отримання/)).toBeInTheDocument()
-    expect(await screen.findByText('Перевірив')).toBeInTheDocument()
+    expect(await screen.findByText('Хто перевірив')).toBeInTheDocument()
     expect(await screen.findByText('Причина відмови')).toBeInTheDocument()
     expect(await screen.findByText('Чек нечіткий')).toBeInTheDocument()
     expect(await screen.findByText('Примітки')).toBeInTheDocument()

@@ -543,7 +543,7 @@ test.describe('Finance — валидация транзакции', () => {
     await expect(rejectBtn).toBeDisabled()
 
     await asAdmin
-      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови...'))
+      .getByPlaceholder(assertInCatalog(uk, 'Вкажіть причину у разі відмови…'))
       .fill('Чек не подходит')
     await expect(rejectBtn).not.toBeDisabled()
     await rejectBtn.click()

@@ -433,7 +433,7 @@ function DropPaymentsHistory({
           <div className="flex items-center gap-2">
             <ArrowUpRight className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              {t`ПЛАТЕЖІ КОМПАНІЇ`}
+              {t`ПЛАТЕЖІ НА КОМПАНІЮ`}
             </span>
           </div>
         </CardHeader>

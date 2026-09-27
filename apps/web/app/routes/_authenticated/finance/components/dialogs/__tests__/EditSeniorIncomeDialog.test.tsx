@@ -136,7 +136,7 @@ describe('EditSeniorIncomeDialog — static labels (mutation-gate coverage)', ()
     expect(screen.getByText('Проєкт')).toBeInTheDocument()
     expect(screen.getByText('AI Platform v2')).toBeInTheDocument()
     expect(screen.getByText('Примітки')).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Додаткова інформація...')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Додаткова інформація…')).toBeInTheDocument()
     expect(screen.getByTestId('edit-senior-income-cancel')).toHaveTextContent('Скасувати')
   })
 

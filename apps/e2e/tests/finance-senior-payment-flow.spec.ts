@@ -22,6 +22,7 @@
  * changes to the broader finance flow don't accidentally mask either bug.
  */
 import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
@@ -263,7 +264,10 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 
     const dialog = asSenior.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('payout-detail-title')).toContainText(/Підтвердити виплату/i)
+    const uk = await loadMessages('uk')
+    await expect(dialog.getByTestId('payout-detail-title')).toContainText(
+      assertInCatalog(uk, 'Підтвердити виплату'),
+    )
 
     await expect(dialog.getByTestId('payout-detail-contract-address')).toContainText(STUB_CONTRACT)
 
@@ -530,7 +534,8 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
 
     await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
     await expect(dialog.locator('img[alt="Чек"]')).not.toBeVisible()
-    const link = dialog.getByRole('link', { name: /Відкрити чек/i })
+    const uk = await loadMessages('uk')
+    const link = dialog.getByRole('link', { name: assertInCatalog(uk, 'Відкрити чек') })
     await expect(link).toHaveAttribute('href', txWithHttpImage.receiptExternalUrl!)
     await expect(link).toHaveAttribute('target', '_blank')
   })
@@ -552,8 +557,11 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
 
     await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
     await expect(dialog.locator('object[type="application/pdf"]')).not.toBeVisible()
-    await expect(dialog.getByText(/не підтримує перегляд pdf/i)).not.toBeVisible()
-    const link = dialog.getByRole('link', { name: /Відкрити чек/i })
+    const uk = await loadMessages('uk')
+    await expect(
+      dialog.getByText(assertInCatalog(uk, 'Браузер не підтримує перегляд PDF.')),
+    ).not.toBeVisible()
+    const link = dialog.getByRole('link', { name: assertInCatalog(uk, 'Відкрити чек') })
     await expect(link).toHaveAttribute('href', txWithExternalPdf.receiptExternalUrl!)
   })
 })
