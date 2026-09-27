@@ -17,9 +17,21 @@
  * auth/router/sonner and the query/mutation hooks so the dialog renders without
  * a network. The payout query data is injected via the mocked useQuery.
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
+import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `PayoutDetailDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `ActiveTransactionsTable.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ── Mutable auth role so each test can pick the persona ─────────────────────
 let currentRole = 'SENIOR'

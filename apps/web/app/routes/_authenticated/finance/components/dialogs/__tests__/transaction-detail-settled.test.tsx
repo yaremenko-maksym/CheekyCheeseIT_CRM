@@ -15,12 +15,24 @@
  * reason this file is a render test rather than a snapshot of props.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
+import type { ReactElement } from 'react'
 
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import { TransactionDetailDialog } from '../TransactionDetailDialog'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `TransactionDetailDialog` calls `useLingui()` now — wrap every render
+// (same pattern as `ActiveTransactionsTable.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 const mockUser = vi.fn()
 
@@ -130,7 +142,7 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
 
     // What WAS paid still matters and stays.
     expect(digitsOf(settled.textContent ?? '')).toContain('8000')
-    expect(settled.parentElement?.textContent ?? '').not.toContain('К доплате')
+    expect(settled.parentElement?.textContent ?? '').not.toContain('До сплати')
   })
 
   it('DS-2. a row with no accumulator does not grow a row about it', async () => {
@@ -157,8 +169,8 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     // COPY-M-6: «Обязательство» named an entity (`pending_obligations`) that a
     // SALARY row — one of the two writers of this triplet — does not have. The
     // label has to be true for both writers.
-    expect(fact.textContent).toContain('Было должно')
-    expect(fact.textContent).not.toContain('Обязательство')
+    expect(fact.textContent).toContain('Нараховано')
+    expect(fact.textContent).not.toContain('Обов’язок')
     // The rate is what makes the refusal legible: `amount = original × rate`,
     // so editing `amount` alone would silently break the identity.
     //
@@ -205,7 +217,7 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     // 8 000 USDT − 2 000 UAH is not a smaller number, it is a wrong one, and
     // «К доплате» is precisely the label an operator pays against.
     expect(await screen.findByText('Дата')).toBeTruthy()
-    expect(screen.queryByText(/К доплате/)).toBeNull()
+    expect(screen.queryByText(/До сплати/)).toBeNull()
   })
 
   it('PF-4. the ACCOUNTANT sees the payment fact too — same audience as ADMIN', async () => {

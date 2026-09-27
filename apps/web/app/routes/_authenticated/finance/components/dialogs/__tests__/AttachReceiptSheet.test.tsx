@@ -154,7 +154,7 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
       'https://etherscan.io/tx/0xold',
     )
     expect(screen.getByTestId('attach-receipt-sheet-submit')).toBeEnabled()
-    expect(screen.getByText('Заменить')).toBeInTheDocument()
+    expect(screen.getByText('Замінити')).toBeInTheDocument()
   })
 
   it('submitting opens the destructive confirm dialog FIRST — does not call attachReceipt yet', () => {

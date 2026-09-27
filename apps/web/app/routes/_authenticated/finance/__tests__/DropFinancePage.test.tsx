@@ -112,8 +112,8 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     })
     renderPage()
     const row = screen.getByTestId('drop-income-row-declared-1')
-    expect(row).toHaveTextContent('Приход')
-    expect(row).not.toHaveTextContent('Начисление')
+    expect(row).toHaveTextContent('Прихід')
+    expect(row).not.toHaveTextContent('Нарахування')
   })
 
   it('an obligation row (company-booked IOU) shows the «Начисление» badge', () => {
@@ -136,9 +136,13 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     })
     renderPage()
     const row = screen.getByTestId('drop-income-row-obligation-1')
-    expect(row).toHaveTextContent('Начисление')
-    expect(row).not.toHaveTextContent('Приход')
-    expect(row).toHaveTextContent('$800.48')
+    expect(row).toHaveTextContent('Нарахування')
+    expect(row).not.toHaveTextContent('Прихід')
+    // task-i18n-stage3d-pr2: `fmtUsd` is now locale-aware (`formatNumber`
+    // with the active catalog locale) — the `I18nTestProvider` default (`uk`)
+    // groups digits with a comma decimal separator, not the old hardcoded
+    // `en-US` period.
+    expect(row).toHaveTextContent('$800,48')
   })
 
   it('BOTH models render together in the same table, each with its own badge', () => {
@@ -155,8 +159,8 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Приход')
-    expect(screen.getByTestId('drop-income-row-obligation-1')).toHaveTextContent('Начисление')
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Прихід')
+    expect(screen.getByTestId('drop-income-row-obligation-1')).toHaveTextContent('Нарахування')
   })
 
   it('shows «Приходов пока нет» when the feed is empty', () => {
@@ -165,7 +169,7 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByText('Приходов пока нет')).toBeInTheDocument()
+    expect(screen.getByText('Приходів ще немає')).toBeInTheDocument()
   })
 })
 
@@ -187,7 +191,7 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
-      'Валовый приход',
+      'Валовий прихід',
     )
   })
 
@@ -203,8 +207,8 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     const label = screen.getByTestId('drop-income-amount-kind-obligation-1')
-    expect(label).toHaveTextContent('Ваша доля')
-    expect(label).not.toHaveTextContent('Валовый приход')
+    expect(label).toHaveTextContent('Ваша частка')
+    expect(label).not.toHaveTextContent('Валовий прихід')
   })
 
   it('a $5,000 gross row and a $40 share row never read as directly comparable amounts', () => {
@@ -222,10 +226,10 @@ describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
     })
     renderPage()
     expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
-      'Валовый приход',
+      'Валовий прихід',
     )
     expect(screen.getByTestId('drop-income-amount-kind-obligation-1')).toHaveTextContent(
-      'Ваша доля',
+      'Ваша частка',
     )
   })
 })

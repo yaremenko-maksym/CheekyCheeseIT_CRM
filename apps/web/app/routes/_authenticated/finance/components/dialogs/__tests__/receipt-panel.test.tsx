@@ -32,9 +32,21 @@
  * 7. LOW — the external card itself is a single clickable <a>, not a
  *    non-interactive element with clickable-looking copy.
  */
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
+import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `ReceiptPanel` calls `useLingui()` now — wrap every render (same pattern
+// as `ActiveTransactionsTable.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 const useDocumentDownloadUrlMock = vi.fn()
 vi.mock('@/hooks/use-documents', () => ({
@@ -64,7 +76,7 @@ describe('ReceiptPanel — external PDF / http:// (blocked embed → honest card
     expect(screen.getByTestId('receipt-panel-external')).toBeInTheDocument()
     expect(document.querySelector('object')).toBeNull()
     expect(document.querySelector('iframe')).toBeNull()
-    const links = screen.getAllByRole('link', { name: /открыть чек|чек хранится/i })
+    const links = screen.getAllByRole('link', { name: /відкрити чек|чек зберігається/i })
     for (const link of links) {
       expect(link).toHaveAttribute('href', tx.receiptExternalUrl)
       expect(link).toHaveAttribute('target', '_blank')
@@ -92,7 +104,7 @@ describe('ReceiptPanel — external PDF / http:// (blocked embed → honest card
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.queryByText(/не поддерживается браузером/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/не підтримує перегляд pdf/i)).not.toBeInTheDocument()
   })
 
   it('LOW: the external card is itself a single clickable <a> (whole card, not just the caption)', () => {
@@ -130,7 +142,7 @@ describe('ReceiptPanel — unsafe scheme never reaches href/src (MED-1 defence-i
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.getByText('Чек недоступен')).toBeInTheDocument()
+    expect(screen.getByText('Чек недоступний')).toBeInTheDocument()
     expect(document.querySelector('a[href^="javascript:"]')).toBeNull()
     expect(document.querySelector('[href*="alert"]')).toBeNull()
   })
@@ -142,7 +154,7 @@ describe('ReceiptPanel — unsafe scheme never reaches href/src (MED-1 defence-i
     } as TransactionDto
     render(<ReceiptPanel tx={tx} />)
 
-    expect(screen.getByText('Чек недоступен')).toBeInTheDocument()
+    expect(screen.getByText('Чек недоступний')).toBeInTheDocument()
     expect(document.querySelector('a[href^="data:"]')).toBeNull()
   })
 })
