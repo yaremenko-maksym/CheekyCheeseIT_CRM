@@ -472,6 +472,11 @@ export function TransactionDetailDialog({
   // receipt is meaningful. For purely on-chain transactions (PAYOUT,
   // PAYOUT_ADMIN) the receipt panel becomes an «Open in Etherscan» surface
   // via TX hash links inline instead.
+  // Stryker disable next-line BooleanLiteral: the `false` alternative only
+  // matters when `row` is falsy, and `row` is falsy exactly when `tx` is
+  // (`<Dialog open={!!tx}>`) — the dialog is closed and its content
+  // unmounted, so `showReceiptPanel` never reaches any JSX a test could
+  // observe on that branch.
   const showReceiptPanel = row ? RECEIPT_ELIGIBLE_TYPES.has(row.type) : false
   const hasExistingReceipt = !!(row?.receiptDocumentId || row?.receiptExternalUrl)
   const showAttachButton = row
@@ -484,7 +489,10 @@ export function TransactionDetailDialog({
         // non-matching, so no test can observe a difference between them.
         user?.role ?? '',
       )
-    : false
+    : // Stryker disable next-line BooleanLiteral: same reasoning as
+      // `showReceiptPanel` above — reached only when `row` is falsy, i.e. the
+      // dialog is closed and unmounted.
+      false
   // Same audience the server already uses for the audit fields on this DTO.
   const privileged = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 

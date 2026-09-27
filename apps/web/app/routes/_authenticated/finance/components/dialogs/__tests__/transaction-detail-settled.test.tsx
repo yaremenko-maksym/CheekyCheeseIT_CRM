@@ -727,7 +727,12 @@ describe('TransactionDetailDialog — split-view attach button, footer, and rema
   // rates loaded.
   it('a USD transaction does not show the "Курс (USD)" row even though rates are loaded', async () => {
     renderDetail({ ...TX, currency: 'USD', amount: '100.00' } as TransactionDto, 'ADMIN')
-    await screen.findByText('Дата')
+    // `fmtUsd` only prints the "$"-prefixed form once `rates` has resolved
+    // (before that it falls back to `fmtAmount`'s plain "100,00 USD" shape) —
+    // waiting for the headline is how this test proves `rates` is truthy at
+    // the point it asserts the row's absence, not just that it hasn't
+    // rendered yet.
+    await screen.findByText('$100,00')
     expect(screen.queryByText('Курс (USD)')).not.toBeInTheDocument()
   })
 })
