@@ -125,6 +125,10 @@ describe('EditSeniorIncomeDialog — static labels (mutation-gate coverage)', ()
   it('renders title, rejection panel, project name, notes field, and cancel button', () => {
     renderDialog(LEGACY_HTTP_TX)
     expect(screen.getByText('Виправити транзакцію')).toBeInTheDocument()
+    expect(screen.getByText('Виправлення транзакції')).toBeInTheDocument()
+    expect(screen.getByTestId('edit-senior-income-resubmit')).toHaveTextContent(
+      'Надіслати повторно',
+    )
     expect(screen.getByText('Причина відмови:')).toBeInTheDocument()
     expect(screen.getByTestId('edit-senior-income-rejection-reason')).toHaveTextContent(
       'Чек нечитаем',
