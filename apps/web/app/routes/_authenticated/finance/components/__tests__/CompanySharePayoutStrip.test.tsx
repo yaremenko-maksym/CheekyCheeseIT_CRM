@@ -134,6 +134,7 @@ describe('CompanySharePayoutStrip', () => {
     const amount = screen.getByTestId('company-share-cta-amount')
     expect(amount).toHaveTextContent('740')
     expect(amount).not.toHaveTextContent('1 000,00 USDT')
+    expect(screen.getByText('Оплатити')).toBeInTheDocument()
   })
 
   it('counts distinct projects, not distinct transactions', () => {

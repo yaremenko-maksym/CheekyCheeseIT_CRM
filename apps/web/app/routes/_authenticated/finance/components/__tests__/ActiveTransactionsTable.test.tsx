@@ -102,6 +102,9 @@ describe('ActiveTransactionsTable — dashboard action routing (#280)', () => {
         onConfirmPayout={onConfirmPayout}
       />,
     )
+    expect(screen.getByTestId(`confirm-payout-button-${PAYOUT_ID}`)).toHaveTextContent(
+      'Підтвердити оплату',
+    )
     await userEvent.click(screen.getByTestId(`confirm-payout-button-${PAYOUT_ID}`))
     expect(onConfirmPayout).toHaveBeenCalledTimes(1)
     const tx = onConfirmPayout.mock.calls[0]?.[0]
@@ -149,6 +152,7 @@ describe('ActiveTransactionsTable — dashboard action routing (#280)', () => {
         onPaySalary={onPaySalary}
       />,
     )
+    expect(screen.getByTestId(`tx-row-pay-salary-${SALARY_ID}`)).toHaveTextContent('Розрахуватися')
     await userEvent.click(screen.getByTestId(`tx-row-pay-salary-${SALARY_ID}`))
     expect(onPaySalary).toHaveBeenCalledTimes(1)
     expect(onPaySalary.mock.calls[0]?.[0]?.id).toBe(SALARY_ID)
@@ -164,5 +168,32 @@ describe('ActiveTransactionsTable — dashboard action routing (#280)', () => {
   it('shows the empty state when there are no active transactions', () => {
     render(<ActiveTransactionsTable transactions={[]} loading={false} />)
     expect(screen.getByTestId('admin-active-tx-empty')).toBeInTheDocument()
+    // Default text (no `emptyMessage` prop) — pins the `t` template AND the
+    // `??` fallback: a `&&` mutant on `emptyMessage ?? t\`...\`` would leave
+    // `resolvedEmptyMessage` as `undefined` here (`undefined && t\`...\`` ===
+    // `undefined`), rendering an empty paragraph instead of this text.
+    expect(screen.getByText('Активних транзакцій немає')).toBeInTheDocument()
+  })
+
+  it('an explicit emptyMessage prop overrides the default text', () => {
+    render(
+      <ActiveTransactionsTable transactions={[]} loading={false} emptyMessage="Custom empty" />,
+    )
+    // With the `&&` mutant, a TRUTHY `emptyMessage` would make
+    // `emptyMessage && t\`...\`` evaluate to the SECOND operand (the default
+    // text), not the prop — so asserting the PROP's text distinguishes `??`
+    // from `&&` on the truthy side too.
+    expect(screen.getByText('Custom empty')).toBeInTheDocument()
+    expect(screen.queryByText('Активних транзакцій немає')).not.toBeInTheDocument()
+  })
+
+  it('table headers render the canon uk labels', () => {
+    render(<ActiveTransactionsTable transactions={[makeRow()]} loading={false} />)
+    expect(screen.getByText('Тип')).toBeInTheDocument()
+    expect(screen.getByText('Учасник / Проєкт')).toBeInTheDocument()
+    expect(screen.getByText('Сума')).toBeInTheDocument()
+    expect(screen.getByText('Дата')).toBeInTheDocument()
+    expect(screen.getByText('Статус')).toBeInTheDocument()
+    expect(screen.getByText('Дії')).toBeInTheDocument()
   })
 })

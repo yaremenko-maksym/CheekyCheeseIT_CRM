@@ -127,6 +127,11 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         value,
         label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
       })),
+    // Stryker disable next-line ArrayDeclaration: a `[]` deps array only differs
+    // from `[i18n]` across a live locale switch's RE-render — the comment above
+    // already explains why this is only observable by opening the Radix
+    // `<Select>`, which happy-dom does not support (verified: no `*.test.tsx` in
+    // this repo asserts an OPENED Select's option list).
     [i18n],
   )
   const STATUS_OPTIONS = useMemo(
@@ -135,6 +140,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         value,
         label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
       })),
+    // Stryker disable next-line ArrayDeclaration: same reasoning as TYPE_OPTIONS' deps above.
     [i18n],
   )
 

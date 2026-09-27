@@ -134,6 +134,9 @@ describe('TransactionRow — attach/replace-receipt icon', () => {
     renderRow({ tx: makeTx({ status: 'VALIDATED' }), role: 'ADMIN', onAttachReceipt })
     const btn = screen.getByTestId(ATTACH_TESTID)
     expect(btn.tagName).toBe('BUTTON')
+    // title/aria-label pin the "attach" (not "replace") wording — canon uk text.
+    expect(btn).toHaveAttribute('title', 'Прикріпити чек')
+    expect(btn).toHaveAttribute('aria-label', 'Прикріпити чек')
     await userEvent.click(btn)
     expect(onAttachReceipt).toHaveBeenCalledTimes(1)
     expect(onAttachReceipt.mock.calls[0]?.[0]?.id).toBe(TX_ID)
@@ -148,6 +151,9 @@ describe('TransactionRow — attach/replace-receipt icon', () => {
     const btn = screen.getByTestId(ATTACH_TESTID)
     expect(btn.tagName).toBe('BUTTON')
     expect(btn.className).toMatch(/emerald/)
+    // title/aria-label pin the "replace" (not "attach") wording — canon uk text.
+    expect(btn).toHaveAttribute('title', 'Замінити чек')
+    expect(btn).toHaveAttribute('aria-label', 'Замінити чек')
     expect(screen.queryByTestId(INDICATOR_TESTID)).not.toBeInTheDocument()
   })
 
@@ -160,6 +166,8 @@ describe('TransactionRow — attach/replace-receipt icon', () => {
     })
     const indicator = screen.getByTestId(INDICATOR_TESTID)
     expect(indicator.tagName).toBe('SPAN')
+    expect(indicator).toHaveAttribute('title', 'Чек прикріплено')
+    expect(indicator).toHaveAttribute('aria-label', 'Чек прикріплено')
     expect(screen.queryByTestId(ATTACH_TESTID)).not.toBeInTheDocument()
   })
 
@@ -187,5 +195,19 @@ describe('TransactionRow — attach/replace-receipt icon', () => {
   it('without an onAttachReceipt handler, no interactive button renders even for ADMIN', () => {
     renderRow({ tx: makeTx({ status: 'PENDING' }), role: 'ADMIN' })
     expect(screen.queryByTestId(ATTACH_TESTID)).not.toBeInTheDocument()
+  })
+})
+
+// task-i18n-3d-pr1-fix (mutation-gate follow-up). `canEdit` (SENIOR, own
+// REJECTED SENIOR_INCOME row) had no test rendering the button at all —
+// mutation gate reported the `t\`Виправити\`` StringLiteral survived.
+describe('TransactionRow — canEdit ("Виправити") button', () => {
+  it('SENIOR sees the "Виправити" button on their own REJECTED SENIOR_INCOME row', () => {
+    renderRow({
+      tx: makeTx({ type: 'SENIOR_INCOME', status: 'REJECTED', receiverId: AUTHOR_ID }),
+      role: 'SENIOR',
+      currentUserId: AUTHOR_ID,
+    })
+    expect(screen.getByTestId(`tx-row-edit-${TX_ID}`)).toHaveTextContent('Виправити')
   })
 })

@@ -28,7 +28,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
 
+import { i18n } from '@lingui/core'
+import { loadCatalog } from '@/test/i18n'
+
 import {
+  CASCADE_PREVIEW_LEAD_IN_MESSAGE,
   canSaveCascadeEdit,
   cascadePreviewErrorMessage,
   cascadeSaveErrorMessage,
@@ -478,5 +482,14 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     expect(cascadeSaveErrorMessage(fakeAxiosShapedFunction)).toBe(
       'Не вдалося зберегти — спробуйте ще раз',
     )
+  })
+})
+
+describe('CASCADE_PREVIEW_LEAD_IN_MESSAGE (task-i18n-3d-pr1, Step 5)', () => {
+  it('resolves to the canon uk/en text through the real compiled catalog', async () => {
+    await loadCatalog('uk')
+    expect(i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)).toBe('Перегляд недоступний')
+    await loadCatalog('en')
+    expect(i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)).toBe('Preview unavailable')
   })
 })
