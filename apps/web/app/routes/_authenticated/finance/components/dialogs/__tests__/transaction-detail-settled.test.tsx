@@ -15,7 +15,7 @@
  * reason this file is a render test rather than a snapshot of props.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent, type RenderResult } from '@testing-library/react'
 import { describe, expect, it, vi, beforeAll } from 'vitest'
 import type { ReactElement } from 'react'
 
@@ -345,12 +345,15 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     )
     await screen.findByText('Дата')
     expect(await screen.findByText('Сеньйор')).toBeInTheDocument()
+    expect(await screen.findByText('Проєкт')).toBeInTheDocument()
     expect(await screen.findByText('Частка сеньйора')).toBeInTheDocument()
     expect(await screen.findByText('команда', { exact: false })).toBeInTheDocument()
     expect(await screen.findByText(/до отримання/)).toBeInTheDocument()
     expect(await screen.findByText('Перевірив')).toBeInTheDocument()
     expect(await screen.findByText('Причина відмови')).toBeInTheDocument()
     expect(await screen.findByText('Чек нечіткий')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+    expect(await screen.findByText('Нотатка')).toBeInTheDocument()
   })
 
   it('EXPENSE: Хто створив / Категорія / Примітки', async () => {
@@ -440,8 +443,26 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     expect(await screen.findByText('Отримувач')).toBeInTheDocument()
     expect(await screen.findByText('Дохід сеньйора')).toBeInTheDocument()
     expect(await screen.findByText('Частка сеньйора')).toBeInTheDocument()
-    expect(await screen.findByText(/виплачено/)).toBeInTheDocument()
+    expect(await screen.findByText('проєкт', { exact: false })).toBeInTheDocument()
+    expect(await screen.findByText('→ виплачено: 900,00 USDT')).toBeInTheDocument()
     expect(await screen.findByText('Хеш транзакції')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+    expect(await screen.findByText('Нотатка')).toBeInTheDocument()
+  })
+
+  it('ShareSourceTag: the "USER_DEFAULT" source renders "за замовчуванням"', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'SENIOR_INCOME',
+        receiverId: 'r-1',
+        receiverName: 'Сеньйор Іванов',
+        seniorSharePercent: 20,
+        seniorSharePercentSource: 'USER_DEFAULT',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    expect(await screen.findByText('за замовчуванням', { exact: false })).toBeInTheDocument()
   })
 
   it('PAYOUT_ADMIN: Джерело / Отримувач / Загальний дохід / Хеш транзакції', async () => {
@@ -477,5 +498,159 @@ describe('TransactionDetailDialog — type-specific content blocks (Row labels)'
     )
     await screen.findByText('Дата')
     expect(await screen.findByText('Деталі транзакції')).toBeInTheDocument()
+  })
+})
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). Split-view attach button
+// (hasExistingReceipt ternary), the quick-payout footer, the USD-vs-other
+// currency subline, "Виплачено" / "Факт переказу" row labels, the
+// txDate-vs-createdAt date fallback, the EUR/UAH rate row, and the ID slice
+// were never asserted by any existing test in this file — `TX` (type
+// `SENIOR_PENDING_PAYOUT`) is not receipt-eligible, so `showReceiptPanel`
+// (and everything gated on it) never renders in any test above; the
+// remaining rows simply had no assertion on their own text/value.
+describe('TransactionDetailDialog — split-view attach button, footer, and remaining labels (mutation-gate coverage)', () => {
+  it('no existing receipt: split-view attach button reads "Прикріпити чек"', async () => {
+    renderDetail(
+      { ...TX, type: 'ADMIN_INCOME', receiptDocumentId: null, receiptExternalUrl: null },
+      'ADMIN',
+    )
+    const btn = await screen.findByTestId('detail-attach-receipt')
+    expect(btn).toHaveTextContent('Прикріпити чек')
+  })
+
+  it('an existing receipt: split-view attach button reads "Замінити чек"', async () => {
+    renderDetail(
+      { ...TX, type: 'ADMIN_INCOME', receiptDocumentId: 'doc-1', receiptExternalUrl: null },
+      'ADMIN',
+    )
+    const btn = await screen.findByTestId('detail-attach-receipt')
+    expect(btn).toHaveTextContent('Замінити чек')
+  })
+
+  it('canQuickPayout + onQuickPayout renders the "Виплатити" footer button and "Закрити"', async () => {
+    const onQuickPayout = vi.fn()
+    currentTx = { ...TX, type: 'SENIOR_INCOME', status: 'VALIDATED' } as TransactionDto
+    mockUser.mockReturnValue({ id: 'viewer-id', role: 'SENIOR' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog
+          tx={currentTx}
+          onClose={() => {}}
+          canQuickPayout
+          onQuickPayout={onQuickPayout}
+        />
+      </QueryClientProvider>,
+    )
+    const payoutBtn = await screen.findByTestId('detail-quick-payout')
+    expect(payoutBtn).toHaveTextContent('Виплатити')
+    expect(screen.getByText('Закрити')).toBeInTheDocument()
+    fireEvent.click(payoutBtn)
+    expect(onQuickPayout).toHaveBeenCalledWith(currentTx)
+  })
+
+  it('without canQuickPayout, no footer button renders at all', async () => {
+    renderDetail({ ...TX, type: 'ADMIN_INCOME' }, 'ADMIN')
+    await screen.findByText('Дата')
+    expect(screen.queryByTestId('detail-quick-payout')).not.toBeInTheDocument()
+    expect(screen.queryByText('Закрити')).not.toBeInTheDocument()
+    expect(screen.queryByText('Скасувати')).not.toBeInTheDocument()
+  })
+
+  it('a USD transaction shows no original-currency subline; a non-USD one does', async () => {
+    renderDetail({ ...TX, currency: 'USD', amount: '100.00' } as TransactionDto, 'ADMIN')
+    const usdAmount = await screen.findByText('$100,00')
+    // The subline (fmtAmount) would duplicate the headline for USD — absent.
+    expect(screen.queryByText('100,00 USD')).not.toBeInTheDocument()
+    expect(usdAmount).toBeInTheDocument()
+  })
+
+  it('a non-USD transaction (USDT) shows the original-amount subline', async () => {
+    renderDetail(TX, 'ADMIN')
+    expect(await screen.findByText(/8\s?000,00\s?USDT/)).toBeInTheDocument()
+  })
+
+  it('"Виплачено" and "Факт переказу" row labels render with their values', async () => {
+    renderDetail(
+      {
+        ...TX,
+        settledAmount: '1000.000000',
+        settledCurrency: 'USDT',
+        originalAmount: '800.000000',
+        originalCurrency: 'USD',
+        exchangeRate: '37.5',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    expect(await screen.findByText('Виплачено')).toBeInTheDocument()
+    expect(await screen.findByText('Факт переказу')).toBeInTheDocument()
+  })
+
+  it('the date row falls back to createdAt when txDate is null, and uses txDate when set', async () => {
+    renderDetail({ ...TX, txDate: null, createdAt: '2026-08-01T00:00:00.000Z' }, 'ADMIN')
+    expect(await screen.findByText('1 серпня 2026 р.')).toBeInTheDocument()
+  })
+
+  it('when txDate is set, the date row uses it instead of createdAt', async () => {
+    renderDetail(
+      { ...TX, txDate: '2026-09-15T00:00:00.000Z', createdAt: '2026-08-01T00:00:00.000Z' },
+      'ADMIN',
+    )
+    expect(await screen.findByText('15 вересня 2026 р.')).toBeInTheDocument()
+  })
+
+  it('a EUR transaction with loaded rates shows the "Курс (USD)" row with "· НБУ"', async () => {
+    renderDetail({ ...TX, currency: 'EUR', amount: '100.00' } as TransactionDto, 'ADMIN')
+    expect(await screen.findByText('Курс (USD)')).toBeInTheDocument()
+    expect(screen.getByText('· НБУ')).toBeInTheDocument()
+  })
+
+  it('a UAH transaction with loaded rates also shows the "Курс (USD)" row', async () => {
+    renderDetail({ ...TX, currency: 'UAH', amount: '1000.00' } as TransactionDto, 'ADMIN')
+    expect(await screen.findByText('Курс (USD)')).toBeInTheDocument()
+  })
+
+  it('the footer ID line shows the first 8 characters of the tx id, not the full id', async () => {
+    renderDetail(TX, 'ADMIN')
+    expect(await screen.findByText(`ID: ${TX.id.slice(0, 8)}…`)).toBeInTheDocument()
+    expect(screen.queryByText(`ID: ${TX.id}…`)).not.toBeInTheDocument()
+  })
+
+  it('cancelling the AttachReceiptSheet actually closes it (onClose is wired, not a no-op)', async () => {
+    renderDetail({ ...TX, type: 'ADMIN_INCOME' }, 'ADMIN')
+    fireEvent.click(await screen.findByTestId('detail-attach-receipt'))
+    expect(await screen.findByTestId('attach-receipt-sheet')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('attach-receipt-sheet-cancel'))
+    expect(screen.queryByTestId('attach-receipt-sheet')).not.toBeInTheDocument()
+  })
+
+  it('with no session user, showAttachButton is false and the attach button never renders', async () => {
+    currentTx = { ...TX, type: 'ADMIN_INCOME' } as TransactionDto
+    mockUser.mockReturnValue(undefined)
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog tx={currentTx} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    await screen.findByText('Дата')
+    expect(screen.queryByTestId('detail-attach-receipt')).not.toBeInTheDocument()
+  })
+
+  it('before the refetch resolves, the dialog shows the `tx` prop content immediately (no skeleton flash)', () => {
+    currentTx = { ...TX, type: 'ADMIN_INCOME' } as TransactionDto
+    mockUser.mockReturnValue({ id: 'viewer-id', role: 'ADMIN' })
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <TransactionDetailDialog tx={currentTx} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    // Synchronous — no `await`/`findBy`: the `financeApi.getTransaction`
+    // promise has not resolved yet, so this is exactly the window where
+    // `detail ?? tx` (shows `tx` immediately) and a mutated `detail && tx`
+    // (shows nothing until the promise settles) diverge.
+    expect(screen.getByText('Прихід адміна')).toBeInTheDocument()
   })
 })

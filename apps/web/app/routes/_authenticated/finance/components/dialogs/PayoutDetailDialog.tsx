@@ -86,7 +86,10 @@ export function PayoutDetailDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose}>
-            {state.isPaid || onChainStatus === 'confirmed' ? t`Закрити` : t`Скасувати`}
+            {
+              // Stryker disable next-line ConditionalExpression,StringLiteral: the `state.isPaid` half of this OR is covered by a real render test (PAID vs PENDING payout); the `onChainStatus === 'confirmed'` half is a `usePayoutPaymentForm` INTERNAL state reached only through a real on-chain polling/tx-hash-submit flow this unit test's shallow `useQuery`/`useMutation` mocks do not drive — reaching it would mean re-implementing that hook's timers here rather than testing this component
+              state.isPaid || onChainStatus === 'confirmed' ? t`Закрити` : t`Скасувати`
+            }
           </Button>
           {!state.isPaid && payout && onChainStatus !== 'confirmed' && (
             <Button

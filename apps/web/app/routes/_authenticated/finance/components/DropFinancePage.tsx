@@ -146,6 +146,7 @@ function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
   const { t, i18n } = useLingui()
   const variant: Record<DropPaymentStatus, 'secondary' | 'default' | 'outline' | 'destructive'> = {
     pending: 'secondary',
+    // Stryker disable next-line StringLiteral: unobservable — `badgeVariants` (class-variance-authority) falls back to `defaultVariants: { variant: 'default' }` for ANY key its `variants.variant` map does not recognise, so mutating this literal to `""` renders the identical class list as `'default'` — the two are behaviourally indistinguishable via any DOM assertion
     confirmed: 'default',
     failed: 'destructive',
   }
@@ -246,7 +247,10 @@ function DropIncomesTable() {
                 className="h-8 text-xs w-auto min-w-32"
                 data-testid="drop-filter-status"
               >
-                <SelectValue placeholder={t`Усі статуси`} />
+                {
+                  // Stryker disable next-line StringLiteral: unobservable — `statusFilter` (component state) always starts at 'all' and Radix Select renders the MATCHING SelectItem's own text once a value is set, never falling through to this placeholder; it would only render if the value could be empty/undefined, which this component's state model never produces
+                  <SelectValue placeholder={t`Усі статуси`} />
+                }
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t`Усі статуси`}</SelectItem>
@@ -270,7 +274,10 @@ function DropIncomesTable() {
                 className="h-8 text-xs w-auto min-w-36"
                 data-testid="drop-filter-period"
               >
-                <SelectValue placeholder={t`Усі періоди`} />
+                {
+                  // Stryker disable next-line StringLiteral: same reason as the status placeholder above — `periodFilter` always starts at 'all', so Radix shows the matching SelectItem's text, never this placeholder
+                  <SelectValue placeholder={t`Усі періоди`} />
+                }
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">{t`Усі періоди`}</SelectItem>
