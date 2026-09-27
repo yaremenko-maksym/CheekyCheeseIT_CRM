@@ -295,3 +295,187 @@ describe('TransactionDetailDialog — settle accumulator and payment fact', () =
     expect(await screen.findByTestId('tx-detail-settled')).toBeTruthy()
   })
 })
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). `TX` above is `type:
+// 'SENIOR_PENDING_PAYOUT'` — none of the seven type-specific content blocks
+// (`AdminIncomeContent`/`SeniorIncomeContent`/`ExpenseContent`/
+// `SalaryContent`/`AdminTransferContent`/`PayoutContent`/
+// `PayoutAdminContent`) match it, so every Row label they render was
+// entirely unexercised by any existing test — Stryker's StringLiteral
+// mutants on those labels survived by construction (no test to notice a
+// blanked-out label). One render per type, asserting every label it
+// contributes, so the localised text is pinned rather than merely typed.
+describe('TransactionDetailDialog — type-specific content blocks (Row labels)', () => {
+  it('ADMIN_INCOME: Отримувач / Проєкт / Примітки', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'ADMIN_INCOME',
+        senderId: 'sender-1',
+        senderName: 'Клієнт ТОВ',
+        projectId: 'proj-1',
+        projectName: 'Project X',
+        notes: 'Нотатка',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Отримувач')).toBeInTheDocument()
+    expect(await screen.findByText('Проєкт')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+    expect(await screen.findByText('Нотатка')).toBeInTheDocument()
+  })
+
+  it('SENIOR_INCOME: Сеньйор / Проєкт / Частка сеньйора / Перевірив / Причина відмови', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'SENIOR_INCOME',
+        receiverId: 'r-1',
+        receiverName: 'Сеньйор Іванов',
+        projectId: 'proj-1',
+        projectName: 'Project X',
+        seniorSharePercent: 20,
+        seniorSharePercentSource: 'TEAM',
+        validatedAt: '2026-08-02T00:00:00.000Z',
+        rejectionReason: 'Чек нечіткий',
+        notes: 'Нотатка',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Сеньйор')).toBeInTheDocument()
+    expect(await screen.findByText('Частка сеньйора')).toBeInTheDocument()
+    expect(await screen.findByText('команда', { exact: false })).toBeInTheDocument()
+    expect(await screen.findByText(/до отримання/)).toBeInTheDocument()
+    expect(await screen.findByText('Перевірив')).toBeInTheDocument()
+    expect(await screen.findByText('Причина відмови')).toBeInTheDocument()
+    expect(await screen.findByText('Чек нечіткий')).toBeInTheDocument()
+  })
+
+  it('EXPENSE: Хто створив / Категорія / Примітки', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'EXPENSE',
+        senderId: 'sender-1',
+        senderName: 'Автор витрати',
+        receiverLabel: 'Банківський збір',
+        notes: 'Нотатка',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Хто створив')).toBeInTheDocument()
+    expect(await screen.findByText('Категорія')).toBeInTheDocument()
+    expect(await screen.findByText('Банківський збір')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+  })
+
+  it('SALARY: Отримувач / Період / Проєкт / Хеш транзакції / Примітки', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'SALARY',
+        receiverId: 'r-1',
+        receiverName: 'Джуніор',
+        salaryMonth: '2026-08',
+        projectId: 'proj-1',
+        projectName: 'Project X',
+        txHash: '0xabc123',
+        receiptDocumentId: null,
+        receiptExternalUrl: null,
+        notes: 'Нотатка',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Отримувач')).toBeInTheDocument()
+    expect(await screen.findByText('Період')).toBeInTheDocument()
+    expect(await screen.findByText('Проєкт')).toBeInTheDocument()
+    expect(await screen.findByText('Хеш транзакції')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+  })
+
+  it('ADMIN_TRANSFER: Відправник / Отримувач / Примітки', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'ADMIN_TRANSFER',
+        senderId: 's-1',
+        senderName: 'Адмін 1',
+        receiverId: 'r-1',
+        receiverName: 'Адмін 2',
+        notes: 'Нотатка',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Відправник')).toBeInTheDocument()
+    expect(await screen.findByText('Отримувач')).toBeInTheDocument()
+    expect(await screen.findByText('Примітки')).toBeInTheDocument()
+  })
+
+  it('PAYOUT: Сеньйор / Отримувач / Дохід сеньйора / Частка сеньйора / виплачено / Хеш транзакції', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'PAYOUT',
+        senderId: 's-1',
+        senderName: 'Сеньйор Іванов',
+        receiverLabel: null,
+        txHash: '0xabc123',
+        notes: 'Нотатка',
+        payoutRequest: {
+          incomeAmount: '1000',
+          payableAmount: '900',
+          seniorSharePercent: 10,
+          seniorSharePercentSource: 'PROJECT',
+        },
+      } as unknown as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Сеньйор')).toBeInTheDocument()
+    expect(await screen.findByText('Отримувач')).toBeInTheDocument()
+    expect(await screen.findByText('Дохід сеньйора')).toBeInTheDocument()
+    expect(await screen.findByText('Частка сеньйора')).toBeInTheDocument()
+    expect(await screen.findByText(/виплачено/)).toBeInTheDocument()
+    expect(await screen.findByText('Хеш транзакції')).toBeInTheDocument()
+  })
+
+  it('PAYOUT_ADMIN: Джерело / Отримувач / Загальний дохід / Хеш транзакції', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'PAYOUT_ADMIN',
+        senderId: 's-1',
+        senderName: 'Сеньйор Іванов',
+        receiverId: 'r-1',
+        receiverName: 'Адмін 2',
+        txHash: '0xabc123',
+        payoutRequest: { payableAmount: '900' },
+      } as unknown as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Джерело')).toBeInTheDocument()
+    expect(await screen.findByText('Отримувач')).toBeInTheDocument()
+    expect(await screen.findByText('Загальний дохід')).toBeInTheDocument()
+    expect(await screen.findByText('Хеш транзакції')).toBeInTheDocument()
+  })
+
+  it('dialog title, footer close/payout buttons, and attach-receipt trigger text', async () => {
+    renderDetail(
+      {
+        ...TX,
+        type: 'ADMIN_INCOME',
+        senderId: 'sender-1',
+        senderName: 'Клієнт ТОВ',
+      } as TransactionDto,
+      'ADMIN',
+    )
+    await screen.findByText('Дата')
+    expect(await screen.findByText('Деталі транзакції')).toBeInTheDocument()
+  })
+})
