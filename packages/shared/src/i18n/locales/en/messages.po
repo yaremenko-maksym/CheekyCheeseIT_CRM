@@ -2213,7 +2213,7 @@ msgstr "Call"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Дивіденди адміну"
-msgstr "Dividend to admin"
+msgstr "Dividends to admin"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

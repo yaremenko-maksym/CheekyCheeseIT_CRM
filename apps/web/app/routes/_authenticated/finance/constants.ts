@@ -138,7 +138,7 @@ export const TYPE_LABEL_MESSAGES = {
   ADMIN_INCOME_CASH: msg`Прихід адміна (готівка)`, // en: Admin income (cash)
   ADMIN_INCOME_CRYPTO: msg`Прихід адміна (USDT)`, // en: Admin income (USDT)
   SENIOR_INCOME_CRYPTO: msg`Прихід сеньйора (USDT)`, // en: Senior income (USDT)
-  DIVIDEND_TO_ADMIN: msg`Дивіденди адміну`, // en: Dividend to admin
+  DIVIDEND_TO_ADMIN: msg`Дивіденди адміну`, // en: Dividends to admin
   DIVIDEND_TAX: msg`Податок на дивіденди`, // en: Dividend tax
   COMPANY_DEPOSIT: msg`Поповнення рахунку компанії`, // en: Company account deposit
   DROP_PENDING_PAYOUT: msg`Очікуваний розрахунок із дропом`, // en: Pending drop settlement

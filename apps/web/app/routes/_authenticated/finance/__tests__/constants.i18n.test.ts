@@ -34,7 +34,7 @@ const TYPE_EXPECTED: Record<TransactionType, [uk: string, en: string]> = {
   ADMIN_INCOME_CASH: ['Прихід адміна (готівка)', 'Admin income (cash)'],
   ADMIN_INCOME_CRYPTO: ['Прихід адміна (USDT)', 'Admin income (USDT)'],
   SENIOR_INCOME_CRYPTO: ['Прихід сеньйора (USDT)', 'Senior income (USDT)'],
-  DIVIDEND_TO_ADMIN: ['Дивіденди адміну', 'Dividend to admin'],
+  DIVIDEND_TO_ADMIN: ['Дивіденди адміну', 'Dividends to admin'],
   DIVIDEND_TAX: ['Податок на дивіденди', 'Dividend tax'],
   COMPANY_DEPOSIT: ['Поповнення рахунку компанії', 'Company account deposit'],
   DROP_PENDING_PAYOUT: ['Очікуваний розрахунок із дропом', 'Pending drop settlement'],
