@@ -192,8 +192,8 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       const dropRow = page.getByTestId(`tx-row-${dropPending!.id}`)
       await expect(seniorRow).toBeVisible()
       await expect(dropRow).toBeVisible()
-      await expect(seniorRow).toContainText('Ожидаемая выплата синьору')
-      await expect(dropRow).toContainText('Ожидаемая выплата дропу')
+      await expect(seniorRow).toContainText('Очікуваний розрахунок із сеньйором')
+      await expect(dropRow).toContainText('Очікуваний розрахунок із дропом')
 
       // ── Settle the SENIOR obligation via the existing UI action ─────────
       // Fund from Kostya's ADMIN_PERSONAL account (avoids the company-account

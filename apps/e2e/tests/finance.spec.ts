@@ -335,10 +335,10 @@ test.describe('Finance — таблица транзакций', () => {
     await expect(asAdmin.getByTitle('Видалити').first()).toBeVisible()
   })
 
-  test('ADMIN: кнопка "Выплатить" видна на SALARY PENDING', async ({ asAdmin }) => {
+  test('ADMIN: кнопка "Розрахуватися" видна на SALARY PENDING', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByRole('button', { name: 'Выплатить' })).toBeVisible()
+    await expect(asAdmin.getByRole('button', { name: 'Розрахуватися' })).toBeVisible()
   })
 
   test('HR: видит свои выплаты в упрощённой таблице', async ({ asHr }) => {
@@ -396,7 +396,10 @@ test.describe('Finance — создание транзакции', () => {
     await asAdmin.goto('/finance')
     await asAdmin.getByRole('button', { name: /Нова транзакція/i }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: /Нова транзакція/i })).toBeVisible()
+    // CreateTransactionDialog's own heading is a plain hardcoded string, out
+    // of scope for task-i18n-3d-pr1 (unlike the toolbar button above, which
+    // reads the migrated `finance/index.tsx`) — still Russian.
+    await expect(asAdmin.getByRole('heading', { name: /Новая транзакция/i })).toBeVisible()
   })
 
   test('ADMIN: закрывает диалог по кнопке Отмена', async ({ asAdmin }) => {
@@ -412,9 +415,13 @@ test.describe('Finance — создание транзакции', () => {
     await asSenior.goto('/finance')
     await asSenior.getByRole('button', { name: /Нова транзакція/i }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
-    // SENIOR доступен только тип "Приход синьора"
+    // CreateTransactionDialog reads the DEPRECATED `TYPE_LABELS` (plain
+    // Russian strings, `finance/constants.ts`) — out of scope for
+    // task-i18n-3d-pr1 (PR2/PR3/PR4 migrate the dialogs), so this card title
+    // is still Russian, unlike the (migrated) transaction-row labels
+    // elsewhere in this file that read `TYPE_LABEL_MESSAGES` instead.
     const dialog = asSenior.getByRole('dialog')
-    await expect(dialog.getByText('Прихід сеньйора')).toBeVisible()
+    await expect(dialog.getByText('Приход синьора')).toBeVisible()
     await expect(dialog.getByText('Расход компании')).not.toBeVisible()
   })
 

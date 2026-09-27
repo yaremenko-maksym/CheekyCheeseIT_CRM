@@ -813,18 +813,21 @@ test.describe('SENIOR INCOME — D: transactions sorted by txDate DESC (same-day
     await asAdmin.goto('/finance')
 
     // Wait for both row amounts to render — the finance page lazy-renders
-    // the transactions section under a Suspense-like skeleton.
-    await expect(asAdmin.getByText(/4[,.]?000/).first()).toBeVisible()
-    await expect(asAdmin.getByText(/8[,.]?222/).first()).toBeVisible()
+    // the transactions section under a Suspense-like skeleton. task-i18n-3d-pr1:
+    // `fmtUsd` now groups digits via the ACTIVE locale (uk-UA space separator
+    // here, was a hardcoded en-US comma) — same char-class-tolerance fix as
+    // the `payout-detail-payable` assertion above.
+    await expect(asAdmin.getByText(/4[\s,.]?000/).first()).toBeVisible()
+    await expect(asAdmin.getByText(/8[\s,.]?222/).first()).toBeVisible()
 
     // Compare vertical position of the two amounts. The row physically
     // higher on the page (smaller y) comes first in the DESC sort.
     const incomeBox = await asAdmin
-      .getByText(/4[,.]?000/)
+      .getByText(/4[\s,.]?000/)
       .first()
       .boundingBox()
     const payoutBox = await asAdmin
-      .getByText(/8[,.]?222/)
+      .getByText(/8[\s,.]?222/)
       .first()
       .boundingBox()
     expect(incomeBox, 'income row box').not.toBeNull()
