@@ -283,3 +283,58 @@ describe('ValidateDialog — queue behaviour (AC2)', () => {
     expect(invalidateQueriesMock).toHaveBeenCalledWith({ queryKey: ['accountant', 'summary'] })
   })
 })
+
+// task-i18n-stage3d-pr2 (mutation gate, AC10). The info-card row labels
+// (Тип/Сума/Дата/Відправник/Проєкт/Примітки), the dialog title, and the
+// AlertDialog's own title/body/action text were never asserted anywhere in
+// this file — every existing test above targets a testid, never the label
+// text next to it.
+describe('ValidateDialog — info-card labels and dialog/alert text (mutation-gate coverage)', () => {
+  it('renders the dialog title and every info-card row label for a fully-populated tx', () => {
+    const tx = makeTx('tx-1', {
+      senderName: 'Client A',
+      projectName: 'Project X',
+      notes: 'Важлива примітка',
+    })
+    renderDialog({ tx, queue: [tx] })
+    expect(screen.getByRole('heading', { name: 'Валідація транзакції' })).toBeInTheDocument()
+    expect(screen.getByText('Тип')).toBeInTheDocument()
+    expect(screen.getByText('Сума')).toBeInTheDocument()
+    expect(screen.getByText('Дата')).toBeInTheDocument()
+    expect(screen.getByText('Відправник')).toBeInTheDocument()
+    expect(screen.getByText('Client A')).toBeInTheDocument()
+    expect(screen.getByText('Проєкт')).toBeInTheDocument()
+    expect(screen.getByText('Project X')).toBeInTheDocument()
+    expect(screen.getByText('Примітки')).toBeInTheDocument()
+    expect(screen.getByText('Важлива примітка')).toBeInTheDocument()
+  })
+
+  it('opening the AlertDialog shows its title and single-tx body text', () => {
+    const tx = makeTx('tx-1')
+    renderDialog({ tx, queue: [tx] })
+    fireEvent.click(screen.getByTestId('validate-transaction-confirm'))
+    expect(screen.getByText('Підтвердити валідацію?')).toBeInTheDocument()
+    expect(
+      screen.getByText(/Транзакцію буде підтверджено і переведено у статус «Валідована»\./),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Після підтвердження черга перейде/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('validate-confirm-cancel')).toHaveTextContent('Скасувати')
+    expect(screen.getByTestId('validate-confirm-ok')).toHaveTextContent('Підтвердити')
+  })
+
+  it('with more than one tx in the queue, the AlertDialog body also mentions the queue continuing', () => {
+    const tx1 = makeTx('tx-1')
+    const tx2 = makeTx('tx-2')
+    renderDialog({ tx: tx1, queue: [tx1, tx2] })
+    fireEvent.click(screen.getByTestId('validate-transaction-confirm'))
+    expect(screen.getByText(/Після підтвердження черга перейде/)).toBeInTheDocument()
+  })
+
+  it('the reject button and rejection textarea placeholder carry their localised text', () => {
+    const tx = makeTx('tx-1')
+    renderDialog({ tx, queue: [tx] })
+    expect(screen.getByTestId('validate-transaction-reject')).toHaveTextContent('Відхилити')
+    expect(screen.getByPlaceholderText('Вкажіть причину у разі відмови...')).toBeInTheDocument()
+    expect(screen.getByTestId('validate-transaction-cancel')).toHaveTextContent('Скасувати')
+  })
+})
