@@ -26,6 +26,7 @@ import { useState } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { toast } from 'sonner'
 // task-i18n-stage3a (Task 2) — this dialog mounts `ReceiptInput`, which
 // mounts the shared upload surface that now calls `useLingui()`, which
 // needs an `I18nProvider` in the tree.
@@ -134,6 +135,15 @@ describe('AttachReceiptSheet — attach flow (no existing receipt)', () => {
     const [id, payload] = attachReceiptMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('tx-1')
     expect(payload).toMatchObject({ receiptExternalUrl: 'https://example.com/receipt.png' })
+    expect(toast.success).toHaveBeenCalledWith('Чек прикріплено')
+  })
+
+  it('shows the "Прикріпити чек" title and description', () => {
+    renderSheet(NO_RECEIPT_TX)
+    expect(screen.getByText('Прикріпити чек')).toBeInTheDocument()
+    expect(
+      screen.getByText('Прикріплення підтверджувального документа до транзакції'),
+    ).toBeInTheDocument()
   })
 
   it('renders explorer-only (no tab-toggle) when the tx currency is USDT', () => {
@@ -161,12 +171,18 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
     renderSheet(EXISTING_RECEIPT_TX)
     fireEvent.click(screen.getByTestId('attach-receipt-sheet-submit'))
     expect(screen.getByTestId('attach-receipt-confirm-replace')).toBeInTheDocument()
+    expect(screen.getByText('Замінити наявний чек?')).toBeInTheDocument()
+    expect(
+      screen.getByText('Старий файл/посилання буде видалено без можливості відновлення.'),
+    ).toBeInTheDocument()
     expect(attachReceiptMock).not.toHaveBeenCalled()
   })
 
   it('cancelling the confirm dialog does NOT call attachReceipt', () => {
     renderSheet(EXISTING_RECEIPT_TX)
+    expect(screen.getByTestId('attach-receipt-sheet-cancel')).toHaveTextContent('Скасувати')
     fireEvent.click(screen.getByTestId('attach-receipt-sheet-submit'))
+    expect(screen.getByTestId('attach-receipt-confirm-cancel')).toHaveTextContent('Скасувати')
     fireEvent.click(screen.getByTestId('attach-receipt-confirm-cancel'))
     expect(attachReceiptMock).not.toHaveBeenCalled()
   })
@@ -182,6 +198,7 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
     const [id, payload] = attachReceiptMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('tx-2')
     expect(payload).toMatchObject({ receiptExternalUrl: 'https://etherscan.io/tx/0xnew' })
+    expect(toast.success).toHaveBeenCalledWith('Чек замінено')
   })
 
   it('confirming replace WITHOUT changing the pre-filled value is a no-op — does not call attachReceipt (MED-2)', () => {
