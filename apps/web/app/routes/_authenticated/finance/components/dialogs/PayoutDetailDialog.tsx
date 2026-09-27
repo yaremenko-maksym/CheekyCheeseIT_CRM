@@ -1,4 +1,5 @@
 import { Loader2 } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
 import { useAuth } from '@/context/auth'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -47,6 +48,7 @@ export function PayoutDetailDialog({
   onClose: () => void
   payoutId: string | null
 }) {
+  const { t } = useLingui()
   const { user } = useAuth()
   const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
@@ -68,14 +70,14 @@ export function PayoutDetailDialog({
       <CrmDialogContent maxWidth="sm:max-w-xl" data-testid="payout-detail-dialog">
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2" data-testid="payout-detail-title">
-            {state.isPaid ? 'Выплата (оплачена)' : 'Подтвердить выплату'}
+            {state.isPaid ? t`Виплата (оплачена)` : t`Підтвердити виплату`}
             {state.isPaid && (
               <Badge variant="secondary" className="text-[10px]">
                 PAID
               </Badge>
             )}
           </DialogTitle>
-          <DialogDescription className="sr-only">Детали выплаты</DialogDescription>
+          <DialogDescription className="sr-only">{t`Деталі виплати`}</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="pb-4">
@@ -84,7 +86,7 @@ export function PayoutDetailDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose}>
-            {state.isPaid || onChainStatus === 'confirmed' ? 'Закрыть' : 'Отмена'}
+            {state.isPaid || onChainStatus === 'confirmed' ? t`Закрити` : t`Скасувати`}
           </Button>
           {!state.isPaid && payout && onChainStatus !== 'confirmed' && (
             <Button
@@ -96,10 +98,10 @@ export function PayoutDetailDialog({
               {payMutation.isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Проверка…
+                  {t`Перевірка…`}
                 </>
               ) : (
-                'Подтвердить оплату'
+                t`Підтвердити оплату`
               )}
             </Button>
           )}

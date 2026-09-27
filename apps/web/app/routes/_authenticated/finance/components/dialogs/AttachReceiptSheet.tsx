@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { getApiErrorMessage } from '@/lib/axios-utils'
@@ -37,7 +38,7 @@ import {
   AlertDialogAction,
 } from '@/components/ui/alert-dialog'
 import { financeApi } from '../../api'
-import { fmtAmount, TYPE_COLORS, TYPE_LABELS } from '../../constants'
+import { fmtAmount, TYPE_COLORS, TYPE_LABEL_MESSAGES } from '../../constants'
 import {
   ReceiptInput,
   emptyReceiptState,
@@ -53,6 +54,7 @@ interface AttachReceiptSheetProps {
 }
 
 export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
+  const { t, i18n } = useLingui()
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [error, setError] = useState<string | null>(null)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -100,7 +102,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
         receiptExternalUrl: nextReceiptExternalUrl,
       }),
     onSuccess: () => {
-      toast.success(hasExisting ? 'Чек заменён' : 'Чек прикреплён')
+      toast.success(hasExisting ? t`Чек замінено` : t`Чек прикріплено`)
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['transaction', tx?.id] })
       setConfirmOpen(false)
@@ -111,7 +113,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
 
   function handleSubmit() {
     if (!hasNewReceipt) {
-      setError('Прикрепите чек или укажите ссылку на подтверждение')
+      setError(t`Прикріпіть чек або вкажіть посилання на підтвердження`)
       return
     }
     if (hasExisting) {
@@ -148,9 +150,9 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
           data-testid="attach-receipt-sheet"
         >
           <SheetHeader className="mb-2 shrink-0">
-            <SheetTitle>{hasExisting ? 'Заменить чек' : 'Прикрепить чек'}</SheetTitle>
+            <SheetTitle>{hasExisting ? t`Замінити чек` : t`Прикріпити чек`}</SheetTitle>
             <SheetDescription className="sr-only">
-              Прикрепление подтверждающего документа к транзакции
+              {t`Прикріплення підтверджувального документа до транзакції`}
             </SheetDescription>
           </SheetHeader>
 
@@ -163,7 +165,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
                     TYPE_COLORS[tx.type],
                   )}
                 >
-                  {TYPE_LABELS[tx.type]}
+                  {i18n._(TYPE_LABEL_MESSAGES[tx.type])}
                 </span>
                 <span className="font-medium tabular-nums">
                   {fmtAmount(tx.amount, tx.currency)}
@@ -197,7 +199,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
               onClick={onClose}
               data-testid="attach-receipt-sheet-cancel"
             >
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button
               className="h-11 sm:h-9"
@@ -205,7 +207,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
               disabled={mutation.isPending || !hasNewReceipt}
               data-testid="attach-receipt-sheet-submit"
             >
-              {hasExisting ? 'Заменить' : 'Прикрепить'}
+              {hasExisting ? t`Замінити` : t`Прикріпити`}
             </Button>
           </SheetFooter>
         </SheetContent>
@@ -214,21 +216,21 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent data-testid="attach-receipt-confirm-replace">
           <AlertDialogHeader>
-            <AlertDialogTitle>Заменить существующий чек?</AlertDialogTitle>
+            <AlertDialogTitle>{t`Замінити наявний чек?`}</AlertDialogTitle>
             <AlertDialogDescription>
-              Старый файл/ссылка будут удалены без возможности восстановления.
+              {t`Старий файл/посилання буде видалено без можливості відновлення.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel data-testid="attach-receipt-confirm-cancel">
-              Отмена
+              {t`Скасувати`}
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmedReplace}
               disabled={mutation.isPending}
               data-testid="attach-receipt-confirm-submit"
             >
-              Заменить
+              {t`Замінити`}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

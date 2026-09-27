@@ -20,7 +20,9 @@
 import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
 import { FileImage, FileText, Link as LinkIcon, Paperclip, X } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { UploadProgress } from '@/components/ui/upload-progress'
@@ -115,10 +117,14 @@ interface ReceiptInputProps {
 export function ReceiptInput({
   state,
   onChange,
-  label = 'Чек / подтверждение',
+  label,
   explorerOnly = false,
   error,
 }: ReceiptInputProps) {
+  const { t } = useLingui()
+  // Default moved from the destructuring default (a module-level string
+  // would freeze at import time — `t` only works inside the component body).
+  const resolvedLabel = label ?? t`Чек / підтвердження`
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMutation = useUploadDocument()
   const progress = useUploadProgressState()
@@ -230,7 +236,9 @@ export function ReceiptInput({
       // phase itself stays visible in the (now-empty) picker button below
       // until the user picks a new file, which calls `progress.prepare()`
       // and clears it — matching AC3 without a dangling retry action).
-      progress.error(err instanceof Error ? err.message : 'Не удалось загрузить чек')
+      // COPY-H-fin-3: never the raw `.message` of an unknown error — the
+      // same status-based resolver the rest of finance uses.
+      progress.error(getApiErrorMessage(err, t`Не вдалося завантажити чек`))
       URL.revokeObjectURL(localPreview)
       onChange(emptyReceiptState())
     }
@@ -248,7 +256,7 @@ export function ReceiptInput({
 
   return (
     <div className="space-y-2">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
+      <Label className="text-xs text-muted-foreground">{resolvedLabel}</Label>
 
       {/* Tab toggle — sliding pill. Hidden entirely in explorerOnly mode: a
           single remaining tab in a 2-way toggle reads as broken, so the
@@ -281,7 +289,7 @@ export function ReceiptInput({
               ) : (
                 <LinkIcon className="h-3 w-3" />
               )}
-              {mode === 'file' ? 'Файл' : 'Ссылка'}
+              {mode === 'file' ? t`Файл` : t`Посилання`}
             </button>
           ))}
         </div>
@@ -304,7 +312,7 @@ export function ReceiptInput({
               {state.mimeType.startsWith('image/') && state.previewUrl ? (
                 <img
                   src={state.previewUrl}
-                  alt="Превью чека"
+                  alt={t`Прев'ю чека`}
                   className="w-full max-h-40 object-contain"
                 />
               ) : state.mimeType === 'application/pdf' ? (
@@ -312,9 +320,9 @@ export function ReceiptInput({
                   <FileText className="h-8 w-8 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">
-                      {state.fileName || 'Документ'}
+                      {state.fileName || t`Документ`}
                     </div>
-                    <div className="text-xs text-muted-foreground">PDF документ</div>
+                    <div className="text-xs text-muted-foreground">{t`PDF-документ`}</div>
                   </div>
                 </div>
               ) : (
@@ -322,9 +330,9 @@ export function ReceiptInput({
                   <FileImage className="h-8 w-8 text-muted-foreground shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium truncate">
-                      {state.fileName || 'Документ'}
+                      {state.fileName || t`Документ`}
                     </div>
-                    <div className="text-xs text-muted-foreground">Файл загружен</div>
+                    <div className="text-xs text-muted-foreground">{t`Файл завантажено`}</div>
                   </div>
                 </div>
               )}
@@ -343,7 +351,7 @@ export function ReceiptInput({
                     type="button"
                     onClick={clearFile}
                     className="absolute top-1.5 right-1.5 rounded-full bg-background/80 border border-border p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                    aria-label="Удалить файл"
+                    aria-label={t`Видалити файл`}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -352,7 +360,7 @@ export function ReceiptInput({
                     onClick={() => fileInputRef.current?.click()}
                     className="absolute bottom-1.5 right-1.5 rounded-md bg-background/80 border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
                   >
-                    Заменить
+                    {t`Замінити`}
                   </button>
                 </>
               )}
@@ -382,9 +390,9 @@ export function ReceiptInput({
               {progress.state.phase === 'idle' && (
                 <div className="text-center">
                   <div className="text-xs font-medium text-foreground/70">
-                    Нажмите для выбора файла
+                    {t`Натисніть, щоб вибрати файл`}
                   </div>
-                  <div className="text-[10px] mt-0.5">JPG, PNG, PDF — до 10 МБ</div>
+                  <div className="text-[10px] mt-0.5">{t`JPG, PNG, PDF — до 10 МБ`}</div>
                 </div>
               )}
             </button>
@@ -414,7 +422,7 @@ export function ReceiptInput({
               className="text-[11px] text-muted-foreground mt-1"
               data-testid="receipt-input-explorer-hint"
             >
-              Ссылка на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com и др.)
+              {t`Посилання на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com та ін.)`}
             </p>
           )}
         </div>
