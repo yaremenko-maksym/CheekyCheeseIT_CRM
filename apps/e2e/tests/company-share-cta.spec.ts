@@ -20,6 +20,7 @@
  */
 import { test, expect } from './fixtures'
 import { USERS, PROJECTS, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const PROJECT = PROJECTS[0]!
 
@@ -206,9 +207,10 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     expect(requestLog.some((r) => r.method === 'POST')).toBe(false)
   })
 
-  test('closing on step 2 keeps the created payout: it reappears as a PENDING_PAYMENT row with «Оплатить» (AC4)', async ({
+  test('closing on step 2 keeps the created payout: it reappears as a PENDING_PAYMENT row with «Оплатити» (AC4)', async ({
     asSenior,
   }) => {
+    const uk = await loadMessages('uk')
     // Stateful mock: /transactions reflects the SAME server-side effect the
     // real backend performs on createPayoutRequest — the income flips to
     // PENDING_PAYMENT + payoutRequestId, and a new PAYOUT row appears. This
@@ -278,9 +280,11 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await expect(asSenior.getByTestId('company-share-payout-modal')).not.toBeVisible()
 
     // The created payout is visible in the table as PENDING_PAYMENT with an
-    // «Оплатить» pill — nothing was lost by closing mid-flow.
+    // «Оплатити» pill — nothing was lost by closing mid-flow.
     await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toBeVisible()
-    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toContainText('Оплатить')
+    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toContainText(
+      assertInCatalog(uk, 'Оплатити'),
+    )
   })
 
   test('a second click while creation is in flight does not create two payout requests (AC5)', async ({

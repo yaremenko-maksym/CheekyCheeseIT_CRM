@@ -28,7 +28,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
 
+import { i18n } from '@lingui/core'
+import { loadCatalog } from '@/test/i18n'
+
 import {
+  CASCADE_PREVIEW_LEAD_IN_MESSAGE,
   canSaveCascadeEdit,
   cascadePreviewErrorMessage,
   cascadeSaveErrorMessage,
@@ -312,7 +316,7 @@ describe('cascadeStaleMessage — COPY-M-2, the 409 conflict banner never sugges
     const message = cascadeStaleMessage(axiosError(409))
 
     expect(message).not.toMatch(/страниц/i)
-    expect(message).toContain('Обновить предпросмотр')
+    expect(message).toContain('оновіть перегляд')
   })
 
   it("SM-3. one of Nest's own generic reason phrases is not a real explanation either", () => {
@@ -323,11 +327,11 @@ describe('cascadeStaleMessage — COPY-M-2, the 409 conflict banner never sugges
     const message = cascadeStaleMessage(axiosError(409, 'Conflict'))
 
     expect(message).not.toBe('Conflict')
-    expect(message).toContain('Обновить предпросмотр')
+    expect(message).toContain('оновіть перегляд')
   })
 
   it('SM-4. no `response` at all (a genuine network failure) still returns the fallback, not a throw', () => {
-    expect(cascadeStaleMessage(networkError())).toContain('Обновить предпросмотр')
+    expect(cascadeStaleMessage(networkError())).toContain('оновіть перегляд')
   })
 })
 
@@ -345,14 +349,14 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
     // from "Не удалось загрузить предпросмотр" — measured at 320px to no
     // longer split mid-phrase across the banner's first two lines (see
     // `CASCADE_PREVIEW_LEAD_IN`'s own doc for the measurement).
-    expect(message).toBe('Предпросмотр недоступен — недостаточно прав')
+    expect(message).toBe('Перегляд недоступний — недостатньо прав')
     expect(message.endsWith('.')).toBe(false)
   })
 
   it('PE-3. a 5xx with no usable body names the side of the problem, not "Мы уже знаем"', () => {
     const message = cascadePreviewErrorMessage(axiosError(500))
 
-    expect(message).toBe('Предпросмотр недоступен — ошибка на нашей стороне, попробуйте позже')
+    expect(message).toBe('Перегляд недоступний — помилка на нашому боці, спробуйте пізніше')
     expect(message).not.toContain('Мы')
   })
 
@@ -362,13 +366,13 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
     const message = cascadePreviewErrorMessage(axiosError(500, 'Internal server error'))
 
     expect(message).not.toContain('Internal server error')
-    expect(message).toContain('нашей стороне')
+    expect(message).toContain('нашому боці')
   })
 
   it("PE-5. an unmapped status still says SOMETHING, in this screen's own voice", () => {
     const message = cascadePreviewErrorMessage(axiosError(404))
 
-    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+    expect(message).toBe('Перегляд недоступний — спробуйте ще раз')
   })
 
   // task-mutation-gate follow-up (PR #613, backlog 121). The caller
@@ -383,7 +387,7 @@ describe('cascadePreviewErrorMessage — COPY-M-3, one register for the whole ba
   it('PE-6. no status at all (a genuine network failure) still falls to the generic line, never the 5xx one', () => {
     const message = cascadePreviewErrorMessage(networkError())
 
-    expect(message).toBe('Предпросмотр недоступен — попробуйте ещё раз')
+    expect(message).toBe('Перегляд недоступний — спробуйте ще раз')
   })
 })
 
@@ -404,7 +408,7 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
   it('SE-3. an axios network failure (no response at all) speaks the CASCADE voice, not the general one', () => {
     const message = cascadeSaveErrorMessage(networkError())
 
-    expect(message).toBe('Не удалось сохранить — проверьте соединение')
+    expect(message).toBe('Не вдалося зберегти — перевірте з’єднання')
     // The general resolver's fallback for this case is «Нет связи с
     // сервером. Проверьте подключение к интернету и попробуйте снова.» —
     // full sentence, closing period. This must not be that.
@@ -414,14 +418,14 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
   it('SE-4. 403 with no usable body reads in the cascade voice, not "Недостаточно прав для этого действия."', () => {
     const message = cascadeSaveErrorMessage(axiosError(403))
 
-    expect(message).toBe('Не удалось сохранить — недостаточно прав')
+    expect(message).toBe('Не вдалося зберегти — недостатньо прав')
     expect(message.endsWith('.')).toBe(false)
   })
 
   it('SE-5. a 5xx with no usable body names the side of the problem, cascade voice', () => {
     const message = cascadeSaveErrorMessage(axiosError(500))
 
-    expect(message).toBe('Не удалось сохранить — ошибка на нашей стороне, попробуйте позже')
+    expect(message).toBe('Не вдалося зберегти — помилка на нашому боці, спробуйте пізніше')
     expect(message).not.toContain('Мы')
   })
 
@@ -429,13 +433,11 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     const message = cascadeSaveErrorMessage(axiosError(500, 'Internal server error'))
 
     expect(message).not.toContain('Internal server error')
-    expect(message).toContain('нашей стороне')
+    expect(message).toContain('нашому боці')
   })
 
   it("SE-7. an unmapped status still says SOMETHING, in this screen's own voice", () => {
-    expect(cascadeSaveErrorMessage(axiosError(404))).toBe(
-      'Не удалось сохранить — попробуйте ещё раз',
-    )
+    expect(cascadeSaveErrorMessage(axiosError(404))).toBe('Не вдалося зберегти — спробуйте ще раз')
   })
 
   it('SE-8. a 429 whose backend message is the SAME text the general resolver would show is still returned verbatim', () => {
@@ -460,7 +462,7 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     // `err !== null` half, `isAxiosFailure` would still reach
     // `(err as Record<string, unknown>)['isAxiosError']` for a `null` err,
     // which THROWS (reading a property off `null`), not merely misreads.
-    expect(cascadeSaveErrorMessage(null)).toBe('Не удалось сохранить — попробуйте ещё раз')
+    expect(cascadeSaveErrorMessage(null)).toBe('Не вдалося зберегти — спробуйте ще раз')
   })
 
   it("SE-10. a non-object value carrying its own `isAxiosError` is NOT read as an axios failure — `typeof err === 'object'` is load-bearing", () => {
@@ -478,7 +480,16 @@ describe('cascadeSaveErrorMessage — COPY-M-10, the red line matches the plan a
     })
 
     expect(cascadeSaveErrorMessage(fakeAxiosShapedFunction)).toBe(
-      'Не удалось сохранить — попробуйте ещё раз',
+      'Не вдалося зберегти — спробуйте ще раз',
     )
+  })
+})
+
+describe('CASCADE_PREVIEW_LEAD_IN_MESSAGE (task-i18n-3d-pr1, Step 5)', () => {
+  it('resolves to the canon uk/en text through the real compiled catalog', async () => {
+    await loadCatalog('uk')
+    expect(i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)).toBe('Перегляд недоступний')
+    await loadCatalog('en')
+    expect(i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)).toBe('Preview unavailable')
   })
 })

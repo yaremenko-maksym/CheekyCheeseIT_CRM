@@ -359,7 +359,7 @@ describe('cascade preview — the client half of the loop', () => {
 
     const err = await screen.findByTestId('cascade-preview-error')
 
-    expect(err.textContent).toContain('проверьте соединение')
+    expect(err.textContent).toContain('перевірте з’єднання')
     expect(screen.getByTestId('cascade-preview-retry')).toBeTruthy()
   })
 
@@ -818,7 +818,7 @@ describe('cascade preview — the client half of the loop', () => {
     const err = await screen.findByTestId('cascade-preview-error')
 
     expect(err.textContent).not.toContain('Internal server error')
-    expect(err.textContent?.toLowerCase()).toContain('нашей стороне')
+    expect(err.textContent?.toLowerCase()).toContain('нашому боці')
   })
 
   it('CP-40. COPY-M-7 — the panel does not unmount through a transient empty value while erasing the old amount', () => {

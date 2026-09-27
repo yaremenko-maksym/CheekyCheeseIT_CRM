@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
+import { useLingui, Trans } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -26,6 +27,7 @@ function pageWindow(current: number, total: number): (number | '…')[] {
 }
 
 export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: PaginationProps) {
+  const { t } = useLingui()
   if (totalPages <= 1) return null
 
   const from = (page - 1) * pageSize + 1
@@ -35,7 +37,9 @@ export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: P
   return (
     <div className="flex items-center justify-between px-4 py-3 border-t border-border text-xs text-muted-foreground">
       <span>
-        {from}–{to} из {totalItems}
+        <Trans>
+          {from}–{to} з {totalItems}
+        </Trans>
       </span>
       <div className="flex items-center gap-1">
         <Button
@@ -44,7 +48,7 @@ export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: P
           className="h-7 w-7"
           disabled={page === 1}
           onClick={() => onPage(1)}
-          aria-label="Первая страница"
+          aria-label={t`Перша сторінка`}
         >
           <ChevronsLeft className="h-3.5 w-3.5" />
         </Button>
@@ -54,7 +58,7 @@ export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: P
           className="h-7 w-7"
           disabled={page === 1}
           onClick={() => onPage(page - 1)}
-          aria-label="Предыдущая страница"
+          aria-label={t`Попередня сторінка`}
         >
           <ChevronLeft className="h-3.5 w-3.5" />
         </Button>
@@ -87,7 +91,7 @@ export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: P
           className="h-7 w-7"
           disabled={page === totalPages}
           onClick={() => onPage(page + 1)}
-          aria-label="Следующая страница"
+          aria-label={t`Наступна сторінка`}
         >
           <ChevronRight className="h-3.5 w-3.5" />
         </Button>
@@ -97,7 +101,7 @@ export function Pagination({ page, totalPages, totalItems, pageSize, onPage }: P
           className="h-7 w-7"
           disabled={page === totalPages}
           onClick={() => onPage(totalPages)}
-          aria-label="Последняя страница"
+          aria-label={t`Остання сторінка`}
         >
           <ChevronsRight className="h-3.5 w-3.5" />
         </Button>

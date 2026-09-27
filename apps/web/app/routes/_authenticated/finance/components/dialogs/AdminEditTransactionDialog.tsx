@@ -24,7 +24,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { financeApi } from '../../api'
 import {
   canSaveCascadeEdit,
-  CASCADE_PREVIEW_LEAD_IN,
+  CASCADE_PREVIEW_LEAD_IN_MESSAGE,
   cascadePreviewErrorMessage,
   cascadeSaveErrorMessage,
   cascadeStaleMessage,
@@ -57,7 +57,7 @@ export function AdminEditTransactionDialog({
   onClose: () => void
 }) {
   const qc = useQueryClient()
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
 
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USDT')
@@ -176,7 +176,7 @@ export function AdminEditTransactionDialog({
   const previewErrorMessage = !previewFailed
     ? null
     : getAxiosStatus(previewQuery.error) === undefined
-      ? `${CASCADE_PREVIEW_LEAD_IN} — проверьте соединение`
+      ? t`${i18n._(CASCADE_PREVIEW_LEAD_IN_MESSAGE)} — перевірте з’єднання`
       : cascadePreviewErrorMessage(previewQuery.error)
 
   // SR-H-1 (security-review, HIGH). Is the plan on screen the plan for the

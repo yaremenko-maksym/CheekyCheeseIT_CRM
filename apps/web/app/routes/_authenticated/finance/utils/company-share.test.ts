@@ -191,6 +191,6 @@ describe('buildAmountLabel', () => {
         ['UAH', 1],
       ]),
     )
-    expect(label).toBe('3+ валюты — точная сумма в модалке')
+    expect(label).toBe('3+ валюти — точна сума у вікні')
   })
 })

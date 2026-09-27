@@ -9,9 +9,14 @@
  *   - click calls onOpen
  */
 import { render, screen, fireEvent } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { CompanySharePayoutStrip } from '../CompanySharePayoutStrip'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
 
 const ME = '00000000-0000-4000-a000-000000000001'
 const OTHER_SENIOR = '00000000-0000-4000-a000-000000000002'
@@ -63,6 +68,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -76,6 +82,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -89,6 +96,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -102,6 +110,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(container).toBeEmptyDOMElement()
   })
@@ -115,6 +124,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     const strip = screen.getByTestId('company-share-cta-strip')
     expect(strip).toBeInTheDocument()
@@ -124,6 +134,7 @@ describe('CompanySharePayoutStrip', () => {
     const amount = screen.getByTestId('company-share-cta-amount')
     expect(amount).toHaveTextContent('740')
     expect(amount).not.toHaveTextContent('1 000,00 USDT')
+    expect(screen.getByText('Оплатити')).toBeInTheDocument()
   })
 
   it('counts distinct projects, not distinct transactions', () => {
@@ -139,6 +150,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(screen.getByTestId('company-share-cta-strip')).toHaveTextContent('2')
   })
@@ -153,6 +165,7 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={onOpen}
       />,
+      { wrapper: I18nTestProvider },
     )
     fireEvent.click(screen.getByTestId('company-share-cta-strip'))
     expect(onOpen).toHaveBeenCalledTimes(1)
@@ -170,9 +183,10 @@ describe('CompanySharePayoutStrip', () => {
         userSeniorSharePercent={26}
         onOpen={vi.fn()}
       />,
+      { wrapper: I18nTestProvider },
     )
     expect(screen.getByTestId('company-share-cta-strip')).toHaveTextContent(
-      'Несколько валют — точная сумма в модалке',
+      'Кілька валют — точна сума у вікні',
     )
   })
 })

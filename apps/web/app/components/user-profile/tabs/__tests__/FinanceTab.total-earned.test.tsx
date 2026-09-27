@@ -85,8 +85,8 @@ vi.mock('@/routes/_authenticated/finance/components/dialogs/TransactionDetailDia
   TransactionDetailDialog: () => null,
 }))
 vi.mock('@/routes/_authenticated/finance/constants', () => ({
-  STATUS_LABELS: {},
-  TYPE_LABELS: {},
+  STATUS_LABEL_MESSAGES: {},
+  TYPE_LABEL_MESSAGES: {},
 }))
 
 // Import AFTER mocks are registered.

@@ -18,9 +18,14 @@
  *     never emitted by any flow) still renders the dash, so the audit's
  *     exclusion list stays honest.
  */
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
 
 vi.mock('framer-motion', () => ({
   AnimatePresence: ({ children }: { children: React.ReactNode }) => children,
@@ -103,15 +108,16 @@ function renderRow(tx: TransactionDto, role = 'ADMIN') {
         <TransactionRow tx={tx} role={role} rates={undefined} />
       </tbody>
     </table>,
+    { wrapper: I18nTestProvider },
   )
 }
 
 describe('TransactionRow — FromTo (fix/payout-drop-from-to)', () => {
-  it('PAYOUT_DROP (company-funded, PAID) shows «Счёт компании → drop», not a bare «—»', () => {
+  it('PAYOUT_DROP (company-funded, PAID) shows «Рахунок компанії → drop», not a bare «—»', () => {
     renderRow(makeTx())
 
-    // The literal 'COMPANY' backend marker is normalized to the Russian alias.
-    expect(screen.getByText('Счёт компании')).toBeInTheDocument()
+    // The literal 'COMPANY' backend marker is normalized to the localized alias.
+    expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
     expect(screen.getByText(DROP_NAME)).toBeInTheDocument()
     expect(screen.queryByText('—')).not.toBeInTheDocument()
   })
@@ -221,10 +227,10 @@ describe('TransactionRow — FromTo masking composition (non-privileged DTO)', (
     expect(screen.queryByText('—')).not.toBeInTheDocument()
   })
 
-  it('displaySenderLabel passes «CheekyCheeseIT» through unchanged (only raw «COMPANY» maps to «Счёт компании»)', () => {
-    // A privileged viewer would get raw 'COMPANY' → «Счёт компании» (covered by
-    // the suite above); the non-privileged viewer already gets the final brand,
-    // so «Счёт компании» must NOT appear for them.
+  it('displaySenderLabel passes «CheekyCheeseIT» through unchanged (only raw «COMPANY» maps to «Рахунок компанії»)', () => {
+    // A privileged viewer would get raw 'COMPANY' → «Рахунок компанії» (covered
+    // by the suite above); the non-privileged viewer already gets the final
+    // brand, so «Рахунок компанії» must NOT appear for them.
     renderRow(
       makeTx({
         senderId: null,
@@ -235,6 +241,6 @@ describe('TransactionRow — FromTo masking composition (non-privileged DTO)', (
     )
 
     expect(screen.getByText('CheekyCheeseIT')).toBeInTheDocument()
-    expect(screen.queryByText('Счёт компании')).not.toBeInTheDocument()
+    expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
   })
 })

@@ -56,6 +56,7 @@ import {
   API_RE,
   buildAdminViewingUser,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
@@ -256,9 +257,22 @@ test.describe('per-project SENIOR share override', () => {
   })
 
   test.describe('Scenario D — SENIOR_INCOME row shows snapshot %', () => {
-    test('row "Доля: 30%" pulled from tx.seniorSharePercent snapshot', async ({
+    test('row "Частка: 30%" pulled from tx.seniorSharePercent snapshot', async ({
       asAdmin: page,
     }) => {
+      // FIX-SPEC-M-2 (fix-round, PR #730): `t\`Частка: ${percent}%\`` is a
+      // VARIABLE message. The compiled catalog's own flattened shape for a
+      // placeholder is the LITERAL substitution string "0" (`fixtures/
+      // catalog.ts`'s `loadMessages` does `.join('')` over the compiled AST
+      // array `["Частка: ", ["0"], "%"]` — a one-element array stringifies
+      // to its own element, not to `{0}`), so the freshness check below is
+      // against "Частка: 0%", not the ICU `{0}` placeholder syntax. This
+      // still catches a copy-review wording drift on the template; the
+      // interpolated "30%" a few lines down is checked with a plain
+      // literal, same as every other test in this file asserts a snapshot
+      // NUMBER.
+      const uk = await loadMessages('uk')
+      assertInCatalog(uk, 'Частка: 0%')
       const incomeTx = {
         id: 'tx-snapshot-1',
         type: 'SENIOR_INCOME',
@@ -299,14 +313,14 @@ test.describe('per-project SENIOR share override', () => {
       await page.goto('/finance')
       const row = page.getByTestId(`tx-row-senior-share-${incomeTx.id}`)
       await expect(row).toBeVisible()
-      await expect(row).toContainText('Доля: 30%')
+      await expect(row).toContainText('Частка: 30%')
     })
   })
 
   // Scenario E удалён в task-payout-auto-on-validate: PayoutDialog с per-tx
   // share% preview больше не существует. Snapshot share% теперь применяется
   // backend в auto-created PAYOUT row (amount = income * (1 - share/100)).
-  // Покрытие snapshot — Scenario D (SENIOR_INCOME row показывает "Доля: 30%")
+  // Покрытие snapshot — Scenario D (SENIOR_INCOME row показывает "Частка: 30%")
   // плюс finance-senior-flow.spec.ts шаг 5 (PayoutDetailDialog показывает
   // payable amount уже после server-side вычисления).
 

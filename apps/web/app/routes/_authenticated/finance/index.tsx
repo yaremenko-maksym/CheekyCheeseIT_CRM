@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -39,8 +40,8 @@ import {
   fmtDate,
   fmtMonth,
   STATUS_COLORS,
-  STATUS_LABELS,
-  TYPE_LABELS,
+  STATUS_LABEL_MESSAGES,
+  TYPE_LABEL_MESSAGES,
   type ExchangeRates,
 } from './constants'
 import { TransactionRow } from './components/TransactionRow'
@@ -118,6 +119,7 @@ function FilterBar({
   onClear: () => void
   hasActive: boolean
 }) {
+  const { t } = useLingui()
   return (
     <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-border">
       <div className="relative flex-1 min-w-40">
@@ -126,7 +128,7 @@ function FilterBar({
           type="search"
           enterKeyHint="search"
           className="pl-8 h-8 text-sm"
-          placeholder="Поиск…"
+          placeholder={t`Пошук…`}
           value={search}
           onChange={(e) => onSearch(e.target.value)}
         />
@@ -140,7 +142,7 @@ function FilterBar({
           className="h-8 gap-1 text-muted-foreground"
           onClick={onClear}
         >
-          <X className="h-3.5 w-3.5" /> Сбросить
+          <X className="h-3.5 w-3.5" /> {t`Скинути`}
         </Button>
       )}
     </div>
@@ -211,15 +213,22 @@ function FilterSelect({
 function EmptyState({ filtered }: { filtered: boolean }) {
   return (
     <div className="py-14 text-center text-sm text-muted-foreground">
-      {filtered ? 'Ничего не найдено' : 'Нет данных'}
+      {filtered ? (
+        // task-i18n-stage3d-pr1 (Task 1, Step 4). Same key wave (b) already
+        // established for the filtered-empty state — one situation, one text,
+        // not a second phrasing of "nothing here".
+        <Trans>Нічого не знайдено — скиньте фільтри</Trans>
+      ) : (
+        // COPY-M-fin-6: names the reason (nothing recorded yet) AND the next
+        // step (the button that fixes it), quoting the SAME label the
+        // toolbar's own «Нова транзакція» button carries below.
+        <Trans>Транзакцій ще немає — створіть першу кнопкою «Нова транзакція»</Trans>
+      )}
     </div>
   )
 }
 
 // ── Transactions table ─────────────────────────────────────────────────────────
-
-const TYPE_OPTIONS = Object.entries(TYPE_LABELS).map(([value, label]) => ({ value, label }))
-const STATUS_OPTIONS = Object.entries(STATUS_LABELS).map(([value, label]) => ({ value, label }))
 
 type TxSort = 'date' | 'amount'
 
@@ -305,6 +314,28 @@ function TransactionsTable({
   showDeleted?: boolean
   onToggleShowDeleted?: () => void
 }) {
+  const { t, i18n } = useLingui()
+  // task-i18n-stage3d-pr1 (Task 1, Step 4, template G-fin). Moved off the
+  // module level — a module-level `i18n._()` call would freeze every label at
+  // whatever locale was active on first import (`constants.ts`'s own
+  // `activeLocale()` doc explains the mechanism this avoids). `i18n` in the
+  // deps array so a live locale switch recomputes the option list.
+  const TYPE_OPTIONS = useMemo(
+    () =>
+      Object.keys(TYPE_LABEL_MESSAGES).map((value) => ({
+        value,
+        label: i18n._(TYPE_LABEL_MESSAGES[value as keyof typeof TYPE_LABEL_MESSAGES]),
+      })),
+    [i18n],
+  )
+  const STATUS_OPTIONS = useMemo(
+    () =>
+      Object.keys(STATUS_LABEL_MESSAGES).map((value) => ({
+        value,
+        label: i18n._(STATUS_LABEL_MESSAGES[value as keyof typeof STATUS_LABEL_MESSAGES]),
+      })),
+    [i18n],
+  )
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
   // Seed from the deep-link `?status=` param (AccountantDashboard CTA). Falls
@@ -380,7 +411,7 @@ function TransactionsTable({
                 // the delegated [data-track] listener never sees it.
                 trackFeatureClick('finance-filter-change')
               }}
-              placeholder="Все типы"
+              placeholder={t`Усі типи`}
               options={TYPE_OPTIONS}
             />
             <FilterSelect
@@ -389,7 +420,7 @@ function TransactionsTable({
                 setStatusFilter(v)
                 trackFeatureClick('finance-filter-change')
               }}
-              placeholder="Все статусы"
+              placeholder={t`Усі статуси`}
               options={STATUS_OPTIONS}
             />
             {/* task-soft-delete-and-money-audit (AC3). Only rendered for
@@ -413,7 +444,7 @@ function TransactionsTable({
                 aria-pressed={!!showDeleted}
               >
                 <Trash2 className="h-3 w-3" />
-                Показать удалённые
+                {t`Показати видалені`}
               </button>
             )}
           </>
@@ -421,13 +452,13 @@ function TransactionsTable({
         sortSlot={
           <div className="flex gap-1.5">
             <SortButton
-              label="Дата"
+              label={t`Дата`}
               active={sortKey === 'date'}
               dir={sortDir}
               onClick={() => toggleSort('date')}
             />
             <SortButton
-              label="Сумма"
+              label={t`Сума`}
               active={sortKey === 'amount'}
               dir={sortDir}
               onClick={() => toggleSort('amount')}
@@ -443,12 +474,12 @@ function TransactionsTable({
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
-                <th className="py-3 px-4 text-left font-medium">Тип</th>
-                <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
-                <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                <th className="py-3 px-4 text-left font-medium">Дата</th>
-                <th className="py-3 px-4 text-left font-medium">Статус</th>
-                <th className="py-3 px-4 text-left font-medium">Действия</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Тип`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Учасник / Проєкт`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Сума`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Дата`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Статус`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Дії`}</th>
               </tr>
             </thead>
             <tbody>
@@ -469,12 +500,12 @@ function TransactionsTable({
           <table className="w-full">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
-                <th className="py-3 px-4 text-left font-medium">Тип</th>
-                <th className="py-3 px-4 text-left font-medium">Участник / Проект</th>
-                <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                <th className="py-3 px-4 text-left font-medium">Дата</th>
-                <th className="py-3 px-4 text-left font-medium">Статус</th>
-                <th className="py-3 px-4 text-left font-medium">Действия</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Тип`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Учасник / Проєкт`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Сума`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Дата`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Статус`}</th>
+                <th className="py-3 px-4 text-left font-medium">{t`Дії`}</th>
               </tr>
             </thead>
             <tbody>
@@ -535,6 +566,7 @@ function TransactionsTable({
 // ── Main page ──────────────────────────────────────────────────────────────────
 
 function FinancePage() {
+  const { t, i18n } = useLingui()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
   // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
@@ -735,51 +767,51 @@ function FinancePage() {
                   </div>
                 ) : mySalaries.length === 0 ? (
                   <div className="py-16 text-center text-sm text-muted-foreground">
-                    Выплат пока нет
+                    <Trans>Виплат ще немає</Trans>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead>
                         <tr className="border-b border-border text-xs text-muted-foreground">
-                          <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                          <th className="py-3 px-4 text-left font-medium">Месяц</th>
-                          <th className="py-3 px-4 text-left font-medium">Дата</th>
-                          <th className="py-3 px-4 text-left font-medium">Статус</th>
+                          <th className="py-3 px-4 text-left font-medium">{t`Сума`}</th>
+                          <th className="py-3 px-4 text-left font-medium">{t`Місяць`}</th>
+                          <th className="py-3 px-4 text-left font-medium">{t`Дата`}</th>
+                          <th className="py-3 px-4 text-left font-medium">{t`Статус`}</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {mySalaries.map((t) => (
+                        {mySalaries.map((salaryTx) => (
                           <tr
-                            key={t.id}
+                            key={salaryTx.id}
                             className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                             tabIndex={0}
-                            aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
-                            onClick={() => setDetailTx(t)}
+                            aria-label={t`Відкрити транзакцію за ${salaryTx.salaryMonth ?? salaryTx.createdAt}`}
+                            onClick={() => setDetailTx(salaryTx)}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault()
-                                setDetailTx(t)
+                                setDetailTx(salaryTx)
                               }
                             }}
                           >
                             <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
-                              {fmtAmount(t.amount, t.currency)}
+                              {fmtAmount(salaryTx.amount, salaryTx.currency)}
                             </td>
                             <td className="py-3 px-4 text-sm text-muted-foreground">
-                              {fmtMonth(t.salaryMonth)}
+                              {fmtMonth(salaryTx.salaryMonth)}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {fmtDate(t.txDate ?? t.createdAt)}
+                              {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
                             </td>
                             <td className="py-3 px-4">
                               <span
                                 className={cn(
                                   'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-                                  STATUS_COLORS[t.status],
+                                  STATUS_COLORS[salaryTx.status],
                                 )}
                               >
-                                {STATUS_LABELS[t.status]}
+                                {i18n._(STATUS_LABEL_MESSAGES[salaryTx.status])}
                               </span>
                             </td>
                           </tr>
@@ -818,74 +850,74 @@ function FinancePage() {
                     </div>
                   ) : mySalaries.length === 0 ? (
                     <div className="py-16 text-center text-sm text-muted-foreground">
-                      Выплат пока нет
+                      <Trans>Виплат ще немає</Trans>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <thead>
                           <tr className="border-b border-border text-xs text-muted-foreground">
-                            <th className="py-3 px-4 text-left font-medium">Сумма</th>
-                            <th className="py-3 px-4 text-left font-medium">Проект</th>
-                            <th className="py-3 px-4 text-left font-medium">Месяц</th>
-                            <th className="py-3 px-4 text-left font-medium">Дата</th>
-                            <th className="py-3 px-4 text-left font-medium">Статус</th>
-                            <th className="py-3 px-4 text-left font-medium">TX Hash</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Сума`}</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Проєкт`}</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Місяць`}</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Дата`}</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Статус`}</th>
+                            <th className="py-3 px-4 text-left font-medium">{t`Хеш транзакції`}</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {mySalaries.map((t) => (
+                          {mySalaries.map((salaryTx) => (
                             <tr
-                              key={t.id}
+                              key={salaryTx.id}
                               className="border-b border-border/50 hover:bg-muted/30 transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                               tabIndex={0}
-                              aria-label={`Открыть транзакцию за ${t.salaryMonth ?? t.createdAt}`}
-                              onClick={() => setDetailTx(t)}
+                              aria-label={t`Відкрити транзакцію за ${salaryTx.salaryMonth ?? salaryTx.createdAt}`}
+                              onClick={() => setDetailTx(salaryTx)}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
                                   e.preventDefault()
-                                  setDetailTx(t)
+                                  setDetailTx(salaryTx)
                                 }
                               }}
                             >
                               <td className="py-3 px-4 text-sm tabular-nums font-medium text-green-500">
-                                {fmtAmount(t.amount, t.currency)}
+                                {fmtAmount(salaryTx.amount, salaryTx.currency)}
                               </td>
                               <td className="py-3 px-4 text-sm text-muted-foreground">
-                                {t.projectName ?? '—'}
+                                {salaryTx.projectName ?? '—'}
                               </td>
                               <td className="py-3 px-4 text-sm text-muted-foreground">
-                                {fmtMonth(t.salaryMonth)}
+                                {fmtMonth(salaryTx.salaryMonth)}
                               </td>
                               <td className="py-3 px-4 text-xs text-muted-foreground">
-                                {fmtDate(t.txDate ?? t.createdAt)}
+                                {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
                               </td>
                               <td className="py-3 px-4">
                                 <span
                                   className={cn(
                                     'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-                                    STATUS_COLORS[t.status],
+                                    STATUS_COLORS[salaryTx.status],
                                   )}
                                 >
-                                  {STATUS_LABELS[t.status]}
+                                  {i18n._(STATUS_LABEL_MESSAGES[salaryTx.status])}
                                 </span>
                               </td>
                               <td
                                 className="py-3 px-4 text-xs font-mono text-muted-foreground"
                                 onClick={(e) => e.stopPropagation()}
                               >
-                                {t.txHash ? (
+                                {salaryTx.txHash ? (
                                   <Tooltip>
                                     <TooltipTrigger asChild>
                                       <span className="cursor-default underline decoration-dotted underline-offset-2">
-                                        {t.txHash.slice(0, 14)}…
+                                        {salaryTx.txHash.slice(0, 14)}…
                                       </span>
                                     </TooltipTrigger>
                                     <TooltipContent
                                       side="top"
                                       className="max-w-xs break-all font-mono"
                                     >
-                                      {t.txHash}
+                                      {salaryTx.txHash}
                                     </TooltipContent>
                                   </Tooltip>
                                 ) : (
@@ -914,7 +946,16 @@ function FinancePage() {
         {/* Header */}
         <div className="flex items-start justify-between">
           <div />
-          <div className="flex gap-2">
+          {/* FIX-UX-M-1 (fix-round, PR #730): with the payout badge active
+              («Виплатити (N)»), two full-width buttons overflow the right
+              edge at ≤363px — reachable but past the viewport, no scroll
+              indicator. `flex-wrap` is the safety net; the primary fix is
+              icon-only «Нова транзакція» below `sm` (foundation.md §10
+              «Фильтры / тулбары» — mobile toolbar collapses, it does not
+              scroll). The `Wallet` payout button keeps its digit-count label
+              at every width — it is the rarer, count-bearing action, and
+              icon-only there would hide the number the badge exists for. */}
+          <div className="flex flex-wrap justify-end gap-2">
             {/* feat/finance-payout-flow (#7): SENIOR can batch multiple VALIDATED
               incomes into one payout via the header button. Badge shows count. */}
             {isSenior && validatedSeniorIncomes.length > 0 && (
@@ -927,15 +968,17 @@ function FinancePage() {
                 data-testid="finance-initiate-payout-button"
               >
                 <Wallet className="h-4 w-4 mr-1" />
-                Выплатить ({validatedSeniorIncomes.length})
+                {t`Виплатити (${validatedSeniorIncomes.length})`}
               </Button>
             )}
             {canCreate && (
               <Button
                 onClick={() => setShowCreate(true)}
                 data-testid="finance-create-transaction-button"
+                aria-label={t`Нова транзакція`}
               >
-                <Plus className="h-4 w-4 mr-1" /> Новая транзакция
+                <Plus className="h-4 w-4 sm:mr-1" />
+                <span className="hidden sm:inline">{t`Нова транзакція`}</span>
               </Button>
             )}
           </div>
@@ -1054,36 +1097,57 @@ function FinancePage() {
             <CrmDialogContent maxWidth="sm:max-w-sm">
               <CrmDialogHeader>
                 <DialogTitle className="text-base text-destructive">
-                  Удалить транзакцию?
+                  <Trans>Видалити транзакцію?</Trans>
                 </DialogTitle>
+                {/* COPY-M-fin-14: this sr-only description used to phrase the
+                    same fact differently from the visible paragraph below
+                    ("не удалена физически" here, absent there) — one sentence
+                    for screen readers and sighted users alike now, not two
+                    near-identical ones a translator would have to keep in
+                    sync by hand. */}
                 <DialogDescription className="sr-only">
-                  Подтверждение удаления финансовой транзакции. Транзакция будет скрыта из общего
-                  списка, но не удалена физически — восстановить сможет администратор.
+                  <Trans>
+                    Транзакцію буде прибрано з загального списку — відновити її може лише
+                    адміністратор.
+                  </Trans>
                 </DialogDescription>
               </CrmDialogHeader>
               <CrmDialogBody className="pb-2 space-y-3">
                 <div className="text-sm text-muted-foreground space-y-1">
                   <p>
-                    Транзакция будет скрыта из общего списка. Восстановить её сможет администратор.
+                    <Trans>
+                      Транзакцію буде прибрано з загального списку — відновити її може лише
+                      адміністратор.
+                    </Trans>
                   </p>
                   {deleteTx && (
                     <p className="font-medium text-foreground">
-                      {TYPE_LABELS[deleteTx.type]} · {fmtAmount(deleteTx.amount, deleteTx.currency)}
+                      {i18n._(TYPE_LABEL_MESSAGES[deleteTx.type])} ·{' '}
+                      {fmtAmount(deleteTx.amount, deleteTx.currency)}
                     </p>
                   )}
                 </div>
                 <div className="space-y-1">
                   <label htmlFor="delete-tx-reason" className="text-xs font-medium text-foreground">
-                    Причина удаления (обязательно)
+                    {t`Причина видалення (обов’язково)`}
                   </label>
                   <Textarea
                     id="delete-tx-reason"
                     value={deleteReason}
                     onChange={(e) => setDeleteReason(e.target.value)}
-                    placeholder="Например: ошибочно созданная транзакция"
+                    placeholder={t`Наприклад: помилково створена транзакція`}
                     className="min-h-16 text-sm"
                     data-testid="delete-tx-reason-input"
                   />
+                  {/* FIX-SPEC-M-1 (fix-round, PR #730 / COPY-M-fin-5): the
+                      confirm button below was silently `disabled` below 3
+                      characters with no visible reason why — a mandatory
+                      field that refuses without saying so. */}
+                  {deleteReason.length > 0 && deleteReason.trim().length < 3 && (
+                    <p className="text-xs text-destructive" data-testid="delete-tx-reason-hint">
+                      {t`Вкажіть щонайменше 3 символи причини`}
+                    </p>
+                  )}
                 </div>
               </CrmDialogBody>
               <CrmDialogFooter>
@@ -1095,7 +1159,7 @@ function FinancePage() {
                     setDeleteReason('')
                   }}
                 >
-                  Отмена
+                  {t`Скасувати`}
                 </Button>
                 <Button
                   variant="destructive"
@@ -1107,7 +1171,7 @@ function FinancePage() {
                   disabled={deleteMutation.isPending || deleteReason.trim().length < 3}
                   data-testid="delete-tx-confirm-button"
                 >
-                  {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
+                  {deleteMutation.isPending ? t`Видалення…` : t`Видалити`}
                 </Button>
               </CrmDialogFooter>
             </CrmDialogContent>
@@ -1126,23 +1190,32 @@ function FinancePage() {
           >
             <CrmDialogContent maxWidth="sm:max-w-sm">
               <CrmDialogHeader>
-                <DialogTitle className="text-base">Восстановить транзакцию?</DialogTitle>
+                <DialogTitle className="text-base">
+                  <Trans>Відновити транзакцію?</Trans>
+                </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Подтверждение восстановления ранее удалённой финансовой транзакции.
+                  <Trans>Підтвердження відновлення раніше видаленої фінансової транзакції.</Trans>
                 </DialogDescription>
               </CrmDialogHeader>
               <CrmDialogBody className="pb-2 space-y-3">
                 <div className="text-sm text-muted-foreground space-y-1">
-                  <p>Транзакция снова появится в общем списке и во всех расчётах.</p>
+                  <p>
+                    <Trans>
+                      Транзакція знову з’явиться в загальному списку та в усіх розрахунках.
+                    </Trans>
+                  </p>
                   {restoreTx && (
                     <p className="font-medium text-foreground">
-                      {TYPE_LABELS[restoreTx.type]} ·{' '}
+                      {i18n._(TYPE_LABEL_MESSAGES[restoreTx.type])} ·{' '}
                       {fmtAmount(restoreTx.amount, restoreTx.currency)}
                     </p>
                   )}
                   {restoreTx?.deletionReason && (
                     <p className="text-xs">
-                      Причина удаления: <span className="italic">{restoreTx.deletionReason}</span>
+                      <Trans>
+                        Причина видалення:{' '}
+                        <span className="italic">{restoreTx.deletionReason}</span>
+                      </Trans>
                     </p>
                   )}
                 </div>
@@ -1151,16 +1224,23 @@ function FinancePage() {
                     htmlFor="restore-tx-reason"
                     className="text-xs font-medium text-foreground"
                   >
-                    Причина восстановления (обязательно)
+                    {t`Причина відновлення (обов’язково)`}
                   </label>
                   <Textarea
                     id="restore-tx-reason"
                     value={restoreReason}
                     onChange={(e) => setRestoreReason(e.target.value)}
-                    placeholder="Например: удалено по ошибке"
+                    placeholder={t`Наприклад: видалено помилково`}
                     className="min-h-16 text-sm"
                     data-testid="restore-tx-reason-input"
                   />
+                  {/* FIX-SPEC-M-1 (fix-round, PR #730 / COPY-M-fin-5) — same
+                      visible hint as the delete dialog above. */}
+                  {restoreReason.length > 0 && restoreReason.trim().length < 3 && (
+                    <p className="text-xs text-destructive" data-testid="restore-tx-reason-hint">
+                      {t`Вкажіть щонайменше 3 символи причини`}
+                    </p>
+                  )}
                 </div>
               </CrmDialogBody>
               <CrmDialogFooter>
@@ -1172,7 +1252,7 @@ function FinancePage() {
                     setRestoreReason('')
                   }}
                 >
-                  Отмена
+                  {t`Скасувати`}
                 </Button>
                 <Button
                   size="sm"
@@ -1183,7 +1263,7 @@ function FinancePage() {
                   disabled={restoreMutation.isPending || restoreReason.trim().length < 3}
                   data-testid="restore-tx-confirm-button"
                 >
-                  {restoreMutation.isPending ? 'Восстановление...' : 'Восстановить'}
+                  {restoreMutation.isPending ? t`Відновлення…` : t`Відновити`}
                 </Button>
               </CrmDialogFooter>
             </CrmDialogContent>
