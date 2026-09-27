@@ -298,6 +298,8 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
     })
     renderDialog({ tx, queue: [tx] })
     expect(screen.getByRole('heading', { name: 'Валідація транзакції' })).toBeInTheDocument()
+    expect(screen.getAllByText('Валідація транзакції')).toHaveLength(2) // heading + sr-only description
+    expect(screen.getByText('Причина відмови (у разі відмови)')).toBeInTheDocument()
     expect(screen.getByText('Тип')).toBeInTheDocument()
     expect(screen.getByText('Сума')).toBeInTheDocument()
     expect(screen.getByText('Дата')).toBeInTheDocument()
