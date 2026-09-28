@@ -203,6 +203,15 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
       'Вкажіть деталі ручного підтвердження',
     )
   })
+
+  it('the dev-simulate radiogroup (vitest runs as a DEV build) carries its exact aria-label', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-dev-simulate')).toHaveAttribute(
+      'aria-label',
+      'Dev-режим: результат валідації',
+    )
+  })
 })
 
 function makeDropIncomeTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
