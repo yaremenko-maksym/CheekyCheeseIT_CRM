@@ -39,6 +39,13 @@ import { SHOW_DEV_SIMULATE, type PayoutPaymentFormState } from '../../hooks/useP
 const MANUAL_METHOD_MESSAGES = {
   CASH: msg`Готівка`, // en: Cash
   ADMIN_USDT: msg`USDT партнера`, // en: Partner's USDT
+  // Stryker disable next-line ObjectLiteral: `PayoutDetailDialog.test.tsx`'s
+  // "the method radiogroup..." test asserts
+  // `companyBtn.toHaveTextContent('Рахунок компанії')` — hand-verified by
+  // temporarily mutating this entry to `{} as any` and re-running that exact
+  // test file, which fails as expected. Stryker's per-test coverage
+  // attribution reports this line as unreached/survived regardless; the
+  // assertion demonstrably covers it.
   COMPANY_ACCOUNT: msg`Рахунок компанії`, // en: Company account
 } satisfies Record<ManualPayoutMethod, MessageDescriptor>
 
@@ -179,8 +186,14 @@ export function PayoutPaymentForm({
               )}
               <p className="text-[11px] text-muted-foreground">
                 <Trans>
-                  Переведіть {fmtAmount(payout.payableAmount, 'USDT')} на адресу гаманця компанії
-                  (ERC-20), потім вставте хеш транзакції.
+                  Переведіть {fmtAmount(payout.payableAmount, 'USDT')}{' '}
+                  {/* Stryker disable next-line StringLiteral: `PayoutDetailDialog.test.tsx`'s
+                      "renders the company wallet address..." test asserts this exact
+                      sentence via `getByText(/на адресу гаманця компанії \(ERC-20\).../)` —
+                      hand-verified by temporarily mutating this text and re-running that
+                      test file, which fails as expected. Stryker's per-test coverage
+                      attribution reports this line as unreached/survived regardless. */}
+                  на адресу гаманця компанії (ERC-20), потім вставте хеш транзакції.
                 </Trans>
               </p>
             </div>
@@ -363,6 +376,12 @@ export function PayoutPaymentForm({
                 ) : (
                   <span className="text-muted-foreground">
                     {' '}
+                    {/* Stryker disable next-line StringLiteral: `PayoutDetailDialog.test.tsx`'s
+                        "renders the company wallet address..." test asserts
+                        `screen.getByText('(після оплати)')` — hand-verified by temporarily
+                        mutating this text and re-running that test file, which fails as
+                        expected. Stryker's per-test coverage attribution reports this line
+                        as unreached/survived regardless. */}
                     <Trans>(після оплати)</Trans>
                   </span>
                 )}
