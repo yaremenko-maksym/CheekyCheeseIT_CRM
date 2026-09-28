@@ -20,14 +20,32 @@
  * Heavy dependencies (router file-route, query client, recharts, finance api)
  * are mocked so the component renders in isolation.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  within,
+  type RenderResult,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type {
   FinanceSummaryDto,
   IncomeComplianceOverviewDto,
   IncomeComplianceReceiverDto,
   SessionUser,
 } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `StatsPage` calls `useLingui()`/`<Trans>` now — wrap every render (same
+// pattern as `cascade-impact-panel.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -70,7 +88,7 @@ vi.mock('recharts', () => {
 vi.mock('@/components/stats/FinanceChart', () => ({
   FinanceChart: ({ summary }: { summary: { monthly: unknown[] } }) => (
     <div data-testid="finance-chart-stub">
-      <span>Динамика по месяцам</span>
+      <span>Динаміка за місяцями</span>
       <span data-testid="chart-month-count">{summary.monthly.length}</span>
     </div>
   ),
@@ -229,13 +247,13 @@ describe('StatsPage — economic data (both roles)', () => {
     async (role) => {
       setup(role)
       expect(screen.getByTestId('stats-finance-section')).toBeInTheDocument()
-      expect(screen.getByText('Общий доход')).toBeInTheDocument()
-      expect(screen.getByText('Расходы')).toBeInTheDocument()
-      expect(screen.getByText('Зарплаты')).toBeInTheDocument()
+      expect(screen.getByText('Загальний дохід')).toBeInTheDocument()
+      expect(screen.getByText('Витрати')).toBeInTheDocument()
+      expect(screen.getByText('Зарплати')).toBeInTheDocument()
       expect(screen.getByText('Net balance')).toBeInTheDocument()
       // FinanceChart is now lazy (React.lazy + Suspense) — its title resolves on
       // the next microtask even with the module mocked, so assert async.
-      expect(await screen.findByText('Динамика по месяцам')).toBeInTheDocument()
+      expect(await screen.findByText('Динаміка за місяцями')).toBeInTheDocument()
     },
   )
 
@@ -248,7 +266,7 @@ describe('StatsPage — economic data (both roles)', () => {
       const kpi = screen.getByTestId('stats-company-account-balance')
       expect(kpi).toBeInTheDocument()
       expect(kpi).toHaveTextContent('4,200.00 USDT')
-      expect(screen.getByText('Счёт компании · USDT')).toBeInTheDocument()
+      expect(screen.getByText('Рахунок компанії · USDT')).toBeInTheDocument()
     },
   )
 })
@@ -259,11 +277,11 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     (role) => {
       setup(role)
       expect(screen.getByTestId('income-compliance-section')).toBeInTheDocument()
-      expect(screen.getByText('Контроль приходов')).toBeInTheDocument()
+      expect(screen.getByText('Контроль приходів')).toBeInTheDocument()
       // KPI strip
-      expect(screen.getByText('Всего приходов')).toBeInTheDocument()
-      expect(screen.getByText('Закрыты полностью')).toBeInTheDocument()
-      expect(screen.getByText('Отстают')).toBeInTheDocument()
+      expect(screen.getByText('Усього приходів')).toBeInTheDocument()
+      expect(screen.getByText('Закриті повністю')).toBeInTheDocument()
+      expect(screen.getByText('Відстають')).toBeInTheDocument()
       // Receiver rows
       expect(screen.getByTestId('compliance-row-sr-lag')).toBeInTheDocument()
       expect(screen.getByTestId('compliance-row-sr-done')).toBeInTheDocument()
@@ -282,8 +300,8 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(screen.getByText('ShopCore Backend')).toBeInTheDocument()
     // The pending project shows «На валидации» (also the receiver-row badge, so
     // there are ≥1); the missing one «Нет прихода».
-    expect(screen.getAllByText('На валидации').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Нет прихода')).toBeInTheDocument()
+    expect(screen.getAllByText('На валідації').length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Немає приходу')).toBeInTheDocument()
   })
 
   // code-review (round 2, HIGH): sr-lag's pendingCount (1) covers only ONE of
@@ -299,10 +317,10 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     const row = screen.getByTestId('compliance-row-sr-lag')
     expect(row.className).toContain('border-l-red-500')
     expect(row.className).not.toContain('border-l-amber-500')
-    const badge = within(row).getByText('2 без прихода')
+    const badge = within(row).getByText('2 без приходу')
     expect(badge.className).toContain('bg-red-500/10')
     expect(badge.className).toContain('text-red-500')
-    expect(within(row).queryByText(/на валидации/i)).not.toBeInTheDocument()
+    expect(within(row).queryByText(/на валідації/i)).not.toBeInTheDocument()
   })
 
   // mutation-gate: when pendingCount FULLY covers the gap (a genuine
@@ -345,10 +363,10 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     render(<StatsPage />)
     const row = screen.getByTestId('compliance-row-r-singular-pending')
     expect(row.className).toContain('border-l-amber-500')
-    const badge = within(row).getByText('На валидации')
+    const badge = within(row).getByText('На валідації')
     expect(badge.className).toContain('bg-amber-500/10')
     expect(badge.className).toContain('text-amber-500')
-    expect(within(row).queryByText('1 на валидации')).not.toBeInTheDocument()
+    expect(within(row).queryByText('1 на валідації')).not.toBeInTheDocument()
   })
 
   // code-review (round 2, HIGH): a receiver whose pending+accrued only
@@ -400,11 +418,11 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(row.className).not.toContain('border-l-amber-500')
     // Badge: red «Нет приходов», never the amber «На валидации» the old
     // ungated code would have shown.
-    const badge = within(row).getByText('Нет приходов')
+    const badge = within(row).getByText('Немає приходів')
     expect(badge.className).toContain('bg-red-500/10')
     expect(badge.className).toContain('text-red-500')
-    expect(within(row).queryByText('На валидации')).not.toBeInTheDocument()
-    expect(within(row).queryByText(/на валидации/)).not.toBeInTheDocument()
+    expect(within(row).queryByText('На валідації')).not.toBeInTheDocument()
+    expect(within(row).queryByText(/на валідації/)).not.toBeInTheDocument()
   })
 
   // task-compliance-overview-pending-types: the reported prod regression — a
@@ -418,20 +436,20 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // Amber left-accent border, NOT the red lagging one.
     expect(row.className).toContain('border-l-amber-500')
     expect(row.className).not.toContain('border-l-red-500')
-    expect(screen.getByText('Начислено')).toBeInTheDocument()
-    expect(screen.queryByText('Нет приходов')).not.toBeInTheDocument()
+    expect(screen.getByText('Нараховано')).toBeInTheDocument()
+    expect(screen.queryByText('Немає приходів')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('compliance-toggle-drop-accrued'))
     const detail = screen.getByTestId('compliance-detail-drop-accrued')
     expect(detail).toBeInTheDocument()
     expect(screen.getByText('GamingTec')).toBeInTheDocument()
-    expect(screen.getByText('Начислено · ожидает выплаты')).toBeInTheDocument()
+    expect(screen.getByText('Нараховано · очікує виплати')).toBeInTheDocument()
   })
 
   it('does NOT render the removed participants-balances section', () => {
     setup('ADMIN')
     expect(screen.queryByTestId('participants-balances-card')).not.toBeInTheDocument()
-    expect(screen.queryByText('Балансы участников')).not.toBeInTheDocument()
+    expect(screen.queryByText('Баланси учасників')).not.toBeInTheDocument()
   })
 
   // task-compliance-overview-pending-types (mutation-gate): every reachable
@@ -542,7 +560,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // Mixed: badge sums pending+accrued ("2 в процессе"), amber accent + cls.
     const mixedRow = screen.getByTestId('compliance-row-r-mixed')
     expect(mixedRow.className).toContain('border-l-amber-500')
-    const mixedBadge = within(mixedRow).getByText('2 в процессе')
+    const mixedBadge = within(mixedRow).getByText('2 у процесі')
     expect(mixedBadge.className).toContain('bg-amber-500/10')
     expect(mixedBadge.className).toContain('text-amber-500')
 
@@ -550,13 +568,13 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // on `cls` survives text-only assertions since `cls` never renders as
     // visible text).
     const accruedPluralRow = screen.getByTestId('compliance-row-r-accrued-plural')
-    const accruedPluralBadge = within(accruedPluralRow).getByText('2 начислено')
+    const accruedPluralBadge = within(accruedPluralRow).getByText('2 нараховано')
     expect(accruedPluralBadge.className).toContain('bg-amber-500/10')
     expect(accruedPluralBadge.className).toContain('text-amber-500')
 
     // Plural pending-only — same, text AND cls.
     const pendingPluralRow = screen.getByTestId('compliance-row-r-pending-plural')
-    const pendingPluralBadge = within(pendingPluralRow).getByText('2 на валидации')
+    const pendingPluralBadge = within(pendingPluralRow).getByText('2 на валідації')
     expect(pendingPluralBadge.className).toContain('bg-amber-500/10')
     expect(pendingPluralBadge.className).toContain('text-amber-500')
 
@@ -565,26 +583,26 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // wordings must land on the RIGHT receiver, not just exist somewhere).
     const laggingPartialRow = screen.getByTestId('compliance-row-r-lagging-partial')
     expect(laggingPartialRow.className).toContain('border-l-red-500')
-    const laggingPartialBadge = within(laggingPartialRow).getByText('1 без прихода')
+    const laggingPartialBadge = within(laggingPartialRow).getByText('1 без приходу')
     expect(laggingPartialBadge.className).toContain('bg-red-500/10')
     expect(laggingPartialBadge.className).toContain('text-red-500')
 
     const laggingZeroRow = screen.getByTestId('compliance-row-r-lagging-zero')
     expect(laggingZeroRow.className).toContain('border-l-red-500')
-    const laggingZeroBadge = within(laggingZeroRow).getByText('Нет приходов')
+    const laggingZeroBadge = within(laggingZeroRow).getByText('Немає приходів')
     expect(laggingZeroBadge.className).toContain('bg-red-500/10')
     expect(laggingZeroBadge.className).toContain('text-red-500')
     // Explicitly NOT the other row's wording — catches a submitted===0 vs
     // !==0 swap that a global `getByText` would miss.
-    expect(within(laggingZeroRow).queryByText('1 без прихода')).not.toBeInTheDocument()
-    expect(within(laggingPartialRow).queryByText('Нет приходов')).not.toBeInTheDocument()
+    expect(within(laggingZeroRow).queryByText('1 без приходу')).not.toBeInTheDocument()
+    expect(within(laggingPartialRow).queryByText('Немає приходів')).not.toBeInTheDocument()
 
     // Drawer-level per-project colour: expand Mixed and check BOTH the
     // amber-pendingValidation dot/text AND the amber-accrued dot/text via
     // their own data-testids (the dot has no text of its own to query by).
     fireEvent.click(screen.getByTestId('compliance-toggle-r-mixed'))
     const pendingText = screen.getByTestId('compliance-project-status-p-mixed-a')
-    expect(pendingText).toHaveTextContent('На валидации')
+    expect(pendingText).toHaveTextContent('На валідації')
     expect(pendingText.className).toContain('text-amber-500')
     expect(pendingText.className).not.toContain('text-red-500')
     const pendingDot = screen.getByTestId('compliance-project-dot-p-mixed-a')
@@ -592,7 +610,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(pendingDot.className).not.toContain('bg-red-500')
 
     const accruedText = screen.getByTestId('compliance-project-status-p-mixed-b')
-    expect(accruedText).toHaveTextContent('Начислено · ожидает выплаты')
+    expect(accruedText).toHaveTextContent('Нараховано · очікує виплати')
     expect(accruedText.className).toContain('text-amber-500')
     expect(accruedText.className).not.toContain('text-red-500')
     const accruedDot = screen.getByTestId('compliance-project-dot-p-mixed-b')
@@ -607,7 +625,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     setup('ADMIN')
     fireEvent.click(screen.getByTestId('compliance-toggle-sr-lag'))
     const missingText = screen.getByTestId('compliance-project-status-p-missing')
-    expect(missingText).toHaveTextContent('Нет прихода')
+    expect(missingText).toHaveTextContent('Немає приходу')
     expect(missingText.className).toContain('text-red-500')
     expect(missingText.className).not.toContain('text-amber-500')
     const missingDot = screen.getByTestId('compliance-project-dot-p-missing')
@@ -639,7 +657,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
       return { data: undefined, isLoading: false }
     })
     render(<StatsPage />)
-    expect(screen.getByText(/Нет активных проектов-получателей дохода/)).toBeInTheDocument()
+    expect(screen.getByText(/Немає активних проєктів-отримувачів доходу/)).toBeInTheDocument()
   })
 })
 
@@ -652,14 +670,14 @@ describe('StatsPage — ACCOUNTANT economic-only (no admin-only surface)', () =>
 
   it('does NOT render the partner-balances settlement card', () => {
     setup('ACCOUNTANT')
-    expect(screen.queryByText('Балансы партнёров')).not.toBeInTheDocument()
+    expect(screen.queryByText('Баланси партнерів')).not.toBeInTheDocument()
   })
 
   it('does NOT render the HR/Команда/Проекты placeholders', () => {
     setup('ACCOUNTANT')
     expect(screen.queryByTestId('stats-placeholders-section')).not.toBeInTheDocument()
-    expect(screen.queryByText('Другие разделы')).not.toBeInTheDocument()
-    expect(screen.queryByText('HR — воронка собеседований')).not.toBeInTheDocument()
+    expect(screen.queryByText('Інші розділи')).not.toBeInTheDocument()
+    expect(screen.queryByText('HR — воронка співбесід')).not.toBeInTheDocument()
   })
 })
 
@@ -672,13 +690,13 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
 
   it('renders the partner-balances settlement card', () => {
     setup('ADMIN')
-    expect(screen.getByText('Балансы партнёров')).toBeInTheDocument()
+    expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
   })
 
   it('renders the HR/Команда/Проекты placeholders', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-placeholders-section')).toBeInTheDocument()
-    expect(screen.getByText('Другие разделы')).toBeInTheDocument()
+    expect(screen.getByText('Інші розділи')).toBeInTheDocument()
   })
 })
 
