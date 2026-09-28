@@ -16,6 +16,7 @@
 
 import { test, expect } from '@playwright/test'
 import { USERS, mockAuthAs, API_RE } from '../fixtures'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Document fixtures
@@ -143,8 +144,10 @@ test.describe('AC1: search field filters document list', () => {
     const listContainer = page.getByTestId('documents-list-view')
     await expect(listContainer.getByTestId('document-row')).toHaveCount(2)
 
-    // Clear via the × button (aria-label="Очистить поиск")
-    const clearBtn = page.getByRole('button', { name: 'Очистить поиск' })
+    // Clear via the × button — aria-label from the uk catalog
+    // (task-i18n-stage3e-pr1)
+    const uk = await loadMessages('uk')
+    const clearBtn = page.getByRole('button', { name: assertInCatalog(uk, 'Очистити пошук') })
     await expect(clearBtn).toBeVisible()
     await clearBtn.click()
 
@@ -167,11 +170,13 @@ test.describe('AC2: sort select changes document order', () => {
     await page.getByTestId('documents-view-list').click()
     await expect(page.getByTestId('documents-counter-ALL')).toBeVisible()
 
-    // Open sort select and pick name_asc
+    // Open sort select and pick name_asc — option text from the uk catalog
+    // (SORT_OPTION_MESSAGES, task-i18n-stage3e-pr1)
     const sortSelect = page.getByTestId('documents-sort')
     await expect(sortSelect).toBeVisible()
     await sortSelect.click()
-    await page.getByRole('option', { name: 'Имя: А-Я' }).click()
+    const uk = await loadMessages('uk')
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Ім’я: А–Я') }).click()
 
     const listContainer = page.getByTestId('documents-list-view')
     const rows = listContainer.getByTestId('document-row')
@@ -194,7 +199,8 @@ test.describe('AC2: sort select changes document order', () => {
 
     const sortSelect = page.getByTestId('documents-sort')
     await sortSelect.click()
-    await page.getByRole('option', { name: 'Размер: больше' }).click()
+    const uk = await loadMessages('uk')
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Спочатку більші') }).click()
 
     const listContainer = page.getByTestId('documents-list-view')
     const rows = listContainer.getByTestId('document-row')
@@ -223,9 +229,10 @@ test.describe('AC5: grid/list toggle aria-label + aria-pressed', () => {
     const listBtn = page.getByTestId('documents-view-list')
     const gridBtn = page.getByTestId('documents-view-grid')
 
-    await expect(listBtn).toHaveAttribute('aria-label', 'Список')
+    const uk = await loadMessages('uk')
+    await expect(listBtn).toHaveAttribute('aria-label', assertInCatalog(uk, 'Список'))
     await expect(listBtn).toHaveAttribute('aria-pressed', 'true')
-    await expect(gridBtn).toHaveAttribute('aria-label', 'Сетка')
+    await expect(gridBtn).toHaveAttribute('aria-label', assertInCatalog(uk, 'Сітка'))
     await expect(gridBtn).toHaveAttribute('aria-pressed', 'false')
   })
 
