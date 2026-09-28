@@ -686,7 +686,13 @@ function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) {
         {canShowUploadButton ? (
           <Button onClick={() => setUploadOpen(true)} data-testid="documents-upload-button">
             <Plus className="mr-2 h-4 w-4" />
-            <Trans>Завантажити</Trans>
+            {/* "Завантажити файл" (not bare "Завантажити") — the latter's
+                msgid is already claimed catalog-wide by "Download"
+                (ResumePreviewDialog.tsx); reusing the existing, unambiguous
+                "Upload a file" entry (ResumeIntake.tsx) instead of adding a
+                same-text-different-meaning collision (caught visually via
+                screenshot review, not by any automated gate). */}
+            <Trans>Завантажити файл</Trans>
           </Button>
         ) : null}
       </motion.div>

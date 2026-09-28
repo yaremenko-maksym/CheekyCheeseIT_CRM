@@ -3430,7 +3430,6 @@ msgstr "Loading the reason…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Завантажити"
@@ -3450,6 +3449,7 @@ msgid "Завантажити резюме"
 msgstr "Download resume"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Завантажити файл"
 msgstr "Upload a file"
 
