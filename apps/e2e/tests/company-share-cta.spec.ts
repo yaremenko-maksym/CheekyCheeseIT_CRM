@@ -145,7 +145,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await asSenior.getByTestId('company-share-cta-strip').click()
     const modal = asSenior.getByTestId('company-share-payout-modal')
     await expect(modal).toBeVisible()
-    await expect(modal).toContainText('Оплата доли CheekyCheeseIT')
+    await expect(modal).toContainText('Оплата частки CheekyCheeseIT')
 
     // AC6: the old dialog's title is gone from this flow.
     await expect(asSenior.getByText('Выбрать транзакции для выплаты')).toHaveCount(0)
@@ -159,9 +159,9 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await expect(modal).toBeVisible()
     await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
     await expect(asSenior.getByTestId('company-share-created-notice')).toContainText(
-      'Заявка создана',
+      'Заявку створено',
     )
-    await expect(modal).toContainText('Заявка на выплату')
+    await expect(modal).toContainText('Заявка на виплату')
   })
 
   test('a11y: focus moves into the step-2 content after the transition', async ({ asSenior }) => {

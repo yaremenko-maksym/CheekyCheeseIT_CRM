@@ -551,11 +551,9 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
 
       const dialog = page.getByTestId('settle-senior-dialog')
       await expect(dialog).toBeVisible()
-      // Default account = «Счёт компании» (COMPANY_ACCOUNT, currency locked
+      // Default account = «Рахунок компанії» (COMPANY_ACCOUNT, currency locked
       // USDT) — leave it, just try to submit without a receipt.
-      // SettleSeniorPayoutDialog is NOT migrated by this PR (PR4 scope) —
-      // still the Russian button text.
-      await dialog.getByRole('button', { name: 'Отметить как оплачено' }).click()
+      await dialog.getByRole('button', { name: 'Підтвердити розрахунок' }).click()
       await expect(dialog.getByTestId('settle-senior-error-receipt')).toBeVisible()
       await expect(dialog).toBeVisible()
     } finally {

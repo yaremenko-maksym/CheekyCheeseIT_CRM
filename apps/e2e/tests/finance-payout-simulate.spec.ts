@@ -234,7 +234,7 @@ test.describe('Flow B — Payout payment simulate radio (PR #56)', () => {
     // Count line — SENIOR_INCOME-only, so «(1)» even though the payout
     // request also carries a PAYOUT placeholder row server-side.
     await expect(dialog.getByTestId('payout-detail-transactions-count')).toContainText(
-      /Транзакции в выплате \(1\)/,
+      /Транзакції у виплаті \(1\)/,
     )
 
     // Default radio = real → submit disabled even with no hash typed.

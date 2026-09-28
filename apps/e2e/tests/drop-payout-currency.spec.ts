@@ -106,7 +106,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
 
     const dialog = page.getByTestId('settle-senior-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Выплатить дропу')).toBeVisible()
+    await expect(dialog.getByText('Розрахунок із дропом')).toBeVisible()
 
     const amountField = dialog.getByTestId('settle-senior-amount-field')
     await expect(amountField).toBeVisible()
@@ -173,7 +173,9 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     const res = await settleRes
     expect(res.status()).toBeLessThan(300)
     await expect(dialog).not.toBeVisible()
-    await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/Розрахунок із дропом проведено/)).toBeVisible({
+      timeout: 10_000,
+    })
 
     // AC3 (главный тест): the figure SHOWN before submit (shownUah) must
     // equal the figure ACTUALLY recorded — to the penny.
