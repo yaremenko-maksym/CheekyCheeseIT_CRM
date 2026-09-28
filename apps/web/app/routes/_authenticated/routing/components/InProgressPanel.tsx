@@ -2,15 +2,17 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Plus, Wallet } from 'lucide-react'
 import { Trans } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   STATUS_COLORS,
-  STATUS_LABELS,
+  STATUS_LABEL_MESSAGES,
   fmtAmount,
-  fmtDate,
 } from '@/routes/_authenticated/finance/constants'
 import { CreateTransactionDialog } from '@/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog'
 import { PayoutDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog'
@@ -74,6 +76,7 @@ export function InProgressPanel({
   testIdPrefix,
   onOpenPayout,
 }: InProgressPanelProps) {
+  const locale = useLocale()
   const [showCreate, setShowCreate] = useState(false)
   const [payoutDetailOpen, setPayoutDetailOpen] = useState(false)
   const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
@@ -165,7 +168,7 @@ export function InProgressPanel({
                           {isPayout ? <Trans>Виплата (USDT)</Trans> : (t.projectName ?? '—')}
                         </p>
                         <p className="text-xs text-muted-foreground leading-tight">
-                          {fmtDate(t.createdAt)}
+                          {formatDate(t.createdAt, locale, 'shortYY')}
                         </p>
                       </div>
                       <span className="text-sm font-medium tabular-nums shrink-0">
@@ -176,7 +179,7 @@ export function InProgressPanel({
                         className={`shrink-0 text-[11px] ${STATUS_COLORS[t.status]}`}
                         data-testid={`${testIdPrefix}-in-progress-status-${t.id}`}
                       >
-                        {STATUS_LABELS[t.status]}
+                        {i18n._(STATUS_LABEL_MESSAGES[t.status])}
                       </Badge>
 
                       {/* VALIDATED income → «Создать выплату» */}

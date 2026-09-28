@@ -6,6 +6,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
+import { formatDate, formatMonthLabel } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { trackFeatureClick } from '@/lib/telemetry'
@@ -37,8 +39,6 @@ import { api } from '@/lib/axios'
 import { financeApi } from './api'
 import {
   fmtAmount,
-  fmtDate,
-  fmtMonth,
   STATUS_COLORS,
   STATUS_LABEL_MESSAGES,
   TYPE_LABEL_MESSAGES,
@@ -567,6 +567,7 @@ function TransactionsTable({
 
 function FinancePage() {
   const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
   // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
@@ -799,10 +800,10 @@ function FinancePage() {
                               {fmtAmount(salaryTx.amount, salaryTx.currency)}
                             </td>
                             <td className="py-3 px-4 text-sm text-muted-foreground">
-                              {fmtMonth(salaryTx.salaryMonth)}
+                              {formatMonthLabel(salaryTx.salaryMonth, locale)}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
+                              {formatDate(salaryTx.txDate ?? salaryTx.createdAt, locale, 'shortYY')}
                             </td>
                             <td className="py-3 px-4">
                               <span
@@ -887,10 +888,14 @@ function FinancePage() {
                                 {salaryTx.projectName ?? '—'}
                               </td>
                               <td className="py-3 px-4 text-sm text-muted-foreground">
-                                {fmtMonth(salaryTx.salaryMonth)}
+                                {formatMonthLabel(salaryTx.salaryMonth, locale)}
                               </td>
                               <td className="py-3 px-4 text-xs text-muted-foreground">
-                                {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
+                                {formatDate(
+                                  salaryTx.txDate ?? salaryTx.createdAt,
+                                  locale,
+                                  'shortYY',
+                                )}
                               </td>
                               <td className="py-3 px-4">
                                 <span

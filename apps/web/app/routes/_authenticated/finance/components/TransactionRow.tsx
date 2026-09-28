@@ -14,7 +14,9 @@ import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
 import { useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import {
   TYPE_LABEL_MESSAGES,
@@ -23,7 +25,6 @@ import {
   STATUS_COLORS,
   fmtAmount,
   fmtUsd,
-  fmtDate,
   type ExchangeRates,
 } from '../constants'
 import { settlementSplit } from '../cascade-preview'
@@ -437,6 +438,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     ref,
   ) {
     const { t, i18n } = useLingui()
+    const locale = useLocale()
     const isAdmin = role === 'ADMIN'
     const isAccountant = role === 'ACCOUNTANT'
     const isSenior = role === 'SENIOR'
@@ -678,7 +680,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         </td>
 
         <td className="py-3 px-4 text-xs text-muted-foreground whitespace-nowrap">
-          {fmtDate(tx.txDate ?? tx.createdAt)}
+          {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
         </td>
 
         <td className="py-3 px-4">

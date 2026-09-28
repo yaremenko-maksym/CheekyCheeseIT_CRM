@@ -17,10 +17,10 @@ import { translateApiError } from '@/lib/axios-utils'
 /** Active catalog locale, read through the `@lingui/core` singleton — the
  * same pattern `axios-utils.ts`'s `getUserFacingErrorMessage` and
  * `project-approval-caption.ts` use for a plain (non-component) function
- * that needs the active locale. `fmtDate`/`fmtMonth`/`fmtUsd` below keep
- * their existing signatures (many call sites across PR2–PR4 and the
- * cross-slice `InProgressPanel.tsx` are not migrated yet) — this is how
- * they become locale-aware without a breaking signature change. */
+ * that needs the active locale. `fmtUsd`/`fmtYyyymmdd` below keep their
+ * existing signatures (`fmtUsd` has an external caller outside this wave,
+ * `$projectId` — see its own doc) — this is how they read the active
+ * locale without a breaking signature change. */
 function activeLocale(): Locale {
   return (i18n.locale as Locale) ?? DEFAULT_LOCALE
 }
@@ -170,51 +170,6 @@ export const STATUS_LABEL_MESSAGES = {
   PENDING_CASH_CONFIRM: msg`Очікує підтвердження бухгалтером (готівка)`, // en: Awaiting accountant confirmation (cash)
 } satisfies Record<TransactionStatus, MessageDescriptor>
 
-/**
- * @deprecated task-i18n-stage3d-pr1. Superseded by `TYPE_LABEL_MESSAGES`
- * (`i18n._(TYPE_LABEL_MESSAGES[type])`). Kept — not deleted — because
- * `PR2`/`PR3`/`PR4` files and the cross-slice `InProgressPanel.tsx` still
- * import this string map; it is removed in PR4 once every consumer has
- * migrated (`git grep -nP '\bTYPE_LABELS\b' -- apps/web/app` returns only
- * this definition + `PR4`'s removal comment at that point).
- */
-export const TYPE_LABELS: Record<TransactionType, string> = {
-  ADMIN_INCOME: 'Приход Admin',
-  SENIOR_INCOME: 'Приход синьора',
-  EXPENSE: 'Расход',
-  SALARY: 'Зарплата',
-  ADMIN_TRANSFER: 'Перевод',
-  PAYOUT: 'Выплата',
-  PAYOUT_ADMIN: 'Доля партнёра',
-  DROP_INCOME: 'Приход дропа',
-  PAYOUT_DROP: 'Доля дропа',
-  PAYOUT_CONFIRMED: 'Подтверждённая выплата',
-  TOV_INCOME: 'Приход ТОВ',
-  SENIOR_PENDING_PAYOUT: 'Ожидаемая выплата синьору',
-  SENIOR_PAID: 'Выплата синьору',
-  ADMIN_INCOME_CASH: 'Приход Admin (наличные)',
-  ADMIN_INCOME_CRYPTO: 'Приход Admin (крипто)',
-  SENIOR_INCOME_CRYPTO: 'Приход синьора (крипто)',
-  DIVIDEND_TO_ADMIN: 'Дивиденды Admin',
-  DIVIDEND_TAX: 'Налог на дивиденды',
-  COMPANY_DEPOSIT: 'Пополнение счёта компании',
-  DROP_PENDING_PAYOUT: 'Ожидаемая выплата дропу',
-}
-
-/**
- * @deprecated task-i18n-stage3d-pr1. Superseded by `STATUS_LABEL_MESSAGES`.
- * Kept until PR4 migrates the last consumer — see `TYPE_LABELS`'s own note.
- */
-export const STATUS_LABELS: Record<TransactionStatus, string> = {
-  PENDING: 'Ожидает',
-  VALIDATED: 'Подтверждено',
-  PENDING_PAYMENT: 'Ожидает выплаты',
-  REJECTED: 'Отклонено',
-  PAID: 'Оплачено',
-  LOCKED: 'Заблокировано',
-  PENDING_CASH_CONFIRM: 'Ожидает подтверждения нала',
-}
-
 export const STATUS_COLORS: Record<TransactionStatus, string> = {
   PENDING: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   // PR #56 final UT (AC2): SENIOR_INCOME flips to VALIDATED on validate (was
@@ -258,7 +213,7 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   DIVIDEND_TO_ADMIN: 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40',
   DIVIDEND_TAX: 'bg-red-500/15 text-red-300 border-red-500/30',
   // task-company-account-backend. Placeholder palette (USDT-green tone) until
-  // the company-account frontend task finalizes the UI. See TYPE_LABELS note.
+  // the company-account frontend task finalizes the UI.
   COMPANY_DEPOSIT: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   // task-drop-share-override-and-receiver (D4). Teal drop palette (matches
   // DROP_INCOME) so drop-obligation rows are visually grouped with other drop
@@ -431,51 +386,18 @@ export function fmtRate(currency: string, rates: ExchangeRates | undefined): str
 /**
  * task-drop-payout-currency (owner addendum, 2026-08): the NBU API's own date
  * shape ("YYYYMMDD", no separators — see nbu-currency.service.ts) formatted
- * the same human-readable way as `fmtDate`. Used to show the operator WHICH
- * day's rate was actually applied (`ExchangeRates.rateDate`) when it differs
- * from the requested date (a holiday/weekend fallback).
+ * the same human-readable way the (now-deleted, task-i18n-stage3d-pr4)
+ * `fmtDate` used to. Used to show the operator WHICH day's rate was actually
+ * applied (`ExchangeRates.rateDate`) when it differs from the requested date
+ * (a holiday/weekend fallback). Delegates directly to `@crm/shared`'s
+ * `formatDate` with the 'shortYY' style — the exact 2-digit-year shape
+ * (`31.07.26`) `fmtDate` rendered, which `SettleSeniorPayoutDialog.test.tsx`
+ * pins verbatim.
  */
 export function fmtYyyymmdd(yyyymmdd: string) {
-  return fmtDate(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`)
-}
-
-const FMT_DATE_INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
-
-/**
- * @deprecated task-i18n-stage3d-pr1 (template L-fin). Signature unchanged —
- * many PR2–PR4 files and the cross-slice `InProgressPanel.tsx` call this
- * without a locale argument — but the body now reads the active catalog
- * locale through `activeLocale()` (the `@lingui/core` singleton, same
- * pattern `project-approval-caption.ts` uses) instead of the hardcoded
- * `uk-UA`. Deliberately NOT delegated to `@crm/shared`'s `formatDate` —
- * that helper's `'short'` style has no explicit `day`/`month`/`year`
- * options, so `Intl` falls back to a 4-digit year (`31.07.2026`) instead of
- * this function's existing 2-digit shape (`31.07.26`), which
- * `SettleSeniorPayoutDialog.test.tsx` (PR4, not yet migrated at this PR)
- * pins verbatim — only the LANGUAGE the digits are grouped in changes here,
- * not the shape, so that not-yet-touched test keeps passing unmodified.
- * Removed in PR4 alongside `TYPE_LABELS`/`STATUS_LABELS` once the last
- * caller reads locale-aware `formatDate` directly.
- */
-export function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString(FMT_DATE_INTL_TAG[activeLocale()], {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  })
-}
-
-/**
- * @deprecated task-i18n-stage3d-pr1 (template L-fin, COPY-M-fin-9). Same
- * deprecation note as `fmtDate` above — the hardcoded `ru-RU` is replaced by
- * `activeLocale()`, signature unchanged. Delegates to the shared
- * `formatDate`'s `'monthYear'` style (full month name + year, no day) —
- * unlike `fmtDate` above, no existing deprecated-consumer test pins this
- * one's exact digit shape, so the shared helper is safe to use as-is.
- */
-export function fmtMonth(ym: string | null | undefined): string {
-  if (!ym) return '—'
-  const [year, month] = ym.split('-').map(Number)
-  if (!year || !month) return ym
-  return formatDate(new Date(year, month - 1, 1), activeLocale(), 'monthYear')
+  return formatDate(
+    `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`,
+    activeLocale(),
+    'shortYY',
+  )
 }

@@ -1,8 +1,8 @@
 /**
  * task-i18n-3d-pr1-fix (mutation-gate follow-up). Pins the exact label text
  * for every `TYPE_LABEL_MESSAGES`/`STATUS_LABEL_MESSAGES` entry, on both uk
- * and en, plus the locale-dependent formatting helpers (`fmtUsd`, `fmtDate`,
- * `fmtMonth`) that read `activeLocale()` — resolved through the REAL
+ * and en, plus the locale-dependent formatting helpers (`fmtUsd`,
+ * `fmtYyyymmdd`) that read `activeLocale()` — resolved through the REAL
  * compiled catalog (`loadCatalog`/`i18n._`, same pattern as
  * `routes/_authenticated/projects/__tests__/constants.test.ts`), not read as
  * a plain string, so a mutated/emptied `msg` template or locale-tag literal
@@ -10,6 +10,15 @@
  * StringLiteral/ObjectLiteral/LogicalOperator mutants in `constants.ts`
  * before this file — `satisfies` without `as const` means Stryker sees every
  * one of these literals).
+ *
+ * task-i18n-stage3d-pr4: `fmtDate`/`fmtMonth` (and their own
+ * `constants.fmtMonth.test.ts` file) are deleted alongside
+ * `TYPE_LABELS`/`STATUS_LABELS` — the last callers now read `@crm/shared`'s
+ * `formatDate`/`formatMonthLabel` directly (pinned in `packages/shared/src/
+ * i18n/format.spec.ts`'s own 'shortYY'/`formatMonthLabel` tests). The
+ * `activeLocale()` fallback this file used to pin THROUGH `fmtDate` is
+ * re-pinned below through `fmtYyyymmdd`, the one remaining `activeLocale()`
+ * consumer with the same "no locale activated yet" fallback shape.
  */
 import { describe, expect, it } from 'vitest'
 import { i18n } from '@lingui/core'
@@ -20,7 +29,7 @@ import {
   STATUS_LABEL_MESSAGES,
   CASCADE_BLOCKED_REASON_OWN_MESSAGES,
   fmtUsd,
-  fmtDate,
+  fmtYyyymmdd,
 } from '../constants'
 
 const TYPE_EXPECTED: Record<TransactionType, [uk: string, en: string]> = {
@@ -62,32 +71,24 @@ const STATUS_EXPECTED: Record<TransactionStatus, [uk: string, en: string]> = {
 // activeLocale() reads `i18n.locale ?? DEFAULT_LOCALE` — this MUST be the
 // first describe in the file: before any `loadCatalog()` call anywhere in
 // this module, `i18n.locale` is `undefined` (fresh module registry per test
-// file), so `fmtDate` exercises the `??` fallback to `DEFAULT_LOCALE` ('uk')
-// directly. A `&&` mutant there would leave `i18n.locale` (`undefined`)
-// unchanged, and `FMT_DATE_INTL_TAG[undefined]` would feed `undefined` to
-// `Intl.DateTimeFormat`, producing the runtime's default locale format
-// ('01/15/26', verified) instead of uk-UA's dot-separated one asserted below.
+// file), so `fmtYyyymmdd` exercises the `??` fallback to `DEFAULT_LOCALE`
+// ('uk') directly. A `&&` mutant there would leave `i18n.locale`
+// (`undefined`) unchanged, and `@crm/shared`'s `formatDate` would feed
+// `undefined` to `Intl.DateTimeFormat`, producing the runtime's default
+// locale format ('01/15/26', verified) instead of uk-UA's dot-separated one
+// asserted below.
 describe('activeLocale() fallback (LogicalOperator mutant)', () => {
-  it('fmtDate falls back to uk-UA formatting before any locale is activated', () => {
-    expect(fmtDate('2026-01-15')).toBe('15.01.26')
+  it('fmtYyyymmdd falls back to uk-UA formatting before any locale is activated', () => {
+    expect(fmtYyyymmdd('20260115')).toBe('15.01.26')
   })
 
-  it('fmtDate uses en-GB formatting once en is activated (FMT_DATE_INTL_TAG en entry)', async () => {
+  it('fmtYyyymmdd uses en-GB formatting once en is activated', async () => {
     await loadCatalog('en')
     // en-GB pins day/month/year with '/' separators — distinct from uk-UA's
     // '.' separators above, so an emptied 'en-GB' entry (StringLiteral
     // mutant) cannot pass this assertion by falling through to uk-UA's shape.
-    expect(fmtDate('2026-01-15')).toBe('15/01/26')
+    expect(fmtYyyymmdd('20260115')).toBe('15/01/26')
   })
-
-  // `fmtMonth`'s own month-arithmetic (`new Date(year, month - 1, 1)`) and
-  // its 'monthYear' style are pinned in `constants.fmtMonth.test.ts` instead,
-  // via a `formatDate` spy — asserting on the real formatted STRING here is
-  // host-timezone-dependent (`fmtMonth` builds a LOCAL Date then formats it
-  // with an explicit `timeZone: 'UTC'`; a positive host offset rolls the
-  // displayed month back by one — reproduced directly under mutation-gate:
-  // "expected 'April 2026' to be 'May 2026'", even with `TZ` pinned inside
-  // this very `it` block, in this file's happy-dom environment).
 })
 
 describe('TYPE_LABEL_MESSAGES — every transaction type, uk + en', () => {

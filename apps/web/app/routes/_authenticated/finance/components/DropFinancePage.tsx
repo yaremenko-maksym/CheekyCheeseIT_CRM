@@ -15,7 +15,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useLingui } from '@lingui/react/macro'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
-import { formatNumber } from '@crm/shared'
+import { formatNumber, formatDate } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import type { DropIncomeDto, DropIncomeStatus, DropPaymentDto, Locale } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
@@ -43,10 +43,10 @@ import { useDropIncomes, useDropPayments } from '@/hooks/use-drop-incomes'
 import { DropBalanceCard } from '@/routes/_authenticated/routing/components/DropBalanceCard'
 import { CreateTransactionDialog } from './dialogs/CreateTransactionDialog'
 // COPY-M-fin-8: this file used to carry its OWN `fmtDate` — a `ru-RU`-locked
-// shadow of the one `constants.ts` already exports. Two functions with the
-// same name and the same job is exactly the drift `fmtDate`'s own deprecation
-// note (constants.ts) warns about; imported here instead of duplicated.
-import { fmtDate } from '../constants'
+// shadow of the one `finance/constants.ts` used to export before task-i18n-
+// stage3d-pr4 deleted the deprecated wrapper. Both shadows are gone now;
+// every caller in this slice reads the shared `formatDate` directly with the
+// active `useLocale()` locale (same 'shortYY' style `fmtDate` rendered).
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -336,7 +336,7 @@ function DropIncomesTable() {
                 {incomes.map((income) => (
                   <TableRow key={income.id} data-testid={`drop-income-row-${income.id}`}>
                     <TableCell className="text-xs text-muted-foreground tabular-nums">
-                      {fmtDate(income.createdAt)}
+                      {formatDate(income.createdAt, locale, 'shortYY')}
                     </TableCell>
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
@@ -449,7 +449,7 @@ function DropPaymentsHistory({
                   data-testid={`drop-payment-row-${p.id}`}
                 >
                   <span className="text-xs text-muted-foreground tabular-nums">
-                    {fmtDate(p.createdAt)}
+                    {formatDate(p.createdAt, locale, 'shortYY')}
                   </span>
                   <span className="text-sm font-semibold tabular-nums">
                     {fmtUsd(p.amount, locale)}

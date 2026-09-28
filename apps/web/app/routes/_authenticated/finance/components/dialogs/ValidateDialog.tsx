@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLingui, Plural } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
@@ -30,7 +32,6 @@ import { financeApi } from '../../api'
 import { ReceiptPanel } from './receipt-panel'
 import {
   fmtAmount,
-  fmtDate,
   fmtRate,
   fmtUsd,
   TYPE_LABEL_MESSAGES,
@@ -69,6 +70,7 @@ export function ValidateDialog({
   onAdvance: (nextTx: TransactionDto) => void
 }) {
   const { t, i18n } = useLingui()
+  const locale = useLocale()
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -213,7 +215,7 @@ export function ValidateDialog({
               )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t`Дата`}</span>
-                <span className="font-medium">{fmtDate(tx.createdAt)}</span>
+                <span className="font-medium">{formatDate(tx.createdAt, locale, 'shortYY')}</span>
               </div>
               {tx.notes && (
                 <div className="flex justify-between">

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useLingui } from '@lingui/react/macro'
-import { formatDate } from '@crm/shared'
+import { formatDate, formatMonthLabel } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import {
   ExternalLink,
@@ -38,7 +38,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   fmtAmount,
-  fmtMonth,
   fmtRate,
   fmtUsd,
   TYPE_LABEL_MESSAGES,
@@ -266,13 +265,14 @@ function ExpenseContent({ tx }: { tx: TransactionDto }) {
 
 function SalaryContent({ tx }: { tx: TransactionDto }) {
   const { t } = useLingui()
+  const locale = useLocale()
   return (
     <>
       <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
       <Row icon={<Calendar className="h-4 w-4" />} label={t`Період`}>
-        <span>{fmtMonth(tx.salaryMonth)}</span>
+        <span>{formatMonthLabel(tx.salaryMonth, locale)}</span>
       </Row>
       {tx.projectId && (
         <Row icon={<Briefcase className="h-4 w-4" />} label={t`Проєкт`}>
