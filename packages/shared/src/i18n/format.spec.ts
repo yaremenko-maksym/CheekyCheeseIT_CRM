@@ -153,6 +153,17 @@ describe('format', () => {
     expect(formatMonthLabel(undefined, 'uk')).toBe('—')
     expect(formatMonthLabel('not-a-month', 'uk')).toBe('not-a-month')
   })
+  it('formatMonthLabel falls back to the raw key when EITHER half is falsy, not only when BOTH are (proves `||`, not `&&`)', () => {
+    // '2026-00': year parses to a truthy 2026, month to a falsy 0 — the
+    // ORIGINAL `!year || !month` is true (one falsy half is enough) and
+    // returns the raw key. A `&&`-mutated guard would be false here (only
+    // ONE half is falsy) and fall through to `formatDate`, producing a
+    // real (wrong) date string instead of the raw key.
+    expect(formatMonthLabel('2026-00', 'uk')).toBe('2026-00')
+    // '0000-05': the reverse split — year falsy (Number('0000') === 0),
+    // month truthy.
+    expect(formatMonthLabel('0000-05', 'uk')).toBe('0000-05')
+  })
   it('formats money with the currency code, two decimals', () => {
     // Two literal exceptions per task-i18n-stage2-task1-2.md override #4 — every
     // other assertion in this file compares against `Intl` of the same runtime,

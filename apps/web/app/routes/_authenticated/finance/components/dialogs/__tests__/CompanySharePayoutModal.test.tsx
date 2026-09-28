@@ -19,6 +19,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { toast } from 'sonner'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
@@ -200,17 +201,90 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     renderModal({ preselectedTxIds: [TX_A1.id] }) // only 400 * 0.74 = 296
     const total1 = screen.getByTestId('company-share-selection-total')
     expect(total1).toHaveTextContent('296')
+    // task-i18n-stage3d-pr4 (mutation-gate): pins the exact «Загальна сума»
+    // and «Залишається вам» lines too, not just the payable figure — kills
+    // the `totalIncome`/`totalOwn` reduce mutants that a payable-only
+    // assertion cannot distinguish (400 income, 400-296=104 kept).
+    expect(total1).toHaveTextContent('400,00')
+    expect(total1).toHaveTextContent('104,00')
+    // Single income, single project — the exact singular plural forms.
+    expect(total1).toHaveTextContent('1 прибуток · 1 проєкт')
 
     fireEvent.click(screen.getByTestId(`company-share-income-checkbox-${TX_A2.id}`))
     // 400+240 = 640 * 0.74 = 473.60
     const total2 = screen.getByTestId('company-share-selection-total')
     expect(total2).toHaveTextContent('473,60')
+    // Two incomes, still one project (both A1/A2 are Project Alpha) — a
+    // mutant on the `.map((tx) => tx.projectId)` array feeding the project
+    // Plural count would turn this Set to size 1 regardless, same as one
+    // income; the count STAYING at "1 проєкт" while incomes go to "2
+    // прибутки" is exactly what distinguishes the two counts.
+    expect(total2).toHaveTextContent('2 прибутки · 1 проєкт')
+  })
+
+  it('shows the mixed-currency breakdown (with its own project/income counts) when selected incomes span more than one currency', () => {
+    // task-i18n-stage3d-pr4 (mutation-gate): TX_A1/A2/B1 (the shared
+    // fixtures) are all USDT, so no existing test ever exercises
+    // `hasMixedCurrencies`/`selectedCurrencies` — a mutant collapsing the
+    // `.map((tx) => tx.currency)` callback to `() => undefined` produces the
+    // SAME Set size (1) on an all-USDT selection and survives undetected.
+    const eurTx = makeTx({
+      id: 'eur-1',
+      projectId: PROJECT_B,
+      projectName: 'Project Beta',
+      amount: '100',
+      currency: 'EUR',
+    })
+    renderModal({
+      validatedTxs: [TX_A1, eurTx],
+      preselectedTxIds: [TX_A1.id, eurTx.id],
+    })
+    const total = screen.getByTestId('company-share-selection-total')
+    expect(total).toHaveTextContent('Розбивка за валютами')
+    expect(total).toHaveTextContent('2 прибутки · 2 проєкти')
+    expect(total).toHaveTextContent('EUR')
   })
 
   it('groups projects (from different projects) as separate cards', () => {
     renderModal()
     expect(screen.getByTestId(`company-share-project-checkbox-${PROJECT_A}`)).toBeInTheDocument()
     expect(screen.getByTestId(`company-share-project-checkbox-${PROJECT_B}`)).toBeInTheDocument()
+  })
+
+  // task-i18n-stage3d-pr4 (mutation-gate). Project Alpha's own row total —
+  // 400 (TX_A1) + 240 (TX_A2) = 640.00 — pins the `reduce` inside
+  // `ProjectRow`, which the selection-total tests above cannot reach (they
+  // only exercise the PAYABLE figure downstream of `buildPreviewRows`, a
+  // different code path entirely).
+  it("shows each project's own income total (not the payable amount) next to its checkbox", () => {
+    renderModal()
+    expect(screen.getByTestId(`company-share-project-row-${PROJECT_A}`)).toHaveTextContent('640,00')
+  })
+
+  // task-i18n-stage3d-pr4 (mutation-gate). Both the checkbox `aria-label`
+  // and the visible `<Trans>` line read the SAME `tx.txDate ?? tx.createdAt`
+  // date — TX_A1 has `txDate: null`, so this also pins the `??` (not `&&`):
+  // `null && tx.createdAt` would format `new Date(null)` (1970-01-01)
+  // instead of the real `createdAt` (2026-07-01).
+  it("shows an income row's creation date (txDate is null, falls back to createdAt) in the aria-label and the visible text", () => {
+    renderModal()
+    const incomeCheckbox = screen.getByTestId(`company-share-income-checkbox-${TX_A1.id}`)
+    expect(incomeCheckbox.getAttribute('aria-label')).toBe('Прибуток від 01.07.26')
+    expect(screen.getByTestId(`company-share-income-date-${TX_A1.id}`)).toHaveTextContent(
+      'Прибуток від 01.07.26',
+    )
+  })
+
+  // task-i18n-stage3d-pr4 (mutation-gate). Pins the actual aria-label text
+  // of the project checkbox (a StringLiteral mutant collapsing it to "" is
+  // invisible to `toBeInTheDocument`/`toBeChecked` checks elsewhere in this
+  // file).
+  it("shows a project checkbox's aria-label naming the project", () => {
+    renderModal()
+    const projectACheckbox = screen.getByTestId(`company-share-project-checkbox-${PROJECT_A}`)
+    expect(projectACheckbox.getAttribute('aria-label')).toBe(
+      'Вибрати всі прибутки проєкту Project Alpha',
+    )
   })
 })
 
@@ -228,12 +302,42 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
     getPayoutRequestMock.mockResolvedValue(payout)
 
     renderModal({ onClose, preselectedTxIds: [TX_A1.id] })
+    // task-i18n-stage3d-pr4 (mutation-gate): the step-1 title/description,
+    // pinned BEFORE the click — a mutant forcing the `step === 'select'`
+    // ternary to always/never take the step-1 branch is invisible to any
+    // assertion taken only after the transition to step 2 below.
+    expect(screen.getByText('Оплата частки CheekyCheeseIT')).toBeInTheDocument()
+    expect(
+      screen.getByText('Виберіть проєкти та прибутки, які увійдуть до заявки на виплату.', {
+        selector: '[class~="sr-only"]',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'Крок 1 з 2: вибір прибутків до виплати' }),
+    ).toBeInTheDocument()
+
     fireEvent.click(screen.getByTestId('company-share-create-payout'))
 
     // Step 2 content appears — payable amount from the CREATED payout.
     await screen.findByTestId('payout-detail-payable')
+    // task-i18n-stage3d-pr4 (mutation-gate): pins the exact toast text — a
+    // StringLiteral mutant collapsing it to "" passes every OTHER assertion
+    // in this test (the toast library itself is mocked, so nothing renders
+    // it to the DOM).
+    expect(toast.success).toHaveBeenCalledWith('Заявку на виплату створено')
     expect(screen.getByTestId('company-share-payout-modal')).toBeInTheDocument()
     expect(screen.getByTestId('company-share-created-notice')).toBeInTheDocument()
+    // Same pin for the step-2 title/description/status-label — the OTHER
+    // side of the same three ternaries.
+    expect(screen.getByText('Заявка на виплату')).toBeInTheDocument()
+    expect(
+      screen.getByText('Переведіть суму компанії та підтвердьте оплату.', {
+        selector: '[class~="sr-only"]',
+      }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('status', { name: 'Крок 2 з 2: оплата створеної заявки' }),
+    ).toBeInTheDocument()
     // Crucially: onClose was never called — the modal did NOT close itself.
     expect(onClose).not.toHaveBeenCalled()
   })

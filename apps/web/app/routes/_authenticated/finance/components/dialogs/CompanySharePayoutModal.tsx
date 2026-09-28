@@ -87,7 +87,10 @@ function ProjectRow({
   }, [allSelected, noneSelected])
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
+    <div
+      className="overflow-hidden rounded-lg border border-border"
+      data-testid={`company-share-project-row-${project.projectId}`}
+    >
       <label className="flex min-h-11 cursor-pointer items-center gap-3 p-3 hover:bg-muted/30">
         <input
           ref={projectRef}
@@ -126,7 +129,10 @@ function ProjectRow({
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-xs text-muted-foreground">
+            <span
+              className="min-w-0 truncate text-xs text-muted-foreground"
+              data-testid={`company-share-income-date-${tx.id}`}
+            >
               <Trans>Прибуток від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}</Trans>
             </span>
             <span className="shrink-0 tabular-nums text-xs">
