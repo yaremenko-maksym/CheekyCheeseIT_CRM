@@ -314,14 +314,14 @@ msgstr "{projectsCount, plural, one {# project} other {# projects}}"
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.APPROVAL_REJECTED.withReason"
 msgstr ""
-"notification.APPROVAL_REJECTED.withReason{quote}\n"
+"{quote}\n"
 "{approverName} — {subjectPhrase}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason"
 msgstr ""
-"notification.TRANSACTION_STATUS_CHANGED.rejectedWithReason{quote}\n"
+"{quote}\n"
 "Rejected: {money}"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
