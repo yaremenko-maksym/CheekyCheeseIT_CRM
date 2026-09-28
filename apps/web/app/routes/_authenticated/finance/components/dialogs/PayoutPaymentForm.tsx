@@ -242,7 +242,7 @@ export function PayoutPaymentForm({
               — task-settle-in-place ADR), so `isPayoutObligationTransaction`
               (payoutRequestId !== payout.id) is what marks a row as
               "recovered", regardless of its type or settle status. Kept in
-              its own section — never folded into "Транзакции в выплате" —
+              its own section — never folded into "Транзакції у виплаті" —
               so that counter stays strictly about incoming money. */}
           {(() => {
             const obligationTxs =
@@ -254,13 +254,13 @@ export function PayoutPaymentForm({
                 <Label className="text-xs" data-testid="payout-detail-obligations-count">
                   <Trans>Зобов’язання компанії ({obligationTxs.length})</Trans>
                 </Label>
-                {/* design-audit PR #592 (LOW): "Компания должна" already lives
+                {/* design-audit PR #592 (LOW): "Компанія винна" already lives
                     in the section title above AND used to open every row
                     below (see the HIGH note on the name line) — the OLD copy
                     here duplicated it AND broke mid-sentence before the em
-                    dash ("должна —" with no direct object). This phrasing
-                    gives "должна" an object ("эти суммы") so the first clause
-                    is complete, and an explicit subject ("они") for the
+                    dash ("винна —" with no direct object). This phrasing
+                    gives "винна" an object ("ці суми") so the first clause
+                    is complete, and an explicit subject ("вони") for the
                     second — no implicit-subject fragment. */}
                 <p
                   className="text-[11px] text-muted-foreground"
@@ -277,8 +277,8 @@ export function PayoutPaymentForm({
                     >
                       <div className="flex-1 min-w-0">
                         {/* design-audit PR #592 (HIGH): the row used to read
-                            "Компания должна {Имя}" — measured on a real 320px
-                            DOM (getBoundingClientRect): the "Компания должна "
+                            "Компанія винна {Ім'я}" — measured on a real 320px
+                            DOM (getBoundingClientRect): the "Компанія винна "
                             prefix alone ate ~118px of the ~118-203px this
                             column has, so the name — the one thing this row
                             exists to show — was cut before printing a single

@@ -717,18 +717,18 @@ export function AdminEditTransactionDialog({
             
             COPY-H-1: NOT shown under the refusal banner. `isEditable` is a
             client-side type check, not `preview.editable`, so the two used to
-            render together — the banner saying «правьте сторнирующей
-            транзакцией» (i.e. never here) with a line underneath saying
-            «устраните и сохраняйте». Two contradictory instructions, one line
+            render together — the banner saying «виправляйте сторнувальною
+            транзакцією» (i.e. never here) with a line underneath saying
+            «усуньте і зберігайте». Two contradictory instructions, one line
             apart, on a money screen. The banner already names both the cause
             and the remedy; a second voice can only disagree with it.
-            
+
             The text itself names the CAUSE rather than a repair: every
             blocking condition is a property of data already written (a legacy
             row with no share snapshot, an accumulator in another currency),
-            and none of them is fixable in this dialog. «Пока не устранены»
+            and none of them is fixable in this dialog. «Ще не усунуто»
             promised work that does not exist — the same defect #610 removed
-            from this module three hours earlier. «Нужно ручное решение» is not
+            from this module three hours earlier. «Потрібне ручне рішення» is not
             a new phrase: it is the one `NO_SHARE_SNAPSHOT` already uses in the
             red row itself. */}
         {/* The `preview?.` test comes FIRST on purpose. Ordered the other way it

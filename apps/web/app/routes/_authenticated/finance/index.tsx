@@ -956,7 +956,7 @@ function FinancePage() {
               edge at ≤363px — reachable but past the viewport, no scroll
               indicator. `flex-wrap` is the safety net; the primary fix is
               icon-only «Нова транзакція» below `sm` (foundation.md §10
-              «Фильтры / тулбары» — mobile toolbar collapses, it does not
+              «Фільтри / тулбари» — mobile toolbar collapses, it does not
               scroll). The `Wallet` payout button keeps its digit-count label
               at every width — it is the rarer, count-bearing action, and
               icon-only there would hide the number the badge exists for. */}
@@ -999,7 +999,7 @@ function FinancePage() {
           («Ожидают зачисления» + «Долги компании перед синьорами») were
           removed — they carried no info beyond what the transactions table
           already shows. The senior IOU is now paid straight from its
-          SENIOR_PENDING_PAYOUT row in the table via the «Выплатить» button
+          SENIOR_PENDING_PAYOUT row in the table via the «Виплатити» button
           (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
 
           {/* task-company-share-cta. First element, right above the

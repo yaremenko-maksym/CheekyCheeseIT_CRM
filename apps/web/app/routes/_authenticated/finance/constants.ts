@@ -30,36 +30,28 @@ function activeLocale(): Locale {
  * edited, in the operator's language.
  *
  * @deprecated task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). Kept — not
- * migrated — because THREE of its five entries are `...CASCADE_LEDGER_FACT_MESSAGES`,
- * a `@crm/shared` constant this PR does not own (server-authored, stays
- * Russian until finance's shared layer migrates — see the note on
- * `CASCADE_LEDGER_FACT_MESSAGES` in `edit-cascade.ts`). The remaining two
- * (`PAYOUT_FAMILY`, `LINKED_TO_PAYOUT_REQUEST`) are consumed through the SAME
- * `cascadeBlockedReasonMessage()` call as the shared three, by BOTH
- * `AdminEditTransactionDialog.tsx` (this PR's periphery) AND
- * `CascadeImpactPanel.tsx` (outside it — `git grep` shows it as the only
- * other consumer). `cascade-impact-panel.render.test.tsx` (untouched by this
- * PR) pins the CURRENT Russian sentences for exactly these two reasons
- * (PR-20, PR-20b) — translating them here would render different text to
- * that component without migrating it, breaking its test. Splitting the
- * lookup by caller would mean two functions returning different answers for
- * the same domain fact, which is the drift this table exists to prevent.
- * Superseded, for the two own-authored reasons only, by
- * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below — wired in once
- * `CascadeImpactPanel.tsx` migrates (PR2+).
+ * migrated — because its remaining three entries are
+ * `...CASCADE_LEDGER_FACT_MESSAGES`, a `@crm/shared` constant this PR does
+ * not own (server-authored, stays Russian until finance's shared layer
+ * migrates — see the note on `CASCADE_LEDGER_FACT_MESSAGES` in
+ * `edit-cascade.ts`). `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` used to live
+ * here too, but task-i18n-3d-pr4 wired `CascadeImpactPanel.tsx` onto
+ * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below, and `cascadeBlockedReasonMessage()`
+ * now intercepts both keys before this table is ever read for them — so they
+ * were removed from the type and the object rather than kept as unreachable
+ * Russian strings.
  */
 export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
   Exclude<
     CascadeEditPreviewBlockedReason,
-    'PAYMENT_FACT_RECORDED' | 'SALARY_OBLIGATION_OUT_OF_RANGE'
+    | 'PAYMENT_FACT_RECORDED'
+    | 'SALARY_OBLIGATION_OUT_OF_RANGE'
+    | 'PAYOUT_FAMILY'
+    | 'LINKED_TO_PAYOUT_REQUEST'
   >,
   string
 > = {
   ...CASCADE_LEDGER_FACT_MESSAGES,
-  PAYOUT_FAMILY:
-    'Это строка выплаты — сумма подтверждена исполненным переводом, она не редактируется, правьте сторнирующей транзакцией',
-  LINKED_TO_PAYOUT_REQUEST:
-    'Строка включена в оформленную заявку на выплату — сумма уже вошла в расчёт перевода, правьте сторнирующей транзакцией',
 }
 
 /**

@@ -191,7 +191,7 @@ function ReconfirmBadge({
   )
 }
 
-/** «Было → Стало», or an explicit dash when there is no share snapshot to recompute from. */
+/** «Було → Стало», or an explicit dash when there is no share snapshot to recompute from. */
 function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan }) {
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-1.5 tabular-nums">

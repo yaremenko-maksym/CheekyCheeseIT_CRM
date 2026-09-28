@@ -244,8 +244,8 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           </div>
 
           {/* AC10 — payment method radio. Three options: crypto / cash credit an
-              admin partner; «Счёт компании» credits the shared company account.
-              task-i18n-stage3d-pr4 (COPY-M-fin-10): the emoji 💎/💵 markers moved
+              admin partner; «Рахунок компанії» credits the shared company account.
+              task-i18n-stage3d-pr4 (COPY-M-fin-10): the emoji markers moved
               to lucide icons (Gem/Banknote), matching COMPANY_ACCOUNT's own
               Coins icon — the label text itself carries no emoji. */}
           <div className="space-y-1.5" data-testid="confirm-payout-method-radio">

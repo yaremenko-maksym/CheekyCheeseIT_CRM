@@ -684,8 +684,8 @@ function TransactionInfoBlock({
 
       {/* task-cascade-preview-ui (task 5), the payment-fact triplet. Already on
           the wire since task-salary-pay-amount and read by nothing — so an
-          operator who hits the `PAYMENT_FACT_RECORDED` refusal («на этой строке
-          зафиксирован факт платежа») had no way to see the fact they were being
+          operator who hits the `PAYMENT_FACT_RECORDED` refusal («по цьому рядку
+          вже зафіксовано факт платежу») had no way to see the fact they were being
           refused over. A refusal whose cause is invisible is worse than the
           refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
           the same audience as the other audit fields in this dialog.
