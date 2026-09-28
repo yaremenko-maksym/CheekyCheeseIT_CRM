@@ -341,6 +341,11 @@ test.describe('Transaction receipts — создание с чеком (не-USD
     await expect(dialog).toBeVisible()
     await dialog.getByTestId('create-transaction-type-expense').click()
     await dialog.getByPlaceholder('0.00').fill('75')
+    // fix-round PR #734 (FIX-UX-H-1): the category field now defaults to
+    // EMPTY (no raw Russian pre-fill) — the server rejects an empty
+    // `category` (zod `.min(1)`), so an explicit pick is required for the
+    // submit to actually succeed. Pick the first translated suggestion chip.
+    await dialog.getByTestId('create-transaction-expense-category-suggestion-0').click()
 
     await dialog.getByTestId('receipt-input-mode-url').click()
     await dialog.getByTestId('receipt-input-url-field').fill('https://drive.example.com/exp.pdf')
