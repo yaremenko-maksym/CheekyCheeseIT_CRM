@@ -360,6 +360,10 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     // drops the decimal part for a whole number — "$800" instead of the
     // correct "$800,00".
     expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('$800,00')
+    // The income row's own date uses formatDate's 'shortYY' style (same
+    // fixture, createdAt: '2026-08-01') — exact string so a mutation to the
+    // style key fails.
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('01.08.26')
   })
 
   it('register-income CTA renders its localised label', () => {
@@ -392,6 +396,9 @@ describe('DropFinancePage — labels with no prior assertion (mutation-gate cove
     expect(screen.getByText('Підтверджено')).toHaveClass('bg-primary')
     expect(screen.getByTestId('drop-payment-row-p3')).toHaveTextContent('Не пройшов')
     expect(screen.getByText('Не пройшов')).toHaveClass('bg-destructive')
+    // Payment row date uses formatDate's 'shortYY' style — exact string so a
+    // mutation to the style key (silently switching formats) fails.
+    expect(screen.getByTestId('drop-payment-row-p1')).toHaveTextContent('01.08.26')
   })
 
   it('payments history empty state renders "Переказів ще не було"', () => {

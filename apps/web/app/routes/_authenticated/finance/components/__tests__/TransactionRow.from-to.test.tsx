@@ -244,3 +244,24 @@ describe('TransactionRow — FromTo masking composition (non-privileged DTO)', (
     expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
   })
 })
+
+describe('TransactionRow — date column (mutation-gate coverage)', () => {
+  it('prefers txDate over createdAt when both are set (renders the txDate day, not the createdAt day)', () => {
+    renderRow(
+      makeTx({
+        txDate: '2026-01-15T00:00:00.000Z',
+        createdAt: '2026-02-20T00:00:00.000Z',
+      }),
+    )
+    // formatDate(..., 'shortYY') — exact string so a mutation to the style
+    // key AND to the `txDate ?? createdAt` fallback (which would render
+    // "20.02.26" instead) both fail.
+    expect(screen.getByText('15.01.26')).toBeInTheDocument()
+    expect(screen.queryByText('20.02.26')).not.toBeInTheDocument()
+  })
+
+  it('falls back to createdAt when txDate is null', () => {
+    renderRow(makeTx({ txDate: null, createdAt: '2026-03-05T00:00:00.000Z' }))
+    expect(screen.getByText('05.03.26')).toBeInTheDocument()
+  })
+})

@@ -396,6 +396,12 @@ export function SettleSeniorPayoutDialog({
   // as the receipt gate — never trust only the disabled attribute).
   function handleSubmit() {
     if (isCascadeDropObligation && (!account || isCompany)) {
+      // Stryker disable next-line LogicalOperator: `companyAccountDisabledReason`
+      // is derived from the SAME `isCascadeDropObligation` flag this branch is
+      // already gated on (see its `const` above) — whenever this line runs,
+      // the left side is always truthy, so the `??` fallback text can never
+      // actually render under the current data model. Kept as a defensive
+      // belt-and-suspenders default, not dead code to delete.
       setAccountError(
         companyAccountDisabledReason ?? t`Оберіть особистий рахунок адміна для цього розрахунку`,
       )

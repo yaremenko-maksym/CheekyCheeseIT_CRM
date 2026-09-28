@@ -288,6 +288,11 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     expect(screen.getByText('Розрахунок із сеньйором')).toBeInTheDocument()
   })
 
+  it('renders the tx createdAt date with the shortYY style ("01.06.26")', () => {
+    renderDialog(TX) // createdAt: '2026-06-01T00:00:00.000Z'
+    expect(screen.getByText('01.06.26')).toBeInTheDocument()
+  })
+
   it('shows «Розрахунок із дропом» title for a DROP_PENDING_PAYOUT tx', () => {
     renderDialog(DROP_TX)
     expect(screen.getByText('Розрахунок із дропом')).toBeInTheDocument()
@@ -351,6 +356,27 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith('Розрахунок із сеньйором проведено'),
     )
+  })
+
+  it('shows the exact DROP dialog description ("Розрахунок за частку дропа")', () => {
+    renderDialog(DROP_TX)
+    expect(screen.getByText('Розрахунок за частку дропа')).toBeInTheDocument()
+  })
+
+  it('shows the exact SENIOR dialog description ("Розрахунок за частку сеньйора")', () => {
+    renderDialog(TX)
+    expect(screen.getByText('Розрахунок за частку сеньйора')).toBeInTheDocument()
+  })
+
+  it('shows an error toast with the API-derived message when settle rejects', async () => {
+    renderDialog(TX)
+    settleMock.mockRejectedValueOnce({
+      response: { data: { message: 'Boom' } },
+    })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error).toHaveBeenCalledWith('Boom')
   })
 })
 
@@ -474,6 +500,18 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   it('AC1: SENIOR settle renders no amount/currency field', () => {
     renderDialog(TX)
     expect(screen.queryByTestId('settle-senior-amount-field')).not.toBeInTheDocument()
+  })
+
+  it('the DROP amount field carries the exact "Сума розрахунку" label', async () => {
+    renderDialog(DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    expect(within(amountField).getByText('Сума розрахунку')).toBeInTheDocument()
+  })
+
+  it('the receipt field carries the exact "Чек / підтвердження *" label', async () => {
+    renderDialog(TX)
+    await screen.findByTestId('settle-senior-submit')
+    expect(screen.getByText('Чек / підтвердження *')).toBeInTheDocument()
   })
 
   // AC2 (default — no recalculation): the obligation's own currency shows the
