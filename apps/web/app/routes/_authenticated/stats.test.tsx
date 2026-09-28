@@ -28,6 +28,7 @@ import {
   within,
   type RenderResult,
 } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { ReactElement } from 'react'
 import type {
   FinanceSummaryDto,
@@ -35,6 +36,7 @@ import type {
   IncomeComplianceReceiverDto,
   SessionUser,
 } from '@crm/shared'
+import { formatMonthLabel } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -269,6 +271,116 @@ describe('StatsPage — economic data (both roles)', () => {
       expect(screen.getByText('Рахунок компанії · USDT')).toBeInTheDocument()
     },
   )
+
+  // task-i18n-stage3d-pr4 (mutation gate). The primary-KPI `hint` tooltips
+  // were never asserted at all -- a StringLiteral mutant on any of them
+  // survives silently. Radix `TooltipContent` only mounts on hover; assert
+  // via `getByRole('tooltip')` per the established `ContractPdfPreview`
+  // pattern (Radix duplicates the text into a visually-hidden a11y node).
+  // Trigger is the `HelpCircle` icon, a SIBLING of the title `<p>` (not an
+  // ancestor/descendant) -- hovering the title itself does not bubble to it,
+  // so hover the icon via its `cursor-help` class instead. ONE hover per
+  // test (not a sequence) -- Radix's exit animation never completes in
+  // happy-dom (no `animationend`), so a closed tooltip node lingers in the
+  // DOM and a second hover in the same test would match the STALE one.
+  async function hoverHint(title: string) {
+    const user = userEvent.setup()
+    // The trigger icon is a DOM SIBLING of the title, not queryable via
+    // role/label (it has neither); RTL has no "sibling" query.
+    // eslint-disable-next-line testing-library/no-node-access
+    const container = screen.getByText(title).closest('.flex')!
+    // eslint-disable-next-line testing-library/no-node-access
+    const icon = container.querySelector('.cursor-help')!
+    await user.hover(icon)
+  }
+
+  it('primary income hint tooltip', async () => {
+    setup('ADMIN')
+    await hoverHint('Загальний дохід')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Сума всіх оплачених транзакцій типу ADMIN_INCOME та SENIOR_INCOME за весь час.',
+    )
+  })
+
+  it('expenses hint tooltip', async () => {
+    setup('ADMIN')
+    await hoverHint('Витрати')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Сума всіх оплачених транзакцій типу EXPENSE — операційні витрати компанії.',
+    )
+  })
+
+  it('salaries hint tooltip', async () => {
+    setup('ADMIN')
+    await hoverHint('Зарплати')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Сума всіх оплачених зарплат (SALARY) співробітникам компанії за весь час.',
+    )
+  })
+
+  it('net balance hint tooltip', async () => {
+    setup('ADMIN')
+    await hoverHint('Net balance')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.',
+    )
+  })
+
+  // task-i18n-stage3d-pr4 (mutation gate). The secondary
+  // last-month-income/last-month-profit/avg-monthly/best-month cards were
+  // entirely unasserted -- titles, hints, and `sub` all survived.
+  // makeSummary()'s two months (2026-05 income 4000, 2026-06 income/profit
+  // 6000/3000) derive: incomeTrend +50%, profitMargin 50%, avgMonthlyIncome
+  // 5000, bestMonth = 2026-06 -- expected values recomputed by hand here, not
+  // re-derived through `computeExtraStats` (that would be tautological).
+  it('last-month-income title, sub, and hint tooltip', async () => {
+    setup('ADMIN')
+    const juneLabel = formatMonthLabel('2026-06', 'uk')
+    // Scoping to this ONE card (value/sub are ambiguous with the "best
+    // month" card, which shares the same income figure) needs the DOM
+    // ancestor, not a role/label RTL query.
+    // eslint-disable-next-line testing-library/no-node-access
+    const lastMonthCard = screen.getByText('Дохід за останній місяць').closest('.pt-5')!
+    expect(within(lastMonthCard as HTMLElement).getByText('$6,000.00')).toBeInTheDocument()
+    expect(within(lastMonthCard as HTMLElement).getByText(juneLabel)).toBeInTheDocument()
+    await hoverHint('Дохід за останній місяць')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      `Виручка за ${juneLabel}. Включає доходи всіх сеньйорів і адмінів.`,
+    )
+  })
+
+  it('last-month-profit sub (Маржа) and hint tooltip', async () => {
+    setup('ADMIN')
+    const juneLabel = formatMonthLabel('2026-06', 'uk')
+    expect(screen.getByText('Прибуток за останній місяць')).toBeInTheDocument()
+    // profitMargin = 3000/6000*100 = 50.0%.
+    expect(screen.getByText('Маржа: 50.0%')).toBeInTheDocument()
+    await hoverHint('Прибуток за останній місяць')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      `Чистий прибуток за ${juneLabel}: дохід мінус витрати та зарплати того місяця.`,
+    )
+  })
+
+  it('avg-monthly-income sub (plural months) and hint tooltip', async () => {
+    setup('ADMIN')
+    expect(screen.getByText('Середній дохід / міс.')).toBeInTheDocument()
+    // avgMonthlyIncome = (4000+6000)/2 = 5000; 2 months -> the
+    // AVG_MONTHS_SUFFIX "few" plural category.
+    expect(screen.getByText('за 2 місяці')).toBeInTheDocument()
+    await hoverHint('Середній дохід / міс.')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Середньомісячна виручка за весь час роботи компанії.',
+    )
+  })
+
+  it('best-month hint tooltip', async () => {
+    setup('ADMIN')
+    expect(screen.getByText('Найкращий місяць')).toBeInTheDocument()
+    await hoverHint('Найкращий місяць')
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(
+      'Місяць із найбільшою виручкою за весь час.',
+    )
+  })
 })
 
 describe('StatsPage — income-compliance «Контроль приходов» (both roles)', () => {
@@ -288,6 +400,61 @@ describe('StatsPage — income-compliance «Контроль приходов» 
       expect(screen.getByText('Senior Lag')).toBeInTheDocument()
     },
   )
+
+  // task-i18n-stage3d-pr4 (mutation gate, ROLE_LABEL_MESSAGES). Canon per
+  // CONTEXT.md «Волна d»: DROP="Дроп" (not the previously-used
+  // "Посредник"/any of its four banned synonyms), SENIOR="Сеньйор" without
+  // Latin script. ADMIN_SENIOR isn't in this file's default fixtures —
+  // asserted via a one-off receiver override below.
+  it('renders the SENIOR and DROP role labels exactly', () => {
+    setup('ADMIN')
+    expect(
+      within(screen.getByTestId('compliance-row-sr-lag')).getByText(/^Сеньйор ·/),
+    ).toBeInTheDocument()
+    expect(
+      within(screen.getByTestId('compliance-row-drop-accrued')).getByText(/^Дроп ·/),
+    ).toBeInTheDocument()
+  })
+
+  it('renders the ADMIN_SENIOR role label exactly', () => {
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance')
+        return {
+          data: {
+            month: '2026-06',
+            totals: {
+              expectedProjects: 1,
+              submittedProjects: 0,
+              laggingReceivers: 1,
+              completeReceivers: 0,
+              pendingProjects: 0,
+              accruedProjects: 0,
+            },
+            receivers: [
+              {
+                userId: 'admin-senior-1',
+                displayName: 'Admin Senior',
+                role: 'ADMIN_SENIOR',
+                expected: 1,
+                submitted: 0,
+                pendingCount: 0,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+            ],
+          } satisfies IncomeComplianceOverviewDto,
+          isLoading: false,
+        }
+      return { data: undefined, isLoading: false }
+    })
+    render(<StatsPage />)
+    expect(
+      within(screen.getByTestId('compliance-row-admin-senior-1')).getByText(/^Адмін-сеньйор ·/),
+    ).toBeInTheDocument()
+  })
 
   it('expands a lagging receiver to reveal missing projects (incl. pending badge)', () => {
     setup('ADMIN')
@@ -691,12 +858,22 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
   it('renders the partner-balances settlement card', () => {
     setup('ADMIN')
     expect(screen.getByText('Баланси партнерів')).toBeInTheDocument()
+    // total = sum of adminBalances (4000 + 1000) — exact "Разом: $5,000" so a
+    // StringLiteral mutant on the "Разом" label fails.
+    const totalRow = screen.getByText('Разом', { exact: false })
+    expect(totalRow).toHaveTextContent('Разом: $5,000')
   })
 
   it('renders the HR/Команда/Проекты placeholders', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-placeholders-section')).toBeInTheDocument()
     expect(screen.getByText('Інші розділи')).toBeInTheDocument()
+    // Each of the three mapped labels — an ArrowFunction mutant on the
+    // `.map((label) => ...)` callback (-> `() => undefined`) would render
+    // three empty placeholders instead.
+    expect(screen.getByText('HR — воронка співбесід')).toBeInTheDocument()
+    expect(screen.getByText('Команда — активність')).toBeInTheDocument()
+    expect(screen.getByText('Проєкти — завантаженість')).toBeInTheDocument()
   })
 })
 
