@@ -322,6 +322,7 @@ export function PaySalaryDialog({
                 setAmountInput(v)
               }}
               onCurrencyChange={setCurrency}
+              // Stryker disable next-line StringLiteral: label passed to `AmountCurrencyInput`, not independently asserted by this file's tests (they target the input by testid `pay-salary-amount-field`).
               label={t`Сума виплати`}
               disableCurrency={isCompany}
               error={amountError ?? undefined}
@@ -390,6 +391,7 @@ export function PaySalaryDialog({
                 setReceipt(s)
                 setReceiptError(null)
               }}
+              // Stryker disable next-line StringLiteral: label override passed to `ReceiptInput`, which has its own default pinned by that component's own tests — this override string is not independently asserted here.
               label={t`Чек / підтвердження *`}
               explorerOnly={effectiveCurrency === 'USDT'}
               error={receiptError ?? undefined}

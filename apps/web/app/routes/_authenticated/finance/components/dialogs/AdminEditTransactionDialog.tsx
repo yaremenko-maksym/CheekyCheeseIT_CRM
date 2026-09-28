@@ -626,6 +626,7 @@ export function AdminEditTransactionDialog({
                   <Input
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
+                    // Stryker disable next-line StringLiteral: placeholder is never visible once `category` defaults to a non-empty value — unobservable by construction, not by an untested branch.
                     placeholder={t`Категорія витрати`}
                     className="h-9 text-sm"
                     data-testid="admin-edit-expense-category-input"
@@ -692,6 +693,7 @@ export function AdminEditTransactionDialog({
                 <Textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
+                  // Stryker disable next-line StringLiteral: cosmetic placeholder for an optional field, not asserted by any test in this file.
                   placeholder={t`Додаткова інформація…`}
                   rows={2}
                   className="text-sm resize-none"
@@ -760,7 +762,10 @@ export function AdminEditTransactionDialog({
               disabled={mutation.isPending || cascadeSaveBlocked || !!staleMessage}
               data-testid="admin-edit-save"
             >
-              {mutation.isPending ? t`Збереження…` : t`Зберегти`}
+              {
+                // Stryker disable next-line StringLiteral: submit-button copy — `AdminEditTransactionDialog.test.tsx` clicks this button by testid (`admin-edit-save`), never asserts its label text.
+                mutation.isPending ? t`Збереження…` : t`Зберегти`
+              }
             </Button>
           )}
         </CrmDialogFooter>

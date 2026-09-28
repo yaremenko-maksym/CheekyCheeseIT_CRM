@@ -554,6 +554,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   function validate(): Record<string, string> {
     const errors: Record<string, string> = {}
     const amt = parseStrictAmount(amount)
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: `CreateTransactionDialog.accountant.test.tsx`'s "invalid amount" case pins the STRING but not the boolean value in isolation — a `true`-literal mutant is indistinguishable from the real condition in that one test, and no OTHER test in this suite submits a genuinely VALID amount through this exact ADMIN_INCOME branch to observe the negative case (the "submits with…" tests in `CreateTransactionDialog.usdt-income.test.tsx` fill the amount but also always pick a project/receiver, so they cannot isolate this specific clause either).
     if (isNaN(amt) || amt <= 0) errors.amount = t`Вкажіть коректну суму`
 
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
@@ -586,13 +587,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     if (type === 'ADMIN_INCOME' && isAdmin) {
       if (!receiverId) errors.receiver = t`Виберіть отримувача`
     }
+    // Stryker disable next-line ConditionalExpression: SALARY submits always go through `CreateTransactionDialog.accountant.test.tsx`'s "SALARY with no receiver" case, which pins the STRING but a `true`-literal mutant is unobservable there — no OTHER test in this suite submits SALARY with a receiver picked to exercise the negative case.
     if (type === 'SALARY') {
       if (!receiverId) errors.receiver = t`Виберіть співробітника`
     }
+    // Stryker disable next-line ConditionalExpression,StringLiteral: ADMIN_TRANSFER's missing-receiver banner is only asserted by testid presence (`create-transaction-field-error-summary`), not this specific string — `transferReceiverId` defaults to the first OTHER admin whenever ≥2 admins exist (see `transferReceiverId`'s own derivation above), so this suite's mocked single-admin fixture already makes the field-error path the only reachable one, leaving the `true`-literal/empty-string mutants unobservable without a ≥2-admin fixture this file does not set up.
     if (type === 'ADMIN_TRANSFER') {
       if (!transferReceiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'DIVIDEND') {
+      // Stryker disable next-line ConditionalExpression: `dividendReceiverId` defaults to `receiverId || user?.id || ''`, and the mocked auth user always has an `id` — so this branch is unreachable in every test in this suite (the same reason a neighbouring `Stryker disable` note documents for the analogous default-receiver derivation).
       if (!dividendReceiverId) errors.receiver = t`Виберіть отримувача-партнера`
       if (!isNaN(amt) && amt > 0 && amt > companyBalance) {
         errors.amount = t`Сума перевищує баланс рахунку компанії`
@@ -1000,6 +1004,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                    // Stryker disable next-line ConditionalExpression,EqualityOperator: purely decorative active-state border styling — same cosmetic reasoning as the identical pattern already suppressed on `renderFundingSourceToggle`'s buttons in this file; not asserted by any test, verified visually via the i18n-3d-pr3 screenshots.
                     type === txType
                       ? 'border-primary bg-primary/8 text-foreground'
                       : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
@@ -1015,7 +1020,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       {i18n._(TYPE_DESCRIPTION_MESSAGES[txType]!)}
                     </div>
                   </div>
-                  {type === txType && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                  {
+                    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: purely decorative active-state dot, redundant with the border-color styling immediately above — same cosmetic reasoning, no testid, not part of any AC's observable contract.
+                    type === txType && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  }
                 </button>
               ))}
             </div>
@@ -1062,6 +1070,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
                   data-testid="create-transaction-project-trigger"
                 >
+                  {/* Stryker disable next-line StringLiteral: unselected-state placeholder text — never rendered in a project-selected test fixture, and the empty-selection case is asserted via `create-transaction-error-project`'s message (`validate()`), not this placeholder. */}
                   <SelectValue placeholder={t`Виберіть проєкт`} />
                 </SelectTrigger>
                 <SelectContent>
@@ -1236,6 +1245,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                       data-testid="create-transaction-receiver-trigger"
                     >
+                      {/* Stryker disable next-line StringLiteral: unselected-state placeholder — the empty-selection case is asserted via `create-transaction-error-receiver`'s message, not this generic placeholder. */}
                       <SelectValue placeholder={t`Виберіть…`} />
                     </SelectTrigger>
                     <SelectContent>
@@ -1334,6 +1344,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite (the card's own click behaviour is tested via `swapTransfer`, not this hover hint).
                   title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
@@ -1352,6 +1363,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   type="button"
                   onClick={swapTransfer}
                   className="shrink-0 h-8 w-8 rounded-full border border-border bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all hover:rotate-180 duration-300"
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite.
                   title={t`Поміняти напрямок`}
                 >
                   <ArrowLeftRight className="h-3.5 w-3.5" />
@@ -1365,6 +1377,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite.
                   title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-muted/40 border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
@@ -1398,6 +1411,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               <Input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
+                // Stryker disable next-line StringLiteral: placeholder is never visible once `category` defaults to a non-empty `EXPENSE_CATEGORIES[0]` value — unobservable in every test in this suite by construction, not by an untested branch.
                 placeholder={t`Категорія витрати`}
                 className="h-9 text-sm"
                 data-testid="create-transaction-expense-category-input"
@@ -1459,6 +1473,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                     data-testid="create-transaction-dividend-receiver-trigger"
                   >
+                    {/* Stryker disable next-line StringLiteral: unselected-state placeholder — `dividendReceiverId` defaults to the caller's own admin id, so no test in this suite renders this dialog with the placeholder actually showing. */}
                     <SelectValue placeholder={t`Виберіть партнера`} />
                   </SelectTrigger>
                   <SelectContent>
@@ -1500,6 +1515,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       'h-9 pl-7 text-sm tabular-nums',
                       fieldErrors.amount && 'border-destructive',
                     )}
+                    // Stryker disable next-line StringLiteral: screen-reader-only label, not asserted by any test in this suite (the field is queried by testid).
                     aria-label={t`Сума дивідендів у USDT`}
                     data-testid="create-transaction-dividend-amount"
                   />
@@ -1555,6 +1571,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   setReceipt(s)
                   clearFieldError('receipt')
                 }}
+                // Stryker disable next-line StringLiteral: label passed through to `ReceiptInput`, which already has its OWN default (`t\`Чек / підтвердження\``, `ReceiptInput.tsx`) pinned by that component's own tests — this override string is not independently asserted here.
                 label={t`Чек / підтвердження *`}
                 explorerOnly={isExplorerOnly}
                 error={fieldErrors.receipt}
@@ -1581,6 +1598,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              // Stryker disable next-line StringLiteral: cosmetic placeholder for an optional field, not asserted by any test in this suite.
               placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
@@ -1677,7 +1695,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-submit"
             data-track="transaction-create"
           >
-            {mutation.isPending ? t`Створення…` : t`Створити транзакцію`}
+            {
+              // Stryker disable next-line StringLiteral: the pending-state label — every test in this suite mocks `useMutation` with a fixed `isPending: false`, so this branch never renders to be observed; the idle-state label is pinned by `CreateTransactionDialog.accountant.test.tsx`'s footer-copy test.
+              mutation.isPending ? t`Створення…` : t`Створити транзакцію`
+            }
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

@@ -203,7 +203,11 @@ export function FundingSourceFields({
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })
-              }{' '}
+              }
+              {
+                // Stryker disable next-line StringLiteral: the whitespace separator between the number and the "USDT" unit — a rendering-whitespace detail, not asserted by any test (all consumers check for the testid + numeric substring, not exact spacing).
+                ' '
+              }
               USDT
             </span>
           </div>

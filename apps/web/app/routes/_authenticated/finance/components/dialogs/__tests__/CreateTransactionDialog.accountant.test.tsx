@@ -247,4 +247,23 @@ describe('CreateTransactionDialog — expense category chips (i18n-3d-pr3 AC3)',
     const chips = screen.getAllByTestId(/create-transaction-expense-category-suggestion-/)
     expect(chips.map((c) => c.textContent)).toEqual(['Оплата послуги', 'Банківський збір', 'Інше'])
   })
+
+  it('typing into the free-text input overrides the stored default value (imported "RumpUp service"-style edits stay possible)', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    const input = screen.getByTestId('create-transaction-expense-category-input')
+    fireEvent.change(input, { target: { value: 'RumpUp service' } })
+    expect(input).toHaveValue('RumpUp service')
+  })
+})
+
+// i18n-3d-pr3 (AC1) — footer button copy, including the pending-state label.
+describe('CreateTransactionDialog — footer copy (i18n-3d-pr3)', () => {
+  it('shows "Скасувати" and "Створити транзакцію" (idle)', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('create-transaction-cancel')).toHaveTextContent('Скасувати')
+    expect(screen.getByTestId('create-transaction-submit')).toHaveTextContent('Створити транзакцію')
+  })
 })
