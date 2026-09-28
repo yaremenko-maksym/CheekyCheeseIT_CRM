@@ -161,7 +161,7 @@ export const Route = createFileRoute('/_authenticated/documents')({
  * labels.ts`, nothing else in the wave (e) perimeter renders these three
  * words.
  */
-const STATUS_TAB_LABEL_MESSAGES = {
+export const STATUS_TAB_LABEL_MESSAGES = {
   ALL: msg`Всі`,
   ACTIVE: msg`Активні`,
   ARCHIVED: msg`Архів`,

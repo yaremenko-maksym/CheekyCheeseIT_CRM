@@ -10,8 +10,9 @@
  */
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import { i18n } from '@lingui/core'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { DocumentsCounterText } from './documents'
+import { DocumentsCounterText, STATUS_TAB_LABEL_MESSAGES } from './documents'
 
 const CASES: Array<[n: number, uk: string]> = [
   [1, '1 документ'],
@@ -108,5 +109,23 @@ describe('DocumentsCounterText — category suffix (not derived by .toLowerCase(
       { wrapper: I18nTestProvider },
     )
     expect(container.textContent).toBe('4 документи')
+  })
+})
+
+describe('STATUS_TAB_LABEL_MESSAGES — the ADMIN-only status toggle labels', () => {
+  it('resolves every key to its own uk text', async () => {
+    await loadCatalog('uk')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ALL)).toBe('Всі')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ACTIVE)).toBe('Активні')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ARCHIVED)).toBe('Архів')
+  })
+
+  it('resolves every key to its own en text', async () => {
+    await loadCatalog('en')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ALL)).toBe('All')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ACTIVE)).toBe('Active')
+    // "Archived" (not "Archive") — dedup with the already-established
+    // catalog entry for the same uk source text elsewhere in the app.
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ARCHIVED)).toBe('Archived')
   })
 })
