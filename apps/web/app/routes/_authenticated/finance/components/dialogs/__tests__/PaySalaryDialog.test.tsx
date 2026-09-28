@@ -163,4 +163,12 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.payerAdminId).toBe('kostya-id')
   })
+
+  it('renders the tx createdAt date with the shortYY style ("01.05.26")', async () => {
+    renderDialog()
+    await screen.findByTestId('pay-salary-account-company')
+    // formatDate(..., 'shortYY') → day.month.2-digit-year — exact string so
+    // a mutation to the style key (silently switching formats) fails.
+    expect(screen.getByText('01.05.26')).toBeInTheDocument()
+  })
 })

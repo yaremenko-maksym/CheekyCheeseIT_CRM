@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeAll } from 'vitest'
+import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
 import { render as rtlRender, screen, fireEvent, type RenderResult } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { InvoiceListItem } from '@crm/shared'
@@ -102,5 +102,31 @@ describe('InvoiceCard', () => {
     const card = screen.getByTestId(`invoice-card-${baseInvoice.transactionId}`)
     fireEvent.click(card)
     expect(onOpen).toHaveBeenCalledWith(baseInvoice.transactionId)
+  })
+
+  describe('relative-time tooltip locale', () => {
+    afterEach(async () => {
+      // Restore the file's default locale for every subsequent test.
+      await loadCatalog('uk')
+    })
+
+    it('uses uk-UA for the absolute-time title when locale is uk', () => {
+      render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
+      const tooltip = screen.getByText(/тому|секунд|хвилин|годин|дн[іяь]/)
+      expect(tooltip).toHaveAttribute(
+        'title',
+        new Date(baseInvoice.createdAt).toLocaleString('uk-UA'),
+      )
+    })
+
+    it('uses en-GB for the absolute-time title when locale is en', async () => {
+      await loadCatalog('en')
+      render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
+      const tooltip = screen.getByText(/ago/)
+      expect(tooltip).toHaveAttribute(
+        'title',
+        new Date(baseInvoice.createdAt).toLocaleString('en-GB'),
+      )
+    })
   })
 })

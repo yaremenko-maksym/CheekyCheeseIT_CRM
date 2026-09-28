@@ -84,6 +84,7 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
+import { toast } from 'sonner'
 import { ConfirmPayoutDialog } from '../ConfirmPayoutDialog'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -153,6 +154,12 @@ describe('ConfirmPayoutDialog', () => {
     expect(screen.getByTestId('confirm-payout-admin-select')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-tx-hash')).toBeInTheDocument()
     expect(screen.queryByTestId('confirm-payout-company-account-hint')).not.toBeInTheDocument()
+    // CRYPTO (not COMPANY_ACCOUNT) → txHash is required, "(необов'язково)" does
+    // NOT appear next to its label (kills the isCompanyAccount ConditionalExpression/
+    // LogicalOperator mutants on the label's optional-marker branch).
+    expect(screen.queryByText('(необов’язково)')).not.toBeInTheDocument()
+    // Placeholder text on the (empty) recipient select.
+    expect(screen.getByText('— оберіть адміна —')).toBeInTheDocument()
   })
 
   it('CRYPTO method calls confirmPayout (not manualConfirmPayout)', async () => {
@@ -185,6 +192,10 @@ describe('ConfirmPayoutDialog', () => {
     fireEvent.click(screen.getByTestId('confirm-payout-method-company_account'))
     expect(screen.queryByTestId('confirm-payout-admin-select')).not.toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-company-account-hint')).toBeInTheDocument()
+    // COMPANY_ACCOUNT → txHash IS optional, "(необов'язково)" appears next to
+    // its label (the true branch this file's default-CRYPTO test does not
+    // reach — kills the isCompanyAccount ConditionalExpression mutants).
+    expect(screen.getByText('(необов’язково)')).toBeInTheDocument()
   })
 
   it('COMPANY_ACCOUNT calls manualConfirmPayout off payoutRequestId (not confirmPayout)', async () => {
@@ -229,5 +240,14 @@ describe('ConfirmPayoutDialog', () => {
     expect(invalidatedKeys).toContain('transactions')
     expect(invalidatedKeys).toContain('finance-summary')
     expect(invalidatedKeys).toContain('company-account')
+    // COMPANY_ACCOUNT → the credit-worded toast, not the generic "confirmed" one.
+    expect(toast.success).toHaveBeenCalledWith('Оплату зараховано на рахунок компанії')
+  })
+
+  it('onSuccess for CRYPTO/CASH shows the generic "confirmed" toast', () => {
+    render(<ConfirmPayoutDialog tx={makeTx()} onClose={vi.fn()} />)
+    // Default method is CRYPTO — do not switch to COMPANY_ACCOUNT.
+    capturedOnSuccess?.()
+    expect(toast.success).toHaveBeenCalledWith('Оплату підтверджено')
   })
 })
