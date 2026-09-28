@@ -17,7 +17,7 @@
  * auth/router/sonner and the query/mutation hooks so the dialog renders without
  * a network. The payout query data is injected via the mocked useQuery.
  */
-import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent, type RenderResult } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
@@ -100,8 +100,22 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
       PAYOUT.contractAddress,
     )
     expect(screen.getByTestId('payout-detail-copy-address')).toBeInTheDocument()
+    // Exact aria-label — a StringLiteral mutant on it would go unnoticed by
+    // the testid-only assertion above.
+    expect(screen.getByTestId('payout-detail-copy-address')).toHaveAttribute(
+      'aria-label',
+      'Копіювати адресу',
+    )
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
+    // Instruction line interpolates the payable amount into a fixed sentence.
+    expect(
+      screen.getByText(/на адресу гаманця компанії \(ERC-20\), потім вставте хеш транзакції/),
+    ).toBeInTheDocument()
+    // Default simulateMode is 'real' — the tx-hash label's "(після оплати)"
+    // qualifier is the branch that actually renders by default, not the
+    // dev-simulate one.
+    expect(screen.getByText('(після оплати)')).toBeInTheDocument()
   })
 
   // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
@@ -155,6 +169,39 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
     currentRole = 'ADMIN'
     renderDialog()
     expect(screen.getByText(/поповнює баланс рахунку компанії/i)).toBeInTheDocument()
+  })
+
+  it('the method radiogroup carries its aria-label; each button shows its own short label and toggles aria-checked on click', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(
+      screen.getByRole('radiogroup', { name: 'Метод ручного підтвердження' }),
+    ).toBeInTheDocument()
+
+    const cashBtn = screen.getByTestId('payout-detail-manual-method-cash')
+    const usdtBtn = screen.getByTestId('payout-detail-manual-method-admin_usdt')
+    const companyBtn = screen.getByTestId('payout-detail-manual-method-company_account')
+    expect(cashBtn).toHaveTextContent('Готівка')
+    expect(usdtBtn).toHaveTextContent('USDT партнера')
+    expect(companyBtn).toHaveTextContent('Рахунок компанії')
+    // Default selection is COMPANY_ACCOUNT.
+    expect(companyBtn).toHaveAttribute('aria-checked', 'true')
+    expect(cashBtn).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(cashBtn)
+    expect(cashBtn).toHaveAttribute('aria-checked', 'true')
+    expect(companyBtn).toHaveAttribute('aria-checked', 'false')
+    // Switching away from COMPANY_ACCOUNT hides its balance-credit hint.
+    expect(screen.queryByText(/поповнює баланс рахунку компанії/i)).not.toBeInTheDocument()
+  })
+
+  it('the manual note textarea carries the exact placeholder', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-manual-note')).toHaveAttribute(
+      'placeholder',
+      'Вкажіть деталі ручного підтвердження',
+    )
   })
 })
 
@@ -241,6 +288,25 @@ describe('PayoutDetailDialog — «Транзакции в выплате» list
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-drop-income-2')).toBeInTheDocument()
     expect(screen.queryByTestId('payout-detail-tx-payout-ledger-row')).not.toBeInTheDocument()
+  })
+
+  it('renders the income row fields precisely — sliced id, txDate-over-createdAt, shortYY date style', () => {
+    currentRole = 'DROP'
+    const incomeTx = makeDropIncomeTx({
+      id: 'drop-income-long-id-1',
+      // Both set — the row must prefer txDate, not createdAt (kills the
+      // `txDate ?? createdAt` -> `txDate && createdAt` mutant).
+      txDate: '2026-04-09T00:00:00.000Z',
+      createdAt: '2026-05-20T00:00:00.000Z',
+    })
+    PAYOUT.transactions = [incomeTx]
+    renderDialog()
+    const row = screen.getByTestId('payout-detail-tx-drop-income-long-id-1')
+    const expectedDate = formatDate(incomeTx.txDate!, 'uk', 'shortYY')
+    // id.slice(0, 6) — first 6 chars of the id, not the full id.
+    expect(row).toHaveTextContent(`#${incomeTx.id.slice(0, 6)} від ${expectedDate}`)
+    expect(row).not.toHaveTextContent(incomeTx.id)
+    expect(row).not.toHaveTextContent(formatDate(incomeTx.createdAt, 'uk', 'shortYY'))
   })
 })
 
