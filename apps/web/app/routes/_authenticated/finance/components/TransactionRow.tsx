@@ -332,7 +332,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
 
     // Intentionally «—»: Phase 4-B placeholder types (TOV_INCOME, SENIOR_PAID,
     // ADMIN_INCOME_CASH, ADMIN_INCOME_CRYPTO, SENIOR_INCOME_CRYPTO,
-    // DIVIDEND_TAX) exist only to satisfy the exhaustive TYPE_LABELS/
+    // DIVIDEND_TAX) exist only to satisfy the exhaustive TYPE_LABEL_MESSAGES/
     // TYPE_COLORS Record<> contracts — no current flow ever inserts a row
     // with these types (verified against every `.insert(transactions)` call
     // site), so falling through to the dash here is correct, not a bug.

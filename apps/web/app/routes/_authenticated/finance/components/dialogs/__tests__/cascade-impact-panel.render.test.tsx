@@ -195,7 +195,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
     // Asserted as "the senior branch did NOT leak into a drop row": checking
     // for «Доля дропа» alone would be vacuous, because that is also exactly
-    // what `TYPE_LABELS.PAYOUT_DROP` prints on the badge. The name stays
+    // what `TYPE_LABEL_MESSAGES.PAYOUT_DROP` prints on the badge. The name stays
     // absent — `CascadeDerivativePlan` carries no receiver, and the SOURCE's
     // receiver is the senior, not the drop.
     expect(desktop().textContent).not.toContain('Сеньйор')
@@ -209,7 +209,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     // is only reachable in the nameless case.
     renderPanel({ preview: preview([derivative({ type: 'PAYOUT_DROP', receiverName: null })]) })
 
-    // `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so without the
+    // `TYPE_LABEL_MESSAGES.PAYOUT_DROP` is itself «Частка дропа», so without the
     // duplicate guard the badge and the line under it said the same three words
     // twice. Found by looking at the rendered screen, and pinned here so it
     // cannot come back.
