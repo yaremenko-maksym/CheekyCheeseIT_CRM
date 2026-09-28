@@ -85,7 +85,7 @@ describe('AdminEditTransactionDialog — MED-2: unchanged legacy http:// receipt
 
     const amountInput = screen.getByPlaceholderText('0.00')
     fireEvent.change(amountInput, { target: { value: '600' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
 
     await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
     const [id, payload] = adminUpdateTransactionMock.mock.calls[0] as [
@@ -104,7 +104,7 @@ describe('AdminEditTransactionDialog — MED-2: unchanged legacy http:// receipt
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'http://still-not-https.example/new-receipt.jpg' },
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
 
     await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
     const [, payload] = adminUpdateTransactionMock.mock.calls[0] as [
