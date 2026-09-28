@@ -5,29 +5,50 @@ import {
   Coins,
   Copy,
   ExternalLink,
+  Link2,
   Loader2,
+  Settings2,
   Wallet,
   XCircle,
 } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import type { MessageDescriptor } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
 import type { ManualPayoutMethod } from '@crm/shared'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
-import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
+import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES } from '../../constants'
 import {
   isBundledIncomeTransaction,
   isPayoutObligationTransaction,
 } from '../../utils/company-share'
 import { SHOW_DEV_SIMULATE, type PayoutPaymentFormState } from '../../hooks/usePayoutPaymentForm'
 
-const MANUAL_METHODS: { value: ManualPayoutMethod; label: string; icon: React.ReactNode }[] = [
-  { value: 'CASH', label: 'Наличные', icon: <Banknote className="h-3.5 w-3.5" /> },
-  { value: 'ADMIN_USDT', label: 'USDT партнёра', icon: <Wallet className="h-3.5 w-3.5" /> },
-  { value: 'COMPANY_ACCOUNT', label: 'Счёт компании', icon: <Coins className="h-3.5 w-3.5" /> },
-]
+/**
+ * task-i18n-stage3d-pr4 (template G-fin, COPY-M-fin-10). Manual-confirm
+ * payment methods — `satisfies` WITHOUT `as const` (урок #707: `as const
+ * satisfies` disables Stryker for the whole block).
+ */
+const MANUAL_METHOD_MESSAGES = {
+  CASH: msg`Готівка`, // en: Cash
+  ADMIN_USDT: msg`USDT партнера`, // en: Partner's USDT
+  COMPANY_ACCOUNT: msg`Рахунок компанії`, // en: Company account
+} satisfies Record<ManualPayoutMethod, MessageDescriptor>
+
+const MANUAL_METHOD_ICONS: Record<ManualPayoutMethod, React.ReactNode> = {
+  CASH: <Banknote className="h-3.5 w-3.5" />,
+  ADMIN_USDT: <Wallet className="h-3.5 w-3.5" />,
+  COMPANY_ACCOUNT: <Coins className="h-3.5 w-3.5" />,
+}
+
+const MANUAL_METHODS: ManualPayoutMethod[] = ['CASH', 'ADMIN_USDT', 'COMPANY_ACCOUNT']
 
 /**
  * PayoutPaymentForm — the BODY of "step 2" of the payout flow, extracted
@@ -51,6 +72,8 @@ export function PayoutPaymentForm({
   state: PayoutPaymentFormState
   canManualConfirm: boolean
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const {
     payoutQuery,
     payout,
@@ -86,7 +109,7 @@ export function PayoutPaymentForm({
 
       {payoutQuery.isError && (
         <p className="text-sm text-destructive">
-          Не удалось загрузить данные выплаты. Попробуйте позже.
+          <Trans>Не вдалося завантажити дані виплати. Спробуйте пізніше.</Trans>
         </p>
       )}
 
@@ -98,7 +121,9 @@ export function PayoutPaymentForm({
           <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-3">
             {/* Amount row */}
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs text-muted-foreground shrink-0">К оплате</span>
+              <span className="text-xs text-muted-foreground shrink-0">
+                <Trans>До сплати</Trans>
+              </span>
               <span
                 className="text-xl font-bold tabular-nums text-primary"
                 data-testid="payout-detail-payable"
@@ -116,7 +141,7 @@ export function PayoutPaymentForm({
                 className="text-xs text-muted-foreground"
                 data-testid="payout-detail-contract-address-label"
               >
-                Адрес кошелька компании (USDT ERC-20):
+                <Trans>Адреса гаманця компанії (USDT ERC-20):</Trans>
               </p>
               {payout.contractAddress ? (
                 <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
@@ -132,7 +157,7 @@ export function PayoutPaymentForm({
                     size="sm"
                     className="h-7 w-7 px-0 shrink-0"
                     onClick={() => copyAddress(payout.contractAddress)}
-                    aria-label="Скопировать адрес"
+                    aria-label={t`Копіювати адресу`}
                     data-testid="payout-detail-copy-address"
                   >
                     {copied ? (
@@ -144,13 +169,19 @@ export function PayoutPaymentForm({
                 </div>
               ) : (
                 <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
-                  <p className="text-xs text-destructive/80">Адрес не настроен</p>
-                  <p className="text-[11px] text-muted-foreground">Обратитесь к администратору.</p>
+                  <p className="text-xs text-destructive/80">
+                    <Trans>Адресу не налаштовано</Trans>
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    <Trans>Зверніться до адміністратора.</Trans>
+                  </p>
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground">
-                Переведите {fmtAmount(payout.payableAmount, 'USDT')} на адрес кошелька компании
-                (ERC-20), затем вставьте хеш транзакции.
+                <Trans>
+                  Переведіть {fmtAmount(payout.payableAmount, 'USDT')} на адресу гаманця компанії
+                  (ERC-20), потім вставте хеш транзакції.
+                </Trans>
               </p>
             </div>
           </div>
@@ -175,7 +206,7 @@ export function PayoutPaymentForm({
             return (
               <div className="space-y-1.5">
                 <Label className="text-xs" data-testid="payout-detail-transactions-count">
-                  Транзакции в выплате ({incomeTxs.length})
+                  <Trans>Транзакції у виплаті ({incomeTxs.length})</Trans>
                 </Label>
                 <div className="rounded-md border border-border divide-y divide-border max-h-40 overflow-y-auto">
                   {incomeTxs.map((tx) => (
@@ -187,8 +218,10 @@ export function PayoutPaymentForm({
                       <div className="flex-1 min-w-0">
                         <p className="font-medium truncate">{tx.projectName ?? '—'}</p>
                         <p className="text-muted-foreground">
-                          #{tx.id.slice(0, 6)} от{' '}
-                          {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                          <Trans>
+                            #{tx.id.slice(0, 6)} від{' '}
+                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+                          </Trans>
                         </p>
                       </div>
                       <span className="tabular-nums font-medium shrink-0">
@@ -219,7 +252,7 @@ export function PayoutPaymentForm({
             return (
               <div className="space-y-1.5">
                 <Label className="text-xs" data-testid="payout-detail-obligations-count">
-                  Обязательства компании ({obligationTxs.length})
+                  <Trans>Зобов’язання компанії ({obligationTxs.length})</Trans>
                 </Label>
                 {/* design-audit PR #592 (LOW): "Компания должна" already lives
                     in the section title above AND used to open every row
@@ -233,7 +266,7 @@ export function PayoutPaymentForm({
                   className="text-[11px] text-muted-foreground"
                   data-testid="payout-detail-obligations-caption"
                 >
-                  Компания должна эти суммы — они не входят в выплату выше
+                  <Trans>Компанія винна ці суми — вони не входять до виплати вище</Trans>
                 </p>
                 <div className="rounded-md border border-amber-500/30 divide-y divide-amber-500/20 max-h-40 overflow-y-auto">
                   {obligationTxs.map((tx) => (
@@ -264,8 +297,10 @@ export function PayoutPaymentForm({
                           {tx.receiverName ?? '—'}
                         </p>
                         <p className="text-muted-foreground">
-                          {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} от{' '}
-                          {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+                          <Trans>
+                            {tx.projectName ?? '—'} · #{tx.id.slice(0, 6)} від{' '}
+                            {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
+                          </Trans>
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-col items-end gap-0.5">
@@ -277,14 +312,15 @@ export function PayoutPaymentForm({
                             // Stryker disable next-line StringLiteral: cosmetic Tailwind
                             // badge styling — testing-library discourages asserting
                             // implementation-detail CSS classes; the badge's TEXT
-                            // (STATUS_LABELS[tx.status]) and its data-testid are both
-                            // asserted directly (see the obligations-split tests).
+                            // (i18n._(STATUS_LABEL_MESSAGES[tx.status])) and its
+                            // data-testid are both asserted directly (see the
+                            // obligations-split tests).
                             'rounded-full border px-1.5 py-0 text-[9px] font-medium leading-4',
                             STATUS_COLORS[tx.status],
                           )}
                           data-testid={`payout-detail-obligation-status-${tx.id}`}
                         >
-                          {STATUS_LABELS[tx.status]}
+                          {i18n._(STATUS_LABEL_MESSAGES[tx.status])}
                         </span>
                       </div>
                     </div>
@@ -297,7 +333,9 @@ export function PayoutPaymentForm({
           {/* TX hash — input (PENDING) or read-only display (PAID) */}
           {isPaid ? (
             <div className="space-y-1.5">
-              <Label className="text-xs">Хеш транзакции</Label>
+              <Label className="text-xs">
+                <Trans>Хеш транзакції</Trans>
+              </Label>
               <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 p-2">
                 <code className="flex-1 text-xs font-mono break-all">{payout.txHash ?? '—'}</code>
                 {payout.txHash && (
@@ -306,7 +344,7 @@ export function PayoutPaymentForm({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-muted-foreground hover:text-foreground shrink-0"
-                    aria-label="Открыть в etherscan"
+                    aria-label={t`Відкрити в Etherscan`}
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
@@ -316,11 +354,17 @@ export function PayoutPaymentForm({
           ) : (
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="payout-tx-hash-input">
-                Хеш транзакции
+                <Trans>Хеш транзакції</Trans>
                 {SHOW_DEV_SIMULATE && (simulateMode === 'success' || simulateMode === 'error') ? (
-                  <span className="text-muted-foreground"> (опционально в dev режиме)</span>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    <Trans>(необов’язково в dev-режимі)</Trans>
+                  </span>
                 ) : (
-                  <span className="text-muted-foreground"> (после оплаты)</span>
+                  <span className="text-muted-foreground">
+                    {' '}
+                    <Trans>(після оплати)</Trans>
+                  </span>
                 )}
               </Label>
               <Input
@@ -343,7 +387,7 @@ export function PayoutPaymentForm({
                   rel="noopener noreferrer"
                   className="text-[11px] text-primary hover:underline inline-flex items-center gap-1"
                 >
-                  Проверить в Etherscan <ExternalLink className="h-3 w-3" />
+                  <Trans>Відкрити в Etherscan</Trans> <ExternalLink className="h-3 w-3" />
                 </a>
               )}
             </div>
@@ -354,17 +398,35 @@ export function PayoutPaymentForm({
               className="space-y-1.5 rounded-md border border-dashed border-amber-500/40 bg-amber-500/5 p-2.5"
               data-testid="payout-detail-dev-simulate"
               role="radiogroup"
-              aria-label="Dev режим: результат валидации"
+              aria-label={t`Dev-режим: результат валідації`}
             >
               <Label className="text-xs flex items-center gap-1.5">
-                <span>🔧 Dev режим: результат валидации</span>
+                <Settings2 className="h-3 w-3 shrink-0" aria-hidden="true" />
+                <Trans>Dev-режим: результат валідації</Trans>
               </Label>
               <div className="flex flex-col gap-1.5">
                 {(
                   [
-                    { value: 'success', label: '✅ Симулировать успех' },
-                    { value: 'error', label: '❌ Симулировать ошибку' },
-                    { value: 'real', label: '🔗 Реальная проверка (недоступно в dev)' },
+                    {
+                      value: 'success' as const,
+                      icon: <CheckCircle2 className="h-3 w-3 shrink-0" aria-hidden="true" />,
+                      label: <Trans>Симулювати успіх</Trans>,
+                    },
+                    {
+                      value: 'error' as const,
+                      icon: <XCircle className="h-3 w-3 shrink-0" aria-hidden="true" />,
+                      label: <Trans>Симулювати помилку</Trans>,
+                    },
+                    {
+                      value: 'real' as const,
+                      icon: <Link2 className="h-3 w-3 shrink-0" aria-hidden="true" />,
+                      // COPY-M-fin-10: «Реальна перевірка (недоступно в dev)» read
+                      // as internal jargon leaking to the operator — the honest
+                      // sentence says WHAT is unavailable and WHERE.
+                      label: (
+                        <Trans>Перевірка в блокчейні (недоступна в тестовому середовищі)</Trans>
+                      ),
+                    },
                   ] as const
                 ).map((opt) => {
                   const selected = simulateMode === opt.value
@@ -388,14 +450,17 @@ export function PayoutPaymentForm({
                         disabled={payMutation.isPending}
                         className="h-3 w-3 accent-primary shrink-0"
                       />
+                      {opt.icon}
                       <span>{opt.label}</span>
                     </label>
                   )
                 })}
               </div>
               <p className="text-[11px] text-muted-foreground">
-                Доступно только в dev-сборке. Выберите «успех» или «ошибку», чтобы разблокировать
-                «Подтвердить оплату».
+                <Trans>
+                  Доступно лише в dev-збірці. Оберіть «успіх» або «помилку», щоб розблокувати
+                  «Підтвердити оплату».
+                </Trans>
               </p>
             </div>
           )}
@@ -415,9 +480,11 @@ export function PayoutPaymentForm({
                 >
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
                   <div>
-                    <p className="text-xs font-medium">Проверка on-chain…</p>
+                    <p className="text-xs font-medium">
+                      <Trans>Перевірка on-chain…</Trans>
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
-                      Запрос к Etherscan, займёт несколько секунд
+                      <Trans>Запит до Etherscan, займе кілька секунд</Trans>
                     </p>
                   </div>
                 </div>
@@ -430,9 +497,11 @@ export function PayoutPaymentForm({
                 >
                   <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                   <div>
-                    <p className="text-xs font-medium text-emerald-400">Транзакция подтверждена</p>
+                    <p className="text-xs font-medium text-emerald-400">
+                      <Trans>Транзакцію підтверджено</Trans>
+                    </p>
                     <p className="text-[11px] text-muted-foreground">
-                      Выплата переведена в статус ОПЛАЧЕНО
+                      <Trans>Виплату переведено у статус ОПЛАЧЕНО</Trans>
                     </p>
                   </div>
                 </div>
@@ -444,13 +513,17 @@ export function PayoutPaymentForm({
                 >
                   <div className="flex items-center gap-2">
                     <XCircle className="h-4 w-4 text-destructive shrink-0" />
-                    <p className="text-xs font-medium text-destructive">Транзакция не принята</p>
+                    <p className="text-xs font-medium text-destructive">
+                      <Trans>Транзакцію не прийнято</Trans>
+                    </p>
                   </div>
                   <p className="text-[11px] text-muted-foreground pl-6">
-                    {payError ?? 'Не удалось подтвердить оплату.'}
+                    {payError ?? t`Не вдалося підтвердити оплату.`}
                   </p>
                   <p className="text-[11px] text-muted-foreground/60 pl-6">
-                    Проверьте хеш и попробуйте снова, или используйте ручное подтверждение.
+                    <Trans>
+                      Перевірте хеш і спробуйте знову, або скористайтеся ручним підтвердженням.
+                    </Trans>
                   </p>
                 </div>
               )}
@@ -467,28 +540,30 @@ export function PayoutPaymentForm({
                 </div>
                 <div className="relative flex justify-center">
                   <span className="bg-card px-2 text-[10px] text-muted-foreground uppercase tracking-wider">
-                    Ручное подтверждение
+                    <Trans>Ручне підтвердження</Trans>
                   </span>
                 </div>
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Метод оплаты</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Метод оплати</Trans>
+                </Label>
                 <div
                   role="radiogroup"
-                  aria-label="Метод ручного подтверждения"
+                  aria-label={t`Метод ручного підтвердження`}
                   className="grid grid-cols-3 gap-2 max-sm:grid-cols-1"
                 >
                   {MANUAL_METHODS.map((m) => {
-                    const active = manualMethod === m.value
+                    const active = manualMethod === m
                     return (
                       <button
-                        key={m.value}
+                        key={m}
                         type="button"
                         role="radio"
                         aria-checked={active}
-                        onClick={() => setManualMethod(m.value)}
-                        data-testid={`payout-detail-manual-method-${m.value.toLowerCase()}`}
+                        onClick={() => setManualMethod(m)}
+                        data-testid={`payout-detail-manual-method-${m.toLowerCase()}`}
                         className={cn(
                           'flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-medium transition-colors cursor-pointer',
                           active
@@ -496,8 +571,8 @@ export function PayoutPaymentForm({
                             : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/40',
                         )}
                       >
-                        {m.icon}
-                        <span>{m.label}</span>
+                        {MANUAL_METHOD_ICONS[m]}
+                        <span>{i18n._(MANUAL_METHOD_MESSAGES[m])}</span>
                       </button>
                     )
                   })}
@@ -505,14 +580,16 @@ export function PayoutPaymentForm({
                 {manualMethod === 'COMPANY_ACCOUNT' && (
                   <p className="text-[11px] text-primary/80 flex items-center gap-1">
                     <Coins className="h-3 w-3 shrink-0" />
-                    Этот метод кредитует баланс счёта компании
+                    <Trans>Цей метод поповнює баланс рахунку компанії</Trans>
                   </p>
                 )}
               </div>
 
               <div className="space-y-1">
                 <Label className="text-xs" htmlFor="payout-manual-note">
-                  Примечание <span className="text-muted-foreground">(опционально)</span>
+                  <Trans>
+                    Примітка <span className="text-muted-foreground">(необов’язково)</span>
+                  </Trans>
                 </Label>
                 <Textarea
                   id="payout-manual-note"
@@ -520,7 +597,7 @@ export function PayoutPaymentForm({
                   rows={2}
                   value={manualNote}
                   onChange={(e) => setManualNote(e.target.value)}
-                  placeholder="Укажите детали ручного подтверждения"
+                  placeholder={t`Вкажіть деталі ручного підтвердження`}
                   className="text-xs resize-none"
                 />
               </div>
@@ -528,7 +605,9 @@ export function PayoutPaymentForm({
               {manualMethod !== 'CASH' && (
                 <div className="space-y-1">
                   <Label className="text-xs" htmlFor="payout-manual-tx-hash">
-                    Хеш транзакции <span className="text-muted-foreground">(опционально)</span>
+                    <Trans>
+                      Хеш транзакції <span className="text-muted-foreground">(необов’язково)</span>
+                    </Trans>
                   </Label>
                   <Input
                     id="payout-manual-tx-hash"
@@ -553,7 +632,11 @@ export function PayoutPaymentForm({
                 className="w-full mt-1"
                 data-testid="payout-detail-manual-submit"
               >
-                {manualMutation.isPending ? 'Сохранение…' : 'Подтвердить вручную'}
+                {manualMutation.isPending ? (
+                  <Trans>Збереження…</Trans>
+                ) : (
+                  <Trans>Підтвердити вручну</Trans>
+                )}
               </Button>
             </div>
           )}

@@ -15,9 +15,27 @@
  * synchronously so we can assert which api method fires. Both api methods are
  * mocked.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  act,
+  type RenderResult,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `ConfirmPayoutDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `PayoutDetailDialog.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ─── mocks ───────────────────────────────────────────────────────────────────
 

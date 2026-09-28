@@ -1,7 +1,7 @@
 /**
  * ConfirmPayoutDialog — manual confirmation of an off-platform PAYOUT.
  *
- * Trigger: «Подтвердить оплату» button on a PAYOUT row in PENDING_PAYMENT
+ * Trigger: «Підтвердити оплату» button on a PAYOUT row in PENDING_PAYMENT
  * (see `TransactionRow.tsx`). Amount is read-only — taken from the PAYOUT row.
  *
  * Two confirmation mechanisms live side by side here:
@@ -12,12 +12,23 @@
  *   - COMPANY_ACCOUNT → `financeApi.manualConfirmPayout`. Credits the shared
  *     company USDT account — NOT an individual admin — so the recipient
  *     selector is hidden. The Statistics company-account balance updates.
+ *
+ * task-i18n-stage3d-pr4 (COPY-M-fin-7 periphery, known limitation — see the
+ * task file / plan "Опасность"): `onError` below prints
+ * `err.response.data.message` VERBATIM when the backend supplies one — this
+ * screen stays mixed-language until every finance/invoices endpoint this
+ * dialog can hit is migrated to the api-error catalog (#704 covers some, not
+ * all, of `confirmPayout`/`manualConfirmPayout`'s failure branches). The
+ * LOGIC of that passthrough is deliberately UNCHANGED by this PR — only the
+ * dialog's own static text (title, labels, method names, hints, the
+ * NEVER-reached fallback) is translated.
  */
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AxiosError } from 'axios'
-import { ExternalLink, Coins } from 'lucide-react'
+import { ExternalLink, Coins, Banknote, Gem } from 'lucide-react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { PayoutMethod, TransactionDto } from '@crm/shared'
 import { MAKSYM_ID, KOSTYA_ID } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -65,6 +76,7 @@ type ConfirmPayoutDialogProps = {
 }
 
 export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   const [recipientAdminId, setRecipientAdminId] = useState<string>('')
   // AC10 — Phase 4 refactor. Default = crypto (legacy contract); switching
@@ -94,8 +106,11 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
         // gates submission when `tx.payoutRequestId` is absent, but a
         // defensive check here makes the money-path safe against any future
         // caller that bypasses the form gate (#253 review code MED fix).
+        // Never reaches the user (the submit button is disabled by the same
+        // guard) — kept in English, a developer-facing assertion, not a copy
+        // string (see the file docstring's COPY-M-fin-7 note).
         if (!tx || !tx.payoutRequestId) {
-          throw new Error('Выплата не привязана к запросу на выплату — невозможно подтвердить')
+          throw new Error('Payout is not linked to a payout request — cannot confirm')
         }
         await financeApi.manualConfirmPayout(tx.payoutRequestId, {
           method: 'COMPANY_ACCOUNT',
@@ -107,8 +122,9 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
       // `tx` is guaranteed non-null here: `if (!tx) return null` above the
       // Dialog renders nothing when tx is null, so mutationFn is never called.
       // The explicit check removes any implicit reliance on `!`-assertion.
+      // Same "never reaches the user" note as above.
       if (!tx) {
-        throw new Error('Транзакция не выбрана')
+        throw new Error('No transaction selected')
       }
       await financeApi.confirmPayout(tx.id, {
         recipientAdminId,
@@ -117,7 +133,9 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
       })
     },
     onSuccess: () => {
-      toast.success(isCompanyAccount ? 'Оплата зачислена на счёт компании' : 'Оплата подтверждена')
+      toast.success(
+        isCompanyAccount ? t`Оплату зараховано на рахунок компанії` : t`Оплату підтверджено`,
+      )
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
       // Company-account balance feeds the Statistics KPI — refresh it so the
@@ -129,8 +147,11 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
       // Surface backend message when available — covers 400 (wrong type /
       // already confirmed / unknown recipient / missing txHash for crypto),
       // 403 (RBAC). Falls back to the generic copy when the error has no
-      // useful body.
-      let message = 'Не удалось подтвердить оплату'
+      // useful body. See the file docstring's COPY-M-fin-7 note: the
+      // backend-supplied `message` below is printed VERBATIM and is NOT
+      // translated by this PR — only the fallback (never a real backend
+      // response) is.
+      let message = t`Не вдалося підтвердити оплату`
       if (err instanceof AxiosError) {
         const data = err.response?.data as { message?: string | string[] } | undefined
         const backendMessage = data?.message
@@ -177,10 +198,14 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
     >
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="confirm-payout-dialog">
         <CrmDialogHeader>
-          <DialogTitle>Подтвердить оплату</DialogTitle>
+          <DialogTitle>
+            <Trans>Підтвердити оплату</Trans>
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Подтверждение ручной выплаты партнёру или зачисление на счёт компании с указанием метода
-            и хэша транзакции.
+            <Trans>
+              Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із
+              зазначенням методу та хешу транзакції.
+            </Trans>
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -191,20 +216,26 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             data-testid="confirm-payout-info"
           >
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground">Транзакция выплаты</span>
+              <span className="text-muted-foreground">
+                <Trans>Транзакція виплати</Trans>
+              </span>
               <span className="font-medium tabular-nums" data-testid="confirm-payout-amount">
                 {amountLabel}
               </span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground">От</span>
+              <span className="text-muted-foreground">
+                <Trans>Від</Trans>
+              </span>
               <span className="font-medium text-right truncate max-w-44" title={senderDisplay}>
                 {senderDisplay}
               </span>
             </div>
             {tx.projectName && (
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground">Проект</span>
+                <span className="text-muted-foreground">
+                  <Trans>Проєкт</Trans>
+                </span>
                 <span className="font-medium text-right truncate max-w-44" title={tx.projectName}>
                   {tx.projectName}
                 </span>
@@ -213,30 +244,35 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           </div>
 
           {/* AC10 — payment method radio. Three options: crypto / cash credit an
-              admin partner; «Счёт компании» credits the shared company account. */}
+              admin partner; «Счёт компании» credits the shared company account.
+              task-i18n-stage3d-pr4 (COPY-M-fin-10): the emoji 💎/💵 markers moved
+              to lucide icons (Gem/Banknote), matching COMPANY_ACCOUNT's own
+              Coins icon — the label text itself carries no emoji. */}
           <div className="space-y-1.5" data-testid="confirm-payout-method-radio">
-            <Label className="text-xs">Метод оплаты</Label>
+            <Label className="text-xs">
+              <Trans>Метод оплати</Trans>
+            </Label>
             <div className="grid grid-cols-3 gap-2">
               <MethodOption
                 value="CRYPTO"
                 active={method === 'CRYPTO'}
                 onSelect={() => setMethod('CRYPTO')}
-                icon={<span className="text-base">💎</span>}
-                label="Крипта"
+                icon={<Gem className="h-4 w-4" />}
+                label={<Trans>Крипта</Trans>}
               />
               <MethodOption
                 value="CASH"
                 active={method === 'CASH'}
                 onSelect={() => setMethod('CASH')}
-                icon={<span className="text-base">💵</span>}
-                label="Наличка"
+                icon={<Banknote className="h-4 w-4" />}
+                label={<Trans>Готівка</Trans>}
               />
               <MethodOption
                 value="COMPANY_ACCOUNT"
                 active={isCompanyAccount}
                 onSelect={() => setMethod('COMPANY_ACCOUNT')}
                 icon={<Coins className="h-4 w-4" />}
-                label="Счёт компании"
+                label={<Trans>Рахунок компанії</Trans>}
               />
             </div>
             {isCompanyAccount && (
@@ -244,7 +280,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                 className="text-[11px] text-muted-foreground"
                 data-testid="confirm-payout-company-account-hint"
               >
-                Кредитует баланс счёта компании.
+                <Trans>Поповнює баланс рахунку компанії.</Trans>
               </p>
             )}
           </div>
@@ -255,7 +291,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           {!isCompanyAccount && (
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="confirm-payout-admin-select">
-                Кому пришла оплата
+                <Trans>Кому надійшла оплата</Trans>
               </Label>
               <Select value={recipientAdminId} onValueChange={(v) => setRecipientAdminId(v)}>
                 <SelectTrigger
@@ -263,7 +299,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                   data-testid="confirm-payout-admin-select"
                   className="h-9 text-sm"
                 >
-                  <SelectValue placeholder="— выберите админа —" />
+                  <SelectValue placeholder={t`— оберіть адміна —`} />
                 </SelectTrigger>
                 <SelectContent>
                   {ADMIN_OPTIONS.map((admin) => (
@@ -286,8 +322,13 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           {method !== 'CASH' && (
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="confirm-payout-tx-hash">
-                txHash
-                {isCompanyAccount && <span className="text-muted-foreground"> (опционально)</span>}
+                <Trans>txHash</Trans>
+                {isCompanyAccount && (
+                  <span className="text-muted-foreground">
+                    {' '}
+                    <Trans>(необов’язково)</Trans>
+                  </span>
+                )}
               </Label>
               <Input
                 id="confirm-payout-tx-hash"
@@ -308,14 +349,14 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                   rel="noreferrer"
                   className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline"
                 >
-                  Открыть в Etherscan <ExternalLink className="h-3 w-3" />
+                  <Trans>Відкрити в Etherscan</Trans> <ExternalLink className="h-3 w-3" />
                 </a>
               )}
               {/* The min-10 warning only applies to the CRYPTO branch where the
                   hash is required. For COMPANY_ACCOUNT the hash is optional. */}
               {method === 'CRYPTO' && !cryptoTxHashOk && txHash.length > 0 && (
                 <p className="text-[11px] text-amber-500">
-                  txHash должен содержать минимум 10 символов
+                  <Trans>txHash має містити щонайменше 10 символів</Trans>
                 </p>
               )}
             </div>
@@ -324,7 +365,9 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           {/* Amount — explicit read-only badge so the user sees what amount
               they're confirming. Mirrors the info block; spec requires both. */}
           <div className="space-y-1.5">
-            <Label className="text-xs">Сумма</Label>
+            <Label className="text-xs">
+              <Trans>Сума</Trans>
+            </Label>
             <div
               className="inline-flex items-center rounded-md border border-border bg-muted/40 px-3 py-1.5 text-sm font-medium tabular-nums"
               data-testid="confirm-payout-amount-readonly"
@@ -336,7 +379,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose} data-testid="confirm-payout-cancel">
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             onClick={() => mutation.mutate()}
@@ -344,7 +387,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             data-testid="confirm-payout-submit"
             data-track="confirm-payout"
           >
-            {mutation.isPending ? 'Сохранение...' : 'Подтвердить'}
+            {mutation.isPending ? <Trans>Збереження...</Trans> : <Trans>Підтвердити</Trans>}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
@@ -365,7 +408,7 @@ function MethodOption({
   active: boolean
   onSelect: () => void
   icon: ReactNode
-  label: string
+  label: ReactNode
 }) {
   return (
     <button

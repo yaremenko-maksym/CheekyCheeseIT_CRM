@@ -22,6 +22,7 @@ import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vite
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -153,7 +154,7 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
   it('COMPANY_ACCOUNT (default) shows the balance-credit hint', () => {
     currentRole = 'ADMIN'
     renderDialog()
-    expect(screen.getByText(/кредитует баланс счёта компании/i)).toBeInTheDocument()
+    expect(screen.getByText(/поповнює баланс рахунку компанії/i)).toBeInTheDocument()
   })
 })
 
@@ -235,7 +236,7 @@ describe('PayoutDetailDialog — «Транзакции в выплате» list
     ]
     renderDialog()
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (2)',
+      'Транзакції у виплаті (2)',
     )
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-drop-income-2')).toBeInTheDocument()
@@ -288,7 +289,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
 
     // "Транзакции в выплате" counts ONLY the genuinely bundled row.
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (1)',
+      'Транзакції у виплаті (1)',
     )
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.queryByTestId('payout-detail-tx-obligation-1')).not.toBeInTheDocument()
@@ -298,17 +299,17 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     // repeating "Компания должна" per row ate the mobile-width budget the
     // recipient's actual NAME needed — see the row assertion below).
     expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
-      'Обязательства компании (1)',
+      'Зобов’язання компанії (1)',
     )
     expect(screen.getByTestId('payout-detail-obligations-caption')).toHaveTextContent(
-      'Компания должна эти суммы — они не входят в выплату выше',
+      'Компанія винна ці суми — вони не входять до виплати вище',
     )
     const row = screen.getByTestId('payout-detail-obligation-obligation-1')
     expect(row).toHaveTextContent('Иван Синьоров')
     // Regression guard for the design-audit HIGH: the per-row prefix must
     // NOT come back — it is what caused the name to truncate to nothing on
     // 320px (measured: prefix alone consumed the column's ~118px budget).
-    expect(row).not.toHaveTextContent('Компания должна')
+    expect(row).not.toHaveTextContent('Компанія винна')
     expect(row).toHaveTextContent('130')
   })
 
@@ -319,7 +320,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
 
     expect(screen.queryByTestId('payout-detail-transactions-count')).not.toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
-      'Обязательства компании (1)',
+      'Зобов’язання компанії (1)',
     )
     expect(screen.getByTestId('payout-detail-obligation-obligation-only')).toBeInTheDocument()
   })
@@ -330,7 +331,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (1)',
+      'Транзакції у виплаті (1)',
     )
     expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
   })
@@ -357,7 +358,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     expect(row).toHaveTextContent('Unambiguous Project')
     // Regression guard (design-audit PR #592 HIGH) — see the note on the
     // previous test for why this string must never reappear per row.
-    expect(row).not.toHaveTextContent('Компания должна')
+    expect(row).not.toHaveTextContent('Компанія винна')
   })
 
   it('renders the obligation row fields precisely — project dash-fallback, sliced id, createdAt date-fallback, status badge', () => {
@@ -378,12 +379,12 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     const row = screen.getByTestId('payout-detail-obligation-obligation-long-id-1')
-    const expectedDate = new Date(obligationTx.createdAt).toLocaleDateString('ru-RU')
+    const expectedDate = formatDate(obligationTx.createdAt, 'uk', 'shortYY')
     // Dash fallback + a REAL space between "от" and the date + the date
     // itself computed from createdAt (txDate is null). receiverName is a
     // real (non-dash) name here, so this substring is unambiguous — see the
     // note on the previous test for why the two dash-fallbacks are split.
-    expect(row).toHaveTextContent(`— · #obliga от ${expectedDate}`)
+    expect(row).toHaveTextContent(`— · #obliga від ${expectedDate}`)
     // Sliced id: exactly the first 6 chars — the full id must NOT appear
     // verbatim (kills the `.id` (unsliced) mutant).
     expect(row.textContent).not.toContain('obligation-long-id-1')

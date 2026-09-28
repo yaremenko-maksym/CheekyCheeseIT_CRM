@@ -63,11 +63,13 @@ export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
 }
 
 /**
- * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). The catalog-backed rendering of
+ * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1), wired in by task-i18n-3d-pr4
+ * (`CascadeImpactPanel.tsx`'s own migration). The catalog-backed rendering of
  * the two reasons `CASCADE_BLOCKED_REASON_MESSAGES` authors itself (not
- * `@crm/shared`'s). Not yet wired into `cascadeBlockedReasonMessage()` — see
- * the deprecation note above for why — but declared now so the migration of
- * `CascadeImpactPanel.tsx` does not also have to author the translated text.
+ * `@crm/shared`'s) — `cascadeBlockedReasonMessage()` below now reads THESE
+ * for `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST`, leaving only the three
+ * `CASCADE_LEDGER_FACT_MESSAGES` entries (server-authored, `@crm/shared`,
+ * out of this PR's ownership) Russian in `CASCADE_BLOCKED_REASON_MESSAGES`.
  */
 export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
   PAYOUT_FAMILY: msg`Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією`, // en: This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction
@@ -80,7 +82,10 @@ export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
  * `Record` lookup would render `undefined` into the DOM instead of saying
  * anything. An honest short sentence beats a blank refusal.
  */
-export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для этой строки недоступна'
+const CASCADE_BLOCKED_FALLBACK_TEXT_MESSAGE = msg`Правка суми для цього рядка недоступна`
+export function cascadeBlockedFallbackMessage(): string {
+  return i18n._(CASCADE_BLOCKED_FALLBACK_TEXT_MESSAGE)
+}
 
 /**
  * task-paid-salary-amount-edit — the ONE way to render a blocked reason.
@@ -89,13 +94,15 @@ export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для 
  * (`FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`, uk/en) — the SAME entry the write
  * path's 400 carries, so the banner and the refusal cannot drift. Resolved at
  * call time, not stored in the table above, because a catalog lookup depends
- * on the active locale. The rest keep their existing texts until finance
- * migrates to the catalog.
+ * on the active locale. `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` resolve
+ * through `CASCADE_BLOCKED_REASON_OWN_MESSAGES` (own-authored, catalog-backed);
+ * the remaining three keep their `@crm/shared`-authored Russian text until
+ * that package migrates.
  */
 export function cascadeBlockedReasonMessage(
   reason: CascadeEditPreviewBlockedReason | null | undefined,
 ): string {
-  if (!reason) return CASCADE_BLOCKED_FALLBACK_MESSAGE
+  if (!reason) return cascadeBlockedFallbackMessage()
   if (reason === 'PAYMENT_FACT_RECORDED') {
     return translateApiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', undefined)
   }
@@ -103,6 +110,9 @@ export function cascadeBlockedReasonMessage(
   // editable, only not to this figure.
   if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
     return translateApiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', undefined)
+  }
+  if (reason === 'PAYOUT_FAMILY' || reason === 'LINKED_TO_PAYOUT_REQUEST') {
+    return i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES[reason])
   }
   return CASCADE_BLOCKED_REASON_MESSAGES[reason]
 }
