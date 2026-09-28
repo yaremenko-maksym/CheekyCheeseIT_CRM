@@ -22,12 +22,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from signal_plus import alert, signal as signal_cli, slot, state, updater
-from signal_plus.config import Config
+from signal_plus.config import Config, config_for_account, resolve_configs
 from signal_plus.state import State
 
 logger = logging.getLogger("signal_plus")
 
 MESSAGE = "+"
+
+# Multi-account test send (2026-09-28, owner decision): a freshly-linked
+# account is verified by sending one "+" to ITS OWN group named «тест», found
+# by name via `--output json listGroups`. The owner just creates a group with
+# this name on the new account; nothing is configured by id.
+TEST_GROUP_NAME = "тест"
 
 DEFAULT_SLEEP_CHUNK_SECONDS = 300.0  # requirement 6: ~5 minutes
 DEFAULT_RETRY_ATTEMPTS = 5
@@ -221,6 +227,7 @@ def run_cycle(
     http_post=None,
     tmp_dir: Path | None = None,
     wait_for_slot: bool = True,
+    slot_override: datetime | None = None,
     alert_script_path: Path = alert.DEFAULT_POST_MERGE_ALERT_SCRIPT,
 ) -> CycleOutcome:
     """Requirement 7's ``--once``/daemon-cycle behaviour: wait for the slot
@@ -228,6 +235,13 @@ def run_cycle(
     idempotency (requirement 3), lateness handling up to the
     ``config.handover_time`` cutoff (requirement 9, rewritten 2026-09-03),
     retries with auto-update (requirements 5, 8).
+
+    ``slot_override`` (multi-account, 2026-09-28): when set (and
+    ``wait_for_slot``), use this pre-computed slot instead of picking one here.
+    :func:`run_accounts_once` picks every account's slot up front so it can
+    drive them in slot order on a single thread; each account still gets its
+    OWN independent random slot. Single-account callers leave it ``None`` and
+    the pick happens here exactly as before.
     """
     tmp_dir = Path(tmp_dir) if tmp_dir else _default_tmp_dir(config)
     http_post = http_post or alert._default_http_post
@@ -252,7 +266,7 @@ def run_cycle(
         return CycleOutcome(sent=False, reason="weekday-skipped")
 
     if wait_for_slot:
-        target = slot.pick_slot(today, rng=rng or random.Random())
+        target = slot_override if slot_override is not None else slot.pick_slot(today, rng=rng or random.Random())
         _sleep_until(target, now_fn=now_fn, sleep_fn=sleep_fn)
 
     while True:
@@ -262,7 +276,7 @@ def run_cycle(
             reason = st.last_error or "today's + was not sent in time (no prior error recorded)"
             alert.raise_handover_alert(
                 config,
-                f"ERROR: today's + was not sent by the {config.handover_time.strftime('%H:%M')} Kyiv handover cutoff",
+                f"ERROR: [{config.masked_account()}] today's + was not sent by the {config.handover_time.strftime('%H:%M')} Kyiv handover cutoff",
                 reason,
                 # SR-H-1: FAILED_LEGS is a fixed label, never `reason` --
                 # `reason` (state.last_error) is exactly what the log/email
@@ -295,7 +309,7 @@ def run_cycle(
         reason = "all retry attempts failed"
         alert.raise_alert(
             config,
-            f"ERROR: {reason}",
+            f"ERROR: [{config.masked_account()}] {reason}",
             issue_extra_env=_issue_alert_env("send-retries-exhausted"),
             script_path=alert_script_path,
             run=run,
@@ -318,6 +332,103 @@ def run_daemon(config: Config, **kwargs) -> None:
         sleep_fn(DAEMON_RECHECK_INTERVAL_SECONDS)
 
 
+def run_accounts_once(
+    configs: list[Config],
+    *,
+    now_fn=_default_now,
+    rng: random.Random | None = None,
+    **cycle_kwargs,
+) -> list[CycleOutcome]:
+    """Multi-account (2026-09-28) one-pass driver: run one :func:`run_cycle`
+    per account for today, single-threaded, in ascending slot order.
+
+    Each account keeps its OWN independent random slot (two "+" at the same
+    instant would look automated), so this picks every account's slot up front
+    and processes them earliest-first: driving them sequentially without
+    pre-sorting would collapse the slots (account 2 would only start waiting
+    after account 1 sent). Single-threaded on purpose — no two ``signal-cli``
+    invocations at once, so there is no concurrency assumption about the shared
+    signal-cli data dir or the shared auto-update binary swap.
+
+    Accounts that are already resolved for today (sent or given-up) or on a
+    skipped weekday no-op immediately when reached — :func:`run_cycle` checks
+    those before the slot wait — so a fresh slot picked for them is harmless.
+    """
+    rng = rng or random.Random()
+    today = now_fn().astimezone(slot.TIMEZONE).date()
+
+    scheduled: list[tuple[datetime, Config]] = [
+        (slot.pick_slot(today, rng=rng), config) for config in configs
+    ]
+    # Stable sort by slot time; ties keep the configured (list) order so logs
+    # stay readable and the run is deterministic for a fixed rng.
+    scheduled.sort(key=lambda item: item[0])
+
+    outcomes: list[CycleOutcome] = []
+    for slot_time, config in scheduled:
+        outcomes.append(
+            run_cycle(config, now_fn=now_fn, slot_override=slot_time, wait_for_slot=True, **cycle_kwargs)
+        )
+    return outcomes
+
+
+def run_daemon_multi(configs: list[Config], **kwargs) -> None:
+    """Multi-account default mode: one :func:`run_accounts_once` pass, then the
+    same daily recheck sleep as :func:`run_daemon`. Each pass is idempotent per
+    account (``run_cycle``'s own ``last_success_date``/``handover_date`` guard),
+    so an early re-check is a cheap no-op for everyone already resolved today.
+    """
+    sleep_fn = kwargs.get("sleep_fn", time_module.sleep)
+    while True:
+        run_accounts_once(configs, **kwargs)
+        sleep_fn(DAEMON_RECHECK_INTERVAL_SECONDS)
+
+
+def run_test_send(config: Config, *, run=subprocess.run) -> bool:
+    """Send one "+" to ``config``'s group named :data:`TEST_GROUP_NAME`
+    («тест»), for verifying a freshly-linked account (2026-09-28).
+
+    Finds the group by NAME (owner decision — no group id to copy): lists the
+    account's groups as JSON, picks the one named «тест». ``receive`` before
+    ``send`` for the same device-freshness reason as the real cycle
+    (requirement 4). **Stateless** — it never reads or writes the idempotency
+    state: a test send is a manual verification, not the daily roll-call, so it
+    must not mark today as "sent" for the real group. Returns ``True`` only if
+    the "+" actually went out; every failure path logs one error naming the
+    masked account and returns ``False``.
+    """
+    masked = config.masked_account()
+
+    listing = signal_cli.list_groups_json(config, run=run)
+    if not listing.ok:
+        logger.error("[%s] test send: could not list groups: %s", masked, listing.output.strip())
+        return False
+
+    group_id = signal_cli.find_group_id_by_name(listing.stdout, TEST_GROUP_NAME)
+    if not group_id:
+        logger.error(
+            "[%s] test send: no group named %r found — create one on this account first",
+            masked,
+            TEST_GROUP_NAME,
+        )
+        return False
+
+    receive_result = signal_cli.receive(config, run=run)
+    if not receive_result.ok:
+        logger.warning("[%s] test send: receive failed: %s", masked, receive_result.output.strip())
+
+    # Send to the discovered test group, not config.signal_group_id (the real
+    # roll-call group). replace() keeps config immutable; nothing here persists.
+    test_config = replace(config, signal_group_id=group_id)
+    send_result = signal_cli.send_group_message(test_config, MESSAGE, run=run)
+    if send_result.ok:
+        logger.info("[%s] test + sent to the %r group", masked, TEST_GROUP_NAME)
+        return True
+
+    logger.error("[%s] test send: sending + failed: %s", masked, send_result.output.strip())
+    return False
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="signal-plus",
@@ -336,6 +447,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--once",
         action="store_true",
         help="Run a single cycle (wait for the slot, send, exit) instead of running as a daemon.",
+    )
+    mode.add_argument(
+        "--test",
+        metavar="ACCOUNT",
+        help=(
+            "Send one test '+' to ACCOUNT's group named «тест», then exit — to verify a "
+            "freshly-linked account before adding it to SIGNAL_ACCOUNTS. Stateless; ignores "
+            "the slot, the weekday skip and the daily idempotency state."
+        ),
     )
     return parser
 
@@ -363,23 +483,84 @@ def main_with_config(config: Config, argv: list[str] | None = None, *, run=subpr
     return 0
 
 
+def main_with_configs(
+    configs: list[Config],
+    argv: list[str] | None = None,
+    *,
+    run=subprocess.run,
+    **cycle_kwargs,
+) -> int:
+    """Multi-account (2026-09-28) mode dispatch — the N>1 counterpart of
+    :func:`main_with_config`. The single-account path stays in
+    :func:`main_with_config` untouched; :func:`main` routes to whichever one
+    :func:`resolve_configs` produced, so the tested N=1 behaviour never changes.
+
+    ``--groups`` and ``--now`` are per-account and order-independent (no slot
+    wait), so they simply loop; ``--once`` and the daemon go through the
+    slot-ordered scheduler (:func:`run_accounts_once`/:func:`run_daemon_multi`).
+    Exit code is 0 only when every account succeeded.
+    """
+    configure_logging()
+    args = build_arg_parser().parse_args(argv)
+
+    if args.groups:
+        all_ok = True
+        for config in configs:
+            result = signal_cli.list_groups(config, run=run)
+            print(f"# {config.masked_account()}")
+            print(result.stdout)
+            if not result.ok:
+                print(result.stderr, file=sys.stderr)
+                all_ok = False
+        return 0 if all_ok else 1
+
+    if args.now:
+        outcomes = [
+            run_cycle(config, run=run, wait_for_slot=False, **cycle_kwargs) for config in configs
+        ]
+        return 0 if all(o.sent for o in outcomes) else 1
+
+    if args.once:
+        outcomes = run_accounts_once(configs, run=run, **cycle_kwargs)
+        return 0 if all(o.sent for o in outcomes) else 1
+
+    run_daemon_multi(configs, run=run, **cycle_kwargs)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     """Real, env-reading entrypoint (the ``signal-plus`` console script and
     ``python -m signal_plus`` both call this).
 
     CR-M-2 (PR #650 code review, id 5105099737): argv is parsed FIRST, before
-    ``Config.from_env()`` runs -- ``--help``/``-h`` must work without a
+    ``resolve_configs()`` runs -- ``--help``/``-h`` must work without a
     configured ``.env`` (argparse's own help handling calls ``sys.exit(0)``
     synchronously inside ``parse_args()``, before this function does
-    anything else). The result is discarded and ``main_with_config`` parses
-    argv again internally; redundant for every other mode, but keeps this
-    fix to a single added line rather than changing ``main_with_config``'s
-    signature (and the many tests that call it directly with a pre-built
-    ``Config`` and raw ``argv``).
+    anything else). The result is discarded and ``main_with_config``/
+    ``main_with_configs`` parse argv again internally; redundant for every
+    other mode, but keeps this fix to a single added line rather than changing
+    their signatures (and the many tests that call them directly with a
+    pre-built ``Config`` and raw ``argv``).
+
+    Multi-account (2026-09-28): ``resolve_configs`` returns one ``Config`` for
+    a single-account env (``SIGNAL_ACCOUNTS`` unset) or several. A single
+    config keeps flowing through the untouched ``main_with_config``; several go
+    to ``main_with_configs``. So the tested N=1 path is unchanged.
     """
-    build_arg_parser().parse_args(argv)
-    config = Config.from_env()
-    return main_with_config(config, argv)
+    args = build_arg_parser().parse_args(argv)
+
+    # --test targets a specific (freshly-linked) account that may not be in
+    # SIGNAL_ACCOUNTS yet, so it is handled here, before resolve_configs, and
+    # never touches the daily roll-call machinery.
+    if args.test:
+        configure_logging()
+        config = config_for_account(args.test)
+        return 0 if run_test_send(config) else 1
+
+    configs = resolve_configs()
+    if len(configs) == 1:
+        return main_with_config(configs[0], argv)
+    return main_with_configs(configs, argv)
 
 
 if __name__ == "__main__":  # pragma: no cover

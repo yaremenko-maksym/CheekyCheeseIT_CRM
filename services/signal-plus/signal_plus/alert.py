@@ -263,7 +263,12 @@ def send_handover_email(config: Config, reason: str, *, http_post=_default_http_
         {
             "from": config.alert_email_from,
             "to": [config.alert_email_to],
-            "subject": f"signal-plus: \"+\" не отправлен к {handover_hhmm}",
+            # Multi-account (2026-09-28): name the (masked) account in the
+            # subject so an owner serving several accounts can tell WHOSE "+"
+            # failed at a glance. Masked, never the raw number -- same
+            # discipline as every other channel. The body text stays the
+            # owner's verbatim wording (requirement 9).
+            "subject": f"signal-plus [{config.masked_account()}]: \"+\" не отправлен к {handover_hhmm}",
             "text": text,
         }
     ).encode("utf-8")
