@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
 import {
   kyivToday,
@@ -36,8 +37,9 @@ export function PaySalaryDialog({
   tx: TransactionDto | null
   onClose: () => void
 }) {
+  const { t } = useLingui()
   const qc = useQueryClient()
-  // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN partner id.
+  // account = COMPANY_ACCOUNT_VALUE (company account, default) OR an ADMIN partner id.
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
   const [currency, setCurrency] = useState<Currency>('USDT')
   // task-salary-pay-amount: the amount ACTUALLY paid, in `currency`. Prefilled
@@ -209,7 +211,7 @@ export function PaySalaryDialog({
     // keeps this state in sync with the CURRENT validity on every submit
     // attempt, not just the ones that fail.
     setReceiptError(receiptErr ? (translateZodMessage(receiptErr) ?? receiptErr) : null)
-    if (!hasAmountInput) setAmountSubmitError('Укажите сумму выплаты')
+    if (!hasAmountInput) setAmountSubmitError(t`Вкажіть суму виплати`)
     if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()
   }
@@ -235,15 +237,21 @@ export function PaySalaryDialog({
     >
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="pay-salary-dialog">
         <CrmDialogHeader>
-          <DialogTitle>Выплатить зарплату</DialogTitle>
-          <DialogDescription className="sr-only">Выплата зарплаты</DialogDescription>
+          <DialogTitle>
+            <Trans>Виплатити зарплату</Trans>
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            <Trans>Виплата зарплати</Trans>
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">
           <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
             {tx.receiverName && (
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground shrink-0">Получатель</span>
+                <span className="text-muted-foreground shrink-0">
+                  <Trans>Отримувач</Trans>
+                </span>
                 <span className="font-medium text-right break-words">{tx.receiverName}</span>
               </div>
             )}
@@ -253,7 +261,9 @@ export function PaySalaryDialog({
                 it is what the backend preserves in original_amount /
                 original_currency once the payment lands. */}
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground shrink-0">К выплате</span>
+              <span className="text-muted-foreground shrink-0">
+                <Trans>До виплати</Trans>
+              </span>
               <span
                 className="font-medium tabular-nums text-right"
                 data-testid="pay-salary-obligation"
@@ -263,12 +273,16 @@ export function PaySalaryDialog({
             </div>
             {tx.salaryMonth && (
               <div className="flex justify-between gap-3">
-                <span className="text-muted-foreground shrink-0">Месяц</span>
+                <span className="text-muted-foreground shrink-0">
+                  <Trans>Місяць</Trans>
+                </span>
                 <span className="font-medium text-right">{tx.salaryMonth}</span>
               </div>
             )}
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground shrink-0">Дата</span>
+              <span className="text-muted-foreground shrink-0">
+                <Trans>Дата</Trans>
+              </span>
               <span className="font-medium text-right">{fmtDate(tx.createdAt)}</span>
             </div>
           </div>
@@ -307,7 +321,7 @@ export function PaySalaryDialog({
                 setAmountInput(v)
               }}
               onCurrencyChange={setCurrency}
-              label="Сумма выплаты"
+              label={t`Сума виплати`}
               disableCurrency={isCompany}
               error={amountError ?? undefined}
               errorTestId="pay-salary-amount-error"
@@ -319,7 +333,9 @@ export function PaySalaryDialog({
               actually happened. */}
           {isConverted && expectedAmount !== null && (
             <div className="flex items-center justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
-              <span className="text-muted-foreground shrink-0">Расчёт по курсу НБУ</span>
+              <span className="text-muted-foreground shrink-0">
+                <Trans>Розрахунок за курсом НБУ</Trans>
+              </span>
               <div className="flex items-center gap-2">
                 <span
                   className="font-medium tabular-nums text-right"
@@ -338,7 +354,7 @@ export function PaySalaryDialog({
                     }}
                     data-testid="pay-salary-reset-amount"
                   >
-                    подставить
+                    <Trans>підставити</Trans>
                   </button>
                 )}
               </div>
@@ -353,9 +369,11 @@ export function PaySalaryDialog({
             >
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-px" />
               <span>
-                Сумма отличается от расчёта по курсу на {Math.round(deviation * 100)}% (
-                {fmtAmount(expectedAmount.toFixed(2), effectiveCurrency)}). Проверьте, всё ли верно
-                — зарплата будет закрыта полностью на введённую сумму.
+                <Trans>
+                  Сума відрізняється від розрахунку за курсом на {Math.round(deviation * 100)}% (
+                  {fmtAmount(expectedAmount.toFixed(2), effectiveCurrency)}). Перевірте, чи все
+                  правильно — зарплата буде закрита повністю на введену суму.
+                </Trans>
               </span>
             </div>
           )}
@@ -371,7 +389,7 @@ export function PaySalaryDialog({
                 setReceipt(s)
                 setReceiptError(null)
               }}
-              label="Чек / подтверждение *"
+              label={t`Чек / підтвердження *`}
               explorerOnly={effectiveCurrency === 'USDT'}
               error={receiptError ?? undefined}
             />
@@ -383,11 +401,13 @@ export function PaySalaryDialog({
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs">Заметки</Label>
+            <Label className="text-xs">
+              <Trans>Примітки</Trans>
+            </Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Дополнительная информация..."
+              placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
               data-testid="pay-salary-notes"
@@ -403,14 +423,14 @@ export function PaySalaryDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose} data-testid="pay-salary-cancel">
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="pay-salary-submit"
           >
-            {mutation.isPending ? 'Оплата...' : 'Отметить как оплачено'}
+            {mutation.isPending ? t`Оплата…` : t`Позначити як оплачено`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
