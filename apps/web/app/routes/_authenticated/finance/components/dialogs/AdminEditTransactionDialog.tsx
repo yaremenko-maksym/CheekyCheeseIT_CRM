@@ -643,7 +643,7 @@ export function AdminEditTransactionDialog({
                         )}
                         data-testid={`admin-edit-expense-category-suggestion-${EXPENSE_CATEGORIES.indexOf(c)}`}
                       >
-                        {i18n._(EXPENSE_CATEGORY_MESSAGES[c])}
+                        {i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)}
                       </button>
                     ))}
                   </div>

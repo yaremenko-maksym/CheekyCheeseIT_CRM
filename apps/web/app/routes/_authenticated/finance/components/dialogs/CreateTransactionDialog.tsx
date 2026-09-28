@@ -124,8 +124,15 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
 }
 
 // COPY-H-fin-1 (SALARY) / COPY-M-fin-11 (DROP_INCOME) — canon terms, wave (d)
-// (`CONTEXT.md` → «Волна d»). `satisfies` WITHOUT `as const` (урок #707).
-const TYPE_DESCRIPTION_MESSAGES = {
+// (`CONTEXT.md` → «Волна d»). Keyed by `Record<string, MessageDescriptor>`
+// (a plain type annotation, not `satisfies`) — same loose-index contract the
+// old `TYPE_DESCRIPTIONS: Record<string, string>` had: `DialogTxType`
+// (`TransactionType | 'DIVIDEND'`) is a much wider union than the 7 keys this
+// dialog actually renders (`availableTypes` never produces anything else at
+// runtime), so a narrower `satisfies`-inferred literal type would reject the
+// `TYPE_DESCRIPTION_MESSAGES[txType]` lookup at compile time despite it being
+// safe in practice.
+const TYPE_DESCRIPTION_MESSAGES: Record<string, MessageDescriptor> = {
   ADMIN_INCOME: msg`Дохід із власного проєкту`, // en: Income from an own project
   SENIOR_INCOME: msg`Дохід сеньйора з проєкту`, // en: Senior income from a project
   DROP_INCOME: msg`Дохід дропа з проєкту`, // en: Drop income from a project
@@ -133,7 +140,7 @@ const TYPE_DESCRIPTION_MESSAGES = {
   SALARY: msg`Зарплата співробітнику`, // en: Employee salary
   ADMIN_TRANSFER: msg`Переказ між партнерами`, // en: Transfer between partners
   DIVIDEND: DIVIDEND_DESCRIPTION_MESSAGE,
-} satisfies Record<string, MessageDescriptor>
+}
 
 function needsConversion(currency: Currency) {
   return currency === 'EUR' || currency === 'UAH' || currency === 'USD'
@@ -1002,7 +1009,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       {typeLabel(txType, i18n)}
                     </div>
                     <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      {i18n._(TYPE_DESCRIPTION_MESSAGES[txType])}
+                      {i18n._(TYPE_DESCRIPTION_MESSAGES[txType]!)}
                     </div>
                   </div>
                   {type === txType && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
@@ -1406,7 +1413,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     )}
                     data-testid={`create-transaction-expense-category-suggestion-${EXPENSE_CATEGORIES.indexOf(c)}`}
                   >
-                    {i18n._(EXPENSE_CATEGORY_MESSAGES[c])}
+                    {i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)}
                   </button>
                 ))}
               </div>

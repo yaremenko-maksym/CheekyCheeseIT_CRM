@@ -277,13 +277,19 @@ export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комисс�
  * server) and they do NOT back-translate old stored values — a saved
  * `receiver_label` (own words, e.g. «RumpUp service», «Оплата сервиса»)
  * renders verbatim, never through this map (see the owner override note on
- * `EXPENSE_CATEGORIES`). `satisfies` WITHOUT `as const` (урок #707).
+ * `EXPENSE_CATEGORIES`). Typed `Record<string, MessageDescriptor>` (a plain
+ * annotation, not `satisfies`) — `EXPENSE_CATEGORIES` itself is a free-text
+ * `string[]` (see its own doc), so both `CreateTransactionDialog`'s and
+ * `AdminEditTransactionDialog`'s consumers index this map with a plain
+ * `string` (the current free-text input value / one of the three
+ * suggestions), which a `satisfies`-narrowed literal-key type would reject
+ * at compile time.
  */
-export const EXPENSE_CATEGORY_MESSAGES = {
+export const EXPENSE_CATEGORY_MESSAGES: Record<string, MessageDescriptor> = {
   'Оплата сервиса': msg`Оплата послуги`, // en: Service payment
   Комиссия: msg`Банківський збір`, // en: Bank fee
   Прочее: msg`Інше`, // en: Other
-} satisfies Record<(typeof EXPENSE_CATEGORIES)[number], MessageDescriptor>
+}
 
 /**
  * Original-currency amount for detail dialogs («7 777,00 USDT», «5 000,00 EUR»).
