@@ -43,6 +43,9 @@ import {
   X,
 } from 'lucide-react'
 import { z } from 'zod'
+import { msg } from '@lingui/core/macro'
+import { Plural, Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import { DEFAULT_LOCALE } from '@crm/shared'
 import type {
   Document,
@@ -72,9 +75,13 @@ import { DocumentDetailDialog } from '@/components/documents/document-detail-dia
 import { UploadDocumentDialog } from '@/components/documents/upload-document-dialog'
 import { InvoiceDetailDialog } from '@/components/invoices/invoice-detail-dialog'
 import {
+  CATEGORY_LABEL_MESSAGES,
+  CATEGORY_LABEL_MESSAGES_LOWER,
+} from '@/components/documents/document-labels'
+import {
   filterDocuments,
   sortDocuments,
-  SORT_OPTIONS,
+  SORT_OPTION_MESSAGES,
   DEFAULT_SORT,
   type SortKey,
 } from '@/lib/documents-filter-sort'
@@ -142,17 +149,23 @@ export const Route = createFileRoute('/_authenticated/documents')({
 // Visibility config
 // ---------------------------------------------------------------------------
 
-const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
-  RESUME: 'Резюме',
-  SCAN: 'Сканы документов',
-  CONTRACT: 'Договоры',
-  RECEIPT: 'Чеки',
-  AVATAR: 'Аватары',
-  LOGO: 'Логотипы',
-  // INVOICE документы создаются системой и не отображаются в обычном табе
-  // /documents (INTERNAL_CATEGORIES). Лейбл для случая ADMIN-toggle.
-  INVOICE: 'Инвойсы',
-}
+// task-i18n-stage3e-pr1: the page's OWN `CATEGORY_LABELS_RU` copy is gone —
+// category text now comes from the shared hub (`CATEGORY_LABEL_MESSAGES`,
+// `components/documents/document-labels.ts`), the single canon
+// `upload-document-dialog.tsx`/`document-detail-dialog.tsx` migrate onto in
+// their own PRs (COPY-H-docs-3).
+
+/**
+ * Status-tab labels (ADMIN-only tri-state toggle above the toolbar). Kept
+ * local to this route — unlike the category/status canon in `document-
+ * labels.ts`, nothing else in the wave (e) perimeter renders these three
+ * words.
+ */
+const STATUS_TAB_LABEL_MESSAGES = {
+  ALL: msg`Всі`,
+  ACTIVE: msg`Активні`,
+  ARCHIVED: msg`Архів`,
+} satisfies Record<StatusTab, MessageDescriptor>
 
 /**
  * RBAC visibility per spec table «Видимость табов по ролям».
@@ -233,6 +246,7 @@ function DocumentsPage() {
 }
 
 function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
+  const { t, i18n } = useLingui()
   const isAdmin = viewer.role === 'ADMIN'
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
@@ -397,7 +411,11 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
             className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
           >
             <Shield className="h-10 w-10 text-muted-foreground/30" />
-            <p className="mt-4 text-sm font-medium">У вас нет доступа к документам</p>
+            {/* COPY-M-docs-13: the old text ("you don't have access") was a
+                dead end — no addressee, no next step. Names who to ask. */}
+            <p className="mt-4 text-sm font-medium">
+              <Trans>Документи вам не відкриті. Потрібен доступ — напишіть адміну</Trans>
+            </p>
           </div>
         </div>
       </div>
@@ -408,9 +426,9 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
   // Non-admin roles see only their active documents; the entire toggle is
   // hidden so the layout stays clean and there is no disabled-pill confusion.
   const statusOptions: ReadonlyArray<SegmentedToggleOption<StatusTab>> = [
-    { value: 'ALL', label: 'Все' },
-    { value: 'ACTIVE', label: 'Активные' },
-    { value: 'ARCHIVED', label: 'Архив', icon: Archive },
+    { value: 'ALL', label: i18n._(STATUS_TAB_LABEL_MESSAGES.ALL) },
+    { value: 'ACTIVE', label: i18n._(STATUS_TAB_LABEL_MESSAGES.ACTIVE) },
+    { value: 'ARCHIVED', label: i18n._(STATUS_TAB_LABEL_MESSAGES.ARCHIVED), icon: Archive },
   ]
 
   return (
@@ -431,7 +449,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               value={statusTab}
               onChange={setStatusTab}
               options={statusOptions}
-              ariaLabel="Фильтр документов"
+              ariaLabel={t`Фільтр документів`}
               variant="tabs"
               size="sm"
               layoutId="documents-status-tabs"
@@ -450,7 +468,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               <Input
                 type="search"
                 enterKeyHint="search"
-                placeholder="Поиск по имени…"
+                placeholder={t`Пошук за назвою файлу`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className={searchInput ? 'pl-8 pr-8' : 'pl-8'}
@@ -460,7 +478,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  aria-label="Очистить поиск"
+                  aria-label={t`Очистити пошук`}
                   className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
@@ -472,10 +490,12 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
             {showOwnerFilter ? (
               <Select value={ownerFilter} onValueChange={setOwnerFilter}>
                 <SelectTrigger className="w-44" data-testid="documents-owner-filter">
-                  <SelectValue placeholder="Все владельцы" />
+                  <SelectValue placeholder={t`Усі власники`} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="ALL">Все владельцы</SelectItem>
+                  <SelectItem value="ALL">
+                    <Trans>Усі власники</Trans>
+                  </SelectItem>
                   {(users ?? []).map((u) => (
                     <SelectItem key={u.id} value={u.id}>
                       {u.displayName} ({u.email})
@@ -491,13 +511,15 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               onValueChange={(v) => setCategoryFilter(v as CategoryFilter)}
             >
               <SelectTrigger className="w-44" data-testid="documents-category-filter">
-                <SelectValue placeholder="Все категории" />
+                <SelectValue placeholder={t`Усі категорії`} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">Все категории</SelectItem>
+                <SelectItem value="ALL">
+                  <Trans>Усі категорії</Trans>
+                </SelectItem>
                 {availableCategories.map((cat) => (
                   <SelectItem key={cat} value={cat}>
-                    {CATEGORY_LABELS_RU[cat]}
+                    {i18n._(CATEGORY_LABEL_MESSAGES[cat])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -511,9 +533,9 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {SORT_OPTIONS.map((opt) => (
+                {SORT_OPTION_MESSAGES.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {i18n._(opt.label)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -526,7 +548,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
             >
               <button
                 type="button"
-                aria-label="Список"
+                aria-label={t`Список`}
                 aria-pressed={view === 'list'}
                 data-testid="documents-view-list"
                 onClick={() => handleViewChange('list')}
@@ -540,7 +562,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               </button>
               <button
                 type="button"
-                aria-label="Сетка"
+                aria-label={t`Сітка`}
                 aria-pressed={view === 'grid'}
                 data-testid="documents-view-grid"
                 onClick={() => handleViewChange('grid')}
@@ -664,7 +686,7 @@ function DocumentsHeader({ viewer, categoryFilter, users }: HeaderProps) {
         {canShowUploadButton ? (
           <Button onClick={() => setUploadOpen(true)} data-testid="documents-upload-button">
             <Plus className="mr-2 h-4 w-4" />
-            Загрузить
+            <Trans>Завантажити</Trans>
           </Button>
         ) : null}
       </motion.div>
@@ -772,15 +794,17 @@ function DocumentsListSection({
       className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
     >
       <ReceiptIcon className="h-10 w-10 text-muted-foreground/30" />
-      <p className="mt-4 text-sm font-medium">Пока нет чеков</p>
+      <p className="mt-4 text-sm font-medium">
+        <Trans>Ще немає чеків</Trans>
+      </p>
       <p className="mt-1 max-w-md text-xs text-muted-foreground">
-        Чеки прикрепляются через раздел Финансы при создании транзакции.
+        <Trans>Чеки додаються в розділі «Фінанси» під час створення транзакції.</Trans>
       </p>
       <Link
         to="/finance"
         className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
       >
-        Перейти к Финансам
+        <Trans>Перейти до Фінансів</Trans>
       </Link>
     </div>
   )
@@ -793,30 +817,46 @@ function DocumentsListSection({
       className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
     >
       <FileSignature className="h-10 w-10 text-muted-foreground/30" />
-      <p className="mt-4 text-sm font-medium">Пока нет инвойсов</p>
+      {/* COPY-H-docs-5: «Рахунок», not «Інвойс» — glossary term for `invoices`. */}
+      <p className="mt-4 text-sm font-medium">
+        <Trans>Ще немає рахунків</Trans>
+      </p>
       <p className="mt-1 max-w-md text-xs text-muted-foreground">
-        Инвойсы создаются автоматически после оплаты транзакций. Кликните по карточке инвойса здесь,
-        чтобы открыть PDF, увидеть подписи и подписать документ.
+        <Trans>
+          Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб
+          відкрити PDF, побачити підписи і підписати документ.
+        </Trans>
       </p>
       <Link
         to="/finance"
         className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
       >
-        Перейти к Финансам
+        <Trans>Перейти до Фінансів</Trans>
       </Link>
     </div>
   )
 
   // For AVATAR / LOGO filters (ADMIN audit view) — neutral empty state.
+  // K-docs template: two FULL, independent `<Trans>` branches per category —
+  // NOT a shared sentence with a case-inflected noun spliced in
+  // («Немає аватарів»/«Немає логотипів» need genitive plural, which does not
+  // come for free from `CATEGORY_LABEL_MESSAGES`'s nominative singular).
   const internalEmpty = (
     <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center">
       <FileText className="h-10 w-10 text-muted-foreground/30" />
       <p className="mt-4 text-sm font-medium">
-        Нет {categoryFilter === 'AVATAR' ? 'аватаров' : 'логотипов'}
+        {categoryFilter === 'AVATAR' ? (
+          <Trans>Немає аватарів</Trans>
+        ) : (
+          <Trans>Немає логотипів</Trans>
+        )}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        Управление — из{' '}
-        {categoryFilter === 'AVATAR' ? 'профилей пользователей' : 'настроек проектов'}.
+        {categoryFilter === 'AVATAR' ? (
+          <Trans>Керування — з профілів користувачів.</Trans>
+        ) : (
+          <Trans>Керування — з налаштувань проєктів.</Trans>
+        )}
       </p>
     </div>
   )
@@ -828,7 +868,9 @@ function DocumentsListSection({
       className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
     >
       <FileText className="h-10 w-10 text-muted-foreground/30" />
-      <p className="mt-4 text-sm font-medium">Нет документов</p>
+      <p className="mt-4 text-sm font-medium">
+        <Trans>Документів ще немає</Trans>
+      </p>
     </div>
   )
 
@@ -841,21 +883,21 @@ function DocumentsListSection({
           ? internalEmpty
           : genericEmpty
 
-  // Counter label — when filtering by category, mention which one.
-  const counterScope =
-    categoryFilter === 'ALL' ? '' : ` · ${CATEGORY_LABELS_RU[categoryFilter].toLowerCase()}`
-
   return (
     <div className="space-y-3">
       <div
         className="text-xs text-muted-foreground"
         data-testid={`documents-counter-${categoryFilter}`}
       >
-        {isLoading
-          ? '...'
-          : `${filtered.length} ${pluralizeDocuments(filtered.length)}${
-              statusTab === 'ARCHIVED' ? ' · в архиве' : statusTab === 'ALL' ? ' · все' : ''
-            }${counterScope}`}
+        {isLoading ? (
+          '…'
+        ) : (
+          <DocumentsCounterText
+            count={filtered.length}
+            statusTab={statusTab}
+            categoryFilter={categoryFilter}
+          />
+        )}
       </div>
 
       {view === 'grid' ? (
@@ -892,11 +934,51 @@ function DocumentsListSection({
   )
 }
 
-// ru-RU plural helper for the counter ("1 документ", "2 документа", "5 документов").
-function pluralizeDocuments(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return 'документ'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'документа'
-  return 'документов'
+// ---------------------------------------------------------------------------
+// DocumentsCounterText — the count chip below the toolbar
+// ---------------------------------------------------------------------------
+
+/**
+ * task-i18n-stage3e-pr1 (J-docs template). Replaces the hardcoded ru-RU
+ * `pluralizeDocuments(n)` helper (mod10/mod100 arithmetic, Russian-only
+ * forms) with `<Plural>` — the macro `plural()` function is banned at
+ * module level for Stryker compatibility (Global Constraints, lesson
+ * #700: `#` is not substituted under mutation instrumentation), so this is
+ * a small standalone component instead of a plain string helper. Exported
+ * for a direct unit-test render (ICU plural rule pins at n=1/2/5/11/21 —
+ * AC3), independent of the full `/documents` page (auth/router/react-query
+ * wiring `DocumentsPageContent` needs).
+ */
+export function DocumentsCounterText({
+  count,
+  statusTab,
+  categoryFilter,
+}: {
+  count: number
+  statusTab: StatusTab
+  categoryFilter: CategoryFilter
+}) {
+  const { i18n } = useLingui()
+  return (
+    <>
+      <Plural
+        value={count}
+        one="# документ"
+        few="# документи"
+        many="# документів"
+        other="# документа"
+      />
+      {statusTab === 'ARCHIVED' ? (
+        <Trans> · в архіві</Trans>
+      ) : statusTab === 'ALL' ? (
+        <Trans> · всі</Trans>
+      ) : null}
+      {categoryFilter !== 'ALL' ? (
+        <>
+          {' · '}
+          {i18n._(CATEGORY_LABEL_MESSAGES_LOWER[categoryFilter])}
+        </>
+      ) : null}
+    </>
+  )
 }

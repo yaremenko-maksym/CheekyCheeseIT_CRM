@@ -17,6 +17,14 @@ msgstr ""
 msgid " · архів"
 msgstr " · archived"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid " · в архіві"
+msgstr " · archived"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid " · всі"
+msgstr " · all"
+
 #. placeholder {0}: fmtAmount(remainingToPay, tx.currency)
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid " · до сплати {0}"
@@ -264,6 +272,10 @@ msgstr "{archivedRole, select, SENIOR {Senior and team archived} DROP {Drop and 
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.SHARE_CONFIRM_REQUIRED.project"
 msgstr "{change} · project {hasProject, select, no {untitled} other {{projectName}}}"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
+msgstr "{count, plural, one {# document} other {# documents}}"
 
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "{from}–{to} з {totalItems}"
@@ -811,6 +823,7 @@ msgstr "Active projects"
 msgid "Активних транзакцій немає"
 msgstr "No active transactions"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -848,6 +861,7 @@ msgstr "Active member not found in the project"
 msgid "Англійська"
 msgstr "English"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
@@ -2360,6 +2374,10 @@ msgstr "Internal note, visible only to admins…"
 msgid "Вручну"
 msgstr "Manual"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Всі"
+msgstr "All"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Всі вакансії"
 msgstr "All vacancies"
@@ -3045,6 +3063,14 @@ msgstr "Receipt document not found"
 msgid "Документи"
 msgstr "Documents"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
+msgstr "You don’t have access to documents. Ask an admin if you need it"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Документів ще немає"
+msgstr "No documents yet"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.JOIN_DROP_TEAM_SENIOR_ONLY"
@@ -3404,6 +3430,7 @@ msgstr "Loading the reason…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Завантажити"
@@ -4185,6 +4212,14 @@ msgstr "Expense category"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Кваліфікація"
 msgstr "Qualifications"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Керування — з налаштувань проєктів."
+msgstr "Managed from project settings."
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Керування — з профілів користувачів."
+msgstr "Managed from user profiles."
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Керувати в розділі «Проєкти» →"
@@ -5650,6 +5685,10 @@ msgstr "Invalid request. Check the data you entered and try again."
 msgid "api-error.FINANCE_TX_HASH_INVALID"
 msgstr "Invalid transaction hash — paste an Etherscan link or 0x followed by 64 hex characters"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Немає аватарів"
+msgstr "No avatars"
+
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -5794,6 +5833,10 @@ msgstr "No drop teams without an active senior. Create a drop or choose “Creat
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Немає користувачів, яких можна додати"
 msgstr "No users available to add"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Немає логотипів"
+msgstr "No logos"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Немає перевірених доходів"
@@ -6369,6 +6412,10 @@ msgstr "Clear"
 msgid "Очистити зображення"
 msgstr "Clear image"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Очистити пошук"
+msgstr "Clear search"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікуваний розрахунок із дропом"
 msgstr "Pending drop settlement"
@@ -6577,6 +6624,11 @@ msgstr "Viewed"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Передперегляд оновлено"
 msgstr "Preview updated"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Перейти до Фінансів"
+msgstr "Go to Finance"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Перейти до шаблонів"
@@ -7396,6 +7448,10 @@ msgstr "Search by name, email, telegram…"
 msgid "Пошук за компанією, проєктом, сеньйором…"
 msgstr "Search by company, project, senior…"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Пошук за назвою файлу"
+msgstr "Search by file name"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Search by name…"
@@ -7926,6 +7982,10 @@ msgstr "Checking what will change…"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
 msgstr "Invoices are generated by the system and can't be uploaded manually"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб відкрити PDF, побачити підписи і підписати документ."
+msgstr "Invoices are created automatically once a transaction is paid. Click an invoice card to open the PDF, see the signatures, and sign the document."
 
 #: apps/web/app/components/documents/document-labels.ts
 msgid "рахунок"
@@ -8476,6 +8536,10 @@ msgstr "Simulation: the transaction isn't confirmed"
 msgid "Системні змінні"
 msgstr "System variables"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Сітка"
+msgstr "Grid"
+
 #: apps/web/app/components/documents/document-labels.ts
 msgid "скан"
 msgstr "scan"
@@ -8643,6 +8707,10 @@ msgstr "First save or cancel the edits in the open section"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
 msgstr "Move the document to trash first, then delete it permanently"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Список"
+msgstr "List"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
@@ -9566,6 +9634,16 @@ msgstr "All ({0})"
 msgid "Усі відповідальні"
 msgstr "All owners"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Усі власники"
+msgstr "All owners"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Усі категорії"
+msgstr "All categories"
+
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Усі отримано"
 msgstr "All received"
@@ -9701,6 +9779,10 @@ msgstr "Vacancy status filter"
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Фільтр відгуків за статусом"
 msgstr "Application status filter"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Фільтр документів"
+msgstr "Document filter"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Фільтр команд"
@@ -10160,6 +10242,10 @@ msgstr "Awaiting"
 msgid "Чекають рішення"
 msgstr "Awaiting decision"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Чеки додаються в розділі «Фінанси» під час створення транзакції."
+msgstr "Receipts are attached in Finance when you create a transaction."
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "через 3 місяці"
 msgstr "in 3 months"
@@ -10222,6 +10308,14 @@ msgstr "Contract templates for each role. Click “Edit” to change the text."
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Ще дії"
 msgstr "More actions"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає рахунків"
+msgstr "No invoices yet"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає чеків"
+msgstr "No receipts yet"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Щільність"
