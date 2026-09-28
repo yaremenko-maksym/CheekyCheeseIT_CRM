@@ -11,8 +11,8 @@
  *   ┌─────────────────────────────────────────────────────────┐
  *   │ [type badge]   [status badge]                  [arrow]  │
  *   │ AMOUNT CURRENCY (large)                                 │
- *   │ Counterparty: Иван Иванов                               │
- *   │ Создан: 3 часа назад                                    │
+ *   │ Контрагент: Іван Іванов                                 │
+ *   │ Створено: 3 години тому                                 │
  *   └─────────────────────────────────────────────────────────┘
  *
  * Click anywhere on the card → onOpen(transactionId). The detail dialog is
@@ -20,21 +20,24 @@
  * id; opening / closing the dialog stays out of the card.
  */
 import { motion } from 'framer-motion'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
 import { ArrowRight, CheckCircle2, Clock, FileSignature } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { InvoiceListItem } from '@crm/shared'
+import { formatRelativeTime } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
 import { formatAmount } from '@/lib/format-amount'
-import { getInvoiceTypeLabel } from '@/lib/invoice-labels'
+import { useInvoiceTypeLabel } from '@/lib/invoice-labels'
 
 export interface InvoiceCardProps {
   invoice: InvoiceListItem
   onOpen: (transactionId: string) => void
   /**
-   * When true, render a subtle "(вы — контрагент, ожидается подпись)" hint
+   * When true, render a subtle "(ви — контрагент, очікується підпис)" hint
    * so users immediately see which rows need their attention. Computed by
    * the page (it has access to the viewer.id and the counterparty id from
    * the parent transaction list).
@@ -53,26 +56,18 @@ const TYPE_CLASS: Record<InvoiceListItem['type'], string> = {
   SALARY: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
 } as const
 
-const STATUS_LABEL: Record<InvoiceListItem['status'], string> = {
-  PENDING: 'Ожидает подписи',
-  SIGNED: 'Подписано всеми',
-}
+/**
+ * task-i18n-stage3d-pr4 (template G-fin, COPY-L-fin-16). «Рахунок» —
+ * canon term, not «інвойс» — `satisfies` without `as const` (урок #707).
+ */
+const STATUS_LABEL_MESSAGES = {
+  PENDING: msg`Очікує підпису`, // en: Awaiting signature
+  SIGNED: msg`Підписано всіма`, // en: Signed by everyone
+} satisfies Record<InvoiceListItem['status'], MessageDescriptor>
 
 const STATUS_CLASS: Record<InvoiceListItem['status'], string> = {
   PENDING: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
   SIGNED: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function fmtRelative(iso: string): string {
-  try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ru })
-  } catch {
-    return iso
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +79,10 @@ export function InvoiceCard({
   onOpen,
   awaitingViewerSignature = false,
 }: InvoiceCardProps) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   const isPending = invoice.status === 'PENDING'
+  const typeLabel = useInvoiceTypeLabel(invoice.type)
   return (
     <motion.div
       layout
@@ -97,7 +95,7 @@ export function InvoiceCard({
         data-testid={`invoice-card-${invoice.transactionId}`}
         role="button"
         tabIndex={0}
-        aria-label={`Открыть счёт ${invoice.type} на ${formatAmount(invoice.amount, invoice.currency)}`}
+        aria-label={t`Відкрити рахунок ${typeLabel} на ${formatAmount(invoice.amount, invoice.currency)}`}
         onClick={() => onOpen(invoice.transactionId)}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -119,7 +117,7 @@ export function InvoiceCard({
                 data-testid={`invoice-card-type-${invoice.transactionId}`}
               >
                 <FileSignature className="mr-1 h-3 w-3" />
-                {getInvoiceTypeLabel(invoice.type)}
+                {typeLabel}
               </Badge>
               <Badge
                 variant="outline"
@@ -131,7 +129,7 @@ export function InvoiceCard({
                 ) : (
                   <CheckCircle2 className="mr-1 h-3 w-3" />
                 )}
-                {STATUS_LABEL[invoice.status]}
+                {i18n._(STATUS_LABEL_MESSAGES[invoice.status])}
               </Badge>
             </div>
             <ArrowRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
@@ -143,16 +141,24 @@ export function InvoiceCard({
 
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
             <span>
-              <span className="text-muted-foreground/70">Контрагент:</span>{' '}
+              <span className="text-muted-foreground/70">
+                <Trans>Контрагент:</Trans>
+              </span>{' '}
               <span className="font-medium text-foreground">{invoice.counterpartyName}</span>
             </span>
-            <span title={new Date(invoice.createdAt).toLocaleString('ru-RU')}>
-              {fmtRelative(invoice.createdAt)}
+            <span
+              title={new Date(invoice.createdAt).toLocaleString(
+                locale === 'uk' ? 'uk-UA' : 'en-GB',
+              )}
+            >
+              {formatRelativeTime(invoice.createdAt, locale)}
             </span>
           </div>
 
           {awaitingViewerSignature ? (
-            <p className="mt-2 text-xs font-medium text-amber-300">Ожидается ваша подпись</p>
+            <p className="mt-2 text-xs font-medium text-amber-300">
+              <Trans>Очікується ваш підпис</Trans>
+            </p>
           ) : null}
         </CardContent>
       </Card>

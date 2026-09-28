@@ -1,6 +1,14 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+  type RenderResult,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -11,7 +19,18 @@ import {
 } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
 import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type InvoiceDto, type SessionUser } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { InvoiceDetailDialog } from '../invoice-detail-dialog'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `InvoiceDetailDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `cascade-impact-panel.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ---------------------------------------------------------------------------
 // Mocks — invoice + document hooks (network-free tests).
@@ -182,7 +201,7 @@ beforeEach(() => {
 describe('InvoiceDetailDialog', () => {
   it('renders PDF iframe with the presigned URL', async () => {
     renderDialog({ invoice: pendingInvoice })
-    const iframe = (await screen.findByTitle('PDF счёта')) as HTMLIFrameElement
+    const iframe = (await screen.findByTitle('PDF рахунку')) as HTMLIFrameElement
     expect(iframe).toBeInTheDocument()
     expect(iframe.src).toContain('about:blank')
   })
@@ -196,14 +215,14 @@ describe('InvoiceDetailDialog', () => {
     // (matching `STATUS_LABEL.PENDING`), so we assert ≥1 occurrence via
     // the data-testid for the pending signature row specifically.
     expect(screen.getByTestId('signature-row-counterparty-pending')).toHaveTextContent(
-      'Ожидает подписи',
+      'Очікує підпису',
     )
     // Fix-round 4 (task-680) — the method tooltip text was renamed from
     // «…инвойса» to «…счёта»; assert the exact string so a mutation to it
     // (e.g. StringLiteral -> "") fails the test instead of surviving.
     expect(
       within(screen.getByTestId('signature-row-company')).getByTitle(
-        'Автоматическая электронная подпись компании при выпуске счёта',
+        'Автоматичний електронний підпис компанії під час випуску рахунку',
       ),
     ).toBeInTheDocument()
   })
@@ -224,7 +243,7 @@ describe('InvoiceDetailDialog', () => {
     renderDialog({ invoice: signedInvoice, viewer: counterpartyUser })
     await screen.findByTestId('invoice-detail-status')
     expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
-    expect(screen.getByText('Документ подписан')).toBeInTheDocument()
+    expect(screen.getByText('Документ підписано')).toBeInTheDocument()
   })
 
   it('opens the confirm dialog when «Подписать» is clicked', async () => {

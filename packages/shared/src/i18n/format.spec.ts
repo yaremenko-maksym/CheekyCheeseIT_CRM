@@ -164,6 +164,30 @@ describe('format', () => {
     // month truthy.
     expect(formatMonthLabel('0000-05', 'uk')).toBe('0000-05')
   })
+  it("the dateTimeWithYear style is day/short-month/year/time and does NOT pin timeZone to UTC, unlike 'short'", () => {
+    // task-i18n-stage3d-pr4 — replaces `invoice-detail-dialog.tsx`'s own
+    // `fmtDateTime` (date-fns `format`, local time, no timeZone conversion).
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      this: unknown,
+      ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+    ) {
+      return Reflect.construct(RealDateTimeFormat, args)
+    })
+    const d = new Date(2026, 6, 31, 14, 5) // local 31 Jul 2026 14:05
+    const result = formatDate(d, 'uk', 'dateTimeWithYear')
+    expect(result).toBe(
+      new Intl.DateTimeFormat('uk-UA', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(d),
+    )
+    expect(spy).toHaveBeenCalledWith('uk-UA', expect.not.objectContaining({ timeZone: 'UTC' }))
+    expect(result).not.toBe(formatDate(d, 'uk'))
+  })
   it('formats money with the currency code, two decimals', () => {
     // Two literal exceptions per task-i18n-stage2-task1-2.md override #4 — every
     // other assertion in this file compares against `Intl` of the same runtime,

@@ -30,11 +30,26 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  * change the rendered day for any reader not in UTC, a silent regression no
  * caller asked for; `SettleSeniorPayoutDialog.test.tsx` pins the exact
  * 2-digit-year shape ("31.07.26") this style reproduces byte-for-byte.
+ *
+ * task-i18n-stage3d-pr4 — also added 'dateTimeWithYear': `invoice-detail-
+ * dialog.tsx`'s own `fmtDateTime` (date-fns `format(d, 'd MMM yyyy, HH:mm',
+ * { locale: ru })`, deleted this PR) needed the YEAR that plain 'dateTime'
+ * omits — a signature timestamp can be read months later, unlike the
+ * quota-reset moment 'dateTime' was built for. Same LOCAL-time family as
+ * 'dateTime' (no `timeZone` override) for the same reason: a signature
+ * timestamp is a moment the reader checks against their own clock.
  */
 export function formatDate(
   value: Date | string,
   locale: Locale,
-  style: 'short' | 'long' | 'month' | 'monthYear' | 'dateTime' | 'shortYY' = 'short',
+  style:
+    | 'short'
+    | 'long'
+    | 'month'
+    | 'monthYear'
+    | 'dateTime'
+    | 'shortYY'
+    | 'dateTimeWithYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -43,7 +58,7 @@ export function formatDate(
   // would only ever be a no-op copy-constructor call on one side.
   const d = new Date(value)
   const STYLE_OPTS: Record<
-    'short' | 'long' | 'month' | 'monthYear' | 'dateTime' | 'shortYY',
+    'short' | 'long' | 'month' | 'monthYear' | 'dateTime' | 'shortYY' | 'dateTimeWithYear',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -52,6 +67,13 @@ export function formatDate(
     monthYear: { month: 'long', year: 'numeric', timeZone: 'UTC' },
     dateTime: { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' },
     shortYY: { day: '2-digit', month: '2-digit', year: '2-digit' },
+    dateTimeWithYear: {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
 }
