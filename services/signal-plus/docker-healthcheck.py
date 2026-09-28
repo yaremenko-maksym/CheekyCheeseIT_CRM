@@ -43,18 +43,13 @@ from datetime import datetime, timezone
 try:
     from signal_plus import slot
     from signal_plus import state as state_mod
-    from signal_plus.config import Config, ConfigError
+    from signal_plus.config import Config, ConfigError, resolve_configs
 except Exception as exc:  # pragma: no cover - would mean a broken image build
     print(f"UNHEALTHY: cannot import signal_plus: {exc}", file=sys.stderr)
     sys.exit(1)
 
 
-def check(now: datetime) -> tuple[bool, str]:
-    try:
-        config = Config.from_env()
-    except ConfigError as exc:
-        return False, f"bad configuration: {exc}"
-
+def _check_one(config: Config, now: datetime) -> tuple[bool, str]:
     try:
         st = state_mod.load(config.state_file)
     except state_mod.StateError as exc:
@@ -76,6 +71,28 @@ def check(now: datetime) -> tuple[bool, str]:
         f"send nor a recorded handover for {today} -- the daemon should have resolved one or "
         f"the other by now (last_error={st.last_error!r})"
     )
+
+
+def check(now: datetime) -> tuple[bool, str]:
+    """Multi-account (2026-09-28): the container serves one OR several
+    accounts (``resolve_configs``). It is healthy only when EVERY account is
+    healthy; the first unhealthy account (named by its masked number) makes the
+    whole container unhealthy, so a single stuck account is not hidden behind
+    the others. A single-account env resolves to a list of one, so this is
+    identical to the pre-existing behaviour there.
+    """
+    try:
+        configs = resolve_configs()
+    except ConfigError as exc:
+        return False, f"bad configuration: {exc}"
+
+    details = []
+    for config in configs:
+        ok, detail = _check_one(config, now)
+        if not ok:
+            return False, f"[{config.masked_account()}] {detail}"
+        details.append(f"[{config.masked_account()}] {detail}")
+    return True, "; ".join(details)
 
 
 def main() -> int:

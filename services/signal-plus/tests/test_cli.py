@@ -1060,3 +1060,294 @@ def test_main_still_requires_config_for_a_real_mode(monkeypatch):
 
     with pytest.raises(ConfigError):
         cli.main(["--groups"])
+
+
+# ---------------------------------------------------------------------------
+# Multi-account (2026-09-28): one container, several accounts, shared group.
+# The hardened per-account run_cycle is reused verbatim; a single-threaded,
+# slot-ordered scheduler drives N accounts so each keeps its OWN independent
+# random slot (two "+" at the same instant would look automated).
+# ---------------------------------------------------------------------------
+
+
+class SeqRng:
+    """rng whose uniform() pops a scripted offset per call -- lets a test fix
+    exactly which slot each account is assigned, to assert processing order."""
+
+    def __init__(self, offsets):
+        self.offsets = list(offsets)
+
+    def uniform(self, a, b):
+        return self.offsets.pop(0)
+
+
+def _multi_config(tmp_path, account: str) -> Config:
+    return Config(
+        signal_account=account,
+        signal_group_id="group.abc123==",
+        signal_cli_bin=tmp_path / "signal-cli",
+        state_file=tmp_path / f"state-{account.strip('+')}.json",
+    )
+
+
+def _account_of(argv: list[str]) -> str:
+    # argv shape: [bin, -Djava.io.tmpdir=..., "-a", <account>, <command>, ...]
+    return argv[argv.index("-a") + 1]
+
+
+def test_run_accounts_once_sends_once_per_account(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = ScriptedRun([_ok(), _ok(), _ok(), _ok()])  # receive+send for each
+
+    cli.run_accounts_once(
+        [a, b], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run
+    )
+
+    sends = run.command_calls("send")
+    assert len(sends) == 2
+    assert {_account_of(c) for c in sends} == {a.signal_account, b.signal_account}
+    assert load_state(a.state_file).last_success_date == date(2026, 9, 3)
+    assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
+
+
+def test_run_accounts_once_processes_earliest_slot_first(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")  # first pick -> late slot
+    b = _multi_config(tmp_path, "+380509998877")  # second pick -> early slot
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    # window span is 2700s (07:00-07:45); a gets +2000s (07:33), b gets +200s (07:03)
+    rng = SeqRng([2000, 200])
+    run = ScriptedRun([_ok(), _ok(), _ok(), _ok()])
+
+    cli.run_accounts_once([a, b], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=rng, run=run)
+
+    # b (earlier slot) must be driven before a, regardless of list order.
+    assert _account_of(run.calls[0]) == b.signal_account
+    assert _account_of(run.calls[2]) == a.signal_account
+
+
+def test_run_accounts_once_independent_idempotency_only_unsent_sends(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    save_state(a.state_file, State(last_success_date=date(2026, 9, 3)))  # a already sent
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = ScriptedRun([_ok(), _ok()])  # only b: receive+send
+
+    cli.run_accounts_once([a, b], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+
+    sends = run.command_calls("send")
+    assert len(sends) == 1
+    assert _account_of(sends[0]) == b.signal_account
+
+
+def test_run_accounts_once_skips_all_on_sunday(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 6, 6, 0))  # Sunday
+    run = ScriptedRun([])  # any call is an error
+
+    cli.run_accounts_once([a, b], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run)
+
+    assert run.calls == []
+    assert load_state(a.state_file) == State()
+    assert load_state(b.state_file) == State()
+
+
+def test_daemon_multi_runs_a_pass_then_sleeps_and_loops(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 6, 0))
+    run = ScriptedRun([_ok(), _ok(), _ok(), _ok()])
+    recheck_sleeps: list[float] = []
+    total = {"n": 0}
+
+    def sleep_fn(seconds: float) -> None:
+        total["n"] += 1
+        if total["n"] > 500:
+            raise _StopDaemon("run_daemon_multi never reached its recheck sleep")
+        if seconds == cli.DAEMON_RECHECK_INTERVAL_SECONDS:
+            recheck_sleeps.append(seconds)
+            raise _StopDaemon()
+        clock.sleep_fn(seconds)
+
+    with pytest.raises(_StopDaemon):
+        cli.run_daemon_multi([a, b], now_fn=clock.now_fn, sleep_fn=sleep_fn, rng=ZERO_RNG, run=run)
+
+    assert recheck_sleeps == [cli.DAEMON_RECHECK_INTERVAL_SECONDS]
+    assert load_state(a.state_file).last_success_date == date(2026, 9, 3)
+    assert load_state(b.state_file).last_success_date == date(2026, 9, 3)
+
+
+def test_main_with_configs_groups_lists_every_account(tmp_path, capsys):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    run = ScriptedRun([(0, "group.abc123==  My Group\n", ""), (0, "group.abc123==  My Group\n", "")])
+
+    code = cli.main_with_configs([a, b], ["--groups"], run=run)
+
+    assert code == 0
+    listgroups = run.command_calls("listGroups")
+    assert {_account_of(c) for c in listgroups} == {a.signal_account, b.signal_account}
+
+
+def test_main_with_configs_now_sends_each_immediately(tmp_path):
+    a = _multi_config(tmp_path, "+380501112233")
+    b = _multi_config(tmp_path, "+380509998877")
+    clock = FakeClock(_kyiv(2026, 9, 3, 3, 0))  # far outside the window
+    run = ScriptedRun([_ok(), _ok(), _ok(), _ok()])
+
+    code = cli.main_with_configs(
+        [a, b], ["--now"], now_fn=clock.now_fn, sleep_fn=clock.sleep_fn, rng=ZERO_RNG, run=run
+    )
+
+    assert code == 0
+    assert clock.sleep_calls == []  # --now never waits for a slot
+    assert len(run.command_calls("send")) == 2
+
+
+def test_main_single_config_still_uses_single_path(tmp_path, monkeypatch):
+    # A single-account env must still flow through main_with_config (the
+    # untouched, tested N=1 path), not the multi scheduler.
+    called = {}
+
+    def fake_main_with_config(cfg, argv, *, run=subprocess.run):
+        called["cfg"] = cfg
+        called["argv"] = argv
+        return 0
+
+    def fake_resolve(env=None):
+        return [_multi_config(tmp_path, "+380501112233")]
+
+    monkeypatch.setattr(cli, "main_with_config", fake_main_with_config)
+    monkeypatch.setattr(cli, "resolve_configs", fake_resolve)
+    code = cli.main([])
+    assert code == 0
+    assert called["cfg"].signal_account == "+380501112233"
+
+
+def test_main_multi_config_uses_multi_path(tmp_path, monkeypatch):
+    called = {}
+
+    def fake_main_with_configs(cfgs, argv, **kwargs):
+        called["cfgs"] = cfgs
+        return 0
+
+    def fake_resolve(env=None):
+        return [_multi_config(tmp_path, "+380501112233"), _multi_config(tmp_path, "+380509998877")]
+
+    monkeypatch.setattr(cli, "main_with_configs", fake_main_with_configs)
+    monkeypatch.setattr(cli, "resolve_configs", fake_resolve)
+    code = cli.main([])
+    assert code == 0
+    assert [c.signal_account for c in called["cfgs"]] == ["+380501112233", "+380509998877"]
+
+
+def test_handover_alert_subject_names_the_masked_account(config, caplog, tmp_path):
+    # With several accounts the owner must be able to tell WHOSE + failed --
+    # the handover alert subject (log + DM) carries the masked account.
+    import logging
+
+    clock = FakeClock(_kyiv(2026, 9, 3, 8, 0))  # at the cutoff, nothing sent
+    run = ScriptedRun([])
+
+    with caplog.at_level(logging.ERROR, logger="signal_plus"):
+        cli.run_cycle(
+            config,
+            now_fn=clock.now_fn,
+            sleep_fn=clock.sleep_fn,
+            rng=ZERO_RNG,
+            run=run,
+            alert_script_path=tmp_path / "post-merge-alert.sh",
+        )
+
+    masked = config.masked_account()
+    assert masked != config.signal_account
+    assert any(masked in r.message for r in caplog.records if r.levelno == logging.ERROR)
+
+
+# ---------------------------------------------------------------------------
+# Test send (2026-09-28): `--test <account>` verifies a freshly-linked account
+# by sending one "+" to ITS OWN group named «тест» (found by name), before the
+# account joins the real roll-call. Stateless: never touches the daily state.
+# ---------------------------------------------------------------------------
+
+
+def test_run_test_send_sends_plus_to_the_test_group(tmp_path):
+    cfg = _multi_config(tmp_path, "+380501112233")
+    listing = '[{"id":"testGID==","name":"тест"},{"id":"realGID==","name":"Команда"}]'
+    run = ScriptedRun([(0, listing, ""), _ok(), _ok()])  # listGroups(json), receive, send
+
+    ok = cli.run_test_send(cfg, run=run)
+
+    assert ok is True
+    sends = run.command_calls("send")
+    assert len(sends) == 1
+    assert sends[0][sends[0].index("-g") + 1] == "testGID=="  # the «тест» group
+    assert "group.abc123==" not in sends[0]  # never the real roll-call group
+    assert not cfg.state_file.exists()  # stateless: no idempotency state written
+
+
+def test_run_test_send_receives_before_sending(tmp_path):
+    cfg = _multi_config(tmp_path, "+380501112233")
+    listing = '[{"id":"t==","name":"тест"}]'
+    run = ScriptedRun([(0, listing, ""), _ok(), _ok()])
+
+    cli.run_test_send(cfg, run=run)
+
+    assert "listGroups" in run.calls[0]
+    assert "receive" in run.calls[1]
+    assert "send" in run.calls[2]
+
+
+def test_run_test_send_fails_when_no_test_group_and_never_sends(tmp_path):
+    cfg = _multi_config(tmp_path, "+380501112233")
+    listing = '[{"id":"realGID==","name":"Команда"}]'  # no «тест» group
+    run = ScriptedRun([(0, listing, "")])  # only listGroups; no send expected
+
+    ok = cli.run_test_send(cfg, run=run)
+
+    assert ok is False
+    assert run.command_calls("send") == []
+
+
+def test_run_test_send_fails_when_listgroups_fails(tmp_path):
+    cfg = _multi_config(tmp_path, "+380501112233")
+    run = ScriptedRun([_fail("cannot list groups")])
+
+    ok = cli.run_test_send(cfg, run=run)
+
+    assert ok is False
+    assert run.command_calls("send") == []
+
+
+def test_main_test_mode_targets_the_given_account_and_skips_resolve(monkeypatch):
+    captured = {}
+
+    def fake_config_for_account(account, env=None):
+        captured["account"] = account
+        return "CFG-SENTINEL"
+
+    def fake_run_test_send(config, *, run=subprocess.run):
+        captured["config"] = config
+        return True
+
+    def forbidden_resolve(env=None):
+        raise AssertionError("resolve_configs must not run for --test (account may not be in the list yet)")
+
+    monkeypatch.setattr(cli, "config_for_account", fake_config_for_account)
+    monkeypatch.setattr(cli, "run_test_send", fake_run_test_send)
+    monkeypatch.setattr(cli, "resolve_configs", forbidden_resolve)
+
+    code = cli.main(["--test", "+380501112233"])
+
+    assert code == 0
+    assert captured["account"] == "+380501112233"
+    assert captured["config"] == "CFG-SENTINEL"
+
+
+def test_main_test_mode_returns_1_on_failed_test_send(monkeypatch):
+    monkeypatch.setattr(cli, "config_for_account", lambda account, env=None: "CFG")
+    monkeypatch.setattr(cli, "run_test_send", lambda config, *, run=subprocess.run: False)
+    code = cli.main(["--test", "+380501112233"])
+    assert code == 1
