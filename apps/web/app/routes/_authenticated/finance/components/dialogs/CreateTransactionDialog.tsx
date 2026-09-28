@@ -279,8 +279,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // reminder; the funding source + currency are chosen later, at pay time
   // (PaySalaryDialog). So SALARY (like every other non-company type) defaults to
   // 'legacy' = "do not send fundingSource in payload".
-  const defaultFundingSource = (t: DialogTxType): FundingSourceUI => {
-    if (t === 'EXPENSE' || t === 'ADMIN_INCOME') return 'legacy'
+  const defaultFundingSource = (txType: DialogTxType): FundingSourceUI => {
+    if (txType === 'EXPENSE' || txType === 'ADMIN_INCOME') return 'legacy'
     return 'legacy'
   }
   const [fundingSource, setFundingSource] = useState<FundingSourceUI>(
@@ -816,6 +816,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     return (
       <div className="space-y-2" data-testid="create-transaction-funding-source-section">
         <Label className="text-xs text-muted-foreground">{sectionLabel}</Label>
+        {/* `sectionLabel`/`personalLabel`/`personalDescription`/`companyDescription`
+            are already-resolved strings from the call site (`t\`…\`` there) — this
+            shared renderer stays a plain function, not a component, so it cannot
+            call `useLingui()` itself. */}
         <div className="grid grid-cols-1 gap-1.5">
           <button
             type="button"
@@ -867,7 +871,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-funding-company"
           >
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium leading-tight">Счёт компании</div>
+              <div className="text-sm font-medium leading-tight">
+                <Trans>Рахунок компанії</Trans>
+              </div>
               <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                 {companyDescription}
               </div>
@@ -883,7 +889,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
         {fundingSource === 'COMPANY_ACCOUNT' && (
           <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-            <span>Баланс счёта компании</span>
+            <span>
+              <Trans>Баланс рахунку компанії</Trans>
+            </span>
             <span
               className="font-bold tabular-nums"
               data-testid="create-transaction-company-balance-hint"
@@ -937,22 +945,26 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
-            Новая транзакция
+            <Trans>Нова транзакція</Trans>
           </DialogTitle>
-          <DialogDescription className="sr-only">Создание транзакции</DialogDescription>
+          <DialogDescription className="sr-only">
+            <Trans>Створення транзакції</Trans>
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 py-1">
           {/* Type selector — card-style */}
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Тип операции</Label>
+            <Label className="text-xs text-muted-foreground">
+              <Trans>Тип операції</Trans>
+            </Label>
             <div className="grid grid-cols-1 gap-1.5">
-              {availableTypes.map((t) => (
+              {availableTypes.map((txType) => (
                 <button
-                  key={t}
+                  key={txType}
                   type="button"
                   onClick={() => {
-                    setType(t)
+                    setType(txType)
                     setProjectId('')
                     setReceiverId('')
                     // Also clear the ADMIN_TRANSFER sender so switching the type
@@ -961,25 +973,27 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     setFieldErrors({})
                     // Reset fundingSource to per-type default and restore the
                     // default currency (any USDT-lock is re-derived from funding).
-                    setFundingSource(defaultFundingSource(t))
+                    setFundingSource(defaultFundingSource(txType))
                     setCurrency('USD')
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    type === t
+                    type === txType
                       ? 'border-primary bg-primary/8 text-foreground'
                       : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
                   )}
-                  data-testid={`create-transaction-type-${t.toLowerCase()}`}
+                  data-testid={`create-transaction-type-${txType.toLowerCase()}`}
                 >
-                  <span className="text-muted-foreground shrink-0">{TYPE_ICONS[t]}</span>
+                  <span className="text-muted-foreground shrink-0">{TYPE_ICONS[txType]}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">{typeLabel(t)}</div>
+                    <div className="text-sm font-medium leading-tight">
+                      {typeLabel(txType, i18n)}
+                    </div>
                     <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      {TYPE_DESCRIPTIONS[t]}
+                      {i18n._(TYPE_DESCRIPTION_MESSAGES[txType])}
                     </div>
                   </div>
-                  {type === t && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                  {type === txType && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
                 </button>
               ))}
             </div>
@@ -990,7 +1004,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Project selector */}
           {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME' || type === 'DROP_INCOME') && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Проект</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Проєкт</Trans>
+              </Label>
               <Select
                 value={projectId}
                 onValueChange={(v) => {
@@ -1024,7 +1040,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
                   data-testid="create-transaction-project-trigger"
                 >
-                  <SelectValue placeholder="Выберите проект" />
+                  <SelectValue placeholder={t`Виберіть проєкт`} />
                 </SelectTrigger>
                 <SelectContent>
                   {(type === 'ADMIN_INCOME'
@@ -1063,8 +1079,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="senior-income-usdt-gate-hint"
               >
-                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
-                администратору.
+                <Trans>
+                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  адміністратора.
+                </Trans>
               </p>
             )}
           {type === 'DROP_INCOME' &&
@@ -1074,8 +1092,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="drop-income-usdt-gate-hint"
               >
-                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
-                администратору.
+                <Trans>
+                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  адміністратора.
+                </Trans>
               </p>
             )}
           {/* task-admin-income-unified. ACCOUNTANT-only hint: unlike ADMIN
@@ -1093,7 +1113,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="admin-income-accountant-usdt-gate-hint"
               >
-                Приход по USDT-проектам может провести только администратор.
+                <Trans>Прихід за USDT-проєктами може провести лише адміністратор.</Trans>
               </p>
             )}
 
@@ -1110,7 +1130,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               constrained toggle below instead. */}
           {type === 'ADMIN_INCOME' && isAdmin && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Счёт получателя</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Рахунок отримувача</Trans>
+              </Label>
               <Select
                 value={receiverId}
                 onValueChange={(v) => {
@@ -1122,7 +1144,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                   data-testid="admin-income-receiver-trigger"
                 >
-                  <SelectValue placeholder="Выберите получателя" />
+                  <SelectValue placeholder={t`Виберіть отримувача`} />
                 </SelectTrigger>
                 <SelectContent>
                   {adminUsers.map((u) => (
@@ -1132,7 +1154,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   ))}
                   <SelectSeparator />
                   <SelectItem value={COMPANY_ACCOUNT_RECEIVER} className="text-sm">
-                    Счёт компании
+                    <Trans>Рахунок компанії</Trans>
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -1141,15 +1163,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   a false promise. */}
               {isSelectedProjectUsdt && (
                 <p className="text-xs text-muted-foreground">
-                  Весь приход (gross) уйдёт выбранному получателю. Компания автоматически создаст
-                  обязательства выплатить синьору и дропу их доли.
+                  <Trans>
+                    Весь прихід (gross) піде обраному отримувачу. Компанія автоматично створить
+                    зобов’язання виплатити сеньйору та дропу їхні частки.
+                  </Trans>
                 </p>
               )}
               {/* Company account balance hint — same hint the EXPENSE/ACCOUNTANT
                   toggles show, now keyed off `receiverId` for this Select. */}
               {receiverId === COMPANY_ACCOUNT_RECEIVER && (
                 <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-                  <span>Баланс счёта компании</span>
+                  <span>
+                    <Trans>Баланс рахунку компанії</Trans>
+                  </span>
                   <span
                     className="font-bold tabular-nums"
                     data-testid="create-transaction-company-balance-hint"
@@ -1174,7 +1200,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             <div className="space-y-1.5">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Сотрудник</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Співробітник</Trans>
+                  </Label>
                   <Select
                     value={receiverId}
                     onValueChange={(v) => {
@@ -1186,7 +1214,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                       data-testid="create-transaction-receiver-trigger"
                     >
-                      <SelectValue placeholder="Выберите..." />
+                      <SelectValue placeholder={t`Виберіть…`} />
                     </SelectTrigger>
                     <SelectContent>
                       {salaryTargets.map((u) => (
@@ -1199,7 +1227,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Месяц</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Місяць</Trans>
+                  </Label>
                   <input
                     type="month"
                     value={salaryMonth}
@@ -1240,10 +1270,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               selector here — chosen at pay time (PaySalaryDialog). */}
           {type === 'EXPENSE' &&
             renderFundingSourceToggle({
-              sectionLabel: 'Источник средств',
-              personalLabel: 'Обычный расход',
-              personalDescription: 'Стандартный расход, не затрагивает счёт компании',
-              companyDescription: 'Спишется со счёта компании (USDT)',
+              sectionLabel: t`Джерело коштів`,
+              personalLabel: t`Звичайна витрата`,
+              personalDescription: t`Стандартна витрата, не зачіпає рахунок компанії`,
+              companyDescription: t`Списується з рахунку компанії (USDT)`,
             })}
 
           {/* task-admin-income-unified (§2, owner decision 2026-08-12).
@@ -1256,18 +1286,23 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {type === 'ADMIN_INCOME' &&
             isAccountant &&
             renderFundingSourceToggle({
-              sectionLabel: 'Счёт получателя',
-              personalLabel: 'Владелец проекта',
+              sectionLabel: t`Рахунок отримувача`,
+              personalLabel: t`Власник проєкту`,
+              // Урок #702, п.9 — ім'я підставляється тільки в називному відмінку:
+              // «Прихід зарахується на рахунок адміністратора — {name}», не
+              // «адміністратору {name}» (це вимагало б давального відмінка).
               personalDescription: selectedAdminProject?.seniorName
-                ? `Приход зачислится администратору ${selectedAdminProject.seniorName}`
-                : 'Приход зачислится администратору-владельцу проекта',
-              companyDescription: 'Зачислится на счёт компании (USDT)',
+                ? t`Прихід зарахується на рахунок адміністратора — ${selectedAdminProject.seniorName}`
+                : t`Прихід зарахується на рахунок адміністратора-власника проєкту`,
+              companyDescription: t`Зарахується на рахунок компанії (USDT)`,
             })}
 
           {/* Admin transfer — swap UI */}
           {type === 'ADMIN_TRANSFER' && adminUsers.length >= 2 && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Направление перевода</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Напрямок переказу</Trans>
+              </Label>
               <div className="flex items-center gap-2">
                 {/* Sender card */}
                 <button
@@ -1277,7 +1312,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
-                  title="Нажмите для смены направления"
+                  title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
                     {transferSender?.displayName.charAt(0) ?? '?'}
@@ -1285,7 +1320,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <span className="text-xs font-medium leading-tight">
                     {transferSender?.displayName ?? '—'}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">отправляет</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    <Trans>надсилає</Trans>
+                  </span>
                 </button>
 
                 {/* Swap button */}
@@ -1293,7 +1330,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   type="button"
                   onClick={swapTransfer}
                   className="shrink-0 h-8 w-8 rounded-full border border-border bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all hover:rotate-180 duration-300"
-                  title="Поменять направление"
+                  title={t`Поміняти напрямок`}
                 >
                   <ArrowLeftRight className="h-3.5 w-3.5" />
                 </button>
@@ -1306,7 +1343,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
-                  title="Нажмите для смены направления"
+                  title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-muted/40 border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
                     {transferReceiver?.displayName.charAt(0) ?? '?'}
@@ -1314,11 +1351,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <span className="text-xs font-medium leading-tight">
                     {transferReceiver?.displayName ?? '—'}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">получает</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    <Trans>отримує</Trans>
+                  </span>
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground/60 text-center">
-                Нажмите на карточки или стрелку, чтобы поменять направление
+                <Trans>Натисніть на картки або стрілку, щоб поміняти напрямок</Trans>
               </p>
             </div>
           )}
