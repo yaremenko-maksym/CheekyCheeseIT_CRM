@@ -2,14 +2,19 @@ import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { TransactionType } from '@crm/shared'
 import {
   SALARY_ELIGIBLE_ROLES,
   COMPANY_ACCOUNT_RECEIVER,
+  formatNumber,
   receiptMandatoryError,
   roundShareAmount,
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
@@ -38,7 +43,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePickerField } from '@/components/ui/date-picker'
 import { financeApi, companyAccountApi } from '../../api'
-import { EXPENSE_CATEGORIES, TYPE_LABELS } from '../../constants'
+import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_MESSAGES, TYPE_LABEL_MESSAGES } from '../../constants'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 // UI-level transaction kind for THIS dialog. `DIVIDEND` is a synthetic option —
@@ -59,18 +64,15 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
 // UNCHANGED — this dialog just calls it from a different trigger.
 type DialogTxType = TransactionType | 'DIVIDEND'
 
-// Label / description for the synthetic DIVIDEND option (TYPE_LABELS is keyed by
-// the real enum and stays untouched).
-const DIVIDEND_LABEL = 'Дивиденд'
-const DIVIDEND_DESCRIPTION = 'Вывод дивидендов с баланса счёта компании'
+// Label / description for the synthetic DIVIDEND option (TYPE_LABEL_MESSAGES is
+// keyed by the real enum and stays untouched). `satisfies` WITHOUT `as const`
+// (урок #707 — `as const` here would report 0 mutants for the block).
+const DIVIDEND_LABEL_MESSAGE = msg`Дивіденд` // en: Dividend
+const DIVIDEND_DESCRIPTION_MESSAGE = msg`Виведення дивідендів із балансу рахунку компанії` // en: Withdraw dividends from the company account balance
 
-function typeLabel(t: DialogTxType): string {
-  if (t === 'DIVIDEND') return DIVIDEND_LABEL
-  return TYPE_LABELS[t]
-}
-
-function fmtUsdt(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function typeLabel(t: DialogTxType, i18n: { _: (d: MessageDescriptor) => string }): string {
+  if (t === 'DIVIDEND') return i18n._(DIVIDEND_LABEL_MESSAGE)
+  return i18n._(TYPE_LABEL_MESSAGES[t])
 }
 
 // task-salary-company-account. UI-only funding source sentinel:
@@ -121,15 +123,17 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   DIVIDEND: <Coins className="h-4 w-4" />,
 }
 
-const TYPE_DESCRIPTIONS: Record<string, string> = {
-  ADMIN_INCOME: 'Доход с собственного проекта',
-  SENIOR_INCOME: 'Доход синьора с проекта',
-  DROP_INCOME: 'Доход дропа с drop-проекта',
-  EXPENSE: 'Расход компании',
-  SALARY: 'Выплата зарплаты сотруднику',
-  ADMIN_TRANSFER: 'Перевод между партнёрами',
-  DIVIDEND: DIVIDEND_DESCRIPTION,
-}
+// COPY-H-fin-1 (SALARY) / COPY-M-fin-11 (DROP_INCOME) — canon terms, wave (d)
+// (`CONTEXT.md` → «Волна d»). `satisfies` WITHOUT `as const` (урок #707).
+const TYPE_DESCRIPTION_MESSAGES = {
+  ADMIN_INCOME: msg`Дохід із власного проєкту`, // en: Income from an own project
+  SENIOR_INCOME: msg`Дохід сеньйора з проєкту`, // en: Senior income from a project
+  DROP_INCOME: msg`Дохід дропа з проєкту`, // en: Drop income from a project
+  EXPENSE: msg`Витрата компанії`, // en: Company expense
+  SALARY: msg`Зарплата співробітнику`, // en: Employee salary
+  ADMIN_TRANSFER: msg`Переказ між партнерами`, // en: Transfer between partners
+  DIVIDEND: DIVIDEND_DESCRIPTION_MESSAGE,
+} satisfies Record<string, MessageDescriptor>
 
 function needsConversion(currency: Currency) {
   return currency === 'EUR' || currency === 'UAH' || currency === 'USD'
@@ -224,6 +228,10 @@ export function computeObligationPreviews(
 export function CreateTransactionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
+  const fmtUsdt = (n: number): string =>
+    formatNumber(n, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   const isAdmin = user?.role === 'ADMIN'
   const isSenior = user?.role === 'SENIOR'
@@ -526,13 +534,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   function validate(): Record<string, string> {
     const errors: Record<string, string> = {}
     const amt = parseStrictAmount(amount)
-    if (isNaN(amt) || amt <= 0) errors.amount = 'Укажите корректную сумму'
+    if (isNaN(amt) || amt <= 0) errors.amount = t`Вкажіть коректну суму`
 
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
 
     if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
-      if (!projectId) errors.project = 'Выберите проект'
+      if (!projectId) errors.project = t`Виберіть проєкт`
     }
     // task-receipts-frontend: mandatory + currency-aware (USDT → explorer-only)
     // for ALL showReceipt types now — delegates to the SAME shared pure
@@ -556,18 +564,18 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     // USDT flow already had). ACCOUNTANT never sees this Select (their binary
     // toggle always has a value), so no check needed for that role.
     if (type === 'ADMIN_INCOME' && isAdmin) {
-      if (!receiverId) errors.receiver = 'Выберите получателя'
+      if (!receiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'SALARY') {
-      if (!receiverId) errors.receiver = 'Выберите сотрудника'
+      if (!receiverId) errors.receiver = t`Виберіть співробітника`
     }
     if (type === 'ADMIN_TRANSFER') {
-      if (!transferReceiverId) errors.receiver = 'Выберите получателя'
+      if (!transferReceiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'DIVIDEND') {
-      if (!dividendReceiverId) errors.receiver = 'Выберите получателя-партнёра'
+      if (!dividendReceiverId) errors.receiver = t`Виберіть отримувача-партнера`
       if (!isNaN(amt) && amt > 0 && amt > companyBalance) {
-        errors.amount = 'Сумма превышает баланс счёта компании'
+        errors.amount = t`Сума перевищує баланс рахунку компанії`
       }
     }
     return errors
@@ -731,11 +739,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // knows their tx is registered + queued for validation. Other types
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
-        toast.success('Приход зарегистрирован, ожидает валидации')
+        toast.success(t`Прихід зареєстровано, очікує валідації`)
       }
       if (type === 'DIVIDEND') {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
-        toast.success('Дивиденды выведены')
+        toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit
       // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME's two shapes
