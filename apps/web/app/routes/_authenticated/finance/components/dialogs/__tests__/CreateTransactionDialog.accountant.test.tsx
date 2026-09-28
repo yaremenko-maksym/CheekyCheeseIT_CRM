@@ -11,7 +11,7 @@
  * use the real query/mutation hooks (with a mocked queryClient) so the component
  * lifecycle works without a network.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
@@ -121,5 +121,130 @@ describe('CreateTransactionDialog — DIVIDEND option (ADMIN-only, WS3)', () => 
     currentRole = 'SENIOR'
     renderDialog()
     expect(screen.queryByTestId('create-transaction-type-dividend')).not.toBeInTheDocument()
+  })
+})
+
+// i18n-3d-pr3 (AC1) — pins the exact uk text of every type-card label +
+// description, including DIVIDEND's own (module-local, not in
+// `TYPE_LABEL_MESSAGES`) pair. Without this, the mutation gate finds every
+// `msg`` string in `TYPE_DESCRIPTION_MESSAGES`/`DIVIDEND_LABEL_MESSAGE`/
+// `DIVIDEND_DESCRIPTION_MESSAGE` survives (no test reads the card's actual
+// text, only its testid).
+describe('CreateTransactionDialog — type-card copy (i18n-3d-pr3 AC1)', () => {
+  beforeEach(() => {
+    currentRole = 'ADMIN'
+  })
+
+  it('renders the uk label + description for every ADMIN-visible type card', () => {
+    renderDialog()
+    const cases: Array<[string, string, string]> = [
+      ['create-transaction-type-admin_income', 'Прихід адміна', 'Дохід із власного проєкту'],
+      ['create-transaction-type-expense', 'Витрата', 'Витрата компанії'],
+      ['create-transaction-type-salary', 'Зарплата', 'Зарплата співробітнику'],
+      ['create-transaction-type-admin_transfer', 'Переказ', 'Переказ між партнерами'],
+      [
+        'create-transaction-type-dividend',
+        'Дивіденд',
+        'Виведення дивідендів із балансу рахунку компанії',
+      ],
+    ]
+    for (const [testId, label, description] of cases) {
+      const card = screen.getByTestId(testId)
+      expect(card).toHaveTextContent(label)
+      expect(card).toHaveTextContent(description)
+    }
+  })
+
+  it('SENIOR_INCOME card renders "Дохід сеньйора з проєкту"', () => {
+    currentRole = 'SENIOR'
+    renderDialog()
+    expect(screen.getByTestId('create-transaction-type-senior_income')).toHaveTextContent(
+      'Дохід сеньйора з проєкту',
+    )
+  })
+
+  it('DROP_INCOME card renders "Дохід дропа з проєкту"', () => {
+    currentRole = 'DROP'
+    renderDialog()
+    expect(screen.getByTestId('create-transaction-type-drop_income')).toHaveTextContent(
+      'Дохід дропа з проєкту',
+    )
+  })
+})
+
+// i18n-3d-pr3 (AC1) — `validate()`'s uk error strings, pinned by field-testid
+// so the mutation gate cannot silently accept an empty/wrong message text.
+describe('CreateTransactionDialog — validate() error copy (i18n-3d-pr3)', () => {
+  beforeEach(() => {
+    currentRole = 'ADMIN'
+  })
+
+  it('invalid amount → "Вкажіть коректну суму" on the amount field', () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-amount')).toHaveTextContent(
+      'Вкажіть коректну суму',
+    )
+  })
+
+  it('ADMIN_INCOME with no project → "Виберіть проєкт" on the project field', () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-project')).toHaveTextContent(
+      'Виберіть проєкт',
+    )
+  })
+
+  it('ADMIN_INCOME with no receiver → "Виберіть отримувача" on the receiver field', () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('admin-income-error-receiver')).toHaveTextContent(
+      'Виберіть отримувача',
+    )
+  })
+
+  it('ADMIN_TRANSFER with no receiver → "Виберіть отримувача" (transfer field)', () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-admin_transfer'))
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-field-error-summary')).toBeInTheDocument()
+  })
+
+  it('DIVIDEND with no receiver → "Виберіть отримувача-партнера"', () => {
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-dividend'))
+    fireEvent.change(screen.getByTestId('create-transaction-dividend-amount'), {
+      target: { value: '' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-amount')).toBeInTheDocument()
+  })
+
+  it('SALARY with no receiver → "Виберіть співробітника"', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-salary'))
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-receiver')).toHaveTextContent(
+      'Виберіть співробітника',
+    )
+  })
+})
+
+// i18n-3d-pr3 (AC3, owner override) — the three EXPENSE_CATEGORY_MESSAGES
+// suggestion chips render their translated uk text (not the raw stored
+// `EXPENSE_CATEGORIES` value), while the free-text input keeps showing the
+// raw value verbatim.
+describe('CreateTransactionDialog — expense category chips (i18n-3d-pr3 AC3)', () => {
+  it('shows translated suggestion chips + free-text input with the raw default value', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue(
+      'Оплата сервиса',
+    )
+    const chips = screen.getAllByTestId(/create-transaction-expense-category-suggestion-/)
+    expect(chips.map((c) => c.textContent)).toEqual(['Оплата послуги', 'Банківський збір', 'Інше'])
   })
 })

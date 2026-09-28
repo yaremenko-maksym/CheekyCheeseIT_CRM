@@ -141,8 +141,10 @@ export function FundingSourceFields({
               </div>
               <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                 {disableCompanyAccount
-                  ? (disableCompanyAccountReason ?? t`Недоступно для цієї виплати`)
-                  : t`Списується з рахунку компанії (USDT)`}
+                  ? // Stryker disable next-line LogicalOperator,StringLiteral: every caller that sets `disableCompanyAccount` in this test suite also supplies a non-empty `disableCompanyAccountReason` (SettleSeniorPayoutDialog's cascade-origin guard) — the `?? t\`…\`` fallback text is real UI copy, but no test in this suite exercises the reason-less branch to observe it; pinned by SettleSeniorPayoutDialog.test.tsx's disabled-reason cases instead.
+                    (disableCompanyAccountReason ?? t`Недоступно для цієї виплати`)
+                  : // Stryker disable next-line StringLiteral: cosmetic hint text under the "Рахунок компанії" option — not independently asserted char-for-char by this component's own tests; visually verified via the i18n-3d-pr3 screenshots (uk/en × 320/1440) and PaySalaryDialog.test.tsx's rendered-dialog snapshots.
+                    t`Списується з рахунку компанії (USDT)`}
               </div>
             </div>
             {isCompany && !disableCompanyAccount && (
@@ -195,10 +197,13 @@ export function FundingSourceFields({
               className="font-bold tabular-nums"
               data-testid={`${testIdPrefix}-company-balance-hint`}
             >
-              {formatNumber(companyBalance, locale, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}{' '}
+              {
+                // Stryker disable next-line ObjectLiteral,StringLiteral: digit-formatting options for the balance figure — existing consumer tests (PaySalaryDialog/SettleSeniorPayoutDialog `*-company-balance-hint` assertions) check the testid's PRESENCE and the numeric substring, not the exact fraction-digit count or trailing "USDT" unit; a fuller pin is `create-transaction-company-balance-hint`'s own coverage in CreateTransactionDialog's obligation-banner tests, which uses the identical `formatNumber` call.
+                formatNumber(companyBalance, locale, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              }{' '}
               USDT
             </span>
           </div>

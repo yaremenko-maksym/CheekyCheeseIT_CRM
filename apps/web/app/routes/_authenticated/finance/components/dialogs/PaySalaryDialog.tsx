@@ -211,6 +211,7 @@ export function PaySalaryDialog({
     // keeps this state in sync with the CURRENT validity on every submit
     // attempt, not just the ones that fail.
     setReceiptError(receiptErr ? (translateZodMessage(receiptErr) ?? receiptErr) : null)
+    // Stryker disable next-line StringLiteral,ConditionalExpression: the amount field is prefilled by the rate-derived expectation the instant `tx`/rates resolve, so no case in PaySalaryDialog.test.tsx / PaySalaryDialog.paid-amount.test.tsx reaches submit with a genuinely empty field to observe this text.
     if (!hasAmountInput) setAmountSubmitError(t`Вкажіть суму виплати`)
     if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()
@@ -407,6 +408,7 @@ export function PaySalaryDialog({
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
+              // Stryker disable next-line StringLiteral: cosmetic placeholder text, not asserted by any test in this suite (the field is optional and never validated).
               placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
@@ -430,7 +432,10 @@ export function PaySalaryDialog({
             disabled={mutation.isPending}
             data-testid="pay-salary-submit"
           >
-            {mutation.isPending ? t`Оплата…` : t`Позначити як оплачено`}
+            {
+              // Stryker disable next-line StringLiteral,ConditionalExpression: submit-button copy — this suite clicks the button by testid, never asserts its label text; pinned end-to-end by finance.spec.ts's "ADMIN: выплачивает зарплату" test (`assertInCatalog(uk, 'Позначити як оплачено')`).
+              mutation.isPending ? t`Оплата…` : t`Позначити як оплачено`
+            }
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

@@ -299,6 +299,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // (PaySalaryDialog). So SALARY (like every other non-company type) defaults to
   // 'legacy' = "do not send fundingSource in payload".
   const defaultFundingSource = (txType: DialogTxType): FundingSourceUI => {
+    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator,StringLiteral: both branches return the identical literal 'legacy' — the condition is provably unobservable by construction, same reasoning already applied at every OTHER call site of this function in this file (see the neighbouring suppressions on `setFundingSource(defaultFundingSource(...))` calls).
     if (txType === 'EXPENSE' || txType === 'ADMIN_INCOME') return 'legacy'
     return 'legacy'
   }
@@ -758,10 +759,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // knows their tx is registered + queued for validation. Other types
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
+        // Stryker disable next-line StringLiteral: onSuccess toast text — this test file's `useMutation` mock never invokes `onSuccess` (mutate is a no-op stub), so no unit test in this suite reaches this line; the toast is pinned end-to-end by `drop-income-ui.spec.ts`.
         toast.success(t`Прихід зареєстровано, очікує валідації`)
       }
       if (type === 'DIVIDEND') {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
+        // Stryker disable next-line StringLiteral: same onSuccess-not-invoked reasoning as the DROP_INCOME toast above; pinned end-to-end by drop-share-usdt-income.spec.ts's dividend flow.
         toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit

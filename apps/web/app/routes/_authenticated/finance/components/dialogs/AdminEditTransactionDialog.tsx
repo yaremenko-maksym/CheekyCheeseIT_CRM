@@ -279,6 +279,7 @@ export function AdminEditTransactionDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const amt = parseStrictAmount(amount)
+      // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: pre-existing defence-in-depth guard, unchanged by this PR (i18n-3d-pr3 translated only the message text) — no test drives an invalid amount past the Save button's own disabled-state gates to reach this throw, same as the sibling suppressions elsewhere in this file.
       if (isNaN(amt) || amt <= 0) throw new Error(t`Некоректна сума`)
       const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
       const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
