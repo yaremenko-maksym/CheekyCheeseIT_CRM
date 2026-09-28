@@ -1,0 +1,108 @@
+name: Prod DB Query (EXPENSE receiver_label recon)
+
+# task-devops-prod-expense-query (2026-09-28) — one-off, manual-only, STRICTLY
+# read-only reconnaissance for docs/superpowers/plans/2026-09-28-crm-expense-category-codes.md
+# (#732, EXPENSE_CATEGORIES migration). Prod is unreachable locally (no SSH to
+# the VPS from a dev machine); the owner authorized running this single SELECT
+# against prod through the same appleboy/ssh-action mechanism `deploy.yml`
+# already uses, so the migration's ru→code map (SERVICE/BANK_FEE/OTHER) can be
+# built from the REAL distinct values instead of guessing.
+#
+# This workflow does NOT touch deploy.yml, does not run on push/schedule, and
+# does nothing but connect + SELECT + print. It is deliberately narrow:
+#   - `workflow_dispatch` only — never fires automatically.
+#   - Same VPS_HOST / VPS_USER / VPS_SSH_KEY secrets and the same
+#     `docker compose ... exec -T postgres psql -U "$PGUSER" -d "$PGDB"`
+#     invocation pattern deploy.yml uses for its DDL steps (see deploy.yml's
+#     "Pull, up, migrate, health-check via SSH" step) — same user/db as the
+#     running deploy, nothing new introduced.
+#   - No `.env`/file writes, no service restarts, no `docker compose up/down`.
+#   - Query text is a single, fixed, read-only SELECT (see below) — not a
+#     free-form SQL input. There is no `workflow_dispatch` input at all,
+#     specifically so this workflow can never be pointed at an arbitrary
+#     statement.
+#
+# Enum discriminator: `transactions.type = 'EXPENSE'` — confirmed in
+# apps/api/src/database/schema.ts (`transactionTypeEnum`, `'EXPENSE'` value,
+# comment "Company expense (category in receiverLabel)") and
+# packages/shared/src/schemas/finance.ts (`'EXPENSE', // Company expense
+# (receiverLabel = category)`). Column is `transactions.receiver_label`
+# (`receiverLabel: varchar('receiver_label', ...)` in the same schema file).
+#
+# Read-only guarantees (belt-and-braces, all three independent):
+#   1. The SQL text itself contains only SELECT statements — no INSERT/UPDATE/
+#      DELETE/DDL anywhere in this file.
+#   2. `psql -v ON_ERROR_STOP=1` — any unexpected error aborts immediately
+#      instead of silently continuing (same flag every psql invocation in
+#      deploy.yml already uses).
+#   3. The whole query runs inside `BEGIN; SET TRANSACTION READ ONLY; ...;
+#      COMMIT;` piped to a single psql invocation — a READ ONLY transaction
+#      makes Postgres itself reject any write/DDL statement at the engine
+#      level (ERROR: cannot execute ... in a read-only transaction), so even a
+#      typo that turned a SELECT into a mutation would be refused by Postgres,
+#      not merely "not attempted" by this script.
+
+on:
+  workflow_dispatch: {}
+
+concurrency:
+  group: prod-db-query-${{ github.run_id }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  query:
+    name: Read-only SELECT on prod (EXPENSE receiver_label distincts)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Run read-only SELECT via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script: |
+            set -euo pipefail
+            cd /opt/crm
+
+            PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
+            PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
+
+            echo "==> Read-only EXPENSE receiver_label recon — user=${PGUSER} db=${PGDB}"
+
+            # Single READ ONLY transaction, piped to psql stdin (no TTY, same
+            # `exec -T` pattern deploy.yml uses for its DDL steps). SET
+            # TRANSACTION READ ONLY makes Postgres refuse any write/DDL
+            # statement inside this transaction at the engine level — this is
+            # the hard guarantee, independent of the fact that every
+            # statement below is already a SELECT.
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 <<'SQL'
+            BEGIN;
+            SET TRANSACTION READ ONLY;
+
+            \echo '=== EXPENSE receiver_label distinct + counts ==='
+            SELECT receiver_label, COUNT(*) AS cnt
+            FROM transactions
+            WHERE type = 'EXPENSE'
+            GROUP BY receiver_label
+            ORDER BY cnt DESC;
+
+            \echo '=== EXPENSE totals ==='
+            SELECT
+              COUNT(*) AS total_expense,
+              COUNT(*) FILTER (WHERE receiver_label IS NULL) AS null_receiver_label
+            FROM transactions
+            WHERE type = 'EXPENSE';
+
+            COMMIT;
+            SQL
+
+            echo "==> Query complete"
