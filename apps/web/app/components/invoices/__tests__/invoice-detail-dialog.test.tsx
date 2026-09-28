@@ -57,13 +57,24 @@ vi.mock('@/hooks/use-invoices', async (orig) => {
 // iframe `src` — the URL is observable on the iframe element either way.
 // InvoicePdfPreview uses useDocumentPreviewUrl (inline disposition) — keep
 // useDocumentDownloadUrl in the mock so other callers don't break.
-const mockUseDocumentPreviewUrl = vi.fn((_documentId: string | undefined, _opts?: unknown) => ({
-  data: { url: 'about:blank' },
-  isLoading: false,
-  isError: false,
-  isRefetching: false,
-  refetch: vi.fn(),
-}))
+const mockUseDocumentPreviewUrl = vi.fn(
+  (
+    _documentId: string | undefined,
+    _opts?: unknown,
+  ): {
+    data: { url: string } | undefined
+    isLoading: boolean
+    isError: boolean
+    isRefetching: boolean
+    refetch: () => void
+  } => ({
+    data: { url: 'about:blank' },
+    isLoading: false,
+    isError: false,
+    isRefetching: false,
+    refetch: vi.fn(),
+  }),
+)
 
 vi.mock('@/hooks/use-documents', () => ({
   useDocumentDownloadUrl: () => ({
