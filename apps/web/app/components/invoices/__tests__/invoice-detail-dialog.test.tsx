@@ -421,8 +421,53 @@ describe('InvoiceDetailDialog', () => {
       })
       renderDialog({ invoice: pendingInvoice })
       expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
-      expect(screen.getByTestId('invoice-pdf-retry')).toBeInTheDocument()
+      expect(screen.getByTestId('invoice-pdf-retry')).toHaveTextContent('Повторити')
       expect(screen.queryByTitle('PDF рахунку')).not.toBeInTheDocument()
+    })
+
+    // kills the LogicalOperator mutant on `isError || !data?.url`: isError
+    // is FALSE here, so only the `!data?.url` half decides — a `&&` mutant
+    // would flip this to the (working) iframe branch instead.
+    it('shows the retry fallback when isError is false but data.url is missing (no url yet)', async () => {
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        isRefetching: false,
+        refetch: vi.fn(),
+      })
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
+    })
+
+    // kills the OptionalChaining mutant on `data?.url`: `data` truthy but
+    // `url` falsy must still be the error branch, not (`data.url` without
+    // the `?.`) a crash on `undefined.url`.
+    it('shows the retry fallback when data exists but url is empty', async () => {
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: { url: '' },
+        isLoading: false,
+        isError: false,
+        isRefetching: false,
+        refetch: vi.fn(),
+      })
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
+    })
+
+    it('clicking retry calls refetch', async () => {
+      const refetchMock = vi.fn()
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isRefetching: false,
+        refetch: refetchMock,
+      })
+      renderDialog({ invoice: pendingInvoice })
+      const retryBtn = await screen.findByTestId('invoice-pdf-retry')
+      fireEvent.click(retryBtn)
+      expect(refetchMock).toHaveBeenCalledTimes(1)
     })
   })
 })

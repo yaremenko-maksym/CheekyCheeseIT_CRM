@@ -302,6 +302,14 @@ describe('StatsPage — economic data (both roles)', () => {
     )
   })
 
+  it('primary income trend label ("vs попер. місяць"), shown when incomeTrend is a real number', () => {
+    setup('ADMIN')
+    // incomeTrend = (6000-4000)/4000*100 = +50%. All four fragments
+    // (icon aside) are text-node siblings of the SAME div, so RTL matches
+    // the combined normalized text of that div.
+    expect(screen.getByText('+50.0% vs попер. місяць')).toBeInTheDocument()
+  })
+
   it('expenses hint tooltip', async () => {
     setup('ADMIN')
     await hoverHint('Витрати')
@@ -398,6 +406,12 @@ describe('StatsPage — income-compliance «Контроль приходов» 
       expect(screen.getByTestId('compliance-row-sr-lag')).toBeInTheDocument()
       expect(screen.getByTestId('compliance-row-sr-done')).toBeInTheDocument()
       expect(screen.getByText('Senior Lag')).toBeInTheDocument()
+      // sr-done (expected===submitted) is the 'complete' status — exact
+      // badge text + green classes.
+      const doneRow = screen.getByTestId('compliance-row-sr-done')
+      const doneBadge = within(doneRow).getByText('Усі отримано')
+      expect(doneBadge.className).toContain('bg-green-500/10')
+      expect(doneBadge.className).toContain('text-green-500')
     },
   )
 
@@ -409,10 +423,10 @@ describe('StatsPage — income-compliance «Контроль приходов» 
   it('renders the SENIOR and DROP role labels exactly', () => {
     setup('ADMIN')
     expect(
-      within(screen.getByTestId('compliance-row-sr-lag')).getByText(/^Сеньйор ·/),
+      within(screen.getByTestId('compliance-row-sr-lag')).getByText(/^Сеньйор · \d/),
     ).toBeInTheDocument()
     expect(
-      within(screen.getByTestId('compliance-row-drop-accrued')).getByText(/^Дроп ·/),
+      within(screen.getByTestId('compliance-row-drop-accrued')).getByText(/^Дроп · \d/),
     ).toBeInTheDocument()
   })
 
@@ -452,7 +466,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     })
     render(<StatsPage />)
     expect(
-      within(screen.getByTestId('compliance-row-admin-senior-1')).getByText(/^Адмін-сеньйор ·/),
+      within(screen.getByTestId('compliance-row-admin-senior-1')).getByText(/^Адмін-сеньйор · \d/),
     ).toBeInTheDocument()
   })
 

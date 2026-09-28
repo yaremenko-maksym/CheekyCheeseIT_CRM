@@ -70,6 +70,14 @@ describe('InvoiceCard', () => {
   it('renders counterparty name', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
     expect(screen.getByText(/Иван Иванов/)).toBeInTheDocument()
+    // The space between "Контрагент:" and the name is its own JSX
+    // expression ({' '}) — assert the combined text so a StringLiteral
+    // mutant on it ("" instead of " ") fails.
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === 'SPAN' && el.textContent === 'Контрагент: Иван Иванов',
+      ),
+    ).toBeInTheDocument()
   })
 
   it('shows the "Очікується ваш підпис" hint when awaitingViewerSignature is true', () => {
