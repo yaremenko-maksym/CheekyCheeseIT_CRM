@@ -204,9 +204,14 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     // task-i18n-stage3d-pr4 (mutation-gate): pins the exact «Загальна сума»
     // and «Залишається вам» lines too, not just the payable figure — kills
     // the `totalIncome`/`totalOwn` reduce mutants that a payable-only
-    // assertion cannot distinguish (400 income, 400-296=104 kept).
+    // assertion cannot distinguish (400 income, 400-296=104 kept). Also
+    // rules out the SIGN of the reduce (a `sum - x` mutant on a
+    // single-element array renders "-400,00", which a plain SUBSTRING
+    // match against "400,00" would not catch).
     expect(total1).toHaveTextContent('400,00')
+    expect(total1).not.toHaveTextContent('-400,00')
     expect(total1).toHaveTextContent('104,00')
+    expect(total1).not.toHaveTextContent('-104,00')
     // Single income, single project — the exact singular plural forms.
     expect(total1).toHaveTextContent('1 прибуток · 1 проєкт')
 
@@ -220,6 +225,18 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     // income; the count STAYING at "1 проєкт" while incomes go to "2
     // прибутки" is exactly what distinguishes the two counts.
     expect(total2).toHaveTextContent('2 прибутки · 1 проєкт')
+  })
+
+  // task-i18n-stage3d-pr4 (mutation-gate): a THIRD income from a DIFFERENT
+  // project — the case the two-income test above cannot reach (A1+A2 are
+  // both Project Alpha, so their Set-of-projectId size never leaves 1). A
+  // mutant collapsing `.map((tx) => tx.projectId)` to `() => undefined`
+  // would still report "1 проєкт" here too; the real count is 2.
+  it('the project count in the selection total reflects TWO distinct projects when all three fixtures are selected', () => {
+    renderModal() // defaults to all three selected: A1+A2 (Project Alpha), B1 (Project Beta)
+    expect(screen.getByTestId('company-share-selection-total')).toHaveTextContent(
+      '3 прибутки · 2 проєкти',
+    )
   })
 
   it('shows the mixed-currency breakdown (with its own project/income counts) when selected incomes span more than one currency', () => {
@@ -258,7 +275,13 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
   // different code path entirely).
   it("shows each project's own income total (not the payable amount) next to its checkbox", () => {
     renderModal()
-    expect(screen.getByTestId(`company-share-project-row-${PROJECT_A}`)).toHaveTextContent('640,00')
+    const projectARow = screen.getByTestId(`company-share-project-row-${PROJECT_A}`)
+    expect(projectARow).toHaveTextContent('640,00')
+    // Rules out the SIGN of the `reduce` (a `sum - x` mutant on a
+    // 2-element array still yields a number whose digits contain "640,00"
+    // as a substring — "-640,00" — so the positive-only check above alone
+    // would not catch it).
+    expect(projectARow).not.toHaveTextContent('-640,00')
   })
 
   // task-i18n-stage3d-pr4 (mutation-gate). Both the checkbox `aria-label`
