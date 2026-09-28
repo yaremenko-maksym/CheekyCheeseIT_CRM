@@ -164,11 +164,21 @@ export type ObligationPreview = {
   amount: number
 }
 
+// i18n-3d-pr3 (Допущення, A1): `computeObligationPreviews` нижче — ЧИСТА
+// експортована функція без доступу до `useLingui()` (юніт-тест пінить кожну
+// гілку напряму, без React-дерева) — тому лейбли тут HARDCODED українською,
+// а не через `msg`/`i18n._`, на відміну від решти файлу. Другого оригіналу
+// (`en`) для ЦІЄЇ вузької банерної підказки немає — це задокументована,
+// оборотна прогалина, не мовчазний пропуск (AC1/AC5 цього PR її не вимагають
+// явно; повний білінгвальний варіант вимагав би зміни сигнатури функції й
+// типу `ObligationPreview`, що виходить за межі завдання).
+/* eslint-disable lingui/no-unlocalized-strings -- see comment above */
 const SHARE_SOURCE_LABEL: Record<string, string> = {
-  PROJECT: 'проект',
+  PROJECT: 'проєкт',
   TEAM: 'команда',
-  USER_DEFAULT: 'по умолчанию',
+  USER_DEFAULT: 'за замовчуванням',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 // task-admin-income-unified §3 (AC7): "считается на лету... показывается в
 // долларах — с учётом выбранной валюты и того же курса, который форма уже
@@ -205,7 +215,8 @@ export function computeObligationPreviews(
   if (project.seniorId && !seniorIsAdmin && project.effectiveSeniorSharePercent != null) {
     previews.push({
       role: 'SENIOR',
-      roleLabel: 'Синьору',
+      // eslint-disable-next-line lingui/no-unlocalized-strings -- see SHARE_SOURCE_LABEL note above
+      roleLabel: 'Сеньйору',
       name: project.seniorName || '—',
       percent: project.effectiveSeniorSharePercent,
       sourceLabel: SHARE_SOURCE_LABEL[project.effectiveSeniorShareSource ?? 'USER_DEFAULT']!,
@@ -215,6 +226,7 @@ export function computeObligationPreviews(
   if (project.dropId && project.effectiveDropSharePercent != null) {
     previews.push({
       role: 'DROP',
+      // eslint-disable-next-line lingui/no-unlocalized-strings -- see SHARE_SOURCE_LABEL note above
       roleLabel: 'Дропу',
       name: project.dropName || '—',
       percent: project.effectiveDropSharePercent,
@@ -1362,10 +1374,24 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             </div>
           )}
 
-          {/* Expense category — pill buttons */}
+          {/* Expense category — owner override 2026-09-28 (i18n-3d-pr3):
+              FREE TEXT, not a closed Select (see the identical note in
+              `AdminEditTransactionDialog`). The Input IS the field; the
+              chips below are translated quick-fill suggestions only —
+              clicking one fills the input, it does not validate or lock
+              the operator into these three. */}
           {type === 'EXPENSE' && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Категория</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Категорія</Trans>
+              </Label>
+              <Input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder={t`Категорія витрати`}
+                className="h-9 text-sm"
+                data-testid="create-transaction-expense-category-input"
+              />
               <div className="flex flex-wrap gap-1.5">
                 {EXPENSE_CATEGORIES.map((c) => (
                   <button
@@ -1378,8 +1404,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50',
                     )}
+                    data-testid={`create-transaction-expense-category-suggestion-${EXPENSE_CATEGORIES.indexOf(c)}`}
                   >
-                    {c}
+                    {i18n._(EXPENSE_CATEGORY_MESSAGES[c])}
                   </button>
                 ))}
               </div>
@@ -1394,7 +1421,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               {/* Balance summary */}
               <div className="space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Баланс счёта компании</span>
+                  <span className="text-muted-foreground">
+                    <Trans>Баланс рахунку компанії</Trans>
+                  </span>
                   <span
                     className="font-bold tabular-nums"
                     data-testid="create-transaction-dividend-balance"
@@ -1406,7 +1435,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
               {/* Receiver — ADMIN partner */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Получатель (партнёр)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Отримувач (партнер)</Trans>
+                </Label>
                 <Select
                   value={dividendReceiverId}
                   onValueChange={(v) => {
@@ -1418,7 +1449,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                     data-testid="create-transaction-dividend-receiver-trigger"
                   >
-                    <SelectValue placeholder="Выберите партнёра" />
+                    <SelectValue placeholder={t`Виберіть партнера`} />
                   </SelectTrigger>
                   <SelectContent>
                     {adminUsers.map((u) => (
@@ -1440,7 +1471,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
               {/* USDT amount */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Сумма (USDT)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Сума (USDT)</Trans>
+                </Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                     $
@@ -1457,7 +1490,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       'h-9 pl-7 text-sm tabular-nums',
                       fieldErrors.amount && 'border-destructive',
                     )}
-                    aria-label="Сумма дивидендов в USDT"
+                    aria-label={t`Сума дивідендів у USDT`}
                     data-testid="create-transaction-dividend-amount"
                   />
                 </div>
@@ -1495,7 +1528,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Date (non-dividend types) */}
           {type !== 'DIVIDEND' && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Дата транзакции</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Дата транзакції</Trans>
+              </Label>
               <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
             </div>
           )}
@@ -1510,7 +1545,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   setReceipt(s)
                   clearFieldError('receipt')
                 }}
-                label="Чек / подтверждение *"
+                label={t`Чек / підтвердження *`}
                 explorerOnly={isExplorerOnly}
                 error={fieldErrors.receipt}
               />
@@ -1528,12 +1563,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Notes */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">
-              Заметки <span className="text-muted-foreground/50">(необязательно)</span>
+              <Trans>Примітки</Trans>{' '}
+              <span className="text-muted-foreground/50">
+                <Trans>(необов’язково)</Trans>
+              </span>
             </Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Дополнительная информация..."
+              placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
             />
@@ -1549,7 +1587,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-field-error-summary"
           >
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            Заполните выделенные поля
+            <Trans>Заповніть виділені поля</Trans>
           </div>
         )}
 
@@ -1580,15 +1618,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               >
                 {p.roleLabel} <span className="font-medium">{p.name}</span>{' '}
                 {hasPositiveAmount ? (
-                  <>
-                    будет начислено{' '}
+                  <Trans>
+                    буде нараховано{' '}
                     <span
                       className="font-bold tabular-nums"
                       data-testid={`admin-income-obligation-amount-${p.role.toLowerCase()}`}
                     >
                       {fmtUsdt(p.amount)} USDT
                     </span>{' '}
-                  </>
+                  </Trans>
                 ) : (
                   // task-admin-income-unified (§3, AC7): an empty/zero amount must NOT
                   // claim a $0.00 figure — that reads as "no share will be created",
@@ -1596,13 +1634,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   // qualitative fact ("a share WILL be booked") — see the module doc
                   // above §3 for why the condition is deliberately wider than "receiver
                   // is an admin".
-                  'будет создана доля '
+                  <Trans>буде створена частка </Trans>
                 )}
-                (доля {p.percent}%, источник:{' '}
-                <span data-testid={`admin-income-obligation-source-${p.role.toLowerCase()}`}>
-                  {p.sourceLabel}
-                </span>
-                )
+                <Trans>
+                  (частка {p.percent}%, джерело:{' '}
+                  <span data-testid={`admin-income-obligation-source-${p.role.toLowerCase()}`}>
+                    {p.sourceLabel}
+                  </span>
+                  )
+                </Trans>
               </p>
             ))}
           </div>
@@ -1618,7 +1658,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             }}
             data-testid="create-transaction-cancel"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             size="sm"
@@ -1627,7 +1667,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-submit"
             data-track="transaction-create"
           >
-            {mutation.isPending ? 'Создание...' : 'Создать транзакцию'}
+            {mutation.isPending ? t`Створення…` : t`Створити транзакцію`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
