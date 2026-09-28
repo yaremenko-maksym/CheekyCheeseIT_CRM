@@ -1,12 +1,13 @@
 """Tests for signal_plus.config — env-driven configuration."""
 from __future__ import annotations
 
+import hashlib
 from datetime import time
 from pathlib import Path
 
 import pytest
 
-from signal_plus.config import Config, ConfigError
+from signal_plus.config import Config, ConfigError, config_for_account, resolve_configs
 
 REQUIRED_ENV = {
     "SIGNAL_ACCOUNT": "+380501234567",
@@ -179,3 +180,146 @@ def test_skip_weekdays_rejects_invalid_values(bad_value):
     with pytest.raises(ConfigError) as exc_info:
         Config.from_env(env)
     assert "SIGNAL_SKIP_WEEKDAYS" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# resolve_configs (multi-account, 2026-09-28): SIGNAL_ACCOUNTS is a
+# comma-separated list of E.164 numbers served by one container. Everything
+# else (group, cli bin, alerting, handover, skip-weekdays, tmpdir, auto-update)
+# is shared. Each account gets its own derived state file. Absent/blank
+# SIGNAL_ACCOUNTS -> exactly the pre-existing single-account behaviour.
+# ---------------------------------------------------------------------------
+
+MULTI_ENV = {
+    "SIGNAL_ACCOUNTS": "+380501112233,+380509998877",
+    "SIGNAL_GROUP_ID": "group.abc123==",
+    "SIGNAL_CLI_BIN": "/opt/signal-cli/bin/signal-cli",
+    "STATE_FILE": "/data/signal-plus/state.json",
+}
+
+
+def _expected_state_file(base: str, number: str) -> Path:
+    base_path = Path(base)
+    slug = hashlib.sha256(number.encode("utf-8")).hexdigest()[:12]
+    return base_path.parent / f"{base_path.stem}-{slug}{base_path.suffix}"
+
+
+def test_resolve_configs_single_when_accounts_unset_matches_from_env():
+    got = resolve_configs(dict(REQUIRED_ENV))
+    assert len(got) == 1
+    assert got[0] == Config.from_env(dict(REQUIRED_ENV))
+
+
+def test_resolve_configs_single_when_accounts_blank():
+    env = dict(REQUIRED_ENV, SIGNAL_ACCOUNTS="   ")
+    got = resolve_configs(env)
+    assert len(got) == 1
+    assert got[0].signal_account == REQUIRED_ENV["SIGNAL_ACCOUNT"]
+
+
+def test_resolve_configs_builds_one_config_per_account():
+    got = resolve_configs(dict(MULTI_ENV))
+    assert [c.signal_account for c in got] == ["+380501112233", "+380509998877"]
+
+
+def test_resolve_configs_shares_group_across_all_accounts():
+    got = resolve_configs(dict(MULTI_ENV))
+    assert {c.signal_group_id for c in got} == {"group.abc123=="}
+
+
+def test_resolve_configs_derives_distinct_state_file_per_account():
+    got = resolve_configs(dict(MULTI_ENV))
+    assert got[0].state_file == _expected_state_file(MULTI_ENV["STATE_FILE"], "+380501112233")
+    assert got[1].state_file == _expected_state_file(MULTI_ENV["STATE_FILE"], "+380509998877")
+    assert got[0].state_file != got[1].state_file
+
+
+def test_resolve_configs_state_file_slug_never_contains_the_raw_number():
+    got = resolve_configs(dict(MULTI_ENV))
+    for cfg in got:
+        assert cfg.signal_account not in str(cfg.state_file)
+
+
+def test_resolve_configs_does_not_require_single_signal_account_in_multi_mode():
+    env = dict(MULTI_ENV)  # no SIGNAL_ACCOUNT key at all
+    got = resolve_configs(env)
+    assert len(got) == 2
+
+
+def test_resolve_configs_tolerates_surrounding_whitespace_between_accounts():
+    env = dict(MULTI_ENV, SIGNAL_ACCOUNTS=" +380501112233 , +380509998877 ")
+    got = resolve_configs(env)
+    assert [c.signal_account for c in got] == ["+380501112233", "+380509998877"]
+
+
+def test_resolve_configs_single_account_list_is_allowed():
+    env = dict(MULTI_ENV, SIGNAL_ACCOUNTS="+380501112233")
+    got = resolve_configs(env)
+    assert len(got) == 1
+    assert got[0].signal_account == "+380501112233"
+
+
+def test_resolve_configs_propagates_shared_optional_settings():
+    env = dict(
+        MULTI_ENV,
+        HANDOVER_TIME="08:30",
+        SIGNAL_SKIP_WEEKDAYS="6,7",
+        ALERT_EMAIL_TO="owner@example.com",
+        SIGNAL_ALERT_RECIPIENT="+380500000000",
+    )
+    got = resolve_configs(env)
+    assert all(c.handover_time == time(8, 30) for c in got)
+    assert all(c.skip_weekdays == frozenset({6, 7}) for c in got)
+    assert all(c.alert_email_to == "owner@example.com" for c in got)
+    assert all(c.signal_alert_recipient == "+380500000000" for c in got)
+
+
+def test_resolve_configs_rejects_blank_account_entry():
+    env = dict(MULTI_ENV, SIGNAL_ACCOUNTS="+380501112233,,+380509998877")
+    with pytest.raises(ConfigError) as exc_info:
+        resolve_configs(env)
+    assert "SIGNAL_ACCOUNTS" in str(exc_info.value)
+
+
+def test_resolve_configs_rejects_duplicate_account():
+    env = dict(MULTI_ENV, SIGNAL_ACCOUNTS="+380501112233,+380501112233")
+    with pytest.raises(ConfigError) as exc_info:
+        resolve_configs(env)
+    assert "SIGNAL_ACCOUNTS" in str(exc_info.value)
+
+
+def test_resolve_configs_requires_state_file_in_multi_mode():
+    env = dict(MULTI_ENV)
+    del env["STATE_FILE"]
+    with pytest.raises(ConfigError):
+        resolve_configs(env)
+
+
+def test_resolve_configs_requires_group_in_multi_mode():
+    env = dict(MULTI_ENV)
+    del env["SIGNAL_GROUP_ID"]
+    with pytest.raises(ConfigError):
+        resolve_configs(env)
+
+
+def test_resolve_configs_defaults_to_os_environ(monkeypatch):
+    for key, value in MULTI_ENV.items():
+        monkeypatch.setenv(key, value)
+    got = resolve_configs()
+    assert [c.signal_account for c in got] == ["+380501112233", "+380509998877"]
+
+
+def test_config_for_account_uses_given_account_ignoring_accounts_list():
+    # --test targets a freshly-linked account that is deliberately NOT in
+    # SIGNAL_ACCOUNTS yet; config_for_account must still build a valid Config
+    # for it from the shared env.
+    env = dict(MULTI_ENV)  # SIGNAL_ACCOUNTS lists two OTHER numbers
+    cfg = config_for_account("+380500000000", env)
+    assert cfg.signal_account == "+380500000000"
+    assert cfg.signal_group_id == "group.abc123=="
+
+
+def test_config_for_account_works_without_signal_accounts_set():
+    env = dict(REQUIRED_ENV)  # plain single-account env, no SIGNAL_ACCOUNTS
+    cfg = config_for_account("+380500000000", env)
+    assert cfg.signal_account == "+380500000000"

@@ -26,6 +26,7 @@ re-implementing this.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from dataclasses import dataclass
 from datetime import time
@@ -158,3 +159,100 @@ class Config:
             signal_tmpdir=Path(signal_tmpdir_raw) if signal_tmpdir_raw else DEFAULT_SIGNAL_TMPDIR,
             skip_weekdays=_parse_skip_weekdays(skip_weekdays_raw),
         )
+
+
+def _parse_accounts(raw: str, *, env_name: str = "SIGNAL_ACCOUNTS") -> list[str]:
+    """Parse the comma-separated ``SIGNAL_ACCOUNTS`` list (multi-account mode,
+    2026-09-28). Mirrors :func:`_parse_skip_weekdays`' validation style:
+    rejects blank entries and duplicates, with a message naming the variable.
+
+    A duplicate account is rejected rather than silently deduplicated because
+    two identical numbers would resolve to the same per-account state file and
+    make the daemon send that account's "+" twice — exactly what the
+    idempotency state exists to prevent. Order is preserved (the list is the
+    daily processing seed, and a stable order keeps logs readable).
+    """
+    accounts: list[str] = []
+    for token in raw.split(","):
+        token = token.strip()
+        if not token:
+            raise ConfigError(f"{env_name}={raw!r} contains an empty account entry")
+        if token in accounts:
+            raise ConfigError(f"{env_name}={raw!r}: duplicate account {mask_secret(token)}")
+        accounts.append(token)
+    return accounts
+
+
+def _per_account_state_file(base: Path, account: str) -> Path:
+    """Derive one account's state file from the shared ``STATE_FILE`` base.
+
+    ``/data/signal-plus/state.json`` + ``+380...`` ->
+    ``/data/signal-plus/state-<sha256(account)[:12]>.json``. A stable hash of
+    the number, never the number itself: the account is a secret masked
+    everywhere in logs (:func:`mask_secret`), so it must not leak into a
+    filename on disk either. The 12-hex-char prefix is collision-safe for the
+    handful of accounts one container serves.
+    """
+    slug = hashlib.sha256(account.encode("utf-8")).hexdigest()[:12]
+    return base.parent / f"{base.stem}-{slug}{base.suffix}"
+
+
+def resolve_configs(env: dict[str, str] | None = None) -> list[Config]:
+    """Build the list of per-account :class:`Config`s the daemon serves.
+
+    Multi-account mode (2026-09-28): every hardened module
+    (:mod:`signal_plus.signal`/:mod:`~signal_plus.updater`/
+    :mod:`~signal_plus.alert`/:mod:`~signal_plus.slot`/:mod:`~signal_plus.state`)
+    is already per-``Config`` — it drives ``signal-cli -a
+    <config.signal_account>`` and reads/writes ``config.state_file``. So
+    "several accounts" is just "several ``Config``s", built here without
+    changing the shape of ``Config`` or touching those modules.
+
+    - ``SIGNAL_ACCOUNTS`` unset/blank -> ``[Config.from_env(env)]``: the
+      pre-existing single-account behaviour, byte-for-byte unchanged (the whole
+      existing deploy and test suite exercise exactly this path).
+    - ``SIGNAL_ACCOUNTS`` set -> one ``Config`` per number, each built by
+      reusing :meth:`Config.from_env` on a per-account view of the env with
+      ``SIGNAL_ACCOUNT`` set to that number and ``STATE_FILE`` set to its
+      derived path. Reusing ``from_env`` (rather than constructing ``Config``
+      directly) means every shared setting — group, cli bin, handover,
+      skip-weekdays, tmpdir, auto-update, alerting — is parsed and validated
+      exactly once, the same way, for all accounts.
+    """
+    source = os.environ if env is None else env
+    accounts_raw = source.get("SIGNAL_ACCOUNTS", "").strip()
+    if not accounts_raw:
+        return [Config.from_env(source)]
+
+    accounts = _parse_accounts(accounts_raw)
+
+    base_state_raw = source.get("STATE_FILE", "").strip()
+    if not base_state_raw:
+        raise ConfigError("STATE_FILE is required and must not be empty")
+    base_state = Path(base_state_raw)
+
+    configs: list[Config] = []
+    for account in accounts:
+        per_account_env = dict(source)
+        per_account_env["SIGNAL_ACCOUNT"] = account
+        per_account_env["STATE_FILE"] = str(_per_account_state_file(base_state, account))
+        configs.append(Config.from_env(per_account_env))
+    return configs
+
+
+def config_for_account(account: str, env: dict[str, str] | None = None) -> Config:
+    """Build one :class:`Config` for a specific ``account``, using the shared
+    env for everything else — regardless of whether that account is listed in
+    ``SIGNAL_ACCOUNTS``.
+
+    Used by ``signal-plus --test <account>`` (2026-09-28): the test send is run
+    against a **freshly-linked** account that is deliberately **not** in the
+    live ``SIGNAL_ACCOUNTS`` list yet (the whole point is to verify it before
+    adding it to the roll-call), so it cannot come from :func:`resolve_configs`.
+    ``STATE_FILE`` is still required by :meth:`Config.from_env` but the test
+    send is stateless and never reads or writes it.
+    """
+    source = os.environ if env is None else env
+    per_account_env = dict(source)
+    per_account_env["SIGNAL_ACCOUNT"] = account
+    return Config.from_env(per_account_env)

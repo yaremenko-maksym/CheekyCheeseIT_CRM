@@ -125,3 +125,44 @@ def test_healthy_on_configured_extra_skip_weekday_past_cutoff(required_env, monk
     monkeypatch.setenv("SIGNAL_SKIP_WEEKDAYS", "6,7")
     ok, detail = healthcheck.check(_kyiv(2026, 9, 5, 9, 0))  # Saturday, past 08:00
     assert ok is True
+
+
+# ---------------------------------------------------------------------------
+# Multi-account (2026-09-28): the container is healthy only when EVERY account
+# is healthy; one stuck account makes the whole container unhealthy and is
+# named (masked) so it is not hidden behind the others.
+# ---------------------------------------------------------------------------
+
+_ACCOUNTS = ["+380501112233", "+380509998877"]
+
+
+@pytest.fixture
+def multi_env(monkeypatch, tmp_path):
+    from signal_plus.config import _per_account_state_file
+
+    base = tmp_path / "state.json"
+    monkeypatch.delenv("SIGNAL_ACCOUNT", raising=False)
+    monkeypatch.setenv("SIGNAL_ACCOUNTS", ",".join(_ACCOUNTS))
+    monkeypatch.setenv("SIGNAL_GROUP_ID", "group.abc123==")
+    monkeypatch.setenv("SIGNAL_CLI_BIN", "/opt/signal-cli/bin/signal-cli")
+    monkeypatch.setenv("STATE_FILE", str(base))
+    return {account: _per_account_state_file(base, account) for account in _ACCOUNTS}
+
+
+def test_multi_healthy_only_when_all_accounts_resolved(multi_env):
+    for state_file in multi_env.values():
+        save_state(state_file, State(last_success_date=date(2026, 9, 3)))
+    ok, detail = healthcheck.check(_kyiv(2026, 9, 3, 9, 0))
+    assert ok is True
+
+
+def test_multi_unhealthy_when_one_account_stuck_past_cutoff(multi_env):
+    # First account sent, second never resolved -> whole container unhealthy,
+    # naming the stuck (masked) account.
+    save_state(multi_env[_ACCOUNTS[0]], State(last_success_date=date(2026, 9, 3)))
+    # second account: no state written at all
+    ok, detail = healthcheck.check(_kyiv(2026, 9, 3, 8, 30))
+    assert ok is False
+    assert "past the" in detail
+    assert detail.startswith("[+***7]")  # masked account named, raw number never present
+    assert _ACCOUNTS[1] not in detail

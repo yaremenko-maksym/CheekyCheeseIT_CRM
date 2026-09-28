@@ -28,7 +28,9 @@ from signal_plus.updater import OUTDATED_CLIENT_MESSAGE  # module-level: see
 # under test, so it is worked around here rather than "fixed" anywhere real.
 from signal_plus.signal import (
     SignalResult,
+    find_group_id_by_name,
     list_groups,
+    list_groups_json,
     receive,
     send_direct_message,
     send_group_message,
@@ -358,3 +360,55 @@ def test_exception_message_is_sanitized_like_any_other_output(config):
     result = receive(config, run=raising_run)
     assert result.ok is False
     assert config.signal_account not in result.output
+
+
+# ---------------------------------------------------------------------------
+# Multi-account test send (2026-09-28): find an account's group named «тест»
+# by NAME, via the machine-readable `--output json listGroups`. JSON schema
+# verified against AsamK/signal-cli v0.14.7 ListGroupsCommand.java's JsonGroup
+# record: each object carries `id` (base64 group id) and `name` (group title).
+# ---------------------------------------------------------------------------
+
+
+def test_list_groups_json_invokes_output_json_before_listgroups(config):
+    fake = RecordingRun(stdout="[]")
+    list_groups_json(config, run=fake)
+    assert fake.calls == [
+        [
+            "/opt/signal-cli/bin/signal-cli",
+            "-Djava.io.tmpdir=/data/tmp",
+            "-a",
+            "+380501234567",
+            "--output",
+            "json",
+            "listGroups",
+        ]
+    ]
+
+
+def test_find_group_id_by_name_matches_exact_name():
+    listing = '[{"id":"testGID==","name":"тест"},{"id":"realGID==","name":"Команда"}]'
+    assert find_group_id_by_name(listing, "тест") == "testGID=="
+
+
+def test_find_group_id_by_name_is_case_insensitive_and_trims():
+    listing = '[{"id":"g==","name":"  Тест  "}]'
+    assert find_group_id_by_name(listing, "тест") == "g=="
+
+
+def test_find_group_id_by_name_returns_none_when_absent():
+    listing = '[{"id":"g==","name":"Команда"}]'
+    assert find_group_id_by_name(listing, "тест") is None
+
+
+def test_find_group_id_by_name_returns_none_on_invalid_json():
+    assert find_group_id_by_name("not json at all", "тест") is None
+
+
+def test_find_group_id_by_name_returns_none_on_non_list_json():
+    assert find_group_id_by_name('{"id":"g==","name":"тест"}', "тест") is None
+
+
+def test_find_group_id_by_name_tolerates_missing_name_field():
+    listing = '[{"id":"g=="},{"id":"t==","name":"тест"}]'
+    assert find_group_id_by_name(listing, "тест") == "t=="

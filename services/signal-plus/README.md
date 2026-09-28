@@ -48,10 +48,11 @@ cp .env.example .env   # then fill in real values
 ```
 
 ```bash
-signal-plus --groups   # list Signal groups with their ids, then exit
-signal-plus --now       # send immediately, skipping the slot wait AND the Sunday/weekday skip (idempotency still respected)
-signal-plus --once      # run a single cycle (wait for the slot, send, exit)
-signal-plus              # daemon: repeats forever, one cycle per day
+signal-plus --groups          # list Signal groups with their ids, then exit
+signal-plus --test +380...     # send one test "+" to that account's group named «тест», then exit (verify a freshly-linked account)
+signal-plus --now              # send immediately, skipping the slot wait AND the Sunday/weekday skip (idempotency still respected)
+signal-plus --once             # run a single cycle (wait for the slot, send, exit)
+signal-plus                    # daemon: repeats forever, one cycle per day, for every configured account
 ```
 
 ## Configuration
@@ -59,20 +60,62 @@ signal-plus              # daemon: repeats forever, one cycle per day
 Everything is env-driven (`signal_plus/config.py`) — nothing is hardcoded,
 no secret is ever in source. Full reference: `.env.example`.
 
-| Variable                     | Required | Purpose                                                                    |
-| ---------------------------- | -------- | -------------------------------------------------------------------------- |
-| `SIGNAL_ACCOUNT`             | yes      | the sending account (masked in logs)                                       |
-| `SIGNAL_GROUP_ID`            | yes      | target group                                                               |
-| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                                 |
-| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                                    |
-| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)                      |
-| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)           |
-| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)                   |
-| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                             |
-| `SIGNAL_SKIP_WEEKDAYS`       | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7` |
-| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped)         |
-| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                                   |
-| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)                      |
+| Variable                     | Required | Purpose                                                                                                                                                                                               |
+| ---------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SIGNAL_ACCOUNTS`            | no       | comma-separated E.164 list — several accounts served by one container (multi-account). When set, `SIGNAL_ACCOUNT` is ignored and each account gets its own derived state file and its own random slot |
+| `SIGNAL_ACCOUNT`             | yes\*    | the single sending account (masked in logs). \*Required only when `SIGNAL_ACCOUNTS` is unset                                                                                                          |
+| `SIGNAL_GROUP_ID`            | yes      | target group (shared by all accounts)                                                                                                                                                                 |
+| `SIGNAL_CLI_BIN`             | yes      | path to the `signal-cli` executable to run                                                                                                                                                            |
+| `STATE_FILE`                 | yes      | path to the JSON idempotency/state file                                                                                                                                                               |
+| `SIGNAL_DATA_DIR`            | no       | volume root for auto-update (unset = auto-update off)                                                                                                                                                 |
+| `SIGNAL_CLI_GPG_FINGERPRINT` | no       | required release-signature fingerprint (unset = auto-update off)                                                                                                                                      |
+| `SIGNAL_ALERT_RECIPIENT`     | no       | personal DM alert recipient (unset = that layer skipped)                                                                                                                                              |
+| `HANDOVER_TIME`              | no       | handover cutoff, `HH:MM` Kyiv, default `08:00`                                                                                                                                                        |
+| `SIGNAL_SKIP_WEEKDAYS`       | no       | ISO weekdays (1=Mon..7=Sun) to skip entirely, comma-separated, default `7`                                                                                                                            |
+| `RESEND_API_KEY`             | no       | Resend API key for the handover email (unset = that layer skipped)                                                                                                                                    |
+| `ALERT_EMAIL_FROM`           | no       | sender, default `site@cheekycheese.tech`                                                                                                                                                              |
+| `ALERT_EMAIL_TO`             | no       | handover email recipient (unset = that layer skipped)                                                                                                                                                 |
+
+## Несколько участников (multi-account)
+
+Один контейнер может обслуживать несколько аккаунтов — каждый человек шлёт
+`+` со своего номера в **ту же** группу переклички. Всё общее (группа, путь к
+signal-cli, авто-апдейт, алерты, handover, пропуск дней) задаётся один раз;
+per-account — только номер.
+
+```bash
+# .env
+SIGNAL_ACCOUNTS=+380501112233,+380509998877
+SIGNAL_GROUP_ID=group.abc123==            # общая группа для всех
+SIGNAL_CLI_BIN=/data/signal-cli/bin/current
+STATE_FILE=/data/signal-plus/state.json   # база: у каждого аккаунта свой state-<hash>.json рядом
+```
+
+- У каждого аккаунта **свой случайный слот** в 07:00–07:45 (независимо — два
+  `+` не уходят в один момент) и **своя идемпотентность** (отдельный
+  `state-<hash>.json`, имя — стабильный хэш номера, сам номер в имя файла не
+  попадает).
+- Демон обходит аккаунты по очереди в порядке их слотов (один поток, никаких
+  параллельных вызовов signal-cli).
+- Алерты и healthcheck называют **маскированный** аккаунт, у которого не ушёл
+  `+`. Контейнер «здоров» только если здоровы все аккаунты.
+- `SIGNAL_ACCOUNTS` не задан → работает как раньше, один `SIGNAL_ACCOUNT`.
+
+### Добавить участника
+
+1. Создай на его аккаунте группу с названием **тест** (для проверочного `+`)
+   и добавь его в общую группу переклички.
+2. Привяжи его номер по QR в том же контейнере (один data dir держит несколько
+   привязанных устройств) — см. «Линковка» ниже, но с новым `-a <номер>`.
+3. Проверь, что аккаунт реально шлёт, тестовым `+` в его группу «тест»:
+   ```bash
+   signal-plus --test +380XXXXXXXXX
+   ```
+   Тул сам находит группу «тест» этого аккаунта (`--output json listGroups`),
+   делает `receive` + `send +` туда и печатает результат. Состояние переклички
+   при этом не трогается.
+4. Убедился, что `+` пришёл в «тест» → добавь номер в `SIGNAL_ACCOUNTS`,
+   перезадеплой. Со следующего утра аккаунт участвует в перекличке.
 
 ## Testing
 

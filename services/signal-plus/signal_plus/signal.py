@@ -19,6 +19,7 @@ explicit argv list, never ``shell=True``.
 """
 from __future__ import annotations
 
+import json
 import re
 import subprocess
 from dataclasses import dataclass
@@ -212,3 +213,55 @@ def list_groups(
 ) -> SignalResult:
     """``signal-cli -a <account> listGroups`` — requirement 7's ``--groups`` mode."""
     return _run_signal_cli(config, ["listGroups"], run=run, timeout=timeout)
+
+
+def list_groups_json(
+    config: Config, *, run=subprocess.run, timeout: float = DEFAULT_TIMEOUT_SECONDS
+) -> SignalResult:
+    """``signal-cli --output json -a <account> listGroups`` — machine-readable
+    group listing for the test-send group lookup (multi-account, 2026-09-28).
+
+    The human ``list_groups`` output above is what the owner reads by eye
+    (``--groups`` / README step 3); it has no stable, documented line format to
+    parse. The global ``--output json`` mode does: verified against
+    ``AsamK/signal-cli`` tag ``v0.14.7``,
+    ``src/main/java/org/asamk/signal/commands/ListGroupsCommand.java`` — its
+    ``JsonGroup`` record's first two fields are ``String id`` (base64 group id)
+    and ``String name`` (group title), and the man page states listGroups "in
+    json mode ... is outputted as a list of objects". ``--output`` is a global
+    option and must precede the subcommand, so it is passed ahead of
+    ``listGroups`` here (``-a`` is likewise global; order among globals is
+    irrelevant to signal-cli).
+    """
+    return _run_signal_cli(config, ["--output", "json", "listGroups"], run=run, timeout=timeout)
+
+
+def find_group_id_by_name(groups_json: str, target_name: str) -> str | None:
+    """Return the ``id`` of the group whose ``name`` equals ``target_name``
+    (case-insensitive, surrounding whitespace ignored) in the JSON produced by
+    :func:`list_groups_json`, or ``None`` if there is no such group or the
+    input is not the expected JSON array.
+
+    Fails closed (``None``) rather than raising: the caller
+    (:func:`signal_plus.cli.run_test_send`) turns a ``None`` into a logged
+    error + a failed test result, which is exactly the "could not find your
+    «тест» group" outcome the owner needs to see when a freshly-linked account
+    has no such group yet. Matching by name (not id) is the whole point of the
+    2026-09-28 owner decision: the owner just creates a group called «тест» on
+    the new account and never copies a group id.
+    """
+    try:
+        groups = json.loads(groups_json)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    if not isinstance(groups, list):
+        return None
+    wanted = target_name.strip().casefold()
+    for group in groups:
+        if not isinstance(group, dict):
+            continue
+        name = group.get("name")
+        if isinstance(name, str) and name.strip().casefold() == wanted:
+            group_id = group.get("id")
+            return group_id if isinstance(group_id, str) else None
+    return None
