@@ -16,28 +16,6 @@ import { compareNames, type Document, type Locale } from '@crm/shared'
 
 export type SortKey = 'date_desc' | 'date_asc' | 'name_asc' | 'name_desc' | 'size_desc' | 'size_asc'
 
-// task-i18n-stage3a (Task 2), Step 3 — legacy export, LEFT UNCHANGED (still
-// a plain `Record<SortKey, string>` array, still Russian, letters-of-the-
-// alphabet labels included): the only current consumer,
-// `routes/_authenticated/documents.tsx:514` (`{opt.label}` rendered
-// directly as a JSX child inside `<SelectItem>`), belongs to wave (e), not
-// started. Swapping `label`'s type to `MessageDescriptor` here without
-// migrating that consumer would not just render wrong — Lingui's
-// `MessageDescriptor` is a plain object, and React throws
-// `Objects are not valid as a React child`, crashing the whole /documents
-// page for the entire gap between this PR and wave (e)'s merge.
-// `SORT_OPTION_MESSAGES` below is the new canon for consumers inside this
-// wave's perimeter; the legacy export is removed once wave (e) migrates
-// `documents.tsx` to it (see the plan's "Опасность" for this Step).
-export const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
-  { value: 'date_desc', label: 'Сначала новые' },
-  { value: 'date_asc', label: 'Сначала старые' },
-  { value: 'name_asc', label: 'Имя: А-Я' },
-  { value: 'name_desc', label: 'Имя: Я-А' },
-  { value: 'size_desc', label: 'Размер: больше' },
-  { value: 'size_asc', label: 'Размер: меньше' },
-]
-
 /**
  * task-i18n-stage3a (Task 2), Step 3 — new canon (Шаблон A). `msg` (module
  * level, `@lingui/core/macro`) fixes each option's SOURCE (`uk`) text as a
@@ -51,6 +29,11 @@ export const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
  * "За ім’ям: за зростанням" stacked two "за"s and "Розмір: більше" left
  * "more/less THAN WHAT" unanswered where en's "largest first" already
  * settled it.
+ *
+ * task-i18n-stage3e-pr1: the legacy plain `Array<{ value, label: string }>`
+ * export (still Russian) that used to sit above this one is gone —
+ * `documents.tsx`, its only consumer, now reads `SORT_OPTION_MESSAGES`
+ * directly (`i18n._(opt.label)` at render time).
  */
 export const SORT_OPTION_MESSAGES: Array<{ value: SortKey; label: MessageDescriptor }> = [
   { value: 'date_desc', label: msg`Спочатку нові` },

@@ -10,10 +10,10 @@ import type { Document } from '@crm/shared'
 import { loadCatalog } from '@/test/i18n'
 import {
   DEFAULT_SORT,
-  SORT_OPTIONS,
   SORT_OPTION_MESSAGES,
   filterDocuments,
   sortDocuments,
+  type SortKey,
 } from './documents-filter-sort'
 
 // ---------------------------------------------------------------------------
@@ -234,15 +234,22 @@ describe('sortDocuments', () => {
 
 // ---------------------------------------------------------------------------
 // SORT_OPTION_MESSAGES (task-i18n-stage3a, Task 2, Step 3 — fix-round 1,
-// SPEC-H-3). `SORT_OPTIONS` (legacy, still Russian) is left UNCHANGED — its
-// only consumer, `documents.tsx`, belongs to wave (e); this pins that its
-// shape/values are untouched while `SORT_OPTION_MESSAGES` becomes the new
-// canon for consumers inside this wave's perimeter.
+// SPEC-H-3; the legacy plain-string export removed by task-i18n-stage3e-pr1
+// once its only consumer, `documents.tsx`, migrated onto this canon).
 // ---------------------------------------------------------------------------
 
+const SORT_KEYS: SortKey[] = [
+  'date_desc',
+  'date_asc',
+  'name_asc',
+  'name_desc',
+  'size_desc',
+  'size_asc',
+]
+
 describe('SORT_OPTION_MESSAGES', () => {
-  it('has one entry per SortKey, in the same order as the legacy SORT_OPTIONS', () => {
-    expect(SORT_OPTION_MESSAGES.map((o) => o.value)).toEqual(SORT_OPTIONS.map((o) => o.value))
+  it('has exactly one entry per SortKey', () => {
+    expect(SORT_OPTION_MESSAGES.map((o) => o.value).sort()).toEqual([...SORT_KEYS].sort())
   })
 
   it('resolves to uk/en text per the active locale', async () => {
@@ -269,9 +276,8 @@ describe('SORT_OPTION_MESSAGES', () => {
     expect(resolve('size_asc')).toBe('Спочатку менші')
   })
 
-  it('leaves the legacy SORT_OPTIONS export untouched (type: string, Russian text)', () => {
-    expect(SORT_OPTIONS.find((o) => o.value === DEFAULT_SORT)?.label).toBe('Сначала новые')
-    for (const opt of SORT_OPTIONS) expect(typeof opt.label).toBe('string')
+  it('DEFAULT_SORT points at an entry that actually exists in SORT_OPTION_MESSAGES', () => {
+    expect(SORT_OPTION_MESSAGES.some((o) => o.value === DEFAULT_SORT)).toBe(true)
   })
 })
 
