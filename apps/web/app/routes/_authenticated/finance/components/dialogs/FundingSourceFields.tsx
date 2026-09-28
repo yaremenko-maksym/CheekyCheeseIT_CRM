@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import { AlertCircle } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { formatNumber } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
 import { Label } from '@/components/ui/label'
@@ -22,10 +25,6 @@ type UserOption = { id: string; displayName: string; role: string }
 export const COMPANY_ACCOUNT_VALUE = 'COMPANY' as const
 
 export const CURRENCIES: Currency[] = ['USDT', 'USD', 'EUR', 'UAH']
-
-function fmtUsdt(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
 
 /**
  * Shared funding-source picker for pay-time money dialogs (PaySalaryDialog,
@@ -51,7 +50,7 @@ export function FundingSourceFields({
   disableCompanyAccount = false,
   disableCompanyAccountReason,
 }: {
-  /** COMPANY_ACCOUNT_VALUE (Счёт компании) OR an ADMIN partner id. */
+  /** COMPANY_ACCOUNT_VALUE (company account) OR an ADMIN partner id. */
   account: string
   /** Omit entirely when `hideCurrency` is true. */
   currency?: Currency
@@ -87,6 +86,8 @@ export function FundingSourceFields({
   disableCompanyAccount?: boolean
   disableCompanyAccountReason?: string | undefined
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const isCompany = account === COMPANY_ACCOUNT_VALUE
 
   // Admin partners (Maksym / Kostya) for the ADMIN_PERSONAL options. Same source
@@ -108,9 +109,11 @@ export function FundingSourceFields({
 
   return (
     <>
-      {/* Account selector — С какого счёта оплачено */}
+      {/* Account selector — з якого рахунку оплачено */}
       <div className="space-y-2" data-testid={`${testIdPrefix}-account-section`}>
-        <Label className="text-xs text-muted-foreground">С какого счёта оплачено</Label>
+        <Label className="text-xs text-muted-foreground">
+          <Trans>З якого рахунку оплачено</Trans>
+        </Label>
         <div className="grid grid-cols-1 gap-1.5">
           {/* Company account — default, UNLESS disableCompanyAccount (HIGH-1:
               a cascade-originated drop obligation's money never touched the
@@ -133,11 +136,13 @@ export function FundingSourceFields({
             data-testid={`${testIdPrefix}-account-company`}
           >
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium leading-tight">Счёт компании</div>
+              <div className="text-sm font-medium leading-tight">
+                <Trans>Рахунок компанії</Trans>
+              </div>
               <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                 {disableCompanyAccount
-                  ? (disableCompanyAccountReason ?? 'Недоступно для этой выплаты')
-                  : 'Спишется со счёта компании (USDT)'}
+                  ? (disableCompanyAccountReason ?? t`Недоступно для цієї виплати`)
+                  : t`Списується з рахунку компанії (USDT)`}
               </div>
             </div>
             {isCompany && !disableCompanyAccount && (
@@ -172,7 +177,7 @@ export function FundingSourceFields({
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium leading-tight">{u.displayName}</div>
                 <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                  Из личного счёта партнёра
+                  <Trans>З особистого рахунку партнера</Trans>
                 </div>
               </div>
               {account === u.id && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
@@ -183,12 +188,18 @@ export function FundingSourceFields({
         {/* Company balance hint */}
         {isCompany && (
           <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-            <span>Баланс счёта компании</span>
+            <span>
+              <Trans>Баланс рахунку компанії</Trans>
+            </span>
             <span
               className="font-bold tabular-nums"
               data-testid={`${testIdPrefix}-company-balance-hint`}
             >
-              {fmtUsdt(companyBalance)} USDT
+              {formatNumber(companyBalance, locale, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}{' '}
+              USDT
             </span>
           </div>
         )}
@@ -199,7 +210,9 @@ export function FundingSourceFields({
           obligation currency is always USDT, so there is nothing to pick. */}
       {!hideCurrency && (
         <div className="space-y-1.5">
-          <Label className="text-xs text-muted-foreground">Валюта</Label>
+          <Label className="text-xs text-muted-foreground">
+            <Trans>Валюта</Trans>
+          </Label>
           <Select
             value={currency ?? 'USDT'}
             onValueChange={(v) => onSelectCurrency?.(v as Currency)}
@@ -222,7 +235,9 @@ export function FundingSourceFields({
             </SelectContent>
           </Select>
           {isCompany && (
-            <p className="text-[11px] text-muted-foreground">Спишется со счёта компании в USDT</p>
+            <p className="text-[11px] text-muted-foreground">
+              <Trans>Списується з рахунку компанії в USDT</Trans>
+            </p>
           )}
         </div>
       )}
