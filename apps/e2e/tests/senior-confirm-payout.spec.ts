@@ -40,6 +40,7 @@ import {
   listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -51,6 +52,7 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
   test('ACCOUNTANT confirms senior PAYOUT → row PAID + PAYOUT_CONFIRMED for Kostya', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
 
     // ── Setup ────────────────────────────────────────────────────────────
@@ -111,7 +113,12 @@ test.describe('Senior confirm-payout — manual confirmation (AC3)', () => {
       await expect(submit).toBeEnabled()
       await submit.click()
 
-      await expect(page.getByText('Оплата подтверждена')).toBeVisible({ timeout: 10_000 })
+      // Manual CASH-confirm to an individual admin (Kostya), not the company
+      // account — the `t\`Оплату підтверджено\`` branch of
+      // ConfirmPayoutDialog's onSuccess.
+      await expect(page.getByText(assertInCatalog(uk, 'Оплату підтверджено'))).toBeVisible({
+        timeout: 10_000,
+      })
 
       // ── DB asserts ───────────────────────────────────────────────────
       const updatedPayout = await getTransactionViaAPI(page, payoutTx.id)

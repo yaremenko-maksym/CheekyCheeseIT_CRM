@@ -109,13 +109,29 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
     // Instruction line interpolates the payable amount into a fixed sentence.
-    expect(
-      screen.getByText(/на адресу гаманця компанії \(ERC-20\), потім вставте хеш транзакції/),
-    ).toBeInTheDocument()
+    const instruction = screen.getByText(
+      /на адресу гаманця компанії \(ERC-20\), потім вставте хеш транзакції/,
+    )
+    expect(instruction).toBeInTheDocument()
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): the sentence interpolates
+    // `fmtAmount(payableAmount, 'USDT')` — a StringLiteral mutant dropping
+    // 'USDT' (or the trailing `{' '}` before "на адресу") would silently
+    // collapse to a currency-less amount / no gap before "на", and the regex
+    // assertion above alone doesn't reach that part of the sentence. `\s+`
+    // between USDT and "на" fails if the space mutant lands too.
+    expect(instruction.textContent).toMatch(/USDT\s+на адресу/)
     // Default simulateMode is 'real' — the tx-hash label's "(після оплати)"
     // qualifier is the branch that actually renders by default, not the
     // dev-simulate one.
     expect(screen.getByText('(після оплати)')).toBeInTheDocument()
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): "(після оплати)" is its
+    // own text node inside the label, sibling to a standalone `{' '}` — the
+    // assertion above alone doesn't notice if that space mutant lands, since
+    // RTL matches the "(після оплати)" text node regardless of what precedes
+    // it. Check the whole label's textContent for the gap after "транзакції".
+    // eslint-disable-next-line testing-library/no-node-access
+    const txHashLabel = screen.getByText('Хеш транзакції').closest('label')
+    expect(txHashLabel?.textContent).toMatch(/транзакції\s+\(після оплати\)/)
   })
 
   // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
@@ -184,6 +200,16 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
     expect(cashBtn).toHaveTextContent('Готівка')
     expect(usdtBtn).toHaveTextContent('USDT партнера')
     expect(companyBtn).toHaveTextContent('Рахунок компанії')
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): `MANUAL_METHOD_ICONS`
+    // is a separate object literal from the label map above — mutating it to
+    // `{}` leaves every label assertion untouched (icons carry no text), so
+    // each method button must be checked for its icon `<svg>` directly.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(cashBtn.querySelector('svg')).not.toBeNull()
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(usdtBtn.querySelector('svg')).not.toBeNull()
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(companyBtn.querySelector('svg')).not.toBeNull()
     // Default selection is COMPANY_ACCOUNT.
     expect(companyBtn).toHaveAttribute('aria-checked', 'true')
     expect(cashBtn).toHaveAttribute('aria-checked', 'false')
