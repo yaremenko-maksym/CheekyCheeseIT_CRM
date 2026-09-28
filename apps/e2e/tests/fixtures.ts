@@ -1721,8 +1721,13 @@ export async function waitForPageReady(page: Page) {
   await page.waitForLoadState('networkidle')
 }
 
+// i18n-3d-pr3: both current call sites (finance.spec.ts, CreateTransactionDialog
+// + AdminEditTransactionDialog cancel buttons) are migrated to uk — this shared
+// helper is `getByRole` name-matched, not catalog-loaded, so the literal is
+// updated in place (only these two callers exist — `grep dismissDialog` across
+// apps/e2e/tests confirms it).
 export async function dismissDialog(page: Page) {
-  await page.getByRole('button', { name: 'Отмена' }).click()
+  await page.getByRole('button', { name: 'Скасувати' }).click()
 }
 
 // ---------------------------------------------------------------------------

@@ -216,7 +216,7 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
+      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
       // A USDT-payment project is ALWAYS explorer-only — the file tab must not even render.
@@ -384,7 +384,7 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
+      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
       // Explorer hint is shown; the tab toggle is absent (already asserted in
@@ -490,7 +490,7 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
 
     const dialog = page.getByTestId('pay-salary-dialog')
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Отметить как оплачено' }).click()
+    await dialog.getByRole('button', { name: 'Позначити як оплачено' }).click()
     await expect(dialog.getByTestId('pay-salary-error-receipt')).toBeVisible()
     await expect(dialog).toBeVisible()
   })
@@ -548,6 +548,8 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
       await expect(dialog).toBeVisible()
       // Default account = «Счёт компании» (COMPANY_ACCOUNT, currency locked
       // USDT) — leave it, just try to submit without a receipt.
+      // SettleSeniorPayoutDialog is NOT migrated by this PR (PR4 scope) —
+      // still the Russian button text.
       await dialog.getByRole('button', { name: 'Отметить как оплачено' }).click()
       await expect(dialog.getByTestId('settle-senior-error-receipt')).toBeVisible()
       await expect(dialog).toBeVisible()

@@ -338,7 +338,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await page.getByRole('option', { name: projectName, exact: true }).click()
 
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
+      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 

@@ -442,10 +442,11 @@ test.describe('Finance — создание транзакции', () => {
     await asAdmin.goto('/finance')
     await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    // CreateTransactionDialog's own heading is a plain hardcoded string, out
-    // of scope for task-i18n-3d-pr1 (unlike the toolbar button above, which
-    // reads the migrated `finance/index.tsx`) — still Russian.
-    await expect(asAdmin.getByRole('heading', { name: /Новая транзакция/i })).toBeVisible()
+    // i18n-3d-pr3: CreateTransactionDialog's own heading is now migrated too —
+    // asserted through the catalog like the toolbar button above.
+    await expect(
+      asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Нова транзакція') }),
+    ).toBeVisible()
   })
 
   test('ADMIN: закрывает диалог по кнопке Отмена', async ({ asAdmin }) => {
@@ -463,14 +464,12 @@ test.describe('Finance — создание транзакции', () => {
     await asSenior.goto('/finance')
     await asSenior.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
     await expect(asSenior.getByRole('dialog')).toBeVisible()
-    // CreateTransactionDialog reads the DEPRECATED `TYPE_LABELS` (plain
-    // Russian strings, `finance/constants.ts`) — out of scope for
-    // task-i18n-3d-pr1 (PR2/PR3/PR4 migrate the dialogs), so this card title
-    // is still Russian, unlike the (migrated) transaction-row labels
-    // elsewhere in this file that read `TYPE_LABEL_MESSAGES` instead.
+    // i18n-3d-pr3: CreateTransactionDialog now reads `TYPE_LABEL_MESSAGES`/
+    // `TYPE_DESCRIPTION_MESSAGES` — same migrated maps the transaction-row
+    // labels elsewhere in this file already used.
     const dialog = asSenior.getByRole('dialog')
-    await expect(dialog.getByText('Приход синьора')).toBeVisible()
-    await expect(dialog.getByText('Расход компании')).not.toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Прихід сеньйора'))).toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Витрата компанії'))).not.toBeVisible()
   })
 
   test('ADMIN: открывает диалог EXPENSE с категорией', async ({ asAdmin }) => {
@@ -494,10 +493,12 @@ test.describe('Finance — создание транзакции', () => {
     await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Нова транзакція') }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
 
-    // ADMIN видит EXPENSE (Расход компании) в списке типов — кликаем по карточке
-    await asAdmin.getByRole('button', { name: /Расход компании/i }).click()
-    // Категория Прочее — pill button должен быть виден
-    await expect(asAdmin.getByRole('dialog').getByRole('button', { name: 'Прочее' })).toBeVisible()
+    // ADMIN видит EXPENSE (Витрата компанії) в списке типов — кликаем по карточке
+    await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Витрата компанії') }).click()
+    // Категория «Інше» — suggestion chip повинен бути видимий
+    await expect(
+      asAdmin.getByRole('dialog').getByRole('button', { name: assertInCatalog(uk, 'Інше') }),
+    ).toBeVisible()
   })
 })
 
@@ -631,7 +632,9 @@ test.describe('Finance — редактирование транзакции (AD
     await asAdmin.goto('/finance')
     await asAdmin.getByTitle(assertInCatalog(uk, 'Редагувати')).first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: /Редактировать транзакцию/i })).toBeVisible()
+    await expect(
+      asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Редагувати транзакцію') }),
+    ).toBeVisible()
   })
 
   test('ADMIN: отменяет редактирование', async ({ asAdmin }) => {
@@ -726,10 +729,12 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
     await asAdmin.goto('/finance')
     await asAdmin.getByRole('button', { name: assertInCatalog(uk, 'Розрахуватися') }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
-    await expect(asAdmin.getByRole('heading', { name: 'Выплатить зарплату' })).toBeVisible()
+    await expect(
+      asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Виплатити зарплату') }),
+    ).toBeVisible()
   })
 
-  // task-receipts-frontend: PaySalaryDialog defaults to «Счёт компании»
+  // task-receipts-frontend: PaySalaryDialog defaults to «Рахунок компанії»
   // (COMPANY_ACCOUNT, currency locked USDT) → ReceiptInput renders explorer-only
   // (no file tab, see ReceiptInput.tsx explorerOnly). The old free-text "TX Hash"
   // input is gone — proof of payment is now the mandatory receipt field, and for
@@ -745,7 +750,9 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
     await expect(receiptUrlInput).toBeVisible()
     await receiptUrlInput.fill('https://etherscan.io/tx/0xabc123def456')
 
-    await asAdmin.getByRole('button', { name: 'Отметить как оплачено' }).click()
+    await asAdmin
+      .getByRole('button', { name: assertInCatalog(uk, 'Позначити як оплачено') })
+      .click()
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
 })
