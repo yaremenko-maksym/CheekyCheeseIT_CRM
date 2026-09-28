@@ -19,6 +19,7 @@
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
 
@@ -121,6 +122,10 @@ function makePayout(overrides: Partial<PayoutRequestDto> = {}): PayoutRequestDto
   }
 }
 
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
+
 function renderModal(props: Partial<Parameters<typeof CompanySharePayoutModal>[0]> = {}) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -132,6 +137,7 @@ function renderModal(props: Partial<Parameters<typeof CompanySharePayoutModal>[0
         {...props}
       />
     </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
   )
 }
 
@@ -275,7 +281,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
 
       const summary = await screen.findByTestId('company-share-payout-summary')
       // Exact value, not "contains a number" — this is the whole point.
-      expect(summary).toHaveTextContent('№a1b2c3 · 2 проекта, 4 прихода')
+      expect(summary).toHaveTextContent('№a1b2c3 · 2 проєкти, 4 прибутки')
     })
 
     it('DROP payout, 1 project / 2 DROP_INCOME rows + the PAYOUT ledger row — counts are 1/2, not 0 incomes or an inflated project count', async () => {
@@ -323,7 +329,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
       fireEvent.click(screen.getByTestId('company-share-create-payout'))
 
       const summary = await screen.findByTestId('company-share-payout-summary')
-      expect(summary).toHaveTextContent('№d4e5f6 · 1 проект, 2 прихода')
+      expect(summary).toHaveTextContent('№d4e5f6 · 1 проєкт, 2 прибутки')
     })
 
     it('a recovered company obligation (payoutRequestId reset to null by settleByCompany) does not inflate the summary counts (task-split-payouts-and-obligations, backlog 174)', async () => {
@@ -365,7 +371,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
       const summary = await screen.findByTestId('company-share-payout-summary')
       // Without the fix this would read "2 проекта, 2 прихода" (Project Beta
       // + the recovered obligation counted alongside the genuine income).
-      expect(summary).toHaveTextContent('№ffeeaa · 1 проект, 1 приход')
+      expect(summary).toHaveTextContent('№ffeeaa · 1 проєкт, 1 прибуток')
     })
   })
 
@@ -380,7 +386,7 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
 
     await waitFor(() => {
       expect(screen.getByTestId('company-share-step-announcer')).toHaveTextContent(
-        'Заявка на выплату создана',
+        'Заявку на виплату створено',
       )
     })
   })
