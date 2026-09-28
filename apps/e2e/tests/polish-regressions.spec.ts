@@ -27,6 +27,7 @@
  * (PR #60) — deliberately NOT duplicated here.
  */
 import { test, expect, USERS, PROJECTS, API_GLOB, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import type { Page, ConsoleMessage } from '@playwright/test'
 
 // Mirror of UserAvatar.getInitials (apps/web/app/components/users/UserAvatar.tsx).
@@ -127,9 +128,11 @@ test.describe('AC1 — money format', () => {
 
     const row = asAdmin.getByTestId(`tx-row-${TX_USDT_SENIOR.id}`)
     await expect(row).toBeVisible()
-    // fmtUsd → en-US → «$7,777.00». USDT is pegged 1:1 so the source value
-    // passes straight through to the USD column.
-    await expect(row.getByText('$7,777.00')).toBeVisible()
+    // task-i18n-stage3d-pr1: `fmtUsd`'s digit grouping/decimal separator
+    // became locale-aware (was hardcoded en-US) — uk renders «$7 777,00»
+    // (NBSP thousands, comma decimal), not «$7,777.00». USDT is pegged 1:1
+    // so the source value passes straight through to the USD column.
+    await expect(row.getByText(/\$7[\s ]?777,00/)).toBeVisible()
     // The legacy ad-hoc Tugrik «₮» symbol must be gone everywhere on the page.
     await expect(asAdmin.getByText(/₮/)).toHaveCount(0)
   })
@@ -143,8 +146,8 @@ test.describe('AC1 — money format', () => {
 
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
-    // Big figure = USD-converted.
-    await expect(dialog.getByText('$7,777.00')).toBeVisible()
+    // Big figure = USD-converted (uk-locale formatting, see the table test above).
+    await expect(dialog.getByText(/\$7[\s ]?777,00/)).toBeVisible()
     // Subline = original currency via the shared ru-RU formatter → thin-space
     // thousands + comma decimal + «USDT» suffix. The char class tolerates the
     // exact separator (NBSP / narrow-NBSP / space) the locale emits.
@@ -247,11 +250,12 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
   })
 
   test('/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({ asAdmin }) => {
+    const uk = await loadMessages('uk')
     const console_ = collectConsole(asAdmin)
     const teamId = 'team-1-id'
     await asAdmin.goto(`/team/${teamId}`)
     // The member cards are what nest the anchors — wait until they render.
-    await expect(asAdmin.getByText('Учасники команди')).toBeVisible()
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Учасники команди'))).toBeVisible()
     await expect(asAdmin.getByText(USERS.senior.displayName).first()).toBeVisible()
     await asAdmin.waitForTimeout(300)
 
@@ -297,8 +301,10 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
 // AC4 — canonical spelling «синьора» (not «синьера») on the public verify page
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe('AC4 — «синьора» spelling on verify page', () => {
-  test('public verify page renders «синьора», never «синьера»', async ({ page }) => {
+test.describe('AC4 — «сеньйора» spelling on verify page (task-i18n-3d-pr4: migrated to uk canon)', () => {
+  test('public verify page renders «сеньйора» (uk canon), never the pre-migration Russian «синьора»/«синьера»', async ({
+    page,
+  }) => {
     // This is an UNAUTHENTICATED page (QR target) — no mockAuthAs. We only
     // stub the public verify endpoint the page fetches directly.
     const TX_ID = '11111111-2222-4333-8444-555566667777'
@@ -307,7 +313,7 @@ test.describe('AC4 — «синьора» spelling on verify page', () => {
       status: 'SIGNED',
       amount: '7777.00',
       currency: 'USDT',
-      type: 'SENIOR_INCOME', // → TYPE_LABEL «Акт выполненных работ (выплата синьора)»
+      type: 'SENIOR_INCOME', // → TYPE_LABEL «Акт виконаних робіт (дохід сеньйора)»
       signatures: [
         {
           role: 'COMPANY',
@@ -327,12 +333,22 @@ test.describe('AC4 — «синьора» spelling on verify page', () => {
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(verify) }),
     )
 
+    // task-i18n-3d-pr4: this page is unauthenticated (no `user.locale` to
+    // drive it) and resolves locale from `pref_locale` cookie ->
+    // `navigator.language` -> `uk` — headless Chromium's default is `en-US`,
+    // not `uk`. Pin the cookie so the uk-canon assertion below is
+    // deterministic across environments (same reasoning as
+    // `invoices-signing-flow.spec.ts`'s `setUkLocaleCookie`).
+    await page
+      .context()
+      .addCookies([{ name: 'pref_locale', value: 'uk', domain: 'localhost', path: '/' }])
     await page.goto(`/invoice/v/${TX_ID}`)
     await expect(page.getByTestId('invoice-verify-success')).toBeVisible()
 
-    // Canonical spelling present (inside the «Тип» row label).
-    await expect(page.getByText(/синьора/).first()).toBeVisible()
-    // Typo must not appear anywhere on the page.
+    // Canonical uk spelling present (inside the type-label row).
+    await expect(page.getByText(/сеньйора/).first()).toBeVisible()
+    // Pre-migration Russian spelling (correct or typo) must not appear anywhere.
+    await expect(page.getByText(/синьора/)).toHaveCount(0)
     await expect(page.getByText(/синьера/)).toHaveCount(0)
   })
 })

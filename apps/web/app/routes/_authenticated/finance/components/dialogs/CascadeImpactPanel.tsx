@@ -22,7 +22,9 @@
  * missed.
  */
 import { AlertCircle, AlertTriangle, ArrowRight, Ban, RefreshCw, RotateCcw } from 'lucide-react'
-import { Trans } from '@lingui/react/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
 import { formatNumber } from '@crm/shared'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse, CascadePlan } from '@crm/shared'
@@ -32,7 +34,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/lib/i18n'
 
-import { cascadeBlockedReasonMessage, TYPE_COLORS, TYPE_LABELS, fmtAmount } from '../../constants'
+import {
+  cascadeBlockedReasonMessage,
+  TYPE_COLORS,
+  TYPE_LABEL_MESSAGES,
+  fmtAmount,
+} from '../../constants'
 
 // Stryker disable next-line StringLiteral: the two variants are decided by `=== 'mobile'`, so ANY non-'mobile' value (including '') selects the desktop rendering — the mutant is equivalent by construction. Which layout each id lands in is pinned by PR-29/PR-30
 const DESKTOP = 'desktop' as const
@@ -94,8 +101,13 @@ function derivativeReceiverLabel(derivative: CascadeDerivativePlan): string | nu
   // The source-receiver prop is GONE from this component rather than left
   // unused: a value that must never be read is a loaded gun, and deleting it
   // makes the mistake unrepresentable instead of merely tested-against.
+  // task-i18n-stage3d-pr4 (template K-fin): the label used to be dative
+  // («Синьору X» — "to senior X"), which does not translate into `uk`
+  // without inflecting the NAME itself (a name has no case ending this code
+  // can compute). "Сеньйор: X" states the role and the name side by side,
+  // both in the nominative, needing no grammatical agreement.
   if (SENIOR_DERIVATIVE_TYPES.has(derivative.type) && derivative.receiverName) {
-    return `Синьору ${derivative.receiverName}`
+    return i18n._(msg`Сеньйор: ${derivative.receiverName}`)
   }
   // UX-7 (design fidelity) — THIRD round on this one line, and the same shape
   // of mistake each time: the fix reached the contract but not every branch
@@ -110,13 +122,17 @@ function derivativeReceiverLabel(derivative: CascadeDerivativePlan): string | nu
   //
   // The nameless fallback stays: a row with no receiver on record must not
   // invent one. Note the earlier Stryker suppression on the drop set is GONE —
-  // it argued membership was unobservable because `TYPE_LABELS.PAYOUT_DROP` is
-  // itself «Доля дропа» and the duplicate guard erased the line either way.
-  // With a name that reasoning no longer holds: «Дропу X» never equals the
-  // badge, so membership now decides what the operator reads, and PR-48 kills
-  // the mutant the suppression used to hide.
+  // it argued membership was unobservable because `TYPE_LABEL_MESSAGES.PAYOUT_DROP`
+  // is itself «Частка дропа» and the duplicate guard erased the line either
+  // way. With a name that reasoning no longer holds: «Дроп: X» never equals
+  // the badge, so membership now decides what the operator reads, and PR-48
+  // kills the mutant the suppression used to hide. Same dative-avoidance
+  // reasoning as the SENIOR branch above; the nameless fallback reuses the
+  // badge's OWN text verbatim (via `i18n._`) so the two can never drift.
   if (DROP_DERIVATIVE_TYPES.has(derivative.type)) {
-    return derivative.receiverName ? `Дропу ${derivative.receiverName}` : 'Доля дропа'
+    return derivative.receiverName
+      ? i18n._(msg`Дроп: ${derivative.receiverName}`)
+      : i18n._(TYPE_LABEL_MESSAGES.PAYOUT_DROP)
   }
   return null
 }
@@ -170,12 +186,12 @@ function ReconfirmBadge({
       }
     >
       <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-      Вернётся в ожидание выплаты
+      <Trans>Повернеться в очікування розрахунку</Trans>
     </span>
   )
 }
 
-/** «Было → Стало», or an explicit dash when there is no share snapshot to recompute from. */
+/** «Було → Стало», or an explicit dash when there is no share snapshot to recompute from. */
 function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan }) {
   return (
     <span className="inline-flex flex-wrap items-center justify-end gap-1.5 tabular-nums">
@@ -218,11 +234,13 @@ function AmountTransition({ derivative }: { derivative: CascadeDerivativePlan })
 function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePlan }) {
   const receiverLabelText = derivativeReceiverLabel(derivative)
   // Found by looking at the rendered screen, not at the code: on a settled drop
-  // row `TYPE_LABELS.PAYOUT_DROP` is ITSELF «Доля дропа», so the badge and the
-  // line under it said the same three words twice. A receiver line that only
-  // repeats the badge is noise; stated as a general guard rather than a special
-  // case for this one type, so a future label collision cannot reintroduce it.
-  const receiver = receiverLabelText === TYPE_LABELS[derivative.type] ? null : receiverLabelText
+  // row `TYPE_LABEL_MESSAGES.PAYOUT_DROP` is ITSELF «Частка дропа», so the
+  // badge and the line under it said the same three words twice. A receiver
+  // line that only repeats the badge is noise; stated as a general guard
+  // rather than a special case for this one type, so a future label
+  // collision cannot reintroduce it.
+  const typeLabelText = i18n._(TYPE_LABEL_MESSAGES[derivative.type])
+  const receiver = receiverLabelText === typeLabelText ? null : receiverLabelText
   const settledLabel =
     derivative.settledAmount > 0
       ? fmtAmount(derivative.settledAmount, derivative.settledCurrency ?? derivative.currency)
@@ -259,7 +277,7 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
         TYPE_COLORS[derivative.type],
       )}
     >
-      {TYPE_LABELS[derivative.type]}
+      {typeLabelText}
     </span>
   )
 
@@ -320,19 +338,25 @@ function CascadeDerivativeRow({ derivative }: { derivative: CascadeDerivativePla
             </div>
             <dl className="mt-2 space-y-1 border-t border-border/50 pt-2">
               <div className="flex flex-col gap-0.5">
-                <dt className="text-xs text-muted-foreground">Было → Стало</dt>
+                <dt className="text-xs text-muted-foreground">
+                  <Trans>Було → Стало</Trans>
+                </dt>
                 <dd className="text-right">
                   <AmountTransition derivative={derivative} />
                 </dd>
               </div>
               {settledLabel && (
                 <div className="flex items-baseline justify-between gap-3">
-                  <dt className="text-xs text-muted-foreground">Выплачено</dt>
+                  <dt className="text-xs text-muted-foreground">
+                    <Trans>Виплачено</Trans>
+                  </dt>
                   <dd className="text-right tabular-nums">{settledLabel}</dd>
                 </div>
               )}
               <div className="flex items-baseline justify-between gap-3">
-                <dt className="text-xs text-muted-foreground">К доплате</dt>
+                <dt className="text-xs text-muted-foreground">
+                  <Trans>До доплати</Trans>
+                </dt>
                 <dd className="text-right font-medium tabular-nums">{remainingLabel}</dd>
               </div>
             </dl>
@@ -446,6 +470,7 @@ export function CascadeImpactPanel({
   onRetry,
   staleMessage,
 }: CascadeImpactPanelProps) {
+  const { t } = useLingui()
   // A narrow live region, not the whole panel: announcing the entire table
   // again on every keystroke is worse for a screen-reader user than announcing
   // nothing. The status line changes, the table does not re-announce.
@@ -463,13 +488,13 @@ export function CascadeImpactPanel({
   // always undefined anyway, but the explicit branch keeps the precedence
   // honest as the two states evolve independently.
   const status = isLoading
-    ? 'Пересчитываем связанные выплаты…'
+    ? t`Перераховуємо пов’язані виплати…`
     : errorMessage
       ? errorMessage
       : preview && !preview.editable
-        ? 'Правка суммы этой строки запрещена, причина ниже'
+        ? t`Правка суми цього рядка заборонена, причина нижче`
         : preview
-          ? 'Предпросмотр обновлён'
+          ? t`Передперегляд оновлено`
           : ''
 
   return (
@@ -486,7 +511,9 @@ export function CascadeImpactPanel({
       {isLoading && (
         <div className="space-y-1.5" data-testid="cascade-preview-loading">
           <Skeleton className="h-4 w-40" />
-          <p className="text-xs text-muted-foreground">Пересчитываем связанные выплаты…</p>
+          <p className="text-xs text-muted-foreground">
+            <Trans>Перераховуємо пов’язані виплати…</Trans>
+          </p>
         </div>
       )}
 
@@ -513,7 +540,7 @@ export function CascadeImpactPanel({
             className="h-11 w-full shrink-0 sm:h-8 sm:w-auto"
             data-testid="cascade-preview-retry"
           >
-            Повторить
+            <Trans>Повторити</Trans>
           </Button>
         </div>
       )}
@@ -544,7 +571,7 @@ export function CascadeImpactPanel({
                 data-testid="cascade-refresh-preview"
               >
                 <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-                Обновить предпросмотр
+                <Trans>Оновити перегляд</Trans>
               </Button>
             </div>
           )}
@@ -565,19 +592,21 @@ export function CascadeImpactPanel({
                 className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2.5 text-xs"
                 data-testid="cascade-preview-empty"
               >
-                Эта сумма не связана с выплатами — пересчитывать нечего
+                <Trans>Ця сума не пов’язана з виплатами — перераховувати нема чого</Trans>
               </p>
             ) : (
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Что изменится при сохранении
+                  <Trans>Що зміниться при збереженні</Trans>
                 </p>
 
                 <p
                   className="flex flex-wrap items-center gap-1.5 text-xs tabular-nums"
                   data-testid="cascade-source-amount"
                 >
-                  <span className="text-muted-foreground">Сумма источника:</span>
+                  <span className="text-muted-foreground">
+                    <Trans>Сума джерела:</Trans>
+                  </span>
                   <span className="text-muted-foreground">
                     {fmtAmount(preview.plan.oldSourceAmount, preview.plan.sourceCurrency)}
                   </span>
@@ -599,19 +628,19 @@ export function CascadeImpactPanel({
                   <thead className="hidden sm:table-header-group" data-testid="cascade-table-head">
                     <tr className="border-b border-border/50 text-xs text-muted-foreground">
                       <th scope="col" className="px-2 py-2 text-left font-medium">
-                        Получатель
+                        <Trans>Отримувач</Trans>
                       </th>
                       <th scope="col" className="px-2 py-2 text-right font-medium">
-                        Было → Стало
+                        <Trans>Було → Стало</Trans>
                       </th>
                       <th scope="col" className="px-2 py-2 text-right font-medium">
-                        Выплачено
+                        <Trans>Виплачено</Trans>
                       </th>
                       <th scope="col" className="px-2 py-2 text-right font-medium">
-                        К доплате
+                        <Trans>До доплати</Trans>
                       </th>
                       <th scope="col" className="px-2 py-2 text-left font-medium">
-                        Статус
+                        <Trans>Статус</Trans>
                       </th>
                     </tr>
                   </thead>

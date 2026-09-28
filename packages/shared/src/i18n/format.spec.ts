@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { compareNames, formatDate, formatMoney, formatNumber, formatRelativeTime } from './format'
+import {
+  compareNames,
+  formatDate,
+  formatMoney,
+  formatMonthLabel,
+  formatNumber,
+  formatRelativeTime,
+} from './format'
 
 describe('format', () => {
   afterEach(() => {
@@ -103,6 +110,83 @@ describe('format', () => {
     const d = new Date(Date.UTC(2026, 8, 19, 23, 30))
     formatDate(d, 'en')
     expect(spy).toHaveBeenCalledWith('en-GB', expect.objectContaining({ timeZone: 'UTC' }))
+  })
+  it("the shortYY style is 2-digit day/month/year and does NOT pin timeZone to UTC, unlike 'short'", () => {
+    // task-i18n-stage3d-pr4 — replaces finance's own `fmtDate` (no
+    // `timeZone` override — reads the host/reader's LOCAL zone, unlike
+    // every other style here which pins 'UTC'). Same spy technique as the
+    // 'dateTime' test above: proves the constructor call itself omits
+    // `timeZone`, not just that two runs happened to agree.
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      this: unknown,
+      ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+    ) {
+      return Reflect.construct(RealDateTimeFormat, args)
+    })
+    const d = new Date(2026, 6, 31) // local 31 Jul 2026
+    const shortYY = formatDate(d, 'uk', 'shortYY')
+    expect(shortYY).toBe(
+      new Intl.DateTimeFormat('uk-UA', {
+        day: '2-digit',
+        month: '2-digit',
+        year: '2-digit',
+      }).format(d),
+    )
+    expect(spy).toHaveBeenCalledWith('uk-UA', expect.not.objectContaining({ timeZone: 'UTC' }))
+    expect(shortYY).not.toBe(formatDate(d, 'uk'))
+  })
+  it('formatMonthLabel renders a full month name + year from a YYYY-MM key', () => {
+    expect(formatMonthLabel('2026-07', 'uk')).toBe(
+      new Intl.DateTimeFormat('uk-UA', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+        new Date(2026, 6, 1),
+      ),
+    )
+    expect(formatMonthLabel('2026-07', 'en')).toBe(
+      new Intl.DateTimeFormat('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(
+        new Date(2026, 6, 1),
+      ),
+    )
+  })
+  it('formatMonthLabel falls back to an em dash for missing input, and to the raw key when unparseable', () => {
+    expect(formatMonthLabel(null, 'uk')).toBe('—')
+    expect(formatMonthLabel(undefined, 'uk')).toBe('—')
+    expect(formatMonthLabel('not-a-month', 'uk')).toBe('not-a-month')
+  })
+  it('formatMonthLabel falls back to the raw key when EITHER half is falsy, not only when BOTH are (proves `||`, not `&&`)', () => {
+    // '2026-00': year parses to a truthy 2026, month to a falsy 0 — the
+    // ORIGINAL `!year || !month` is true (one falsy half is enough) and
+    // returns the raw key. A `&&`-mutated guard would be false here (only
+    // ONE half is falsy) and fall through to `formatDate`, producing a
+    // real (wrong) date string instead of the raw key.
+    expect(formatMonthLabel('2026-00', 'uk')).toBe('2026-00')
+    // '0000-05': the reverse split — year falsy (Number('0000') === 0),
+    // month truthy.
+    expect(formatMonthLabel('0000-05', 'uk')).toBe('0000-05')
+  })
+  it("the dateTimeWithYear style is day/short-month/year/time and does NOT pin timeZone to UTC, unlike 'short'", () => {
+    // task-i18n-stage3d-pr4 — replaces `invoice-detail-dialog.tsx`'s own
+    // `fmtDateTime` (date-fns `format`, local time, no timeZone conversion).
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      this: unknown,
+      ...args: ConstructorParameters<typeof Intl.DateTimeFormat>
+    ) {
+      return Reflect.construct(RealDateTimeFormat, args)
+    })
+    const d = new Date(2026, 6, 31, 14, 5) // local 31 Jul 2026 14:05
+    const result = formatDate(d, 'uk', 'dateTimeWithYear')
+    expect(result).toBe(
+      new Intl.DateTimeFormat('uk-UA', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }).format(d),
+    )
+    expect(spy).toHaveBeenCalledWith('uk-UA', expect.not.objectContaining({ timeZone: 'UTC' }))
+    expect(result).not.toBe(formatDate(d, 'uk'))
   })
   it('formats money with the currency code, two decimals', () => {
     // Two literal exceptions per task-i18n-stage2-task1-2.md override #4 — every

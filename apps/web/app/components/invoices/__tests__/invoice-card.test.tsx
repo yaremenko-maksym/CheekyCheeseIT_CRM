@@ -1,7 +1,19 @@
-import { describe, expect, it, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll, afterEach } from 'vitest'
+import { render as rtlRender, screen, fireEvent, type RenderResult } from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type { InvoiceListItem } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { InvoiceCard } from '../invoice-card'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `InvoiceCard` calls `useLingui()` now — wrap every render (same pattern
+// as `cascade-impact-panel.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 const baseInvoice: InvoiceListItem = {
   transactionId: '00000000-0000-0000-0000-000000000001',
@@ -14,13 +26,13 @@ const baseInvoice: InvoiceListItem = {
 }
 
 describe('InvoiceCard', () => {
-  it('renders the SENIOR payout type badge with the Russian label', () => {
+  it('renders the SENIOR payout type badge with the uk label', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
-    // Round 4 fix #7 — label changed from «Выплата сеньору» to «Выплата
-    // синьора» (canonical spelling «синьор») so it matches the rest of the
-    // CRM copy.
+    // task-i18n-stage3d-pr4: `getInvoiceTypeLabel` (legacy Russian export)
+    // replaced by the catalog-backed `useInvoiceTypeLabel` — canon spelling
+    // «сеньйор» (glossary), «дохід» not the legacy «виплата»/payout.
     expect(screen.getByTestId(`invoice-card-type-${baseInvoice.transactionId}`)).toHaveTextContent(
-      'Выплата синьора',
+      'Дохід сеньйора',
     )
   })
 
@@ -33,9 +45,9 @@ describe('InvoiceCard', () => {
 
   it('renders the amount formatted with currency suffix', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
-    // ru-RU locale uses non-breaking space (U+00A0) — assert on the
+    // uk-UA locale uses non-breaking space (U+00A0) — assert on the
     // currency-bearing line by querying the exact wrapper class. The amount
-    // text contains "1 234,56 USDT".
+    // text contains "1 234,56 USDT".
     const amount = screen.getByText(/USDT/)
     expect(amount.textContent).toMatch(/USDT$/)
     expect(amount.textContent).toMatch(/1.*234.*56/)
@@ -45,40 +57,50 @@ describe('InvoiceCard', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
     expect(
       screen.getByTestId(`invoice-card-status-${baseInvoice.transactionId}`),
-    ).toHaveTextContent('Ожидает подписи')
+    ).toHaveTextContent('Очікує підпису')
   })
 
-  it('shows "Подписано всеми" when invoice.status === SIGNED', () => {
+  it('shows "Підписано всіма" when invoice.status === SIGNED', () => {
     render(<InvoiceCard invoice={{ ...baseInvoice, status: 'SIGNED' }} onOpen={vi.fn()} />)
     expect(
       screen.getByTestId(`invoice-card-status-${baseInvoice.transactionId}`),
-    ).toHaveTextContent('Подписано всеми')
+    ).toHaveTextContent('Підписано всіма')
   })
 
   it('renders counterparty name', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
     expect(screen.getByText(/Иван Иванов/)).toBeInTheDocument()
+    // The space between "Контрагент:" and the name is its own JSX
+    // expression ({' '}) — assert the combined text so a StringLiteral
+    // mutant on it ("" instead of " ") fails.
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === 'SPAN' && el.textContent === 'Контрагент: Иван Иванов',
+      ),
+    ).toBeInTheDocument()
   })
 
-  it('shows the "Ожидается ваша подпись" hint when awaitingViewerSignature is true', () => {
+  it('shows the "Очікується ваш підпис" hint when awaitingViewerSignature is true', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} awaitingViewerSignature />)
-    expect(screen.getByText('Ожидается ваша подпись')).toBeInTheDocument()
+    expect(screen.getByText('Очікується ваш підпис')).toBeInTheDocument()
   })
 
   it('does NOT show the hint when awaitingViewerSignature is false', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} awaitingViewerSignature={false} />)
-    expect(screen.queryByText('Ожидается ваша подпись')).not.toBeInTheDocument()
+    expect(screen.queryByText('Очікується ваш підпис')).not.toBeInTheDocument()
   })
 
-  it('aria-label names the invoice type and formatted amount as "счёт" (copy review 5256855157, COPY-L-4)', () => {
+  it('aria-label names the invoice type and formatted amount as "рахунок" (COPY-L-fin-16 — «інвойс» retired)', () => {
     render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
     // Accessible name is built from the aria-label; asserting via getByRole
     // (not getByTestId) so a mutation to the aria-label string itself is
     // caught, not just the visible text. Amount literal ("1 234,56 USDT")
     // is written by hand, not derived from formatAmount, so it can't drift
-    // silently together with the code under test.
+    // silently together with the code under test. Also proves the aria-label
+    // no longer leaks the raw enum (`SENIOR_INCOME`) — it reads the same
+    // translated type label the badge shows.
     expect(
-      screen.getByRole('button', { name: /Открыть счёт SENIOR_INCOME на 1\s234,56\sUSDT/ }),
+      screen.getByRole('button', { name: /Відкрити рахунок Дохід сеньйора на 1\s234,56\sUSDT/ }),
     ).toBeInTheDocument()
   })
 
@@ -88,5 +110,31 @@ describe('InvoiceCard', () => {
     const card = screen.getByTestId(`invoice-card-${baseInvoice.transactionId}`)
     fireEvent.click(card)
     expect(onOpen).toHaveBeenCalledWith(baseInvoice.transactionId)
+  })
+
+  describe('relative-time tooltip locale', () => {
+    afterEach(async () => {
+      // Restore the file's default locale for every subsequent test.
+      await loadCatalog('uk')
+    })
+
+    it('uses uk-UA for the absolute-time title when locale is uk', () => {
+      render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
+      const tooltip = screen.getByText(/тому|секунд|хвилин|годин|дн[іяь]/)
+      expect(tooltip).toHaveAttribute(
+        'title',
+        new Date(baseInvoice.createdAt).toLocaleString('uk-UA'),
+      )
+    })
+
+    it('uses en-GB for the absolute-time title when locale is en', async () => {
+      await loadCatalog('en')
+      render(<InvoiceCard invoice={baseInvoice} onOpen={vi.fn()} />)
+      const tooltip = screen.getByText(/ago/)
+      expect(tooltip).toHaveAttribute(
+        'title',
+        new Date(baseInvoice.createdAt).toLocaleString('en-GB'),
+      )
+    })
   })
 })

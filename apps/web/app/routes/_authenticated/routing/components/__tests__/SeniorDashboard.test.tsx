@@ -519,6 +519,13 @@ describe('SeniorDashboard', () => {
       expect(row).not.toHaveTextContent('Acme Migration')
     })
 
+    it('renders the row createdAt date with the shortYY style ("01.06.26")', async () => {
+      getTransactionsMock.mockResolvedValue([makeTx({ id: 'pending-1', status: 'PENDING' })])
+      renderDashboard()
+      const row = await screen.findByTestId('senior-in-progress-row-pending-1')
+      expect(row).toHaveTextContent('01.06.26')
+    })
+
     it('renders «Создать выплату» ONLY on VALIDATED rows without a payout', async () => {
       getTransactionsMock.mockResolvedValue([
         makeTx({ id: 'pending-1', status: 'PENDING' }),

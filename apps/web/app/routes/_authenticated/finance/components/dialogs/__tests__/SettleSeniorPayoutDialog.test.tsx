@@ -3,11 +3,11 @@
  *
  * Pins that paying a senior IOU now mirrors the SALARY pay flow (shared
  * FundingSourceFields):
- * 1. The account selector shows «Счёт компании» (default) + every ADMIN partner.
- * 2. «Счёт компании» is the default → company balance hint shown.
+ * 1. The account selector shows «Рахунок компанії» (default) + every ADMIN partner.
+ * 2. «Рахунок компанії» is the default → company balance hint shown.
  * 3. Selecting a partner switches to ADMIN_PERSONAL → the company balance hint
  *    disappears (the company account is not touched).
- * 4. Submitting with «Счёт компании» calls settleSeniorPayoutFromTransaction with
+ * 4. Submitting with «Рахунок компанії» calls settleSeniorPayoutFromTransaction with
  *    { fundingSource: 'COMPANY_ACCOUNT' } (no payerAdminId, no currency).
  * 5. Submitting with a partner calls it with
  *    { fundingSource: 'ADMIN_PERSONAL', payerAdminId: <partner> } (no currency).
@@ -124,7 +124,7 @@ const DROP_TX = {
 // but with `dropCascadeOrigin: true` — the marker `settleByCompany`
 // authoritatively reads (NOT `payoutRequestId`, kept here too since a real
 // cascade row carries both) — whose share never landed on the shared company
-// account. This is the shape that must disable/block «Счёт компании».
+// account. This is the shape that must disable/block «Рахунок компанії».
 const CASCADE_DROP_TX = {
   id: 'cascade-drop-pending-1',
   type: 'DROP_PENDING_PAYOUT',
@@ -158,7 +158,7 @@ const UNSTAMPED_DROP_TX = {
 // task-drop-payout-currency: a DROP obligation denominated in UAH — lets a
 // cross-currency conversion be exercised WITHOUT driving the (Radix, not
 // reliably driveable in happy-dom — see PaySalaryDialog.paid-amount.test.tsx)
-// currency Select: picking «Счёт компании» (a plain button) forces
+// currency Select: picking «Рахунок компанії» (a plain button) forces
 // effectiveCurrency=USDT, which is already a REAL conversion away from this
 // obligation's own UAH. 4150 UAH / 41.50 = exactly 100 USDT (FAKE_RATES).
 const UAH_DROP_TX = {
@@ -199,7 +199,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     settleMock.mockClear()
   })
 
-  it('renders «Счёт компании» + every ADMIN partner as account options', async () => {
+  it('renders «Рахунок компанії» + every ADMIN partner as account options', async () => {
     renderDialog()
     expect(screen.getByTestId('settle-senior-account-company')).toBeInTheDocument()
     expect(await screen.findByTestId('settle-senior-account-admin-maksym-id')).toBeInTheDocument()
@@ -208,7 +208,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     expect(screen.queryByTestId('settle-senior-account-admin-hr-id')).not.toBeInTheDocument()
   })
 
-  it('«Счёт компании» is default → company balance hint shown', async () => {
+  it('«Рахунок компанії» is default → company balance hint shown', async () => {
     renderDialog()
     expect(await screen.findByTestId('settle-senior-company-balance-hint')).toBeInTheDocument()
   })
@@ -219,7 +219,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     expect(screen.queryByTestId('settle-senior-company-balance-hint')).not.toBeInTheDocument()
   })
 
-  it('submitting with «Счёт компании» → settle(COMPANY_ACCOUNT, no payerAdminId, no currency)', async () => {
+  it('submitting with «Рахунок компанії» → settle(COMPANY_ACCOUNT, no payerAdminId, no currency)', async () => {
     renderDialog()
     await fillReceipt()
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
@@ -262,7 +262,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
 
   // task-remove-settle-currency: a SENIOR settle still has no amount/currency
   // field at all — a senior obligation is always denominated in USDT, so
-  // there is nothing to pick. Checked both for «Счёт компании» (default) and
+  // there is nothing to pick. Checked both for «Рахунок компанії» (default) and
   // for an ADMIN partner. task-drop-payout-currency: a DROP settle is
   // different — see the next describe block.
   it('SENIOR: does not render an amount/currency field at all', async () => {
@@ -283,15 +283,20 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     vi.mocked(toast.success).mockClear()
   })
 
-  it('shows «Выплатить синьору» title for a SENIOR_PENDING_PAYOUT tx', () => {
+  it('shows «Розрахунок із сеньйором» title for a SENIOR_PENDING_PAYOUT tx', () => {
     renderDialog(TX)
-    expect(screen.getByText('Выплатить синьору')).toBeInTheDocument()
+    expect(screen.getByText('Розрахунок із сеньйором')).toBeInTheDocument()
   })
 
-  it('shows «Выплатить дропу» title for a DROP_PENDING_PAYOUT tx', () => {
+  it('renders the tx createdAt date with the shortYY style ("01.06.26")', () => {
+    renderDialog(TX) // createdAt: '2026-06-01T00:00:00.000Z'
+    expect(screen.getByText('01.06.26')).toBeInTheDocument()
+  })
+
+  it('shows «Розрахунок із дропом» title for a DROP_PENDING_PAYOUT tx', () => {
     renderDialog(DROP_TX)
-    expect(screen.getByText('Выплатить дропу')).toBeInTheDocument()
-    expect(screen.queryByText('Выплатить синьору')).not.toBeInTheDocument()
+    expect(screen.getByText('Розрахунок із дропом')).toBeInTheDocument()
+    expect(screen.queryByText('Розрахунок із сеньйором')).not.toBeInTheDocument()
   })
 
   it('still surfaces the recipient name (drop) via the shared «Получатель» row', () => {
@@ -309,7 +314,7 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
     // task-drop-payout-currency: a DROP settle now DOES send `currency` — the
     // default is the obligation's own currency (USDT here), same as the
-    // «Счёт компании» force. Unlike a SENIOR settle (still omitted below).
+    // «Рахунок компанії» force. Unlike a SENIOR settle (still omitted below).
     expect(payload.currency).toBe('USDT')
   })
 
@@ -317,7 +322,9 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     renderDialog(DROP_TX)
     await fillReceipt()
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата дропу проведена'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Розрахунок із дропом проведено'),
+    )
   })
 
   // security-review PR #521 round 3 (LOW-2): when the response DOES carry
@@ -334,7 +341,7 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith(
-        expect.stringContaining('Выплата дропу проведена:'),
+        expect.stringContaining('Розрахунок із дропом проведено:'),
       ),
     )
     const [message] = vi.mocked(toast.success).mock.calls[0] as [string]
@@ -346,12 +353,35 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     renderDialog(TX)
     await fillReceipt()
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата синьору проведена'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith('Розрахунок із сеньйором проведено'),
+    )
+  })
+
+  it('shows the exact DROP dialog description ("Розрахунок за частку дропа")', () => {
+    renderDialog(DROP_TX)
+    expect(screen.getByText('Розрахунок за частку дропа')).toBeInTheDocument()
+  })
+
+  it('shows the exact SENIOR dialog description ("Розрахунок за частку сеньйора")', () => {
+    renderDialog(TX)
+    expect(screen.getByText('Розрахунок за частку сеньйора')).toBeInTheDocument()
+  })
+
+  it('shows an error toast with the API-derived message when settle rejects', async () => {
+    renderDialog(TX)
+    settleMock.mockRejectedValueOnce({
+      response: { data: { message: 'Boom' } },
+    })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.error).toHaveBeenCalledWith('Boom')
   })
 })
 
 // security-review PR #443 (HIGH-1): a cascade-originated drop obligation
-// (payoutRequestId != null) must never settle from «Счёт компании» — that
+// (payoutRequestId != null) must never settle from «Рахунок компанії» — that
 // money never landed on the shared company pool. Pins the UI mirror of the
 // server-side settleByCompany guard (pending-settlement.service.ts).
 describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obligation', () => {
@@ -359,22 +389,22 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
     settleMock.mockClear()
   })
 
-  it('disables «Счёт компании» and shows the reason for a cascade drop obligation', async () => {
+  it('disables «Рахунок компанії» and shows the reason for a cascade drop obligation', async () => {
     renderDialog(CASCADE_DROP_TX)
     const companyBtn = await screen.findByTestId('settle-senior-account-company')
     expect(companyBtn).toBeDisabled()
     expect(screen.getByTestId('settle-senior-company-disabled-reason')).toHaveTextContent(
-      /доля дропа из этой выплаты не проходила через счёт компании/i,
+      /частка дропа з цієї виплати не проходила через рахунок компанії/i,
     )
   })
 
-  it('does NOT disable «Счёт компании» for a non-cascade drop obligation (admin-USDT origin)', async () => {
+  it('does NOT disable «Рахунок компанії» for a non-cascade drop obligation (admin-USDT origin)', async () => {
     renderDialog(DROP_TX)
     const companyBtn = await screen.findByTestId('settle-senior-account-company')
     expect(companyBtn).not.toBeDisabled()
   })
 
-  it('does not default to «Счёт компании» for a cascade drop obligation — no company balance hint on open', async () => {
+  it('does not default to «Рахунок компанії» for a cascade drop obligation — no company balance hint on open', async () => {
     renderDialog(CASCADE_DROP_TX)
     await screen.findByTestId('settle-senior-account-company')
     expect(screen.queryByTestId('settle-senior-company-balance-hint')).not.toBeInTheDocument()
@@ -389,7 +419,7 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
     expect(screen.getByTestId('settle-senior-error-account')).toBeInTheDocument()
   })
 
-  it('clicking the disabled «Счёт компании» button does nothing — still blocked on submit', async () => {
+  it('clicking the disabled «Рахунок компанії» button does nothing — still blocked on submit', async () => {
     renderDialog(CASCADE_DROP_TX)
     const companyBtn = await screen.findByTestId('settle-senior-account-company')
     fireEvent.click(companyBtn)
@@ -414,7 +444,7 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
 
   // MED-1 (round 4): `dropCascadeOrigin: null` (unstamped) must be treated
   // the SAME as a verified-cascade row — `!== false`, not a truthy check.
-  it('treats an UNSTAMPED marker (dropCascadeOrigin=null) the same as a cascade obligation — disables «Счёт компании», blocks submit', async () => {
+  it('treats an UNSTAMPED marker (dropCascadeOrigin=null) the same as a cascade obligation — disables «Рахунок компанії», blocks submit', async () => {
     renderDialog(UNSTAMPED_DROP_TX)
     const companyBtn = await screen.findByTestId('settle-senior-account-company')
     expect(companyBtn).toBeDisabled()
@@ -432,7 +462,7 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
 // The currency Select is Radix (not reliably driveable in happy-dom — see
 // PaySalaryDialog.paid-amount.test.tsx) — cross-currency behaviour is
 // exercised the SAME way that spec establishes: via the obligation's OWN
-// currency + the «Счёт компании» (plain button) USDT-force, never a
+// currency + the «Рахунок компанії» (plain button) USDT-force, never a
 // simulated Select click.
 describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-currency)', () => {
   beforeEach(() => {
@@ -450,13 +480,13 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
 
   // AC1: the amount field exists ONLY for a DROP settle, is disabled, and the
   // currency it sits next to is a real, enabled choice (once a personal
-  // account is picked — «Счёт компании» locks it to USDT, same as
+  // account is picked — «Рахунок компанії» locks it to USDT, same as
   // PaySalaryDialog's `disableCurrency={isCompany}`).
   it('AC1: amount input is disabled; currency selector is enabled once a personal account is chosen', async () => {
     renderDialog(DROP_TX)
     const amountField = await screen.findByTestId('settle-senior-amount-field')
     expect(within(amountField).getByTestId('amount-currency-amount-input')).toBeDisabled()
-    // Default: «Счёт компании» → currency forced/locked (disableCurrency).
+    // Default: «Рахунок компанії» → currency forced/locked (disableCurrency).
     expect(within(amountField).getByRole('combobox')).toBeDisabled()
 
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
@@ -472,24 +502,36 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(screen.queryByTestId('settle-senior-amount-field')).not.toBeInTheDocument()
   })
 
+  it('the DROP amount field carries the exact "Сума розрахунку" label', async () => {
+    renderDialog(DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    expect(within(amountField).getByText('Сума розрахунку')).toBeInTheDocument()
+  })
+
+  it('the receipt field carries the exact "Чек / підтвердження *" label', async () => {
+    renderDialog(TX)
+    await screen.findByTestId('settle-senior-submit')
+    expect(screen.getByText('Чек / підтвердження *')).toBeInTheDocument()
+  })
+
   // AC2 (default — no recalculation): the obligation's own currency shows the
   // obligation amount verbatim, no NBU round-trip needed.
   it('AC2: defaults to the obligation currency — shown amount equals the obligation, unconverted', async () => {
     renderDialog(DROP_TX)
     const amountField = await screen.findByTestId('settle-senior-amount-field')
-    // DROP_TX: amount 420, currency USDT — «Счёт компании» is also USDT, so
+    // DROP_TX: amount 420, currency USDT — «Рахунок компанії» is also USDT, so
     // this is the no-conversion path from BOTH angles at once.
     expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('420.00')
   })
 
-  // AC2 (recalculation happens): switching OFF «Счёт компании» for a
+  // AC2 (recalculation happens): switching OFF «Рахунок компанії» for a
   // non-USDT obligation stops forcing USDT — the shown amount reverts to the
   // obligation's own currency/figure (UAH here), proving the field really
   // recomputes with the funding/currency context instead of a frozen value.
   it('AC2: switching account changes the effective currency and recalculates the shown amount', async () => {
     renderDialog(UAH_DROP_TX)
     const amountField = await screen.findByTestId('settle-senior-amount-field')
-    // Default «Счёт компании» → forced USDT → 4150 UAH / 41.50 = 100 USDT.
+    // Default «Рахунок компанії» → forced USDT → 4150 UAH / 41.50 = 100 USDT.
     await waitFor(() =>
       expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
     )
@@ -594,7 +636,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     rateDateOverride = '20260801' // UAH_DROP_TX's own default txDate
     renderDialog(UAH_DROP_TX)
     const amountField = await screen.findByTestId('settle-senior-amount-field')
-    // Wait for the rate query to actually RESOLVE (default «Счёт компании»
+    // Wait for the rate query to actually RESOLVE (default «Рахунок компанії»
     // forces USDT — a real UAH→USDT conversion, 4150/41.50) before checking
     // the note's absence — otherwise this would trivially pass just because
     // `rates` hadn't loaded yet, regardless of any mutation.
@@ -619,7 +661,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   // receipt file/url instead of an on-chain hash.
   it('receipt is explorer-only for USDT (default), but offers file/url once a non-USDT currency is in effect', async () => {
     renderDialog(UAH_DROP_TX)
-    // Default: «Счёт компании» → USDT → explorer-only (no mode toggle).
+    // Default: «Рахунок компанії» → USDT → explorer-only (no mode toggle).
     await screen.findByTestId('settle-senior-amount-field')
     expect(screen.queryByTestId('receipt-input-mode-file')).not.toBeInTheDocument()
 
@@ -709,9 +751,9 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   // mounted dialog instance is handed a DIFFERENT obligation (the parent
   // reuses one dialog component across rows) — proven via `rerender`, not a
   // fresh mount, so an EMPTY dependency array (which would only run once)
-  // is genuinely distinguishable. Leaves «Счёт компании» BEFORE the rerender
+  // is genuinely distinguishable. Leaves «Рахунок компанії» BEFORE the rerender
   // (and stays off it) so `effectiveCurrency` reflects the STORED `currency`
-  // state directly — with «Счёт компании» selected it would force USDT
+  // state directly — with «Рахунок компанії» selected it would force USDT
   // regardless of whether the effect re-ran, masking the very thing under test
   // (the same pitfall the currency-reset test above works around).
   it('re-syncs the currency default when the SAME dialog instance receives a DIFFERENT tx (rerender, not remount)', async () => {
@@ -736,7 +778,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
         </QueryClientProvider>
       </I18nTestProvider>,
     )
-    // «Счёт компании» was never re-selected — still ADMIN_PERSONAL, so
+    // «Рахунок компанії» was never re-selected — still ADMIN_PERSONAL, so
     // `effectiveCurrency` reads the STORED value directly. If the effect
     // re-ran (unmutated): currency → UAH_DROP_TX's own (UAH) → 4150.00,
     // unconverted. If it did NOT (mutant `[]`): currency stays the STALE
@@ -792,16 +834,16 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     )
   })
 
-  // AC1 corollary: picking «Счёт компании» resets the STORED currency choice
+  // AC1 corollary: picking «Рахунок компанії» resets the STORED currency choice
   // back to the obligation's own — not just the DISPLAYED effective one.
   // Only observable by leaving company again afterwards: `effectiveCurrency`
   // forces USDT while `isCompany` is true regardless of the stored value, so
   // the reset is invisible until the NEXT switch away exposes what was
   // actually stored.
-  it('picking «Счёт компании» resets the stored currency — a later switch back to a partner shows USDT, not a stale earlier pick', async () => {
+  it('picking «Рахунок компанії» resets the stored currency — a later switch back to a partner shows USDT, not a stale earlier pick', async () => {
     renderDialog(UAH_DROP_TX)
     const amountField = await screen.findByTestId('settle-senior-amount-field')
-    // 1) Leave «Счёт компании» — stored currency is UAH (the obligation's own,
+    // 1) Leave «Рахунок компанії» — stored currency is UAH (the obligation's own,
     //    set by the mount-sync effect, untouched by the company-force yet).
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
     await waitFor(() =>
@@ -809,7 +851,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
         '4150.00',
       ),
     )
-    // 2) Back to «Счёт компании» — forces USDT (display), and per
+    // 2) Back to «Рахунок компанії» — forces USDT (display), and per
     //    selectAccount must ALSO reset the STORED currency to USDT.
     fireEvent.click(await screen.findByTestId('settle-senior-account-company'))
     await waitFor(() =>
@@ -832,7 +874,7 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     try {
       renderDialog(UAH_DROP_TX)
       const amountField = await screen.findByTestId('settle-senior-amount-field')
-      // Default «Счёт компании» forces USDT against a UAH obligation — a
+      // Default «Рахунок компанії» forces USDT against a UAH obligation — a
       // GENUINE conversion that needs the (failing) rate.
       await waitFor(() =>
         expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(''),

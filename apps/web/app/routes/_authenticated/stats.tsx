@@ -18,15 +18,22 @@ import {
   Wallet,
 } from 'lucide-react'
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { Trans, Plural, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
 
 import type {
   FinanceSummaryDto,
   IncomeComplianceOverviewDto,
   IncomeComplianceReceiverDto,
 } from '@crm/shared'
+import { formatMonthLabel } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
 
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -187,13 +194,13 @@ function CompanyAndPartnersCard({
       className="overflow-hidden flex flex-col h-full"
       data-testid="stats-company-partners-card"
     >
-      {/* ── Секция 1: Счёт компании (USDT) ── */}
+      {/* ── Секція 1: Рахунок компанії (USDT) ── */}
       <div data-testid="stats-company-account-balance">
         <CardHeader className="pb-2 pt-4 px-4">
           <div className="flex items-center gap-2">
             <CardTitle className="text-sm font-semibold flex items-center gap-2">
               <Coins className="h-4 w-4 text-yellow-500" aria-hidden="true" />
-              Счёт компании · USDT
+              <Trans>Рахунок компанії · USDT</Trans>
             </CardTitle>
             <TooltipProvider delayDuration={200}>
               <UITooltip>
@@ -201,8 +208,10 @@ function CompanyAndPartnersCard({
                   <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                  Накопленный USDT-баланс на счёте компании — пополняется через подтверждённые
-                  выплаты (метод «Счёт компании») и уменьшается выводом дивидендов.
+                  <Trans>
+                    Накопичений USDT-баланс на рахунку компанії — поповнюється через підтверджені
+                    виплати (метод «Рахунок компанії») і зменшується виведенням дивідендів.
+                  </Trans>
                 </TooltipContent>
               </UITooltip>
             </TooltipProvider>
@@ -225,35 +234,41 @@ function CompanyAndPartnersCard({
                 </p>
               )}
               {!account?.walletAddress && (
-                <p className="text-xs text-muted-foreground">Кошелёк не настроен</p>
+                <p className="text-xs text-muted-foreground">
+                  <Trans>Гаманець не налаштовано</Trans>
+                </p>
               )}
             </div>
           )}
         </CardContent>
       </div>
 
-      {/* ── Секция 2: Балансы партнёров (только ADMIN) ── */}
+      {/* ── Секція 2: Баланси партнерів (лише ADMIN) ── */}
       {isAdmin && sorted.length > 0 && (
         <>
           <div className="h-px bg-border/60 mx-4" />
           <CardHeader className="pb-2 pt-3 px-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-semibold">Балансы партнёров</CardTitle>
+                <CardTitle className="text-sm font-semibold">
+                  <Trans>Баланси партнерів</Trans>
+                </CardTitle>
                 <TooltipProvider delayDuration={200}>
                   <UITooltip>
                     <TooltipTrigger asChild>
                       <HelpCircle className="h-3.5 w-3.5 text-muted-foreground/40 cursor-help" />
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                      Накопленный баланс каждого партнёра: входящие PAYOUT_ADMIN + ADMIN_INCOME
-                      минус исходящие ADMIN_TRANSFER (все со статусом PAID).
+                      <Trans>
+                        Накопичений баланс кожного партнера: усі оплачені надходження та дохід
+                        адмінів мінус перекази між адмінами.
+                      </Trans>
                     </TooltipContent>
                   </UITooltip>
                 </TooltipProvider>
               </div>
               <span className="text-xs text-muted-foreground">
-                Итого:{' '}
+                <Trans>Разом</Trans>:{' '}
                 <span className="font-semibold text-foreground">
                   $
                   {total.toLocaleString('en-US', {
@@ -322,11 +337,15 @@ function CompanyAndPartnersCard({
             {isSettled ? (
               <div className="flex items-center gap-2 rounded-lg bg-emerald-500/8 border border-emerald-500/20 px-3 py-2.5">
                 <div className="flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 shrink-0">
-                  <span className="text-sm">✓</span>
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" aria-hidden="true" />
                 </div>
                 <div>
-                  <div className="text-xs font-medium text-emerald-400">Балансы выровнены</div>
-                  <div className="text-[10px] text-muted-foreground">Никто никому не должен</div>
+                  <div className="text-xs font-medium text-emerald-400">
+                    <Trans>Баланси вирівняно</Trans>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground">
+                    <Trans>Ніхто нікому не винен</Trans>
+                  </div>
                 </div>
               </div>
             ) : rich && poor ? (
@@ -334,7 +353,7 @@ function CompanyAndPartnersCard({
                 <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-amber-500/10">
                   <Info className="h-3 w-3 text-amber-400/70 shrink-0" />
                   <span className="text-[10px] text-muted-foreground uppercase tracking-wide font-medium">
-                    Для выравнивания
+                    <Trans>Для вирівнювання</Trans>
                   </span>
                 </div>
                 <div className="px-3 py-3 flex items-center gap-3">
@@ -343,10 +362,15 @@ function CompanyAndPartnersCard({
                     <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
                       {rich.displayName.charAt(0)}
                     </div>
-                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                    <span
+                      className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
+                      title={rich.displayName}
+                    >
                       {rich.displayName}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">отправляет</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      <Trans>надсилає</Trans>
+                    </span>
                   </div>
                   {/* Arrow + amount */}
                   <div className="flex flex-col items-center gap-0.5 shrink-0">
@@ -369,10 +393,15 @@ function CompanyAndPartnersCard({
                     <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
                       {poor.displayName.charAt(0)}
                     </div>
-                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                    <span
+                      className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
+                      title={poor.displayName}
+                    >
                       {poor.displayName}
                     </span>
-                    <span className="text-[10px] text-muted-foreground">получает</span>
+                    <span className="text-[10px] text-muted-foreground">
+                      <Trans>отримує</Trans>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -427,11 +456,29 @@ function computeExtraStats(summary: FinanceSummaryDto) {
 // is already ADMIN/ACCOUNTANT-only). NOT in the persist allow-list (financial
 // data is never written to disk — the query is volatile by default).
 
-const ROLE_LABEL: Record<IncomeComplianceReceiverDto['role'], string> = {
-  SENIOR: 'Senior',
-  ADMIN_SENIOR: 'Admin-Senior',
-  DROP: 'Посредник',
-}
+/**
+ * task-i18n-stage3d-pr4 (template G, COPY-H-fin-2). This is `stats.tsx`'s
+ * OWN enum, not the app-wide `Role` — `satisfies` without `as const` (урок
+ * #707). DROP was rendered as «Посредник» — none of the four synonyms the
+ * glossary actually bans (посередник/підставна особа/номінал/проксі), but a
+ * fifth term nobody had approved — and `SENIOR`/`ADMIN_SENIOR` rendered
+ * Latin script in an otherwise-Ukrainian sentence. Canon (`CONTEXT.md` →
+ * «Волна d»): DROP = «Дроп», SENIOR = «Сеньйор», ADMIN_SENIOR = «Адмін-сеньйор».
+ */
+const ROLE_LABEL_MESSAGES = {
+  SENIOR: msg`Сеньйор`, // en: Senior
+  ADMIN_SENIOR: msg`Адмін-сеньйор`, // en: Admin-senior
+  DROP: msg`Дроп`, // en: Drop
+} satisfies Record<IncomeComplianceReceiverDto['role'], MessageDescriptor>
+
+/**
+ * task-i18n-stage3d-pr4 (template J-fin). «за {N} мес.» — a `StatCard`
+ * `sub` is a plain string prop (not JSX), so the JSX-only `<Plural>`
+ * component cannot be used here (урок #700) — an ICU string + `i18n._(msg,
+ * {count})` instead. `satisfies` without `as const` — see the module-level
+ * doc comment on `TYPE_LABEL_MESSAGES` in `finance/constants.ts` for why.
+ */
+const AVG_MONTHS_SUFFIX_MESSAGE: MessageDescriptor = msg`за {count, plural, one {# місяць} few {# місяці} many {# місяців} other {# місяця}}`
 
 function receiverInitials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean)
@@ -501,9 +548,9 @@ function ComplianceKpi({
   sub,
   color,
 }: {
-  label: string
+  label: React.ReactNode
   value: string
-  sub: string
+  sub: React.ReactNode
   color: 'default' | 'green' | 'red' | 'amber'
 }) {
   const valueColor: Record<string, string> = {
@@ -565,33 +612,67 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
   // its OWN wording within that branch — reusing «На валидации» would be a
   // wrong claim (nobody is validating anything; the accountant has nothing
   // to check, the company just hasn't paid out yet).
-  const badge =
+  const badge: { text: React.ReactNode; cls: string } =
     status === 'complete'
-      ? { text: 'Все получены', cls: 'bg-green-500/10 text-green-500' }
+      ? { text: <Trans>Усі отримано</Trans>, cls: 'bg-green-500/10 text-green-500' }
       : status === 'pending'
         ? receiver.pendingCount > 0 && receiver.accruedCount > 0
           ? {
-              text: `${receiver.pendingCount + receiver.accruedCount} в процессе`,
+              text: (
+                <Plural
+                  value={receiver.pendingCount + receiver.accruedCount}
+                  one="# у процесі"
+                  few="# у процесі"
+                  many="# у процесі"
+                  other="# у процесі"
+                />
+              ),
               cls: 'bg-amber-500/10 text-amber-500',
             }
           : receiver.accruedCount > 0
             ? {
                 text:
-                  receiver.accruedCount === 1 ? 'Начислено' : `${receiver.accruedCount} начислено`,
+                  receiver.accruedCount === 1 ? (
+                    <Trans>Нараховано</Trans>
+                  ) : (
+                    <Plural
+                      value={receiver.accruedCount}
+                      one="# нараховано"
+                      few="# нараховано"
+                      many="# нараховано"
+                      other="# нараховано"
+                    />
+                  ),
                 cls: 'bg-amber-500/10 text-amber-500',
               }
             : {
                 text:
-                  receiver.pendingCount === 1
-                    ? 'На валидации'
-                    : `${receiver.pendingCount} на валидации`,
+                  receiver.pendingCount === 1 ? (
+                    <Trans>На валідації</Trans>
+                  ) : (
+                    <Plural
+                      value={receiver.pendingCount}
+                      one="# на валідації"
+                      few="# на валідації"
+                      many="# на валідації"
+                      other="# на валідації"
+                    />
+                  ),
                 cls: 'bg-amber-500/10 text-amber-500',
               }
         : {
             text:
-              receiver.submitted === 0
-                ? 'Нет приходов'
-                : `${receiver.expected - receiver.submitted} без прихода`,
+              receiver.submitted === 0 ? (
+                <Trans>Немає доходів</Trans>
+              ) : (
+                <Plural
+                  value={receiver.expected - receiver.submitted}
+                  one="# без доходу"
+                  few="# без доходу"
+                  many="# без доходу"
+                  other="# без доходу"
+                />
+              ),
             cls: 'bg-red-500/10 text-red-500',
           }
 
@@ -616,11 +697,19 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className={cn('h-2 w-2 rounded-full shrink-0', dot[status])} />
-            <span className="font-medium truncate">{receiver.displayName}</span>
+            <span className="font-medium truncate" title={receiver.displayName}>
+              {receiver.displayName}
+            </span>
           </div>
           <span className="text-xs text-muted-foreground">
-            {ROLE_LABEL[receiver.role]} · {receiver.expected} актив.{' '}
-            {receiver.expected === 1 ? 'проект' : 'проекта'}
+            {i18n._(ROLE_LABEL_MESSAGES[receiver.role])} ·{' '}
+            <Plural
+              value={receiver.expected}
+              one="# активний проєкт"
+              few="# активні проєкти"
+              many="# активних проєктів"
+              other="# активного проєкту"
+            />
           </span>
         </div>
 
@@ -667,7 +756,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
               data-testid={`compliance-detail-${receiver.userId}`}
             >
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-                Проекты без засчитанного прихода
+                <Trans>Проєкти без зарахованого доходу</Trans>
               </p>
               <ul className="space-y-1.5">
                 {receiver.missingProjects.map((p) => (
@@ -696,13 +785,15 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                         {/* task-compliance-overview-pending-types: `accrued` gets
                             its own wording — it is a company-booked obligation
                             awaiting PAYOUT, not a self-declared income awaiting
-                            VALIDATION («На валидации» would misattribute the
+                            VALIDATION («На валідації» would misattribute the
                             wait to the wrong party. */}
-                        {p.accrued
-                          ? 'Начислено · ожидает выплаты'
-                          : p.pendingValidation
-                            ? 'На валидации'
-                            : 'Нет прихода'}
+                        {p.accrued ? (
+                          <Trans>Нараховано · очікує розрахунку</Trans>
+                        ) : p.pendingValidation ? (
+                          <Trans>На валідації</Trans>
+                        ) : (
+                          <Trans>Немає доходу</Trans>
+                        )}
                       </span>
                     </span>
                   </li>
@@ -717,7 +808,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
 }
 
 function IncomeComplianceSection() {
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['income-compliance'],
     queryFn: () => financeApi.getIncomeCompliance(),
     // Financial aggregate — avoid refetching on every window focus.
@@ -729,7 +820,7 @@ function IncomeComplianceSection() {
       <div className="flex items-center gap-2">
         <TrendingUp className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          Контроль приходов
+          <Trans>Контроль доходів</Trans>
         </h2>
       </div>
 
@@ -743,9 +834,24 @@ function IncomeComplianceSection() {
           <Skeleton className="h-40 w-full rounded-xl" />
         </div>
       ) : isError ? (
-        <p className="text-sm text-muted-foreground" data-testid="income-compliance-error">
-          Не удалось загрузить данные контроля приходов.
-        </p>
+        <div
+          className="flex flex-col gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+          data-testid="income-compliance-error"
+        >
+          <span>
+            <Trans>Не вдалося завантажити дані контролю доходів.</Trans>
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => void refetch()}
+            disabled={isRefetching}
+            className="h-11 w-full shrink-0 sm:h-8 sm:w-auto"
+            data-testid="income-compliance-retry"
+          >
+            <Trans>Повторити</Trans>
+          </Button>
+        </div>
       ) : data ? (
         <IncomeComplianceBody data={data} />
       ) : null}
@@ -754,38 +860,68 @@ function IncomeComplianceSection() {
 }
 
 function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
+  const locale = useLocale()
   const { totals, receivers, month } = data
   const coverage =
     totals.expectedProjects > 0
       ? Math.round((totals.submittedProjects / totals.expectedProjects) * 100)
       : 100
+  const monthLabel = formatMonthLabel(month, locale)
 
   return (
     <div className="space-y-4">
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <ComplianceKpi
-          label="Всего приходов"
+          label={<Trans>Усього доходів</Trans>}
           value={`${totals.submittedProjects} / ${totals.expectedProjects}`}
-          sub={`${coverage}% покрытие · ${month}`}
+          sub={
+            <Trans>
+              покриття {coverage}% · {monthLabel}
+            </Trans>
+          }
           color="default"
         />
         <ComplianceKpi
-          label="Закрыты полностью"
+          label={<Trans>Закриті повністю</Trans>}
           value={String(totals.completeReceivers)}
-          sub={totals.completeReceivers === 1 ? 'получатель' : 'получателей'}
+          sub={
+            <Plural
+              value={totals.completeReceivers}
+              one="отримувач"
+              few="отримувачі"
+              many="отримувачів"
+              other="отримувача"
+            />
+          }
           color="green"
         />
         <ComplianceKpi
-          label="Отстают"
+          label={<Trans>Відстають</Trans>}
           value={String(totals.laggingReceivers)}
-          sub={totals.laggingReceivers === 1 ? 'получатель' : 'получателей'}
+          sub={
+            <Plural
+              value={totals.laggingReceivers}
+              one="отримувач"
+              few="отримувачі"
+              many="отримувачів"
+              other="отримувача"
+            />
+          }
           color="red"
         />
         <ComplianceKpi
-          label="На валидации у бухгалтера"
+          label={<Trans>На валідації у бухгалтера</Trans>}
           value={String(totals.pendingProjects)}
-          sub={totals.pendingProjects === 1 ? 'приход' : 'приходов'}
+          sub={
+            <Plural
+              value={totals.pendingProjects}
+              one="дохід"
+              few="доходи"
+              many="доходів"
+              other="доходу"
+            />
+          }
           color="amber"
         />
       </div>
@@ -794,7 +930,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
       {receivers.length === 0 ? (
         <Card>
           <CardContent className="py-10 text-center text-sm text-muted-foreground">
-            Нет активных проектов-получателей дохода за {month}.
+            <Trans>Немає активних проєктів-отримувачів доходу за {monthLabel}.</Trans>
           </CardContent>
         </Card>
       ) : (
@@ -806,8 +942,10 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
       )}
 
       <p className="text-[11px] text-muted-foreground/60">
-        Засчитывается приход в статусе «валидирован» или «выплачен» за текущий месяц. Фаза 2: ручные
-        исключения (пауза / отпуск) и автоматические напоминания.
+        <Trans>
+          Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом:
+          ручні винятки (пауза / відпустка) і автоматичні нагадування.
+        </Trans>
       </p>
     </div>
   )
@@ -818,6 +956,8 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
 // Exported for the role-split unit test (stats.test.tsx). The route still binds
 // it via `Route.component = StatsPage` below.
 export function StatsPage() {
+  const { t } = useLingui()
+  const locale = useLocale()
   const { user } = useAuth()
   const navigate = useNavigate()
 
@@ -871,7 +1011,7 @@ export function StatsPage() {
             <div className="flex items-center gap-2">
               <DollarSign className="h-4 w-4 text-muted-foreground" />
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-                Финансы
+                <Trans>Фінанси</Trans>
               </h2>
             </div>
 
@@ -886,32 +1026,32 @@ export function StatsPage() {
                 {/* Primary KPIs */}
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                   <StatCard
-                    title="Общий доход"
-                    hint="Сумма всех оплаченных транзакций типа ADMIN_INCOME и SENIOR_INCOME за всё время."
+                    title={t`Загальний дохід`}
+                    hint={t`Сума всіх оплачених надходжень та доходу сеньйорів і адмінів за весь час.`}
                     value={`$${summary.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<TrendingUp className="h-5 w-5" />}
                     color="green"
                     {...(extra?.incomeTrend !== null && extra?.incomeTrend !== undefined
-                      ? { trend: { value: extra.incomeTrend, label: 'vs пред. месяц' } }
+                      ? { trend: { value: extra.incomeTrend, label: t`vs попер. місяць` } }
                       : {})}
                   />
                   <StatCard
-                    title="Расходы"
-                    hint="Сумма всех оплаченных транзакций типа EXPENSE — операционные расходы компании."
+                    title={t`Витрати`}
+                    hint={t`Сума всіх оплачених операційних витрат компанії.`}
                     value={`$${summary.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<ArrowDownLeft className="h-5 w-5" />}
                     color="red"
                   />
                   <StatCard
-                    title="Зарплаты"
-                    hint="Сумма всех оплаченных зарплат (SALARY) сотрудникам компании за всё время."
+                    title={t`Зарплати`}
+                    hint={t`Сума всіх виплачених зарплат співробітникам компанії за весь час.`}
                     value={`$${summary.totalSalaries.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<Users className="h-5 w-5" />}
                     color="purple"
                   />
                   <StatCard
-                    title="Net balance"
-                    hint="Чистый остаток: доход минус расходы и зарплаты. Положительное значение = компания в плюсе."
+                    title={t`Чистий баланс`}
+                    hint={t`Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.`}
                     value={`$${summary.netBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<Wallet className="h-5 w-5" />}
                     color={summary.netBalance >= 0 ? 'blue' : 'red'}
@@ -922,38 +1062,38 @@ export function StatsPage() {
                 {extra && (
                   <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                     <StatCard
-                      title="Доход за последний месяц"
-                      hint={`Выручка за ${extra.lastMonth.month}. Включает доходы всех синьоров и админов.`}
+                      title={t`Дохід за останній місяць`}
+                      hint={t`Виручка за ${formatMonthLabel(extra.lastMonth.month, locale)}. Включає доходи всіх сеньйорів і адмінів.`}
                       value={`$${extra.lastMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       icon={<BarChart3 className="h-5 w-5" />}
                       color="green"
-                      sub={extra.lastMonth.month}
+                      sub={formatMonthLabel(extra.lastMonth.month, locale)}
                     />
                     <StatCard
-                      title="Прибыль за последний месяц"
-                      hint={`Чистая прибыль за ${extra.lastMonth.month}: доход минус расходы и зарплаты того месяца.`}
+                      title={t`Прибуток за останній місяць`}
+                      hint={t`Чистий прибуток за ${formatMonthLabel(extra.lastMonth.month, locale)}: дохід мінус витрати та зарплати того місяця.`}
                       value={`$${extra.lastMonth.profit.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       icon={<TrendingUp className="h-5 w-5" />}
                       color={extra.lastMonth.profit >= 0 ? 'cyan' : 'red'}
                       {...(extra.profitMargin !== null
-                        ? { sub: `Маржа: ${extra.profitMargin.toFixed(1)}%` }
+                        ? { sub: t`Маржа: ${extra.profitMargin.toFixed(1)}%` }
                         : {})}
                     />
                     <StatCard
-                      title="Средний доход / мес."
-                      hint="Среднемесячная выручка за всё время работы компании."
+                      title={t`Середній дохід / міс.`}
+                      hint={t`Середньомісячна виручка за весь час роботи компанії.`}
                       value={`$${extra.avgMonthlyIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       icon={<Clock className="h-5 w-5" />}
                       color="blue"
-                      sub={`за ${summary.monthly.length} мес.`}
+                      sub={i18n._(AVG_MONTHS_SUFFIX_MESSAGE.id, { count: summary.monthly.length })}
                     />
                     <StatCard
-                      title="Лучший месяц"
-                      hint="Месяц с наибольшей выручкой за всё время."
+                      title={t`Найкращий місяць`}
+                      hint={t`Місяць із найбільшою виручкою за весь час.`}
                       value={`$${extra.bestMonth.income.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                       icon={<TrendingUp className="h-5 w-5" />}
                       color="yellow"
-                      sub={extra.bestMonth.month}
+                      sub={formatMonthLabel(extra.bestMonth.month, locale)}
                     />
                   </div>
                 )}
@@ -976,33 +1116,37 @@ export function StatsPage() {
             ) : null}
           </section>
 
-          {/* ── Income compliance «Контроль приходов» (ADMIN + ACCOUNTANT) ──
+          {/* ── Income compliance «Контроль приходів» (ADMIN + ACCOUNTANT) ──
           Company-wide tracker of which income receivers have registered a
           counted income per active project this month. Placed after the main
           financial KPIs so the key P&L numbers are seen first. */}
           <IncomeComplianceSection />
 
-          {/* Future sections placeholder (ADMIN-only — HR/Команда/Проекты analytics
+          {/* Future sections placeholder (ADMIN-only — HR/Команда/Проєкти analytics
           are not part of the accountant's economic surface). */}
           {isAdmin && (
             <section className="space-y-4" data-testid="stats-placeholders-section">
               <div className="flex items-center gap-2">
                 <HelpCircle className="h-4 w-4 text-muted-foreground/40" />
                 <h2 className="text-sm font-semibold text-muted-foreground/40 uppercase tracking-wider">
-                  Другие разделы
+                  <Trans>Інші розділи</Trans>
                 </h2>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {['HR — воронка собеседований', 'Команда — активность', 'Проекты — загрузка'].map(
-                  (label) => (
-                    <div
-                      key={label}
-                      className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
-                    >
-                      {label}
-                    </div>
-                  ),
-                )}
+                {(
+                  [
+                    t`HR — воронка співбесід`,
+                    t`Команда — активність`,
+                    t`Проєкти — завантаженість`,
+                  ] as const
+                ).map((label) => (
+                  <div
+                    key={label}
+                    className="rounded-xl border border-dashed border-border/50 p-6 text-center text-sm text-muted-foreground/40"
+                  >
+                    {label}
+                  </div>
+                ))}
               </div>
             </section>
           )}

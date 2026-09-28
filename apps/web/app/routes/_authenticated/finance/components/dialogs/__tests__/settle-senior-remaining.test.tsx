@@ -122,7 +122,7 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     // A split memoised without `tx` in its dependencies would keep showing the
     // PREVIOUS row's «уже выплачено» over the new row's obligation — the same
     // class of lie this whole fix exists to remove, one row over.
-    expect(await screen.findByText('Сумма')).toBeTruthy()
+    expect(await screen.findByText('Сума')).toBeTruthy()
     expect(screen.queryByTestId('settle-senior-remaining')).toBeNull()
   })
 
@@ -154,8 +154,8 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     } as TransactionDto)
 
     const submit = await screen.findByTestId('settle-senior-submit')
-    expect(submit.textContent).toContain('без доплаты')
-    expect(submit.textContent).not.toContain('оплачено')
+    expect(submit.textContent).toContain('без розрахунку')
+    expect(submit.textContent).not.toContain('Підтвердити розрахунок')
   })
 
   it('SR-8. with money still owed, the button still says a payment is happening', async () => {
@@ -166,7 +166,7 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     } as TransactionDto)
 
     const submit = await screen.findByTestId('settle-senior-submit')
-    expect(submit.textContent).toContain('оплачено')
+    expect(submit.textContent).toContain('Підтвердити розрахунок')
   })
 
   it('SR-2. the full obligation is still shown — as the obligation, labelled as such', async () => {
@@ -178,9 +178,9 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
 
     // Removing the total would be the opposite error: the operator loses the
     // context for the remainder. Both figures, each named.
-    expect(await screen.findByText('Обязательство')).toBeTruthy()
-    expect(await screen.findByText('Уже выплачено')).toBeTruthy()
-    expect(await screen.findByText('К доплате сейчас')).toBeTruthy()
+    expect(await screen.findByText('Зобов’язання')).toBeTruthy()
+    expect(await screen.findByText('Вже розраховано')).toBeTruthy()
+    expect(await screen.findByText('До розрахунку зараз')).toBeTruthy()
   })
 
   it('SR-5. a settle accumulated in another currency shows a dash, not a fabricated figure', async () => {
@@ -203,15 +203,15 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     // The overwhelming majority of settles. One line, «Сумма», exactly as
     // before this task: a corrective fix that changed the common screen would
     // be a redesign smuggled in as a bug fix.
-    expect(await screen.findByText('Сумма')).toBeTruthy()
+    expect(await screen.findByText('Сума')).toBeTruthy()
     expect(screen.queryByTestId('settle-senior-remaining')).toBeNull()
-    expect(screen.queryByText('К доплате сейчас')).toBeNull()
+    expect(screen.queryByText('До розрахунку зараз')).toBeNull()
   })
 
   it('SR-4. a zero accumulator is treated as "nothing settled", not as a top-up', async () => {
     renderDialog({ ...BASE_TX, settledAmount: '0', settledCurrency: null } as TransactionDto)
 
-    expect(await screen.findByText('Сумма')).toBeTruthy()
+    expect(await screen.findByText('Сума')).toBeTruthy()
     expect(screen.queryByTestId('settle-senior-remaining')).toBeNull()
   })
 })

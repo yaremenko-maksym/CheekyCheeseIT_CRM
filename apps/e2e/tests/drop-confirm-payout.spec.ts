@@ -52,6 +52,7 @@ import {
   listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -63,6 +64,7 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
   test('ADMIN confirms drop PAYOUT → row PAID + PAYOUT_CONFIRMED for Maksym + UI updates', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `drop-confirm-${suffix}@cheekycheese.dev`
 
@@ -172,8 +174,13 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       await expect(submit).toBeEnabled()
       await submit.click()
 
-      // Success toast appears (sonner toast.success).
-      await expect(page.getByText('Оплата подтверждена')).toBeVisible({ timeout: 10_000 })
+      // Success toast appears (sonner toast.success). Manual CASH-confirm to
+      // an individual admin (Maksym), not the company account — this is the
+      // `t\`Оплату підтверджено\`` branch of ConfirmPayoutDialog's onSuccess,
+      // not the company-account variant.
+      await expect(page.getByText(assertInCatalog(uk, 'Оплату підтверджено'))).toBeVisible({
+        timeout: 10_000,
+      })
 
       // ── Backend asserts (DB via REST) ────────────────────────────────
       // PAYOUT row → PAID + validatedBy/At set.

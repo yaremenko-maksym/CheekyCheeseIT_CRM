@@ -216,14 +216,14 @@ describe('cascade preview — the client half of the loop', () => {
 
     const row = await screen.findByTestId('cascade-derivative-der-1')
 
-    expect(row.textContent).toContain('Синьору Иван Петров')
+    expect(row.textContent).toContain('Сеньйор: Иван Петров')
     const digits = (row.textContent ?? '').replace(/[^\d]/g, '')
-    expect(digits).toContain('8000') // было
+    expect(digits).toContain('8000') // old
     expect(digits).toContain('10000') // стало
-    expect(digits).toContain('5000') // уже выплачено
+    expect(digits).toContain('5000') // already paid
   })
 
-  it('CP-4. a row that will go back to «ожидание выплаты» says so', async () => {
+  it('CP-4. a row that will go back to «очікування виплати» says so', async () => {
     renderDialog()
     typeAmount('25000')
 
@@ -266,7 +266,7 @@ describe('cascade preview — the client half of the loop', () => {
 
   it('CP-7. a 409 refuses in place — nothing is re-submitted behind the operator', async () => {
     adminUpdateTransactionMock.mockRejectedValue(
-      axiosError(409, 'Данные изменились с момента предпросмотра'),
+      axiosError(409, 'Дані змінилися з моменту перегляду'),
     )
     renderDialog()
     typeAmount('25000')
@@ -275,7 +275,7 @@ describe('cascade preview — the client half of the loop', () => {
     fireEvent.click(screen.getByTestId('admin-edit-save'))
 
     const stale = await screen.findByTestId('cascade-stale-banner')
-    expect(stale.textContent).toContain('Данные изменились с момента предпросмотра')
+    expect(stale.textContent).toContain('Дані змінилися з моменту перегляду')
     // Exactly one attempt: a silent retry would apply a plan nobody saw.
     expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', true)
@@ -283,7 +283,7 @@ describe('cascade preview — the client half of the loop', () => {
 
   it('CP-8. a stale plan offers exactly one way forward — re-request the preview', async () => {
     adminUpdateTransactionMock.mockRejectedValue(
-      axiosError(409, 'Данные изменились с момента предпросмотра'),
+      axiosError(409, 'Дані змінилися з моменту перегляду'),
     )
     renderDialog()
     typeAmount('25000')
@@ -328,7 +328,9 @@ describe('cascade preview — the client half of the loop', () => {
           newAmount: 3000,
           remainingToPay: 0,
           needsReconfirm: false,
-          warnings: [{ code: 'OVERPAYMENT', message: 'Уже выплачено 5000 — строка остаётся PAID' }],
+          warnings: [
+            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000 — рядок залишається PAID' },
+          ],
         },
       ]),
     )
@@ -350,7 +352,7 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.getByTestId('admin-edit-save')).toHaveProperty('disabled', false)
   })
 
-  it('CP-12. a connection failure is named as one, with a retry — not left as «пересчитываем…»', async () => {
+  it('CP-12. a connection failure is named as one, with a retry — not left as «перераховуємо…»', async () => {
     getEditCascadePreviewMock.mockRejectedValue(
       Object.assign(new Error('Network Error'), { isAxiosError: true }),
     )
@@ -416,7 +418,7 @@ describe('cascade preview — the client half of the loop', () => {
     // look like an absent one, is the wrong way to be right: it made silence
     // the correct answer to a server that answered. So the negative assertion
     // stays and a positive one joins it — the server's own words are shown.
-    expect(err.textContent).not.toContain('проверьте соединение')
+    expect(err.textContent).not.toContain('перевірте з’єднання')
     expect(err.textContent).toContain('Некорректная сумма')
   })
 
@@ -709,7 +711,7 @@ describe('cascade preview — the client half of the loop', () => {
     typeAmount('25000')
     await screen.findByTestId('cascade-blocked-banner')
 
-    // The banner says «правьте сторнирующей транзакцией» — i.e. never here.
+    // The banner says «виправляйте сторнувальною транзакцією» — i.e. never here.
     // A note underneath saying «устраните и сохраняйте» is the opposite
     // instruction, on a money screen, one line apart.
     expect(screen.queryByTestId('cascade-save-blocked-note')).toBeNull()
@@ -744,7 +746,7 @@ describe('cascade preview — the client half of the loop', () => {
 
   it('CP-30. UX-2 — refreshing a stale preview clears the failed-save error with it', async () => {
     adminUpdateTransactionMock.mockRejectedValue(
-      axiosError(409, 'Данные изменились с момента предпросмотра'),
+      axiosError(409, 'Дані змінилися з моменту перегляду'),
     )
     renderDialog()
     typeAmount('25000')
@@ -758,7 +760,7 @@ describe('cascade preview — the client half of the loop', () => {
     // The plan is fresh again; a red «сохранение не удалось» line left over
     // from the previous attempt says the opposite, at the same time, on the
     // same screen — the same defect class as COPY-H-1.
-    expect(screen.queryByText(/Данные изменились/)).toBeNull()
+    expect(screen.queryByText(/Дані змінилися/)).toBeNull()
   })
 
   it('CP-38. finding 107 — Save is unavailable, and the panel explains why, in the window before the debounced preview exists', async () => {

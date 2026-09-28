@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { useLingui } from '@lingui/react/macro'
-import { formatDate } from '@crm/shared'
+import { formatDate, formatMonthLabel } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import {
   ExternalLink,
@@ -38,7 +38,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   fmtAmount,
-  fmtMonth,
   fmtRate,
   fmtUsd,
   TYPE_LABEL_MESSAGES,
@@ -266,13 +265,14 @@ function ExpenseContent({ tx }: { tx: TransactionDto }) {
 
 function SalaryContent({ tx }: { tx: TransactionDto }) {
   const { t } = useLingui()
+  const locale = useLocale()
   return (
     <>
       <Row icon={<User className="h-4 w-4" />} label={t`Отримувач`}>
         <UserLink id={tx.receiverId} name={tx.receiverName} />
       </Row>
       <Row icon={<Calendar className="h-4 w-4" />} label={t`Період`}>
-        <span>{fmtMonth(tx.salaryMonth)}</span>
+        <span>{formatMonthLabel(tx.salaryMonth, locale)}</span>
       </Row>
       {tx.projectId && (
         <Row icon={<Briefcase className="h-4 w-4" />} label={t`Проєкт`}>
@@ -684,8 +684,8 @@ function TransactionInfoBlock({
 
       {/* task-cascade-preview-ui (task 5), the payment-fact triplet. Already on
           the wire since task-salary-pay-amount and read by nothing — so an
-          operator who hits the `PAYMENT_FACT_RECORDED` refusal («на этой строке
-          зафиксирован факт платежа») had no way to see the fact they were being
+          operator who hits the `PAYMENT_FACT_RECORDED` refusal («по цьому рядку
+          вже зафіксовано факт платежу») had no way to see the fact they were being
           refused over. A refusal whose cause is invisible is worse than the
           refusal itself. ADMIN/ACCOUNTANT only: an internal accounting detail,
           the same audience as the other audit fields in this dialog.

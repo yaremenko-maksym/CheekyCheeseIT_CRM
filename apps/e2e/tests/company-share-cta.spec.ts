@@ -138,6 +138,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
   test('clicking the strip opens the modal on step 1, create switches to step 2 WITHOUT closing', async ({
     asSenior,
   }) => {
+    const uk = await loadMessages('uk')
     await mockTransactions(asSenior, [OUTSTANDING_INCOME])
     await mockPayoutRequests(asSenior)
     await asSenior.goto('/finance')
@@ -145,9 +146,11 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await asSenior.getByTestId('company-share-cta-strip').click()
     const modal = asSenior.getByTestId('company-share-payout-modal')
     await expect(modal).toBeVisible()
-    await expect(modal).toContainText('Оплата доли CheekyCheeseIT')
+    await expect(modal).toContainText(assertInCatalog(uk, 'Оплата частки CheekyCheeseIT'))
 
-    // AC6: the old dialog's title is gone from this flow.
+    // AC6: the old dialog's title is gone from this flow — this is a check
+    // for the ABSENCE of pre-migration Russian text, so it stays a raw
+    // literal: `assertInCatalog` would throw on text the catalog never has.
     await expect(asSenior.getByText('Выбрать транзакции для выплаты')).toHaveCount(0)
 
     // Default selection is "everything" (design spec §6.6) — submit is enabled.
@@ -159,9 +162,9 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await expect(modal).toBeVisible()
     await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
     await expect(asSenior.getByTestId('company-share-created-notice')).toContainText(
-      'Заявка создана',
+      assertInCatalog(uk, 'Заявку створено'),
     )
-    await expect(modal).toContainText('Заявка на выплату')
+    await expect(modal).toContainText(assertInCatalog(uk, 'Заявка на виплату'))
   })
 
   test('a11y: focus moves into the step-2 content after the transition', async ({ asSenior }) => {

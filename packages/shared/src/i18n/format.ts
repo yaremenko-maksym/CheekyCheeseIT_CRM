@@ -21,11 +21,35 @@ const INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
  * other style above, it deliberately has NO `timeZone: 'UTC'`: the reader
  * needs their LOCAL time, the way the same moment reads on their own
  * device's clock, not the UTC instant.
+ *
+ * task-i18n-stage3d-pr4 — added 'shortYY': finance's own `fmtDate` (deleted
+ * from `finance/constants.ts` this PR, once every caller moved here) used
+ * `day/month/year: '2-digit'` with NO `timeZone` override, i.e. the
+ * browser/Node LOCAL timezone — deliberately different from every other
+ * style above, which all pin `'UTC'`. Adding `timeZone: 'UTC'` here would
+ * change the rendered day for any reader not in UTC, a silent regression no
+ * caller asked for; `SettleSeniorPayoutDialog.test.tsx` pins the exact
+ * 2-digit-year shape ("31.07.26") this style reproduces byte-for-byte.
+ *
+ * task-i18n-stage3d-pr4 — also added 'dateTimeWithYear': `invoice-detail-
+ * dialog.tsx`'s own `fmtDateTime` (date-fns `format(d, 'd MMM yyyy, HH:mm',
+ * { locale: ru })`, deleted this PR) needed the YEAR that plain 'dateTime'
+ * omits — a signature timestamp can be read months later, unlike the
+ * quota-reset moment 'dateTime' was built for. Same LOCAL-time family as
+ * 'dateTime' (no `timeZone` override) for the same reason: a signature
+ * timestamp is a moment the reader checks against their own clock.
  */
 export function formatDate(
   value: Date | string,
   locale: Locale,
-  style: 'short' | 'long' | 'month' | 'monthYear' | 'dateTime' = 'short',
+  style:
+    | 'short'
+    | 'long'
+    | 'month'
+    | 'monthYear'
+    | 'dateTime'
+    | 'shortYY'
+    | 'dateTimeWithYear' = 'short',
 ): string {
   // `new Date(x)` accepts a `Date` exactly as well as a date string — a
   // Date passed through its own constructor keeps the same instant
@@ -34,7 +58,7 @@ export function formatDate(
   // would only ever be a no-op copy-constructor call on one side.
   const d = new Date(value)
   const STYLE_OPTS: Record<
-    'short' | 'long' | 'month' | 'monthYear' | 'dateTime',
+    'short' | 'long' | 'month' | 'monthYear' | 'dateTime' | 'shortYY' | 'dateTimeWithYear',
     Intl.DateTimeFormatOptions
   > = {
     short: { timeZone: 'UTC' },
@@ -42,8 +66,32 @@ export function formatDate(
     month: { month: 'short', timeZone: 'UTC' },
     monthYear: { month: 'long', year: 'numeric', timeZone: 'UTC' },
     dateTime: { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' },
+    shortYY: { day: '2-digit', month: '2-digit', year: '2-digit' },
+    dateTimeWithYear: {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    },
   }
   return new Intl.DateTimeFormat(INTL_TAG[locale], STYLE_OPTS[style]).format(d)
+}
+
+/**
+ * task-i18n-stage3d-pr4 — replaces finance's own `fmtMonth` (deleted from
+ * `finance/constants.ts` this PR): a `YYYY-MM` compliance-report key
+ * rendered as a full month name + year ("Липень 2026" / "July 2026"), no
+ * day. `null`/`undefined`/unparseable input returns the SAME fallback
+ * `fmtMonth` did (`'—'` for missing, the raw string for unparseable) so
+ * every existing caller's rendered text is unchanged, only the locale
+ * becomes caller-supplied instead of hardcoded `ru-RU`.
+ */
+export function formatMonthLabel(ym: string | null | undefined, locale: Locale): string {
+  if (!ym) return '—'
+  const [year, month] = ym.split('-').map(Number)
+  if (!year || !month) return ym
+  return formatDate(new Date(year, month - 1, 1), locale, 'monthYear')
 }
 
 /**

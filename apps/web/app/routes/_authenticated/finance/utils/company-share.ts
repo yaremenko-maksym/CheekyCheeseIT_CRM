@@ -190,36 +190,6 @@ export function groupByProject(txs: TransactionDto[]): ProjectIncomeGroup[] {
 // ---------------------------------------------------------------------------
 
 /**
- * @deprecated task-i18n-stage3d-pr1 (template J-fin, COPY-H-fin-4 partial).
- * `CompanySharePayoutStrip.tsx` (this PR) reads its own project count
- * through Lingui's `<Plural>` component now — this ru-RU-only helper stays
- * only because `CompanySharePayoutModal.tsx` (PR4) still imports it. Removed
- * in PR4 alongside that file's own migration (COPY-H-fin-4 closes fully
- * there — see the wave (d) plan's finding-trace table).
- */
-export function pluralizeProjects(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod100 >= 11 && mod100 <= 14) return 'проектов'
-  if (mod10 === 1) return 'проект'
-  if (mod10 >= 2 && mod10 <= 4) return 'проекта'
-  return 'проектов'
-}
-
-/**
- * @deprecated task-i18n-stage3d-pr1. Same deprecation note as
- * `pluralizeProjects` above — kept for `CompanySharePayoutModal.tsx` (PR4).
- */
-export function pluralizeIncomes(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod100 >= 11 && mod100 <= 14) return 'приходов'
-  if (mod10 === 1) return 'приход'
-  if (mod10 >= 2 && mod10 <= 4) return 'прихода'
-  return 'приходов'
-}
-
-/**
  * Builds the banner's amount label. Single currency → simple formatted
  * amount. 2-3 currencies → joined per-currency breakdown («820 USDT + 300
  * EUR»). 4+ currencies → a fixed, non-overwhelming placeholder pointing the

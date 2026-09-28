@@ -17,10 +17,10 @@ import { translateApiError } from '@/lib/axios-utils'
 /** Active catalog locale, read through the `@lingui/core` singleton — the
  * same pattern `axios-utils.ts`'s `getUserFacingErrorMessage` and
  * `project-approval-caption.ts` use for a plain (non-component) function
- * that needs the active locale. `fmtDate`/`fmtMonth`/`fmtUsd` below keep
- * their existing signatures (many call sites across PR2–PR4 and the
- * cross-slice `InProgressPanel.tsx` are not migrated yet) — this is how
- * they become locale-aware without a breaking signature change. */
+ * that needs the active locale. `fmtUsd`/`fmtYyyymmdd` below keep their
+ * existing signatures (`fmtUsd` has an external caller outside this wave,
+ * `$projectId` — see its own doc) — this is how they read the active
+ * locale without a breaking signature change. */
 function activeLocale(): Locale {
   return (i18n.locale as Locale) ?? DEFAULT_LOCALE
 }
@@ -30,44 +30,38 @@ function activeLocale(): Locale {
  * edited, in the operator's language.
  *
  * @deprecated task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). Kept — not
- * migrated — because THREE of its five entries are `...CASCADE_LEDGER_FACT_MESSAGES`,
- * a `@crm/shared` constant this PR does not own (server-authored, stays
- * Russian until finance's shared layer migrates — see the note on
- * `CASCADE_LEDGER_FACT_MESSAGES` in `edit-cascade.ts`). The remaining two
- * (`PAYOUT_FAMILY`, `LINKED_TO_PAYOUT_REQUEST`) are consumed through the SAME
- * `cascadeBlockedReasonMessage()` call as the shared three, by BOTH
- * `AdminEditTransactionDialog.tsx` (this PR's periphery) AND
- * `CascadeImpactPanel.tsx` (outside it — `git grep` shows it as the only
- * other consumer). `cascade-impact-panel.render.test.tsx` (untouched by this
- * PR) pins the CURRENT Russian sentences for exactly these two reasons
- * (PR-20, PR-20b) — translating them here would render different text to
- * that component without migrating it, breaking its test. Splitting the
- * lookup by caller would mean two functions returning different answers for
- * the same domain fact, which is the drift this table exists to prevent.
- * Superseded, for the two own-authored reasons only, by
- * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below — wired in once
- * `CascadeImpactPanel.tsx` migrates (PR2+).
+ * migrated — because its remaining three entries are
+ * `...CASCADE_LEDGER_FACT_MESSAGES`, a `@crm/shared` constant this PR does
+ * not own (server-authored, stays Russian until finance's shared layer
+ * migrates — see the note on `CASCADE_LEDGER_FACT_MESSAGES` in
+ * `edit-cascade.ts`). `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` used to live
+ * here too, but task-i18n-3d-pr4 wired `CascadeImpactPanel.tsx` onto
+ * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below, and `cascadeBlockedReasonMessage()`
+ * now intercepts both keys before this table is ever read for them — so they
+ * were removed from the type and the object rather than kept as unreachable
+ * Russian strings.
  */
 export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
   Exclude<
     CascadeEditPreviewBlockedReason,
-    'PAYMENT_FACT_RECORDED' | 'SALARY_OBLIGATION_OUT_OF_RANGE'
+    | 'PAYMENT_FACT_RECORDED'
+    | 'SALARY_OBLIGATION_OUT_OF_RANGE'
+    | 'PAYOUT_FAMILY'
+    | 'LINKED_TO_PAYOUT_REQUEST'
   >,
   string
 > = {
   ...CASCADE_LEDGER_FACT_MESSAGES,
-  PAYOUT_FAMILY:
-    'Это строка выплаты — сумма подтверждена исполненным переводом, она не редактируется, правьте сторнирующей транзакцией',
-  LINKED_TO_PAYOUT_REQUEST:
-    'Строка включена в оформленную заявку на выплату — сумма уже вошла в расчёт перевода, правьте сторнирующей транзакцией',
 }
 
 /**
- * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). The catalog-backed rendering of
+ * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1), wired in by task-i18n-3d-pr4
+ * (`CascadeImpactPanel.tsx`'s own migration). The catalog-backed rendering of
  * the two reasons `CASCADE_BLOCKED_REASON_MESSAGES` authors itself (not
- * `@crm/shared`'s). Not yet wired into `cascadeBlockedReasonMessage()` — see
- * the deprecation note above for why — but declared now so the migration of
- * `CascadeImpactPanel.tsx` does not also have to author the translated text.
+ * `@crm/shared`'s) — `cascadeBlockedReasonMessage()` below now reads THESE
+ * for `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST`, leaving only the three
+ * `CASCADE_LEDGER_FACT_MESSAGES` entries (server-authored, `@crm/shared`,
+ * out of this PR's ownership) Russian in `CASCADE_BLOCKED_REASON_MESSAGES`.
  */
 export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
   PAYOUT_FAMILY: msg`Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією`, // en: This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction
@@ -80,7 +74,10 @@ export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
  * `Record` lookup would render `undefined` into the DOM instead of saying
  * anything. An honest short sentence beats a blank refusal.
  */
-export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для этой строки недоступна'
+const CASCADE_BLOCKED_FALLBACK_TEXT_MESSAGE = msg`Правка суми для цього рядка недоступна`
+export function cascadeBlockedFallbackMessage(): string {
+  return i18n._(CASCADE_BLOCKED_FALLBACK_TEXT_MESSAGE)
+}
 
 /**
  * task-paid-salary-amount-edit — the ONE way to render a blocked reason.
@@ -89,13 +86,15 @@ export const CASCADE_BLOCKED_FALLBACK_MESSAGE = 'Правка суммы для 
  * (`FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`, uk/en) — the SAME entry the write
  * path's 400 carries, so the banner and the refusal cannot drift. Resolved at
  * call time, not stored in the table above, because a catalog lookup depends
- * on the active locale. The rest keep their existing texts until finance
- * migrates to the catalog.
+ * on the active locale. `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` resolve
+ * through `CASCADE_BLOCKED_REASON_OWN_MESSAGES` (own-authored, catalog-backed);
+ * the remaining three keep their `@crm/shared`-authored Russian text until
+ * that package migrates.
  */
 export function cascadeBlockedReasonMessage(
   reason: CascadeEditPreviewBlockedReason | null | undefined,
 ): string {
-  if (!reason) return CASCADE_BLOCKED_FALLBACK_MESSAGE
+  if (!reason) return cascadeBlockedFallbackMessage()
   if (reason === 'PAYMENT_FACT_RECORDED') {
     return translateApiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', undefined)
   }
@@ -103,6 +102,9 @@ export function cascadeBlockedReasonMessage(
   // editable, only not to this figure.
   if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
     return translateApiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', undefined)
+  }
+  if (reason === 'PAYOUT_FAMILY' || reason === 'LINKED_TO_PAYOUT_REQUEST') {
+    return i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES[reason])
   }
   return CASCADE_BLOCKED_REASON_MESSAGES[reason]
 }
@@ -160,51 +162,6 @@ export const STATUS_LABEL_MESSAGES = {
   PENDING_CASH_CONFIRM: msg`Очікує підтвердження бухгалтером (готівка)`, // en: Awaiting accountant confirmation (cash)
 } satisfies Record<TransactionStatus, MessageDescriptor>
 
-/**
- * @deprecated task-i18n-stage3d-pr1. Superseded by `TYPE_LABEL_MESSAGES`
- * (`i18n._(TYPE_LABEL_MESSAGES[type])`). Kept — not deleted — because
- * `PR2`/`PR3`/`PR4` files and the cross-slice `InProgressPanel.tsx` still
- * import this string map; it is removed in PR4 once every consumer has
- * migrated (`git grep -nP '\bTYPE_LABELS\b' -- apps/web/app` returns only
- * this definition + `PR4`'s removal comment at that point).
- */
-export const TYPE_LABELS: Record<TransactionType, string> = {
-  ADMIN_INCOME: 'Приход Admin',
-  SENIOR_INCOME: 'Приход синьора',
-  EXPENSE: 'Расход',
-  SALARY: 'Зарплата',
-  ADMIN_TRANSFER: 'Перевод',
-  PAYOUT: 'Выплата',
-  PAYOUT_ADMIN: 'Доля партнёра',
-  DROP_INCOME: 'Приход дропа',
-  PAYOUT_DROP: 'Доля дропа',
-  PAYOUT_CONFIRMED: 'Подтверждённая выплата',
-  TOV_INCOME: 'Приход ТОВ',
-  SENIOR_PENDING_PAYOUT: 'Ожидаемая выплата синьору',
-  SENIOR_PAID: 'Выплата синьору',
-  ADMIN_INCOME_CASH: 'Приход Admin (наличные)',
-  ADMIN_INCOME_CRYPTO: 'Приход Admin (крипто)',
-  SENIOR_INCOME_CRYPTO: 'Приход синьора (крипто)',
-  DIVIDEND_TO_ADMIN: 'Дивиденды Admin',
-  DIVIDEND_TAX: 'Налог на дивиденды',
-  COMPANY_DEPOSIT: 'Пополнение счёта компании',
-  DROP_PENDING_PAYOUT: 'Ожидаемая выплата дропу',
-}
-
-/**
- * @deprecated task-i18n-stage3d-pr1. Superseded by `STATUS_LABEL_MESSAGES`.
- * Kept until PR4 migrates the last consumer — see `TYPE_LABELS`'s own note.
- */
-export const STATUS_LABELS: Record<TransactionStatus, string> = {
-  PENDING: 'Ожидает',
-  VALIDATED: 'Подтверждено',
-  PENDING_PAYMENT: 'Ожидает выплаты',
-  REJECTED: 'Отклонено',
-  PAID: 'Оплачено',
-  LOCKED: 'Заблокировано',
-  PENDING_CASH_CONFIRM: 'Ожидает подтверждения нала',
-}
-
 export const STATUS_COLORS: Record<TransactionStatus, string> = {
   PENDING: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
   // PR #56 final UT (AC2): SENIOR_INCOME flips to VALIDATED on validate (was
@@ -248,7 +205,7 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   DIVIDEND_TO_ADMIN: 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40',
   DIVIDEND_TAX: 'bg-red-500/15 text-red-300 border-red-500/30',
   // task-company-account-backend. Placeholder palette (USDT-green tone) until
-  // the company-account frontend task finalizes the UI. See TYPE_LABELS note.
+  // the company-account frontend task finalizes the UI.
   COMPANY_DEPOSIT: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   // task-drop-share-override-and-receiver (D4). Teal drop palette (matches
   // DROP_INCOME) so drop-obligation rows are visually grouped with other drop
@@ -421,51 +378,18 @@ export function fmtRate(currency: string, rates: ExchangeRates | undefined): str
 /**
  * task-drop-payout-currency (owner addendum, 2026-08): the NBU API's own date
  * shape ("YYYYMMDD", no separators — see nbu-currency.service.ts) formatted
- * the same human-readable way as `fmtDate`. Used to show the operator WHICH
- * day's rate was actually applied (`ExchangeRates.rateDate`) when it differs
- * from the requested date (a holiday/weekend fallback).
+ * the same human-readable way the (now-deleted, task-i18n-stage3d-pr4)
+ * `fmtDate` used to. Used to show the operator WHICH day's rate was actually
+ * applied (`ExchangeRates.rateDate`) when it differs from the requested date
+ * (a holiday/weekend fallback). Delegates directly to `@crm/shared`'s
+ * `formatDate` with the 'shortYY' style — the exact 2-digit-year shape
+ * (`31.07.26`) `fmtDate` rendered, which `SettleSeniorPayoutDialog.test.tsx`
+ * pins verbatim.
  */
 export function fmtYyyymmdd(yyyymmdd: string) {
-  return fmtDate(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`)
-}
-
-const FMT_DATE_INTL_TAG: Record<Locale, string> = { uk: 'uk-UA', en: 'en-GB' }
-
-/**
- * @deprecated task-i18n-stage3d-pr1 (template L-fin). Signature unchanged —
- * many PR2–PR4 files and the cross-slice `InProgressPanel.tsx` call this
- * without a locale argument — but the body now reads the active catalog
- * locale through `activeLocale()` (the `@lingui/core` singleton, same
- * pattern `project-approval-caption.ts` uses) instead of the hardcoded
- * `uk-UA`. Deliberately NOT delegated to `@crm/shared`'s `formatDate` —
- * that helper's `'short'` style has no explicit `day`/`month`/`year`
- * options, so `Intl` falls back to a 4-digit year (`31.07.2026`) instead of
- * this function's existing 2-digit shape (`31.07.26`), which
- * `SettleSeniorPayoutDialog.test.tsx` (PR4, not yet migrated at this PR)
- * pins verbatim — only the LANGUAGE the digits are grouped in changes here,
- * not the shape, so that not-yet-touched test keeps passing unmodified.
- * Removed in PR4 alongside `TYPE_LABELS`/`STATUS_LABELS` once the last
- * caller reads locale-aware `formatDate` directly.
- */
-export function fmtDate(iso: string) {
-  return new Date(iso).toLocaleDateString(FMT_DATE_INTL_TAG[activeLocale()], {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit',
-  })
-}
-
-/**
- * @deprecated task-i18n-stage3d-pr1 (template L-fin, COPY-M-fin-9). Same
- * deprecation note as `fmtDate` above — the hardcoded `ru-RU` is replaced by
- * `activeLocale()`, signature unchanged. Delegates to the shared
- * `formatDate`'s `'monthYear'` style (full month name + year, no day) —
- * unlike `fmtDate` above, no existing deprecated-consumer test pins this
- * one's exact digit shape, so the shared helper is safe to use as-is.
- */
-export function fmtMonth(ym: string | null | undefined): string {
-  if (!ym) return '—'
-  const [year, month] = ym.split('-').map(Number)
-  if (!year || !month) return ym
-  return formatDate(new Date(year, month - 1, 1), activeLocale(), 'monthYear')
+  return formatDate(
+    `${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`,
+    activeLocale(),
+    'shortYY',
+  )
 }

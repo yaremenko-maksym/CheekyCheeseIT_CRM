@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
-import { kyivToday, receiptMandatoryError } from '@crm/shared'
+import { kyivToday, receiptMandatoryError, formatDate } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -16,27 +17,23 @@ import {
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { DatePickerField } from '@/components/ui/date-picker'
 import { api } from '@/lib/axios'
-import { translateZodMessage } from '@/lib/axios-utils'
+import { translateZodMessage, getApiErrorMessage } from '@/lib/axios-utils'
+import { useLocale } from '@/lib/i18n'
 import { financeApi } from '../../api'
 import { settlementSplit } from '../../cascade-preview'
-import { fmtAmount, fmtDate, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
+import { fmtAmount, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
-// Local copy of the finance-page error extractor (same shape used in
-// finance/index.tsx + PayoutDetailDialog — the repo keeps per-file copies; no
-// shared module exists yet). Surfaces the backend's BadRequest message (e.g.
-// «Недостаточно средств на счёте компании…») in the toast.
-function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as { response?: { data?: { message?: unknown } } }).response
-    const msg = resp?.data?.message
-    if (typeof msg === 'string') return msg
-    if (Array.isArray(msg)) return msg.join(', ')
-  }
-  if (err instanceof Error) return err.message
-  return 'Неизвестная ошибка'
-}
+/**
+ * task-i18n-stage3d-pr4 (COPY-M-fin-7 — dedup with `usePayoutPaymentForm.ts`'s
+ * own former copy of this same extractor). Both files now go through the
+ * catalog-backed `getApiErrorMessage` (`@/lib/axios-utils`) — priority:
+ * API-error envelope → backend `response.data.message` → axios's own
+ * `.message` → the catalog's translated «Сталася помилка» fallback — instead
+ * of two independently-maintained local copies whose fallback text could
+ * (and did) drift.
+ */
 
 /**
  * task-senior-settle-owner: pay a senior IOU (SENIOR_PENDING_PAYOUT row) using
@@ -116,6 +113,8 @@ export function SettleSeniorPayoutDialog({
   tx: TransactionDto | null
   onClose: () => void
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const qc = useQueryClient()
   // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN
   // partner id OR '' (no valid selection — forced for a cascade-originated
@@ -163,11 +162,20 @@ export function SettleSeniorPayoutDialog({
   // dropCascadeOrigin=false (explicit) and are unaffected.
   const isCascadeDropObligation = isDropPayout && tx?.dropCascadeOrigin !== false
   const companyAccountDisabledReason = isCascadeDropObligation
-    ? 'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа'
+    ? t`Частка дропа з цієї виплати не проходила через рахунок компанії — оберіть особистий рахунок адміна`
     : undefined
-  const dialogTitle = isDropPayout ? 'Выплатить дропу' : 'Выплатить синьору'
-  const dialogDescription = isDropPayout ? 'Выплата дропу его доли' : 'Выплата синьору его доли'
-  const successMessage = isDropPayout ? 'Выплата дропу проведена' : 'Выплата синьору проведена'
+  // task-i18n-stage3d-pr4 (COPY-H-fin-1): this dialog SETTLES a pending IOU
+  // (SENIOR_PENDING_PAYOUT/DROP_PENDING_PAYOUT → SENIOR_PAID/PAYOUT_DROP) —
+  // the glossary's «розрахунок» (settle), never «виплата» (reserved for the
+  // OPPOSITE direction, the senior paying the company). Same wording family
+  // as `TYPE_LABEL_MESSAGES.SENIOR_PAID` in `constants.ts`.
+  const dialogTitle = isDropPayout ? t`Розрахунок із дропом` : t`Розрахунок із сеньйором`
+  const dialogDescription = isDropPayout
+    ? t`Розрахунок за частку дропа`
+    : t`Розрахунок за частку сеньйора`
+  const successMessage = isDropPayout
+    ? t`Розрахунок із дропом проведено`
+    : t`Розрахунок із сеньйором проведено`
 
   // task-drop-payout-currency (owner addendum, 2026-08): the rate is fetched
   // AS OF the SELECTED date, not always today — mirrors
@@ -230,7 +238,7 @@ export function SettleSeniorPayoutDialog({
     // TS narrows `rates.rateDate` to `string` for the rest of this closure
     // from the guard above — no further `?.` needed anywhere below.
     if (rates.rateDate === rateDateParam) return null
-    return `На ${fmtYyyymmdd(rateDateParam)} курс НБУ недоступен — применён курс за ${fmtYyyymmdd(rates.rateDate)}`
+    return t`На ${fmtYyyymmdd(rateDateParam)} курс НБУ недоступний — застосовано курс за ${fmtYyyymmdd(rates.rateDate)}`
   })()
 
   // The obligation, re-expressed in the currency being paid. `null` while the
@@ -367,7 +375,7 @@ export function SettleSeniorPayoutDialog({
       onClose()
       resetState()
     },
-    onError: (err) => toast.error(extractErrorMessage(err)),
+    onError: (err) => toast.error(getApiErrorMessage(err)),
   })
 
   function handleClose() {
@@ -388,8 +396,15 @@ export function SettleSeniorPayoutDialog({
   // as the receipt gate — never trust only the disabled attribute).
   function handleSubmit() {
     if (isCascadeDropObligation && (!account || isCompany)) {
+      // `companyAccountDisabledReason` is derived from the SAME
+      // `isCascadeDropObligation` flag this branch is already gated on (see
+      // its `const` above) — whenever this line runs, the left side is
+      // always truthy, so the `??` fallback text can never actually render
+      // under the current data model. Kept as a defensive
+      // belt-and-suspenders default, not dead code to delete.
       setAccountError(
-        companyAccountDisabledReason ?? 'Выберите личный счёт админа для этой выплаты',
+        // Stryker disable next-line LogicalOperator: unobservable — see comment above.
+        companyAccountDisabledReason ?? t`Оберіть особистий рахунок адміна для цього розрахунку`,
       )
       return
     }
@@ -405,7 +420,7 @@ export function SettleSeniorPayoutDialog({
     mutation.mutate()
   }
 
-  const error = mutation.error instanceof Error ? mutation.error.message : null
+  const error = mutation.error ? getApiErrorMessage(mutation.error) : null
 
   if (!tx) return null
 
@@ -426,15 +441,17 @@ export function SettleSeniorPayoutDialog({
           <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1 text-sm">
             {tx.receiverName && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Получатель</span>
+                <span className="text-muted-foreground">
+                  <Trans>Отримувач</Trans>
+                </span>
                 <span className="font-medium">{tx.receiverName}</span>
               </div>
             )}
             {/* task-cascade-preview-ui (task 5), corrective fix. Until tasks
                 3/3b a `*_PENDING_PAYOUT` row could only be settled in full, so
-                one «Сумма» line told the whole truth. It can now carry a
+                one «Сума» line told the whole truth. It can now carry a
                 partial accumulator, and the server pays `remainingOwed =
-                obligation − уже выплачено` (`pending-settlement.service.ts`).
+                obligation − already paid` (`pending-settlement.service.ts`).
                 Showing the full obligation there meant the operator read one
                 number and a different one left the account — at the point of an
                 irreversible decision. Three named lines when there is something
@@ -443,19 +460,25 @@ export function SettleSeniorPayoutDialog({
             {settlement ? (
               <>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Обязательство</span>
+                  <span className="text-muted-foreground">
+                    <Trans>Зобов’язання</Trans>
+                  </span>
                   <span className="font-medium tabular-nums">
                     {fmtAmount(tx.amount, tx.currency)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Уже выплачено</span>
+                  <span className="text-muted-foreground">
+                    <Trans>Вже розраховано</Trans>
+                  </span>
                   <span className="font-medium tabular-nums text-amber-400">
                     {fmtAmount(settlement.settled, settlement.settledCurrency)}
                   </span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">К доплате сейчас</span>
+                  <span className="text-muted-foreground">
+                    <Trans>До розрахунку зараз</Trans>
+                  </span>
                   <span
                     className="font-semibold tabular-nums"
                     data-testid="settle-senior-remaining"
@@ -468,7 +491,9 @@ export function SettleSeniorPayoutDialog({
               </>
             ) : (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Сумма</span>
+                <span className="text-muted-foreground">
+                  <Trans>Сума</Trans>
+                </span>
                 <span className="font-medium tabular-nums">
                   {fmtAmount(tx.amount, tx.currency)}
                 </span>
@@ -476,13 +501,17 @@ export function SettleSeniorPayoutDialog({
             )}
             {tx.projectName && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Проект</span>
+                <span className="text-muted-foreground">
+                  <Trans>Проєкт</Trans>
+                </span>
                 <span className="font-medium">{tx.projectName}</span>
               </div>
             )}
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Дата</span>
-              <span className="font-medium">{fmtDate(tx.createdAt)}</span>
+              <span className="text-muted-foreground">
+                <Trans>Дата</Trans>
+              </span>
+              <span className="font-medium">{formatDate(tx.createdAt, locale, 'shortYY')}</span>
             </div>
           </div>
 
@@ -516,7 +545,9 @@ export function SettleSeniorPayoutDialog({
               to backdate a payment of a debt that was not yet booked). */}
           {isDropPayout && (
             <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">Дата выплаты</label>
+              <label className="text-xs font-medium text-muted-foreground">
+                <Trans>Дата розрахунку</Trans>
+              </label>
               <DatePickerField
                 value={txDate}
                 onChange={setTxDate}
@@ -588,7 +619,7 @@ export function SettleSeniorPayoutDialog({
                 currency={effectiveCurrency}
                 onAmountChange={() => {}}
                 onCurrencyChange={setCurrency}
-                label="Сумма выплаты"
+                label={t`Сума розрахунку`}
                 disableAmount
                 disableCurrency={isCompany}
                 errorTestId="settle-senior-amount-error"
@@ -608,7 +639,7 @@ export function SettleSeniorPayoutDialog({
                 setReceipt(s)
                 setReceiptError(null)
               }}
-              label="Чек / подтверждение *"
+              label={t`Чек / підтвердження *`}
               explorerOnly={effectiveCurrency === 'USDT'}
               error={receiptError ?? undefined}
             />
@@ -628,7 +659,7 @@ export function SettleSeniorPayoutDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose} data-testid="settle-senior-cancel">
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             onClick={handleSubmit}
@@ -638,16 +669,18 @@ export function SettleSeniorPayoutDialog({
           >
             {/* Owner decision, after QA reached the state live and both review
                 axes flagged it independently: with nothing left to pay this
-                click moves no money — it only closes the obligation. «Отметить
-                как оплачено» beside a transfer of zero reads as a promise to
+                click moves no money — it only closes the obligation. «Позначити
+                як розраховано» beside a transfer of zero reads as a promise to
                 send money, and the only thing telling the two apart was a
                 figure three lines above. The label now carries that fact
                 itself. */}
-            {mutation.isPending
-              ? 'Оплата...'
-              : settlement?.remaining === 0
-                ? 'Закрыть без доплаты'
-                : 'Отметить как оплачено'}
+            {mutation.isPending ? (
+              <Trans>Розрахунок…</Trans>
+            ) : settlement?.remaining === 0 ? (
+              <Trans>Закрити без розрахунку</Trans>
+            ) : (
+              <Trans>Підтвердити розрахунок</Trans>
+            )}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

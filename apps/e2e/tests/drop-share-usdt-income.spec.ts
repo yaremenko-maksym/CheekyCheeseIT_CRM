@@ -217,7 +217,9 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         .fill('https://etherscan.io/tx/0xsettle123')
       await settleDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDialog).not.toBeVisible()
-      await expect(page.getByText('Выплата синьору проведена')).toBeVisible({ timeout: 10_000 })
+      await expect(page.getByText(/Розрахунок із сеньйором проведено/)).toBeVisible({
+        timeout: 10_000,
+      })
 
       // task-settle-in-place (PR #379): the settle FLIPS the SOURCE
       // SENIOR_PENDING_PAYOUT row in place — same id, no second row. Proven
@@ -241,7 +243,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
 
       // The row (SAME testid, same id) now reads PAID and the «Выплатить»
       // action is gone — a repeat settle is impossible through the UI.
-      await expect(seniorRow).toContainText('Оплачено')
+      await expect(seniorRow).toContainText(assertInCatalog(uk, 'Оплачено'))
       await expect(
         page.getByTestId(`tx-row-settle-senior-payout-${seniorPending!.id}`),
       ).not.toBeAttached()
@@ -257,14 +259,20 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
 
       const settleDropDialog = page.getByTestId('settle-senior-dialog')
       await expect(settleDropDialog).toBeVisible()
-      await expect(settleDropDialog.getByText('Выплатить дропу')).toBeVisible()
+      await expect(
+        settleDropDialog.getByText(assertInCatalog(uk, 'Розрахунок із дропом')),
+      ).toBeVisible()
       await settleDropDialog.getByTestId(`settle-senior-account-admin-${KOSTYA_ID}`).click()
       await settleDropDialog
         .getByTestId('receipt-input-url-field')
         .fill('https://etherscan.io/tx/0xsettledrop123')
       await settleDropDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDropDialog).not.toBeVisible()
-      await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Розрахунок із дропом проведено')),
+      ).toBeVisible({
+        timeout: 10_000,
+      })
 
       const txsAfterDropSettle = await listTransactionsByProjectViaAPI(page, projectId)
       expect(
@@ -281,7 +289,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         'no lingering «Ожидает выплаты» phantom for the drop leg',
       ).toBe(false)
 
-      await expect(dropRow).toContainText('Оплачено')
+      await expect(dropRow).toContainText(assertInCatalog(uk, 'Оплачено'))
       await expect(
         page.getByTestId(`tx-row-settle-senior-payout-${dropPending!.id}`),
       ).not.toBeAttached()
@@ -320,6 +328,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
   test('ADMIN declares USDT income via UI (receiver = «Счёт компании») → gross credits the shared pool; settling BOTH obligations from the company account debits it in place', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const { dropId, dropEmail, projectId, projectName, seniorId } =
       await provisionUsdtDropProject(page)
 
@@ -338,7 +347,9 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await page.getByRole('option', { name: projectName, exact: true }).click()
 
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
+      await page
+        .getByRole('option', { name: assertInCatalog(uk, 'Рахунок компанії'), exact: true })
+        .click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 
@@ -390,7 +401,9 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         .fill('https://etherscan.io/tx/0xcompanysettlesr1')
       await settleSeniorDialog.getByTestId('settle-senior-submit').click()
       await expect(settleSeniorDialog).not.toBeVisible()
-      await expect(page.getByText('Выплата синьору проведена')).toBeVisible({ timeout: 10_000 })
+      await expect(page.getByText(/Розрахунок із сеньйором проведено/)).toBeVisible({
+        timeout: 10_000,
+      })
 
       const balanceAfterSeniorSettle = await getCompanyAccountBalanceViaAPI(page)
       expect(balanceAfterSeniorSettle).toBeCloseTo(balanceAfter - 200, 2)
@@ -405,7 +418,11 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         .fill('https://etherscan.io/tx/0xcompanysettledrop1')
       await settleDropDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDropDialog).not.toBeVisible()
-      await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Розрахунок із дропом проведено')),
+      ).toBeVisible({
+        timeout: 10_000,
+      })
 
       // Company account debited by BOTH legs, in total by exactly $300 —
       // fundingSource=COMPANY_ACCOUNT is stamped on both flipped rows.

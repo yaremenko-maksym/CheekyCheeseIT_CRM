@@ -17,11 +17,12 @@
  * auth/router/sonner and the query/mutation hooks so the dialog renders without
  * a network. The payout query data is injected via the mocked useQuery.
  */
-import { render as rtlRender, screen, type RenderResult } from '@testing-library/react'
+import { render as rtlRender, screen, fireEvent, type RenderResult } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach, beforeAll } from 'vitest'
 import { useQuery } from '@tanstack/react-query'
 import type { ReactElement } from 'react'
 import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -99,8 +100,38 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
       PAYOUT.contractAddress,
     )
     expect(screen.getByTestId('payout-detail-copy-address')).toBeInTheDocument()
+    // Exact aria-label — a StringLiteral mutant on it would go unnoticed by
+    // the testid-only assertion above.
+    expect(screen.getByTestId('payout-detail-copy-address')).toHaveAttribute(
+      'aria-label',
+      'Копіювати адресу',
+    )
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
+    // Instruction line interpolates the payable amount into a fixed sentence.
+    const instruction = screen.getByText(
+      /на адресу гаманця компанії \(ERC-20\), потім вставте хеш транзакції/,
+    )
+    expect(instruction).toBeInTheDocument()
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): the sentence interpolates
+    // `fmtAmount(payableAmount, 'USDT')` — a StringLiteral mutant dropping
+    // 'USDT' (or the trailing `{' '}` before "на адресу") would silently
+    // collapse to a currency-less amount / no gap before "на", and the regex
+    // assertion above alone doesn't reach that part of the sentence. `\s+`
+    // between USDT and "на" fails if the space mutant lands too.
+    expect(instruction.textContent).toMatch(/USDT\s+на адресу/)
+    // Default simulateMode is 'real' — the tx-hash label's "(після оплати)"
+    // qualifier is the branch that actually renders by default, not the
+    // dev-simulate one.
+    expect(screen.getByText('(після оплати)')).toBeInTheDocument()
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): "(після оплати)" is its
+    // own text node inside the label, sibling to a standalone `{' '}` — the
+    // assertion above alone doesn't notice if that space mutant lands, since
+    // RTL matches the "(після оплати)" text node regardless of what precedes
+    // it. Check the whole label's textContent for the gap after "транзакції".
+    // eslint-disable-next-line testing-library/no-node-access
+    const txHashLabel = screen.getByText('Хеш транзакції').closest('label')
+    expect(txHashLabel?.textContent).toMatch(/транзакції\s+\(після оплати\)/)
   })
 
   // task-i18n-stage3d-pr2 (mutation gate, AC10). Title, sr-only description,
@@ -153,7 +184,59 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
   it('COMPANY_ACCOUNT (default) shows the balance-credit hint', () => {
     currentRole = 'ADMIN'
     renderDialog()
-    expect(screen.getByText(/кредитует баланс счёта компании/i)).toBeInTheDocument()
+    expect(screen.getByText(/поповнює баланс рахунку компанії/i)).toBeInTheDocument()
+  })
+
+  it('the method radiogroup carries its aria-label; each button shows its own short label and toggles aria-checked on click', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(
+      screen.getByRole('radiogroup', { name: 'Метод ручного підтвердження' }),
+    ).toBeInTheDocument()
+
+    const cashBtn = screen.getByTestId('payout-detail-manual-method-cash')
+    const usdtBtn = screen.getByTestId('payout-detail-manual-method-admin_usdt')
+    const companyBtn = screen.getByTestId('payout-detail-manual-method-company_account')
+    expect(cashBtn).toHaveTextContent('Готівка')
+    expect(usdtBtn).toHaveTextContent('USDT партнера')
+    expect(companyBtn).toHaveTextContent('Рахунок компанії')
+    // task-i18n-3d-pr4-fixround-cont (mutation gate): `MANUAL_METHOD_ICONS`
+    // is a separate object literal from the label map above — mutating it to
+    // `{}` leaves every label assertion untouched (icons carry no text), so
+    // each method button must be checked for its icon `<svg>` directly.
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(cashBtn.querySelector('svg')).not.toBeNull()
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(usdtBtn.querySelector('svg')).not.toBeNull()
+    // eslint-disable-next-line testing-library/no-node-access
+    expect(companyBtn.querySelector('svg')).not.toBeNull()
+    // Default selection is COMPANY_ACCOUNT.
+    expect(companyBtn).toHaveAttribute('aria-checked', 'true')
+    expect(cashBtn).toHaveAttribute('aria-checked', 'false')
+
+    fireEvent.click(cashBtn)
+    expect(cashBtn).toHaveAttribute('aria-checked', 'true')
+    expect(companyBtn).toHaveAttribute('aria-checked', 'false')
+    // Switching away from COMPANY_ACCOUNT hides its balance-credit hint.
+    expect(screen.queryByText(/поповнює баланс рахунку компанії/i)).not.toBeInTheDocument()
+  })
+
+  it('the manual note textarea carries the exact placeholder', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-manual-note')).toHaveAttribute(
+      'placeholder',
+      'Вкажіть деталі ручного підтвердження',
+    )
+  })
+
+  it('the dev-simulate radiogroup (vitest runs as a DEV build) carries its exact aria-label', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-dev-simulate')).toHaveAttribute(
+      'aria-label',
+      'Dev-режим: результат валідації',
+    )
   })
 })
 
@@ -235,11 +318,30 @@ describe('PayoutDetailDialog — «Транзакции в выплате» list
     ]
     renderDialog()
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (2)',
+      'Транзакції у виплаті (2)',
     )
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-drop-income-2')).toBeInTheDocument()
     expect(screen.queryByTestId('payout-detail-tx-payout-ledger-row')).not.toBeInTheDocument()
+  })
+
+  it('renders the income row fields precisely — sliced id, txDate-over-createdAt, shortYY date style', () => {
+    currentRole = 'DROP'
+    const incomeTx = makeDropIncomeTx({
+      id: 'drop-income-long-id-1',
+      // Both set — the row must prefer txDate, not createdAt (kills the
+      // `txDate ?? createdAt` -> `txDate && createdAt` mutant).
+      txDate: '2026-04-09T00:00:00.000Z',
+      createdAt: '2026-05-20T00:00:00.000Z',
+    })
+    PAYOUT.transactions = [incomeTx]
+    renderDialog()
+    const row = screen.getByTestId('payout-detail-tx-drop-income-long-id-1')
+    const expectedDate = formatDate(incomeTx.txDate!, 'uk', 'shortYY')
+    // id.slice(0, 6) — first 6 chars of the id, not the full id.
+    expect(row).toHaveTextContent(`#${incomeTx.id.slice(0, 6)} від ${expectedDate}`)
+    expect(row).not.toHaveTextContent(incomeTx.id)
+    expect(row).not.toHaveTextContent(formatDate(incomeTx.createdAt, 'uk', 'shortYY'))
   })
 })
 
@@ -288,7 +390,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
 
     // "Транзакции в выплате" counts ONLY the genuinely bundled row.
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (1)',
+      'Транзакції у виплаті (1)',
     )
     expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
     expect(screen.queryByTestId('payout-detail-tx-obligation-1')).not.toBeInTheDocument()
@@ -298,17 +400,17 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     // repeating "Компания должна" per row ate the mobile-width budget the
     // recipient's actual NAME needed — see the row assertion below).
     expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
-      'Обязательства компании (1)',
+      'Зобов’язання компанії (1)',
     )
     expect(screen.getByTestId('payout-detail-obligations-caption')).toHaveTextContent(
-      'Компания должна эти суммы — они не входят в выплату выше',
+      'Компанія винна ці суми — вони не входять до виплати вище',
     )
     const row = screen.getByTestId('payout-detail-obligation-obligation-1')
     expect(row).toHaveTextContent('Иван Синьоров')
     // Regression guard for the design-audit HIGH: the per-row prefix must
     // NOT come back — it is what caused the name to truncate to nothing on
     // 320px (measured: prefix alone consumed the column's ~118px budget).
-    expect(row).not.toHaveTextContent('Компания должна')
+    expect(row).not.toHaveTextContent('Компанія винна')
     expect(row).toHaveTextContent('130')
   })
 
@@ -319,7 +421,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
 
     expect(screen.queryByTestId('payout-detail-transactions-count')).not.toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-obligations-count')).toHaveTextContent(
-      'Обязательства компании (1)',
+      'Зобов’язання компанії (1)',
     )
     expect(screen.getByTestId('payout-detail-obligation-obligation-only')).toBeInTheDocument()
   })
@@ -330,7 +432,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
-      'Транзакции в выплате (1)',
+      'Транзакції у виплаті (1)',
     )
     expect(screen.queryByTestId('payout-detail-obligations-count')).not.toBeInTheDocument()
   })
@@ -357,7 +459,7 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     expect(row).toHaveTextContent('Unambiguous Project')
     // Regression guard (design-audit PR #592 HIGH) — see the note on the
     // previous test for why this string must never reappear per row.
-    expect(row).not.toHaveTextContent('Компания должна')
+    expect(row).not.toHaveTextContent('Компанія винна')
   })
 
   it('renders the obligation row fields precisely — project dash-fallback, sliced id, createdAt date-fallback, status badge', () => {
@@ -378,12 +480,12 @@ describe('PayoutDetailDialog — obligations split (task-split-payouts-and-oblig
     renderDialog()
 
     const row = screen.getByTestId('payout-detail-obligation-obligation-long-id-1')
-    const expectedDate = new Date(obligationTx.createdAt).toLocaleDateString('ru-RU')
+    const expectedDate = formatDate(obligationTx.createdAt, 'uk', 'shortYY')
     // Dash fallback + a REAL space between "от" and the date + the date
     // itself computed from createdAt (txDate is null). receiverName is a
     // real (non-dash) name here, so this substring is unambiguous — see the
     // note on the previous test for why the two dash-fallbacks are split.
-    expect(row).toHaveTextContent(`— · #obliga от ${expectedDate}`)
+    expect(row).toHaveTextContent(`— · #obliga від ${expectedDate}`)
     // Sliced id: exactly the first 6 chars — the full id must NOT appear
     // verbatim (kills the `.id` (unsliced) mutant).
     expect(row.textContent).not.toContain('obligation-long-id-1')

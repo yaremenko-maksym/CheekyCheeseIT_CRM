@@ -1153,9 +1153,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             )}
 
           {/* task-admin-income-unified (§2, owner decision 2026-08-12). ADMIN
-              gets a flat "Счёт получателя" Select — same shape/convention the
+              gets a flat "Рахунок отримувача" Select — same shape/convention the
               USDT route already used (any ACTIVE admin — `/users` excludes
-              archived by default, AC9 — + «Счёт компании», no group headers,
+              archived by default, AC9 — + «Рахунок компанії», no group headers,
               no default pre-selection), now covering BOTH routes
               (createAdminIncome AND declareUsdtProjectIncome) since "who gets
               credited" is the same choice either way. `adminUsers` is
@@ -1317,7 +1317,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             })}
 
           {/* task-admin-income-unified (§2, owner decision 2026-08-12).
-              ACCOUNTANT's CONSTRAINED "Счёт получателя" — reuses the EXACT
+              ACCOUNTANT's CONSTRAINED "Рахунок отримувача" — reuses the EXACT
               same `fundingSource` state/toggle shape EXPENSE uses above (no
               new state), but "personal" always means the PROJECT OWNER
               (never a picked admin, never the accountant — the server

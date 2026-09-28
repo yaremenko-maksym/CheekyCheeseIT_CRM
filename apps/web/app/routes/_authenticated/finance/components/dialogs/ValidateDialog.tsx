@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLingui, Plural } from '@lingui/react/macro'
 import type { TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
@@ -30,7 +32,6 @@ import { financeApi } from '../../api'
 import { ReceiptPanel } from './receipt-panel'
 import {
   fmtAmount,
-  fmtDate,
   fmtRate,
   fmtUsd,
   TYPE_LABEL_MESSAGES,
@@ -38,17 +39,17 @@ import {
 } from '../../constants'
 
 /**
- * ValidateDialog — модалка-очередь валидации (AC2, AC3, AC4).
+ * ValidateDialog — модалка-черга валідації (AC2, AC3, AC4).
  *
- * Принимает текущую транзакцию (`tx`) и весь список pending-транзакций
- * очереди (`queue`). После подтверждения или отклонения одной tx — модалка
- * НЕ закрывается: родитель переключает `tx` на следующую (advanceQueue).
- * При пустой очереди родитель вызывает onClose.
+ * Приймає поточну транзакцію (`tx`) і весь список pending-транзакцій
+ * черги (`queue`). Після підтвердження або відхилення однієї tx — модалка
+ * НЕ закривається: батьківський компонент перемикає `tx` на наступну (advanceQueue).
+ * При порожній черзі батьківський компонент викликає onClose.
  *
- * - Кнопка «Подтвердить» показывает счётчик оставшихся: «Подтвердить (N)».
- * - При клике «Подтвердить» → AlertDialog-попап для подтверждения.
- * - «Отклонить» (с причиной) двигает очередь без попапа.
- * - Инвалидирует ['transactions'], ['finance-summary'], ['accountant','summary'].
+ * - Кнопка «Підтвердити» показує лічильник тих, що лишились: «Підтвердити (N)».
+ * - При кліку «Підтвердити» → AlertDialog-попап для підтвердження.
+ * - «Відхилити» (з причиною) рухає чергу без попапа.
+ * - Інвалідує ['transactions'], ['finance-summary'], ['accountant','summary'].
  */
 export function ValidateDialog({
   tx,
@@ -56,19 +57,20 @@ export function ValidateDialog({
   onClose,
   onAdvance,
 }: {
-  /** Текущая транзакция для отображения. null = модалка закрыта. */
+  /** Поточна транзакція для відображення. null = модалка закрита. */
   tx: TransactionDto | null
-  /** Все validatable pending-транзакции (SENIOR_INCOME/DROP_INCOME PENDING). */
+  /** Всі validatable pending-транзакції (SENIOR_INCOME/DROP_INCOME PENDING). */
   queue: TransactionDto[]
-  /** Закрыть модалку (очередь исчерпана или пользователь нажал «Отмена»). */
+  /** Закрити модалку (черга вичерпана або користувач натиснув «Скасувати»). */
   onClose: () => void
   /**
-   * Перейти к следующей транзакции в очереди.
-   * Вызывается после успешной валидации/отклонения, если есть следующая.
+   * Перейти до наступної транзакції в черзі.
+   * Викликається після успішної валідації/відхилення, якщо є наступна.
    */
   onAdvance: (nextTx: TransactionDto) => void
 }) {
   const { t, i18n } = useLingui()
+  const locale = useLocale()
   const qc = useQueryClient()
   const [reason, setReason] = useState('')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -85,12 +87,12 @@ export function ValidateDialog({
     staleTime: 1000 * 60 * 60,
   })
 
-  /** Индекс текущей tx в очереди (или -1 если нет). */
+  /** Індекс поточної tx у черзі (або -1, якщо немає). */
   const currentIndex = tx ? queue.findIndex((q) => q.id === tx.id) : -1
-  /** Сколько ещё осталось подтвердить (включая текущую). */
+  /** Скільки ще лишилось підтвердити (включно з поточною). */
   const remainingCount = currentIndex >= 0 ? queue.length - currentIndex : queue.length
 
-  /** После успешного действия — перейти к следующей или закрыть. */
+  /** Після успішної дії — перейти до наступної або закрити. */
   const handleActionSuccess = () => {
     setReason('')
     setShowConfirm(false)
@@ -213,7 +215,7 @@ export function ValidateDialog({
               )}
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t`Дата`}</span>
-                <span className="font-medium">{fmtDate(tx.createdAt)}</span>
+                <span className="font-medium">{formatDate(tx.createdAt, locale, 'shortYY')}</span>
               </div>
               {tx.notes && (
                 <div className="flex justify-between">

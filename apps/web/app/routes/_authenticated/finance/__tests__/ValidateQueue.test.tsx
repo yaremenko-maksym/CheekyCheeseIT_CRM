@@ -295,6 +295,7 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
       senderName: 'Client A',
       projectName: 'Project X',
       notes: 'Важлива примітка',
+      createdAt: '2026-04-09T00:00:00.000Z',
     })
     renderDialog({ tx, queue: [tx] })
     expect(screen.getByRole('heading', { name: 'Валідація транзакції' })).toBeInTheDocument()
@@ -303,6 +304,9 @@ describe('ValidateDialog — info-card labels and dialog/alert text (mutation-ga
     expect(screen.getByText('Тип')).toBeInTheDocument()
     expect(screen.getByText('Сума')).toBeInTheDocument()
     expect(screen.getByText('Дата')).toBeInTheDocument()
+    // formatDate(..., 'shortYY') — exact string so a mutation to the style
+    // key (silently switching formats) fails.
+    expect(screen.getByText('09.04.26')).toBeInTheDocument()
     expect(screen.getByText('Відправник')).toBeInTheDocument()
     expect(screen.getByText('Client A')).toBeInTheDocument()
     expect(screen.getByText('Проєкт')).toBeInTheDocument()

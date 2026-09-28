@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import type { ManualPayoutMethod } from '@crm/shared'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { financeApi } from '../api'
 
 /**
@@ -33,26 +35,12 @@ export type OnChainStatus = 'idle' | 'validating' | 'confirmed' | 'rejected'
 // Auto-close delay after a confirmed on-chain payout (design spec §3.5).
 export const CONFIRMED_AUTOCLOSE_MS = 1500
 
-/**
- * Pull a user-facing message out of either an axios error (where NestJS puts
- * the Russian text in `response.data.message`) or a plain Error.
- */
-export function extractErrorMessage(err: unknown): string {
-  if (err && typeof err === 'object' && 'response' in err) {
-    const resp = (err as { response?: { data?: { message?: unknown } } }).response
-    const msg = resp?.data?.message
-    if (typeof msg === 'string' && msg.length > 0) return msg
-    if (Array.isArray(msg) && msg.length > 0 && typeof msg[0] === 'string') return msg[0]
-  }
-  if (err instanceof Error) return err.message
-  return 'Неизвестная ошибка'
-}
-
 export function usePayoutPaymentForm(
   payoutId: string | null,
   active: boolean,
   options?: { onAutoClose?: () => void },
 ) {
+  const { t } = useLingui()
   const qc = useQueryClient()
 
   const [txHash, setTxHash] = useState('')
@@ -127,8 +115,8 @@ export function usePayoutPaymentForm(
     onSuccess: () => {
       setOnChainStatus('confirmed')
       invalidatePayoutQueries()
-      toast.success('Оплата подтверждена', {
-        description: 'Транзакции переведены в статус ОПЛАЧЕНО, инвойсы сгенерированы.',
+      toast.success(t`Оплату підтверджено`, {
+        description: t`Транзакції переведено в статус ОПЛАЧЕНО, рахунки згенеровано.`,
       })
       autoCloseRef.current = setTimeout(() => {
         onAutoCloseRef.current?.()
@@ -136,8 +124,8 @@ export function usePayoutPaymentForm(
     },
     onError: (err) => {
       setOnChainStatus('rejected')
-      toast.error('Не удалось подтвердить оплату', {
-        description: extractErrorMessage(err),
+      toast.error(t`Не вдалося підтвердити оплату`, {
+        description: getApiErrorMessage(err),
       })
     },
   })
@@ -154,17 +142,17 @@ export function usePayoutPaymentForm(
     },
     onSuccess: () => {
       invalidatePayoutQueries()
-      toast.success('Выплата подтверждена вручную', {
+      toast.success(t`Виплату підтверджено вручну`, {
         description:
           manualMethod === 'COMPANY_ACCOUNT'
-            ? 'Баланс счёта компании пополнен.'
-            : 'Выплата переведена в статус ОПЛАЧЕНО.',
+            ? t`Баланс рахунку компанії поповнено.`
+            : t`Виплату переведено в статус ОПЛАЧЕНО.`,
       })
       onAutoCloseRef.current?.()
     },
     onError: (err) => {
-      toast.error('Не удалось подтвердить вручную', {
-        description: extractErrorMessage(err),
+      toast.error(t`Не вдалося підтвердити вручну`, {
+        description: getApiErrorMessage(err),
       })
     },
   })
@@ -185,12 +173,12 @@ export function usePayoutPaymentForm(
       setCopied(true)
       setTimeout(() => setCopied(false), 2000)
     } catch {
-      toast.error('Не удалось скопировать. Выделите адрес вручную.')
+      toast.error(t`Не вдалося скопіювати. Виділіть адресу вручну.`)
     }
   }
 
   const payout = payoutQuery.data
-  const payError = payMutation.error ? extractErrorMessage(payMutation.error) : null
+  const payError = payMutation.error ? getApiErrorMessage(payMutation.error) : null
   const isPaid = payout?.status === 'PAID'
 
   // Submit gate (PR #56 logic preserved) — shared so callers' footer buttons

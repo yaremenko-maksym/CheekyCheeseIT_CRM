@@ -35,6 +35,7 @@ import {
   declareUsdtIncomeViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -95,6 +96,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
   test('AC1/AC2/AC3: amount disabled, currency switch recalculates, and the shown figure matches what gets recorded', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const { dropPendingId, dropShare } = await provisionDropPendingPayout(page)
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -106,7 +108,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
 
     const dialog = page.getByTestId('settle-senior-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Выплатить дропу')).toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Розрахунок із дропом'))).toBeVisible()
 
     const amountField = dialog.getByTestId('settle-senior-amount-field')
     await expect(amountField).toBeVisible()
@@ -173,7 +175,9 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     const res = await settleRes
     expect(res.status()).toBeLessThan(300)
     await expect(dialog).not.toBeVisible()
-    await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByText(/Розрахунок із дропом проведено/)).toBeVisible({
+      timeout: 10_000,
+    })
 
     // AC3 (главный тест): the figure SHOWN before submit (shownUah) must
     // equal the figure ACTUALLY recorded — to the penny.

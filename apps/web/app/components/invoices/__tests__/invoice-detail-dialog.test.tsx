@@ -1,6 +1,14 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  waitFor,
+  within,
+  type RenderResult,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import {
   createMemoryHistory,
@@ -10,8 +18,24 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
-import { INVOICE_SIGN_IMPERSONATION_MESSAGE, type InvoiceDto, type SessionUser } from '@crm/shared'
+import {
+  formatDate,
+  INVOICE_SIGN_IMPERSONATION_MESSAGE,
+  type InvoiceDto,
+  type SessionUser,
+} from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { InvoiceDetailDialog } from '../invoice-detail-dialog'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `InvoiceDetailDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `cascade-impact-panel.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ---------------------------------------------------------------------------
 // Mocks — invoice + document hooks (network-free tests).
@@ -33,15 +57,32 @@ vi.mock('@/hooks/use-invoices', async (orig) => {
 // iframe `src` — the URL is observable on the iframe element either way.
 // InvoicePdfPreview uses useDocumentPreviewUrl (inline disposition) — keep
 // useDocumentDownloadUrl in the mock so other callers don't break.
+const mockUseDocumentPreviewUrl = vi.fn(
+  (
+    _documentId: string | undefined,
+    _opts?: unknown,
+  ): {
+    data: { url: string } | undefined
+    isLoading: boolean
+    isError: boolean
+    isRefetching: boolean
+    refetch: () => void
+  } => ({
+    data: { url: 'about:blank' },
+    isLoading: false,
+    isError: false,
+    isRefetching: false,
+    refetch: vi.fn(),
+  }),
+)
+
 vi.mock('@/hooks/use-documents', () => ({
   useDocumentDownloadUrl: () => ({
     data: { url: 'about:blank' },
     isLoading: false,
   }),
-  useDocumentPreviewUrl: () => ({
-    data: { url: 'about:blank' },
-    isLoading: false,
-  }),
+  useDocumentPreviewUrl: (documentId: string | undefined, opts?: unknown) =>
+    mockUseDocumentPreviewUrl(documentId, opts),
 }))
 
 // ---------------------------------------------------------------------------
@@ -177,12 +218,13 @@ function renderDialog({
 beforeEach(() => {
   mockSign.mockReset()
   mockUseInvoice.mockReset()
+  mockUseDocumentPreviewUrl.mockClear()
 })
 
 describe('InvoiceDetailDialog', () => {
   it('renders PDF iframe with the presigned URL', async () => {
     renderDialog({ invoice: pendingInvoice })
-    const iframe = (await screen.findByTitle('PDF счёта')) as HTMLIFrameElement
+    const iframe = (await screen.findByTitle('PDF рахунку')) as HTMLIFrameElement
     expect(iframe).toBeInTheDocument()
     expect(iframe.src).toContain('about:blank')
   })
@@ -196,14 +238,14 @@ describe('InvoiceDetailDialog', () => {
     // (matching `STATUS_LABEL.PENDING`), so we assert ≥1 occurrence via
     // the data-testid for the pending signature row specifically.
     expect(screen.getByTestId('signature-row-counterparty-pending')).toHaveTextContent(
-      'Ожидает подписи',
+      'Очікує підпису',
     )
     // Fix-round 4 (task-680) — the method tooltip text was renamed from
     // «…инвойса» to «…счёта»; assert the exact string so a mutation to it
     // (e.g. StringLiteral -> "") fails the test instead of surviving.
     expect(
       within(screen.getByTestId('signature-row-company')).getByTitle(
-        'Автоматическая электронная подпись компании при выпуске счёта',
+        'Автоматичний електронний підпис компанії під час випуску рахунку',
       ),
     ).toBeInTheDocument()
   })
@@ -224,7 +266,7 @@ describe('InvoiceDetailDialog', () => {
     renderDialog({ invoice: signedInvoice, viewer: counterpartyUser })
     await screen.findByTestId('invoice-detail-status')
     expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
-    expect(screen.getByText('Документ подписан')).toBeInTheDocument()
+    expect(screen.getByText('Документ підписано')).toBeInTheDocument()
   })
 
   it('opens the confirm dialog when «Подписать» is clicked', async () => {
@@ -305,6 +347,127 @@ describe('InvoiceDetailDialog', () => {
       expect(screen.queryByTestId('invoice-detail-sign-button')).not.toBeInTheDocument()
       expect(screen.queryByTestId('invoice-sign-impersonating-banner')).not.toBeInTheDocument()
       expect(screen.getByTestId('invoice-detail-signed-badge')).toBeInTheDocument()
+    })
+  })
+
+  describe('status/role/method/section labels (mutation-gate hardening)', () => {
+    it('the status pill reads the PENDING label exactly', async () => {
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByTestId('invoice-detail-status')).toHaveTextContent('Очікує підпису')
+    })
+
+    it('the status pill reads the SIGNED label exactly', async () => {
+      renderDialog({ invoice: signedInvoice })
+      expect(await screen.findByTestId('invoice-detail-status')).toHaveTextContent(
+        'Підписано всіма',
+      )
+    })
+
+    it('COMPANY/COUNTERPARTY role labels and the AUTO_COMPANY/MANUAL_CLICK short method + tooltip render exactly', async () => {
+      renderDialog({ invoice: signedInvoice })
+      const companyRow = await screen.findByTestId('signature-row-company')
+      expect(companyRow).toHaveTextContent('Компанія')
+      expect(companyRow).toHaveTextContent('Автоматично')
+      expect(
+        within(companyRow).getByTitle(
+          'Автоматичний електронний підпис компанії під час випуску рахунку',
+        ),
+      ).toBeInTheDocument()
+
+      const counterpartyRow = await screen.findByTestId('signature-row-counterparty')
+      expect(counterpartyRow).toHaveTextContent('Контрагент')
+      expect(counterpartyRow).toHaveTextContent('Вручну')
+      expect(
+        within(counterpartyRow).getByTitle('Підписано контрагентом вручну'),
+      ).toBeInTheDocument()
+
+      // The signed-at timestamp uses the 'dateTimeWithYear' formatDate style —
+      // exact rendered string, so a StringLiteral mutant on the style key
+      // (which would silently switch formats) fails.
+      expect(counterpartyRow).toHaveTextContent(
+        formatDate(signedInvoice.signatures[1]!.signedAt, 'uk', 'dateTimeWithYear'),
+      )
+    })
+
+    it('the pending COUNTERPARTY row shows the COUNTERPARTY role label from the SAME map', async () => {
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByTestId('signature-row-counterparty-pending')).toHaveTextContent(
+        'Контрагент',
+      )
+    })
+
+    it('the signature-list and public-verify sections expose their aria-labels', async () => {
+      renderDialog({ invoice: pendingInvoice })
+      await screen.findByTestId('invoice-detail-status')
+      expect(screen.getByRole('region', { name: 'Підписи' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Публічна верифікація' })).toBeInTheDocument()
+    })
+
+    it('passes the documentId and an enabled option derived from it to useDocumentPreviewUrl', async () => {
+      renderDialog({ invoice: pendingInvoice })
+      await screen.findByTestId('invoice-detail-status')
+      expect(mockUseDocumentPreviewUrl).toHaveBeenCalledWith(pendingInvoice.documentId, {
+        enabled: true,
+      })
+    })
+
+    it('shows the retry fallback (not a broken iframe) when the PDF preview errors', async () => {
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isRefetching: false,
+        refetch: vi.fn(),
+      })
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
+      expect(screen.getByTestId('invoice-pdf-retry')).toHaveTextContent('Повторити')
+      expect(screen.queryByTitle('PDF рахунку')).not.toBeInTheDocument()
+    })
+
+    // kills the LogicalOperator mutant on `isError || !data?.url`: isError
+    // is FALSE here, so only the `!data?.url` half decides — a `&&` mutant
+    // would flip this to the (working) iframe branch instead.
+    it('shows the retry fallback when isError is false but data.url is missing (no url yet)', async () => {
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: false,
+        isRefetching: false,
+        refetch: vi.fn(),
+      })
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
+    })
+
+    // kills the OptionalChaining mutant on `data?.url`: `data` truthy but
+    // `url` falsy must still be the error branch, not (`data.url` without
+    // the `?.`) a crash on `undefined.url`.
+    it('shows the retry fallback when data exists but url is empty', async () => {
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: { url: '' },
+        isLoading: false,
+        isError: false,
+        isRefetching: false,
+        refetch: vi.fn(),
+      })
+      renderDialog({ invoice: pendingInvoice })
+      expect(await screen.findByText('Не вдалося завантажити PDF')).toBeInTheDocument()
+    })
+
+    it('clicking retry calls refetch', async () => {
+      const refetchMock = vi.fn()
+      mockUseDocumentPreviewUrl.mockReturnValueOnce({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+        isRefetching: false,
+        refetch: refetchMock,
+      })
+      renderDialog({ invoice: pendingInvoice })
+      const retryBtn = await screen.findByTestId('invoice-pdf-retry')
+      fireEvent.click(retryBtn)
+      expect(refetchMock).toHaveBeenCalledTimes(1)
     })
   })
 })

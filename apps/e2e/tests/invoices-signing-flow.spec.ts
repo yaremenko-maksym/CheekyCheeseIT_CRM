@@ -25,7 +25,25 @@
  *   C5: Public verify /invoice/v/:txId page renders без auth, shows both
  *       signers + counts «2 из 2».
  */
+import type { Page } from '@playwright/test'
 import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+// task-i18n-3d-pr4: `invoice.v.$transactionId.tsx` (public, unauthenticated)
+// resolves its locale from `pref_locale` cookie -> `navigator.language` ->
+// `uk` (packages/shared/src/i18n/locales.ts `resolveLocale`). There is no
+// authenticated `user.locale` to drive it here, and headless Chromium's
+// default `navigator.language` is `en-US` (not `uk`) — so, unlike every
+// OTHER assertion in this file (which run through `mockAuthAs`'s uk-locale
+// fixture users), C7/C8/C9 below would otherwise assert against whatever
+// language the CI runner's OS happens to default to. Pin it explicitly so
+// these tests are deterministic and exercise the SAME uk canon text as the
+// rest of the suite.
+async function setUkLocaleCookie(page: Page): Promise<void> {
+  await page
+    .context()
+    .addCookies([{ name: 'pref_locale', value: 'uk', domain: 'localhost', path: '/' }])
+}
 
 // Stable IDs used across the C scenarios so route handlers can match across
 // auth contexts without ordering dependencies between describe blocks.
@@ -266,6 +284,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
   test('C2: invoice detail dialog opens via ?openTx deep link, shows COMPANY auto-sig + pending COUNTERPARTY', async ({
     asSenior,
   }) => {
+    const uk = await loadMessages('uk')
     mockInvoiceFlow(asSenior)
     await asSenior.goto(`/documents?category=INVOICE&openTx=${TX_ID}`)
 
@@ -276,7 +295,9 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // Two signature cards — COMPANY row populated (Авто), COUNTERPARTY row
     // pending. Use the per-row testids exposed by the dialog component.
     await expect(asSenior.getByTestId('signature-row-company')).toBeVisible()
-    await expect(asSenior.getByTestId('signature-row-company')).toContainText('Авто')
+    await expect(asSenior.getByTestId('signature-row-company')).toContainText(
+      assertInCatalog(uk, 'Автоматично'),
+    )
     await expect(asSenior.getByTestId('signature-row-counterparty-pending')).toBeVisible()
     await expect(asSenior.getByTestId('invoice-detail-sign-button')).toBeVisible()
   })
@@ -345,6 +366,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
   test('C7: public verify /invoice/v/:txId renders WITHOUT auth + shows both signatures', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     // No fixture used → no auth mocks. The public verify endpoint must NOT
     // require credentials (the QR-target use case is a stranger scanning
     // the printed PDF). We intercept it directly with a SIGNED payload.
@@ -376,17 +398,18 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
       }),
     )
 
+    await setUkLocaleCookie(page)
     await page.goto(`/invoice/v/${TX_ID}`)
 
     // The "verified" success state is the desired terminal — opens without
     // a login redirect (the page lives outside /crm).
     await expect(page.getByTestId('invoice-verify-success')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-status-heading')).toContainText(
-      'Документ верифицирован',
+      assertInCatalog(uk, 'Документ верифіковано'),
     )
     await expect(page.getByTestId('invoice-verify-signatures-table')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
-      'Подписи (2 из 2)',
+      assertInCatalog(uk, 'Підписи ({0} з 2)').replace('{0}', '2'),
     )
     await expect(page.getByText(USERS.admin.displayName)).toBeVisible()
     await expect(page.getByText(USERS.senior.displayName)).toBeVisible()
@@ -395,6 +418,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
   test('C8: public verify with PENDING status renders «ожидает подписи» state', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     await page.route(new RegExp(`${API_RE}/invoices/verify/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 200,
@@ -417,17 +441,19 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
       }),
     )
 
+    await setUkLocaleCookie(page)
     await page.goto(`/invoice/v/${TX_ID}`)
     await expect(page.getByTestId('invoice-verify-success')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-status-heading')).toContainText(
-      'Документ ожидает подписи',
+      assertInCatalog(uk, 'Документ очікує підпису'),
     )
     await expect(page.getByTestId('invoice-verify-signatures-count')).toContainText(
-      'Подписи (1 из 2)',
+      assertInCatalog(uk, 'Підписи ({0} з 2)').replace('{0}', '1'),
     )
   })
 
   test('C9: public verify 404 → error state', async ({ page }) => {
+    const uk = await loadMessages('uk')
     await page.route(new RegExp(`${API_RE}/invoices/verify/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 404,
@@ -435,10 +461,11 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
         body: JSON.stringify({ statusCode: 404, message: 'Not found' }),
       }),
     )
+    await setUkLocaleCookie(page)
     await page.goto(`/invoice/v/${TX_ID}`)
     await expect(page.getByTestId('invoice-verify-error')).toBeVisible()
     await expect(page.getByTestId('invoice-verify-error-message')).toContainText(
-      'Документ не найден',
+      assertInCatalog(uk, 'Документ не знайдено'),
     )
   })
 

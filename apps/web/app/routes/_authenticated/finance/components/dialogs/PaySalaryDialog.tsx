@@ -8,7 +8,9 @@ import {
   receiptMandatoryError,
   salaryPaidAmountDeviation,
   transactionAmountError,
+  formatDate,
 } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
 import { translateZodMessage } from '@/lib/axios-utils'
 import {
@@ -26,7 +28,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
 import { parseStrictAmount } from '@/lib/utils'
 import { financeApi } from '../../api'
-import { convertAmount, fmtAmount, fmtDate, type ExchangeRates } from '../../constants'
+import { convertAmount, fmtAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
@@ -38,6 +40,7 @@ export function PaySalaryDialog({
   onClose: () => void
 }) {
   const { t } = useLingui()
+  const locale = useLocale()
   const qc = useQueryClient()
   // account = COMPANY_ACCOUNT_VALUE (company account, default) OR an ADMIN partner id.
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
@@ -284,7 +287,9 @@ export function PaySalaryDialog({
               <span className="text-muted-foreground shrink-0">
                 <Trans>Дата</Trans>
               </span>
-              <span className="font-medium text-right">{fmtDate(tx.createdAt)}</span>
+              <span className="font-medium text-right">
+                {formatDate(tx.createdAt, locale, 'shortYY')}
+              </span>
             </div>
           </div>
 

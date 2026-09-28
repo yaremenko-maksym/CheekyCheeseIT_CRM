@@ -4,8 +4,6 @@ import {
   buildAmountLabel,
   buildPreviewRows,
   groupByProject,
-  pluralizeIncomes,
-  pluralizeProjects,
   resolveSharePercent,
   sumPayable,
 } from './company-share'
@@ -136,32 +134,6 @@ describe('groupByProject', () => {
     ])
     expect(groups).toHaveLength(1)
     expect(groups[0]!.incomes.map((t) => t.id)).toEqual(['t1', 't2'])
-  })
-})
-
-describe('pluralizeProjects', () => {
-  it.each([
-    [1, 'проект'],
-    [2, 'проекта'],
-    [4, 'проекта'],
-    [5, 'проектов'],
-    [11, 'проектов'],
-    [21, 'проект'],
-  ])('%i -> %s', (n, expected) => {
-    expect(pluralizeProjects(n)).toBe(expected)
-  })
-})
-
-describe('pluralizeIncomes', () => {
-  it.each([
-    [1, 'приход'],
-    [2, 'прихода'],
-    [4, 'прихода'],
-    [5, 'приходов'],
-    [11, 'приходов'],
-    [21, 'приход'],
-  ])('%i -> %s', (n, expected) => {
-    expect(pluralizeIncomes(n)).toBe(expected)
   })
 })
 

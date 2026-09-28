@@ -2,8 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { CheckCircle2, Loader2 } from 'lucide-react'
+import { Trans, Plural, useLingui } from '@lingui/react/macro'
+import { i18n } from '@lingui/core'
 import type { TransactionDto } from '@crm/shared'
+import { formatDate } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -16,13 +20,11 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { financeApi } from '../../api'
-import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
+import { fmtAmount, STATUS_COLORS, STATUS_LABEL_MESSAGES } from '../../constants'
 import {
   buildPreviewRows,
   groupByProject,
   isBundledIncomeTransaction,
-  pluralizeIncomes,
-  pluralizeProjects,
   type ProjectIncomeGroup,
 } from '../../utils/company-share'
 import { usePayoutPaymentForm } from '../../hooks/usePayoutPaymentForm'
@@ -70,12 +72,14 @@ function ProjectRow({
   onToggleTx: (id: string) => void
   disabled: boolean
 }) {
+  const { t } = useLingui()
+  const locale = useLocale()
   const projectRef = useRef<HTMLInputElement>(null)
-  const incomeIds = project.incomes.map((t) => t.id)
+  const incomeIds = project.incomes.map((income) => income.id)
   const selectedCount = incomeIds.filter((id) => selected.has(id)).length
   const allSelected = selectedCount === incomeIds.length
   const noneSelected = selectedCount === 0
-  const projectTotal = project.incomes.reduce((sum, t) => sum + parseFloat(t.amount), 0)
+  const projectTotal = project.incomes.reduce((sum, income) => sum + parseFloat(income.amount), 0)
   const currency = project.incomes[0]?.currency ?? 'USDT'
 
   useEffect(() => {
@@ -83,7 +87,10 @@ function ProjectRow({
   }, [allSelected, noneSelected])
 
   return (
-    <div className="overflow-hidden rounded-lg border border-border">
+    <div
+      className="overflow-hidden rounded-lg border border-border"
+      data-testid={`company-share-project-row-${project.projectId}`}
+    >
       <label className="flex min-h-11 cursor-pointer items-center gap-3 p-3 hover:bg-muted/30">
         <input
           ref={projectRef}
@@ -92,7 +99,7 @@ function ProjectRow({
           onChange={() => onToggleProject(incomeIds)}
           disabled={disabled}
           className="h-4 w-4 shrink-0 accent-primary"
-          aria-label={`Выбрать все приходы проекта ${project.projectName}`}
+          aria-label={t`Вибрати всі доходи проєкту ${project.projectName}`}
           data-testid={`company-share-project-checkbox-${project.projectId}`}
         />
         <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
@@ -118,12 +125,15 @@ function ProjectRow({
             onChange={() => onToggleTx(tx.id)}
             disabled={disabled}
             className="h-4 w-4 shrink-0 accent-primary"
-            aria-label={`Приход от ${new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}`}
+            aria-label={t`Дохід від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}`}
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-            <span className="min-w-0 truncate text-xs text-muted-foreground">
-              Приход от {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
+            <span
+              className="min-w-0 truncate text-xs text-muted-foreground"
+              data-testid={`company-share-income-date-${tx.id}`}
+            >
+              <Trans>Дохід від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}</Trans>
             </span>
             <span className="shrink-0 tabular-nums text-xs">
               {fmtAmount(tx.amount, tx.currency)}
@@ -148,7 +158,7 @@ function ProjectRow({
  *
  * Prop shape mirrors the old `PayoutDialog` 1:1 (`open` / `onClose` /
  * `validatedTxs` / `preselectedTxIds`) so every existing call site — the
- * finance page header button, the per-row «Выплатить» button, and
+ * finance page header button, the per-row «Виплатити» button, and
  * `InProgressPanel`'s toolbar/row buttons (SENIOR *and* DROP, see design spec
  * §9) — swaps in with a rename only.
  */
@@ -163,7 +173,7 @@ export function CompanySharePayoutModal({
   validatedTxs: TransactionDto[]
   /**
    * Pre-checked transaction ids. A NON-EMPTY list means a specific row asked
-   * for itself only (row-level «Выплатить» — kept exactly as before). An
+   * for itself only (row-level «Виплатити» — kept exactly as before). An
    * EMPTY/absent list means a generic multi-select entry point (banner,
    * header button, toolbar batch button) — those now default to "everything
    * selected" (design spec §6.6): the banner already promised "N projects,
@@ -171,6 +181,7 @@ export function CompanySharePayoutModal({
    */
   preselectedTxIds?: string[]
 }) {
+  const { t } = useLingui()
   const qc = useQueryClient()
   const { user } = useAuth()
   const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
@@ -191,7 +202,7 @@ export function CompanySharePayoutModal({
         new Set(
           preselectedTxIds && preselectedTxIds.length > 0
             ? preselectedTxIds
-            : validatedTxs.map((t) => t.id),
+            : validatedTxs.map((tx) => tx.id),
         ),
       )
     }
@@ -202,7 +213,7 @@ export function CompanySharePayoutModal({
   }, [open, preselectedTxIds])
 
   // A11y (design spec §5.4): move focus to step 2's content when we switch to
-  // it — the "Создать выплату" button the user just clicked has logically
+  // it — the "Створити виплату" button the user just clicked has logically
   // disappeared under new content.
   useEffect(() => {
     if (step === 'pay') step2Ref.current?.focus()
@@ -230,7 +241,7 @@ export function CompanySharePayoutModal({
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['payout-requests'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
-      toast.success('Заявка на выплату создана')
+      toast.success(t`Заявку на виплату створено`)
       setPayoutId(payout.id)
       setStep('pay') // NOT onClose() — the modal stays open (owner's requirement).
     },
@@ -239,7 +250,7 @@ export function CompanySharePayoutModal({
   const projects = useMemo(() => groupByProject(validatedTxs), [validatedTxs])
 
   const seniorDefault = user?.seniorSharePercent ?? 26
-  const selectedTxs = validatedTxs.filter((t) => selected.has(t.id))
+  const selectedTxs = validatedTxs.filter((tx) => selected.has(tx.id))
   // selectedTxs is a derived array (new reference per render); depending on
   // `selected` + `validatedTxs` directly keeps this memo correct without an
   // extra dep-churn workaround.
@@ -247,13 +258,13 @@ export function CompanySharePayoutModal({
     () => buildPreviewRows(selectedTxs, seniorDefault),
     [selected, validatedTxs, seniorDefault],
   )
-  const selectedCurrencies = new Set(selectedTxs.map((t) => t.currency))
+  const selectedCurrencies = new Set(selectedTxs.map((tx) => tx.currency))
   const hasMixedCurrencies = selectedCurrencies.size > 1
   const batchCurrency =
     selectedCurrencies.size === 1 ? ([...selectedCurrencies][0] as string) : 'USDT'
   const payable = previewRows.reduce((sum, r) => sum + r.payable, 0)
   const totalOwn = previewRows.reduce((sum, r) => sum + r.ownShare, 0)
-  const totalIncome = selectedTxs.reduce((sum, t) => sum + parseFloat(t.amount), 0)
+  const totalIncome = selectedTxs.reduce((sum, tx) => sum + parseFloat(tx.amount), 0)
 
   const perCurrencyBreakdown: Record<string, { income: number; payable: number }> = {}
   for (const row of previewRows) {
@@ -327,13 +338,13 @@ export function CompanySharePayoutModal({
   const payoutTxs = paymentState.payout?.transactions ?? []
   const payoutIncomeTxs = payoutTxs.filter((tx) => isBundledIncomeTransaction(tx, currentPayoutId))
   const payoutSummary = {
-    projectsCount: new Set(payoutIncomeTxs.map((t) => t.projectId)).size,
+    projectsCount: new Set(payoutIncomeTxs.map((tx) => tx.projectId)).size,
     incomesCount: payoutIncomeTxs.length,
   }
   const stepAriaLabel =
     step === 'pay'
-      ? 'Шаг 2 из 2: оплата созданной заявки'
-      : 'Шаг 1 из 2: выбор приходов для выплаты'
+      ? t`Крок 2 з 2: оплата створеної заявки`
+      : t`Крок 1 з 2: вибір доходів до виплати`
 
   return (
     <Dialog
@@ -349,7 +360,11 @@ export function CompanySharePayoutModal({
       >
         <CrmDialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            {step === 'select' ? 'Оплата доли CheekyCheeseIT' : 'Заявка на выплату'}
+            {step === 'select' ? (
+              <Trans>Оплата частки CheekyCheeseIT</Trans>
+            ) : (
+              <Trans>Заявка на виплату</Trans>
+            )}
             {step === 'pay' && paymentState.payout && (
               <span
                 className={cn(
@@ -357,14 +372,16 @@ export function CompanySharePayoutModal({
                   STATUS_COLORS[payoutStatusKey],
                 )}
               >
-                {STATUS_LABELS[payoutStatusKey]}
+                {i18n._(STATUS_LABEL_MESSAGES[payoutStatusKey])}
               </span>
             )}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            {step === 'select'
-              ? 'Выберите проекты и приходы, которые войдут в заявку на выплату.'
-              : 'Переведите сумму компании и подтвердите оплату.'}
+            {step === 'select' ? (
+              <Trans>Виберіть проєкти та доходи, які увійдуть до заявки на виплату.</Trans>
+            ) : (
+              <Trans>Переведіть суму компанії та підтвердьте оплату.</Trans>
+            )}
           </DialogDescription>
           {/* fidelity-review finding #2: at-a-glance payout-id/project/income
               summary line — matches modal-step2-fresh-1440.png. Derived from
@@ -375,14 +392,29 @@ export function CompanySharePayoutModal({
               className="mt-0.5 text-xs text-muted-foreground"
               data-testid="company-share-payout-summary"
             >
-              №{paymentState.payout.id.slice(0, 6)} · {payoutSummary.projectsCount}{' '}
-              {pluralizeProjects(payoutSummary.projectsCount)}, {payoutSummary.incomesCount}{' '}
-              {pluralizeIncomes(payoutSummary.incomesCount)}
+              №{paymentState.payout.id.slice(0, 6)} ·{' '}
+              <Plural
+                value={payoutSummary.projectsCount}
+                one="# проєкт"
+                few="# проєкти"
+                many="# проєктів"
+                other="# проєкту"
+              />
+              {', '}
+              <Plural
+                value={payoutSummary.incomesCount}
+                one="# дохід"
+                few="# доходи"
+                many="# доходів"
+                other="# доходу"
+              />
             </p>
           )}
           <div className="mt-3 flex items-center gap-2" role="status" aria-label={stepAriaLabel}>
             <StepDot state={step === 'select' ? 'active' : 'done'} label="1" />
-            <span className="text-xs font-medium">Выбор</span>
+            <span className="text-xs font-medium">
+              <Trans>Вибір</Trans>
+            </span>
             <span
               className={cn('h-px w-8', step !== 'select' ? 'bg-emerald-500/30' : 'bg-border')}
             />
@@ -390,13 +422,15 @@ export function CompanySharePayoutModal({
               state={step === 'select' ? 'upcoming' : isPaid ? 'done' : 'active'}
               label="2"
             />
-            <span className="text-xs font-medium">Оплата</span>
+            <span className="text-xs font-medium">
+              <Trans>Оплата</Trans>
+            </span>
           </div>
           {/* Live region — announces the step change once, not on every
               re-render (design spec §5.4, second a11y mechanism). */}
           <div aria-live="polite" className="sr-only" data-testid="company-share-step-announcer">
             {step === 'pay'
-              ? 'Шаг 2 из 2. Заявка на выплату создана. Деньги ещё не отправлены.'
+              ? t`Крок 2 з 2. Заявку на виплату створено. Гроші ще не надіслано.`
               : ''}
           </div>
         </CrmDialogHeader>
@@ -407,7 +441,7 @@ export function CompanySharePayoutModal({
               <div className="space-y-4">
                 {validatedTxs.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    Нет проверенных приходов
+                    <Trans>Немає перевірених доходів</Trans>
                   </p>
                 ) : (
                   // fidelity-review finding #1 (HIGH): a bare <fieldset> gets the
@@ -438,14 +472,31 @@ export function CompanySharePayoutModal({
                       data-testid="company-share-selection-total"
                     >
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Выбрано</span>
+                        <span className="text-muted-foreground">
+                          <Trans>Вибрано</Trans>
+                        </span>
                         <span className="font-medium">
-                          {selected.size} прих. ·{' '}
-                          {new Set(selectedTxs.map((t) => t.projectId)).size} проект.
+                          <Plural
+                            value={selected.size}
+                            one="# дохід"
+                            few="# доходи"
+                            many="# доходів"
+                            other="# доходу"
+                          />{' '}
+                          ·{' '}
+                          <Plural
+                            value={new Set(selectedTxs.map((tx) => tx.projectId)).size}
+                            one="# проєкт"
+                            few="# проєкти"
+                            many="# проєктів"
+                            other="# проєкту"
+                          />
                         </span>
                       </div>
                       <div className="h-px bg-border/60" />
-                      <p className="text-xs text-muted-foreground">Разбивка по валютам:</p>
+                      <p className="text-xs text-muted-foreground">
+                        <Trans>Розбивка за валютами:</Trans>
+                      </p>
                       {Object.entries(perCurrencyBreakdown).map(([cur, totals]) => (
                         <div key={cur} className="space-y-0.5 pl-2 border-l-2 border-border/60">
                           <div className="flex justify-between font-medium">
@@ -453,13 +504,18 @@ export function CompanySharePayoutModal({
                             <span className="tabular-nums">{fmtAmount(totals.income, cur)}</span>
                           </div>
                           <div className="flex justify-between text-xs text-primary">
-                            <span>Итого к оплате</span>
+                            <span>
+                              <Trans>Разом до сплати</Trans>
+                            </span>
                             <span className="tabular-nums">{fmtAmount(totals.payable, cur)}</span>
                           </div>
                         </div>
                       ))}
                       <p className="text-xs text-muted-foreground/70">
-                        Итоговая выплата будет в USDT — конвертация по курсу НБУ на момент создания
+                        <Trans>
+                          Підсумкова виплата буде в USDT — конвертація за курсом НБУ на момент
+                          створення
+                        </Trans>
                       </p>
                     </div>
                   ) : (
@@ -468,26 +524,47 @@ export function CompanySharePayoutModal({
                       data-testid="company-share-selection-total"
                     >
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Выбрано</span>
+                        <span className="text-muted-foreground">
+                          <Trans>Вибрано</Trans>
+                        </span>
                         <span className="font-medium">
-                          {selected.size} прих. ·{' '}
-                          {new Set(selectedTxs.map((t) => t.projectId)).size} проект.
+                          <Plural
+                            value={selected.size}
+                            one="# дохід"
+                            few="# доходи"
+                            many="# доходів"
+                            other="# доходу"
+                          />{' '}
+                          ·{' '}
+                          <Plural
+                            value={new Set(selectedTxs.map((tx) => tx.projectId)).size}
+                            one="# проєкт"
+                            few="# проєкти"
+                            many="# проєктів"
+                            other="# проєкту"
+                          />
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Общая сумма</span>
+                        <span className="text-muted-foreground">
+                          <Trans>Загальна сума</Trans>
+                        </span>
                         <span className="font-medium tabular-nums">
                           {fmtAmount(totalIncome, batchCurrency)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Остаётся вам</span>
+                        <span className="text-muted-foreground">
+                          <Trans>Залишається вам</Trans>
+                        </span>
                         <span className="font-medium tabular-nums">
                           {fmtAmount(totalOwn, batchCurrency)}
                         </span>
                       </div>
                       <div className="flex justify-between text-primary">
-                        <span>Итого к оплате</span>
+                        <span>
+                          <Trans>Разом до сплати</Trans>
+                        </span>
                         <span className="font-bold tabular-nums">
                           {fmtAmount(payable, batchCurrency)}
                         </span>
@@ -505,7 +582,7 @@ export function CompanySharePayoutModal({
                 covers it) — 44px floor only below sm, desktop unaffected. */}
             <CrmDialogFooter>
               <Button variant="outline" onClick={handleClose} className="max-sm:min-h-11">
-                Отмена
+                <Trans>Скасувати</Trans>
               </Button>
               <Button
                 data-testid="company-share-create-payout"
@@ -513,7 +590,11 @@ export function CompanySharePayoutModal({
                 disabled={selected.size === 0 || createMutation.isPending}
                 className="max-sm:min-h-11"
               >
-                {createMutation.isPending ? 'Создание...' : 'Создать выплату'}
+                {createMutation.isPending ? (
+                  <Trans>Створення…</Trans>
+                ) : (
+                  <Trans>Створити виплату</Trans>
+                )}
               </Button>
             </CrmDialogFooter>
           </>
@@ -538,9 +619,13 @@ export function CompanySharePayoutModal({
                       aria-hidden="true"
                     />
                     <div>
-                      <p className="text-xs font-medium text-emerald-400">Заявка создана</p>
+                      <p className="text-xs font-medium text-emerald-400">
+                        <Trans>Заявку створено</Trans>
+                      </p>
                       <p className="text-[11px] text-muted-foreground">
-                        Деньги ещё не отправлены — переведите сумму и укажите хеш транзакции ниже.
+                        <Trans>
+                          Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче.
+                        </Trans>
                       </p>
                     </div>
                   </div>
@@ -556,7 +641,7 @@ export function CompanySharePayoutModal({
                 data-testid="company-share-close-step2"
                 className="max-sm:min-h-11"
               >
-                Закрыть
+                <Trans>Закрити</Trans>
               </Button>
               {!isPaid && paymentState.onChainStatus !== 'confirmed' && (
                 <Button
@@ -568,10 +653,10 @@ export function CompanySharePayoutModal({
                   {paymentState.payMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Проверка…
+                      <Trans>Перевірка…</Trans>
                     </>
                   ) : (
-                    'Подтвердить оплату'
+                    <Trans>Підтвердити оплату</Trans>
                   )}
                 </Button>
               )}

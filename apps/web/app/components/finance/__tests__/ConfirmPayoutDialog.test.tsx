@@ -15,9 +15,27 @@
  * synchronously so we can assert which api method fires. Both api methods are
  * mocked.
  */
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { describe, expect, it, vi, beforeEach, beforeAll } from 'vitest'
+import {
+  render as rtlRender,
+  screen,
+  fireEvent,
+  act,
+  type RenderResult,
+} from '@testing-library/react'
+import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `ConfirmPayoutDialog` calls `useLingui()` now — wrap every render (same
+// pattern as `PayoutDetailDialog.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 // ─── mocks ───────────────────────────────────────────────────────────────────
 
@@ -66,6 +84,7 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
+import { toast } from 'sonner'
 import { ConfirmPayoutDialog } from '../ConfirmPayoutDialog'
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -135,6 +154,12 @@ describe('ConfirmPayoutDialog', () => {
     expect(screen.getByTestId('confirm-payout-admin-select')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-tx-hash')).toBeInTheDocument()
     expect(screen.queryByTestId('confirm-payout-company-account-hint')).not.toBeInTheDocument()
+    // CRYPTO (not COMPANY_ACCOUNT) → txHash is required, "(необов'язково)" does
+    // NOT appear next to its label (kills the isCompanyAccount ConditionalExpression/
+    // LogicalOperator mutants on the label's optional-marker branch).
+    expect(screen.queryByText('(необов’язково)')).not.toBeInTheDocument()
+    // Placeholder text on the (empty) recipient select.
+    expect(screen.getByText('— оберіть адміна —')).toBeInTheDocument()
   })
 
   it('CRYPTO method calls confirmPayout (not manualConfirmPayout)', async () => {
@@ -167,6 +192,20 @@ describe('ConfirmPayoutDialog', () => {
     fireEvent.click(screen.getByTestId('confirm-payout-method-company_account'))
     expect(screen.queryByTestId('confirm-payout-admin-select')).not.toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-company-account-hint')).toBeInTheDocument()
+    // COMPANY_ACCOUNT → txHash IS optional, "(необов'язково)" appears next to
+    // its label (the true branch this file's default-CRYPTO test does not
+    // reach — kills the isCompanyAccount ConditionalExpression mutants).
+    expect(screen.getByText('(необов’язково)')).toBeInTheDocument()
+    // The space between the label and "(необов'язково)" is its own JSX
+    // expression ({' '}) — a StringLiteral mutant on it ("" instead of " ")
+    // would not affect either substring assertion above but would collapse
+    // the label to "Хеш транзакції(необов’язково)".
+    // There is no RTL query for "this label's full accumulated text across
+    // its nested optional-marker span"; textContent is the only way to see
+    // the space.
+    // eslint-disable-next-line testing-library/no-node-access
+    const label = document.querySelector('label[for="confirm-payout-tx-hash"]')
+    expect(label).toHaveTextContent('Хеш транзакції (необов’язково)')
   })
 
   it('COMPANY_ACCOUNT calls manualConfirmPayout off payoutRequestId (not confirmPayout)', async () => {
@@ -211,5 +250,14 @@ describe('ConfirmPayoutDialog', () => {
     expect(invalidatedKeys).toContain('transactions')
     expect(invalidatedKeys).toContain('finance-summary')
     expect(invalidatedKeys).toContain('company-account')
+    // COMPANY_ACCOUNT → the credit-worded toast, not the generic "confirmed" one.
+    expect(toast.success).toHaveBeenCalledWith('Оплату зараховано на рахунок компанії')
+  })
+
+  it('onSuccess for CRYPTO/CASH shows the generic "confirmed" toast', () => {
+    render(<ConfirmPayoutDialog tx={makeTx()} onClose={vi.fn()} />)
+    // Default method is CRYPTO — do not switch to COMPANY_ACCOUNT.
+    capturedOnSuccess?.()
+    expect(toast.success).toHaveBeenCalledWith('Оплату підтверджено')
   })
 })

@@ -6,6 +6,8 @@ import { useCallback, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import { Trans, useLingui } from '@lingui/react/macro'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
+import { formatDate, formatMonthLabel } from '@crm/shared'
+import { useLocale } from '@/lib/i18n'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { trackFeatureClick } from '@/lib/telemetry'
@@ -37,8 +39,6 @@ import { api } from '@/lib/axios'
 import { financeApi } from './api'
 import {
   fmtAmount,
-  fmtDate,
-  fmtMonth,
   STATUS_COLORS,
   STATUS_LABEL_MESSAGES,
   TYPE_LABEL_MESSAGES,
@@ -567,6 +567,7 @@ function TransactionsTable({
 
 function FinancePage() {
   const { t, i18n } = useLingui()
+  const locale = useLocale()
   const { denied } = useRoleGuard(['ADMIN', 'SENIOR', 'ACCOUNTANT', 'HR', 'DROP', 'JUNIOR'])
   const { user } = useAuth()
   // Deep-link status filter (?status=PENDING) — from the AccountantDashboard CTA.
@@ -799,10 +800,10 @@ function FinancePage() {
                               {fmtAmount(salaryTx.amount, salaryTx.currency)}
                             </td>
                             <td className="py-3 px-4 text-sm text-muted-foreground">
-                              {fmtMonth(salaryTx.salaryMonth)}
+                              {formatMonthLabel(salaryTx.salaryMonth, locale)}
                             </td>
                             <td className="py-3 px-4 text-xs text-muted-foreground">
-                              {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
+                              {formatDate(salaryTx.txDate ?? salaryTx.createdAt, locale, 'shortYY')}
                             </td>
                             <td className="py-3 px-4">
                               <span
@@ -887,10 +888,14 @@ function FinancePage() {
                                 {salaryTx.projectName ?? '—'}
                               </td>
                               <td className="py-3 px-4 text-sm text-muted-foreground">
-                                {fmtMonth(salaryTx.salaryMonth)}
+                                {formatMonthLabel(salaryTx.salaryMonth, locale)}
                               </td>
                               <td className="py-3 px-4 text-xs text-muted-foreground">
-                                {fmtDate(salaryTx.txDate ?? salaryTx.createdAt)}
+                                {formatDate(
+                                  salaryTx.txDate ?? salaryTx.createdAt,
+                                  locale,
+                                  'shortYY',
+                                )}
                               </td>
                               <td className="py-3 px-4">
                                 <span
@@ -951,7 +956,7 @@ function FinancePage() {
               edge at ≤363px — reachable but past the viewport, no scroll
               indicator. `flex-wrap` is the safety net; the primary fix is
               icon-only «Нова транзакція» below `sm` (foundation.md §10
-              «Фильтры / тулбары» — mobile toolbar collapses, it does not
+              «Фільтри / тулбари» — mobile toolbar collapses, it does not
               scroll). The `Wallet` payout button keeps its digit-count label
               at every width — it is the rarer, count-bearing action, and
               icon-only there would hide the number the badge exists for. */}
@@ -994,7 +999,7 @@ function FinancePage() {
           («Ожидают зачисления» + «Долги компании перед синьорами») were
           removed — they carried no info beyond what the transactions table
           already shows. The senior IOU is now paid straight from its
-          SENIOR_PENDING_PAYOUT row in the table via the «Выплатить» button
+          SENIOR_PENDING_PAYOUT row in the table via the «Виплатити» button
           (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
 
           {/* task-company-share-cta. First element, right above the

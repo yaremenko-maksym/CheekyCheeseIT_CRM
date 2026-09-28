@@ -23,12 +23,30 @@
  * pin the two `hidden`/`sm:` switches that carry that behaviour, so the
  * breakpoint cannot be silently changed without this file going red.
  */
-import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import {
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderResult,
+} from '@testing-library/react'
+import { describe, expect, it, vi, beforeAll } from 'vitest'
+import type { ReactElement } from 'react'
 
 import type { CascadeDerivativePlan, CascadeEditPreviewResponse } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 import { CascadeImpactPanel } from '../CascadeImpactPanel'
+
+beforeAll(async () => {
+  await loadCatalog('uk')
+})
+
+// `CascadeImpactPanel` calls `useLingui()` now — wrap every render (same
+// pattern as `cascade-impact-panel.test.tsx`).
+function render(ui: ReactElement): RenderResult {
+  return rtlRender(ui, { wrapper: I18nTestProvider })
+}
 
 function derivative(over: Partial<CascadeDerivativePlan> = {}): CascadeDerivativePlan {
   return {
@@ -71,7 +89,7 @@ function preview(
 }
 
 /** The dialog's own wording for «no answer at all»; the panel just renders what it is handed. */
-const NETWORK_TEXT = 'Не удалось загрузить предпросмотр — проверьте соединение'
+const NETWORK_TEXT = 'Не вдалося завантажити передперегляд — перевірте з’єднання'
 
 function renderPanel(props: Partial<Parameters<typeof CascadeImpactPanel>[0]> = {}) {
   const onRetry = vi.fn()
@@ -107,14 +125,14 @@ describe('CascadeImpactPanel — the source line', () => {
     renderPanel({
       preview: preview([derivative()], {
         sourceWarnings: [
-          { code: 'SOURCE_SIGNED_INVOICE', message: 'По этой строке уже есть подписанный инвойс' },
+          { code: 'SOURCE_SIGNED_INVOICE', message: 'По цьому рядку вже є підписаний рахунок' },
         ],
       }),
     })
 
     expect(
       screen.getByTestId('cascade-source-warning-SOURCE_SIGNED_INVOICE').textContent,
-    ).toContain('По этой строке уже есть подписанный инвойс')
+    ).toContain('По цьому рядку вже є підписаний рахунок')
   })
 })
 
@@ -122,8 +140,8 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
   it('PR-3. the senior share reuses the source receiver — the same person', () => {
     renderPanel()
 
-    expect(desktop().textContent).toContain('Синьору Иван Петров')
-    expect(mobile().textContent).toContain('Синьору Иван Петров')
+    expect(desktop().textContent).toContain('Сеньйор: Иван Петров')
+    expect(mobile().textContent).toContain('Сеньйор: Иван Петров')
   })
 
   it('PR-4. a drop share is labelled without a name — none is available, and a wrong one is worse', () => {
@@ -135,20 +153,20 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
       preview: preview([derivative({ type: 'DROP_PENDING_PAYOUT', receiverName: null })]),
     })
 
-    expect(desktop().textContent).toContain('Доля дропа')
+    expect(desktop().textContent).toContain('Частка дропа')
     expect(desktop().textContent).not.toContain('Иван Петров')
-    expect(mobile().textContent).toContain('Доля дропа')
+    expect(mobile().textContent).toContain('Частка дропа')
     expect(mobile().textContent).not.toContain('Иван Петров')
   })
 
   it('PR-5. a senior share with no receiver name shows the type alone, not «Синьору undefined»', () => {
     renderPanel({ preview: preview([derivative({ receiverName: null })]) })
 
-    expect(desktop().textContent).not.toContain('Синьору')
+    expect(desktop().textContent).not.toContain('Сеньйор')
     expect(desktop().textContent).not.toContain('undefined')
     // And NOT the drop label either: a senior share is not a drop share, and
     // "some label is better than none" is how a receiver gets misattributed.
-    expect(desktop().textContent).not.toContain('Доля дропа')
+    expect(desktop().textContent).not.toContain('Частка дропа')
     expect(mobile().textContent).not.toContain('undefined')
   })
 
@@ -164,8 +182,8 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
       ]),
     })
 
-    expect(desktop().textContent).toContain('Синьору Иван Петров')
-    expect(mobile().textContent).toContain('Синьору Иван Петров')
+    expect(desktop().textContent).toContain('Сеньйор: Иван Петров')
+    expect(mobile().textContent).toContain('Сеньйор: Иван Петров')
   })
 
   it('PR-42. UX-1 — a SETTLED drop share is still labelled, without inventing a name', () => {
@@ -177,12 +195,12 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
     // Asserted as "the senior branch did NOT leak into a drop row": checking
     // for «Доля дропа» alone would be vacuous, because that is also exactly
-    // what `TYPE_LABELS.PAYOUT_DROP` prints on the badge. The name stays
+    // what `TYPE_LABEL_MESSAGES.PAYOUT_DROP` prints on the badge. The name stays
     // absent — `CascadeDerivativePlan` carries no receiver, and the SOURCE's
     // receiver is the senior, not the drop.
-    expect(desktop().textContent).not.toContain('Синьору')
+    expect(desktop().textContent).not.toContain('Сеньйор')
     expect(desktop().textContent).not.toContain('Иван Петров')
-    expect(desktop().textContent).toContain('Доля дропа')
+    expect(desktop().textContent).toContain('Частка дропа')
   })
 
   it('PR-44. a settled drop row names itself once, not twice', () => {
@@ -191,11 +209,11 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     // is only reachable in the nameless case.
     renderPanel({ preview: preview([derivative({ type: 'PAYOUT_DROP', receiverName: null })]) })
 
-    // `TYPE_LABELS.PAYOUT_DROP` is itself «Доля дропа», so without the
+    // `TYPE_LABEL_MESSAGES.PAYOUT_DROP` is itself «Частка дропа», so without the
     // duplicate guard the badge and the line under it said the same three words
     // twice. Found by looking at the rendered screen, and pinned here so it
     // cannot come back.
-    const occurrences = (desktop().textContent ?? '').split('Доля дропа').length - 1
+    const occurrences = (desktop().textContent ?? '').split('Частка дропа').length - 1
     expect(occurrences).toBe(1)
   })
 
@@ -206,8 +224,8 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
     // The other side of the same guard: here the badge reads «Ожидаемая выплата
     // дропу», so the label adds information rather than repeating it.
-    expect(desktop().textContent).toContain('Ожидаемая выплата дропу')
-    expect(desktop().textContent).toContain('Доля дропа')
+    expect(desktop().textContent).toContain('Очікуваний розрахунок із дропом')
+    expect(desktop().textContent).toContain('Частка дропа')
   })
 
   it('PR-48. UX-7 — a drop share names its receiver too; the server sends it, the screen must not drop it', () => {
@@ -221,8 +239,8 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
       preview: preview([derivative({ type: 'PAYOUT_DROP', receiverName: 'Viktor Drozhzhyn' })]),
     })
 
-    expect(desktop().textContent).toContain('Дропу Viktor Drozhzhyn')
-    expect(mobile().textContent).toContain('Дропу Viktor Drozhzhyn')
+    expect(desktop().textContent).toContain('Дроп: Viktor Drozhzhyn')
+    expect(mobile().textContent).toContain('Дроп: Viktor Drozhzhyn')
   })
 
   it('PR-46. UX-1 — on an ADMIN_INCOME cascade the share names ITS OWN receiver, not the source’s', () => {
@@ -241,7 +259,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     })
 
     const row = screen.getByTestId('cascade-derivative-d1')
-    expect(row.textContent).toContain('Синьору Nazar Ponomarenko')
+    expect(row.textContent).toContain('Сеньйор: Nazar Ponomarenko')
   })
 
   it('PR-43. UX-3 — a fully closed row says nothing about a remainder', () => {
@@ -289,10 +307,10 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     expect(mobile().textContent).toContain('—')
   })
 
-  it('PR-8. «Выплачено» appears only when something was actually paid', () => {
+  it('PR-8. «Виплачено» appears only when something was actually paid', () => {
     renderPanel()
 
-    expect(within(mobile()).queryByText('Выплачено')).toBeNull()
+    expect(within(mobile()).queryByText('Виплачено')).toBeNull()
 
     renderPanel({
       preview: preview([
@@ -302,7 +320,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
 
     const cards = screen.getAllByTestId('cascade-derivative-mobile-d1')
     const withSettle = cards[cards.length - 1]!
-    expect(within(withSettle).getByText('Выплачено')).toBeTruthy()
+    expect(within(withSettle).getByText('Виплачено')).toBeTruthy()
     expect(digits(withSettle)).toContain('5000')
   })
 
@@ -313,7 +331,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
           settledAmount: 2000,
           settledCurrency: 'UAH',
           remainingToPay: null,
-          warnings: [{ code: 'NON_USDT_CURRENCY', message: 'Выплата учтена в UAH' }],
+          warnings: [{ code: 'NON_USDT_CURRENCY', message: 'Виплату враховано в UAH' }],
         }),
       ]),
     })
@@ -325,7 +343,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     expect(mobile().textContent).toContain('UAH')
   })
 
-  it('PR-10. «вернётся в ожидание выплаты» is shown once per layout, never shared', () => {
+  it('PR-10. «повернеться в очікування виплати» is shown once per layout, never shared', () => {
     renderPanel({ preview: preview([derivative({ needsReconfirm: true })]) })
 
     // Two nodes, two ids. One id on two nodes is a strict-mode violation in
@@ -347,7 +365,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
       preview: preview([
         derivative({
           warnings: [
-            { code: 'OVERPAYMENT', message: 'Уже выплачено 5000 — строка остаётся оплаченной' },
+            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000 — рядок залишається оплаченим' },
             { code: 'SIGNED_INVOICE', message: 'Инвойс уже подписан контрагентом' },
           ],
         }),
@@ -355,7 +373,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     })
 
     expect(screen.getByTestId('cascade-derivative-warning-d1-OVERPAYMENT').textContent).toContain(
-      'Уже выплачено 5000 — строка остаётся оплаченной',
+      'Вже виплачено 5000 — рядок залишається оплаченим',
     )
     expect(
       screen.getByTestId('cascade-derivative-warning-d1-SIGNED_INVOICE-mobile').textContent,
@@ -408,7 +426,7 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
     expect(digits(mobile())).toContain('4321')
   })
 
-  it('PR-28. nothing settled ⇒ the desktop «Выплачено» cell is a dash, not empty', () => {
+  it('PR-28. nothing settled ⇒ the desktop «Виплачено» cell is a dash, not empty', () => {
     renderPanel()
 
     const cells = within(desktop()).getAllByRole('cell')
@@ -429,7 +447,7 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
   it('PR-30. a warning line lives in the layout whose id it carries', () => {
     renderPanel({
       preview: preview([
-        derivative({ warnings: [{ code: 'OVERPAYMENT', message: 'Уже выплачено 5000' }] }),
+        derivative({ warnings: [{ code: 'OVERPAYMENT', message: 'Вже виплачено 5000' }] }),
       ]),
     })
 
@@ -440,7 +458,7 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
   })
 
   it('PR-31. a stale plan is not interactive — it is a record, not a control', () => {
-    renderPanel({ staleMessage: 'Данные изменились' })
+    renderPanel({ staleMessage: 'Дані змінилися' })
 
     // `pointer-events-none` is the behaviour, not the dimming: the plan below a
     // stale banner must not accept a click that would act on a dead figure.
@@ -475,7 +493,7 @@ describe('CascadeImpactPanel — severity is visible, not just present', () => {
           newAmount: null,
           warnings: [
             { code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' },
-            { code: 'OVERPAYMENT', message: 'Уже выплачено 5000' },
+            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000' },
           ],
         }),
       ]),
@@ -569,10 +587,10 @@ describe('CascadeImpactPanel — which layout is which', () => {
 
     const headers = screen.getAllByRole('columnheader')
     expect(headers.map((h) => h.textContent)).toEqual([
-      'Получатель',
-      'Было → Стало',
-      'Выплачено',
-      'К доплате',
+      'Отримувач',
+      'Було → Стало',
+      'Виплачено',
+      'До доплати',
       'Статус',
     ])
     expect(headers.every((h) => h.getAttribute('scope') === 'col')).toBe(true)
@@ -584,7 +602,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     renderPanel({ isLoading: true })
 
     expect(screen.getByTestId('cascade-preview-loading').textContent).toContain(
-      'Пересчитываем связанные выплаты',
+      'Перераховуємо пов’язані виплати',
     )
     expect(screen.queryByTestId('cascade-derivative-d1')).toBeNull()
   })
@@ -592,9 +610,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
   it('PR-19. a network failure is named, and retrying calls back', () => {
     const { onRetry } = renderPanel({ errorMessage: NETWORK_TEXT, preview: undefined })
 
-    expect(screen.getByTestId('cascade-preview-error').textContent).toContain(
-      'проверьте соединение',
-    )
+    expect(screen.getByTestId('cascade-preview-error').textContent).toContain('перевірте з’єднання')
     fireEvent.click(screen.getByTestId('cascade-preview-retry'))
     expect(onRetry).toHaveBeenCalledTimes(1)
   })
@@ -610,7 +626,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     })
 
     expect(screen.getByTestId('cascade-blocked-banner').textContent).toContain(
-      'включена в оформленную заявку на выплату',
+      'включено до оформленої заявки на виплату',
     )
     expect(screen.queryByTestId('cascade-derivative-d1')).toBeNull()
   })
@@ -624,7 +640,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     // `Record`; a wrong key returns the WRONG sentence, and both are plausible
     // enough that nobody would notice on a screenshot.
     expect(screen.getByTestId('cascade-blocked-banner').textContent).toContain(
-      'подтверждена исполненным переводом',
+      'підтверджена виконаним переказом',
     )
   })
 
@@ -634,11 +650,11 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     })
 
     const banner = screen.getByTestId('cascade-blocked-banner')
-    expect(banner.textContent).toContain('Правка суммы для этой строки недоступна')
+    expect(banner.textContent).toContain('Правка суми для цього рядка недоступна')
     expect(banner.textContent).not.toContain('undefined')
   })
 
-  it('PR-39. COPY-M-8 — a refusal is announced as a refusal, not as «предпросмотр обновлён»', () => {
+  it('PR-39. COPY-M-8 — a refusal is announced as a refusal, not as «передперегляд оновлено»', () => {
     renderPanel({
       preview: { editable: false, blockedReason: 'ONCHAIN_DEPOSIT', plan: null, version: null },
     })
@@ -647,8 +663,8 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     // ONLY thing a screen-reader user heard here — the opposite of what the
     // screen says.
     const live = screen.getByTestId('cascade-preview-status')
-    expect(live.textContent).not.toContain('обновлён')
-    expect(live.textContent).toContain('запрещена')
+    expect(live.textContent).not.toContain('оновлено')
+    expect(live.textContent).toContain('заборонена')
   })
 
   it('PR-40. COPY-M-7 — the network banner stacks on mobile, like its neighbour', () => {
@@ -684,14 +700,14 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     renderPanel({ preview: preview([]) })
 
     expect(screen.getByTestId('cascade-preview-empty').textContent).toContain(
-      'не связана с выплатами',
+      'не пов’язана з виплатами',
     )
   })
 
   it('PR-23. a stale plan stays on screen, dimmed, with one way forward', () => {
-    const { onRetry } = renderPanel({ staleMessage: 'Данные изменились с момента предпросмотра' })
+    const { onRetry } = renderPanel({ staleMessage: 'Дані змінилися з моменту перегляду' })
 
-    expect(screen.getByTestId('cascade-stale-banner').textContent).toContain('Данные изменились')
+    expect(screen.getByTestId('cascade-stale-banner').textContent).toContain('Дані змінилися')
     // Still visible — the operator has to see WHAT went out of date.
     expect(screen.getByTestId('cascade-derivative-d1')).toBeTruthy()
     fireEvent.click(screen.getByTestId('cascade-refresh-preview'))
@@ -712,7 +728,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
     // nothing — the live region is the one-line status, never the plan.
     expect(live.getAttribute('aria-live')).toBe('polite')
     expect(live.getAttribute('aria-atomic')).toBe('true')
-    expect(live.textContent).toContain('Пересчитываем')
+    expect(live.textContent).toContain('Перераховуємо')
   })
 
   it('PR-37. once the plan is in, the status line says so — silence reads as "still working"', () => {
@@ -720,7 +736,7 @@ describe('CascadeImpactPanel — the states that are not a plan', () => {
 
     // A live region that announces the start and never the end leaves a
     // screen-reader user waiting for an update that already happened.
-    expect(screen.getByTestId('cascade-preview-status').textContent).toBe('Предпросмотр обновлён')
+    expect(screen.getByTestId('cascade-preview-status').textContent).toBe('Передперегляд оновлено')
   })
 
   it('PR-38. with nothing requested at all the status line is empty, not stale', () => {
