@@ -436,13 +436,17 @@ export const EXEMPT_FIELDS: Record<string, string> = {
     'Free-text "Заметки" field on the senior-income edit dialog.',
   'testid:pay-salary-notes': 'Free-text "Заметки" field on the pay-salary dialog.',
   'testid:payout-detail-manual-note': 'Free-text note describing a manual payout confirmation.',
-  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#3':
+  'testid:create-transaction-expense-category-input':
+    'i18n-3d-pr3 owner override (2026-09-28): the expense category is free text — prod `receiver_label` carries 16 distinct operator-authored values, not a closed set — so autocapitalize/autocorrect must not fight arbitrary operator wording.',
+  'testid:admin-edit-expense-category-input':
+    'i18n-3d-pr3 owner override (2026-09-28): same free-text expense category as CreateTransactionDialog — see that entry.',
+  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#4':
     'Free-text "Заметки" field on the create-transaction dialog (non-dividend types).',
   'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1':
     'Free-text rejection reason typed by ACCOUNTANT when rejecting a transaction.',
-  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#1':
-    'Salary month typed as a raw "2025-03" string — no existing date-picker component is used here, and the task explicitly says not to invent a new one for this PR.',
   'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#2':
+    'Salary month typed as a raw "2025-03" string — no existing date-picker component is used here, and the task explicitly says not to invent a new one for this PR.',
+  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#3':
     'Free-text "Заметки" field on the admin edit-transaction dialog.',
 
   // ---- interviews — free-text company/notes fields ----

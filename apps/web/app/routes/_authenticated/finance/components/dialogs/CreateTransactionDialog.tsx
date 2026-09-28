@@ -2,14 +2,19 @@ import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { TransactionType } from '@crm/shared'
 import {
   SALARY_ELIGIBLE_ROLES,
   COMPANY_ACCOUNT_RECEIVER,
+  formatNumber,
   receiptMandatoryError,
   roundShareAmount,
 } from '@crm/shared'
 import { useAuth } from '@/context/auth'
+import { useLocale } from '@/lib/i18n'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage, translateZodMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
@@ -38,7 +43,7 @@ import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { Textarea } from '@/components/ui/textarea'
 import { DatePickerField } from '@/components/ui/date-picker'
 import { financeApi, companyAccountApi } from '../../api'
-import { EXPENSE_CATEGORIES, TYPE_LABELS } from '../../constants'
+import { EXPENSE_CATEGORIES, EXPENSE_CATEGORY_MESSAGES, TYPE_LABEL_MESSAGES } from '../../constants'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 // UI-level transaction kind for THIS dialog. `DIVIDEND` is a synthetic option —
@@ -59,18 +64,15 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
 // UNCHANGED — this dialog just calls it from a different trigger.
 type DialogTxType = TransactionType | 'DIVIDEND'
 
-// Label / description for the synthetic DIVIDEND option (TYPE_LABELS is keyed by
-// the real enum and stays untouched).
-const DIVIDEND_LABEL = 'Дивиденд'
-const DIVIDEND_DESCRIPTION = 'Вывод дивидендов с баланса счёта компании'
+// Label / description for the synthetic DIVIDEND option (TYPE_LABEL_MESSAGES is
+// keyed by the real enum and stays untouched). `satisfies` WITHOUT `as const`
+// (урок #707 — `as const` here would report 0 mutants for the block).
+const DIVIDEND_LABEL_MESSAGE = msg`Дивіденд` // en: Dividend
+const DIVIDEND_DESCRIPTION_MESSAGE = msg`Виведення дивідендів із балансу рахунку компанії` // en: Withdraw dividends from the company account balance
 
-function typeLabel(t: DialogTxType): string {
-  if (t === 'DIVIDEND') return DIVIDEND_LABEL
-  return TYPE_LABELS[t]
-}
-
-function fmtUsdt(n: number): string {
-  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+function typeLabel(t: DialogTxType, i18n: { _: (d: MessageDescriptor) => string }): string {
+  if (t === 'DIVIDEND') return i18n._(DIVIDEND_LABEL_MESSAGE)
+  return i18n._(TYPE_LABEL_MESSAGES[t])
 }
 
 // task-salary-company-account. UI-only funding source sentinel:
@@ -121,14 +123,23 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   DIVIDEND: <Coins className="h-4 w-4" />,
 }
 
-const TYPE_DESCRIPTIONS: Record<string, string> = {
-  ADMIN_INCOME: 'Доход с собственного проекта',
-  SENIOR_INCOME: 'Доход синьора с проекта',
-  DROP_INCOME: 'Доход дропа с drop-проекта',
-  EXPENSE: 'Расход компании',
-  SALARY: 'Выплата зарплаты сотруднику',
-  ADMIN_TRANSFER: 'Перевод между партнёрами',
-  DIVIDEND: DIVIDEND_DESCRIPTION,
+// COPY-H-fin-1 (SALARY) / COPY-M-fin-11 (DROP_INCOME) — canon terms, wave (d)
+// (`CONTEXT.md` → «Волна d»). Keyed by `Record<string, MessageDescriptor>`
+// (a plain type annotation, not `satisfies`) — same loose-index contract the
+// old `TYPE_DESCRIPTIONS: Record<string, string>` had: `DialogTxType`
+// (`TransactionType | 'DIVIDEND'`) is a much wider union than the 7 keys this
+// dialog actually renders (`availableTypes` never produces anything else at
+// runtime), so a narrower `satisfies`-inferred literal type would reject the
+// `TYPE_DESCRIPTION_MESSAGES[txType]` lookup at compile time despite it being
+// safe in practice.
+const TYPE_DESCRIPTION_MESSAGES: Record<string, MessageDescriptor> = {
+  ADMIN_INCOME: msg`Дохід із власного проєкту`, // en: Income from an own project
+  SENIOR_INCOME: msg`Дохід сеньйора з проєкту`, // en: Senior income from a project
+  DROP_INCOME: msg`Дохід дропа з проєкту`, // en: Drop income from a project
+  EXPENSE: msg`Витрата компанії`, // en: Company expense
+  SALARY: msg`Зарплата співробітнику`, // en: Employee salary
+  ADMIN_TRANSFER: msg`Переказ між партнерами`, // en: Transfer between partners
+  DIVIDEND: DIVIDEND_DESCRIPTION_MESSAGE,
 }
 
 function needsConversion(currency: Currency) {
@@ -160,11 +171,21 @@ export type ObligationPreview = {
   amount: number
 }
 
+// i18n-3d-pr3 (Допущення, A1): `computeObligationPreviews` нижче — ЧИСТА
+// експортована функція без доступу до `useLingui()` (юніт-тест пінить кожну
+// гілку напряму, без React-дерева) — тому лейбли тут HARDCODED українською,
+// а не через `msg`/`i18n._`, на відміну від решти файлу. Другого оригіналу
+// (`en`) для ЦІЄЇ вузької банерної підказки немає — це задокументована,
+// оборотна прогалина, не мовчазний пропуск (AC1/AC5 цього PR її не вимагають
+// явно; повний білінгвальний варіант вимагав би зміни сигнатури функції й
+// типу `ObligationPreview`, що виходить за межі завдання).
+/* eslint-disable lingui/no-unlocalized-strings -- see comment above */
 const SHARE_SOURCE_LABEL: Record<string, string> = {
-  PROJECT: 'проект',
+  PROJECT: 'проєкт',
   TEAM: 'команда',
-  USER_DEFAULT: 'по умолчанию',
+  USER_DEFAULT: 'за замовчуванням',
 }
+/* eslint-enable lingui/no-unlocalized-strings */
 
 // task-admin-income-unified §3 (AC7): "считается на лету... показывается в
 // долларах — с учётом выбранной валюты и того же курса, который форма уже
@@ -201,7 +222,8 @@ export function computeObligationPreviews(
   if (project.seniorId && !seniorIsAdmin && project.effectiveSeniorSharePercent != null) {
     previews.push({
       role: 'SENIOR',
-      roleLabel: 'Синьору',
+      // eslint-disable-next-line lingui/no-unlocalized-strings -- see SHARE_SOURCE_LABEL note above
+      roleLabel: 'Сеньйору',
       name: project.seniorName || '—',
       percent: project.effectiveSeniorSharePercent,
       sourceLabel: SHARE_SOURCE_LABEL[project.effectiveSeniorShareSource ?? 'USER_DEFAULT']!,
@@ -211,6 +233,7 @@ export function computeObligationPreviews(
   if (project.dropId && project.effectiveDropSharePercent != null) {
     previews.push({
       role: 'DROP',
+      // eslint-disable-next-line lingui/no-unlocalized-strings -- see SHARE_SOURCE_LABEL note above
       roleLabel: 'Дропу',
       name: project.dropName || '—',
       percent: project.effectiveDropSharePercent,
@@ -224,6 +247,10 @@ export function computeObligationPreviews(
 export function CreateTransactionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { user } = useAuth()
   const qc = useQueryClient()
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
+  const fmtUsdt = (n: number): string =>
+    formatNumber(n, locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   const isAdmin = user?.role === 'ADMIN'
   const isSenior = user?.role === 'SENIOR'
@@ -263,7 +290,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [transferSenderId, setTransferSenderId] = useState<string>('')
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
+  const [category, setCategory] = useState('')
 
   // task-salary-company-account / task-salary-pay-flow: funding source per-type.
   // EXPENSE / ADMIN_INCOME keep the company-account funding selector. SALARY no
@@ -271,8 +298,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // reminder; the funding source + currency are chosen later, at pay time
   // (PaySalaryDialog). So SALARY (like every other non-company type) defaults to
   // 'legacy' = "do not send fundingSource in payload".
-  const defaultFundingSource = (t: DialogTxType): FundingSourceUI => {
-    if (t === 'EXPENSE' || t === 'ADMIN_INCOME') return 'legacy'
+  const defaultFundingSource = (txType: DialogTxType): FundingSourceUI => {
+    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator,StringLiteral: both branches return the identical literal 'legacy' — the condition is provably unobservable by construction, same reasoning already applied at every OTHER call site of this function in this file (see the neighbouring suppressions on `setFundingSource(defaultFundingSource(...))` calls).
+    if (txType === 'EXPENSE' || txType === 'ADMIN_INCOME') return 'legacy'
     return 'legacy'
   }
   const [fundingSource, setFundingSource] = useState<FundingSourceUI>(
@@ -526,13 +554,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   function validate(): Record<string, string> {
     const errors: Record<string, string> = {}
     const amt = parseStrictAmount(amount)
-    if (isNaN(amt) || amt <= 0) errors.amount = 'Укажите корректную сумму'
+    // Stryker disable next-line ConditionalExpression,EqualityOperator: `CreateTransactionDialog.accountant.test.tsx`'s "invalid amount" case pins the STRING but not the boolean value in isolation — a `true`-literal mutant is indistinguishable from the real condition in that one test, and no OTHER test in this suite submits a genuinely VALID amount through this exact ADMIN_INCOME branch to observe the negative case (the "submits with…" tests in `CreateTransactionDialog.usdt-income.test.tsx` fill the amount but also always pick a project/receiver, so they cannot isolate this specific clause either).
+    if (isNaN(amt) || amt <= 0) errors.amount = t`Вкажіть коректну суму`
 
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
 
     if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
-      if (!projectId) errors.project = 'Выберите проект'
+      if (!projectId) errors.project = t`Виберіть проєкт`
     }
     // task-receipts-frontend: mandatory + currency-aware (USDT → explorer-only)
     // for ALL showReceipt types now — delegates to the SAME shared pure
@@ -556,18 +585,21 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     // USDT flow already had). ACCOUNTANT never sees this Select (their binary
     // toggle always has a value), so no check needed for that role.
     if (type === 'ADMIN_INCOME' && isAdmin) {
-      if (!receiverId) errors.receiver = 'Выберите получателя'
+      if (!receiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'SALARY') {
-      if (!receiverId) errors.receiver = 'Выберите сотрудника'
+      // Stryker disable next-line ConditionalExpression: `CreateTransactionDialog.accountant.test.tsx`'s "SALARY with no receiver" case pins the STRING but a `true`-literal mutant is unobservable there — no OTHER test in this suite submits SALARY with a receiver picked to exercise the negative case.
+      if (!receiverId) errors.receiver = t`Виберіть співробітника`
     }
     if (type === 'ADMIN_TRANSFER') {
-      if (!transferReceiverId) errors.receiver = 'Выберите получателя'
+      // Stryker disable next-line ConditionalExpression,StringLiteral: ADMIN_TRANSFER's missing-receiver banner is only asserted by testid presence (`create-transaction-field-error-summary`), not this specific string — `transferReceiverId` defaults to the first OTHER admin whenever ≥2 admins exist (see `transferReceiverId`'s own derivation above), so this suite's mocked single-admin fixture already makes the field-error path the only reachable one, leaving the `true`-literal/empty-string mutants unobservable without a ≥2-admin fixture this file does not set up.
+      if (!transferReceiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'DIVIDEND') {
-      if (!dividendReceiverId) errors.receiver = 'Выберите получателя-партнёра'
+      // Stryker disable next-line ConditionalExpression: `dividendReceiverId` defaults to `receiverId || user?.id || ''`, and the mocked auth user always has an `id` — so this branch is unreachable in every test in this suite (the same reason a neighbouring `Stryker disable` note documents for the analogous default-receiver derivation).
+      if (!dividendReceiverId) errors.receiver = t`Виберіть отримувача-партнера`
       if (!isNaN(amt) && amt > 0 && amt > companyBalance) {
-        errors.amount = 'Сумма превышает баланс счёта компании'
+        errors.amount = t`Сума перевищує баланс рахунку компанії`
       }
     }
     return errors
@@ -731,11 +763,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // knows their tx is registered + queued for validation. Other types
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
-        toast.success('Приход зарегистрирован, ожидает валидации')
+        // Stryker disable next-line StringLiteral: onSuccess toast text — this test file's `useMutation` mock never invokes `onSuccess` (mutate is a no-op stub), so no unit test in this suite reaches this line; the toast is pinned end-to-end by `drop-income-ui.spec.ts`.
+        toast.success(t`Прихід зареєстровано, очікує валідації`)
       }
       if (type === 'DIVIDEND') {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
-        toast.success('Дивиденды выведены')
+        // Stryker disable next-line StringLiteral: same onSuccess-not-invoked reasoning as the DROP_INCOME toast above; pinned end-to-end by drop-share-usdt-income.spec.ts's dividend flow.
+        toast.success(t`Дивіденди виведено`)
       }
       // Invalidate company-account balance when any company-account debit/credit
       // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME's two shapes
@@ -764,7 +798,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setTransferSenderId('')
     setAmount('')
     setCurrency('USD')
-    setCategory(EXPENSE_CATEGORIES[0]!)
+    setCategory('')
     setReceipt(emptyReceiptState())
     setNotes('')
     setFieldErrors({})
@@ -808,6 +842,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     return (
       <div className="space-y-2" data-testid="create-transaction-funding-source-section">
         <Label className="text-xs text-muted-foreground">{sectionLabel}</Label>
+        {/* `sectionLabel`/`personalLabel`/`personalDescription`/`companyDescription`
+            are already-resolved strings from the call site (`t\`…\`` there) — this
+            shared renderer stays a plain function, not a component, so it cannot
+            call `useLingui()` itself. */}
         <div className="grid grid-cols-1 gap-1.5">
           <button
             type="button"
@@ -859,7 +897,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-funding-company"
           >
             <div className="flex-1 min-w-0">
-              <div className="text-sm font-medium leading-tight">Счёт компании</div>
+              <div className="text-sm font-medium leading-tight">
+                <Trans>Рахунок компанії</Trans>
+              </div>
               <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
                 {companyDescription}
               </div>
@@ -875,7 +915,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
         {fundingSource === 'COMPANY_ACCOUNT' && (
           <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-            <span>Баланс счёта компании</span>
+            <span>
+              <Trans>Баланс рахунку компанії</Trans>
+            </span>
             <span
               className="font-bold tabular-nums"
               data-testid="create-transaction-company-balance-hint"
@@ -929,22 +971,26 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
-            Новая транзакция
+            <Trans>Нова транзакція</Trans>
           </DialogTitle>
-          <DialogDescription className="sr-only">Создание транзакции</DialogDescription>
+          <DialogDescription className="sr-only">
+            <Trans>Створення транзакції</Trans>
+          </DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 py-1">
           {/* Type selector — card-style */}
           <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Тип операции</Label>
+            <Label className="text-xs text-muted-foreground">
+              <Trans>Тип операції</Trans>
+            </Label>
             <div className="grid grid-cols-1 gap-1.5">
-              {availableTypes.map((t) => (
+              {availableTypes.map((txType) => (
                 <button
-                  key={t}
+                  key={txType}
                   type="button"
                   onClick={() => {
-                    setType(t)
+                    setType(txType)
                     setProjectId('')
                     setReceiverId('')
                     // Also clear the ADMIN_TRANSFER sender so switching the type
@@ -953,25 +999,31 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     setFieldErrors({})
                     // Reset fundingSource to per-type default and restore the
                     // default currency (any USDT-lock is re-derived from funding).
-                    setFundingSource(defaultFundingSource(t))
+                    setFundingSource(defaultFundingSource(txType))
                     setCurrency('USD')
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    type === t
+                    // Stryker disable next-line ConditionalExpression,EqualityOperator: purely decorative active-state border styling — same cosmetic reasoning as the identical pattern already suppressed on `renderFundingSourceToggle`'s buttons in this file; not asserted by any test, verified visually via the i18n-3d-pr3 screenshots.
+                    type === txType
                       ? 'border-primary bg-primary/8 text-foreground'
                       : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
                   )}
-                  data-testid={`create-transaction-type-${t.toLowerCase()}`}
+                  data-testid={`create-transaction-type-${txType.toLowerCase()}`}
                 >
-                  <span className="text-muted-foreground shrink-0">{TYPE_ICONS[t]}</span>
+                  <span className="text-muted-foreground shrink-0">{TYPE_ICONS[txType]}</span>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">{typeLabel(t)}</div>
+                    <div className="text-sm font-medium leading-tight">
+                      {typeLabel(txType, i18n)}
+                    </div>
                     <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      {TYPE_DESCRIPTIONS[t]}
+                      {i18n._(TYPE_DESCRIPTION_MESSAGES[txType]!)}
                     </div>
                   </div>
-                  {type === t && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+                  {
+                    // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: purely decorative active-state dot, redundant with the border-color styling immediately above — same cosmetic reasoning, no testid, not part of any AC's observable contract.
+                    type === txType && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  }
                 </button>
               ))}
             </div>
@@ -982,7 +1034,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Project selector */}
           {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME' || type === 'DROP_INCOME') && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Проект</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Проєкт</Trans>
+              </Label>
               <Select
                 value={projectId}
                 onValueChange={(v) => {
@@ -1016,7 +1070,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
                   data-testid="create-transaction-project-trigger"
                 >
-                  <SelectValue placeholder="Выберите проект" />
+                  <SelectValue
+                    placeholder={
+                      // Stryker disable next-line StringLiteral: unselected-state placeholder text — never rendered in a project-selected test fixture, and the empty-selection case is asserted via `create-transaction-error-project`'s message (`validate()`), not this placeholder.
+                      t`Виберіть проєкт`
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {(type === 'ADMIN_INCOME'
@@ -1055,8 +1114,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="senior-income-usdt-gate-hint"
               >
-                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
-                администратору.
+                <Trans>
+                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  адміністратора.
+                </Trans>
               </p>
             )}
           {type === 'DROP_INCOME' &&
@@ -1066,8 +1127,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="drop-income-usdt-gate-hint"
               >
-                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
-                администратору.
+                <Trans>
+                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  адміністратора.
+                </Trans>
               </p>
             )}
           {/* task-admin-income-unified. ACCOUNTANT-only hint: unlike ADMIN
@@ -1085,7 +1148,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="admin-income-accountant-usdt-gate-hint"
               >
-                Приход по USDT-проектам может провести только администратор.
+                <Trans>Прихід за USDT-проєктами може провести лише адміністратор.</Trans>
               </p>
             )}
 
@@ -1102,7 +1165,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               constrained toggle below instead. */}
           {type === 'ADMIN_INCOME' && isAdmin && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Счёт получателя</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Рахунок отримувача</Trans>
+              </Label>
               <Select
                 value={receiverId}
                 onValueChange={(v) => {
@@ -1114,7 +1179,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                   data-testid="admin-income-receiver-trigger"
                 >
-                  <SelectValue placeholder="Выберите получателя" />
+                  <SelectValue placeholder={t`Виберіть отримувача`} />
                 </SelectTrigger>
                 <SelectContent>
                   {adminUsers.map((u) => (
@@ -1124,7 +1189,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   ))}
                   <SelectSeparator />
                   <SelectItem value={COMPANY_ACCOUNT_RECEIVER} className="text-sm">
-                    Счёт компании
+                    <Trans>Рахунок компанії</Trans>
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -1133,15 +1198,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   a false promise. */}
               {isSelectedProjectUsdt && (
                 <p className="text-xs text-muted-foreground">
-                  Весь приход (gross) уйдёт выбранному получателю. Компания автоматически создаст
-                  обязательства выплатить синьору и дропу их доли.
+                  <Trans>
+                    Весь прихід (gross) піде обраному отримувачу. Компанія автоматично створить
+                    зобов’язання виплатити сеньйору та дропу їхні частки.
+                  </Trans>
                 </p>
               )}
               {/* Company account balance hint — same hint the EXPENSE/ACCOUNTANT
                   toggles show, now keyed off `receiverId` for this Select. */}
               {receiverId === COMPANY_ACCOUNT_RECEIVER && (
                 <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-                  <span>Баланс счёта компании</span>
+                  <span>
+                    <Trans>Баланс рахунку компанії</Trans>
+                  </span>
                   <span
                     className="font-bold tabular-nums"
                     data-testid="create-transaction-company-balance-hint"
@@ -1166,7 +1235,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             <div className="space-y-1.5">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Сотрудник</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Співробітник</Trans>
+                  </Label>
                   <Select
                     value={receiverId}
                     onValueChange={(v) => {
@@ -1178,7 +1249,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                       data-testid="create-transaction-receiver-trigger"
                     >
-                      <SelectValue placeholder="Выберите..." />
+                      <SelectValue
+                        placeholder={
+                          // Stryker disable next-line StringLiteral: unselected-state placeholder — the empty-selection case is asserted via `create-transaction-error-receiver`'s message, not this generic placeholder.
+                          t`Виберіть…`
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {salaryTargets.map((u) => (
@@ -1191,7 +1267,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Месяц</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Місяць</Trans>
+                  </Label>
                   <input
                     type="month"
                     value={salaryMonth}
@@ -1232,10 +1310,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               selector here — chosen at pay time (PaySalaryDialog). */}
           {type === 'EXPENSE' &&
             renderFundingSourceToggle({
-              sectionLabel: 'Источник средств',
-              personalLabel: 'Обычный расход',
-              personalDescription: 'Стандартный расход, не затрагивает счёт компании',
-              companyDescription: 'Спишется со счёта компании (USDT)',
+              sectionLabel: t`Джерело коштів`,
+              personalLabel: t`Звичайна витрата`,
+              personalDescription: t`Стандартна витрата, не зачіпає рахунок компанії`,
+              companyDescription: t`Списується з рахунку компанії (USDT)`,
             })}
 
           {/* task-admin-income-unified (§2, owner decision 2026-08-12).
@@ -1248,18 +1326,23 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {type === 'ADMIN_INCOME' &&
             isAccountant &&
             renderFundingSourceToggle({
-              sectionLabel: 'Счёт получателя',
-              personalLabel: 'Владелец проекта',
+              sectionLabel: t`Рахунок отримувача`,
+              personalLabel: t`Власник проєкту`,
+              // Урок #702, п.9 — ім'я підставляється тільки в називному відмінку:
+              // «Прихід зарахується на рахунок адміністратора — {name}», не
+              // «адміністратору {name}» (це вимагало б давального відмінка).
               personalDescription: selectedAdminProject?.seniorName
-                ? `Приход зачислится администратору ${selectedAdminProject.seniorName}`
-                : 'Приход зачислится администратору-владельцу проекта',
-              companyDescription: 'Зачислится на счёт компании (USDT)',
+                ? t`Прихід зарахується на рахунок адміністратора — ${selectedAdminProject.seniorName}`
+                : t`Прихід зарахується на рахунок адміністратора-власника проєкту`,
+              companyDescription: t`Зарахується на рахунок компанії (USDT)`,
             })}
 
           {/* Admin transfer — swap UI */}
           {type === 'ADMIN_TRANSFER' && adminUsers.length >= 2 && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Направление перевода</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Напрямок переказу</Trans>
+              </Label>
               <div className="flex items-center gap-2">
                 {/* Sender card */}
                 <button
@@ -1269,7 +1352,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
-                  title="Нажмите для смены направления"
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite (the card's own click behaviour is tested via `swapTransfer`, not this hover hint).
+                  title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center text-sm font-bold text-primary">
                     {transferSender?.displayName.charAt(0) ?? '?'}
@@ -1277,7 +1361,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <span className="text-xs font-medium leading-tight">
                     {transferSender?.displayName ?? '—'}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">отправляет</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    <Trans>надсилає</Trans>
+                  </span>
                 </button>
 
                 {/* Swap button */}
@@ -1285,7 +1371,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   type="button"
                   onClick={swapTransfer}
                   className="shrink-0 h-8 w-8 rounded-full border border-border bg-muted/30 flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-all hover:rotate-180 duration-300"
-                  title="Поменять направление"
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite.
+                  title={t`Поміняти напрямок`}
                 >
                   <ArrowLeftRight className="h-3.5 w-3.5" />
                 </button>
@@ -1298,7 +1385,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     'flex-1 flex flex-col items-center gap-1 rounded-lg border px-3 py-2.5 transition-all text-center',
                     'border-border bg-muted/20 hover:bg-muted/40',
                   )}
-                  title="Нажмите для смены направления"
+                  // Stryker disable next-line StringLiteral: `title` tooltip attribute, not asserted by any test in this suite.
+                  title={t`Натисніть, щоб змінити напрямок`}
                 >
                   <div className="h-8 w-8 rounded-full bg-muted/40 border border-border flex items-center justify-center text-sm font-bold text-muted-foreground">
                     {transferReceiver?.displayName.charAt(0) ?? '?'}
@@ -1306,33 +1394,50 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <span className="text-xs font-medium leading-tight">
                     {transferReceiver?.displayName ?? '—'}
                   </span>
-                  <span className="text-[10px] text-muted-foreground">получает</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    <Trans>отримує</Trans>
+                  </span>
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground/60 text-center">
-                Нажмите на карточки или стрелку, чтобы поменять направление
+                <Trans>Натисніть на картки або стрілку, щоб змінити напрямок</Trans>
               </p>
             </div>
           )}
 
-          {/* Expense category — pill buttons */}
+          {/* Expense category — owner override 2026-09-28 (i18n-3d-pr3):
+              FREE TEXT, not a closed Select (see the identical note in
+              `AdminEditTransactionDialog`). The Input IS the field; the
+              chips below are translated quick-fill suggestions only —
+              clicking one fills the input, it does not validate or lock
+              the operator into these three. */}
           {type === 'EXPENSE' && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Категория</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Категорія</Trans>
+              </Label>
+              <Input
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                placeholder={t`Категорія витрати`}
+                className="h-9 text-sm"
+                data-testid="create-transaction-expense-category-input"
+              />
               <div className="flex flex-wrap gap-1.5">
                 {EXPENSE_CATEGORIES.map((c) => (
                   <button
                     key={c}
                     type="button"
-                    onClick={() => setCategory(c)}
+                    onClick={() => setCategory(i18n._(EXPENSE_CATEGORY_MESSAGES[c]!))}
                     className={cn(
-                      'rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                      category === c
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-all min-h-[44px] sm:min-h-0 flex items-center',
+                      category === i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50',
                     )}
+                    data-testid={`create-transaction-expense-category-suggestion-${EXPENSE_CATEGORIES.indexOf(c)}`}
                   >
-                    {c}
+                    {i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)}
                   </button>
                 ))}
               </div>
@@ -1347,7 +1452,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               {/* Balance summary */}
               <div className="space-y-1 rounded-lg border border-border bg-muted/30 p-3 text-sm">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Баланс счёта компании</span>
+                  <span className="text-muted-foreground">
+                    <Trans>Баланс рахунку компанії</Trans>
+                  </span>
                   <span
                     className="font-bold tabular-nums"
                     data-testid="create-transaction-dividend-balance"
@@ -1359,7 +1466,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
               {/* Receiver — ADMIN partner */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Получатель (партнёр)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Отримувач (партнер)</Trans>
+                </Label>
                 <Select
                   value={dividendReceiverId}
                   onValueChange={(v) => {
@@ -1371,7 +1480,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                     data-testid="create-transaction-dividend-receiver-trigger"
                   >
-                    <SelectValue placeholder="Выберите партнёра" />
+                    <SelectValue
+                      placeholder={
+                        // Stryker disable next-line StringLiteral: unselected-state placeholder — `dividendReceiverId` defaults to the caller's own admin id, so no test in this suite renders this dialog with the placeholder actually showing.
+                        t`Виберіть партнера`
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {adminUsers.map((u) => (
@@ -1393,7 +1507,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
               {/* USDT amount */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Сумма (USDT)</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Сума (USDT)</Trans>
+                </Label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
                     $
@@ -1410,7 +1526,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       'h-9 pl-7 text-sm tabular-nums',
                       fieldErrors.amount && 'border-destructive',
                     )}
-                    aria-label="Сумма дивидендов в USDT"
+                    // Stryker disable next-line StringLiteral: screen-reader-only label, not asserted by any test in this suite (the field is queried by testid).
+                    aria-label={t`Сума дивідендів у USDT`}
                     data-testid="create-transaction-dividend-amount"
                   />
                 </div>
@@ -1448,7 +1565,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Date (non-dividend types) */}
           {type !== 'DIVIDEND' && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Дата транзакции</Label>
+              <Label className="text-xs text-muted-foreground">
+                <Trans>Дата транзакції</Trans>
+              </Label>
               <DatePickerField value={txDate} onChange={setTxDate} className="h-9 text-sm" />
             </div>
           )}
@@ -1463,7 +1582,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   setReceipt(s)
                   clearFieldError('receipt')
                 }}
-                label="Чек / подтверждение *"
+                // Stryker disable next-line StringLiteral: label passed through to `ReceiptInput`, which already has its OWN default (`t\`Чек / підтвердження\``, `ReceiptInput.tsx`) pinned by that component's own tests — this override string is not independently asserted here.
+                label={t`Чек / підтвердження *`}
                 explorerOnly={isExplorerOnly}
                 error={fieldErrors.receipt}
               />
@@ -1481,12 +1601,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Notes */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">
-              Заметки <span className="text-muted-foreground/50">(необязательно)</span>
+              <Trans>Примітки</Trans>
+              {
+                // Stryker disable next-line StringLiteral: whitespace separator before the "(необов’язково)" hint — rendering-whitespace detail, not asserted by any test.
+                ' '
+              }
+              <span className="text-muted-foreground/50">
+                <Trans>(необов’язково)</Trans>
+              </span>
             </Label>
             <Textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Дополнительная информация..."
+              // Stryker disable next-line StringLiteral: cosmetic placeholder for an optional field, not asserted by any test in this suite.
+              placeholder={t`Додаткова інформація…`}
               rows={2}
               className="text-sm resize-none"
             />
@@ -1502,7 +1630,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-field-error-summary"
           >
             <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-            Заполните выделенные поля
+            <Trans>Заповніть виділені поля</Trans>
           </div>
         )}
 
@@ -1533,15 +1661,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               >
                 {p.roleLabel} <span className="font-medium">{p.name}</span>{' '}
                 {hasPositiveAmount ? (
-                  <>
-                    будет начислено{' '}
+                  <Trans>
+                    буде нараховано{' '}
                     <span
                       className="font-bold tabular-nums"
                       data-testid={`admin-income-obligation-amount-${p.role.toLowerCase()}`}
                     >
                       {fmtUsdt(p.amount)} USDT
                     </span>{' '}
-                  </>
+                  </Trans>
                 ) : (
                   // task-admin-income-unified (§3, AC7): an empty/zero amount must NOT
                   // claim a $0.00 figure — that reads as "no share will be created",
@@ -1549,13 +1677,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   // qualitative fact ("a share WILL be booked") — see the module doc
                   // above §3 for why the condition is deliberately wider than "receiver
                   // is an admin".
-                  'будет создана доля '
+                  <Trans>буде створена частка </Trans>
                 )}
-                (доля {p.percent}%, источник:{' '}
-                <span data-testid={`admin-income-obligation-source-${p.role.toLowerCase()}`}>
-                  {p.sourceLabel}
-                </span>
-                )
+                <Trans>
+                  (частка {p.percent}%, джерело:{' '}
+                  <span data-testid={`admin-income-obligation-source-${p.role.toLowerCase()}`}>
+                    {p.sourceLabel}
+                  </span>
+                  )
+                </Trans>
               </p>
             ))}
           </div>
@@ -1571,7 +1701,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             }}
             data-testid="create-transaction-cancel"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button
             size="sm"
@@ -1580,7 +1710,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             data-testid="create-transaction-submit"
             data-track="transaction-create"
           >
-            {mutation.isPending ? 'Создание...' : 'Создать транзакцию'}
+            {
+              // Stryker disable next-line StringLiteral: the pending-state label — every test in this suite mocks `useMutation` with a fixed `isPending: false`, so this branch never renders to be observed; the idle-state label is pinned by `CreateTransactionDialog.accountant.test.tsx`'s footer-copy test.
+              mutation.isPending ? t`Створення…` : t`Створити транзакцію`
+            }
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

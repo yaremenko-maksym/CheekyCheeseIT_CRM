@@ -255,13 +255,15 @@ test.describe('SENIOR INCOME — шаг 1: регистрация прихода
     await dialog.getByRole('combobox').first().click()
     await asSenior.getByRole('option', { name: PROJECT_NAME }).click()
 
+    const uk = await loadMessages('uk')
+
     await asSenior.getByTestId('create-transaction-submit').click()
     await expect(dialog).toBeVisible()
-    // AC4: amount validation now renders inline next to the field («Укажите
-    // корректную сумму») instead of the old single «Некорректная сумма»
-    // banner. Assert via the dedicated error testid.
+    // AC4: amount validation now renders inline next to the field
+    // («Вкажіть коректну суму») instead of the old single «Некорректная
+    // сумма» banner. Assert via the dedicated error testid.
     await expect(dialog.getByTestId('create-transaction-error-amount')).toBeVisible()
-    await expect(dialog).toContainText(/корректную сумму/i)
+    await expect(dialog).toContainText(assertInCatalog(uk, 'Вкажіть коректну суму'))
   })
 })
 

@@ -739,7 +739,7 @@ describe('cascade preview — the client half of the loop', () => {
     // устранены» promised work that does not exist — the very defect #610
     // removed from this module.
     expect(note.textContent).not.toContain('устранен')
-    expect(note.textContent).toContain('ручное решение')
+    expect(note.textContent).toContain('ручне рішення')
   })
 
   it('CP-30. UX-2 — refreshing a stale preview clears the failed-save error with it', async () => {

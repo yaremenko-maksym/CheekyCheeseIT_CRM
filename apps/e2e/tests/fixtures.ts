@@ -1,4 +1,5 @@
 import { test as base, expect, type Page, type Route } from '@playwright/test'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 // Re-exported so specs can take their Playwright types from the same barrel
 // they already import `test` / `expect` / fixtures from. persist-query.spec.ts
@@ -1721,8 +1722,16 @@ export async function waitForPageReady(page: Page) {
   await page.waitForLoadState('networkidle')
 }
 
+// i18n-3d-pr3 (fix-round PR #734, FIX-SPEC-M-1): both current call sites
+// (finance.spec.ts, CreateTransactionDialog + AdminEditTransactionDialog
+// cancel buttons) are migrated to uk — this shared helper is `getByRole`
+// name-matched. The literal is loaded from the compiled catalog via
+// `assertInCatalog` (not hardcoded) so a copy edit to «Скасувати» fails loud
+// here instead of drifting silently (only these two callers exist — `grep
+// dismissDialog` across apps/e2e/tests confirms it).
 export async function dismissDialog(page: Page) {
-  await page.getByRole('button', { name: 'Отмена' }).click()
+  const uk = await loadMessages('uk')
+  await page.getByRole('button', { name: assertInCatalog(uk, 'Скасувати') }).click()
 }
 
 // ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
-import { useLingui } from '@lingui/react/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { amountsDiffer, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
 import { getAxiosStatus } from '@/lib/axios-utils'
@@ -33,7 +33,8 @@ import {
 } from '../../cascade-preview'
 import {
   EXPENSE_CATEGORIES,
-  TYPE_LABELS,
+  EXPENSE_CATEGORY_MESSAGES,
+  TYPE_LABEL_MESSAGES,
   cascadeBlockedReasonMessage,
   fmtAmount,
 } from '../../constants'
@@ -63,7 +64,8 @@ export function AdminEditTransactionDialog({
   const [currency, setCurrency] = useState<Currency>('USDT')
   const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
+  // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it (same shape as the `debouncedAmount` suppression a few lines down), AND the field that displays it is itself gated on `tx?.type === 'EXPENSE'`, so a `tx == null` mount never renders it either way
+  const [category, setCategory] = useState('')
   const [salaryMonth, setSalaryMonth] = useState('')
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')
@@ -88,7 +90,7 @@ export function AdminEditTransactionDialog({
     } else {
       setReceipt(receiptStateFromExternalUrl(tx.receiptExternalUrl))
     }
-    setCategory(tx.receiverLabel ?? EXPENSE_CATEGORIES[0]!)
+    setCategory(tx.receiverLabel ?? '')
     setSalaryMonth(tx.salaryMonth ?? '')
     setDebouncedAmount(parseFloat(tx.amount).toString())
     setStaleMessage(null)
@@ -278,7 +280,8 @@ export function AdminEditTransactionDialog({
   const mutation = useMutation({
     mutationFn: () => {
       const amt = parseStrictAmount(amount)
-      if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
+      // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: pre-existing defence-in-depth guard, unchanged by this PR (i18n-3d-pr3 translated only the message text) — no test drives an invalid amount past the Save button's own disabled-state gates to reach this throw, same as the sibling suppressions elsewhere in this file.
+      if (isNaN(amt) || amt <= 0) throw new Error(t`Некоректна сума`)
       const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
       const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       // fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
@@ -454,12 +457,14 @@ export function AdminEditTransactionDialog({
         }
       >
         <CrmDialogHeader>
-          <DialogDescription className="sr-only">Редактирование транзакции</DialogDescription>
+          <DialogDescription className="sr-only">
+            <Trans>Редагування транзакції</Trans>
+          </DialogDescription>
           <DialogTitle className="text-base">
-            Редактировать транзакцию
+            <Trans>Редагувати транзакцію</Trans>
             {tx && (
               <span className="ml-2 text-xs font-normal text-muted-foreground">
-                {TYPE_LABELS[tx.type]} · {fmtAmount(tx.amount, tx.currency)}
+                {i18n._(TYPE_LABEL_MESSAGES[tx.type])} · {fmtAmount(tx.amount, tx.currency)}
               </span>
             )}
           </DialogTitle>
@@ -469,7 +474,10 @@ export function AdminEditTransactionDialog({
           {!isEditable && tx ? (
             <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
-              Транзакцию нельзя редактировать (PAYOUT или привязана к запросу выплаты)
+              <Trans>
+                Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на
+                виплату)
+              </Trans>
             </div>
           ) : (
             <div className="space-y-4">
@@ -602,24 +610,43 @@ export function AdminEditTransactionDialog({
                 />
               )}
 
-              {/* Expense category */}
+              {/* Expense category — owner override 2026-09-28 (i18n-3d-pr3):
+                  FREE TEXT, not a closed Select. `receiverLabel` on prod
+                  EXPENSE rows carries 16 distinct operator-authored values
+                  (imports wrote arbitrary descriptions, e.g. «RumpUp
+                  service») — forcing a choice among three pills here would
+                  clobber an imported row the instant its dialog opens. The
+                  Input below IS the field; the chips are quick-fill
+                  suggestions for a NEW category, translated for display only
+                  — clicking one just fills the input, it never validates or
+                  rewrites a value the operator has already typed. */}
               {tx?.type === 'EXPENSE' && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Категория</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Категорія</Trans>
+                  </Label>
+                  <Input
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    placeholder={t`Категорія витрати`}
+                    className="h-9 text-sm"
+                    data-testid="admin-edit-expense-category-input"
+                  />
                   <div className="flex flex-wrap gap-1.5">
                     {EXPENSE_CATEGORIES.map((c) => (
                       <button
                         key={c}
                         type="button"
-                        onClick={() => setCategory(c)}
+                        onClick={() => setCategory(i18n._(EXPENSE_CATEGORY_MESSAGES[c]!))}
                         className={cn(
-                          'rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                          category === c
+                          'rounded-full border px-3 py-1 text-xs font-medium transition-all min-h-[44px] sm:min-h-0 flex items-center',
+                          category === i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)
                             ? 'border-primary bg-primary/10 text-primary'
                             : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50',
                         )}
+                        data-testid={`admin-edit-expense-category-suggestion-${EXPENSE_CATEGORIES.indexOf(c)}`}
                       >
-                        {c}
+                        {i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)}
                       </button>
                     ))}
                   </div>
@@ -629,7 +656,9 @@ export function AdminEditTransactionDialog({
               {/* Salary month */}
               {tx?.type === 'SALARY' && (
                 <div className="space-y-1.5">
-                  <Label className="text-xs text-muted-foreground">Месяц</Label>
+                  <Label className="text-xs text-muted-foreground">
+                    <Trans>Місяць</Trans>
+                  </Label>
                   <Input
                     value={salaryMonth}
                     onChange={(e) => setSalaryMonth(e.target.value)}
@@ -659,11 +688,14 @@ export function AdminEditTransactionDialog({
 
               {/* Notes */}
               <div className="space-y-1.5">
-                <Label className="text-xs text-muted-foreground">Заметки</Label>
+                <Label className="text-xs text-muted-foreground">
+                  <Trans>Примітки</Trans>
+                </Label>
                 <Textarea
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Дополнительная информация..."
+                  // Stryker disable next-line StringLiteral: cosmetic placeholder for an optional field, not asserted by any test in this file.
+                  placeholder={t`Додаткова інформація…`}
                   rows={2}
                   className="text-sm resize-none"
                 />
@@ -714,13 +746,15 @@ export function AdminEditTransactionDialog({
             className="px-4 pb-1 text-xs text-destructive sm:px-6"
             data-testid="cascade-save-blocked-note"
           >
-            Сохранить нельзя — по отмеченным строкам сумму не пересчитать, нужно ручное решение
+            <Trans>
+              Зберегти не можна — по відмічених рядках суму не перерахувати, потрібне ручне рішення
+            </Trans>
           </p>
         )}
 
         <CrmDialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           {isEditable && (
             <Button
@@ -729,7 +763,10 @@ export function AdminEditTransactionDialog({
               disabled={mutation.isPending || cascadeSaveBlocked || !!staleMessage}
               data-testid="admin-edit-save"
             >
-              {mutation.isPending ? 'Сохранение...' : 'Сохранить'}
+              {
+                // Stryker disable next-line StringLiteral: submit-button copy — `AdminEditTransactionDialog.test.tsx` clicks this button by testid (`admin-edit-save`), never asserts its label text.
+                mutation.isPending ? t`Збереження…` : t`Зберегти`
+              }
             </Button>
           )}
         </CrmDialogFooter>

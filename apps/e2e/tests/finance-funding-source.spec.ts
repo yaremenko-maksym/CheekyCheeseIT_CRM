@@ -271,7 +271,7 @@ test.describe('AC3 — ADMIN_INCOME "Счёт получателя" (task-admin-
     await dialog.getByTestId('admin-income-receiver-trigger').click()
     const listbox = asAdmin.locator('[role="listbox"]')
     await expect(listbox).toBeVisible()
-    await listbox.getByRole('option', { name: 'Счёт компании' }).click()
+    await listbox.getByRole('option', { name: 'Рахунок компанії' }).click()
 
     const hint = dialog.getByTestId('create-transaction-company-balance-hint')
     await expect(hint).toBeVisible()
@@ -287,7 +287,7 @@ test.describe('AC3 — ADMIN_INCOME "Счёт получателя" (task-admin-
     await dialog.getByTestId('admin-income-receiver-trigger').click()
     const listbox = asAdmin.locator('[role="listbox"]')
     await expect(listbox).toBeVisible()
-    await listbox.getByRole('option', { name: 'Счёт компании' }).click()
+    await listbox.getByRole('option', { name: 'Рахунок компанії' }).click()
 
     const currencyTrigger = dialog
       .getByRole('combobox')

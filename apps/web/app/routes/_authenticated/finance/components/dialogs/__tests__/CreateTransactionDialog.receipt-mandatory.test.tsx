@@ -152,7 +152,7 @@ describe('CreateTransactionDialog — ADMIN_INCOME + «Счёт компании
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     expect(screen.queryByTestId('receipt-input-mode-file')).not.toBeInTheDocument()
     expect(screen.getByTestId('receipt-input-explorer-hint')).toBeInTheDocument()
   })
@@ -163,7 +163,7 @@ describe('CreateTransactionDialog — ADMIN_INCOME + «Счёт компании
     fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
     fireEvent.click(await screen.findByText('Admin Project'))
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://example.com/not-an-explorer.png' },
@@ -179,7 +179,7 @@ describe('CreateTransactionDialog — ADMIN_INCOME + «Счёт компании
     fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
     fireEvent.click(await screen.findByText('Admin Project'))
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://tronscan.org/#/transaction/0xabc' },

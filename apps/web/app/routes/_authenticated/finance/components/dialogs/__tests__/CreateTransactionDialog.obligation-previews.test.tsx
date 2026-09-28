@@ -60,7 +60,7 @@ describe('computeObligationPreviews', () => {
       const senior = previews.find((x) => x.role === 'SENIOR')
       expect(senior).toBeDefined()
       expect(senior!.name).toBe('Oleksiy Kovalenko')
-      expect(senior!.roleLabel).toBe('Синьору')
+      expect(senior!.roleLabel).toBe('Сеньйору')
       expect(senior!.percent).toBe(26)
     })
 
@@ -83,9 +83,9 @@ describe('computeObligationPreviews', () => {
     })
 
     it.each([
-      ['PROJECT', 'проект'],
+      ['PROJECT', 'проєкт'],
       ['TEAM', 'команда'],
-      ['USER_DEFAULT', 'по умолчанию'],
+      ['USER_DEFAULT', 'за замовчуванням'],
     ] as const)('maps source %s to the label "%s"', (source, label) => {
       const p = project({ effectiveSeniorSharePercent: 26, effectiveSeniorShareSource: source })
       const previews = computeObligationPreviews(p, 200, false, 1)
@@ -95,7 +95,7 @@ describe('computeObligationPreviews', () => {
     it('defaults the source label to "по умолчанию" when the source is missing (null)', () => {
       const p = project({ effectiveSeniorSharePercent: 26, effectiveSeniorShareSource: null })
       const previews = computeObligationPreviews(p, 200, false, 1)
-      expect(previews.find((x) => x.role === 'SENIOR')!.sourceLabel).toBe('по умолчанию')
+      expect(previews.find((x) => x.role === 'SENIOR')!.sourceLabel).toBe('за замовчуванням')
     })
   })
 
@@ -134,8 +134,8 @@ describe('computeObligationPreviews', () => {
     })
 
     it.each([
-      ['PROJECT', 'проект'],
-      ['USER_DEFAULT', 'по умолчанию'],
+      ['PROJECT', 'проєкт'],
+      ['USER_DEFAULT', 'за замовчуванням'],
     ] as const)('maps source %s to the label "%s"', (source, label) => {
       const p = project({
         dropId: 'drop-1',
@@ -153,7 +153,7 @@ describe('computeObligationPreviews', () => {
         effectiveDropShareSource: null,
       })
       const previews = computeObligationPreviews(p, 200, false, 1)
-      expect(previews.find((x) => x.role === 'DROP')!.sourceLabel).toBe('по умолчанию')
+      expect(previews.find((x) => x.role === 'DROP')!.sourceLabel).toBe('за замовчуванням')
     })
   })
 
@@ -220,7 +220,7 @@ const _typeCheck: ObligationPreview = {
   roleLabel: 'Дропу',
   name: 'x',
   percent: 1,
-  sourceLabel: 'проект',
+  sourceLabel: 'проєкт',
   amount: 1,
 }
 void _typeCheck

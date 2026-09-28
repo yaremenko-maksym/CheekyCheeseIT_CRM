@@ -151,17 +151,17 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-expense')
     expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
-      'Источник средств',
+      'Джерело коштів',
     )
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Обычный расход',
+      'Звичайна витрата',
     )
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Стандартный расход, не затрагивает счёт компании',
+      'Стандартна витрата, не зачіпає рахунок компанії',
     )
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
-      'Спишется со счёта компании (USDT)',
+      'Списується з рахунку компанії (USDT)',
     )
   })
 
@@ -176,10 +176,10 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
     renderDialog()
     clickTypeCard('create-transaction-type-expense')
     expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
-      'Источник средств',
+      'Джерело коштів',
     )
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Обычный расход',
+      'Звичайна витрата',
     )
   })
 })
@@ -212,7 +212,7 @@ describe('CreateTransactionDialog — ADMIN_INCOME receiver Select replaces the 
   it('selecting «Счёт компании» in the receiver Select shows the balance hint', async () => {
     renderDialog()
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
   })
 })
@@ -246,21 +246,21 @@ describe('CreateTransactionDialog — ACCOUNTANT constrained "Счёт полу�
     currentRole = 'ACCOUNTANT'
     renderDialog()
     expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
-      'Счёт получателя',
+      'Рахунок отримувача',
     )
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Владелец проекта',
+      'Власник проєкту',
     )
     // No project selected yet in this fixture (`useQuery` stub returns no
     // projects) — the fallback copy, not the `selectedAdminProject.seniorName`
     // interpolation (that branch is pinned with a real project fixture in
     // CreateTransactionDialog.usdt-income.test.tsx).
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Приход зачислится администратору-владельцу проекта',
+      'Прихід зарахується на рахунок адміністратора-власника проєкту',
     )
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
-      'Зачислится на счёт компании (USDT)',
+      'Зарахується на рахунок компанії (USDT)',
     )
   })
 })
