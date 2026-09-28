@@ -587,12 +587,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     if (type === 'ADMIN_INCOME' && isAdmin) {
       if (!receiverId) errors.receiver = t`Виберіть отримувача`
     }
-    // Stryker disable next-line ConditionalExpression: SALARY submits always go through `CreateTransactionDialog.accountant.test.tsx`'s "SALARY with no receiver" case, which pins the STRING but a `true`-literal mutant is unobservable there — no OTHER test in this suite submits SALARY with a receiver picked to exercise the negative case.
     if (type === 'SALARY') {
+      // Stryker disable next-line ConditionalExpression: `CreateTransactionDialog.accountant.test.tsx`'s "SALARY with no receiver" case pins the STRING but a `true`-literal mutant is unobservable there — no OTHER test in this suite submits SALARY with a receiver picked to exercise the negative case.
       if (!receiverId) errors.receiver = t`Виберіть співробітника`
     }
-    // Stryker disable next-line ConditionalExpression,StringLiteral: ADMIN_TRANSFER's missing-receiver banner is only asserted by testid presence (`create-transaction-field-error-summary`), not this specific string — `transferReceiverId` defaults to the first OTHER admin whenever ≥2 admins exist (see `transferReceiverId`'s own derivation above), so this suite's mocked single-admin fixture already makes the field-error path the only reachable one, leaving the `true`-literal/empty-string mutants unobservable without a ≥2-admin fixture this file does not set up.
     if (type === 'ADMIN_TRANSFER') {
+      // Stryker disable next-line ConditionalExpression,StringLiteral: ADMIN_TRANSFER's missing-receiver banner is only asserted by testid presence (`create-transaction-field-error-summary`), not this specific string — `transferReceiverId` defaults to the first OTHER admin whenever ≥2 admins exist (see `transferReceiverId`'s own derivation above), so this suite's mocked single-admin fixture already makes the field-error path the only reachable one, leaving the `true`-literal/empty-string mutants unobservable without a ≥2-admin fixture this file does not set up.
       if (!transferReceiverId) errors.receiver = t`Виберіть отримувача`
     }
     if (type === 'DIVIDEND') {
@@ -1070,8 +1070,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   className={cn('h-9 text-sm', fieldErrors.project && 'border-destructive')}
                   data-testid="create-transaction-project-trigger"
                 >
-                  {/* Stryker disable next-line StringLiteral: unselected-state placeholder text — never rendered in a project-selected test fixture, and the empty-selection case is asserted via `create-transaction-error-project`'s message (`validate()`), not this placeholder. */}
-                  <SelectValue placeholder={t`Виберіть проєкт`} />
+                  <SelectValue
+                    placeholder={
+                      // Stryker disable next-line StringLiteral: unselected-state placeholder text — never rendered in a project-selected test fixture, and the empty-selection case is asserted via `create-transaction-error-project`'s message (`validate()`), not this placeholder.
+                      t`Виберіть проєкт`
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {(type === 'ADMIN_INCOME'
@@ -1245,8 +1249,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                       data-testid="create-transaction-receiver-trigger"
                     >
-                      {/* Stryker disable next-line StringLiteral: unselected-state placeholder — the empty-selection case is asserted via `create-transaction-error-receiver`'s message, not this generic placeholder. */}
-                      <SelectValue placeholder={t`Виберіть…`} />
+                      <SelectValue
+                        placeholder={
+                          // Stryker disable next-line StringLiteral: unselected-state placeholder — the empty-selection case is asserted via `create-transaction-error-receiver`'s message, not this generic placeholder.
+                          t`Виберіть…`
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {salaryTargets.map((u) => (
@@ -1473,8 +1481,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
                     data-testid="create-transaction-dividend-receiver-trigger"
                   >
-                    {/* Stryker disable next-line StringLiteral: unselected-state placeholder — `dividendReceiverId` defaults to the caller's own admin id, so no test in this suite renders this dialog with the placeholder actually showing. */}
-                    <SelectValue placeholder={t`Виберіть партнера`} />
+                    <SelectValue
+                      placeholder={
+                        // Stryker disable next-line StringLiteral: unselected-state placeholder — `dividendReceiverId` defaults to the caller's own admin id, so no test in this suite renders this dialog with the placeholder actually showing.
+                        t`Виберіть партнера`
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     {adminUsers.map((u) => (
@@ -1590,7 +1602,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           {/* Notes */}
           <div className="space-y-1.5">
             <Label className="text-xs text-muted-foreground">
-              <Trans>Примітки</Trans>{' '}
+              <Trans>Примітки</Trans>
+              {
+                // Stryker disable next-line StringLiteral: whitespace separator before the "(необов’язково)" hint — rendering-whitespace detail, not asserted by any test.
+                ' '
+              }
               <span className="text-muted-foreground/50">
                 <Trans>(необов’язково)</Trans>
               </span>
