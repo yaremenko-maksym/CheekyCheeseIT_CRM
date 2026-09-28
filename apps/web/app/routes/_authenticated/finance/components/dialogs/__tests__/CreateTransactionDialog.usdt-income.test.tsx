@@ -285,7 +285,7 @@ describe('CreateTransactionDialog — AC9: receiver Select is a flat active-admi
     expect(within(listbox).queryByText('Админы')).not.toBeInTheDocument()
     expect(await within(listbox).findByText('Admin One')).toBeInTheDocument()
     expect(within(listbox).getByText('Admin Two')).toBeInTheDocument()
-    expect(within(listbox).getByRole('option', { name: 'Счёт компании' })).toBeInTheDocument()
+    expect(within(listbox).getByRole('option', { name: 'Рахунок компанії' })).toBeInTheDocument()
     // `/users` never returns a DROP-role user here — structurally impossible
     // for one to appear, which IS the enforcement (see file header AC9).
     expect(within(listbox).queryByText('Dropper One')).not.toBeInTheDocument()
@@ -298,7 +298,7 @@ describe('CreateTransactionDialog — AC9: receiver Select is a flat active-admi
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
     expect(screen.getByTestId('admin-income-receiver-trigger')).toHaveTextContent(
-      'Выберите получателя',
+      'Виберіть отримувача',
     )
   })
 
@@ -371,7 +371,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://etherscan.io/tx/0xnotes' },
     })
-    fireEvent.change(screen.getByPlaceholderText('Дополнительная информация...'), {
+    fireEvent.change(screen.getByPlaceholderText('Додаткова інформація…'), {
       target: { value: 'Quarterly settlement' },
     })
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
@@ -387,7 +387,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('USDT Own Project')
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '250' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://etherscan.io/tx/0xusdt2' },
@@ -446,7 +446,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     // silently carry over into `createAdminIncome`'s payload.
     await selectProject('FOP Own Project')
     expect(screen.getByTestId('admin-income-receiver-trigger')).toHaveTextContent(
-      'Выберите получателя',
+      'Виберіть отримувача',
     )
     const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USD')
     expect(currencyTrigger).not.toBeDisabled()
@@ -466,7 +466,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('FOP Own Project')
     expect(
-      screen.queryByText(/Весь приход \(gross\) уйдёт выбранному получателю/),
+      screen.queryByText(/Весь прихід \(gross\) піде обраному отримувачу/),
     ).not.toBeInTheDocument()
   })
 
@@ -475,7 +475,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('USDT Own Project')
     expect(
-      await screen.findByText(/Весь приход \(gross\) уйдёт выбранному получателю/),
+      await screen.findByText(/Весь прихід \(gross\) піде обраному отримувачу/),
     ).toBeInTheDocument()
   })
 
@@ -543,7 +543,7 @@ describe('CreateTransactionDialog — company-account invalidation on success', 
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('FOP Own Project')
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://etherscan.io/tx/0xcompanyfunded' },
@@ -665,9 +665,11 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     render(
-      <QueryClientProvider client={qc}>
-        <CreateTransactionDialog open={false} onClose={() => {}} />
-      </QueryClientProvider>,
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog open={false} onClose={() => {}} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
     )
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects'] })
     invalidateSpy.mockRestore()
@@ -712,7 +714,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     // visible via the row's own text.
     expect(screen.queryByTestId('admin-income-obligation-amount-drop')).not.toBeInTheDocument()
     expect(screen.getByTestId('admin-income-obligation-preview-drop')).toHaveTextContent(
-      'будет создана доля',
+      'буде створена частка',
     )
   })
 
@@ -723,7 +725,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '0' } })
     const row = await screen.findByTestId('admin-income-obligation-preview-drop')
     expect(screen.queryByTestId('admin-income-obligation-amount-drop')).not.toBeInTheDocument()
-    expect(row).toHaveTextContent('будет создана доля')
+    expect(row).toHaveTextContent('буде створена частка')
   })
 
   it('recomputes live as the amount field changes, matching roundShareAmount exactly (AC6)', async () => {
@@ -734,7 +736,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     const expected = roundShareAmount(4708.69, 5) // 5% default drop share — matches the fixture
     await waitFor(() =>
       expect(screen.getByTestId('admin-income-obligation-amount-drop')).toHaveTextContent(
-        expected.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        expected.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       ),
     )
     expect(screen.getByTestId('admin-income-obligation-preview-drop')).toHaveTextContent('Дропу')
@@ -742,7 +744,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
       'Dropper One',
     )
     expect(screen.getByTestId('admin-income-obligation-source-drop')).toHaveTextContent(
-      'по умолчанию',
+      'за замовчуванням',
     )
 
     // Change the amount again — the banner tracks the field live, no stale value.
@@ -750,7 +752,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     const expected2 = roundShareAmount(1000, 5)
     await waitFor(() =>
       expect(screen.getByTestId('admin-income-obligation-amount-drop')).toHaveTextContent(
-        expected2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        expected2.toLocaleString('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       ),
     )
   })
@@ -766,7 +768,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     // indistinguishable. The full sentence must read as ONE space-separated
     // phrase, not text glued together at the span boundaries.
     expect(row).toHaveTextContent(
-      /Дропу Dropper One будет начислено 5\.00 USDT \(доля 5%, источник: по умолчанию\)/,
+      /Дропу Dropper One буде нараховано 5,00 USDT \(частка 5%, джерело: за замовчуванням\)/,
       { normalizeWhitespace: false },
     )
   })
@@ -783,7 +785,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
       'Senior Person',
     )
     expect(screen.getByTestId('admin-income-obligation-amount-senior')).toHaveTextContent(
-      roundShareAmount(1000, 26).toLocaleString('en-US', {
+      roundShareAmount(1000, 26).toLocaleString('uk-UA', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -792,7 +794,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
       'Dropper One',
     )
     expect(screen.getByTestId('admin-income-obligation-amount-drop')).toHaveTextContent(
-      roundShareAmount(1000, 12).toLocaleString('en-US', {
+      roundShareAmount(1000, 12).toLocaleString('uk-UA', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }),
@@ -821,7 +823,7 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('USDT Own Project')
     fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
-    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.click(await screen.findByRole('option', { name: 'Рахунок компанії' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '1000' } })
     await waitFor(() =>
       expect(screen.getByTestId('admin-income-obligation-preview-drop')).toBeInTheDocument(),
@@ -916,7 +918,7 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('FOP Own Project')
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Приход зачислится администратору Admin One',
+      'Прихід зарахується на рахунок адміністратора — Admin One',
     )
   })
 
