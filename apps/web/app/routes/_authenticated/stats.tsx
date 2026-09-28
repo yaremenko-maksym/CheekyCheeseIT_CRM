@@ -260,8 +260,8 @@ function CompanyAndPartnersCard({
                     </TooltipTrigger>
                     <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
                       <Trans>
-                        Накопичений баланс кожного партнера: вхідні PAYOUT_ADMIN + ADMIN_INCOME
-                        мінус вихідні ADMIN_TRANSFER (усі зі статусом PAID).
+                        Накопичений баланс кожного партнера: усі оплачені надходження та дохід
+                        адмінів мінус перекази між адмінами.
                       </Trans>
                     </TooltipContent>
                   </UITooltip>
@@ -362,7 +362,10 @@ function CompanyAndPartnersCard({
                     <div className="h-8 w-8 rounded-full bg-violet-500/15 flex items-center justify-center text-xs font-bold text-violet-400">
                       {rich.displayName.charAt(0)}
                     </div>
-                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                    <span
+                      className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
+                      title={rich.displayName}
+                    >
                       {rich.displayName}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
@@ -390,7 +393,10 @@ function CompanyAndPartnersCard({
                     <div className="h-8 w-8 rounded-full bg-sky-500/15 flex items-center justify-center text-xs font-bold text-sky-400">
                       {poor.displayName.charAt(0)}
                     </div>
-                    <span className="text-[11px] font-medium text-center leading-tight truncate w-full text-center">
+                    <span
+                      className="text-[11px] font-medium text-center leading-tight truncate w-full text-center"
+                      title={poor.displayName}
+                    >
                       {poor.displayName}
                     </span>
                     <span className="text-[10px] text-muted-foreground">
@@ -657,14 +663,14 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
         : {
             text:
               receiver.submitted === 0 ? (
-                <Trans>Немає приходів</Trans>
+                <Trans>Немає доходів</Trans>
               ) : (
                 <Plural
                   value={receiver.expected - receiver.submitted}
-                  one="# без приходу"
-                  few="# без приходу"
-                  many="# без приходу"
-                  other="# без приходу"
+                  one="# без доходу"
+                  few="# без доходу"
+                  many="# без доходу"
+                  other="# без доходу"
                 />
               ),
             cls: 'bg-red-500/10 text-red-500',
@@ -691,7 +697,9 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span className={cn('h-2 w-2 rounded-full shrink-0', dot[status])} />
-            <span className="font-medium truncate">{receiver.displayName}</span>
+            <span className="font-medium truncate" title={receiver.displayName}>
+              {receiver.displayName}
+            </span>
           </div>
           <span className="text-xs text-muted-foreground">
             {i18n._(ROLE_LABEL_MESSAGES[receiver.role])} ·{' '}
@@ -748,7 +756,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
               data-testid={`compliance-detail-${receiver.userId}`}
             >
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">
-                <Trans>Проєкти без зарахованого приходу</Trans>
+                <Trans>Проєкти без зарахованого доходу</Trans>
               </p>
               <ul className="space-y-1.5">
                 {receiver.missingProjects.map((p) => (
@@ -780,11 +788,11 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                             VALIDATION («На валідації» would misattribute the
                             wait to the wrong party. */}
                         {p.accrued ? (
-                          <Trans>Нараховано · очікує виплати</Trans>
+                          <Trans>Нараховано · очікує розрахунку</Trans>
                         ) : p.pendingValidation ? (
                           <Trans>На валідації</Trans>
                         ) : (
-                          <Trans>Немає приходу</Trans>
+                          <Trans>Немає доходу</Trans>
                         )}
                       </span>
                     </span>
@@ -812,7 +820,7 @@ function IncomeComplianceSection() {
       <div className="flex items-center gap-2">
         <TrendingUp className="h-4 w-4 text-muted-foreground" />
         <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-          <Trans>Контроль приходів</Trans>
+          <Trans>Контроль доходів</Trans>
         </h2>
       </div>
 
@@ -831,7 +839,7 @@ function IncomeComplianceSection() {
           data-testid="income-compliance-error"
         >
           <span>
-            <Trans>Не вдалося завантажити дані контролю приходів.</Trans>
+            <Trans>Не вдалося завантажити дані контролю доходів.</Trans>
           </span>
           <Button
             size="sm"
@@ -865,7 +873,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
       {/* KPI strip */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <ComplianceKpi
-          label={<Trans>Усього приходів</Trans>}
+          label={<Trans>Усього доходів</Trans>}
           value={`${totals.submittedProjects} / ${totals.expectedProjects}`}
           sub={
             <Trans>
@@ -908,10 +916,10 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
           sub={
             <Plural
               value={totals.pendingProjects}
-              one="прихід"
-              few="приходи"
-              many="приходів"
-              other="приходу"
+              one="дохід"
+              few="доходи"
+              many="доходів"
+              other="доходу"
             />
           }
           color="amber"
@@ -935,7 +943,7 @@ function IncomeComplianceBody({ data }: { data: IncomeComplianceOverviewDto }) {
 
       <p className="text-[11px] text-muted-foreground/60">
         <Trans>
-          Зараховується прихід у статусі «валідовано» або «виплачено» за поточний місяць. Фаза 2:
+          Зараховується дохід у статусі «валідовано» або «виплачено» за поточний місяць. Згодом:
           ручні винятки (пауза / відпустка) і автоматичні нагадування.
         </Trans>
       </p>
@@ -1019,7 +1027,7 @@ export function StatsPage() {
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                   <StatCard
                     title={t`Загальний дохід`}
-                    hint={t`Сума всіх оплачених транзакцій типу ADMIN_INCOME та SENIOR_INCOME за весь час.`}
+                    hint={t`Сума всіх оплачених надходжень та доходу сеньйорів і адмінів за весь час.`}
                     value={`$${summary.totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<TrendingUp className="h-5 w-5" />}
                     color="green"
@@ -1029,20 +1037,20 @@ export function StatsPage() {
                   />
                   <StatCard
                     title={t`Витрати`}
-                    hint={t`Сума всіх оплачених транзакцій типу EXPENSE — операційні витрати компанії.`}
+                    hint={t`Сума всіх оплачених операційних витрат компанії.`}
                     value={`$${summary.totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<ArrowDownLeft className="h-5 w-5" />}
                     color="red"
                   />
                   <StatCard
                     title={t`Зарплати`}
-                    hint={t`Сума всіх оплачених зарплат (SALARY) співробітникам компанії за весь час.`}
+                    hint={t`Сума всіх виплачених зарплат співробітникам компанії за весь час.`}
                     value={`$${summary.totalSalaries.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<Users className="h-5 w-5" />}
                     color="purple"
                   />
                   <StatCard
-                    title="Net balance"
+                    title={t`Чистий баланс`}
                     hint={t`Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.`}
                     value={`$${summary.netBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                     icon={<Wallet className="h-5 w-5" />}

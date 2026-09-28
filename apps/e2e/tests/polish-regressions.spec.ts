@@ -27,6 +27,7 @@
  * (PR #60) — deliberately NOT duplicated here.
  */
 import { test, expect, USERS, PROJECTS, API_GLOB, API_RE } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 import type { Page, ConsoleMessage } from '@playwright/test'
 
 // Mirror of UserAvatar.getInitials (apps/web/app/components/users/UserAvatar.tsx).
@@ -249,11 +250,12 @@ test.describe('AC3 — console clean: forwardRef / nested-a / 403', () => {
   })
 
   test('/team/:id: no validateDOMNesting «<a> in <a>» warning', async ({ asAdmin }) => {
+    const uk = await loadMessages('uk')
     const console_ = collectConsole(asAdmin)
     const teamId = 'team-1-id'
     await asAdmin.goto(`/team/${teamId}`)
     // The member cards are what nest the anchors — wait until they render.
-    await expect(asAdmin.getByText('Учасники команди')).toBeVisible()
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Учасники команди'))).toBeVisible()
     await expect(asAdmin.getByText(USERS.senior.displayName).first()).toBeVisible()
     await asAdmin.waitForTimeout(300)
 

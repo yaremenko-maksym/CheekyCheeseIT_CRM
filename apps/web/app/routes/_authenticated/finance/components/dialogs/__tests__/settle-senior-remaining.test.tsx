@@ -154,7 +154,7 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     } as TransactionDto)
 
     const submit = await screen.findByTestId('settle-senior-submit')
-    expect(submit.textContent).toContain('без доплати')
+    expect(submit.textContent).toContain('без розрахунку')
     expect(submit.textContent).not.toContain('Підтвердити розрахунок')
   })
 
@@ -179,8 +179,8 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     // Removing the total would be the opposite error: the operator loses the
     // context for the remainder. Both figures, each named.
     expect(await screen.findByText('Зобов’язання')).toBeTruthy()
-    expect(await screen.findByText('Вже виплачено')).toBeTruthy()
-    expect(await screen.findByText('До доплати зараз')).toBeTruthy()
+    expect(await screen.findByText('Вже розраховано')).toBeTruthy()
+    expect(await screen.findByText('До розрахунку зараз')).toBeTruthy()
   })
 
   it('SR-5. a settle accumulated in another currency shows a dash, not a fabricated figure', async () => {
@@ -205,7 +205,7 @@ describe('SettleSeniorPayoutDialog — the figure shown is the figure paid', () 
     // be a redesign smuggled in as a bug fix.
     expect(await screen.findByText('Сума')).toBeTruthy()
     expect(screen.queryByTestId('settle-senior-remaining')).toBeNull()
-    expect(screen.queryByText('До доплати зараз')).toBeNull()
+    expect(screen.queryByText('До розрахунку зараз')).toBeNull()
   })
 
   it('SR-4. a zero accumulator is treated as "nothing settled", not as a top-up', async () => {

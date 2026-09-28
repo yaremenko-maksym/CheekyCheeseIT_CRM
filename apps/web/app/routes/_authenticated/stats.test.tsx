@@ -252,7 +252,7 @@ describe('StatsPage — economic data (both roles)', () => {
       expect(screen.getByText('Загальний дохід')).toBeInTheDocument()
       expect(screen.getByText('Витрати')).toBeInTheDocument()
       expect(screen.getByText('Зарплати')).toBeInTheDocument()
-      expect(screen.getByText('Net balance')).toBeInTheDocument()
+      expect(screen.getByText('Чистий баланс')).toBeInTheDocument()
       // FinanceChart is now lazy (React.lazy + Suspense) — its title resolves on
       // the next microtask even with the module mocked, so assert async.
       expect(await screen.findByText('Динаміка за місяцями')).toBeInTheDocument()
@@ -298,7 +298,7 @@ describe('StatsPage — economic data (both roles)', () => {
     setup('ADMIN')
     await hoverHint('Загальний дохід')
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Сума всіх оплачених транзакцій типу ADMIN_INCOME та SENIOR_INCOME за весь час.',
+      'Сума всіх оплачених надходжень та доходу сеньйорів і адмінів за весь час.',
     )
   })
 
@@ -314,7 +314,7 @@ describe('StatsPage — economic data (both roles)', () => {
     setup('ADMIN')
     await hoverHint('Витрати')
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Сума всіх оплачених транзакцій типу EXPENSE — операційні витрати компанії.',
+      'Сума всіх оплачених операційних витрат компанії.',
     )
   })
 
@@ -322,13 +322,13 @@ describe('StatsPage — economic data (both roles)', () => {
     setup('ADMIN')
     await hoverHint('Зарплати')
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
-      'Сума всіх оплачених зарплат (SALARY) співробітникам компанії за весь час.',
+      'Сума всіх виплачених зарплат співробітникам компанії за весь час.',
     )
   })
 
   it('net balance hint tooltip', async () => {
     setup('ADMIN')
-    await hoverHint('Net balance')
+    await hoverHint('Чистий баланс')
     expect(await screen.findByRole('tooltip')).toHaveTextContent(
       'Чистий залишок: дохід мінус витрати та зарплати. Додатне значення = компанія в плюсі.',
     )
@@ -397,9 +397,9 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     (role) => {
       setup(role)
       expect(screen.getByTestId('income-compliance-section')).toBeInTheDocument()
-      expect(screen.getByText('Контроль приходів')).toBeInTheDocument()
+      expect(screen.getByText('Контроль доходів')).toBeInTheDocument()
       // KPI strip
-      expect(screen.getByText('Усього приходів')).toBeInTheDocument()
+      expect(screen.getByText('Усього доходів')).toBeInTheDocument()
       expect(screen.getByText('Закриті повністю')).toBeInTheDocument()
       expect(screen.getByText('Відстають')).toBeInTheDocument()
       // Receiver rows
@@ -482,7 +482,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // The pending project shows «На валидации» (also the receiver-row badge, so
     // there are ≥1); the missing one «Нет прихода».
     expect(screen.getAllByText('На валідації').length).toBeGreaterThanOrEqual(1)
-    expect(screen.getByText('Немає приходу')).toBeInTheDocument()
+    expect(screen.getByText('Немає доходу')).toBeInTheDocument()
   })
 
   // code-review (round 2, HIGH): sr-lag's pendingCount (1) covers only ONE of
@@ -498,7 +498,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     const row = screen.getByTestId('compliance-row-sr-lag')
     expect(row.className).toContain('border-l-red-500')
     expect(row.className).not.toContain('border-l-amber-500')
-    const badge = within(row).getByText('2 без приходу')
+    const badge = within(row).getByText('2 без доходу')
     expect(badge.className).toContain('bg-red-500/10')
     expect(badge.className).toContain('text-red-500')
     expect(within(row).queryByText(/на валідації/i)).not.toBeInTheDocument()
@@ -599,7 +599,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(row.className).not.toContain('border-l-amber-500')
     // Badge: red «Нет приходов», never the amber «На валидации» the old
     // ungated code would have shown.
-    const badge = within(row).getByText('Немає приходів')
+    const badge = within(row).getByText('Немає доходів')
     expect(badge.className).toContain('bg-red-500/10')
     expect(badge.className).toContain('text-red-500')
     expect(within(row).queryByText('На валідації')).not.toBeInTheDocument()
@@ -618,13 +618,13 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(row.className).toContain('border-l-amber-500')
     expect(row.className).not.toContain('border-l-red-500')
     expect(screen.getByText('Нараховано')).toBeInTheDocument()
-    expect(screen.queryByText('Немає приходів')).not.toBeInTheDocument()
+    expect(screen.queryByText('Немає доходів')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByTestId('compliance-toggle-drop-accrued'))
     const detail = screen.getByTestId('compliance-detail-drop-accrued')
     expect(detail).toBeInTheDocument()
     expect(screen.getByText('GamingTec')).toBeInTheDocument()
-    expect(screen.getByText('Нараховано · очікує виплати')).toBeInTheDocument()
+    expect(screen.getByText('Нараховано · очікує розрахунку')).toBeInTheDocument()
   })
 
   it('does NOT render the removed participants-balances section', () => {
@@ -764,19 +764,19 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     // wordings must land on the RIGHT receiver, not just exist somewhere).
     const laggingPartialRow = screen.getByTestId('compliance-row-r-lagging-partial')
     expect(laggingPartialRow.className).toContain('border-l-red-500')
-    const laggingPartialBadge = within(laggingPartialRow).getByText('1 без приходу')
+    const laggingPartialBadge = within(laggingPartialRow).getByText('1 без доходу')
     expect(laggingPartialBadge.className).toContain('bg-red-500/10')
     expect(laggingPartialBadge.className).toContain('text-red-500')
 
     const laggingZeroRow = screen.getByTestId('compliance-row-r-lagging-zero')
     expect(laggingZeroRow.className).toContain('border-l-red-500')
-    const laggingZeroBadge = within(laggingZeroRow).getByText('Немає приходів')
+    const laggingZeroBadge = within(laggingZeroRow).getByText('Немає доходів')
     expect(laggingZeroBadge.className).toContain('bg-red-500/10')
     expect(laggingZeroBadge.className).toContain('text-red-500')
     // Explicitly NOT the other row's wording — catches a submitted===0 vs
     // !==0 swap that a global `getByText` would miss.
-    expect(within(laggingZeroRow).queryByText('1 без приходу')).not.toBeInTheDocument()
-    expect(within(laggingPartialRow).queryByText('Немає приходів')).not.toBeInTheDocument()
+    expect(within(laggingZeroRow).queryByText('1 без доходу')).not.toBeInTheDocument()
+    expect(within(laggingPartialRow).queryByText('Немає доходів')).not.toBeInTheDocument()
 
     // Drawer-level per-project colour: expand Mixed and check BOTH the
     // amber-pendingValidation dot/text AND the amber-accrued dot/text via
@@ -791,7 +791,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(pendingDot.className).not.toContain('bg-red-500')
 
     const accruedText = screen.getByTestId('compliance-project-status-p-mixed-b')
-    expect(accruedText).toHaveTextContent('Нараховано · очікує виплати')
+    expect(accruedText).toHaveTextContent('Нараховано · очікує розрахунку')
     expect(accruedText.className).toContain('text-amber-500')
     expect(accruedText.className).not.toContain('text-red-500')
     const accruedDot = screen.getByTestId('compliance-project-dot-p-mixed-b')
@@ -806,7 +806,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     setup('ADMIN')
     fireEvent.click(screen.getByTestId('compliance-toggle-sr-lag'))
     const missingText = screen.getByTestId('compliance-project-status-p-missing')
-    expect(missingText).toHaveTextContent('Немає приходу')
+    expect(missingText).toHaveTextContent('Немає доходу')
     expect(missingText.className).toContain('text-red-500')
     expect(missingText.className).not.toContain('text-amber-500')
     const missingDot = screen.getByTestId('compliance-project-dot-p-missing')

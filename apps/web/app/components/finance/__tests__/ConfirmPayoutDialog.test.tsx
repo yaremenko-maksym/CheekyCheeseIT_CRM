@@ -196,16 +196,16 @@ describe('ConfirmPayoutDialog', () => {
     // its label (the true branch this file's default-CRYPTO test does not
     // reach — kills the isCompanyAccount ConditionalExpression mutants).
     expect(screen.getByText('(необов’язково)')).toBeInTheDocument()
-    // The space between "txHash" and "(необов'язково)" is its own JSX
+    // The space between the label and "(необов'язково)" is its own JSX
     // expression ({' '}) — a StringLiteral mutant on it ("" instead of " ")
     // would not affect either substring assertion above but would collapse
-    // the label to "txHash(необов’язково)".
+    // the label to "Хеш транзакції(необов’язково)".
     // There is no RTL query for "this label's full accumulated text across
     // its nested optional-marker span"; textContent is the only way to see
     // the space.
     // eslint-disable-next-line testing-library/no-node-access
     const label = document.querySelector('label[for="confirm-payout-tx-hash"]')
-    expect(label).toHaveTextContent('txHash (необов’язково)')
+    expect(label).toHaveTextContent('Хеш транзакції (необов’язково)')
   })
 
   it('COMPANY_ACCOUNT calls manualConfirmPayout off payoutRequestId (not confirmPayout)', async () => {

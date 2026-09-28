@@ -187,6 +187,7 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
   })
 
   test('USDT-проект без чека → submit заблокирован (ADMIN)', async ({ page }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-usdt-block-${suffix}@cheekycheese.dev`
     const projectName = `Receipts USDT Block ${suffix}`
@@ -216,7 +217,9 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
+      await page
+        .getByRole('option', { name: assertInCatalog(uk, 'Рахунок компанії'), exact: true })
+        .click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
       // A USDT-payment project is ALWAYS explorer-only — the file tab must not even render.
@@ -361,6 +364,7 @@ test.describe('Transaction receipts — создание с чеком (не-USD
 
 test.describe('Transaction receipts — USDT explorer-only', () => {
   test('USDT-проект: не-explorer ссылка → блок с явной ошибкой', async ({ page }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-usdt-badlink-${suffix}@cheekycheese.dev`
     const projectName = `Receipts USDT BadLink ${suffix}`
@@ -389,7 +393,9 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
+      await page
+        .getByRole('option', { name: assertInCatalog(uk, 'Рахунок компанії'), exact: true })
+        .click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
       // Explorer hint is shown; the tab toggle is absent (already asserted in
@@ -476,6 +482,7 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
 
 test.describe('Transaction receipts — pay/settle без чека → блок', () => {
   test('PaySalaryDialog: pay без чека → submit заблокирован', async ({ page }) => {
+    const uk = await loadMessages('uk')
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     // Fresh PENDING SALARY reminder — freshest createdAt, guaranteed to be on
@@ -495,12 +502,13 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
 
     const dialog = page.getByTestId('pay-salary-dialog')
     await expect(dialog).toBeVisible()
-    await dialog.getByRole('button', { name: 'Позначити як оплачено' }).click()
+    await dialog.getByRole('button', { name: assertInCatalog(uk, 'Позначити як оплачено') }).click()
     await expect(dialog.getByTestId('pay-salary-error-receipt')).toBeVisible()
     await expect(dialog).toBeVisible()
   })
 
   test('SettleSeniorPayoutDialog: settle без чека → submit заблокирован', async ({ page }) => {
+    const uk = await loadMessages('uk')
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-settle-block-${suffix}@cheekycheese.dev`
 
@@ -553,7 +561,9 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
       await expect(dialog).toBeVisible()
       // Default account = «Рахунок компанії» (COMPANY_ACCOUNT, currency locked
       // USDT) — leave it, just try to submit without a receipt.
-      await dialog.getByRole('button', { name: 'Підтвердити розрахунок' }).click()
+      await dialog
+        .getByRole('button', { name: assertInCatalog(uk, 'Підтвердити розрахунок') })
+        .click()
       await expect(dialog.getByTestId('settle-senior-error-receipt')).toBeVisible()
       await expect(dialog).toBeVisible()
     } finally {

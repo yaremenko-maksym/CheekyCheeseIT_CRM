@@ -469,7 +469,7 @@ export function SettleSeniorPayoutDialog({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    <Trans>Вже виплачено</Trans>
+                    <Trans>Вже розраховано</Trans>
                   </span>
                   <span className="font-medium tabular-nums text-amber-400">
                     {fmtAmount(settlement.settled, settlement.settledCurrency)}
@@ -477,7 +477,7 @@ export function SettleSeniorPayoutDialog({
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">
-                    <Trans>До доплати зараз</Trans>
+                    <Trans>До розрахунку зараз</Trans>
                   </span>
                   <span
                     className="font-semibold tabular-nums"
@@ -677,7 +677,7 @@ export function SettleSeniorPayoutDialog({
             {mutation.isPending ? (
               <Trans>Розрахунок…</Trans>
             ) : settlement?.remaining === 0 ? (
-              <Trans>Закрити без доплати</Trans>
+              <Trans>Закрити без розрахунку</Trans>
             ) : (
               <Trans>Підтвердити розрахунок</Trans>
             )}

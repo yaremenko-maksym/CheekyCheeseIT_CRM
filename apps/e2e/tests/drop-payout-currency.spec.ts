@@ -35,6 +35,7 @@ import {
   declareUsdtIncomeViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -95,6 +96,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
   test('AC1/AC2/AC3: amount disabled, currency switch recalculates, and the shown figure matches what gets recorded', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const { dropPendingId, dropShare } = await provisionDropPendingPayout(page)
 
     await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -106,7 +108,7 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
 
     const dialog = page.getByTestId('settle-senior-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Розрахунок із дропом')).toBeVisible()
+    await expect(dialog.getByText(assertInCatalog(uk, 'Розрахунок із дропом'))).toBeVisible()
 
     const amountField = dialog.getByTestId('settle-senior-amount-field')
     await expect(amountField).toBeVisible()

@@ -500,7 +500,7 @@ export function PayoutPaymentForm({
                   <Loader2 className="h-4 w-4 animate-spin text-muted-foreground shrink-0" />
                   <div>
                     <p className="text-xs font-medium">
-                      <Trans>Перевірка on-chain…</Trans>
+                      <Trans>Перевірка в блокчейні…</Trans>
                     </p>
                     <p className="text-[11px] text-muted-foreground">
                       <Trans>Запит до Etherscan, займе кілька секунд</Trans>

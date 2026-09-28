@@ -104,11 +104,19 @@ function PublicVerifyPage() {
   const { data, isLoading, error } = useQuery<InvoiceVerifyResponse, Error>({
     queryKey: ['invoice-verify', transactionId],
     queryFn: async () => {
-      const res = await fetch(`${API_URL}/invoices/verify/${transactionId}`, {
-        method: 'GET',
-        // Explicit `omit` — no credentials leak from a public endpoint.
-        credentials: 'omit',
-      })
+      let res: Response
+      try {
+        res = await fetch(`${API_URL}/invoices/verify/${transactionId}`, {
+          method: 'GET',
+          // Explicit `omit` — no credentials leak from a public endpoint.
+          credentials: 'omit',
+        })
+      } catch {
+        // `fetch()` itself rejects on a network failure (offline, DNS,
+        // CORS) with a browser-native "Failed to fetch" — never localized,
+        // never shown to a user. Translate it before it reaches ErrorState.
+        throw new Error(t`Не вдалося з’єднатися з сервером. Перевірте інтернет-з’єднання.`)
+      }
       if (!res.ok) {
         if (res.status === 404) {
           throw new Error(t`Документ не знайдено`)
@@ -127,7 +135,7 @@ function PublicVerifyPage() {
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4 sm:px-6">
           <BrandMark className="h-9 w-9 text-primary" />
           <div>
-            <h1 className="text-base font-semibold tracking-tight">CheekyCheese IT</h1>
+            <h1 className="text-base font-semibold tracking-tight">CheekyCheeseIT</h1>
             <p className="text-xs text-muted-foreground">
               <Trans>Публічна верифікація рахунку</Trans>
             </p>
@@ -148,7 +156,7 @@ function PublicVerifyPage() {
       <footer className="mx-auto max-w-3xl px-4 pb-8 pt-4 text-center text-xs text-muted-foreground sm:px-6">
         <p>
           <Trans>
-            Перевірено системою CheekyCheese IT CRM ·{' '}
+            Перевірено системою CheekyCheeseIT CRM ·{' '}
             {formatDate(new Date(), locale, 'dateTimeWithYear')}
           </Trans>
         </p>

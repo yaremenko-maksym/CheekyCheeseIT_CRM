@@ -243,7 +243,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
 
       // The row (SAME testid, same id) now reads PAID and the «Выплатить»
       // action is gone — a repeat settle is impossible through the UI.
-      await expect(seniorRow).toContainText('Оплачено')
+      await expect(seniorRow).toContainText(assertInCatalog(uk, 'Оплачено'))
       await expect(
         page.getByTestId(`tx-row-settle-senior-payout-${seniorPending!.id}`),
       ).not.toBeAttached()
@@ -259,14 +259,18 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
 
       const settleDropDialog = page.getByTestId('settle-senior-dialog')
       await expect(settleDropDialog).toBeVisible()
-      await expect(settleDropDialog.getByText('Розрахунок із дропом')).toBeVisible()
+      await expect(
+        settleDropDialog.getByText(assertInCatalog(uk, 'Розрахунок із дропом')),
+      ).toBeVisible()
       await settleDropDialog.getByTestId(`settle-senior-account-admin-${KOSTYA_ID}`).click()
       await settleDropDialog
         .getByTestId('receipt-input-url-field')
         .fill('https://etherscan.io/tx/0xsettledrop123')
       await settleDropDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDropDialog).not.toBeVisible()
-      await expect(page.getByText(/Розрахунок із дропом проведено/)).toBeVisible({
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Розрахунок із дропом проведено')),
+      ).toBeVisible({
         timeout: 10_000,
       })
 
@@ -285,7 +289,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         'no lingering «Ожидает выплаты» phantom for the drop leg',
       ).toBe(false)
 
-      await expect(dropRow).toContainText('Оплачено')
+      await expect(dropRow).toContainText(assertInCatalog(uk, 'Оплачено'))
       await expect(
         page.getByTestId(`tx-row-settle-senior-payout-${dropPending!.id}`),
       ).not.toBeAttached()
@@ -324,6 +328,7 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
   test('ADMIN declares USDT income via UI (receiver = «Счёт компании») → gross credits the shared pool; settling BOTH obligations from the company account debits it in place', async ({
     page,
   }) => {
+    const uk = await loadMessages('uk')
     const { dropId, dropEmail, projectId, projectName, seniorId } =
       await provisionUsdtDropProject(page)
 
@@ -342,7 +347,9 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await page.getByRole('option', { name: projectName, exact: true }).click()
 
       await dialog.getByTestId('admin-income-receiver-trigger').click()
-      await page.getByRole('option', { name: 'Рахунок компанії', exact: true }).click()
+      await page
+        .getByRole('option', { name: assertInCatalog(uk, 'Рахунок компанії'), exact: true })
+        .click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 
@@ -411,7 +418,9 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
         .fill('https://etherscan.io/tx/0xcompanysettledrop1')
       await settleDropDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDropDialog).not.toBeVisible()
-      await expect(page.getByText(/Розрахунок із дропом проведено/)).toBeVisible({
+      await expect(
+        page.getByText(assertInCatalog(uk, 'Розрахунок із дропом проведено')),
+      ).toBeVisible({
         timeout: 10_000,
       })
 

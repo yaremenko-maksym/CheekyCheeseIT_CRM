@@ -186,7 +186,7 @@ function ReconfirmBadge({
       }
     >
       <RotateCcw className="h-3 w-3 shrink-0" aria-hidden />
-      <Trans>Повернеться в очікування виплати</Trans>
+      <Trans>Повернеться в очікування розрахунку</Trans>
     </span>
   )
 }

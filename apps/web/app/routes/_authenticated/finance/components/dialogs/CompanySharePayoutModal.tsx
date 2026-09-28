@@ -99,7 +99,7 @@ function ProjectRow({
           onChange={() => onToggleProject(incomeIds)}
           disabled={disabled}
           className="h-4 w-4 shrink-0 accent-primary"
-          aria-label={t`Вибрати всі прибутки проєкту ${project.projectName}`}
+          aria-label={t`Вибрати всі доходи проєкту ${project.projectName}`}
           data-testid={`company-share-project-checkbox-${project.projectId}`}
         />
         <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
@@ -125,7 +125,7 @@ function ProjectRow({
             onChange={() => onToggleTx(tx.id)}
             disabled={disabled}
             className="h-4 w-4 shrink-0 accent-primary"
-            aria-label={t`Прибуток від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}`}
+            aria-label={t`Дохід від ${formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}`}
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
@@ -133,7 +133,7 @@ function ProjectRow({
               className="min-w-0 truncate text-xs text-muted-foreground"
               data-testid={`company-share-income-date-${tx.id}`}
             >
-              <Trans>Прибуток від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}</Trans>
+              <Trans>Дохід від {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}</Trans>
             </span>
             <span className="shrink-0 tabular-nums text-xs">
               {fmtAmount(tx.amount, tx.currency)}
@@ -344,7 +344,7 @@ export function CompanySharePayoutModal({
   const stepAriaLabel =
     step === 'pay'
       ? t`Крок 2 з 2: оплата створеної заявки`
-      : t`Крок 1 з 2: вибір прибутків до виплати`
+      : t`Крок 1 з 2: вибір доходів до виплати`
 
   return (
     <Dialog
@@ -378,7 +378,7 @@ export function CompanySharePayoutModal({
           </DialogTitle>
           <DialogDescription className="sr-only">
             {step === 'select' ? (
-              <Trans>Виберіть проєкти та прибутки, які увійдуть до заявки на виплату.</Trans>
+              <Trans>Виберіть проєкти та доходи, які увійдуть до заявки на виплату.</Trans>
             ) : (
               <Trans>Переведіть суму компанії та підтвердьте оплату.</Trans>
             )}
@@ -403,10 +403,10 @@ export function CompanySharePayoutModal({
               {', '}
               <Plural
                 value={payoutSummary.incomesCount}
-                one="# прибуток"
-                few="# прибутки"
-                many="# прибутків"
-                other="# прибутку"
+                one="# дохід"
+                few="# доходи"
+                many="# доходів"
+                other="# доходу"
               />
             </p>
           )}
@@ -441,7 +441,7 @@ export function CompanySharePayoutModal({
               <div className="space-y-4">
                 {validatedTxs.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">
-                    <Trans>Немає перевірених прибутків</Trans>
+                    <Trans>Немає перевірених доходів</Trans>
                   </p>
                 ) : (
                   // fidelity-review finding #1 (HIGH): a bare <fieldset> gets the
@@ -478,10 +478,10 @@ export function CompanySharePayoutModal({
                         <span className="font-medium">
                           <Plural
                             value={selected.size}
-                            one="# прибуток"
-                            few="# прибутки"
-                            many="# прибутків"
-                            other="# прибутку"
+                            one="# дохід"
+                            few="# доходи"
+                            many="# доходів"
+                            other="# доходу"
                           />{' '}
                           ·{' '}
                           <Plural
@@ -530,10 +530,10 @@ export function CompanySharePayoutModal({
                         <span className="font-medium">
                           <Plural
                             value={selected.size}
-                            one="# прибуток"
-                            few="# прибутки"
-                            many="# прибутків"
-                            other="# прибутку"
+                            one="# дохід"
+                            few="# доходи"
+                            many="# доходів"
+                            other="# доходу"
                           />{' '}
                           ·{' '}
                           <Plural

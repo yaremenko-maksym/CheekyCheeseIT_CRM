@@ -258,7 +258,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                 active={method === 'CRYPTO'}
                 onSelect={() => setMethod('CRYPTO')}
                 icon={<Gem className="h-4 w-4" />}
-                label={<Trans>Крипта</Trans>}
+                label={<Trans>USDT</Trans>}
               />
               <MethodOption
                 value="CASH"
@@ -322,7 +322,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
           {method !== 'CASH' && (
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor="confirm-payout-tx-hash">
-                <Trans>txHash</Trans>
+                <Trans>Хеш транзакції</Trans>
                 {isCompanyAccount && (
                   <span className="text-muted-foreground">
                     {' '}
@@ -356,7 +356,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
                   hash is required. For COMPANY_ACCOUNT the hash is optional. */}
               {method === 'CRYPTO' && !cryptoTxHashOk && txHash.length > 0 && (
                 <p className="text-[11px] text-amber-500">
-                  <Trans>txHash має містити щонайменше 10 символів</Trans>
+                  <Trans>Хеш транзакції має містити щонайменше 10 символів</Trans>
                 </p>
               )}
             </div>
@@ -387,7 +387,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             data-testid="confirm-payout-submit"
             data-track="confirm-payout"
           >
-            {mutation.isPending ? <Trans>Збереження...</Trans> : <Trans>Підтвердити</Trans>}
+            {mutation.isPending ? <Trans>Збереження…</Trans> : <Trans>Підтвердити</Trans>}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>
