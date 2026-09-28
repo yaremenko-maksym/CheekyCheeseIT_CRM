@@ -614,6 +614,14 @@ msgstr "VAT-номер компанії-контрагента"
 msgid "vs попер. місяць"
 msgstr "vs попер. місяць"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "аватар"
+msgstr "аватар"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Аватар"
+msgstr "Аватар"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
@@ -2455,6 +2463,10 @@ msgstr "Готівка"
 msgid "Готовий до підписання"
 msgstr "Готовий до підписання"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Готовий до підпису"
+msgstr "Готовий до підпису"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
 msgstr "Готово"
@@ -2812,6 +2824,14 @@ msgstr "Добовий ліміт автоматичного розпізнав�
 msgid "Довільні нотатки…"
 msgstr "Довільні нотатки…"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "договір"
+msgstr "договір"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Договір"
+msgstr "Договір"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Додаємо…"
 msgstr "Додаємо…"
@@ -3000,6 +3020,10 @@ msgstr "Документ очікує підпису"
 #: apps/web/app/hooks/use-documents.ts
 msgid "Документ переміщено в кошик"
 msgstr "Документ переміщено в кошик"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Документ піде в архів. Повернути його може адмін"
+msgstr "Документ піде в архів. Повернути його може адмін"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Документ підписано"
@@ -4632,6 +4656,14 @@ msgstr "Лише латиниця, починається з букви, мак�
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Логін"
 msgstr "Логін"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "логотип"
+msgstr "логотип"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Логотип"
+msgstr "Логотип"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -6368,6 +6400,7 @@ msgstr "Очікує вашого рішення"
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/invoices/invoice-card.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -6737,6 +6770,10 @@ msgstr "Підписання контракту"
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Підписання…"
 msgstr "Підписання…"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Підписано"
+msgstr "Підписано"
 
 #: apps/web/app/components/invoices/invoice-card.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -7890,6 +7927,11 @@ msgstr "Рахуємо, що зміниться…"
 msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
 msgstr "Рахунки створює система — завантажити їх вручну не можна"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "рахунок"
+msgstr "рахунок"
+
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Рахунок"
@@ -8069,10 +8111,12 @@ msgstr "Редактор: <0>{roleLabel}</0>"
 msgid "contract-variable.companyRegNumber"
 msgstr "Реєстраційний номер компанії-контрагента"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "резюме"
 msgstr "резюме"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Резюме"
 msgstr "Резюме"
@@ -8431,6 +8475,14 @@ msgstr "Симуляція: транзакцію не підтверджено"
 #: apps/web/app/components/contracts/VariablesPanel.tsx
 msgid "Системні змінні"
 msgstr "Системні змінні"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "скан"
+msgstr "скан"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Скан"
+msgstr "Скан"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Скасований"
@@ -9602,6 +9654,10 @@ msgstr "Файл більший за {MAX_MB} МБ — виберіть інши
 msgid "api-error.DOCUMENT_TOO_LARGE"
 msgstr "Файл більший за {maxMb} МБ"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Файл буде видалено без можливості відновлення"
+msgstr "Файл буде видалено без можливості відновлення"
+
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Файл завантажено"
 msgstr "Файл завантажено"
@@ -10037,6 +10093,11 @@ msgstr "Частка: {0}%"
 msgid "Часткова зайнятість"
 msgstr "Часткова зайнятість"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "чек"
+msgstr "чек"
+
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Чек"
@@ -10108,6 +10169,7 @@ msgstr "через 3 місяці"
 msgid "Черн. ({0})"
 msgstr "Черн. ({0})"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Чернетка"
