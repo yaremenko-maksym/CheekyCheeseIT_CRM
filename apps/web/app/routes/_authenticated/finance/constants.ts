@@ -256,7 +256,34 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   DROP_PENDING_PAYOUT: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
 }
 
+/**
+ * task-i18n-3d-pr3 — owner override 2026-09-28 (REPLACES the plan's original
+ * "Спорное решение 1": codes + prod DDL migration for this field). A
+ * read-only prod query showed `transactions.receiver_label` on EXPENSE rows
+ * carries 16 distinct free-text values, not these three categories (imports
+ * from Google Sheets wrote arbitrary descriptions — "RumpUp service", "ФОП
+ * податки", "Hosting fee", …). The field stays FREE TEXT — this array is only
+ * the three quick-fill SUGGESTIONS a new EXPENSE offers; it is not a closed
+ * set and the stored value is never validated against it. Editing an
+ * imported row whose category is not one of these three must not force a
+ * choice among them — see `AdminEditTransactionDialog`'s combobox.
+ */
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']
+
+/**
+ * task-i18n-3d-pr3 — the uk/en text for the three suggestion chips above.
+ * These are UI-only hints for a NEW record; they do NOT replace
+ * `EXPENSE_CATEGORIES` (still the free-text value actually sent to the
+ * server) and they do NOT back-translate old stored values — a saved
+ * `receiver_label` (own words, e.g. «RumpUp service», «Оплата сервиса»)
+ * renders verbatim, never through this map (see the owner override note on
+ * `EXPENSE_CATEGORIES`). `satisfies` WITHOUT `as const` (урок #707).
+ */
+export const EXPENSE_CATEGORY_MESSAGES = {
+  'Оплата сервиса': msg`Оплата послуги`, // en: Service payment
+  Комиссия: msg`Банківський збір`, // en: Bank fee
+  Прочее: msg`Інше`, // en: Other
+} satisfies Record<(typeof EXPENSE_CATEGORIES)[number], MessageDescriptor>
 
 /**
  * Original-currency amount for detail dialogs («7 777,00 USDT», «5 000,00 EUR»).
