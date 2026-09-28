@@ -64,7 +64,8 @@ export function AdminEditTransactionDialog({
   const [currency, setCurrency] = useState<Currency>('USDT')
   const [notes, setNotes] = useState('')
   const [receipt, setReceipt] = useState<ReceiptState>(receiptStateFromExternalUrl(null))
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
+  // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it (same shape as the `debouncedAmount` suppression a few lines down), AND the field that displays it is itself gated on `tx?.type === 'EXPENSE'`, so a `tx == null` mount never renders it either way
+  const [category, setCategory] = useState('')
   const [salaryMonth, setSalaryMonth] = useState('')
   // Stryker disable next-line StringLiteral: unobservable — the mount effect below sets this from `tx` before any render can read it, the same shape as the documented `useState` default in SettleSeniorPayoutDialog
   const [debouncedAmount, setDebouncedAmount] = useState('')
@@ -89,7 +90,7 @@ export function AdminEditTransactionDialog({
     } else {
       setReceipt(receiptStateFromExternalUrl(tx.receiptExternalUrl))
     }
-    setCategory(tx.receiverLabel ?? EXPENSE_CATEGORIES[0]!)
+    setCategory(tx.receiverLabel ?? '')
     setSalaryMonth(tx.salaryMonth ?? '')
     setDebouncedAmount(parseFloat(tx.amount).toString())
     setStaleMessage(null)
@@ -474,7 +475,8 @@ export function AdminEditTransactionDialog({
             <div className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-3 text-sm text-destructive">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <Trans>
-                Транзакцію не можна редагувати (PAYOUT або прив’язана до заявки на виплату)
+                Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на
+                виплату)
               </Trans>
             </div>
           ) : (
@@ -626,7 +628,6 @@ export function AdminEditTransactionDialog({
                   <Input
                     value={category}
                     onChange={(e) => setCategory(e.target.value)}
-                    // Stryker disable next-line StringLiteral: placeholder is never visible once `category` defaults to a non-empty value — unobservable by construction, not by an untested branch.
                     placeholder={t`Категорія витрати`}
                     className="h-9 text-sm"
                     data-testid="admin-edit-expense-category-input"
@@ -636,10 +637,10 @@ export function AdminEditTransactionDialog({
                       <button
                         key={c}
                         type="button"
-                        onClick={() => setCategory(c)}
+                        onClick={() => setCategory(i18n._(EXPENSE_CATEGORY_MESSAGES[c]!))}
                         className={cn(
-                          'rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                          category === c
+                          'rounded-full border px-3 py-1 text-xs font-medium transition-all min-h-[44px] sm:min-h-0 flex items-center',
+                          category === i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)
                             ? 'border-primary bg-primary/10 text-primary'
                             : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50',
                         )}

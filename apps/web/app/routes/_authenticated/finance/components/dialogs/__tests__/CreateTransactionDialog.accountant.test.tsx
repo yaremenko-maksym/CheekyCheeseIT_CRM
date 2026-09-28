@@ -232,29 +232,94 @@ describe('CreateTransactionDialog — validate() error copy (i18n-3d-pr3)', () =
   })
 })
 
-// i18n-3d-pr3 (AC3, owner override) — the three EXPENSE_CATEGORY_MESSAGES
-// suggestion chips render their translated uk text (not the raw stored
-// `EXPENSE_CATEGORIES` value), while the free-text input keeps showing the
-// raw value verbatim.
-describe('CreateTransactionDialog — expense category chips (i18n-3d-pr3 AC3)', () => {
-  it('shows translated suggestion chips + free-text input with the raw default value', () => {
+// i18n-3d-pr3 (AC3, fix-round FIX-UX-H-1) — the field starts EMPTY (no raw
+// Russian default leaks to a uk/en operator); the three EXPENSE_CATEGORY_MESSAGES
+// suggestion chips render their translated uk text AND write that translated
+// text into the field on click — never the raw stored `EXPENSE_CATEGORIES`
+// value. Free typing (imported "RumpUp service"-style edits) stays possible.
+describe('CreateTransactionDialog — expense category chips (i18n-3d-pr3 AC3, fix-round FIX-UX-H-1)', () => {
+  it('starts empty — no raw Russian default in the field', () => {
     currentRole = 'ADMIN'
     renderDialog()
     fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
-    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue(
-      'Оплата сервиса',
-    )
+    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue('')
     const chips = screen.getAllByTestId(/create-transaction-expense-category-suggestion-/)
     expect(chips.map((c) => c.textContent)).toEqual(['Оплата послуги', 'Банківський збір', 'Інше'])
   })
 
-  it('typing into the free-text input overrides the stored default value (imported "RumpUp service"-style edits stay possible)', () => {
+  it('clicking a chip fills the field with the TRANSLATED text, not the raw Russian code', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-expense-category-suggestion-1'))
+    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue(
+      'Банківський збір',
+    )
+  })
+
+  it('typing into the free-text input overrides any chip selection (imported "RumpUp service"-style edits stay possible)', () => {
     currentRole = 'ADMIN'
     renderDialog()
     fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
     const input = screen.getByTestId('create-transaction-expense-category-input')
     fireEvent.change(input, { target: { value: 'RumpUp service' } })
     expect(input).toHaveValue('RumpUp service')
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — the empty-field placeholder
+  // must be the REAL uk copy, not any non-empty stand-in: an empty-string
+  // mutant of the placeholder would leave the field looking blank either way.
+  it('shows the "Категорія витрати" placeholder while the field is empty', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.getByPlaceholderText('Категорія витрати')).toBeInTheDocument()
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — chips always carry the base
+  // pill classes, active or not: a mutant that blanks the shared `cn()` base
+  // string would only be caught by checking an UNSELECTED chip too.
+  it('every chip keeps its base pill styling regardless of selection', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.getByTestId('create-transaction-expense-category-suggestion-0')).toHaveClass(
+      'rounded-full',
+    )
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — ONLY the clicked chip gets
+  // the active look; a mutant that always/never highlights, or inverts the
+  // comparison, needs BOTH the selected and an unselected chip checked to be
+  // caught (checking only the selected one still passes an "always active"
+  // mutant).
+  it('clicking a chip marks ONLY that chip active — others stay unmarked', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-expense-category-suggestion-1'))
+    expect(screen.getByTestId('create-transaction-expense-category-suggestion-1')).toHaveClass(
+      'border-primary',
+    )
+    expect(screen.getByTestId('create-transaction-expense-category-suggestion-0')).not.toHaveClass(
+      'border-primary',
+    )
+  })
+
+  // fix-round PR #734 (mutation-gate survivor, CreateTransactionDialog.tsx:801)
+  // — `resetForm()` (fired on Cancel) must clear `category` to a REAL empty
+  // string, not any non-empty stand-in the mutation gate could substitute
+  // (a non-empty mutant would still read as "cleared" to a loose assertion).
+  it('Cancel resets the category field back to empty (resetForm)', () => {
+    currentRole = 'ADMIN'
+    renderDialog()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-expense-category-suggestion-1'))
+    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue(
+      'Банківський збір',
+    )
+    fireEvent.click(screen.getByTestId('create-transaction-cancel'))
+    expect(screen.getByTestId('create-transaction-expense-category-input')).toHaveValue('')
   })
 })
 

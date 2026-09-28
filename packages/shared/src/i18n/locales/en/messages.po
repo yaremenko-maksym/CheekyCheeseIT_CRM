@@ -2822,7 +2822,7 @@ msgstr "Income this month"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Дохід із власного проєкту"
-msgstr "Income from an own project"
+msgstr "Income from your own project"
 
 #: apps/web/app/lib/invoice-labels.ts
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
@@ -4567,8 +4567,8 @@ msgid "Натисніть «Створити сеньйора», щоб сфор
 msgstr "Click “Create senior” to form the first team"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Натисніть на картки або стрілку, щоб поміняти напрямок"
-msgstr "Click the cards or the arrow to swap the direction"
+msgid "Натисніть на картки або стрілку, щоб змінити напрямок"
+msgstr "Click a card or the arrow to change the direction"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Натисніть ще раз, щоб повторити завантаження."
@@ -8405,8 +8405,8 @@ msgid "api-error.FINANCE_TRANSACTION_NOT_FOUND"
 msgstr "Transaction not found"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-msgid "Транзакцію не можна редагувати (PAYOUT або прив’язана до заявки на виплату)"
-msgstr "The transaction cannot be edited (PAYOUT or linked to a payout request)"
+msgid "Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на виплату)"
+msgstr "The transaction cannot be edited (it is a payout, or a transaction linked to a payout request)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

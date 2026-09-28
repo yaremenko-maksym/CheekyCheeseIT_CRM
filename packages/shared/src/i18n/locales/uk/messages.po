@@ -4567,8 +4567,8 @@ msgid "Натисніть «Створити сеньйора», щоб сфор
 msgstr "Натисніть «Створити сеньйора», щоб сформувати першу команду"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Натисніть на картки або стрілку, щоб поміняти напрямок"
-msgstr "Натисніть на картки або стрілку, щоб поміняти напрямок"
+msgid "Натисніть на картки або стрілку, щоб змінити напрямок"
+msgstr "Натисніть на картки або стрілку, щоб змінити напрямок"
 
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Натисніть ще раз, щоб повторити завантаження."
@@ -8405,8 +8405,8 @@ msgid "api-error.FINANCE_TRANSACTION_NOT_FOUND"
 msgstr "Транзакцію не знайдено"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
-msgid "Транзакцію не можна редагувати (PAYOUT або прив’язана до заявки на виплату)"
-msgstr "Транзакцію не можна редагувати (PAYOUT або прив’язана до заявки на виплату)"
+msgid "Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на виплату)"
+msgstr "Транзакцію не можна редагувати (це виплата або транзакція прив’язана до заявки на виплату)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

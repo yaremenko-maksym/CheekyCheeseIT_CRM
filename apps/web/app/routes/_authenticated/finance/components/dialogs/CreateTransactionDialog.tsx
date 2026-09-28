@@ -290,7 +290,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [transferSenderId, setTransferSenderId] = useState<string>('')
   const [amount, setAmount] = useState('')
   const [currency, setCurrency] = useState<Currency>('USD')
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
+  const [category, setCategory] = useState('')
 
   // task-salary-company-account / task-salary-pay-flow: funding source per-type.
   // EXPENSE / ADMIN_INCOME keep the company-account funding selector. SALARY no
@@ -798,7 +798,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setTransferSenderId('')
     setAmount('')
     setCurrency('USD')
-    setCategory(EXPENSE_CATEGORIES[0]!)
+    setCategory('')
     setReceipt(emptyReceiptState())
     setNotes('')
     setFieldErrors({})
@@ -1400,7 +1400,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 </button>
               </div>
               <p className="text-[10px] text-muted-foreground/60 text-center">
-                <Trans>Натисніть на картки або стрілку, щоб поміняти напрямок</Trans>
+                <Trans>Натисніть на картки або стрілку, щоб змінити напрямок</Trans>
               </p>
             </div>
           )}
@@ -1419,7 +1419,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               <Input
                 value={category}
                 onChange={(e) => setCategory(e.target.value)}
-                // Stryker disable next-line StringLiteral: placeholder is never visible once `category` defaults to a non-empty `EXPENSE_CATEGORIES[0]` value — unobservable in every test in this suite by construction, not by an untested branch.
                 placeholder={t`Категорія витрати`}
                 className="h-9 text-sm"
                 data-testid="create-transaction-expense-category-input"
@@ -1429,10 +1428,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <button
                     key={c}
                     type="button"
-                    onClick={() => setCategory(c)}
+                    onClick={() => setCategory(i18n._(EXPENSE_CATEGORY_MESSAGES[c]!))}
                     className={cn(
-                      'rounded-full border px-3 py-1 text-xs font-medium transition-all',
-                      category === c
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-all min-h-[44px] sm:min-h-0 flex items-center',
+                      category === i18n._(EXPENSE_CATEGORY_MESSAGES[c]!)
                         ? 'border-primary bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground hover:border-border/80 hover:bg-muted/50',
                     )}

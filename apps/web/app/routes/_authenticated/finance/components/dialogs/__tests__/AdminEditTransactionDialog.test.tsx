@@ -114,3 +114,84 @@ describe('AdminEditTransactionDialog — MED-2: unchanged legacy http:// receipt
     expect(payload.receiptExternalUrl).toBe('http://still-not-https.example/new-receipt.jpg')
   })
 })
+
+const NEW_EXPENSE_TX = {
+  id: 'tx-expense-new',
+  type: 'EXPENSE',
+  status: 'PENDING',
+  amount: '100',
+  currency: 'USD',
+  receiptDocumentId: null,
+  receiptExternalUrl: null,
+  notes: null,
+  receiverLabel: null,
+  salaryMonth: null,
+  payoutRequestId: null,
+} as unknown as TransactionDto
+
+const IMPORTED_EXPENSE_TX = {
+  ...NEW_EXPENSE_TX,
+  id: 'tx-expense-imported',
+  receiverLabel: 'RumpUp service',
+} as unknown as TransactionDto
+
+// fix-round PR #734 (FIX-UX-H-1) — a raw Russian `EXPENSE_CATEGORIES` value
+// must never appear in the field for a uk/en operator: no Russian default on
+// open, and a chip click inserts its TRANSLATED label, not the raw code.
+// Imported prod rows (16 of them) keep rendering their stored value verbatim.
+describe('AdminEditTransactionDialog — expense category (fix-round FIX-UX-H-1)', () => {
+  it('a row with no stored category opens with an EMPTY field, not the raw Russian default', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    expect(screen.getByTestId('admin-edit-expense-category-input')).toHaveValue('')
+  })
+
+  it('clicking a chip fills the field with the TRANSLATED text, not the raw Russian code', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    fireEvent.click(screen.getByTestId('admin-edit-expense-category-suggestion-1'))
+    expect(screen.getByTestId('admin-edit-expense-category-input')).toHaveValue('Банківський збір')
+  })
+
+  it('an imported row keeps its stored value verbatim (dословно), untouched by translation', () => {
+    renderDialog(IMPORTED_EXPENSE_TX)
+    expect(screen.getByTestId('admin-edit-expense-category-input')).toHaveValue('RumpUp service')
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — typing directly into the
+  // free-text field must still work (imported "RumpUp service"-style edits).
+  it('typing into the free-text input overrides any chip selection', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    const input = screen.getByTestId('admin-edit-expense-category-input')
+    fireEvent.change(input, { target: { value: 'Custom category' } })
+    expect(input).toHaveValue('Custom category')
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — the empty-field placeholder
+  // must be the REAL uk copy, not any non-empty stand-in.
+  it('shows the "Категорія витрати" placeholder while the field is empty', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    expect(screen.getByPlaceholderText('Категорія витрати')).toBeInTheDocument()
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — chips always carry the base
+  // pill classes, active or not.
+  it('every chip keeps its base pill styling regardless of selection', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    expect(screen.getByTestId('admin-edit-expense-category-suggestion-0')).toHaveClass(
+      'rounded-full',
+    )
+  })
+
+  // fix-round PR #734 (mutation-gate survivors) — ONLY the clicked chip gets
+  // the active look; checking just the selected one would still pass an
+  // "always active" mutant, so an unselected chip is checked too.
+  it('clicking a chip marks ONLY that chip active — others stay unmarked', () => {
+    renderDialog(NEW_EXPENSE_TX)
+    fireEvent.click(screen.getByTestId('admin-edit-expense-category-suggestion-1'))
+    expect(screen.getByTestId('admin-edit-expense-category-suggestion-1')).toHaveClass(
+      'border-primary',
+    )
+    expect(screen.getByTestId('admin-edit-expense-category-suggestion-0')).not.toHaveClass(
+      'border-primary',
+    )
+  })
+})
