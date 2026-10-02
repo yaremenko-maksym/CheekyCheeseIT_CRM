@@ -10,7 +10,7 @@
  *   6. DocumentList view='list' loading → row-shaped skeleton (data-testid documents-list-skeleton)
  *   7. DocumentList view='grid' loading → grid-shaped skeleton (no documents-list-skeleton)
  */
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import {
   RouterProvider,
@@ -118,7 +118,7 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
     )
     const badge = await screen.findByTestId('document-status-badge')
     expect(badge).toBeInTheDocument()
-    expect(badge).toHaveTextContent('Подписано')
+    expect(badge).toHaveTextContent('Підписано')
     expect(badge).toHaveAttribute('data-badge-kind', 'invoice')
     expect(badge).toHaveAttribute('data-badge-state', 'signed')
   })
@@ -131,7 +131,7 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
       }),
     )
     const badge = await screen.findByTestId('document-status-badge')
-    expect(badge).toHaveTextContent('Требует подтверждения')
+    expect(badge).toHaveTextContent('Очікує підтвердження')
     expect(badge).toHaveAttribute('data-badge-kind', 'receipt')
   })
 
@@ -144,7 +144,7 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
       }),
     )
     const badge = await screen.findByTestId('document-status-badge')
-    expect(badge).toHaveTextContent('Драфт')
+    expect(badge).toHaveTextContent('Чернетка')
     expect(badge).toHaveAttribute('data-badge-kind', 'contract')
   })
 
@@ -159,7 +159,7 @@ describe('DocumentRow — statusBadge (PR-2)', () => {
     )
     const badge = await screen.findByTestId('document-row-pending-signature')
     expect(badge).toBeInTheDocument()
-    expect(badge).toHaveTextContent('Требует подписи')
+    expect(badge).toHaveTextContent('Очікує підпису')
     // DocumentStatusBadge should NOT render (only the fallback badge)
     expect(screen.queryByTestId('document-status-badge')).toBeNull()
   })
@@ -240,5 +240,93 @@ describe('DocumentList — view-aware loading skeleton (PR-1 MED fix)', () => {
   it('8. default view (no prop) + loading → grid skeleton (backward compat)', () => {
     render(<DocumentList documents={[]} loading viewer={viewer} />)
     expect(screen.queryByTestId('documents-list-skeleton')).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-i18n-stage3e-pr2 — copy through the catalog (uk + en)
+// ---------------------------------------------------------------------------
+
+const adminRowViewer: SessionUser = { ...viewer, role: 'ADMIN' }
+const MID_MONTH = '2026-03-15T12:00:00.000Z'
+
+describe('DocumentRow — i18n copy (wave e PR2)', () => {
+  it('archived row wears «В архіві» (uk) / «Archived» (en)', async () => {
+    const { unmount } = renderRow(baseDoc({ deletedAt: MID_MONTH }))
+    expect(await screen.findByTestId('document-row')).toHaveTextContent('В архіві')
+    unmount()
+    await loadCatalog('en')
+    renderRow(baseDoc({ deletedAt: MID_MONTH }))
+    expect(await screen.findByTestId('document-row')).toHaveTextContent('Archived')
+  })
+
+  it('disabled trash names its reason per category — SAME sentence as the card (COPY-L-docs-20)', async () => {
+    const { unmount } = renderRow(baseDoc({ category: 'RECEIPT' }))
+    expect(
+      await screen.findByRole('button', {
+        name: 'Видалити не можна: чек видаляється разом із транзакцією',
+      }),
+    ).toBeDisabled()
+    unmount()
+    renderRow(baseDoc({ category: 'INVOICE', name: 'invoice-12345678.pdf' }))
+    expect(
+      await screen.findByRole('button', {
+        name: 'Видалити не можна: рахунок видаляється разом із транзакцією',
+      }),
+    ).toBeDisabled()
+  })
+
+  it('icon buttons carry catalog aria-labels (download / restore / permanent delete)', async () => {
+    renderRow(baseDoc({ deletedAt: MID_MONTH }), adminRowViewer)
+    expect(await screen.findByTestId('document-row-download')).toHaveAttribute(
+      'aria-label',
+      'Завантажити',
+    )
+    expect(screen.getByTestId('document-row-restore')).toHaveAttribute('aria-label', 'Відновити')
+    expect(screen.getByTestId('document-row-hard-delete')).toHaveAttribute(
+      'aria-label',
+      'Видалити назавжди',
+    )
+  })
+
+  it('uploader deleted (no display name): neutral «Видалений користувач», never an id', async () => {
+    renderRow(baseDoc({ uploadedByDisplayName: null }))
+    const link = await screen.findByTestId('document-row-uploader-link')
+    expect(link).toHaveTextContent('Видалений користувач')
+  })
+
+  it('owner delete button aria-label + archive confirm text', async () => {
+    renderRow(baseDoc({ ownerId: VIEWER_ID }))
+    const del = await screen.findByTestId('document-row-delete')
+    expect(del).toHaveAttribute('aria-label', 'Видалити')
+    fireEvent.click(del)
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Перенести в архів?')
+    expect(screen.getByRole('button', { name: 'Перенести в архів' })).toBeInTheDocument()
+    expect(dialog).toHaveTextContent('Документ піде в архів. Повернути його може адмін')
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
+    })
+  })
+
+  it('permanent-delete confirm (ADMIN) has no storage-backend name', async () => {
+    renderRow(baseDoc({ deletedAt: MID_MONTH }), adminRowViewer)
+    fireEvent.click(await screen.findByTestId('document-row-hard-delete'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Файл буде видалено без можливості відновлення')
+    expect(dialog.textContent).not.toMatch(/S3|баз[иі]/)
+  })
+
+  it('relative date + absolute-date tooltip in the active locale', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-03-15T14:00:00.000Z'))
+    try {
+      renderRow(baseDoc({ createdAt: MID_MONTH }))
+      const row = await screen.findByTestId('document-row')
+      expect(row).toHaveTextContent(/2 години тому|2 годин/)
+      expect(screen.getByTitle(/2026.*\d{1,2}:\d{2}/)).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

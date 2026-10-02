@@ -3,9 +3,11 @@
  *
  * Shows a larger preview (image or PDF inline), full metadata
  * (original filename, size, MIME, uploaded by, date, project link when
- * applicable), and a row of actions (Скачать, Удалить, Восстановить /
- * Удалить навсегда for ADMIN, Закрыть). Triggered by clicking the
- * preview area or filename on a DocumentCard.
+ * applicable), and a row of actions (download, delete, restore /
+ * delete permanently for ADMIN, close). Triggered by clicking the
+ * preview area or filename on a DocumentCard. All copy is uk/en via Lingui;
+ * categories, the archived badge and the delete confirmations come from the
+ * `document-labels.ts` hub.
  *
  * PDF rendering (Task: documents-pdf-preview):
  *   - Загружает presigned URL один раз через useDocumentBlob.
@@ -19,10 +21,12 @@
  * displayed in a smaller secondary line so power users can see what
  * actually lives in S3 / on disk after download.
  */
-import { useCallback, useEffect, useRef, useState, useMemo, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
-import { formatDistanceToNow, format } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { useQuery } from '@tanstack/react-query'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import {
   Calendar,
   Download,
@@ -37,7 +41,8 @@ import {
   FileType,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import type { Document, SessionUser } from '@crm/shared'
+import { DOCUMENT_MIME_WHITELIST, formatDate, formatRelativeTime } from '@crm/shared'
+import type { Document, ProjectDetailDto, SessionUser } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -59,6 +64,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useLocale } from '@/lib/i18n'
+import { api } from '@/lib/axios'
 import { formatBytes } from '@/lib/format-bytes'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import {
@@ -71,6 +77,11 @@ import { useDocumentBlob } from '@/hooks/use-document-blob'
 import { fetchContractPdfBlob } from '@/components/user-profile/contract/useEmployeeContract'
 import { DocumentImage } from './document-image'
 import { PdfPreview } from './pdf-preview'
+import {
+  CATEGORY_LABEL_MESSAGES,
+  DELETE_CONFIRM_MESSAGES,
+  DOCUMENT_STATUS_MESSAGES,
+} from './document-labels'
 
 interface DocumentDetailDialogProps {
   open: boolean
@@ -79,18 +90,26 @@ interface DocumentDetailDialogProps {
   viewer: SessionUser
 }
 
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(-8) : id
-}
+/**
+ * Human-readable «Format» row (COPY-M-docs-10): the raw MIME
+ * (`application/vnd.openxml…`) was printed as the value. The raw string now
+ * lives only in the row's `title`, for whoever needs it.
+ */
+const FORMAT_MESSAGES = {
+  'application/pdf': msg`PDF`,
+  'image/jpeg': msg`Зображення JPEG`,
+  'image/png': msg`Зображення PNG`,
+  'image/webp': msg`Зображення WebP`,
+  'image/heic': msg`Зображення HEIC`,
+} satisfies Record<(typeof DOCUMENT_MIME_WHITELIST)[number], MessageDescriptor>
 
-const CATEGORY_LABELS_RU: Record<string, string> = {
-  RESUME: 'Резюме',
-  SCAN: 'Скан',
-  CONTRACT: 'Контракт',
-  RECEIPT: 'Чек',
-  AVATAR: 'Аватар',
-  LOGO: 'Логотип',
-  INVOICE: 'Инвойс',
+/** Anything outside the upload whitelist (legacy rows) — still not a raw MIME. */
+const FORMAT_OTHER = msg`Інший формат`
+
+function formatMessageFor(mimeType: string): MessageDescriptor {
+  return (
+    (FORMAT_MESSAGES as Record<string, MessageDescriptor | undefined>)[mimeType] ?? FORMAT_OTHER
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -183,9 +202,8 @@ export function DocumentDetailDialog({
   doc,
   viewer,
 }: DocumentDetailDialogProps) {
-  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
-  // `locale`; this file otherwise stays Russian (wave e migrates it).
   const locale = useLocale()
+  const { t, i18n } = useLingui()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -203,30 +221,21 @@ export function DocumentDetailDialog({
   const canHardDelete = isDeleted && isAdmin
 
   // Uploader display name is part of the document DTO (LEFT JOIN
-  // performed server-side). Fall back to a short id when the field is
+  // performed server-side). Fall back to a neutral «deleted user» label when the field is
   // null (hard-deleted user / legacy row).
-  const uploaderLabel = doc?.uploadedByDisplayName ?? (doc ? shortId(doc.uploadedBy) : '')
+  const uploaderLabel = doc?.uploadedByDisplayName ?? t`Видалений користувач`
 
-  const relativeDate = useMemo(() => {
-    if (!doc) return ''
-    try {
-      return formatDistanceToNow(new Date(doc.createdAt), {
-        addSuffix: true,
-        locale: ru,
-      })
-    } catch {
-      return doc.createdAt
-    }
-  }, [doc])
-
-  const signedAtDate = useMemo(() => {
-    if (!doc?.signedAt) return null
-    try {
-      return format(new Date(doc.signedAt), 'd MMMM yyyy', { locale: ru })
-    } catch {
-      return doc.signedAt
-    }
-  }, [doc?.signedAt])
+  // Project NAME for the «Project» row (COPY-M-docs-11: it used to print
+  // `#<last 8 chars of the id>`). Same key + endpoint as the project page, so
+  // the cache is shared; RBAC stays on the API. When the viewer can't read the
+  // project (403/404) the row falls back to a generic link label (the visible text is never an id; the raw id lives only in the row's `title`, plan M-11).
+  const projectId = doc?.projectId ?? null
+  const projectQuery = useQuery({
+    queryKey: ['projects', projectId],
+    queryFn: () => api.get<ProjectDetailDto>(`/projects/${projectId}`).then((r) => r.data),
+    enabled: open && projectId !== null,
+    retry: false,
+  })
 
   // Display name: original (cyrillic preserved) when available, else sanitized.
   const displayName = doc?.originalName ?? doc?.name ?? ''
@@ -299,6 +308,9 @@ export function DocumentDetailDialog({
 
   if (!doc) return null
 
+  // Plain derivation (not a hook), so it lives below the null guard.
+  const relativeDate = formatRelativeTime(doc.createdAt, locale)
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -318,7 +330,7 @@ export function DocumentDetailDialog({
             >
               {isDeleted ? (
                 <Badge variant="secondary" className="bg-muted-foreground/15">
-                  В корзине
+                  {i18n._(DOCUMENT_STATUS_MESSAGES.ARCHIVED)}
                 </Badge>
               ) : null}
               {isPdf ? (
@@ -328,11 +340,11 @@ export function DocumentDetailDialog({
               ) : null}
               {isContractVirtual ? (
                 <Badge variant="secondary" className="bg-blue-500/15 text-blue-600">
-                  Контракт
+                  {i18n._(CATEGORY_LABEL_MESSAGES.CONTRACT)}
                 </Badge>
               ) : null}
               {!isContractVirtual ? (
-                <span>{CATEGORY_LABELS_RU[doc.category] ?? doc.category}</span>
+                <span>{i18n._(CATEGORY_LABEL_MESSAGES[doc.category])}</span>
               ) : null}
             </div>
           </CrmDialogHeader>
@@ -348,7 +360,7 @@ export function DocumentDetailDialog({
               <div className="flex flex-col gap-3 overflow-y-auto text-sm">
                 <DetailRow
                   icon={UserCircle2}
-                  label="Загрузил"
+                  label={t`Хто завантажив`}
                   value={
                     <ProfileNameLink
                       userId={doc.uploadedBy}
@@ -362,33 +374,39 @@ export function DocumentDetailDialog({
                 />
                 <DetailRow
                   icon={Calendar}
-                  label="Дата"
+                  label={t`Дата`}
                   value={relativeDate}
-                  title={doc.createdAt}
+                  title={formatDate(doc.createdAt, locale, 'dateTimeWithYear')}
                 />
                 {doc.sizeBytes > 0 ? (
                   <DetailRow
                     icon={HardDrive}
-                    label="Размер"
+                    label={t`Розмір`}
                     value={formatBytes(doc.sizeBytes, locale)}
                   />
                 ) : null}
-                <DetailRow icon={FileType} label="Формат" value={doc.mimeType} />
+                <DetailRow
+                  icon={FileType}
+                  label={t`Формат`}
+                  value={i18n._(formatMessageFor(doc.mimeType))}
+                  title={doc.mimeType}
+                />
                 {/* AC5: «Имя файла» row deliberately removed — the title
                     already shows displayName (original cyrillic-preserved
                     name) and the S3 key is implementation detail. */}
                 {doc.projectId ? (
                   <DetailRow
                     icon={FolderOpen}
-                    label="Проект"
+                    label={t`Проєкт`}
                     value={
                       <Link
                         to="/projects/$projectId"
                         params={{ projectId: doc.projectId }}
                         className="text-primary hover:underline focus:outline-none focus-visible:underline"
+                        title={doc.projectId}
                         data-testid="document-detail-project-link"
                       >
-                        #{shortId(doc.projectId)}
+                        {projectQuery.data?.name ?? <Trans>Відкрити проєкт</Trans>}
                       </Link>
                     }
                   />
@@ -396,7 +414,7 @@ export function DocumentDetailDialog({
                 {isContractVirtual && doc.signedByName ? (
                   <DetailRow
                     icon={PenLine}
-                    label="Подписал"
+                    label={t`Підписант`}
                     value={
                       <span className="flex flex-col gap-0.5">
                         <span>{doc.signedByName}</span>
@@ -405,12 +423,12 @@ export function DocumentDetailDialog({
                     }
                   />
                 ) : null}
-                {isContractVirtual && doc.signedAt && signedAtDate ? (
+                {isContractVirtual && doc.signedAt ? (
                   <DetailRow
                     icon={Calendar}
-                    label="Дата подписания"
-                    value={signedAtDate}
-                    title={doc.signedAt}
+                    label={t`Дата підписання`}
+                    value={formatDate(doc.signedAt, locale, 'long')}
+                    title={formatDate(doc.signedAt, locale, 'dateTimeWithYear')}
                   />
                 ) : null}
               </div>
@@ -442,7 +460,9 @@ export function DocumentDetailDialog({
                   <div className="flex h-full w-full flex-col items-center justify-center gap-3 text-muted-foreground">
                     <FileText className="h-20 w-20" />
                     <p className="text-xs text-muted-foreground">
-                      Превью недоступно — нажмите «Скачать» чтобы открыть файл
+                      <Trans>
+                        Попередній перегляд недоступний — натисніть «Завантажити», щоб відкрити файл
+                      </Trans>
                     </p>
                   </div>
                 )}
@@ -456,7 +476,7 @@ export function DocumentDetailDialog({
               onClick={() => onOpenChange(false)}
               data-testid="document-detail-close"
             >
-              Закрыть
+              <Trans>Закрити</Trans>
             </Button>
 
             <Button
@@ -465,7 +485,7 @@ export function DocumentDetailDialog({
               data-testid="document-detail-download"
             >
               <Download className="mr-1.5 h-4 w-4" />
-              Скачать
+              <Trans>Завантажити</Trans>
             </Button>
 
             {canSoftDelete ? (
@@ -476,7 +496,7 @@ export function DocumentDetailDialog({
                 data-testid="document-detail-delete"
               >
                 <Trash className="mr-1.5 h-4 w-4" />
-                Удалить
+                <Trans>Видалити</Trans>
               </Button>
             ) : null}
 
@@ -488,7 +508,7 @@ export function DocumentDetailDialog({
                 data-testid="document-detail-restore"
               >
                 <RotateCcw className="mr-1.5 h-4 w-4" />
-                Восстановить
+                <Trans>Відновити</Trans>
               </Button>
             ) : null}
 
@@ -500,7 +520,7 @@ export function DocumentDetailDialog({
                 data-testid="document-detail-hard-delete"
               >
                 <Trash2 className="mr-1.5 h-4 w-4" />
-                Удалить навсегда
+                <Trans>Видалити назавжди</Trans>
               </Button>
             ) : null}
           </CrmDialogFooter>
@@ -511,13 +531,17 @@ export function DocumentDetailDialog({
       <AlertDialog open={confirmSoftDelete} onOpenChange={setConfirmSoftDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Переместить в корзину?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Перенести в архів?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Документ «{displayName}» можно восстановить позже из режима «Архив».
+              {i18n._(DELETE_CONFIRM_MESSAGES.ARCHIVE_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 softDelete.mutate(doc.id)
@@ -525,7 +549,7 @@ export function DocumentDetailDialog({
                 onOpenChange(false)
               }}
             >
-              Удалить
+              <Trans>Перенести в архів</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -535,14 +559,17 @@ export function DocumentDetailDialog({
       <AlertDialog open={confirmHardDelete} onOpenChange={setConfirmHardDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Видалити назавжди?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Файл «{displayName}» будет удалён навсегда из S3 и базы. Действие необратимо.
-              Продолжить?
+              {i18n._(DELETE_CONFIRM_MESSAGES.PERMANENT_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
@@ -551,7 +578,7 @@ export function DocumentDetailDialog({
                 onOpenChange(false)
               }}
             >
-              Удалить навсегда
+              <Trans>Видалити назавжди</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

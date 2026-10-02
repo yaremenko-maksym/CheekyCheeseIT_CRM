@@ -7,8 +7,8 @@
  *   - filename (cyrillic-preserved original name when available, sanitized
  *     fallback otherwise) — clicking opens DocumentDetailDialog
  *   - size · relative date · uploader name
- *   - row of RBAC-conditional buttons (Скачать, Удалить, Восстановить,
- *     Удалить навсегда)
+ *   - row of RBAC-conditional buttons (Download, Delete, Restore,
+ *     Delete permanently)
  *
  * Variant 3 hybrid filenames:
  *   - `originalName` is what we render to the user (Cyrillic / Unicode safe)
@@ -17,12 +17,15 @@
  *
  * RECEIPT-specific bits:
  *   - Soft-delete is forbidden (cascade from the parent transaction).
- *   - A "К транзакции #..." link shows the last 8 chars of the linked tx id.
+ *   - A «Receipt from Finance» chip links to /finance. It deliberately carries
+ *     NO number: it used to print `doc.projectId` under a «К транзакции» label
+ *     (a project id presented as a transaction id — COPY-H-docs-2); the
+ *     receipt-to-transaction link is not in the document DTO, so the chip
+ *     claims only what is true.
  */
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Download,
   FileSignature,
@@ -33,6 +36,7 @@ import {
   Trash2,
   UserCircle2,
 } from 'lucide-react'
+import { formatDate, formatRelativeTime } from '@crm/shared'
 import type { Document, SessionUser } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -59,6 +63,12 @@ import {
 } from '@/hooks/use-documents'
 import { DocumentImage } from './document-image'
 import { DocumentStatusBadge } from './document-status-badge'
+import {
+  CATEGORY_LABEL_MESSAGES,
+  DELETE_CONFIRM_MESSAGES,
+  DELETE_UNAVAILABLE_MESSAGES,
+  DOCUMENT_STATUS_MESSAGES,
+} from './document-labels'
 
 interface DocumentCardProps {
   doc: Document
@@ -71,9 +81,6 @@ interface DocumentCardProps {
   onOpen?: ((doc: Document) => void) | undefined
 }
 
-const RECEIPT_DELETE_TOOLTIP = 'Чек удаляется вместе с транзакцией'
-const INVOICE_DELETE_TOOLTIP = 'Инвойс удаляется вместе с транзакцией'
-
 /**
  * Extract the 8-char transaction-id prefix that InvoicesService.uploadInternal
  * stamps onto every INVOICE document's name (`invoice-<8chars>.pdf`). Returns
@@ -84,14 +91,9 @@ function extractInvoiceShortId(filename: string): string | null {
   return m && m[1] ? m[1] : null
 }
 
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(-8) : id
-}
-
 export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
-  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
-  // `locale`; this file otherwise stays Russian (wave e migrates it).
   const locale = useLocale()
+  const { t, i18n } = useLingui()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -118,8 +120,8 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
 
   // Uploader display name is embedded in the API response (LEFT JOIN
   // on `users`). When the uploader was hard-deleted the field is null
-  // and we fall back to a short id so the card still renders.
-  const uploaderLabel = doc.uploadedByDisplayName ?? shortId(doc.uploadedBy)
+  // and we fall back to a neutral «deleted user» label so the card still renders.
+  const uploaderLabel = doc.uploadedByDisplayName ?? t`Видалений користувач`
 
   // Variant 3 hybrid: prefer the original name (cyrillic preserved); fall
   // back to the sanitized `name` for legacy rows that pre-date migration 0011.
@@ -130,16 +132,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
   // page so users can jump to the matching record.
   const invoiceShortId = isInvoice ? extractInvoiceShortId(displayName) : null
 
-  const relativeDate = useMemo(() => {
-    try {
-      return formatDistanceToNow(new Date(doc.createdAt), {
-        addSuffix: true,
-        locale: ru,
-      })
-    } catch {
-      return doc.createdAt
-    }
-  }, [doc.createdAt])
+  const relativeDate = formatRelativeTime(doc.createdAt, locale)
 
   async function handleDownload() {
     // Refetch on demand — query has 4h staleTime so cached result will hit
@@ -163,7 +156,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         type="button"
         onClick={() => onOpen?.(doc)}
         className="group relative aspect-[4/3] w-full overflow-hidden rounded-t-xl bg-muted text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={`Открыть документ «${displayName}»`}
+        aria-label={t`Відкрити документ «${displayName}»`}
         data-testid="document-card-open"
       >
         {/* Fallback icon — always rendered behind; hidden when thumbnail
@@ -191,7 +184,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             variant="secondary"
             className="absolute right-2 top-2 bg-muted-foreground/15 text-foreground"
           >
-            Удалён
+            {i18n._(DOCUMENT_STATUS_MESSAGES.ARCHIVED)}
           </Badge>
         ) : null}
       </button>
@@ -217,7 +210,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes, locale) : '—'}</span>
           <span aria-hidden="true">·</span>
-          <span title={doc.createdAt}>{relativeDate}</span>
+          <span title={formatDate(doc.createdAt, locale, 'dateTimeWithYear')}>{relativeDate}</span>
         </div>
 
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
@@ -237,7 +230,8 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             to="/finance"
             className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
           >
-            <ReceiptIcon className="h-3.5 w-3.5" />К транзакции #{shortId(doc.projectId)}
+            <ReceiptIcon className="h-3.5 w-3.5" />
+            <Trans>Чек із Фінансів</Trans>
           </Link>
         ) : null}
 
@@ -251,7 +245,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             data-testid="document-card-invoice-label"
           >
             <FileSignature className="h-3.5 w-3.5" />
-            Инвойс #{invoiceShortId}
+            {i18n._(CATEGORY_LABEL_MESSAGES.INVOICE)} #{invoiceShortId}
           </span>
         ) : null}
 
@@ -264,7 +258,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             className="w-fit border-amber-500/30 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
             data-testid="document-card-pending-signature"
           >
-            Требует подписи
+            {i18n._(DOCUMENT_STATUS_MESSAGES.AWAITING_SIGNATURE)}
           </Badge>
         ) : null}
 
@@ -278,7 +272,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             data-track="document-download"
           >
             <Download className="mr-1 h-4 w-4" />
-            Скачать
+            <Trans>Завантажити</Trans>
           </Button>
 
           {canSoftDelete ? (
@@ -288,7 +282,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
               className="text-muted-foreground hover:text-destructive"
               onClick={() => setConfirmSoftDelete(true)}
               data-testid="document-delete"
-              aria-label="Удалить"
+              aria-label={t`Видалити`}
             >
               <Trash className="h-4 w-4" />
             </Button>
@@ -304,13 +298,13 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
                       variant="ghost"
                       disabled
                       className="text-muted-foreground"
-                      aria-label="Удалить (недоступно для чеков)"
+                      aria-label={i18n._(DELETE_UNAVAILABLE_MESSAGES.RECEIPT)}
                     >
                       <Trash className="h-4 w-4" />
                     </Button>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>{RECEIPT_DELETE_TOOLTIP}</TooltipContent>
+                <TooltipContent>{i18n._(DELETE_UNAVAILABLE_MESSAGES.RECEIPT)}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           ) : null}
@@ -325,14 +319,14 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
                       variant="ghost"
                       disabled
                       className="text-muted-foreground"
-                      aria-label="Удалить (недоступно для инвойсов)"
+                      aria-label={i18n._(DELETE_UNAVAILABLE_MESSAGES.INVOICE)}
                       data-testid="document-delete-invoice-disabled"
                     >
                       <Trash className="h-4 w-4" />
                     </Button>
                   </span>
                 </TooltipTrigger>
-                <TooltipContent>{INVOICE_DELETE_TOOLTIP}</TooltipContent>
+                <TooltipContent>{i18n._(DELETE_UNAVAILABLE_MESSAGES.INVOICE)}</TooltipContent>
               </Tooltip>
             </TooltipProvider>
           ) : null}
@@ -346,7 +340,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
               data-testid="document-restore"
             >
               <RotateCcw className="mr-1 h-4 w-4" />
-              Восстановить
+              <Trans>Відновити</Trans>
             </Button>
           ) : null}
 
@@ -359,7 +353,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
               data-testid="document-hard-delete"
             >
               <Trash2 className="mr-1 h-4 w-4" />
-              Удалить навсегда
+              <Trans>Видалити назавжди</Trans>
             </Button>
           ) : null}
         </div>
@@ -369,20 +363,24 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
       <AlertDialog open={confirmSoftDelete} onOpenChange={setConfirmSoftDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Переместить в корзину?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Перенести в архів?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Документ «{displayName}» можно восстановить позже из режима «Архив».
+              {i18n._(DELETE_CONFIRM_MESSAGES.ARCHIVE_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 softDelete.mutate(doc.id)
                 setConfirmSoftDelete(false)
               }}
             >
-              Удалить
+              <Trans>Перенести в архів</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -392,13 +390,17 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
       <AlertDialog open={confirmHardDelete} onOpenChange={setConfirmHardDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Видалити назавжди?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Файл будет удалён навсегда из S3 и базы. Действие необратимо. Продолжить?
+              {i18n._(DELETE_CONFIRM_MESSAGES.PERMANENT_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
@@ -406,7 +408,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
                 setConfirmHardDelete(false)
               }}
             >
-              Удалить навсегда
+              <Trans>Видалити назавжди</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

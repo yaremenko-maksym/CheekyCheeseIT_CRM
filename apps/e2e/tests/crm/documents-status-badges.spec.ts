@@ -2,10 +2,10 @@
  * documents-status-badges.spec.ts — PR-2 E2E: unified document list + status badges
  *
  * Coverage:
- * - AC1: INVOICE row with statusBadge invoice/ready → "Ожидает подписи" badge
- * - AC2: INVOICE row with statusBadge invoice/signed → "Подписано" badge
- * - AC3: RECEIPT row with statusBadge receipt/pending → "Требует подтверждения" badge
- * - AC4: RECEIPT row with statusBadge receipt/validated → "Подтверждено" badge
+ * - AC1: INVOICE row with statusBadge invoice/ready → "Очікує підпису" badge
+ * - AC2: INVOICE row with statusBadge invoice/signed → "Підписано" badge
+ * - AC3: RECEIPT row with statusBadge receipt/pending → "Очікує підтвердження" badge
+ * - AC4: RECEIPT row with statusBadge receipt/validated → "Підтверджено" badge
  * - AC5: employee_contract virtual entry (source='employee_contract') shows contract badge
  * - AC6: RESUME row has no status badge
  * - AC7: List view renders badges same as grid view (view toggle)
@@ -17,6 +17,13 @@
 import { test, expect } from '@playwright/test'
 import { USERS, mockAuthAs, API_RE } from '../fixtures'
 import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
+
+// Badge copy is asserted through the compiled uk catalog (i18n wave e PR2):
+// a reworded badge fails with the stale text named, not as a Playwright timeout.
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 // ---------------------------------------------------------------------------
 // Document fixtures (PR-2 shape with statusBadge)
@@ -148,7 +155,7 @@ async function mockDocumentsList(page: import('@playwright/test').Page, docs: ty
 // ---------------------------------------------------------------------------
 
 test.describe('PR-2: INVOICE status badges', () => {
-  test('AC1: INVOICE/ready → "Ожидает подписи" badge visible in grid view', async ({ page }) => {
+  test('AC1: INVOICE/ready → "Очікує підпису" badge visible in grid view', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_INVOICE_READY])
 
@@ -159,10 +166,10 @@ test.describe('PR-2: INVOICE status badges', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'invoice')
     await expect(badge).toHaveAttribute('data-badge-state', 'ready')
-    await expect(badge).toHaveText('Ожидает подписи')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Очікує підпису'))
   })
 
-  test('AC2: INVOICE/signed → "Подписано" badge visible in grid view', async ({ page }) => {
+  test('AC2: INVOICE/signed → "Підписано" badge visible in grid view', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_INVOICE_SIGNED])
 
@@ -172,7 +179,7 @@ test.describe('PR-2: INVOICE status badges', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'invoice')
     await expect(badge).toHaveAttribute('data-badge-state', 'signed')
-    await expect(badge).toHaveText('Подписано')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Підписано'))
   })
 })
 
@@ -181,7 +188,7 @@ test.describe('PR-2: INVOICE status badges', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('PR-2: RECEIPT status badges', () => {
-  test('AC3: RECEIPT/pending → "Требует подтверждения" badge visible in grid view', async ({
+  test('AC3: RECEIPT/pending → "Очікує підтвердження" badge visible in grid view', async ({
     page,
   }) => {
     await mockAuthAs(page, USERS.admin)
@@ -193,10 +200,10 @@ test.describe('PR-2: RECEIPT status badges', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'receipt')
     await expect(badge).toHaveAttribute('data-badge-state', 'pending')
-    await expect(badge).toHaveText('Требует подтверждения')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Очікує підтвердження'))
   })
 
-  test('AC4: RECEIPT/validated → "Подтверждено" badge visible in grid view', async ({ page }) => {
+  test('AC4: RECEIPT/validated → "Підтверджено" badge visible in grid view', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_RECEIPT_VALIDATED])
 
@@ -206,7 +213,7 @@ test.describe('PR-2: RECEIPT status badges', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'receipt')
     await expect(badge).toHaveAttribute('data-badge-state', 'validated')
-    await expect(badge).toHaveText('Подтверждено')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Підтверджено'))
   })
 })
 
@@ -215,7 +222,7 @@ test.describe('PR-2: RECEIPT status badges', () => {
 // ---------------------------------------------------------------------------
 
 test.describe('PR-2: employee_contract virtual entries', () => {
-  test('AC5a: CONTRACT/draft virtual entry → "Драфт" badge visible', async ({ page }) => {
+  test('AC5a: CONTRACT/draft virtual entry → "Чернетка" badge visible', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     await mockDocumentsList(page, [DOC_CONTRACT_DRAFT])
 
@@ -225,10 +232,10 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'contract')
     await expect(badge).toHaveAttribute('data-badge-state', 'draft')
-    await expect(badge).toHaveText('Драфт')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Чернетка'))
   })
 
-  test('AC5b: CONTRACT/ready virtual entry → "Готово к подписи" badge visible', async ({
+  test('AC5b: CONTRACT/ready virtual entry → "Готовий до підпису" badge visible', async ({
     page,
   }) => {
     await mockAuthAs(page, USERS.admin)
@@ -240,7 +247,7 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'contract')
     await expect(badge).toHaveAttribute('data-badge-state', 'ready')
-    await expect(badge).toHaveText('Готово к подписи')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Готовий до підпису'))
   })
 })
 
@@ -286,7 +293,7 @@ test.describe('PR-2: list view badges', () => {
     await expect(badge).toBeVisible()
     await expect(badge).toHaveAttribute('data-badge-kind', 'invoice')
     await expect(badge).toHaveAttribute('data-badge-state', 'ready')
-    await expect(badge).toHaveText('Ожидает подписи')
+    await expect(badge).toHaveText(assertInCatalog(uk, 'Очікує підпису'))
   })
 
   test('AC7b: list view — RESUME row has no status badge', async ({ page }) => {
@@ -379,7 +386,6 @@ test.describe('PR-2: category filter', () => {
     // Pick CONTRACT option from the dropdown — text from the uk catalog
     // (task-i18n-stage3e-pr1: CATEGORY_LABEL_MESSAGES, COPY-H-docs-3), not
     // the pre-migration "Договоры" literal.
-    const uk = await loadMessages('uk')
     await page.getByRole('option', { name: assertInCatalog(uk, 'Договір') }).click()
 
     // After filtering: only CONTRACT badges visible
