@@ -107,10 +107,15 @@ function metaLinesFor(
           : 'proposingNew'
     // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's select() macro must read this options object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs); `other` is unreachable — `variant` is one of the four keys above
     const leadText = select(variant, {
+      // Stryker disable next-line StringLiteral: a multi-line options object needs its own per-line disable ("next-line" does not cascade past the opening brace); the select() macro must read each message as a literal at compile time — see the ObjectLiteral directive above
       proposedFrom: `Зараз ${cur}% → запропоновано ${pct}%`,
+      // Stryker disable next-line StringLiteral: a multi-line options object needs its own per-line disable ("next-line" does not cascade past the opening brace); the select() macro must read each message as a literal at compile time — see the ObjectLiteral directive above
       proposedNew: `Запропоновано ${pct}%`,
+      // Stryker disable next-line StringLiteral: a multi-line options object needs its own per-line disable ("next-line" does not cascade past the opening brace); the select() macro must read each message as a literal at compile time — see the ObjectLiteral directive above
       proposingFrom: `Зараз ${cur}% → пропонують ${pct}%`,
+      // Stryker disable next-line StringLiteral: a multi-line options object needs its own per-line disable ("next-line" does not cascade past the opening brace); the select() macro must read each message as a literal at compile time — see the ObjectLiteral directive above
       proposingNew: `Пропонують ${pct}%`,
+      // Stryker disable next-line StringLiteral: a multi-line options object needs its own per-line disable ("next-line" does not cascade past the opening brace); the select() macro must read each message as a literal at compile time — see the ObjectLiteral directive above
       other: `${pct}%`,
     })
     const lead: MetaSegment = { text: leadText, nowrap: true }

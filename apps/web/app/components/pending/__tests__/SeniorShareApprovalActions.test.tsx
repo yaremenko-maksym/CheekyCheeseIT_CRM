@@ -116,6 +116,9 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.queryByText(/адміністратору/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Причина обов’язкова/)).not.toBeInTheDocument()
     expect(screen.getByText('Причина відмови *')).toBeInTheDocument()
+    // task-i18n-stage3e-pr4: placeholder + the dialog's own cancel button.
+    expect(screen.getByPlaceholderText('Наприклад: помилилися з розрахунком')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Скасувати' })).toBeInTheDocument()
   })
 
   it('onActed is optional — a successful approve with no onActed prop at all does not throw', () => {

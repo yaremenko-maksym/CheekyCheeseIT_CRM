@@ -226,7 +226,10 @@ describe('/pending — AC6 states', () => {
     expect(screen.getByText('Не вдалося завантажити, що чекає на рішення')).toBeInTheDocument()
     // Accessible name is the `aria-label` ("Повторити завантаження" — same
     // DropBalanceCard.tsx precedent), not the shorter visible text.
-    fireEvent.click(screen.getByRole('button', { name: 'Повторити завантаження' }))
+    const retry = screen.getByRole('button', { name: 'Повторити завантаження' })
+    // The VISIBLE label is shorter than the aria-label — assert it separately.
+    expect(retry).toHaveTextContent('Повторити')
+    fireEvent.click(retry)
     expect(refetchSpy).toHaveBeenCalledTimes(1)
   })
 
