@@ -998,6 +998,10 @@ msgstr "Benefits"
 msgid "Бічна навігація CRM — перехід між розділами системи."
 msgstr "CRM side navigation — move between sections of the system."
 
+#: apps/web/app/components/documents/pdf-preview.tsx
+msgid "Браузер заблокував вбудований перегляд PDF"
+msgstr "Your browser blocked the built-in PDF viewer"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Браузер заблокував вбудований перегляд PDF. Завантажте файл, щоб відкрити його локально."
 msgstr "Your browser blocked the embedded PDF preview. Download the file to open it locally."
@@ -2393,6 +2397,10 @@ msgstr "You can close this tab — recognition runs on the server and the result
 msgid "Власна"
 msgstr "Custom"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Власник"
+msgstr "Owner"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Власник проєкту"
 msgstr "Project owner"
@@ -2839,6 +2847,10 @@ msgstr "Only USDT ERC-20 payouts are available for the “{roleLabel}” role."
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Seniors and admins can only be paid to USDT ERC-20"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC"
+msgstr "Up to {maxSize}. Formats: PDF, JPG, PNG, WebP, HEIC"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "До активної версії"
@@ -3455,6 +3467,7 @@ msgid "Завантажений файл"
 msgstr "Uploaded file"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
+#: apps/web/app/components/documents/pdf-preview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Завантаження PDF…"
 msgstr "Loading PDF…"
@@ -3467,6 +3480,7 @@ msgstr "Loading the contract…"
 msgid "Завантаження причини…"
 msgstr "Loading the reason…"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Завантаження…"
 msgstr "Uploading…"
@@ -3479,6 +3493,7 @@ msgstr "Uploading…"
 msgid "Завантажити"
 msgstr "Download"
 
+#: apps/web/app/components/documents/pdf-preview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Завантажити PDF"
@@ -3488,10 +3503,15 @@ msgstr "Download PDF"
 msgid "Завантажити для перегляду"
 msgstr "Download to view"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Завантажити документ"
+msgstr "Upload document"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 msgid "Завантажити резюме"
 msgstr "Download resume"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Завантажити файл"
@@ -4146,6 +4166,10 @@ msgstr "Loading the image"
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "External link to an image (https://…)"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Зона перетягування файлу"
+msgstr "File drop zone"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Іван Іваненко"
 msgstr "Ivan Ivanenko"
@@ -4267,6 +4291,7 @@ msgstr "Custom variables"
 msgid "Кастомні змінні не додані"
 msgstr "No custom variables added"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
@@ -4783,6 +4808,10 @@ msgstr "Company logo"
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "м. Київ, вул. Хрещатик, 1"
 msgstr "1 Khreshchatyk St, Kyiv"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Максимальний розмір: {maxSize}. Допустимі формати: PDF, JPG, PNG, WebP, HEIC."
+msgstr "Maximum size: {maxSize}. Allowed formats: PDF, JPG, PNG, WebP, HEIC."
 
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Максимум"
@@ -5301,6 +5330,10 @@ msgstr "Could not archive. Try again"
 msgid "Не вдалося завантажити PDF"
 msgstr "Could not load the PDF"
 
+#: apps/web/app/components/documents/pdf-preview.tsx
+msgid "Не вдалося завантажити PDF — спробуйте відкрити файл ще раз"
+msgstr "Couldn’t load the PDF — try opening the file again"
+
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Не вдалося завантажити PDF попереднього перегляду"
@@ -5317,6 +5350,10 @@ msgstr "Could not load income tracking data."
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Не вдалося завантажити документ"
 msgstr "Could not load the document"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Не вдалося завантажити документ — спробуйте ще раз"
+msgstr "Couldn’t upload the document — try again"
 
 #: apps/web/app/hooks/use-documents.ts
 msgid "Не вдалося завантажити документ. Спробуйте ще раз"
@@ -5807,6 +5844,10 @@ msgstr "No drops available"
 msgid "Немає доступних команд дропа."
 msgstr "No drop teams available."
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Немає доступних проєктів"
+msgstr "No projects available"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.NO_HR_CONTACT_ACCESS"
@@ -6113,6 +6154,14 @@ msgstr "Senior’s notes"
 msgid "Нотатку збережено"
 msgstr "Note saved"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Оберіть власника"
+msgstr "Choose an owner"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Оберіть категорію"
+msgstr "Choose a category"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DROP_TEAM_ID_REQUIRED"
@@ -6121,6 +6170,10 @@ msgstr "Select a drop team"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Оберіть особистий рахунок адміна для цього розрахунку"
 msgstr "Choose an admin's personal account for this settlement"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Оберіть проєкт"
+msgstr "Choose a project"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Оберіть сеньйора без активної команди. Дроп та інші учасники команди залишаються."
@@ -6788,6 +6841,10 @@ msgstr "Recalculating linked payouts…"
 msgid "Перетягніть зображення і скористайтеся повзунком для масштабування — кадр зберігається колом 512×512"
 msgstr "Drag the image and use the slider to zoom — the crop is saved as a 512×512 circle"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Перетягніть файл сюди або натисніть, щоб обрати"
+msgstr "Drag a file here or click to choose one"
+
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Перетягніть файл у вікно або натисніть кнопку вище"
 msgstr "Drag a file into the window or click the button above"
@@ -7358,6 +7415,11 @@ msgstr "Terms preview"
 msgid "Попередній перегляд умов використання"
 msgstr "Terms of Service preview"
 
+#: apps/web/app/components/documents/pdf-preview.tsx
+#: apps/web/app/components/documents/pdf-preview.tsx
+msgid "Попередній перегляд: {filename}"
+msgstr "Preview: {filename}"
+
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Попередня"
 msgstr "Previous"
@@ -7592,6 +7654,10 @@ msgstr "Remove from the project?"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.TEAM_CANNOT_REMOVE_SENIOR"
 msgstr "The senior can't be removed from a team — delete the team instead"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Прибрати файл"
+msgstr "Remove file"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Прибуток за останній місяць"
@@ -7828,6 +7894,7 @@ msgid "проєкт"
 msgstr "project"
 
 #: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -8662,6 +8729,7 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/documents/document-row.tsx
+#: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
@@ -9850,6 +9918,14 @@ msgstr "File uploaded"
 msgid "Файл завантажено, розпізнаємо резюме"
 msgstr "File uploaded, parsing the resume"
 
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Файл завеликий — оберіть файл менше {maxSize}"
+msgstr "The file is too large — choose a file under {maxSize}"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Файл завеликий ({fileSize}) — оберіть файл менше {maxSize}"
+msgstr "The file is too large ({fileSize}) — choose a file under {maxSize}"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Файл занадто великий."
 msgstr "The file is too large."
@@ -10085,6 +10161,11 @@ msgstr "This Google account is already used to sign in with a different email ad
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.INTERVIEW_SENIOR_NOT_IN_YOUR_TEAMS"
 msgstr "This senior isn't in your teams"
+
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+#: apps/web/app/components/documents/upload-document-dialog.tsx
+msgid "Цей формат не підтримується — оберіть PDF, JPG, PNG, WebP або HEIC"
+msgstr "This file type isn’t supported — choose a PDF, JPG, PNG, WebP or HEIC file"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

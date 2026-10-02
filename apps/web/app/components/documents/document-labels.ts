@@ -3,7 +3,7 @@
  * the /documents screen and its components (task-i18n-stage3e-pr1,
  * COPY-H-docs-3/-4/-5/-1/-9).
  *
- * Before this file, THREE separate `CATEGORY_LABELS_RU: Record<DocumentCategory,
+ * Before this file, THREE separate per-file `Record<DocumentCategory,
  * string>` maps lived in `documents.tsx`, `upload-document-dialog.tsx` and
  * `document-detail-dialog.tsx` — and disagreed with each other on the same
  * category (`CONTRACT`: «Договоры» / «Договор» / «Контракт», three different
@@ -14,10 +14,9 @@
  * (`sourceLocale: 'uk'`) with `en` as the second original.
  *
  * PR1 migrated `documents.tsx` onto the hub, PR2 migrated the card, row,
- * detail dialog and status badge (the dialog's local map is gone). The one
- * remaining `CATEGORY_LABELS_RU` copy (`upload-document-dialog.tsx`) is
- * migrated by PR3 of the same wave (`git grep 'CATEGORY_LABELS_RU'` stays
- * non-empty until PR3 lands).
+ * detail dialog and status badge, and PR3 the upload dialog — the last local
+ * copy. Every consumer now reads this hub, so a second category map cannot
+ * reappear without disagreeing with it.
  *
  * `CATEGORY_LABEL_MESSAGES_LOWER` exists ONLY because `.toLowerCase()` on
  * the RESULT of `i18n._()` is banned (Global Constraints, this wave's plan):
@@ -31,7 +30,7 @@
  * and consumed by `document-status-badge.tsx`, `document-card.tsx`,
  * `document-row.tsx` and `document-detail-dialog.tsx` (PR2); `upload-
  * document-dialog.tsx` (PR3) imports the same canon instead of
- * re-inventing its own wording — the exact failure `CATEGORY_LABELS_RU`
+ * re-inventing its own wording — the exact failure the per-file maps
  * had (COPY-H-docs-4: `READY_TO_SIGN` reads "Готово к подписи" in one place
  * and "Ожидает подписи" in another for the same semantic status).
  */

@@ -17,55 +17,106 @@
  *   AC7. handleDownload НЕ вызывает downloadQuery.refetch() для PDF
  */
 
-import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
-import { PdfPreview } from '../pdf-preview'
+import { render, screen, act } from '@testing-library/react'
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { PdfPreview, type PdfPreviewProps } from '../pdf-preview'
 
 // ---------------------------------------------------------------------------
-// PdfPreview rendering tests
+// PdfPreview rendering tests (task-i18n-stage3e-pr3: text resolved through the
+// REAL compiled catalog, both locales; expected strings are literals taken
+// from the plan's canon, not recomputed from the component)
 // ---------------------------------------------------------------------------
 
-describe('PdfPreview', () => {
-  it('AC1: показывает лоадер когда isLoading=true и blobUrl=null', () => {
-    render(<PdfPreview blobUrl={null} isLoading={true} hasError={false} filename="test.pdf" />)
-    expect(screen.getByText('Загрузка PDF…')).toBeInTheDocument()
+function renderPreview(props: PdfPreviewProps) {
+  return render(<PdfPreview {...props} />, { wrapper: I18nTestProvider })
+}
+
+describe.each([
+  {
+    locale: 'uk' as const,
+    loading: 'Завантаження PDF…',
+    error: 'Не вдалося завантажити PDF — спробуйте відкрити файл ще раз',
+    iframeTitle: 'Попередній перегляд: document.pdf',
+    blocked: 'Браузер заблокував вбудований перегляд PDF',
+    download: 'Завантажити PDF',
+  },
+  {
+    locale: 'en' as const,
+    loading: 'Loading PDF…',
+    error: 'Couldn’t load the PDF — try opening the file again',
+    iframeTitle: 'Preview: document.pdf',
+    blocked: 'Your browser blocked the built-in PDF viewer',
+    download: 'Download PDF',
+  },
+])('PdfPreview ($locale)', ({ locale, loading, error, iframeTitle, blocked, download }) => {
+  beforeEach(async () => {
+    await loadCatalog(locale)
+  })
+  afterEach(async () => {
+    await loadCatalog('uk')
   })
 
-  it('AC2: рендерит iframe когда blobUrl задан', () => {
-    render(
-      <PdfPreview
-        blobUrl="blob:http://localhost/fake-blob-id"
-        isLoading={false}
-        hasError={false}
-        filename="document.pdf"
-        testId="document-pdf-preview"
-      />,
-    )
+  it('AC1: показывает лоадер когда isLoading=true и blobUrl=null', () => {
+    renderPreview({ blobUrl: null, isLoading: true, hasError: false, filename: 'test.pdf' })
+    expect(screen.getByText(loading)).toBeInTheDocument()
+  })
+
+  it('AC2: рендерит iframe когда blobUrl задан; title и aria-label несут имя файла', () => {
+    renderPreview({
+      blobUrl: 'blob:http://localhost/fake-blob-id',
+      isLoading: false,
+      hasError: false,
+      filename: 'document.pdf',
+      testId: 'document-pdf-preview',
+    })
     expect(screen.getByTestId('document-pdf-preview')).toBeInTheDocument()
-    // iframe должен присутствовать в DOM. Найден по accessible-имени
-    // (pdf-preview.tsx ставит `title` + `aria-label`), а не через
-    // `preview.querySelector('iframe')` — task-lint-teeth: экранный запрос
-    // заодно проверяет, что предпросмотр вообще доступен скринридеру.
-    const iframe = screen.getByTitle('Предпросмотр: document.pdf')
+    // Найден по accessible-имени (title + aria-label одинаковы).
+    const iframe = screen.getByTitle(iframeTitle)
     expect(iframe).toHaveAttribute('src', 'blob:http://localhost/fake-blob-id')
+    expect(iframe).toHaveAttribute('aria-label', iframeTitle)
+    // M-8: мёртвый <object>-фолбэк внутри <iframe> удалён.
+    expect(iframe).toBeEmptyDOMElement()
   })
 
   it('AC3: показывает состояние ошибки когда hasError=true', () => {
-    render(<PdfPreview blobUrl={null} isLoading={false} hasError={true} filename="test.pdf" />)
-    expect(screen.getByText('Не удалось загрузить PDF.')).toBeInTheDocument()
+    renderPreview({ blobUrl: null, isLoading: false, hasError: true, filename: 'test.pdf' })
+    expect(screen.getByText(error)).toBeInTheDocument()
+    expect(screen.getByTestId('document-pdf-preview-error')).toBeInTheDocument()
   })
 
   it('AC4: пустое состояние когда нет blob и нет загрузки и нет ошибки', () => {
-    render(<PdfPreview blobUrl={null} isLoading={false} hasError={false} filename="test.pdf" />)
-    // Нет лоадера, нет ошибки, нет iframe
-    expect(screen.queryByText('Загрузка PDF…')).not.toBeInTheDocument()
-    expect(screen.queryByText('Не удалось загрузить PDF.')).not.toBeInTheDocument()
-    expect(screen.queryByTitle('Предпросмотр: test.pdf')).not.toBeInTheDocument()
+    renderPreview({ blobUrl: null, isLoading: false, hasError: false, filename: 'test.pdf' })
+    expect(screen.queryByText(loading)).not.toBeInTheDocument()
+    expect(screen.queryByText(error)).not.toBeInTheDocument()
+    expect(screen.queryByRole('link')).not.toBeInTheDocument()
   })
 
   it('AC5: data-testid корректно проставляется', () => {
-    render(<PdfPreview blobUrl={null} isLoading={false} hasError={false} testId="custom-testid" />)
+    renderPreview({ blobUrl: null, isLoading: false, hasError: false, testId: 'custom-testid' })
     expect(screen.getByTestId('custom-testid')).toBeInTheDocument()
+  })
+
+  it('M-7: после таймаута iframe кнопка названа «скачать» и действительно скачивает (download)', () => {
+    vi.useFakeTimers()
+    try {
+      renderPreview({
+        blobUrl: 'blob:http://localhost/fake',
+        isLoading: false,
+        hasError: false,
+        filename: 'cv.pdf',
+      })
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(screen.getByText(blocked)).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: download })
+      // Подпись обещает скачивание — атрибут download это обещание выполняет.
+      expect(link).toHaveAttribute('download', 'cv.pdf')
+      expect(link).toHaveAttribute('href', 'blob:http://localhost/fake')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

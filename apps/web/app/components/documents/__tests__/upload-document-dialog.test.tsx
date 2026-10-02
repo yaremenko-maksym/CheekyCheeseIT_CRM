@@ -82,10 +82,13 @@ describe('UploadDocumentDialog', () => {
     // task-i18n-stage3a (Task 2) — mutation-gate gap-fill: the toast names
     // BOTH the limit (10.0 MB) and the picked file's own size (11.0 MB),
     // through `formatBytes(bytes, locale)` — nothing asserted on this text
-    // before. The dialog's own "Максимальный размер: 10,0 МБ…" helper text
+    // before. The dialog's own "Максимальний розмір: 10,0 МБ…" helper text
     // repeats the limit, so match on the toast's FULL sentence (unique).
+    // task-i18n-stage3e-pr3: one sentence, names both sizes AND the next step.
     await waitFor(() => {
-      expect(screen.getByText('Файл больше 10,0 МБ. Ваш файл: 11,0 МБ')).toBeInTheDocument()
+      expect(
+        screen.getByText('Файл завеликий (11,0 МБ) — оберіть файл менше 10,0 МБ'),
+      ).toBeInTheDocument()
     })
   })
 
@@ -93,8 +96,15 @@ describe('UploadDocumentDialog', () => {
     renderDialog()
     const input = screen.getByTestId('upload-file-input') as HTMLInputElement
     const bad = new File(['hello'], 'note.txt', { type: 'text/plain' })
-    await userEvent.upload(input, bad)
+    // `userEvent.upload` honours the input's `accept` and would drop the file
+    // before the handler runs; a raw change event exercises the client gate.
+    fireEvent.change(input, { target: { files: [bad] } })
     expect(screen.getByTestId('upload-submit')).toBeDisabled()
+    await waitFor(() => {
+      expect(
+        screen.getByText('Цей формат не підтримується — оберіть PDF, JPG, PNG, WebP або HEIC'),
+      ).toBeInTheDocument()
+    })
   })
 
   it('toggles dropzone visual state on drag events', () => {
@@ -115,5 +125,72 @@ describe('UploadDocumentDialog', () => {
     const args = mockMutate.mock.calls[0]?.[0] as { file: File; category: string }
     expect(args.file.name).toBe('doc.pdf')
     expect(args.category).toBe('RESUME')
+  })
+
+  // ---- task-i18n-stage3e-pr3: server-side failure → status-based text ------
+  // (COPY-H-docs-6: never the raw axios `e.message`, always a next step.)
+  async function submitAndFail(error: unknown) {
+    mockMutate.mockImplementation(
+      (_vars: unknown, opts: { onError?: (e: unknown) => void } | undefined) => {
+        opts?.onError?.(error)
+      },
+    )
+    renderDialog()
+    const input = screen.getByTestId('upload-file-input') as HTMLInputElement
+    await userEvent.upload(input, new File(['%PDF-1.4'], 'doc.pdf', { type: 'application/pdf' }))
+    await userEvent.click(screen.getByTestId('upload-submit'))
+    return screen.findByRole('alert')
+  }
+
+  function axiosLike(status: number, message: string) {
+    return Object.assign(new Error(message), { response: { status, data: {} } })
+  }
+
+  it('413 from the server names the limit and the next step, not the axios text', async () => {
+    const alert = await submitAndFail(axiosLike(413, 'Request failed with status code 413'))
+    expect(alert).toHaveTextContent('Файл завеликий — оберіть файл менше 10,0 МБ')
+    expect(alert).not.toHaveTextContent('Request failed')
+  })
+
+  it('415 from the server tells which formats are accepted', async () => {
+    const alert = await submitAndFail(axiosLike(415, 'Request failed with status code 415'))
+    expect(alert).toHaveTextContent(
+      'Цей формат не підтримується — оберіть PDF, JPG, PNG, WebP або HEIC',
+    )
+  })
+
+  it('any other failure with an empty message falls back to an actionable sentence', async () => {
+    const alert = await submitAndFail(new Error(''))
+    expect(alert).toHaveTextContent('Не вдалося завантажити документ — спробуйте ще раз')
+  })
+
+  it('category options come from the hub (one word per category) and button reads «Завантажити файл»', async () => {
+    renderDialog()
+    expect(screen.getByTestId('upload-submit')).toHaveTextContent('Завантажити файл')
+    await userEvent.click(screen.getByTestId('upload-category-select'))
+    expect(await screen.findByRole('option', { name: 'Скан' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Договір' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Скан документа' })).not.toBeInTheDocument()
+  })
+
+  it('renders in English when the en catalog is active', async () => {
+    await loadCatalog('en')
+    try {
+      renderDialog()
+      expect(screen.getByText('Upload document')).toBeInTheDocument()
+      expect(screen.getByTestId('upload-submit')).toHaveTextContent('Upload a file')
+      const input = screen.getByTestId('upload-file-input') as HTMLInputElement
+      const big = new File([new Uint8Array(11 * 1024 * 1024)], 'huge.pdf', {
+        type: 'application/pdf',
+      })
+      await userEvent.upload(input, big)
+      await waitFor(() => {
+        expect(
+          screen.getByText('The file is too large (11.0 MB) — choose a file under 10.0 MB'),
+        ).toBeInTheDocument()
+      })
+    } finally {
+      await loadCatalog('uk')
+    }
   })
 })

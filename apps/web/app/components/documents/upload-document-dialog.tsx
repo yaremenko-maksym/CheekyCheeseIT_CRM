@@ -12,6 +12,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { FileUp, X } from 'lucide-react'
 import {
   DOCUMENT_MAX_BYTES,
@@ -40,9 +41,11 @@ import {
 import { UploadProgress } from '@/components/ui/upload-progress'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/lib/i18n'
+import { getAxiosStatus, getApiErrorMessage } from '@/lib/axios-utils'
 import { formatBytes } from '@/lib/format-bytes'
 import { useUploadDocument } from '@/hooks/use-documents'
 import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
+import { CATEGORY_LABEL_MESSAGES } from './document-labels'
 
 interface ProjectOption {
   id: string
@@ -77,19 +80,6 @@ interface UploadDocumentDialogProps {
 
 const DEFAULT_ALLOWED: DocumentCategory[] = ['RESUME', 'SCAN', 'CONTRACT']
 
-const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = {
-  RESUME: 'Резюме',
-  SCAN: 'Скан документа',
-  CONTRACT: 'Договор',
-  RECEIPT: 'Чек',
-  AVATAR: 'Аватар',
-  LOGO: 'Логотип',
-  // INVOICE документы создаются системой (Invoice Signing Epic) и не могут
-  // быть загружены вручную — лейбл оставлен на случай, если ADMIN включит
-  // «показать internal» и увидит инвойсы в общем списке документов.
-  INVOICE: 'Инвойс',
-}
-
 export function UploadDocumentDialog({
   open,
   onOpenChange,
@@ -102,9 +92,11 @@ export function UploadDocumentDialog({
   defaultProjectId,
   onUploaded,
 }: UploadDocumentDialogProps) {
-  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
-  // `locale`; this file otherwise stays Russian (wave e migrates it).
   const locale = useLocale()
+  const { t, i18n } = useLingui()
+  // Named once so every sentence below shares the SAME rendered limit
+  // (`10,0 МБ` / `10.0 MB`) as a plain-identifier slot.
+  const maxSize = formatBytes(DOCUMENT_MAX_BYTES, locale)
   const [file, setFile] = useState<File | null>(null)
   const [category, setCategory] = useState<DocumentCategory>(defaultCategory)
   const [projectId, setProjectId] = useState<string | undefined>(defaultProjectId)
@@ -138,14 +130,13 @@ export function UploadDocumentDialog({
       return
     }
     if (picked.size > DOCUMENT_MAX_BYTES) {
-      toast.error(
-        `Файл больше ${formatBytes(DOCUMENT_MAX_BYTES, locale)}. Ваш файл: ${formatBytes(picked.size, locale)}`,
-      )
+      const fileSize = formatBytes(picked.size, locale)
+      toast.error(t`Файл завеликий (${fileSize}) — оберіть файл менше ${maxSize}`)
       setFile(null)
       return
     }
     if (!(DOCUMENT_MIME_WHITELIST as readonly string[]).includes(picked.type)) {
-      toast.error('Недопустимый формат файла. Разрешены: PDF, JPG, PNG, WebP, HEIC')
+      toast.error(t`Цей формат не підтримується — оберіть PDF, JPG, PNG, WebP або HEIC`)
       setFile(null)
       return
     }
@@ -171,7 +162,21 @@ export function UploadDocumentDialog({
           onOpenChange(false)
           onUploaded?.()
         },
-        onError: (e) => progress.error(e.message || 'Не удалось загрузить документ'),
+        onError: (e) => {
+          // Status-based text, never the raw axios `e.message` (COPY-H-docs-6):
+          // 413/415 name the next step; everything else goes through the
+          // catalog by error code, with an actionable fallback.
+          const status = getAxiosStatus(e)
+          if (status === 413) {
+            progress.error(t`Файл завеликий — оберіть файл менше ${maxSize}`)
+          } else if (status === 415) {
+            progress.error(t`Цей формат не підтримується — оберіть PDF, JPG, PNG, WebP або HEIC`)
+          } else {
+            const fallback = t`Не вдалося завантажити документ — спробуйте ще раз`
+            // `||`: an error with an empty `message` must not render a blank alert.
+            progress.error(getApiErrorMessage(e, fallback) || fallback)
+          }
+        },
       },
     )
   }
@@ -180,10 +185,13 @@ export function UploadDocumentDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <CrmDialogContent>
         <CrmDialogHeader>
-          <DialogTitle>Загрузить документ</DialogTitle>
+          <DialogTitle>
+            <Trans>Завантажити документ</Trans>
+          </DialogTitle>
           <DialogDescription className="mt-1 text-sm text-muted-foreground">
-            Максимальный размер: {formatBytes(DOCUMENT_MAX_BYTES, locale)}. Допустимые форматы: PDF,
-            JPG, PNG, WebP, HEIC.
+            <Trans>
+              Максимальний розмір: {maxSize}. Допустимі формати: PDF, JPG, PNG, WebP, HEIC.
+            </Trans>
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -227,11 +235,11 @@ export function UploadDocumentDialog({
                 inputRef.current?.click()
               }
             }}
-            aria-label="Зона перетаскивания файла"
+            aria-label={t`Зона перетягування файлу`}
           >
             <FileUp className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
             <p className="mt-3 text-sm font-medium">
-              {file ? file.name : 'Перетащите файл сюда или нажмите для выбора'}
+              {file ? file.name : t`Перетягніть файл сюди або натисніть, щоб обрати`}
             </p>
             {file ? (
               <button
@@ -244,11 +252,11 @@ export function UploadDocumentDialog({
                 }}
               >
                 <X className="h-3 w-3" />
-                Убрать файл
+                <Trans>Прибрати файл</Trans>
               </button>
             ) : (
               <p className="mt-1 text-xs text-muted-foreground">
-                До {formatBytes(DOCUMENT_MAX_BYTES, locale)}, форматы: PDF, JPG, PNG, WebP, HEIC
+                <Trans>До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC</Trans>
               </p>
             )}
           </div>
@@ -267,19 +275,21 @@ export function UploadDocumentDialog({
 
           {/* Category */}
           <div className="space-y-1.5">
-            <Label htmlFor="document-category">Категория</Label>
+            <Label htmlFor="document-category">
+              <Trans>Категорія</Trans>
+            </Label>
             <Select
               value={category}
               onValueChange={(v) => setCategory(v as DocumentCategory)}
               disabled={Boolean(lockCategory)}
             >
               <SelectTrigger id="document-category" data-testid="upload-category-select">
-                <SelectValue placeholder="Выберите категорию" />
+                <SelectValue placeholder={t`Оберіть категорію`} />
               </SelectTrigger>
               <SelectContent>
                 {categoriesToShow.map((cat) => (
                   <SelectItem key={cat} value={cat}>
-                    {CATEGORY_LABELS_RU[cat]}
+                    {i18n._(CATEGORY_LABEL_MESSAGES[cat])}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -290,11 +300,11 @@ export function UploadDocumentDialog({
           {requiresProject ? (
             <div className="space-y-1.5">
               <Label htmlFor="document-project">
-                Проект <span className="text-destructive">*</span>
+                <Trans>Проєкт</Trans> <span className="text-destructive">*</span>
               </Label>
               <Select value={projectId ?? ''} onValueChange={setProjectId}>
                 <SelectTrigger id="document-project">
-                  <SelectValue placeholder="Выберите проект" />
+                  <SelectValue placeholder={t`Оберіть проєкт`} />
                 </SelectTrigger>
                 <SelectContent>
                   {(projects ?? []).map((p) => (
@@ -304,7 +314,7 @@ export function UploadDocumentDialog({
                   ))}
                   {(!projects || projects.length === 0) && (
                     <div className="px-2 py-1.5 text-xs text-muted-foreground">
-                      Нет доступных проектов
+                      <Trans>Немає доступних проєктів</Trans>
                     </div>
                   )}
                 </SelectContent>
@@ -315,10 +325,12 @@ export function UploadDocumentDialog({
           {/* Owner — only when owners list is supplied (ADMIN/HR/SENIOR) */}
           {owners && owners.length > 0 ? (
             <div className="space-y-1.5">
-              <Label htmlFor="document-owner">Владелец</Label>
+              <Label htmlFor="document-owner">
+                <Trans>Власник</Trans>
+              </Label>
               <Select value={ownerId ?? ''} onValueChange={setOwnerId}>
                 <SelectTrigger id="document-owner">
-                  <SelectValue placeholder="Выберите владельца" />
+                  <SelectValue placeholder={t`Оберіть власника`} />
                 </SelectTrigger>
                 <SelectContent>
                   {owners.map((o) => (
@@ -342,10 +354,10 @@ export function UploadDocumentDialog({
             disabled={upload.isPending}
             data-testid="cancel-button"
           >
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={handleSubmit} disabled={!canSubmit} data-testid="upload-submit">
-            {upload.isPending ? 'Загрузка...' : 'Загрузить'}
+            {upload.isPending ? t`Завантаження…` : t`Завантажити файл`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

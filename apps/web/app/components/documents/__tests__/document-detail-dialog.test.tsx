@@ -3,7 +3,7 @@
  *
  * Pinned against the real compiled catalog on both locales:
  *   - categories come from the `document-labels.ts` hub (one word per
- *     category; the dialog's own `CATEGORY_LABELS_RU` is gone);
+ *     category; the dialog's own local label map is gone);
  *   - the «Format» row shows a human format, the raw MIME lives only in the
  *     row's `title` (COPY-M-docs-10);
  *   - the «Project» row shows the project NAME, the id only in the link's
