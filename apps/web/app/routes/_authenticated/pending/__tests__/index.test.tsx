@@ -217,30 +217,30 @@ describe('/pending — AC6 states', () => {
     expect(screen.queryByTestId('pending-empty')).not.toBeInTheDocument()
   })
 
-  it('error: shows the message + Повторить, which calls refetch', () => {
+  it('error: shows the message + Повторити, which calls refetch', () => {
     mockState = { ...mockState, isError: true }
     renderPage()
     expect(screen.getByTestId('pending-error')).toBeInTheDocument()
     // COPY-L-2 (fix-round 3): the screen never calls itself «список»
     // anywhere else — nav, headings and empty state all say «решение».
-    expect(screen.getByText('Не удалось загрузить, что ждёт решения.')).toBeInTheDocument()
-    // Accessible name is the `aria-label` ("Повторить загрузку" — same
+    expect(screen.getByText('Не вдалося завантажити, що чекає на рішення')).toBeInTheDocument()
+    // Accessible name is the `aria-label` ("Повторити завантаження" — same
     // DropBalanceCard.tsx precedent), not the shorter visible text.
-    fireEvent.click(screen.getByRole('button', { name: 'Повторить загрузку' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Повторити завантаження' }))
     expect(refetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it('both zones empty: shows the global empty state with the exact copy', () => {
     renderPage()
     expect(screen.getByTestId('pending-empty')).toBeInTheDocument()
-    expect(screen.getByText('Ничего не ждёт вашего решения')).toBeInTheDocument()
+    expect(screen.getByText('Нічого не чекає на ваше рішення')).toBeInTheDocument()
     // COPY-M-6 (fix-round 3): the subline stopped explaining «ничего не ждёт»
     // through «когда будет ждать», and lists exactly the three sections this
     // screen has — «документы» is a different menu item entirely.
-    expect(screen.getByText('Новые проекты, доли и контракты появятся здесь.')).toBeInTheDocument()
+    expect(screen.getByText('Нові проєкти, частки та контракти з’являться тут')).toBeInTheDocument()
   })
 
-  it('mine empty but proposedByMe non-empty (ADMIN with nothing of their own): shows ONLY «Ждут решения других», not the global empty state', () => {
+  it('mine empty but proposedByMe non-empty (ADMIN with nothing of their own): shows ONLY «Очікують рішення інших», not the global empty state', () => {
     mockState = {
       ...mockState,
       proposedByMe: [
@@ -254,8 +254,8 @@ describe('/pending — AC6 states', () => {
     }
     renderPage()
     expect(screen.queryByTestId('pending-empty')).not.toBeInTheDocument()
-    expect(screen.getByText('Ждут решения других')).toBeInTheDocument()
-    expect(screen.queryByText('Ждут вашего решения')).not.toBeInTheDocument()
+    expect(screen.getByText('Очікують рішення інших')).toBeInTheDocument()
+    expect(screen.queryByText('Очікують вашого рішення')).not.toBeInTheDocument()
   })
 
   it('every §12 focus target renders tabIndex=-1: loading root, error root, main root, both zone headings', () => {
@@ -277,11 +277,11 @@ describe('/pending — AC6 states', () => {
     }
     renderPage()
     expect(screen.getByTestId('pending-page')).toHaveAttribute('tabindex', '-1')
-    expect(screen.getByRole('heading', { name: 'Ждут вашего решения' })).toHaveAttribute(
+    expect(screen.getByRole('heading', { name: 'Очікують вашого рішення' })).toHaveAttribute(
       'tabindex',
       '-1',
     )
-    expect(screen.getByRole('heading', { name: 'Ждут решения других' })).toHaveAttribute(
+    expect(screen.getByRole('heading', { name: 'Очікують рішення інших' })).toHaveAttribute(
       'tabindex',
       '-1',
     )
@@ -289,7 +289,7 @@ describe('/pending — AC6 states', () => {
 })
 
 describe('/pending — grouping by kind', () => {
-  it('mine with all three kinds: sections render in Проекты → Доли → Контракты order', () => {
+  it('mine with all three kinds: sections render in Проєкти → Частки → Контракти order', () => {
     mockState = {
       ...mockState,
       mine: [
@@ -310,16 +310,63 @@ describe('/pending — grouping by kind', () => {
     }
     renderPage()
     const headings = screen.getAllByRole('heading', { level: 3 }).map((h) => h.textContent)
-    expect(headings).toEqual(['Проекты', 'Доли', 'Контракты'])
+    expect(headings).toEqual(['Проєкти', 'Частки', 'Контракти'])
   })
 
-  it('an item whose kind matches none of the three known kinds renders under a «Другое» fallback section, not silently dropped', () => {
+  it('an item whose kind matches none of the three known kinds renders under a «Інше» fallback section, not silently dropped', () => {
     mockState = {
       ...mockState,
       mine: [{ ...item({}), kind: 'SOMETHING_NEW' } as unknown as PendingItem],
     }
     renderPage()
-    expect(screen.getByText('Другое')).toBeInTheDocument()
+    expect(screen.getByText('Інше')).toBeInTheDocument()
+  })
+})
+
+// task-i18n-stage3e-pr4: a translation changes the TEXT of the section titles,
+// never the grouping or a selector. Titles are `msg` descriptors compared by
+// reference (`sectionTitleOf`), and every testid is built from `kind`.
+describe('/pending — en: titles translate, grouping and selectors do not move', () => {
+  it('section headings, zone headings and the «Other» bucket read as English; testids are unchanged', async () => {
+    await loadCatalog('en')
+    mockState = {
+      ...mockState,
+      mine: [
+        item({ kind: 'CONTRACT_TO_SIGN', subjectId: 'c1', title: 'Contract', actions: ['open'] }),
+        item({ kind: 'SHARE_APPROVAL', subjectId: 's1', title: 'Share', pendingPercent: 30 }),
+        item({ kind: 'PROJECT_APPROVAL', subjectId: 'p1', title: 'Acme Corp' }),
+        { ...item({ subjectId: 'x1' }), kind: 'SOMETHING_NEW' } as unknown as PendingItem,
+      ],
+    }
+    renderPage()
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent('Awaiting your decision')
+    const headings = screen.getAllByRole('heading', { level: 3 })
+    expect(headings.map((h) => h.textContent)).toEqual(['Projects', 'Shares', 'Contracts', 'Other'])
+    expect(headings.map((h) => h.getAttribute('data-testid'))).toEqual([
+      'pending-kind-heading-mine-PROJECT_APPROVAL',
+      'pending-kind-heading-mine-SHARE_APPROVAL',
+      'pending-kind-heading-mine-CONTRACT_TO_SIGN',
+      'pending-kind-heading-mine-OTHER',
+    ])
+  })
+
+  it('en: the empty and error states carry an English next step, not a Russian or raw string', async () => {
+    await loadCatalog('en')
+    renderPage()
+    expect(screen.getByText('Nothing is waiting for your decision')).toBeInTheDocument()
+    expect(
+      screen.getByText('New projects, shares and contracts will appear here'),
+    ).toBeInTheDocument()
+  })
+
+  it('the focus-after-acting selectors are identical in both languages (spec §12 untouched)', () => {
+    const row = item({ subjectId: 'p1' })
+    const before = focusSelectorsAfterActing([row], row, 'mine')
+    expect(before).toEqual([
+      '[data-testid="pending-kind-heading-mine-PROJECT_APPROVAL"]',
+      '#pending-mine-heading',
+      '[data-testid="pending-page"]',
+    ])
   })
 })
 
@@ -415,7 +462,7 @@ describe('/pending — §12: focus after a row disappears', () => {
       await user.click(screen.getByTestId('project-approval-approve-p1'))
     })
 
-    expect(screen.getByRole('heading', { name: 'Ждут вашего решения' })).toHaveFocus()
+    expect(screen.getByRole('heading', { name: 'Очікують вашого рішення' })).toHaveFocus()
   })
 
   it('falls back to the page root when nothing at all is left to focus', async () => {
@@ -522,7 +569,7 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
 })
 
 describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
-  it('cancelling a share from «Ждут решения других» removes ONLY that row and moves focus to the NEXT row in the SAME section', async () => {
+  it('cancelling a share from «Очікують рішення інших» removes ONLY that row and moves focus to the NEXT row in the SAME section', async () => {
     const user = userEvent.setup()
     mockPost.mockReset()
     mockPost.mockResolvedValue({ data: {} })
@@ -617,20 +664,20 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
 })
 
 describe('/pending — visibleOther gate', () => {
-  it('mine non-empty, proposedByMe empty: shows «Ждут вашего решения» only, not «Ждут решения других»', () => {
+  it('mine non-empty, proposedByMe empty: shows «Очікують вашого рішення» only, not «Очікують рішення інших»', () => {
     mockState = {
       ...mockState,
       mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
       proposedByMe: [],
     }
     renderPage()
-    expect(screen.getByText('Ждут вашего решения')).toBeInTheDocument()
-    expect(screen.queryByText('Ждут решения других')).not.toBeInTheDocument()
+    expect(screen.getByText('Очікують вашого рішення')).toBeInTheDocument()
+    expect(screen.queryByText('Очікують рішення інших')).not.toBeInTheDocument()
   })
 })
 
 describe('/pending — proposedByMe grouping across kinds', () => {
-  it('groups by Проекты → Доли, skips Контракты entirely, and buckets an unknown kind under Другое', () => {
+  it('groups by Проєкти → Частки, skips Контракти entirely, and buckets an unknown kind under Інше', () => {
     mockState = {
       ...mockState,
       proposedByMe: [
@@ -683,7 +730,7 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     expect(screen.getByText('Mystery item')).toBeInTheDocument()
   })
 
-  it('a known-kind item never leaks into the proposedByMe Другое bucket', () => {
+  it('a known-kind item never leaks into the proposedByMe Інше bucket', () => {
     mockState = {
       ...mockState,
       proposedByMe: [item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] })],
@@ -706,8 +753,8 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     // `<section aria-labelledby>` maps to the ARIA "region" role, named by
     // the referenced heading — a role query stays within Testing Library's
     // API (no raw `.closest()` node access).
-    const mineSection = screen.getByRole('region', { name: 'Ждут вашего решения' })
-    const othersSection = screen.getByRole('region', { name: 'Ждут решения других' })
+    const mineSection = screen.getByRole('region', { name: 'Очікують вашого рішення' })
+    const othersSection = screen.getByRole('region', { name: 'Очікують рішення інших' })
     expect(within(mineSection).getByText('Mine Corp')).toBeInTheDocument()
     expect(within(mineSection).queryByText('Other Corp')).not.toBeInTheDocument()
     expect(within(othersSection).getByText('Other Corp')).toBeInTheDocument()
