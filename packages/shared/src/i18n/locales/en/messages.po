@@ -535,6 +535,10 @@ msgstr "JPG, PNG, PDF — up to 10 MB"
 msgid "Override"
 msgstr "Override"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "PDF"
+msgstr "PDF"
+
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "PDF або DOCX, до {MAX_MB} МБ. Файл бачите тільки ви і команда найму."
 msgstr "PDF or DOCX, up to {MAX_MB} MB. Only you and the hiring team can see the file."
@@ -1091,6 +1095,7 @@ msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs 
 msgid "в архіві"
 msgstr "in archive"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
@@ -1609,6 +1614,12 @@ msgid "Видалено"
 msgstr "Deleted"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -1679,6 +1690,29 @@ msgstr "Delete variable?"
 #: apps/web/app/components/user-profile/resume/ResumeExperienceEditor.tsx
 msgid "Видалити місце роботи {position}"
 msgstr "Delete job {position}"
+
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Видалити назавжди"
+msgstr "Delete permanently"
+
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Видалити назавжди?"
+msgstr "Delete permanently?"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Видалити не можна: рахунок видаляється разом із транзакцією"
+msgstr "Can’t delete: an invoice is deleted together with its transaction"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Видалити не можна: чек видаляється разом із транзакцією"
+msgstr "Can’t delete: a receipt is deleted together with its transaction"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Видалити посилання {position}"
@@ -1971,6 +2005,10 @@ msgstr "Open the vacancy"
 msgid "notification.action.VACANCY_APPLICATION"
 msgstr "Open vacancy"
 
+#: apps/web/app/components/documents/document-card.tsx
+msgid "Відкрити документ «{displayName}»"
+msgstr "Open document “{displayName}”"
+
 #: apps/web/app/components/user-profile/tabs/InterviewsTab.tsx
 msgid "Відкрити дошку"
 msgstr "Open the board"
@@ -1993,6 +2031,10 @@ msgstr "Open legend"
 #: apps/web/app/routes/_authenticated/route.tsx
 msgid "Відкрити меню"
 msgstr "Open menu"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Відкрити проєкт"
+msgstr "Open project"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -2075,6 +2117,9 @@ msgstr "Open interviews"
 msgid "Відмова"
 msgstr "Rejected"
 
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -2536,6 +2581,7 @@ msgstr "The data changed after the preview — refresh it and save again"
 msgid "Дані компанії"
 msgstr "Company details"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
@@ -2580,6 +2626,10 @@ msgstr "The date must be in YYYYMMDD format"
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Дата народження"
 msgstr "Date of birth"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Дата підписання"
+msgstr "Signing date"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -3418,6 +3468,9 @@ msgstr "Loading the reason…"
 msgid "Завантаження…"
 msgstr "Uploading…"
 
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/CandidateCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Завантажити"
@@ -3515,6 +3568,7 @@ msgstr "Only an admin or an accountant can close a company obligation"
 msgid "Закрита"
 msgstr "Closed"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/ui/crm-dialog.tsx
 #: apps/web/app/components/ui/dialog.tsx
@@ -4065,6 +4119,26 @@ msgstr "Only an admin, an accountant, or a senior can see pending obligations"
 msgid "api-error.FINANCE_PENDING_ACCRUALS_LIST_FORBIDDEN"
 msgstr "Only an admin, an accountant, or a senior can see pending obligations"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Зображення HEIC"
+msgstr "HEIC image"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Зображення JPEG"
+msgstr "JPEG image"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Зображення PNG"
+msgstr "PNG image"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Зображення WebP"
+msgstr "WebP image"
+
+#: apps/web/app/components/documents/document-image.tsx
+msgid "Зображення завантажується"
+msgstr "Loading the image"
+
 #: apps/web/app/components/ui/image-upload-field.tsx
 msgid "Зовнішнє посилання на зображення (https://…)"
 msgstr "External link to an image (https://…)"
@@ -4130,6 +4204,10 @@ msgstr "Only an admin or an accountant can change the senior's project share"
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Інше"
 msgstr "Other"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Інший формат"
+msgstr "Other format"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Інші розділи"
@@ -6444,6 +6522,10 @@ msgstr "Awaiting payout"
 msgid "Очікує підпису"
 msgstr "Awaiting signature"
 
+#: apps/web/app/components/documents/document-status-badge.tsx
+msgid "Очікує підтвердження"
+msgstr "Awaiting confirmation"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує підтвердження бухгалтером (готівка)"
 msgstr "Awaiting accountant confirmation (cash)"
@@ -6682,6 +6764,12 @@ msgstr "Move job {position} down"
 msgid "Перенаправляємо на дашборд…"
 msgstr "Redirecting to the dashboard…"
 
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Перенести в архів?"
+msgstr "Move to the archive?"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Перераховуємо пов’язані виплати…"
@@ -6829,6 +6917,7 @@ msgstr "Signed manually by the counterparty"
 msgid "Підписано повністю"
 msgstr "Fully signed"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Підписант"
@@ -6951,6 +7040,7 @@ msgstr "Confirmation of a manual payout to a partner or a credit to the company 
 msgid "Підтвердження…"
 msgstr "Confirming…"
 
+#: apps/web/app/components/documents/document-status-badge.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Підтверджено"
@@ -7227,9 +7317,14 @@ msgstr "PDF preview — {roleLabel}"
 msgid "Попередній перегляд контракту"
 msgstr "Contract preview"
 
+#: apps/web/app/components/documents/document-image.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Попередній перегляд недоступний"
 msgstr "Preview unavailable"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Попередній перегляд недоступний — натисніть «Завантажити», щоб відкрити файл"
+msgstr "Preview unavailable — select “Download” to open the file"
 
 #: apps/web/app/routes/_authenticated/vacancies/components/ResumePreviewDialog.tsx
 msgid "Попередній перегляд недоступний для цього формату файлу — завантажте, щоб відкрити."
@@ -7723,6 +7818,7 @@ msgstr "Continue"
 msgid "проєкт"
 msgstr "project"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -8336,6 +8432,10 @@ msgstr "Admin sections"
 msgid "Розділи проєкту"
 msgstr "Project sections"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Розмір"
+msgstr "Size"
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "Розмір команди"
 msgstr "Team size"
@@ -8547,6 +8647,12 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/archive/CascadeUnarchiveModal.tsx
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
@@ -9843,6 +9949,10 @@ msgstr "Rejection form: reason"
 msgid "Форма містить помилки"
 msgstr "The form contains errors"
 
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Формат"
+msgstr "Format"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Формат файлу не підтримується."
 msgstr "This file format isn't supported."
@@ -9890,6 +10000,10 @@ msgstr "Transaction hash: 0x + 64 hex — or an Etherscan link"
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Хобі"
 msgstr "Hobbies"
+
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+msgid "Хто завантажив"
+msgstr "Uploaded by"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Хто перевірив"
@@ -10198,6 +10312,10 @@ msgstr "Receipt replaced"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Чек зберігається за зовнішнім посиланням — відкриється у новій вкладці"
 msgstr "The receipt is stored at an external link — it will open in a new tab"
+
+#: apps/web/app/components/documents/document-card.tsx
+msgid "Чек із Фінансів"
+msgstr "Receipt from Finance"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
