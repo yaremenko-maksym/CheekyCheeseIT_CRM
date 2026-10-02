@@ -1,25 +1,30 @@
 import { Fragment } from 'react'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import type { I18n } from '@lingui/core'
+import { msg, select } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { useNavigate } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useLocale } from '@/lib/i18n'
+import { DOCUMENT_STATUS_MESSAGES } from '@/components/documents/document-labels'
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
 import { SeniorShareApprovalActions } from '@/components/pending/SeniorShareApprovalActions'
-import type { PendingItem, PendingItemOrUnknown } from '@crm/shared'
+import { formatRelativeTime } from '@crm/shared'
+import type { Locale, PendingItem, PendingItemOrUnknown } from '@crm/shared'
 
 export type PendingZone = 'mine' | 'proposedByMe'
 
-/** Same relative-time helper as notifications-bell.tsx's `fmtRelative` — not
- * re-exported from there (that file has no other reason to be a shared
- * module) since it's a 4-line pure function, cheaper to repeat once than to
- * add a cross-import for. */
-function fmtRelative(iso: string): string {
+/** Relative time through the shared `formatRelativeTime` (the same helper
+ * the documents/invoices cards use — task-i18n-stage3e-pr4 dropped the local
+ * `date-fns/ru` duplicate, which was Russian-only). `Intl.RelativeTimeFormat`
+ * throws a RangeError on an unparsable date, so the raw string is shown
+ * instead of crashing the whole screen. */
+function fmtRelative(iso: string, locale: Locale): string {
   try {
-    return formatDistanceToNow(new Date(iso), { addSuffix: true, locale: ru })
+    return formatRelativeTime(iso, locale)
   } catch {
     return iso
   }
@@ -57,14 +62,19 @@ type MetaLine = [MetaSegment, ...MetaSegment[]]
  * That also removes the longest string on the screen as a class, rather than
  * making it break in a nicer place.
  */
-function metaLinesFor(item: PendingItemOrUnknown, zone: PendingZone): MetaLine[] {
-  const rel: MetaSegment = { text: fmtRelative(item.createdAt), nowrap: true }
+function metaLinesFor(
+  item: PendingItemOrUnknown,
+  zone: PendingZone,
+  locale: Locale,
+  i18n: I18n,
+): MetaLine[] {
+  const rel: MetaSegment = { text: fmtRelative(item.createdAt, locale), nowrap: true }
   // `in` rather than a plain read: COPY-L-6's degraded row (`kind: 'UNKNOWN'`)
   // carries no `waitingFor` at all — it carries nothing beyond the four
   // structural fields.
   const waiting: MetaSegment | null =
     'waitingFor' in item && item.waitingFor?.length
-      ? { text: `Ждём: ${item.waitingFor.join(', ')}` }
+      ? { text: i18n._(msg`Чекаємо: ${item.waitingFor.join(', ')}`) }
       : null
 
   if (item.kind === 'PROJECT_APPROVAL') {
@@ -75,22 +85,36 @@ function metaLinesFor(item: PendingItemOrUnknown, zone: PendingZone): MetaLine[]
     // carrying no gender, so the past tense «Предложил» was wrong for half
     // the names it can hold — the same defect #648 already fixed once by
     // switching to «Подтверждает {имя}».
-    return [item.proposedBy ? [{ text: `Предлагает ${item.proposedBy}` }, rel] : [rel]]
+    return [item.proposedBy ? [{ text: i18n._(msg`Пропонує ${item.proposedBy}`) }, rel] : [rel]]
   }
 
   if (item.kind === 'SHARE_APPROVAL') {
     const pct = item.pendingPercent
+    const cur = item.currentPercent
+    // Four wordings of ONE phrase (task-i18n-stage3e-pr4, K-docs): who is
+    // speaking (the reader proposed it → «запропоновано»; someone proposes it
+    // to the reader → «пропонують») × whether the current figure is known.
+    // An ICU `select` keeps all four in ONE catalog entry, so each language
+    // can reorder them; the percentages are plain placeholders — a `%`
+    // figure takes no plural form.
+    const variant =
+      zone === 'proposedByMe'
+        ? cur != null
+          ? 'proposedFrom'
+          : 'proposedNew'
+        : cur != null
+          ? 'proposingFrom'
+          : 'proposingNew'
+    // Stryker disable next-line ObjectLiteral,StringLiteral: Lingui's select() macro must read this options object as a literal at compile time (the `{}` mutant makes the transform throw before any test runs); `other` is unreachable — `variant` is one of the four keys above
+    const leadText = select(variant, {
+      proposedFrom: `Зараз ${cur}% → запропоновано ${pct}%`,
+      proposedNew: `Запропоновано ${pct}%`,
+      proposingFrom: `Зараз ${cur}% → пропонують ${pct}%`,
+      proposingNew: `Пропонують ${pct}%`,
+      other: `${pct}%`,
+    })
+    const lead: MetaSegment = { text: leadText, nowrap: true }
     if (zone === 'proposedByMe') {
-      // COPY-M-3: this zone holds what the READER proposed, so «предлагают»
-      // spoke about his own action in an impersonal third person. «Предложено»
-      // is the neutral form already shipped on the users table badge (#648).
-      const lead: MetaSegment = {
-        text:
-          item.currentPercent != null
-            ? `Сейчас ${item.currentPercent}% → предложено ${pct}%`
-            : `Предложено ${pct}%`,
-        nowrap: true,
-      }
       // COPY-M-4: for a USER-scope share the approver IS the subject, and
       // the title now names them («Доля по умолчанию — Имя»). Printing
       // «Ждём: Имя» two lines below repeated the same name twice.
@@ -103,13 +127,6 @@ function metaLinesFor(item: PendingItemOrUnknown, zone: PendingZone): MetaLine[]
       // print their meta on one. At 320px nothing changes (the wrap moves
       // to the « · » either way); at 768+ it is one line less per row.
       return who ? [[lead], [who, rel]] : [[lead, rel]]
-    }
-    const lead: MetaSegment = {
-      text:
-        item.currentPercent != null
-          ? `Сейчас ${item.currentPercent}% → предлагают ${pct}%`
-          : `Предлагают ${pct}%`,
-      nowrap: true,
     }
     return [[lead, rel]]
   }
@@ -141,7 +158,7 @@ function OpenLink({ item, primary }: { item: PendingItemOrUnknown; primary?: boo
       onClick={handleOpen}
       data-testid={`pending-item-open-${item.subjectId}`}
     >
-      Открыть
+      <Trans>Відкрити</Trans>
       <ArrowRight className="h-3 w-3" aria-hidden />
     </Button>
   )
@@ -217,6 +234,8 @@ export interface PendingItemRowProps {
  * everything — collapses together, not just its content).
  */
 export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
+  const { t, i18n } = useLingui()
+  const locale = useLocale()
   return (
     <div
       className={cn(
@@ -250,11 +269,11 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           <div className="item-title-row flex flex-wrap items-center gap-1.5">
             <p className="min-w-10 flex-1 truncate text-sm font-medium">{item.title}</p>
             <Badge variant="default" className="flex-none">
-              {/* COPY-M-2 (fix-round 3): capitalised, matching `ContractTab`'s
-                  own status map (`READY_TO_SIGN: 'Готов к подписанию'`) — the
-                  same status of the same object, rendered by the same Badge
-                  one screen away. */}
-              Готов к подписанию
+              {/* COPY-M-2 (fix-round 3) / COPY-H-docs-4 (wave e): the SAME status of
+                  the same object reads the same everywhere — the wording lives
+                  in the documents hub (`DOCUMENT_STATUS_MESSAGES`), the one
+                  canon `document-status-badge` also renders. */}
+              {i18n._(DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN)}
             </Badge>
           </div>
         ) : (
@@ -266,11 +285,11 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
                 unknown kind with no title used to render a row of nothing but
                 a date — the graceful degradation stopped being honest exactly
                 where it exists for. */}
-            {item.title || 'Запрос на действие'}
+            {item.title || t`Запит на дію`}
           </p>
         )}
         <div data-testid={`pending-item-meta-${item.subjectId}`}>
-          {metaLinesFor(item, zone).map((line) => (
+          {metaLinesFor(item, zone, locale, i18n).map((line) => (
             <p key={line[0].text} className="mt-0.5 text-[11.5px] text-muted-foreground">
               {line.map((seg, i) => (
                 <Fragment key={seg.text}>
@@ -304,12 +323,19 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           zone === 'mine' &&
           (item.viewerSharePercent != null ? (
             <p className="mt-0.5 text-[11px] text-amber-300/70">
-              Ваша доля: {item.viewerSharePercent}%
-              {item.seniorName ? ` · синьор: ${item.seniorName}` : ''}
+              {item.seniorName ? (
+                <Trans>
+                  Ваша частка: {item.viewerSharePercent}% · сеньйор: {item.seniorName}
+                </Trans>
+              ) : (
+                <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
+              )}
             </p>
           ) : (
             <p className="mt-0.5 line-clamp-2 text-[11px] text-amber-300/70">
-              Доля неизвестна. Обновите страницу.
+              <Trans>
+                Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна
+              </Trans>
             </p>
           ))}
       </div>

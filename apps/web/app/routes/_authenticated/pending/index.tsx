@@ -10,6 +10,9 @@
  * anchor is `data-testid="pending-page"` on the root, not a heading role.
  */
 import { useEffect, useState } from 'react'
+import { msg } from '@lingui/core/macro'
+import type { MessageDescriptor } from '@lingui/core'
+import { useLingui } from '@lingui/react/macro'
 import { createFileRoute } from '@tanstack/react-router'
 import { Briefcase, DollarSign, FileSignature, HelpCircle, Inbox } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -32,20 +35,25 @@ function itemKey(item: PendingItemOrUnknown): string {
 
 const KIND_SECTIONS: ReadonlyArray<{
   kind: PendingItemKind
-  title: string
+  title: MessageDescriptor
   icon: typeof Briefcase
 }> = [
-  { kind: 'PROJECT_APPROVAL', title: 'Проекты', icon: Briefcase },
-  { kind: 'SHARE_APPROVAL', title: 'Доли', icon: DollarSign },
-  { kind: 'CONTRACT_TO_SIGN', title: 'Контракты', icon: FileSignature },
+  { kind: 'PROJECT_APPROVAL', title: msg`Проєкти`, icon: Briefcase },
+  { kind: 'SHARE_APPROVAL', title: msg`Частки`, icon: DollarSign },
+  { kind: 'CONTRACT_TO_SIGN', title: msg`Контракти`, icon: FileSignature },
 ]
 
-// Stryker disable next-line StringLiteral: sectionTitleOf's fallback is only ever compared against ANOTHER call to sectionTitleOf (handleActed's `sectionTitleOf(i) === sectionTitleOf(item)`, for grouping) — any fallback value groups unknown-kind items identically, so no behavioral assertion can distinguish this specific string from another one. The VISIBLE "«Другое»" heading text is a separate hardcoded JSX literal (below), already covered by the AC6 grouping test.
-const OTHER_SECTION_TITLE = 'Другое'
+// task-i18n-stage3e-pr4: a `msg` descriptor, not a string. `sectionTitleOf`
+// is only ever compared by reference against another call to itself
+// (`handleActed`'s grouping) — each descriptor is created once at module
+// load, so identity equals «same section» exactly as the equal strings did.
+// The VISIBLE «Інше» heading text is resolved from this same descriptor at
+// render (`i18n._(OTHER_SECTION_TITLE)`), covered by the AC6 grouping test.
+const OTHER_SECTION_TITLE: MessageDescriptor = msg`Інше`
 
 /** Which section a row is rendered in — the same grouping the JSX below
  * applies, extracted so the focus chain asks the question once. */
-function sectionTitleOf(item: PendingItemOrUnknown): string {
+function sectionTitleOf(item: PendingItemOrUnknown): MessageDescriptor {
   return KIND_SECTIONS.find((s) => s.kind === item.kind)?.title ?? OTHER_SECTION_TITLE
 }
 
@@ -95,6 +103,7 @@ export function focusSelectorsAfterActing(
 // is mounting the route through a full TanStack Router tree to read this
 // page's own empty/loading/error states.
 export function PendingPage() {
+  const { t, i18n } = useLingui()
   const { mine, proposedByMe, isLoading, isError, dataUpdatedAt, refetch } = usePendingItems()
 
   // Local-dismiss on `onActed`, pruned on every fresh fetch — same pattern
@@ -167,14 +176,14 @@ export function PendingPage() {
               «список» appeared exactly once, at the moment the reader least
               understands what broke. The dashboard widget names the thing
               too («Не удалось проверить, ждёт ли вас решение по проекту»). */}
-          <p className="text-sm text-destructive">Не удалось загрузить, что ждёт решения.</p>
+          <p className="text-sm text-destructive">{t`Не вдалося завантажити, що чекає на рішення`}</p>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => void refetch()}
-            aria-label="Повторить загрузку"
+            aria-label={t`Повторити завантаження`}
           >
-            Повторить
+            {t`Повторити`}
           </Button>
         </div>
       </div>
@@ -192,7 +201,7 @@ export function PendingPage() {
             data-testid="pending-empty"
           >
             <Inbox className="h-8 w-8 text-muted-foreground/40" aria-hidden />
-            <p className="mt-1 text-sm font-medium">Ничего не ждёт вашего решения</p>
+            <p className="mt-1 text-sm font-medium">{t`Нічого не чекає на ваше рішення`}</p>
             {/* COPY-M-6 (fix-round 3): the old subline repeated «вашего
                 решения» one line below the heading, then explained «ничего не
                 ждёт» through «когда будет ждать» — a ring that says nothing
@@ -201,7 +210,7 @@ export function PendingPage() {
                 section entirely; the three nouns now match the three sections
                 this screen actually has. */}
             <p className="max-w-xs text-xs text-muted-foreground">
-              Новые проекты, доли и контракты появятся здесь.
+              {t`Нові проєкти, частки та контракти з’являться тут`}
             </p>
           </div>
         ) : (
@@ -213,14 +222,14 @@ export function PendingPage() {
                   tabIndex={-1}
                   className="text-base font-semibold tracking-tight"
                 >
-                  Ждут вашего решения
+                  {t`Очікують вашого рішення`}
                 </h2>
                 <div className="space-y-4">
                   {KIND_SECTIONS.map(({ kind, title, icon }) => (
                     <PendingKindSection
                       key={kind}
                       kind={kind}
-                      title={title}
+                      title={i18n._(title)}
                       icon={icon}
                       items={visibleMine.filter((i) => i.kind === kind)}
                       zone="mine"
@@ -229,7 +238,7 @@ export function PendingPage() {
                   ))}
                   <PendingKindSection
                     kind="OTHER"
-                    title="Другое"
+                    title={i18n._(OTHER_SECTION_TITLE)}
                     icon={HelpCircle}
                     items={visibleMine.filter((i) => !KIND_SECTIONS.some((s) => s.kind === i.kind))}
                     zone="mine"
@@ -247,7 +256,7 @@ export function PendingPage() {
                   tabIndex={-1}
                   className="text-base font-semibold tracking-tight"
                 >
-                  Ждут решения других
+                  {t`Очікують рішення інших`}
                 </h2>
                 <div className="space-y-4">
                   {/* CONTRACT_TO_SIGN can never appear in proposedByMe (§2
@@ -258,7 +267,7 @@ export function PendingPage() {
                       <PendingKindSection
                         key={kind}
                         kind={kind}
-                        title={title}
+                        title={i18n._(title)}
                         icon={icon}
                         items={visibleOther.filter((i) => i.kind === kind)}
                         zone="proposedByMe"
@@ -268,7 +277,7 @@ export function PendingPage() {
                   )}
                   <PendingKindSection
                     kind="OTHER"
-                    title="Другое"
+                    title={i18n._(OTHER_SECTION_TITLE)}
                     icon={HelpCircle}
                     items={visibleOther.filter(
                       (i) => !KIND_SECTIONS.some((s) => s.kind === i.kind),
