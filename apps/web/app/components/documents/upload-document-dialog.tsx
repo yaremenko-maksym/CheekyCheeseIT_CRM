@@ -120,6 +120,8 @@ export function UploadDocumentDialog({
     }
   }, [open, defaultCategory, defaultProjectId, defaultOwnerId, progress.reset])
 
+  // Stryker disable next-line StringLiteral: the category is always preselected (defaultCategory), so Radix never renders this placeholder text — unobservable.
+  const categoryPlaceholder = t`Оберіть категорію`
   const categoriesToShow = allowedCategories ?? DEFAULT_ALLOWED
   const requiresProject = category === 'CONTRACT'
   const canSubmit = file !== null && !upload.isPending && (!requiresProject || Boolean(projectId))
@@ -284,7 +286,7 @@ export function UploadDocumentDialog({
               disabled={Boolean(lockCategory)}
             >
               <SelectTrigger id="document-category" data-testid="upload-category-select">
-                <SelectValue placeholder={t`Оберіть категорію`} />
+                <SelectValue placeholder={categoryPlaceholder} />
               </SelectTrigger>
               <SelectContent>
                 {categoriesToShow.map((cat) => (

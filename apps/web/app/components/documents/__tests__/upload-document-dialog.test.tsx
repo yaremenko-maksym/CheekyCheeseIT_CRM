@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
@@ -17,14 +18,17 @@ beforeEach(async () => {
 // Mock the upload hook so the dialog doesn't try to hit the network during
 // interaction tests. We assert on the props passed in by the dialog.
 const mockMutate = vi.fn()
+let mockPending = false
 vi.mock('@/hooks/use-documents', () => ({
   useUploadDocument: () => ({
     mutate: mockMutate,
-    isPending: false,
+    isPending: mockPending,
   }),
 }))
 
-function renderDialog(open = true) {
+type DialogProps = Partial<ComponentProps<typeof UploadDocumentDialog>>
+
+function renderDialog(open = true, extra: DialogProps = {}) {
   const onOpenChange = vi.fn()
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -33,7 +37,12 @@ function renderDialog(open = true) {
     <I18nTestProvider>
       <QueryClientProvider client={qc}>
         <Toaster />
-        <UploadDocumentDialog open={open} onOpenChange={onOpenChange} defaultCategory="RESUME" />
+        <UploadDocumentDialog
+          open={open}
+          onOpenChange={onOpenChange}
+          defaultCategory="RESUME"
+          {...extra}
+        />
       </QueryClientProvider>
     </I18nTestProvider>,
   )
@@ -42,6 +51,7 @@ function renderDialog(open = true) {
 
 beforeEach(() => {
   mockMutate.mockReset()
+  mockPending = false
 })
 
 describe('UploadDocumentDialog', () => {
@@ -51,6 +61,30 @@ describe('UploadDocumentDialog', () => {
     expect(screen.getByTestId('upload-category-select')).toBeInTheDocument()
     const submit = screen.getByTestId('upload-submit')
     expect(submit).toBeDisabled()
+  })
+
+  it('names the dropzone for screen readers and prompts in uk', () => {
+    renderDialog()
+    expect(screen.getByRole('button', { name: 'Зона перетягування файлу' })).toBe(
+      screen.getByTestId('upload-dropzone'),
+    )
+    expect(screen.getByText('Перетягніть файл сюди або натисніть, щоб обрати')).toBeInTheDocument()
+  })
+
+  it('shows the project and owner placeholders for a CONTRACT upload', () => {
+    renderDialog(true, {
+      defaultCategory: 'CONTRACT',
+      projects: [{ id: 'p1', label: 'Alpha' }],
+      owners: [{ id: 'u1', label: 'Olena' }],
+    })
+    expect(screen.getByText('Оберіть проєкт')).toBeInTheDocument()
+    expect(screen.getByText('Оберіть власника')).toBeInTheDocument()
+  })
+
+  it('swaps the submit label to «Завантаження…» (with the ellipsis character) while uploading', () => {
+    mockPending = true
+    renderDialog()
+    expect(screen.getByTestId('upload-submit')).toHaveTextContent('Завантаження…')
   })
 
   it('keeps submit disabled while no file is selected', async () => {
