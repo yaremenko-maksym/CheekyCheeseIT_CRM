@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { i18n } from '@lingui/core'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { DocumentsCounterText, STATUS_TAB_LABEL_MESSAGES } from './documents'
+import { DocumentsCounterText, DocumentsGenericEmpty, STATUS_TAB_LABEL_MESSAGES } from './documents'
 
 const CASES: Array<[n: number, uk: string]> = [
   [1, '1 документ'],
@@ -57,7 +57,7 @@ describe('DocumentsCounterText — ICU plural forms (en)', () => {
 })
 
 describe('DocumentsCounterText — statusTab suffix', () => {
-  it('ARCHIVED appends " · в архіві" (uk)', async () => {
+  it('ARCHIVED appends " · в архіві" (uk), separator outside the msgid', async () => {
     await loadCatalog('uk')
     render(<DocumentsCounterText count={3} statusTab="ARCHIVED" categoryFilter="ALL" />, {
       wrapper: I18nTestProvider,
@@ -65,12 +65,12 @@ describe('DocumentsCounterText — statusTab suffix', () => {
     expect(screen.getByText(/· в архіві$/)).toBeInTheDocument()
   })
 
-  it('ALL appends " · всі" (uk)', async () => {
+  it('ALL appends " · усі" (uk)', async () => {
     await loadCatalog('uk')
     render(<DocumentsCounterText count={3} statusTab="ALL" categoryFilter="ALL" />, {
       wrapper: I18nTestProvider,
     })
-    expect(screen.getByText(/· всі$/)).toBeInTheDocument()
+    expect(screen.getByText(/· усі$/)).toBeInTheDocument()
   })
 
   it('ACTIVE appends no suffix', async () => {
@@ -115,7 +115,7 @@ describe('DocumentsCounterText — category suffix (not derived by .toLowerCase(
 describe('STATUS_TAB_LABEL_MESSAGES — the ADMIN-only status toggle labels', () => {
   it('resolves every key to its own uk text', async () => {
     await loadCatalog('uk')
-    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ALL)).toBe('Всі')
+    expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ALL)).toBe('Усі')
     expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ACTIVE)).toBe('Активні')
     expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ARCHIVED)).toBe('Архів')
   })
@@ -127,5 +127,30 @@ describe('STATUS_TAB_LABEL_MESSAGES — the ADMIN-only status toggle labels', ()
     // "Archived" (not "Archive") — dedup with the already-established
     // catalog entry for the same uk source text elsewhere in the app.
     expect(i18n._(STATUS_TAB_LABEL_MESSAGES.ARCHIVED)).toBe('Archived')
+  })
+})
+
+describe('DocumentsGenericEmpty — "none yet" vs "nothing found"', () => {
+  it('searching=false says no documents yet (uk)', async () => {
+    await loadCatalog('uk')
+    render(<DocumentsGenericEmpty searching={false} />, { wrapper: I18nTestProvider })
+    expect(screen.getByTestId('documents-empty-generic')).toHaveTextContent('Ще немає документів')
+    expect(screen.queryByText('Нічого не знайдено')).toBeNull()
+  })
+
+  it('searching=true says nothing found, not "no documents yet" (uk)', async () => {
+    await loadCatalog('uk')
+    render(<DocumentsGenericEmpty searching />, { wrapper: I18nTestProvider })
+    expect(screen.getByTestId('documents-empty-no-results')).toHaveTextContent('Нічого не знайдено')
+    expect(screen.queryByText('Ще немає документів')).toBeNull()
+  })
+
+  it('en: "No documents yet" / "No results"', async () => {
+    await loadCatalog('en')
+    const a = render(<DocumentsGenericEmpty searching={false} />, { wrapper: I18nTestProvider })
+    expect(a.container.textContent).toBe('No documents yet')
+    a.unmount()
+    const b = render(<DocumentsGenericEmpty searching />, { wrapper: I18nTestProvider })
+    expect(b.container.textContent).toBe('No results')
   })
 })

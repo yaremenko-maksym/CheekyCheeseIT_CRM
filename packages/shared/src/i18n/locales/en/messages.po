@@ -17,14 +17,6 @@ msgstr ""
 msgid " · архів"
 msgstr " · archived"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid " · в архіві"
-msgstr " · archived"
-
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid " · всі"
-msgstr " · all"
-
 #. placeholder {0}: fmtAmount(remainingToPay, tx.currency)
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid " · до сплати {0}"
@@ -1094,6 +1086,10 @@ msgstr "The profile of <0>{entityName}</0> will be archived; it will be removed 
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
 msgstr "The profile of <0>{entityName}</0> will be archived. Nothing else needs to be archived along with it. This account will no longer be able to sign in to the CRM."
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "в архіві"
+msgstr "in archive"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
@@ -2374,10 +2370,6 @@ msgstr "Internal note, visible only to admins…"
 msgid "Вручну"
 msgstr "Manual"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Всі"
-msgstr "All"
-
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Всі вакансії"
 msgstr "All vacancies"
@@ -3066,10 +3058,6 @@ msgstr "Documents"
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
 msgstr "You don’t have access to documents. Ask an admin if you need it"
-
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Документів ще немає"
-msgstr "No documents yet"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -5928,6 +5916,7 @@ msgstr "No one owes anyone"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Нічого не знайдено"
 msgstr "No results"
 
@@ -7449,9 +7438,6 @@ msgid "Пошук за компанією, проєктом, сеньйором�
 msgstr "Search by company, project, senior…"
 
 #: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Пошук за назвою файлу"
-msgstr "Search by file name"
-
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Search by name…"
@@ -9615,6 +9601,11 @@ msgstr "I have read and accept the terms of my contract"
 msgid "Усе, що чекає рішення"
 msgstr "Everything awaiting a decision"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "усі"
+msgstr "all"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Усі"
@@ -10308,6 +10299,10 @@ msgstr "Contract templates for each role. Click “Edit” to change the text."
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Ще дії"
 msgstr "More actions"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає документів"
+msgstr "No documents yet"
 
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Ще немає рахунків"

@@ -17,14 +17,6 @@ msgstr ""
 msgid " · архів"
 msgstr " · архів"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid " · в архіві"
-msgstr " · в архіві"
-
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid " · всі"
-msgstr " · всі"
-
 #. placeholder {0}: fmtAmount(remainingToPay, tx.currency)
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid " · до сплати {0}"
@@ -1094,6 +1086,10 @@ msgstr "В архів піде профіль <0>{entityName}</0>; його бу
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
 msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "в архіві"
+msgstr "в архіві"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
@@ -2374,10 +2370,6 @@ msgstr "Внутрішня нотатка, видна лише адмініст�
 msgid "Вручну"
 msgstr "Вручну"
 
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Всі"
-msgstr "Всі"
-
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Всі вакансії"
 msgstr "Всі вакансії"
@@ -3066,10 +3058,6 @@ msgstr "Документи"
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
 msgstr "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
-
-#: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Документів ще немає"
-msgstr "Документів ще немає"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -5928,6 +5916,7 @@ msgstr "Ніхто нікому не винен"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Нічого не знайдено"
 msgstr "Нічого не знайдено"
 
@@ -7449,9 +7438,6 @@ msgid "Пошук за компанією, проєктом, сеньйором�
 msgstr "Пошук за компанією, проєктом, сеньйором…"
 
 #: apps/web/app/routes/_authenticated/documents.tsx
-msgid "Пошук за назвою файлу"
-msgstr "Пошук за назвою файлу"
-
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Пошук за назвою…"
@@ -9615,6 +9601,11 @@ msgstr "Умови персонального контракту прочита�
 msgid "Усе, що чекає рішення"
 msgstr "Усе, що чекає рішення"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "усі"
+msgstr "усі"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Усі"
@@ -10308,6 +10299,10 @@ msgstr "Шаблони договорів для кожної ролі. Нати
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Ще дії"
 msgstr "Ще дії"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає документів"
+msgstr "Ще немає документів"
 
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Ще немає рахунків"

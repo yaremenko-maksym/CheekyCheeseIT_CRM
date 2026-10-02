@@ -162,7 +162,7 @@ export const Route = createFileRoute('/_authenticated/documents')({
  * words.
  */
 export const STATUS_TAB_LABEL_MESSAGES = {
-  ALL: msg`Всі`,
+  ALL: msg`Усі`,
   ACTIVE: msg`Активні`,
   ARCHIVED: msg`Архів`,
 } satisfies Record<StatusTab, MessageDescriptor>
@@ -468,7 +468,7 @@ function DocumentsPageContent({ viewer }: { viewer: SessionUser }) {
               <Input
                 type="search"
                 enterKeyHint="search"
-                placeholder={t`Пошук за назвою файлу`}
+                placeholder={t`Пошук за назвою…`}
                 value={searchInput}
                 onChange={(e) => setSearchInput(e.target.value)}
                 className={searchInput ? 'pl-8 pr-8' : 'pl-8'}
@@ -867,27 +867,22 @@ function DocumentsListSection({
     </div>
   )
 
-  // Generic empty state — covers `ALL`, RESUME, SCAN, CONTRACT.
-  const genericEmpty = (
-    <div
-      data-testid="documents-empty-generic"
-      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
-    >
-      <FileText className="h-10 w-10 text-muted-foreground/30" />
-      <p className="mt-4 text-sm font-medium">
-        <Trans>Документів ще немає</Trans>
-      </p>
-    </div>
-  )
+  // Active search / owner filter with zero matches → "nothing found" for ANY
+  // category (the per-category empties above say "none exist yet", which is
+  // false while a query is narrowing the list).
+  const hasActiveQuery = searchQuery.trim() !== '' || ownerId !== undefined
 
-  const emptyState =
-    categoryFilter === 'RECEIPT'
-      ? receiptEmpty
-      : categoryFilter === 'INVOICE'
-        ? invoiceEmpty
-        : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO'
-          ? internalEmpty
-          : genericEmpty
+  const emptyState = hasActiveQuery ? (
+    <DocumentsGenericEmpty searching />
+  ) : categoryFilter === 'RECEIPT' ? (
+    receiptEmpty
+  ) : categoryFilter === 'INVOICE' ? (
+    invoiceEmpty
+  ) : categoryFilter === 'AVATAR' || categoryFilter === 'LOGO' ? (
+    internalEmpty
+  ) : (
+    <DocumentsGenericEmpty searching={false} />
+  )
 
   return (
     <div className="space-y-3">
@@ -941,6 +936,29 @@ function DocumentsListSection({
 }
 
 // ---------------------------------------------------------------------------
+// DocumentsGenericEmpty — empty state for ALL / RESUME / SCAN / CONTRACT
+// ---------------------------------------------------------------------------
+
+/**
+ * `searching` = a search query or owner filter is narrowing the list: say
+ * "nothing found" instead of "no documents yet" (which would be false).
+ * Exported for a direct unit-test render of both states.
+ */
+export function DocumentsGenericEmpty({ searching }: { searching: boolean }) {
+  return (
+    <div
+      data-testid={searching ? 'documents-empty-no-results' : 'documents-empty-generic'}
+      className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
+    >
+      <FileText className="h-10 w-10 text-muted-foreground/30" />
+      <p className="mt-4 text-sm font-medium">
+        {searching ? <Trans>Нічого не знайдено</Trans> : <Trans>Ще немає документів</Trans>}
+      </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // DocumentsCounterText — the count chip below the toolbar
 // ---------------------------------------------------------------------------
 
@@ -975,9 +993,15 @@ export function DocumentsCounterText({
         other="# документа"
       />
       {statusTab === 'ARCHIVED' ? (
-        <Trans> · в архіві</Trans>
+        <>
+          {' · '}
+          <Trans>в архіві</Trans>
+        </>
       ) : statusTab === 'ALL' ? (
-        <Trans> · всі</Trans>
+        <>
+          {' · '}
+          <Trans>усі</Trans>
+        </>
       ) : null}
       {categoryFilter !== 'ALL' ? (
         <>
