@@ -99,13 +99,22 @@ export const CATEGORY_LABEL_MESSAGES_LOWER = {
  * (COPY-M-docs-15) that reads `Document.invoicePendingSignature`, not the
  * `StatusBadge` discriminated union.
  */
-export type DocumentStatusMessageKey = 'DRAFT' | 'READY_TO_SIGN' | 'SIGNED' | 'AWAITING_SIGNATURE'
+export type DocumentStatusMessageKey =
+  | 'DRAFT'
+  | 'READY_TO_SIGN'
+  | 'SIGNED'
+  | 'AWAITING_SIGNATURE'
+  | 'ARCHIVED'
 
 export const DOCUMENT_STATUS_MESSAGES = {
   DRAFT: msg`Чернетка`,
   READY_TO_SIGN: msg`Готовий до підпису`,
   SIGNED: msg`Підписано`,
   AWAITING_SIGNATURE: msg`Очікує підпису`,
+  // A soft-deleted document lives in the «Архів» view (task-i18n-stage3e-pr2):
+  // one word for the badge on card, row and detail dialog — the old copies said
+  // «Удалён» (card/row) and «В корзине» (detail) for the same state.
+  ARCHIVED: msg`В архіві`,
 } satisfies Record<DocumentStatusMessageKey, MessageDescriptor>
 
 // ---------------------------------------------------------------------------
@@ -127,3 +136,21 @@ export const DELETE_CONFIRM_MESSAGES = {
   ARCHIVE_BODY: msg`Документ піде в архів. Повернути його може адмін`,
   PERMANENT_BODY: msg`Файл буде видалено без можливості відновлення`,
 } satisfies Record<DeleteConfirmMessageKey, MessageDescriptor>
+
+// ---------------------------------------------------------------------------
+// «Delete is unavailable» canon (COPY-L-docs-20, task-i18n-stage3e-pr2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Receipts and invoices are deleted only together with their transaction.
+ * The disabled trash button on `document-card.tsx` and `document-row.tsx`
+ * used to say three different things (card: «…недоступно для чеков» /
+ * «…для инвойсов», row: bare «Удалить (недоступно)» with NO reason) — one
+ * sentence per category now serves BOTH as the tooltip and as the button's
+ * accessible name, so a screen-reader user hears the same reason a sighted
+ * user sees.
+ */
+export const DELETE_UNAVAILABLE_MESSAGES = {
+  RECEIPT: msg`Видалити не можна: чек видаляється разом із транзакцією`,
+  INVOICE: msg`Видалити не можна: рахунок видаляється разом із транзакцією`,
+} satisfies Record<'RECEIPT' | 'INVOICE', MessageDescriptor>

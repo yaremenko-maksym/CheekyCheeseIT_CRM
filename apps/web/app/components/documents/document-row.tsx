@@ -5,15 +5,14 @@
  *   - category icon + filename (truncated)
  *   - size · relative date · uploader name
  *   - badge slot (pending-signature amber badge when applicable)
- *   - action buttons: Скачать, soft-delete (owner/ADMIN), restore / hard-delete (ADMIN)
+ *   - action buttons: download, soft-delete (owner/ADMIN), restore / hard-delete (ADMIN)
  *
  * Intentionally mirrors the layout conventions of DocumentCard but in a
  * compact horizontal form, so switching between views doesn't disorient the
  * user. RECEIPT/INVOICE deletion rules are identical to DocumentCard.
  */
-import { useMemo, useState } from 'react'
-import { formatDistanceToNow } from 'date-fns'
-import { ru } from 'date-fns/locale'
+import { useState } from 'react'
+import { Trans, useLingui } from '@lingui/react/macro'
 import {
   Download,
   FileSignature,
@@ -24,12 +23,18 @@ import {
   Trash2,
   UserCircle2,
 } from 'lucide-react'
+import { formatDate, formatRelativeTime } from '@crm/shared'
 import type { Document, SessionUser } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import { DocumentStatusBadge } from './document-status-badge'
+import {
+  DELETE_CONFIRM_MESSAGES,
+  DELETE_UNAVAILABLE_MESSAGES,
+  DOCUMENT_STATUS_MESSAGES,
+} from './document-labels'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -56,9 +61,6 @@ interface DocumentRowProps {
   onOpen?: ((doc: Document) => void) | undefined
 }
 
-const RECEIPT_DELETE_TOOLTIP = 'Чек удаляется вместе с транзакцией'
-const INVOICE_DELETE_TOOLTIP = 'Инвойс удаляется вместе с транзакцией'
-
 const CATEGORY_ICON_MAP: Partial<Record<string, typeof FileText>> = {
   RECEIPT: ReceiptIcon,
   INVOICE: FileSignature,
@@ -69,9 +71,8 @@ function shortId(id: string): string {
 }
 
 export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
-  // task-i18n-stage3a (Task 2) — `formatBytes` now takes a required
-  // `locale`; this file otherwise stays Russian (wave e migrates it).
   const locale = useLocale()
+  const { t, i18n } = useLingui()
   const [confirmSoftDelete, setConfirmSoftDelete] = useState(false)
   const [confirmHardDelete, setConfirmHardDelete] = useState(false)
 
@@ -95,16 +96,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
 
   const Icon = CATEGORY_ICON_MAP[doc.category] ?? FileText
 
-  const relativeDate = useMemo(() => {
-    try {
-      return formatDistanceToNow(new Date(doc.createdAt), {
-        addSuffix: true,
-        locale: ru,
-      })
-    } catch {
-      return doc.createdAt
-    }
-  }, [doc.createdAt])
+  const relativeDate = formatRelativeTime(doc.createdAt, locale)
 
   async function handleDownload() {
     const result = await downloadQuery.refetch()
@@ -141,7 +133,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
         <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
           <span>{doc.sizeBytes > 0 ? formatBytes(doc.sizeBytes, locale) : '—'}</span>
           <span aria-hidden="true">·</span>
-          <span title={doc.createdAt}>{relativeDate}</span>
+          <span title={formatDate(doc.createdAt, locale, 'dateTimeWithYear')}>{relativeDate}</span>
           <span aria-hidden="true">·</span>
           <span className="flex items-center gap-1">
             <UserCircle2 className="h-3 w-3" />
@@ -161,7 +153,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
       <div className="flex shrink-0 items-center gap-2">
         {isDeleted ? (
           <Badge variant="secondary" className="bg-muted-foreground/15 text-foreground">
-            Удалён
+            {i18n._(DOCUMENT_STATUS_MESSAGES.ARCHIVED)}
           </Badge>
         ) : null}
         {/* PR-2: unified status badge (supersedes invoicePendingSignature). */}
@@ -175,7 +167,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
             className="border-amber-500/30 bg-amber-500/20 text-amber-300"
             data-testid="document-row-pending-signature"
           >
-            Требует подписи
+            {i18n._(DOCUMENT_STATUS_MESSAGES.AWAITING_SIGNATURE)}
           </Badge>
         ) : null}
       </div>
@@ -189,7 +181,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
           disabled={downloadQuery.isFetching}
           data-testid="document-row-download"
           data-track="document-download"
-          aria-label="Скачать"
+          aria-label={t`Завантажити`}
         >
           <Download className="h-4 w-4" />
         </Button>
@@ -201,7 +193,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
             className="text-muted-foreground hover:text-destructive"
             onClick={() => setConfirmSoftDelete(true)}
             data-testid="document-row-delete"
-            aria-label="Удалить"
+            aria-label={t`Видалити`}
           >
             <Trash className="h-4 w-4" />
           </Button>
@@ -217,14 +209,22 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
                     variant="ghost"
                     disabled
                     className="text-muted-foreground"
-                    aria-label="Удалить (недоступно)"
+                    aria-label={i18n._(
+                      isReceipt
+                        ? DELETE_UNAVAILABLE_MESSAGES.RECEIPT
+                        : DELETE_UNAVAILABLE_MESSAGES.INVOICE,
+                    )}
                   >
                     <Trash className="h-4 w-4" />
                   </Button>
                 </span>
               </TooltipTrigger>
               <TooltipContent>
-                {isReceipt ? RECEIPT_DELETE_TOOLTIP : INVOICE_DELETE_TOOLTIP}
+                {i18n._(
+                  isReceipt
+                    ? DELETE_UNAVAILABLE_MESSAGES.RECEIPT
+                    : DELETE_UNAVAILABLE_MESSAGES.INVOICE,
+                )}
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -237,7 +237,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
             onClick={() => restore.mutate(doc.id)}
             disabled={restore.isPending}
             data-testid="document-row-restore"
-            aria-label="Восстановить"
+            aria-label={t`Відновити`}
           >
             <RotateCcw className="h-4 w-4" />
           </Button>
@@ -250,7 +250,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
             onClick={() => setConfirmHardDelete(true)}
             disabled={hardDelete.isPending}
             data-testid="document-row-hard-delete"
-            aria-label="Удалить навсегда"
+            aria-label={t`Видалити назавжди`}
           >
             <Trash2 className="h-4 w-4" />
           </Button>
@@ -261,20 +261,24 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
       <AlertDialog open={confirmSoftDelete} onOpenChange={setConfirmSoftDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Переместить в корзину?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Перенести в архів?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Документ «{displayName}» можно восстановить позже из режима «Архив».
+              {i18n._(DELETE_CONFIRM_MESSAGES.ARCHIVE_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 softDelete.mutate(doc.id)
                 setConfirmSoftDelete(false)
               }}
             >
-              Удалить
+              <Trans>Видалити</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -284,13 +288,17 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
       <AlertDialog open={confirmHardDelete} onOpenChange={setConfirmHardDelete}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Удалить навсегда?</AlertDialogTitle>
+            <AlertDialogTitle>
+              <Trans>Видалити назавжди?</Trans>
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Файл будет удалён навсегда из S3 и базы. Действие необратимо. Продолжить?
+              {i18n._(DELETE_CONFIRM_MESSAGES.PERMANENT_BODY)}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>
+              <Trans>Скасувати</Trans>
+            </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
@@ -298,7 +306,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
                 setConfirmHardDelete(false)
               }}
             >
-              Удалить навсегда
+              <Trans>Видалити назавжди</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -37,6 +37,7 @@
  * bypass.
  */
 import { ImageIcon } from 'lucide-react'
+import { useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
 import { useDocumentDownloadUrl, useDocumentThumbnailUrl } from '@/hooks/use-documents'
 
@@ -65,6 +66,7 @@ export function DocumentImage({
   variant = 'thumbnail',
   fallbackToParent = false,
 }: DocumentImageProps) {
+  const { t } = useLingui()
   // Pick the right query based on variant. Both have identical caching
   // behavior so this is essentially a routing choice.
   const thumbQuery = useDocumentThumbnailUrl(docId, {
@@ -79,9 +81,12 @@ export function DocumentImage({
 
   if (isLoading) {
     return (
+      // `aria-label` on a bare <div> is ignored by screen readers (no role) —
+      // `role="status"` makes the loading state announceable (COPY-L-docs-21).
       <div
+        role="status"
         className={cn('flex items-center justify-center bg-muted animate-pulse', className)}
-        aria-label="Загружается изображение"
+        aria-label={t`Зображення завантажується`}
       />
     )
   }
@@ -92,9 +97,11 @@ export function DocumentImage({
   if (!data || isError) {
     if (fallbackToParent) return null
     return (
+      // `role="img"` gives the placeholder an accessible name (COPY-L-docs-21).
       <div
+        role="img"
         className={cn('flex items-center justify-center bg-muted text-muted-foreground', className)}
-        aria-label="Превью недоступно"
+        aria-label={t`Попередній перегляд недоступний`}
       >
         <ImageIcon className="h-8 w-8" />
       </div>

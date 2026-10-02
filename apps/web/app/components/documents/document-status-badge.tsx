@@ -2,8 +2,10 @@
  * DocumentStatusBadge — renders the semantic status badge for a document entry.
  *
  * Backend sends {kind, state} (see packages/shared/src/schemas/documents.ts:
- * statusBadgeSchema). This component owns ALL Russian label copy and badge
- * color tone — the backend stays semantic-only.
+ * statusBadgeSchema). This component owns the label copy (uk/en via Lingui;
+ * the shared statuses come from the `document-labels.ts` hub, so
+ * `READY_TO_SIGN` reads the same here and on /pending) and the badge color
+ * tone — the backend stays semantic-only.
  *
  * Badge tones:
  *   contract/draft    — secondary (neutral, grey)
@@ -14,8 +16,12 @@
  *   receipt/pending   — amber (awaiting confirmation)
  *   receipt/validated — green (confirmed)
  */
+import { msg } from '@lingui/core/macro'
+import { useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { StatusBadge } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
+import { DOCUMENT_STATUS_MESSAGES } from './document-labels'
 
 interface DocumentStatusBadgeProps {
   badge: StatusBadge
@@ -29,23 +35,32 @@ interface DocumentStatusBadgeProps {
 type BadgeTone = 'neutral' | 'amber' | 'green'
 
 interface BadgeMeta {
-  label: string
+  label: MessageDescriptor
   tone: BadgeTone
 }
 
+// Receipt-only statuses: no other screen renders them, so they live here
+// rather than in the shared hub.
+const RECEIPT_STATUS_MESSAGES = {
+  pending: msg`Очікує підтвердження`,
+  validated: msg`Підтверджено`,
+} satisfies Record<'pending' | 'validated', MessageDescriptor>
+
 function resolveMeta(badge: StatusBadge): BadgeMeta {
   if (badge.kind === 'contract') {
-    if (badge.state === 'draft') return { label: 'Драфт', tone: 'neutral' }
-    if (badge.state === 'ready') return { label: 'Готово к подписи', tone: 'amber' }
-    return { label: 'Подписано', tone: 'green' }
+    if (badge.state === 'draft') return { label: DOCUMENT_STATUS_MESSAGES.DRAFT, tone: 'neutral' }
+    if (badge.state === 'ready')
+      return { label: DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN, tone: 'amber' }
+    return { label: DOCUMENT_STATUS_MESSAGES.SIGNED, tone: 'green' }
   }
   if (badge.kind === 'invoice') {
-    if (badge.state === 'ready') return { label: 'Ожидает подписи', tone: 'amber' }
-    return { label: 'Подписано', tone: 'green' }
+    if (badge.state === 'ready')
+      return { label: DOCUMENT_STATUS_MESSAGES.AWAITING_SIGNATURE, tone: 'amber' }
+    return { label: DOCUMENT_STATUS_MESSAGES.SIGNED, tone: 'green' }
   }
   // receipt
-  if (badge.state === 'pending') return { label: 'Требует подтверждения', tone: 'amber' }
-  return { label: 'Подтверждено', tone: 'green' }
+  if (badge.state === 'pending') return { label: RECEIPT_STATUS_MESSAGES.pending, tone: 'amber' }
+  return { label: RECEIPT_STATUS_MESSAGES.validated, tone: 'green' }
 }
 
 const TONE_CLASSES: Record<BadgeTone, string> = {
@@ -59,6 +74,7 @@ const TONE_CLASSES: Record<BadgeTone, string> = {
 // ---------------------------------------------------------------------------
 
 export function DocumentStatusBadge({ badge, className }: DocumentStatusBadgeProps) {
+  const { i18n } = useLingui()
   const { label, tone } = resolveMeta(badge)
 
   return (
@@ -68,7 +84,7 @@ export function DocumentStatusBadge({ badge, className }: DocumentStatusBadgePro
       data-badge-kind={badge.kind}
       data-badge-state={badge.state}
     >
-      {label}
+      {i18n._(label)}
     </Badge>
   )
 }

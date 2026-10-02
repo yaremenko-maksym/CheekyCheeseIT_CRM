@@ -6,7 +6,6 @@
  * embedded in each document DTO (API LEFT JOIN), so no precomputed map is
  * needed any more.
  */
-import { FileText } from 'lucide-react'
 import type { Document, SessionUser } from '@crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { DocumentCard } from './document-card'
@@ -16,8 +15,9 @@ interface DocumentListProps {
   loading: boolean
   viewer: SessionUser
   /**
-   * Custom empty-state node. When omitted, a generic "Нет документов"
-   * placeholder is shown.
+   * Custom empty-state node. The parent always supplies one; when omitted an
+   * empty list renders nothing (a dead generic placeholder used to live here —
+   * COPY-M-docs-8, removed rather than translated).
    */
   emptyState?: React.ReactNode | undefined
   /**
@@ -62,21 +62,9 @@ export function DocumentList({
     )
   }
 
-  if (documents.length === 0) {
-    if (emptyState) return <>{emptyState}</>
-    return (
-      <div
-        data-testid="documents-empty"
-        className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-24 text-center"
-      >
-        <FileText className="h-10 w-10 text-muted-foreground/30" />
-        <p className="mt-4 text-sm font-medium">Нет документов</p>
-        <p className="mt-1 text-xs text-muted-foreground">
-          Загрузите свой первый документ — он появится здесь
-        </p>
-      </div>
-    )
-  }
+  // No built-in empty copy: the parent owns it (a fragment around `undefined`
+  // renders nothing).
+  if (documents.length === 0) return <>{emptyState}</>
 
   return (
     <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">

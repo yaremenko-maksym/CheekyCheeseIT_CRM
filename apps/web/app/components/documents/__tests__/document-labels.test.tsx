@@ -17,6 +17,7 @@ import {
   CATEGORY_LABEL_MESSAGES_LOWER,
   DOCUMENT_STATUS_MESSAGES,
   DELETE_CONFIRM_MESSAGES,
+  DELETE_UNAVAILABLE_MESSAGES,
   type DocumentStatusMessageKey,
   type DeleteConfirmMessageKey,
 } from '../document-labels'
@@ -51,6 +52,7 @@ const STATUS_EXPECTED: Record<DocumentStatusMessageKey, [uk: string, en: string]
   READY_TO_SIGN: ['Готовий до підпису', 'Ready to sign'],
   SIGNED: ['Підписано', 'Signed'],
   AWAITING_SIGNATURE: ['Очікує підпису', 'Awaiting signature'],
+  ARCHIVED: ['В архіві', 'Archived'],
 }
 
 const DELETE_CONFIRM_EXPECTED: Record<DeleteConfirmMessageKey, [uk: string, en: string]> = {
@@ -182,5 +184,30 @@ describe('DELETE_CONFIRM_MESSAGES — archive + permanent, uk + en', () => {
     const permanentText = i18n._(DELETE_CONFIRM_MESSAGES.PERMANENT_BODY)
     expect(archiveText).not.toMatch(/S3|бази даних/i)
     expect(permanentText).not.toMatch(/S3|бази даних/i)
+  })
+})
+
+describe('DELETE_UNAVAILABLE_MESSAGES — receipt + invoice, uk + en, reason included', () => {
+  const EXPECTED = {
+    RECEIPT: [
+      'Видалити не можна: чек видаляється разом із транзакцією',
+      'Can’t delete: a receipt is deleted together with its transaction',
+    ],
+    INVOICE: [
+      'Видалити не можна: рахунок видаляється разом із транзакцією',
+      'Can’t delete: an invoice is deleted together with its transaction',
+    ],
+  } as const
+
+  it('uk', async () => {
+    await loadCatalog('uk')
+    expect(i18n._(DELETE_UNAVAILABLE_MESSAGES.RECEIPT)).toBe(EXPECTED.RECEIPT[0])
+    expect(i18n._(DELETE_UNAVAILABLE_MESSAGES.INVOICE)).toBe(EXPECTED.INVOICE[0])
+  })
+
+  it('en', async () => {
+    await loadCatalog('en')
+    expect(i18n._(DELETE_UNAVAILABLE_MESSAGES.RECEIPT)).toBe(EXPECTED.RECEIPT[1])
+    expect(i18n._(DELETE_UNAVAILABLE_MESSAGES.INVOICE)).toBe(EXPECTED.INVOICE[1])
   })
 })
