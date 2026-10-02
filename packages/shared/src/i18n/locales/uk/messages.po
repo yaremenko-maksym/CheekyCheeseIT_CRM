@@ -6170,8 +6170,8 @@ msgid "Нові ({newCount})"
 msgstr "Нові ({newCount})"
 
 #: apps/web/app/routes/_authenticated/pending/index.tsx
-msgid "Нові проєкти, частки та контракти з’являться тут"
-msgstr "Нові проєкти, частки та контракти з’являться тут"
+msgid "Нові проєкти, частки та контракти з’являться тут."
+msgstr "Нові проєкти, частки та контракти з’являться тут."
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."

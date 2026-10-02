@@ -588,8 +588,8 @@ describe('PendingItemRow — fmtRelative fallback', () => {
 // percentages 1/2/5 are plain placeholders — a `%` figure takes no plural form.
 describe('PendingItemRow — share phrase: four variants × uk/en', () => {
   const CASES: Array<[string, 'mine' | 'proposedByMe', number | undefined, string, string]> = [
-    ['mine + current', 'mine', 1, 'Зараз 1% → пропонують 2%', 'Now 1% → proposing 2%'],
-    ['mine, no current', 'mine', undefined, 'Пропонують 2%', 'Proposing 2%'],
+    ['mine + current', 'mine', 1, 'Зараз 1% → пропонують 2%', 'Now 1% → they propose 2%'],
+    ['mine, no current', 'mine', undefined, 'Пропонують 2%', 'They propose 2%'],
     [
       'proposedByMe + current',
       'proposedByMe',

@@ -176,7 +176,7 @@ describe('PendingKindSection — locale independence of the selectors', () => {
   it('the same heading testid under uk and en titles — a translation never moves a selector', () => {
     const { unmount } = render(
       <PendingKindSection
-        kind="PROJECT_APPROVAL"
+        kind="SHARE_APPROVAL"
         title="Проєкти"
         icon={Briefcase}
         items={[item({})]}
@@ -190,7 +190,7 @@ describe('PendingKindSection — locale independence of the selectors', () => {
     unmount()
     render(
       <PendingKindSection
-        kind="PROJECT_APPROVAL"
+        kind="SHARE_APPROVAL"
         title="Projects"
         icon={Briefcase}
         items={[item({})]}
@@ -201,7 +201,7 @@ describe('PendingKindSection — locale independence of the selectors', () => {
     const enTestId = screen
       .getByRole('heading', { level: 3, name: 'Projects' })
       .getAttribute('data-testid')
-    expect(ukTestId).toBe('pending-kind-heading-mine-PROJECT_APPROVAL')
+    expect(ukTestId).toBe('pending-kind-heading-mine-SHARE_APPROVAL')
     expect(enTestId).toBe(ukTestId)
   })
 })

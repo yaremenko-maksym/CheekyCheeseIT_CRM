@@ -210,8 +210,8 @@ export function PendingPage() {
                 the contract on one screen, and /documents is a different
                 section entirely; the three nouns now match the three sections
                 this screen actually has. */}
-            <p className="max-w-xs text-xs text-muted-foreground">
-              {t`Нові проєкти, частки та контракти з’являться тут`}
+            <p className="max-w-xs text-balance text-xs text-muted-foreground">
+              {t`Нові проєкти, частки та контракти з’являться тут.`}
             </p>
           </div>
         ) : (

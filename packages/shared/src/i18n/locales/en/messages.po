@@ -339,7 +339,7 @@ msgstr "{value, select, null {not set} other {{value}%}}"
 
 #: apps/web/app/components/pending/PendingItemRow.tsx
 msgid "{variant, select, proposedFrom {Зараз {cur}% → запропоновано {pct}%} proposedNew {Запропоновано {pct}%} proposingFrom {Зараз {cur}% → пропонують {pct}%} proposingNew {Пропонують {pct}%} other {{pct}%}}"
-msgstr "{variant, select, proposedFrom {Now {cur}% → proposed {pct}%} proposedNew {Proposed {pct}%} proposingFrom {Now {cur}% → proposing {pct}%} proposingNew {Proposing {pct}%} other {{pct}%}}"
+msgstr "{variant, select, proposedFrom {Now {cur}% → proposed {pct}%} proposedNew {Proposed {pct}%} proposingFrom {Now {cur}% → they propose {pct}%} proposingNew {They propose {pct}%} other {{pct}%}}"
 
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "/ місяць"
@@ -5434,7 +5434,7 @@ msgstr "Could not upload the receipt"
 
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Не вдалося завантажити, що чекає на рішення"
-msgstr "Couldn’t load what is waiting for a decision"
+msgstr "Couldn’t load your pending decisions"
 
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Не вдалося зберегти — недостатньо прав"
@@ -6170,8 +6170,8 @@ msgid "Нові ({newCount})"
 msgstr "New ({newCount})"
 
 #: apps/web/app/routes/_authenticated/pending/index.tsx
-msgid "Нові проєкти, частки та контракти з’являться тут"
-msgstr "New projects, shares and contracts will appear here"
+msgid "Нові проєкти, частки та контракти з’являться тут."
+msgstr "New projects, shares and contracts will appear here."
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."

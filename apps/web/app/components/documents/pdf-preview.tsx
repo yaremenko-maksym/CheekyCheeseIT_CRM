@@ -23,7 +23,7 @@ export interface PdfPreviewProps {
   blobUrl: string | null
   /** True while the blob is still loading (fetch in flight). */
   isLoading: boolean
-  /** True если fetch завершился ошибкой. */
+  /** True if the fetch failed. */
   hasError: boolean
   /** Имя файла для download-атрибута кнопки «Завантажити PDF». */
   filename?: string

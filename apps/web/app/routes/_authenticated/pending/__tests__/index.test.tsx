@@ -240,7 +240,9 @@ describe('/pending — AC6 states', () => {
     // COPY-M-6 (fix-round 3): the subline stopped explaining «ничего не ждёт»
     // through «когда будет ждать», and lists exactly the three sections this
     // screen has — «документы» is a different menu item entirely.
-    expect(screen.getByText('Нові проєкти, частки та контракти з’являться тут')).toBeInTheDocument()
+    expect(
+      screen.getByText('Нові проєкти, частки та контракти з’являться тут.'),
+    ).toBeInTheDocument()
   })
 
   it('mine empty but proposedByMe non-empty (ADMIN with nothing of their own): shows ONLY «Очікують рішення інших», not the global empty state', () => {
@@ -358,7 +360,7 @@ describe('/pending — en: titles translate, grouping and selectors do not move'
     renderPage()
     expect(screen.getByText('Nothing is waiting for your decision')).toBeInTheDocument()
     expect(
-      screen.getByText('New projects, shares and contracts will appear here'),
+      screen.getByText('New projects, shares and contracts will appear here.'),
     ).toBeInTheDocument()
   })
 
