@@ -211,7 +211,7 @@ describe('DocumentCard — i18n copy (wave e PR2)', () => {
     renderCard(makeInvoiceDoc({ deletedAt: MID_MONTH }))
     const card = await screen.findByTestId('document-card')
     expect(card).toHaveTextContent('В архіві')
-    expect(card.textContent).not.toMatch(/Удалён|У кошику/)
+    expect(card.textContent).not.toMatch(/Удал.н|У кошику/)
   })
 
   it('en archived badge', async () => {
