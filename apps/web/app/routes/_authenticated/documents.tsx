@@ -149,7 +149,7 @@ export const Route = createFileRoute('/_authenticated/documents')({
 // Visibility config
 // ---------------------------------------------------------------------------
 
-// task-i18n-stage3e-pr1: the page's OWN `CATEGORY_LABELS_RU` copy is gone —
+// task-i18n-stage3e-pr1: the page's OWN local category map is gone —
 // category text now comes from the shared hub (`CATEGORY_LABEL_MESSAGES`,
 // `components/documents/document-labels.ts`), the single canon
 // `upload-document-dialog.tsx`/`document-detail-dialog.tsx` migrate onto in

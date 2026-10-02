@@ -7,13 +7,14 @@
  *
  * Архитектура:
  *   - Принимает готовый `blobUrl` (загруженный вызывающей стороной).
- *   - <iframe src={blobUrl}> с <object> progressive fallback для iOS Safari.
+ *   - <iframe src={blobUrl}> (без дочернего контента: HTML5 его не рендерит).
  *   - При onLoad iframe → скрывает лоадер.
- *   - Если iframe не загрузился за 3 секунды — показывает кнопку «Открыть PDF».
+ *   - Если iframe не загрузился за 3 секунды — показывает кнопку «Завантажити PDF» (ссылка с `download`).
  *   - hasError → показывает состояние ошибки.
  */
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ExternalLink, FileText, Loader2 } from 'lucide-react'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { AlertTriangle, Download, FileText, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -24,7 +25,7 @@ export interface PdfPreviewProps {
   isLoading: boolean
   /** True если fetch завершился ошибкой. */
   hasError: boolean
-  /** Имя файла для download-атрибута кнопки «Открыть PDF». */
+  /** Имя файла для download-атрибута кнопки «Завантажити PDF». */
   filename?: string
   className?: string
   /** data-testid для Playwright E2E. */
@@ -39,6 +40,7 @@ export function PdfPreview({
   className,
   testId = 'document-pdf-preview',
 }: PdfPreviewProps) {
+  const { t } = useLingui()
   const [iframeReady, setIframeReady] = useState(false)
   const [iframeFallback, setIframeFallback] = useState(false)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -89,7 +91,9 @@ export function PdfPreview({
       {showLoader && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 rounded-xl bg-muted/80">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Загрузка PDF…</p>
+          <p className="text-sm text-muted-foreground">
+            <Trans>Завантаження PDF…</Trans>
+          </p>
         </div>
       )}
 
@@ -97,8 +101,8 @@ export function PdfPreview({
       {showIframe && (
         <iframe
           src={blobUrl}
-          title={`Предпросмотр: ${filename}`}
-          aria-label={`Предпросмотр: ${filename}`}
+          title={t`Попередній перегляд: ${filename}`}
+          aria-label={t`Попередній перегляд: ${filename}`}
           tabIndex={0}
           className={cn('h-full w-full rounded-xl border-0', !iframeReady && 'invisible')}
           onLoad={() => {
@@ -109,28 +113,20 @@ export function PdfPreview({
             if (timeoutRef.current) clearTimeout(timeoutRef.current)
             setIframeFallback(true)
           }}
-        >
-          {/* <object> progressive fallback (iOS Safari) */}
-          <object data={blobUrl} type="application/pdf" className="h-full w-full">
-            <p className="p-4 text-sm text-muted-foreground">
-              Встроенный просмотр PDF недоступен.{' '}
-              <a href={blobUrl} download={filename} className="underline hover:text-foreground">
-                Скачать PDF
-              </a>
-            </p>
-          </object>
-        </iframe>
+        />
       )}
 
-      {/* Fallback: iframe заблокирован Chrome — кнопка «Открыть PDF» */}
+      {/* Fallback: iframe заблокирован Chrome — кнопка «Завантажити PDF» */}
       {iframeFallback && blobUrl && !hasError && (
         <div className="flex flex-col items-center gap-3 p-6 text-center">
           <FileText className="h-12 w-12 text-muted-foreground/60" />
-          <p className="text-sm text-muted-foreground">Браузер заблокировал встроенный просмотр.</p>
+          <p className="text-sm text-muted-foreground">
+            <Trans>Браузер заблокував вбудований перегляд PDF</Trans>
+          </p>
           <Button size="sm" variant="outline" asChild>
             <a href={blobUrl} download={filename} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-1.5 h-4 w-4" />
-              Открыть PDF
+              <Download className="mr-1.5 h-4 w-4" />
+              <Trans>Завантажити PDF</Trans>
             </a>
           </Button>
         </div>
@@ -150,7 +146,9 @@ export function PdfPreview({
           data-testid={`${testId}-error`}
         >
           <AlertTriangle className="h-8 w-8 text-destructive/60" />
-          <p className="text-sm text-muted-foreground">Не удалось загрузить PDF.</p>
+          <p className="text-sm text-balance text-muted-foreground">
+            <Trans>Не вдалося завантажити PDF — спробуйте відкрити файл ще раз</Trans>
+          </p>
         </div>
       )}
     </div>

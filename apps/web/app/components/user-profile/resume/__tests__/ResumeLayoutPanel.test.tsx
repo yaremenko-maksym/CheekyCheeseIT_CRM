@@ -348,7 +348,7 @@ describe('ResumePdfPreview', () => {
   it('points the viewer at a blob, not at the attachment endpoint', async () => {
     render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
 
-    const frame = await screen.findByTitle(/Предпросмотр:/)
+    const frame = await screen.findByTitle(/Попередній перегляд:/)
     const src = frame.getAttribute('src') ?? ''
     expect(src.startsWith('blob:')).toBe(true)
     // The attachment URL must NOT be what the viewer loads.
@@ -364,7 +364,7 @@ describe('ResumePdfPreview', () => {
   it('shows no document while the bytes are still loading', () => {
     blobState = { blobUrl: null, isLoading: true, hasError: false }
     render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
-    expect(screen.queryByTitle(/Предпросмотр:/)).not.toBeInTheDocument()
+    expect(screen.queryByTitle(/Попередній перегляд:/)).not.toBeInTheDocument()
   })
 
   it('says so when the bytes cannot be fetched, instead of showing an empty frame', () => {
@@ -407,9 +407,9 @@ describe('ResumePdfPreview', () => {
 
   /**
    * `filename` feeds the shared `PdfPreview`'s `title`/`aria-label`
-   * (`Предпросмотр: ${filename}`) — the ONLY place `resume` / `Резюме —
+   * (`Попередній перегляд: ${filename}`) — the ONLY place `resume` / `Резюме —
    * ${name}.pdf` reach the DOM. The earlier assertion in this describe block
-   * only checked the fixed `Предпросмотр:` prefix (a regex), so an empty or
+   * only checked the fixed `Попередній перегляд:` prefix (a regex), so an empty or
    * garbled `filename` — from a mutated fallback or a mutated template — was
    * invisible to it. These two pin the FULL string, with and without an
    * explicit `fileName`, which is also what distinguishes `??` from `&&` in
@@ -418,8 +418,8 @@ describe('ResumePdfPreview', () => {
    */
   it('falls back to "резюме" and formats "Резюме — {name}.pdf" when no fileName is given', async () => {
     render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
-    const frame = await screen.findByTitle('Предпросмотр: Резюме — резюме.pdf')
-    expect(frame).toHaveAttribute('aria-label', 'Предпросмотр: Резюме — резюме.pdf')
+    const frame = await screen.findByTitle('Попередній перегляд: Резюме — резюме.pdf')
+    expect(frame).toHaveAttribute('aria-label', 'Попередній перегляд: Резюме — резюме.pdf')
   })
 
   it('uses the given fileName instead of the fallback', async () => {
@@ -430,7 +430,7 @@ describe('ResumePdfPreview', () => {
         fileName="Іван Іваненко"
       />,
     )
-    const frame = await screen.findByTitle('Предпросмотр: Резюме — Іван Іваненко.pdf')
+    const frame = await screen.findByTitle('Попередній перегляд: Резюме — Іван Іваненко.pdf')
     expect(frame).toBeInTheDocument()
   })
 })

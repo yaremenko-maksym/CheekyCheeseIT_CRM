@@ -119,7 +119,7 @@ describe('ResumePreviewDialog', () => {
     // The shared PdfPreview titles its iframe, so it is reachable by accessible
     // name inside the preview container — no querySelector (task-lint-teeth).
     const preview = screen.getByTestId('candidate-resume-preview')
-    const iframe = within(preview).getByTitle(/^Предпросмотр/)
+    const iframe = within(preview).getByTitle(/^Попередній перегляд/)
     expect(iframe).toHaveAttribute('src', 'blob:http://localhost/fake-resume-uuid')
   })
 

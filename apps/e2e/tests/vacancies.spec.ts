@@ -597,12 +597,12 @@ test.describe.serial('Резюме кандидата — превью, моби
       await card.getByTestId(`candidate-preview-${applicationId}`).click()
       await expect(page.getByTestId('resume-preview-dialog')).toBeVisible()
       // Wait for the real PDF to actually finish loading (the container is
-      // visible immediately, but PdfPreview shows a "Загрузка PDF…" overlay
+      // visible immediately, but PdfPreview shows a loading overlay ("Завантаження PDF…")
       // until the iframe's onLoad fires) AND for Radix's open zoom/fade
       // transition to settle — both this and the AC2 test above rely on a
       // real fetchable presigned URL.
       await expect(page.getByTestId('candidate-resume-preview')).toBeVisible()
-      await expect(page.getByText('Загрузка PDF…')).not.toBeVisible()
+      await expect(page.getByText(assertInCatalog(uk, 'Завантаження PDF…'))).not.toBeVisible()
       await page.waitForTimeout(300)
       const dialogOverflow = await page.evaluate(
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
