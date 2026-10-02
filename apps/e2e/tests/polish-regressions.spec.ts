@@ -11,7 +11,7 @@
  *         Tugrik glyph); the transaction detail dialog shows BOTH the USD
  *         figure AND the original currency line (e.g. «7 777,00 USDT»).
  *   AC2 — avatar / project-logo fallback renders INITIALS (Radix Avatar
- *         Fallback text), not a stub «Превью недоступно» icon.
+ *         Fallback text), not a stub «Попередній перегляд недоступний» icon.
  *   AC3 — console / network assertions (the heart of the task):
  *           • /finance: no «Function components cannot be given refs»
  *             (TransactionRow forwardRef regression — fired ~60× per row).
@@ -175,10 +175,14 @@ test.describe('AC2 — avatar fallback renders initials', () => {
     // the avatar's text content once it determines no image will load.
     const expected = getInitials(USERS.senior.displayName)
     await expect(trigger).toContainText(expected)
-    // Defensive: the fallback is NOT the «Превью недоступно» stub image icon
-    // (that's the DocumentImage error placeholder — must never leak here).
-    await expect(trigger.getByText('Превью недоступно')).toHaveCount(0)
-    await expect(trigger.locator('img[alt="Превью недоступно"]')).toHaveCount(0)
+    // Defensive: the fallback is NOT the «Попередній перегляд недоступний» stub
+    // image icon (that's the DocumentImage error placeholder — must never leak
+    // here). The placeholder is `role="img"` with an aria-label since i18n wave
+    // (e) PR2, so the guard targets the role + catalog text.
+    const uk = await loadMessages('uk')
+    const stubName = assertInCatalog(uk, 'Попередній перегляд недоступний')
+    await expect(trigger.getByText(stubName)).toHaveCount(0)
+    await expect(trigger.getByRole('img', { name: stubName })).toHaveCount(0)
     await expect(trigger.locator('svg.lucide-image')).toHaveCount(0)
   })
 
@@ -224,8 +228,10 @@ test.describe('AC2 — avatar fallback renders initials', () => {
     // The logo fallback renders the company initials (Radix Fallback span).
     await expect(asAdmin.getByText(expectedInitials, { exact: true }).first()).toBeVisible()
     // No DocumentImage error stub leaked into the logo slot.
-    await expect(asAdmin.getByText('Превью недоступно')).toHaveCount(0)
-    await expect(asAdmin.locator('img[alt="Превью недоступно"]')).toHaveCount(0)
+    const uk = await loadMessages('uk')
+    const stubName = assertInCatalog(uk, 'Попередній перегляд недоступний')
+    await expect(asAdmin.getByText(stubName)).toHaveCount(0)
+    await expect(asAdmin.getByRole('img', { name: stubName })).toHaveCount(0)
   })
 })
 
