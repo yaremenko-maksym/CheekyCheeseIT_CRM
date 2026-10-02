@@ -257,7 +257,7 @@ export function UploadDocumentDialog({
                 <Trans>Прибрати файл</Trans>
               </button>
             ) : (
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-xs text-balance text-muted-foreground">
                 <Trans>До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC</Trans>
               </p>
             )}

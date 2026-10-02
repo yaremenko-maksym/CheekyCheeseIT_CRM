@@ -14,7 +14,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { AlertTriangle, ExternalLink, FileText, Loader2 } from 'lucide-react'
+import { AlertTriangle, Download, FileText, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -125,7 +125,7 @@ export function PdfPreview({
           </p>
           <Button size="sm" variant="outline" asChild>
             <a href={blobUrl} download={filename} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="mr-1.5 h-4 w-4" />
+              <Download className="mr-1.5 h-4 w-4" />
               <Trans>Завантажити PDF</Trans>
             </a>
           </Button>
@@ -146,7 +146,7 @@ export function PdfPreview({
           data-testid={`${testId}-error`}
         >
           <AlertTriangle className="h-8 w-8 text-destructive/60" />
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-balance text-muted-foreground">
             <Trans>Не вдалося завантажити PDF — спробуйте відкрити файл ще раз</Trans>
           </p>
         </div>
