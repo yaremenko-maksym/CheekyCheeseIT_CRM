@@ -353,6 +353,9 @@ describe('DocumentDetailDialog — no document', () => {
       </I18nTestProvider>,
     )
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    // The router's default error boundary would also leave no dialog behind —
+    // make sure the component simply rendered nothing instead of throwing.
+    expect(screen.queryByText(/something went wrong/i)).toBeNull()
     expect(apiGet).not.toHaveBeenCalled()
   })
 })
