@@ -27,7 +27,7 @@ import { i18n } from '@/lib/i18n'
  * `components/user-profile/tabs/FinanceTab.tsx` (wave b, not started).
  * Forcing a required `locale` argument here would cascade a breaking
  * signature change through every one of them — the same hazard class as
- * `ROLE_LABELS`/`SORT_OPTIONS`/`getInvoiceTypeLabel` elsewhere in this
+ * `ROLE_LABELS`/the legacy sort-option map/`getInvoiceTypeLabel` elsewhere in this
  * plan (see the plan's "Опасность" sections and the task file's
  * "Допущения"). None of those call sites subscribe to locale changes
  * today either (their surrounding text is still 100% Russian, unmigrated),

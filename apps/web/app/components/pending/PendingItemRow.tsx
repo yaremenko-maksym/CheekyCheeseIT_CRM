@@ -305,7 +305,7 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
             line `PendingProjectApprovalsPanel` already shows for the same
             data — the two surfaces are one «все →» click apart, so one
             wording. It matters most for a DROP: they have no route access to
-            `/projects` at all and this row offers no «Открыть», so without
+            `/projects` at all and this row offers no «Відкрити», so without
             it «Подтвердить» is a yes given blind. `text-[11px]
             text-amber-300/70` and not the `tabular-nums font-medium` of a
             SHARE_APPROVAL row — here the percent is context for the

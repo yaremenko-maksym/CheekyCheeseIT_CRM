@@ -171,11 +171,12 @@ export function PendingPage() {
           className="flex flex-1 flex-col items-center justify-center gap-2 px-4 py-5 text-center"
           data-testid="pending-error"
         >
-          {/* COPY-L-2 (fix-round 3): this screen calls itself «решение»
+          {/* COPY-L-2 (fix-round 3): this screen calls itself «рішення»
               everywhere — nav item, both headings, the empty state — and
               «список» appeared exactly once, at the moment the reader least
               understands what broke. The dashboard widget names the thing
-              too («Не удалось проверить, ждёт ли вас решение по проекту»). */}
+              too («Не вдалося перевірити, чи чекає на вас рішення щодо
+              проєкту»). */}
           <p className="text-sm text-destructive">{t`Не вдалося завантажити, що чекає на рішення`}</p>
           <Button
             variant="ghost"
@@ -202,10 +203,10 @@ export function PendingPage() {
           >
             <Inbox className="h-8 w-8 text-muted-foreground/40" aria-hidden />
             <p className="mt-1 text-sm font-medium">{t`Нічого не чекає на ваше рішення`}</p>
-            {/* COPY-M-6 (fix-round 3): the old subline repeated «вашего
-                решения» one line below the heading, then explained «ничего не
-                ждёт» through «когда будет ждать» — a ring that says nothing
-                when deleted. «документы на подпись» was also a third name for
+            {/* COPY-M-6 (fix-round 3): the old subline repeated «вашого
+                рішення» one line below the heading, then explained «нічого не
+                чекає» through «коли буде чекати» — a ring that says nothing
+                when deleted. «документи на підпис» was also a third name for
                 the contract on one screen, and /documents is a different
                 section entirely; the three nouns now match the three sections
                 this screen actually has. */}
@@ -260,8 +261,8 @@ export function PendingPage() {
                 </h2>
                 <div className="space-y-4">
                   {/* CONTRACT_TO_SIGN can never appear in proposedByMe (§2
-                      врезка задания — it isn't an `approvals` row at all) —
-                      no Контракты sub-section rendered here on purpose. */}
+                      task insert — it isn't an `approvals` row at all) —
+                      no Contracts sub-section rendered here on purpose. */}
                   {KIND_SECTIONS.filter((s) => s.kind !== 'CONTRACT_TO_SIGN').map(
                     ({ kind, title, icon }) => (
                       <PendingKindSection

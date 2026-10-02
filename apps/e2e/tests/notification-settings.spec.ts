@@ -67,7 +67,10 @@ test.describe('Notification settings tab — position 7b', () => {
     await expect(txSwitch).toHaveAttribute('aria-checked', 'true')
 
     await txSwitch.click()
-    await expect(page.getByText('Сохранено')).toBeVisible()
+    // task-i18n-stage3e-pr4: the save toast comes from `use-notification-
+    // preferences.ts` (uk «Збережено»), asserted through the catalog.
+    const uk = await loadMessages('uk')
+    await expect(page.getByText(assertInCatalog(uk, 'Збережено'))).toBeVisible()
     await expect(txSwitch).toHaveAttribute('aria-checked', 'false')
 
     // Reload — the switch must come back OFF (not an optimistic-only flip).
