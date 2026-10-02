@@ -16,6 +16,7 @@
 
 import { test, expect } from '@playwright/test'
 import { USERS, mockAuthAs, API_RE } from '../fixtures'
+import { loadMessages, assertInCatalog } from '../../fixtures/catalog'
 
 // ---------------------------------------------------------------------------
 // Document fixtures (PR-2 shape with statusBadge)
@@ -375,9 +376,11 @@ test.describe('PR-2: category filter', () => {
     const filterTrigger = page.getByTestId('documents-category-filter')
     await filterTrigger.click()
 
-    // Pick CONTRACT option from the dropdown
-    // shadcn Select renders options in a listbox role; CONTRACT category label is "Договоры"
-    await page.getByRole('option', { name: 'Договоры' }).click()
+    // Pick CONTRACT option from the dropdown — text from the uk catalog
+    // (task-i18n-stage3e-pr1: CATEGORY_LABEL_MESSAGES, COPY-H-docs-3), not
+    // the pre-migration "Договоры" literal.
+    const uk = await loadMessages('uk')
+    await page.getByRole('option', { name: assertInCatalog(uk, 'Договір') }).click()
 
     // After filtering: only CONTRACT badges visible
     const badges = page.getByTestId('document-status-badge')

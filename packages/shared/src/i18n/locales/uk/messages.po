@@ -265,6 +265,10 @@ msgstr "{archivedRole, select, SENIOR {Сеньйора й команду арх
 msgid "notification.SHARE_CONFIRM_REQUIRED.project"
 msgstr "{change} · проєкт {hasProject, select, no {без назви} other {{projectName}}}"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
+msgstr "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
+
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "{from}–{to} з {totalItems}"
 msgstr "{from}–{to} з {totalItems}"
@@ -614,6 +618,14 @@ msgstr "VAT-номер компанії-контрагента"
 msgid "vs попер. місяць"
 msgstr "vs попер. місяць"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "аватар"
+msgstr "аватар"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Аватар"
+msgstr "Аватар"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_UPLOAD_AVATAR_SELF_ONLY"
@@ -803,6 +815,7 @@ msgstr "Активних проєктів"
 msgid "Активних транзакцій немає"
 msgstr "Активних транзакцій немає"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -840,6 +853,7 @@ msgstr "Активного учасника в проєкті не знайде�
 msgid "Англійська"
 msgstr "Англійська"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/interviews/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/constants.ts
@@ -1072,6 +1086,10 @@ msgstr "В архів піде профіль <0>{entityName}</0>; його бу
 #: apps/web/app/components/archive/UserArchiveImpact.tsx
 msgid "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
 msgstr "В архів піде профіль <0>{entityName}</0>. Нічого пов’язаного архівувати не треба. Вхід у CRM для цього акаунта буде закрито."
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "в архіві"
+msgstr "в архіві"
 
 #: apps/web/app/components/projects/ProjectRow.tsx
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
@@ -2455,6 +2473,10 @@ msgstr "Готівка"
 msgid "Готовий до підписання"
 msgstr "Готовий до підписання"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Готовий до підпису"
+msgstr "Готовий до підпису"
+
 #: apps/web/app/components/ui/upload-progress.tsx
 msgid "Готово"
 msgstr "Готово"
@@ -2812,6 +2834,14 @@ msgstr "Добовий ліміт автоматичного розпізнав�
 msgid "Довільні нотатки…"
 msgstr "Довільні нотатки…"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "договір"
+msgstr "договір"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Договір"
+msgstr "Договір"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Додаємо…"
 msgstr "Додаємо…"
@@ -3001,6 +3031,10 @@ msgstr "Документ очікує підпису"
 msgid "Документ переміщено в кошик"
 msgstr "Документ переміщено в кошик"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Документ піде в архів. Повернути його може адмін"
+msgstr "Документ піде в архів. Повернути його може адмін"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Документ підписано"
 msgstr "Документ підписано"
@@ -3020,6 +3054,10 @@ msgstr "Документ чека не знайдено"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Документи"
 msgstr "Документи"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
+msgstr "Документи вам не відкриті. Потрібен доступ — напишіть адміну"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -3399,6 +3437,7 @@ msgid "Завантажити резюме"
 msgstr "Завантажити резюме"
 
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Завантажити файл"
 msgstr "Завантажити файл"
 
@@ -4162,6 +4201,14 @@ msgstr "Категорія витрати"
 msgid "Кваліфікація"
 msgstr "Кваліфікація"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Керування — з налаштувань проєктів."
+msgstr "Керування — з налаштувань проєктів."
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Керування — з профілів користувачів."
+msgstr "Керування — з профілів користувачів."
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Керувати в розділі «Проєкти» →"
 msgstr "Керувати в розділі «Проєкти» →"
@@ -4632,6 +4679,14 @@ msgstr "Лише латиниця, починається з букви, мак�
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Логін"
 msgstr "Логін"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "логотип"
+msgstr "логотип"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Логотип"
+msgstr "Логотип"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -5618,6 +5673,10 @@ msgstr "Некоректний запит. Перевірте введені д�
 msgid "api-error.FINANCE_TX_HASH_INVALID"
 msgstr "Некоректний хеш транзакції — потрібне посилання на Etherscan або 0x і 64 шістнадцяткові символи"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Немає аватарів"
+msgstr "Немає аватарів"
+
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -5763,6 +5822,10 @@ msgstr "Немає команд дропа без активного сеньй�
 msgid "Немає користувачів, яких можна додати"
 msgstr "Немає користувачів, яких можна додати"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Немає логотипів"
+msgstr "Немає логотипів"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Немає перевірених доходів"
 msgstr "Немає перевірених доходів"
@@ -5853,6 +5916,7 @@ msgstr "Ніхто нікому не винен"
 
 #: apps/web/app/components/users/AccountantChipField.tsx
 #: apps/web/app/components/users/HrChipsField.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Нічого не знайдено"
 msgstr "Нічого не знайдено"
 
@@ -6337,6 +6401,10 @@ msgstr "Очистити"
 msgid "Очистити зображення"
 msgstr "Очистити зображення"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Очистити пошук"
+msgstr "Очистити пошук"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікуваний розрахунок із дропом"
 msgstr "Очікуваний розрахунок із дропом"
@@ -6368,6 +6436,7 @@ msgstr "Очікує вашого рішення"
 msgid "Очікує виплати"
 msgstr "Очікує виплати"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/invoices/invoice-card.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -6544,6 +6613,11 @@ msgstr "Переглянутий"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Передперегляд оновлено"
 msgstr "Передперегляд оновлено"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Перейти до Фінансів"
+msgstr "Перейти до Фінансів"
 
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Перейти до шаблонів"
@@ -6737,6 +6811,10 @@ msgstr "Підписання контракту"
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Підписання…"
 msgstr "Підписання…"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Підписано"
+msgstr "Підписано"
 
 #: apps/web/app/components/invoices/invoice-card.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
@@ -7359,6 +7437,7 @@ msgstr "Пошук за іменем, email, telegram…"
 msgid "Пошук за компанією, проєктом, сеньйором…"
 msgstr "Пошук за компанією, проєктом, сеньйором…"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Пошук за назвою…"
 msgstr "Пошук за назвою…"
@@ -7890,6 +7969,15 @@ msgstr "Рахуємо, що зміниться…"
 msgid "api-error.DOCUMENT_UPLOAD_INVOICE_FORBIDDEN"
 msgstr "Рахунки створює система — завантажити їх вручну не можна"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб відкрити PDF, побачити підписи і підписати документ."
+msgstr "Рахунки створюються автоматично після оплати транзакцій. Натисніть на картку рахунку, щоб відкрити PDF, побачити підписи і підписати документ."
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "рахунок"
+msgstr "рахунок"
+
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Рахунок"
@@ -8069,10 +8157,12 @@ msgstr "Редактор: <0>{roleLabel}</0>"
 msgid "contract-variable.companyRegNumber"
 msgstr "Реєстраційний номер компанії-контрагента"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "резюме"
 msgstr "резюме"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Резюме"
 msgstr "Резюме"
@@ -8432,6 +8522,18 @@ msgstr "Симуляція: транзакцію не підтверджено"
 msgid "Системні змінні"
 msgstr "Системні змінні"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Сітка"
+msgstr "Сітка"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "скан"
+msgstr "скан"
+
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Скан"
+msgstr "Скан"
+
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Скасований"
 msgstr "Скасований"
@@ -8591,6 +8693,10 @@ msgstr "Спершу збережіть або скасуйте правки у 
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.DOCUMENT_HARD_DELETE_REQUIRES_SOFT_DELETE"
 msgstr "Спершу перемістіть документ у кошик, а потім видаліть остаточно"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Список"
+msgstr "Список"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
@@ -9495,6 +9601,11 @@ msgstr "Умови персонального контракту прочита�
 msgid "Усе, що чекає рішення"
 msgstr "Усе, що чекає рішення"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "усі"
+msgstr "усі"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 #: apps/web/app/routes/_authenticated/users/index.tsx
 msgid "Усі"
@@ -9513,6 +9624,16 @@ msgstr "Усі ({0})"
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Усі відповідальні"
 msgstr "Усі відповідальні"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Усі власники"
+msgstr "Усі власники"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Усі категорії"
+msgstr "Усі категорії"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Усі отримано"
@@ -9602,6 +9723,10 @@ msgstr "Файл більший за {MAX_MB} МБ — виберіть інши
 msgid "api-error.DOCUMENT_TOO_LARGE"
 msgstr "Файл більший за {maxMb} МБ"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "Файл буде видалено без можливості відновлення"
+msgstr "Файл буде видалено без можливості відновлення"
+
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Файл завантажено"
 msgstr "Файл завантажено"
@@ -9645,6 +9770,10 @@ msgstr "Фільтр вакансій за статусом"
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Фільтр відгуків за статусом"
 msgstr "Фільтр відгуків за статусом"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Фільтр документів"
+msgstr "Фільтр документів"
 
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Фільтр команд"
@@ -10037,6 +10166,11 @@ msgstr "Частка: {0}%"
 msgid "Часткова зайнятість"
 msgstr "Часткова зайнятість"
 
+#: apps/web/app/components/documents/document-labels.ts
+msgid "чек"
+msgstr "чек"
+
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Чек"
@@ -10099,6 +10233,10 @@ msgstr "Чекають"
 msgid "Чекають рішення"
 msgstr "Чекають рішення"
 
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Чеки додаються в розділі «Фінанси» під час створення транзакції."
+msgstr "Чеки додаються в розділі «Фінанси» під час створення транзакції."
+
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "через 3 місяці"
 msgstr "через 3 місяці"
@@ -10108,6 +10246,7 @@ msgstr "через 3 місяці"
 msgid "Черн. ({0})"
 msgstr "Черн. ({0})"
 
+#: apps/web/app/components/documents/document-labels.ts
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Чернетка"
@@ -10160,6 +10299,18 @@ msgstr "Шаблони договорів для кожної ролі. Нати
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 msgid "Ще дії"
 msgstr "Ще дії"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає документів"
+msgstr "Ще немає документів"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає рахунків"
+msgstr "Ще немає рахунків"
+
+#: apps/web/app/routes/_authenticated/documents.tsx
+msgid "Ще немає чеків"
+msgstr "Ще немає чеків"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Щільність"
