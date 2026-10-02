@@ -1,6 +1,6 @@
 /**
  * SR-M-2 / COPY-H-2 (PR #667, fix-round 4). The screen must never claim
- * «Ничего не ждёт вашего решения» before it has ASKED.
+ * «Нічого не чекає на ваше рішення» before it has ASKED.
  *
  * Why this file exists next to `index.test.tsx` instead of inside it: that
  * file mocks `usePendingItems` wholesale (`mockState`), so the branch these
@@ -21,6 +21,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), post: vi.fn() },
@@ -69,35 +70,37 @@ function renderPage() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     React.createElement(QueryClientProvider, { client: qc }, React.createElement(PendingPage)),
+    { wrapper: I18nTestProvider },
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadCatalog('uk')
   mockGet.mockReset()
   mockRole = 'SENIOR'
 })
 
 describe('/pending — the screen does not answer before it has asked', () => {
-  it('SR-M-2/COPY-H-2: while GET /onboarding/status is in flight, shows the skeleton — not «Ничего не ждёт вашего решения»', async () => {
+  it('SR-M-2/COPY-H-2: while GET /onboarding/status is in flight, shows the skeleton — not «Нічого не чекає на ваше рішення»', async () => {
     routeGet({}) // status never resolves; /pending must not even be called
     renderPage()
 
     expect(await screen.findByTestId('pending-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('pending-empty')).not.toBeInTheDocument()
-    expect(screen.queryByText('Ничего не ждёт вашего решения')).not.toBeInTheDocument()
+    expect(screen.queryByText('Нічого не чекає на ваше рішення')).not.toBeInTheDocument()
     expect(mockGet).not.toHaveBeenCalledWith('/pending')
   })
 
-  it('SR-M-2: a FAILED GET /onboarding/status leaves the screen in its error state with «Повторить» — never a false all-clear', async () => {
+  it('SR-M-2: a FAILED GET /onboarding/status leaves the screen in its error state with «Повторити» — never a false all-clear', async () => {
     routeGet({ onboarding: () => Promise.reject(new Error('500')) })
     renderPage()
 
     expect(await screen.findByTestId('pending-error')).toBeInTheDocument()
-    expect(screen.getByText('Не удалось загрузить, что ждёт решения.')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося завантажити, що чекає на рішення')).toBeInTheDocument()
     expect(screen.queryByTestId('pending-empty')).not.toBeInTheDocument()
   })
 
-  it('«Повторить» after a failed gate re-asks for the onboarding status, not just for /pending', async () => {
+  it('«Повторити» after a failed gate re-asks for the onboarding status, not just for /pending', async () => {
     const onboarding = vi
       .fn()
       .mockRejectedValueOnce(new Error('500'))
@@ -105,7 +108,7 @@ describe('/pending — the screen does not answer before it has asked', () => {
     routeGet({ onboarding })
     renderPage()
 
-    const retry = await screen.findByRole('button', { name: 'Повторить загрузку' })
+    const retry = await screen.findByRole('button', { name: 'Повторити завантаження' })
     retry.click()
 
     await waitFor(() => expect(onboarding).toHaveBeenCalledTimes(2))
@@ -117,10 +120,10 @@ describe('/pending — the screen does not answer before it has asked', () => {
     renderPage()
 
     expect(await screen.findByTestId('pending-empty')).toBeInTheDocument()
-    expect(screen.getByText('Ничего не ждёт вашего решения')).toBeInTheDocument()
+    expect(screen.getByText('Нічого не чекає на ваше рішення')).toBeInTheDocument()
   })
 
-  it('COPY-L-6: a row of an unknown kind degrades to «Запрос на действие» without taking the working rows down', async () => {
+  it('COPY-L-6: a row of an unknown kind degrades to «Запит на дію» without taking the working rows down', async () => {
     routeGet({
       onboarding: () => Promise.resolve({ data: COMPLETE_STATUS }),
       pending: () =>
@@ -156,9 +159,9 @@ describe('/pending — the screen does not answer before it has asked', () => {
 
     // The working row is untouched…
     expect(await screen.findByText('TechCorp AI')).toBeInTheDocument()
-    // …and the unknown one is a single honest row under «Другое», with no
+    // …and the unknown one is a single honest row under «Інше», with no
     // buttons and none of its own payload showing through.
-    expect(screen.getByText('Запрос на действие')).toBeInTheDocument()
+    expect(screen.getByText('Запит на дію')).toBeInTheDocument()
     expect(screen.queryByText(/1200/)).not.toBeInTheDocument()
     expect(
       screen.queryByTestId('pending-item-open-00000000-0000-4000-8000-0000000000c1'),

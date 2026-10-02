@@ -151,7 +151,7 @@ test.describe('/pending — AC4: project approval actions', () => {
 // like a freshly created project) — running them in parallel workers would
 // race on the same row. Same precedent as vacancies.spec.ts's describe.serial.
 test.describe.serial('/pending — AC4: senior-share approval actions', () => {
-  test('SENIOR: confirm a pending base-share change from /pending — row disappears from the Доли section', async ({
+  test('SENIOR: confirm a pending base-share change from /pending — row disappears from the Shares section', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -176,7 +176,13 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
       const shareRow = page.getByTestId(`pending-item-row-SHARE_APPROVAL-${seniorA.id}`)
       await expect(shareRow).toBeVisible()
       await expect(shareRow).toContainText('Доля по умолчанию')
-      await expect(page.getByText(/предлагают 31%/)).toBeVisible()
+      // The row's share phrase is one ICU `select` message («Зараз N% →
+      // пропонують 31%»), so there is no single catalog string to look up —
+      // the unit tests pin all four variants × uk/en; here the proposed
+      // figure is matched inside THIS row's meta block.
+      await expect(page.getByTestId(`pending-item-meta-${seniorA.id}`)).toContainText(
+        /пропонують 31%/,
+      )
 
       await page.getByTestId(`senior-share-approve-user-${seniorA.id}`).click()
 
@@ -200,7 +206,7 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     }
   })
 
-  test('ADMIN: sees a pending base-share proposal under «Ждут решения других» and can cancel it', async ({
+  test('ADMIN: sees a pending base-share proposal under «Awaiting others’ decisions» and can cancel it', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)

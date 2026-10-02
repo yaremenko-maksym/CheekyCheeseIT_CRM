@@ -31,12 +31,14 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useLingui } from '@lingui/react/macro'
 import {
   notificationPreferencesResponseClientSchema,
   type NewNotificationType,
   type NotificationPreferencesResponseClient,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 export const NOTIFICATION_PREFERENCES_QUERY_KEY = ['notification-preferences'] as const
 
@@ -67,7 +69,7 @@ export interface UpdateNotificationPreferenceVars {
  * `onError` rolls back ONLY this mutation's own row (see CR-M-1 comment on
  * `onError` below) and shows the server's (already
  * `getUserFacingErrorMessage`-processed, see `axios.ts`) message;
- * `onSuccess` shows "Сохранено"; `onSettled` re-syncs with the server
+ * `onSuccess` shows "Збережено"; `onSettled` re-syncs with the server
  * regardless of outcome.
  */
 export function useUpdateNotificationPreference(): UseMutationResult<
@@ -77,6 +79,7 @@ export function useUpdateNotificationPreference(): UseMutationResult<
   { previousItem: NotificationPreferencesResponseClient['items'][number] | undefined }
 > {
   const qc = useQueryClient()
+  const { t } = useLingui()
   return useMutation<
     void,
     Error,
@@ -123,11 +126,16 @@ export function useUpdateNotificationPreference(): UseMutationResult<
               : current,
         )
       }
-      const msg = err instanceof Error ? err.message : String(err)
-      toast.error(`Не удалось сохранить настройку: ${msg}`)
+      // COPY-H-docs-6 (task-i18n-stage3e-pr4): the raw `err.message` could be
+      // an English axios string («Request failed with status code 413») on a
+      // uk/en screen. `getApiErrorMessage` resolves the server's error code
+      // through the catalog; the fallback names the next step, not just the
+      // failure.
+      const reason = getApiErrorMessage(err, t`Спробуйте ще раз`)
+      toast.error(t`Не вдалося зберегти налаштування — ${reason}`)
     },
     onSuccess: () => {
-      toast.success('Сохранено')
+      toast.success(t`Збережено`)
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: NOTIFICATION_PREFERENCES_QUERY_KEY })

@@ -28,6 +28,7 @@ vi.mock('sonner', () => ({
 
 import { api } from '@/lib/axios'
 import { toast } from 'sonner'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 const mockGet = api.get as ReturnType<typeof vi.fn>
 const mockPut = api.put as ReturnType<typeof vi.fn>
@@ -42,12 +43,17 @@ const RESPONSE = {
 
 function wrapper(qc: QueryClient) {
   return function Wrapper({ children }: { children: React.ReactNode }) {
-    return <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+    return (
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>{children}</QueryClientProvider>
+      </I18nTestProvider>
+    )
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks()
+  await loadCatalog('uk')
 })
 
 describe('useNotificationPreferences', () => {
@@ -106,7 +112,7 @@ describe('useUpdateNotificationPreference', () => {
 
     resolvePut()
     await waitFor(() => expect(mutationResult.current.isSuccess).toBe(true))
-    expect(toast.success).toHaveBeenCalledWith('Сохранено')
+    expect(toast.success).toHaveBeenCalledWith('Збережено')
   })
 
   it('cancels the in-flight preferences query on mutate, and re-invalidates on settle', async () => {
@@ -176,7 +182,7 @@ describe('useUpdateNotificationPreference', () => {
     const cached = qc.getQueryData<typeof RESPONSE>(NOTIFICATION_PREFERENCES_QUERY_KEY)
     expect(cached?.items.find((i) => i.type === 'TRANSACTION_ADDED')?.emailEnabled).toBe(true)
     expect(toast.error).toHaveBeenCalledWith(
-      'Не удалось сохранить настройку: Слишком много настроек в одном запросе',
+      'Не вдалося зберегти налаштування — Слишком много настроек в одном запросе',
     )
   })
 
@@ -340,6 +346,44 @@ describe('useUpdateNotificationPreference', () => {
     // Reaching this line at all (no uncaught TypeError) is the assertion —
     // the PUT mock was never even configured for this test, so the error
     // toast necessarily carries the onMutate-stage failure.
-    expect(toast.error).toHaveBeenCalledWith('Не удалось сохранить настройку: cancel failed')
+    expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти налаштування — cancel failed')
+  })
+
+  // COPY-H-docs-6 (task-i18n-stage3e-pr4): an error that carries NO usable
+  // text (not an axios error, no `.message`) used to print «…: undefined» /
+  // a raw English string. It now names the next step in the active language.
+  it('a failure with no usable message falls back to «try again», in uk', async () => {
+    mockGet.mockResolvedValueOnce({ data: RESPONSE })
+    mockPut.mockRejectedValueOnce({ not: 'an axios error' })
+    const qc = new QueryClient()
+    const { result } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(qc),
+    })
+    act(() => {
+      result.current.mutate({ type: 'TRANSACTION_ADDED', emailEnabled: false })
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(toast.error).toHaveBeenCalledWith('Не вдалося зберегти налаштування — Спробуйте ще раз')
+  })
+
+  it('en: the same failure and the success toast read as English', async () => {
+    await loadCatalog('en')
+    mockPut.mockRejectedValueOnce({ not: 'an axios error' })
+    const qc = new QueryClient()
+    const { result } = renderHook(() => useUpdateNotificationPreference(), {
+      wrapper: wrapper(qc),
+    })
+    act(() => {
+      result.current.mutate({ type: 'TRANSACTION_ADDED', emailEnabled: false })
+    })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(toast.error).toHaveBeenCalledWith('Couldn’t save the setting — Try again')
+
+    mockPut.mockResolvedValueOnce({ data: {} })
+    act(() => {
+      result.current.mutate({ type: 'TRANSACTION_ADDED', emailEnabled: true })
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(toast.success).toHaveBeenCalledWith('Saved')
   })
 })

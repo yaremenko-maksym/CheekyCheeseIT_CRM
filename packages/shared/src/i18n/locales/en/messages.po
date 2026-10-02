@@ -337,6 +337,10 @@ msgstr "{remainingCount, plural, one {transaction left in the queue} other {tran
 msgid "notification.percentText"
 msgstr "{value, select, null {not set} other {{value}%}}"
 
+#: apps/web/app/components/pending/PendingItemRow.tsx
+msgid "{variant, select, proposedFrom {Зараз {cur}% → запропоновано {pct}%} proposedNew {Запропоновано {pct}%} proposingFrom {Зараз {cur}% → пропонують {pct}%} proposingNew {Пропонують {pct}%} other {{pct}%}}"
+msgstr "{variant, select, proposedFrom {Now {cur}% → proposed {pct}%} proposedNew {Proposed {pct}%} proposingFrom {Now {cur}% → they propose {pct}%} proposingNew {They propose {pct}%} other {{pct}%}}"
+
 #: apps/web/app/routes/_authenticated/project.tsx
 msgid "/ місяць"
 msgstr "/ month"
@@ -680,6 +684,10 @@ msgstr "Admin"
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Адмін побачить причину і зможе запропонувати проєкт знову."
 msgstr "The admin will see the reason and can propose the project again."
+
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
+msgid "Адмін побачить причину й зможе запропонувати інший відсоток."
+msgstr "The admin will see the reason and can propose a different percentage."
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Адмін-сеньйор"
@@ -1258,12 +1266,14 @@ msgid "Ваша частка"
 msgstr "Your share"
 
 #. placeholder {0}: item.viewerSharePercent
+#: apps/web/app/components/pending/PendingItemRow.tsx
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}%"
 msgstr "Your share: {0}%"
 
 #. placeholder {0}: item.viewerSharePercent
 #. placeholder {1}: item.seniorName
+#: apps/web/app/components/pending/PendingItemRow.tsx
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Ваша частка: {0}% · сеньйор: {1}"
 msgstr "Your share: {0}% · senior: {1}"
@@ -1983,6 +1993,10 @@ msgstr "Applications: {0}"
 msgid "api-error.FINANCE_OPEN_OBLIGATION_NOT_FOUND_FOR_TRANSACTION"
 msgstr "No open obligation found for this transaction"
 
+#: apps/web/app/components/pending/PendingItemRow.tsx
+msgid "Відкрити"
+msgstr "Open"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.open"
@@ -2222,6 +2236,7 @@ msgstr "No rejected projects"
 msgid "Відхилені"
 msgstr "Rejected"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 msgid "Відхилення…"
 msgstr "Rejecting…"
@@ -2236,6 +2251,8 @@ msgstr "Rejected"
 msgid "notification.TRANSACTION_STATUS_CHANGED.rejected"
 msgstr "Rejected: {money}"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -2254,6 +2271,10 @@ msgstr "Reject the project “{companyName}”"
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Відхилити пропозицію"
 msgstr "Reject the proposal"
+
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
+msgid "Відхилити пропозицію щодо частки"
+msgstr "Reject the share proposal"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -3694,6 +3715,10 @@ msgstr "No entries yet."
 msgid "Запит до Etherscan, займе кілька секунд"
 msgstr "Request to Etherscan, will take a few seconds"
 
+#: apps/web/app/components/pending/PendingItemRow.tsx
+msgid "Запит на дію"
+msgstr "Action required"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Запитувані дані не знайдено."
 msgstr "The requested data wasn't found."
@@ -3911,6 +3936,7 @@ msgstr "Save draft"
 msgid "Збереження…"
 msgstr "Saving…"
 
+#: apps/web/app/hooks/use-notification-preferences.ts
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Збережено"
 msgstr "Saved"
@@ -4229,6 +4255,7 @@ msgid "api-error.SENIOR_SHARE_OVERRIDE_FORBIDDEN"
 msgstr "Only an admin or an accountant can change the senior's project share"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
+#: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Інше"
 msgstr "Other"
 
@@ -4584,6 +4611,7 @@ msgstr "Contract No. {0} signed"
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
 #: apps/web/app/routes/_authenticated/admin/route.tsx
+#: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Контракти"
 msgstr "Contracts"
 
@@ -5154,6 +5182,10 @@ msgstr "For example: no budget for Q3"
 msgid "наприклад: основний"
 msgstr "e.g. main"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
+msgid "Наприклад: помилилися з розрахунком"
+msgstr "For example: the calculation was wrong"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Наприклад: помилково створена транзакція"
 msgstr "E.g.: transaction created by mistake"
@@ -5299,6 +5331,7 @@ msgstr "Could not restore. Try again"
 msgid "Не вдалося відхилити"
 msgstr "Could not reject"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося відхилити. Спробуйте ще раз"
 msgstr "Could not reject. Try again"
@@ -5399,6 +5432,10 @@ msgstr "Failed to load the financial summary"
 msgid "Не вдалося завантажити чек"
 msgstr "Could not upload the receipt"
 
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Не вдалося завантажити, що чекає на рішення"
+msgstr "Couldn’t load your pending decisions"
+
 #: apps/web/app/routes/_authenticated/finance/cascade-preview.ts
 msgid "Не вдалося зберегти — недостатньо прав"
 msgstr "Could not save — insufficient permissions"
@@ -5440,6 +5477,10 @@ msgstr "Could not save the legend. Try again"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGEND_UPSERT_FAILED"
 msgstr "Couldn't save the legend. Try again"
+
+#: apps/web/app/hooks/use-notification-preferences.ts
+msgid "Не вдалося зберегти налаштування — {reason}"
+msgstr "Couldn’t save the setting — {reason}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
@@ -5578,6 +5619,7 @@ msgstr "Could not confirm the payment."
 msgid "api-error.INVOICE_AMOUNT_VERIFICATION_FAILED"
 msgstr "Couldn't verify this invoice's amount — contact an admin"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Не вдалося підтвердити. Спробуйте ще раз"
 msgstr "Could not confirm. Try again"
@@ -6049,6 +6091,10 @@ msgstr "No results"
 msgid "Нічого не знайдено — скиньте фільтри"
 msgstr "No matches — clear the filters"
 
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Нічого не чекає на ваше рішення"
+msgstr "Nothing is waiting for your decision"
+
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нова версія умов"
@@ -6122,6 +6168,10 @@ msgstr "New:"
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Нові ({newCount})"
 msgstr "New ({newCount})"
+
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Нові проєкти, частки та контракти з’являться тут."
+msgstr "New projects, shares and contracts will appear here."
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Нову версію умов використання опубліковано. Користувачі побачать сповіщення."
@@ -6600,6 +6650,10 @@ msgstr "Your signature is pending"
 msgid "Очікують валідації"
 msgstr "Awaiting validation"
 
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Очікують вашого рішення"
+msgstr "Awaiting your decision"
+
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Очікують виплати"
 msgstr "Awaiting payout"
@@ -6607,6 +6661,10 @@ msgstr "Awaiting payout"
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Очікують рішення"
 msgstr "Awaiting decision"
+
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Очікують рішення інших"
+msgstr "Awaiting others’ decisions"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
@@ -7100,6 +7158,7 @@ msgstr "Confirmation of an irreversible action."
 msgid "Підтвердження ручної виплати партнеру або зарахування на рахунок компанії із зазначенням методу та хешу транзакції."
 msgstr "Confirmation of a manual payout to a partner or a credit to the company account, with the method and transaction hash."
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -7130,6 +7189,7 @@ msgid "Підтверджують: {drop}, {senior}"
 msgstr "Awaiting: {drop}, {senior}"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -7259,10 +7319,15 @@ msgstr "Full information about the financial transaction, its status, and the at
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
+#: apps/web/app/routes/_authenticated/pending/index.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Повторити"
 msgstr "Retry"
+
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Повторити завантаження"
+msgstr "Retry loading"
 
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 msgid "Повторити спробу"
@@ -7860,6 +7925,7 @@ msgstr "Rejection reason — 500 characters max"
 msgid "Причина відмови (у разі відмови)"
 msgstr "Rejection reason (if rejecting)"
 
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -7985,6 +8051,7 @@ msgstr "Project: {0}"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
+#: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Проєкти"
 msgstr "Projects"
 
@@ -8062,6 +8129,7 @@ msgid "notification.SHARE_CONFIRM_REQUIRED.title"
 msgstr "Share proposal"
 
 #. placeholder {0}: item.proposedBy
+#: apps/web/app/components/pending/PendingItemRow.tsx
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Пропонує {0}"
 msgstr "Proposed by {0}"
@@ -8732,6 +8800,7 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
+#: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -8981,6 +9050,10 @@ msgstr "Newest first"
 #: apps/web/app/lib/documents-filter-sort.ts
 msgid "Спочатку старі"
 msgstr "Oldest first"
+
+#: apps/web/app/hooks/use-notification-preferences.ts
+msgid "Спробуйте ще раз"
+msgstr "Try again"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -10314,6 +10387,10 @@ msgstr "Default share: proposal rejected — the previous one stays. The admin w
 msgid "contract-variable.companySharePercent"
 msgstr "Company's share, % (100 minus the employee's share)"
 
+#: apps/web/app/components/pending/PendingItemRow.tsx
+msgid "Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна"
+msgstr "Your share didn’t arrive from the server. Don’t confirm blindly — ask an admin"
+
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
 msgid "Частка невідома. Оновіть сторінку"
 msgstr "Share unknown. Refresh the page"
@@ -10365,6 +10442,10 @@ msgstr "Employee's share, % (senior/drop)"
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "Частка: {0}%"
 msgstr "Share: {0}%"
+
+#: apps/web/app/routes/_authenticated/pending/index.tsx
+msgid "Частки"
+msgstr "Shares"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Часткова зайнятість"
@@ -10432,6 +10513,11 @@ msgstr "Receipt attached"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 msgid "Чекає підтвердження від {0} — поки діє <0>{1}%</0>"
 msgstr "Awaiting confirmation from {0} — <0>{1}%</0> applies until then"
+
+#. placeholder {0}: item.waitingFor.join(', ')
+#: apps/web/app/components/pending/PendingItemRow.tsx
+msgid "Чекаємо: {0}"
+msgstr "Waiting for: {0}"
 
 #: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Чекають"

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLingui } from '@lingui/react/macro'
 import { Check, Loader2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -50,13 +51,14 @@ export function SeniorShareApprovalActions({
   onActed,
   className,
 }: SeniorShareApprovalActionsProps) {
+  const { t } = useLingui()
   const approve = useApproveSeniorShareChange(scope, id)
   const reject = useRejectSeniorShareChange(scope, id)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [reason, setReason] = useState('')
 
-  const approveLabel = approve.isPending ? 'Подтверждение…' : 'Подтвердить'
-  const rejectLabel = 'Отклонить'
+  const approveLabel = approve.isPending ? t`Підтвердження…` : t`Підтвердити`
+  const rejectLabel = t`Відхилити`
 
   function handleApprove() {
     approve.mutate(undefined, { onSuccess: () => onActed?.() })
@@ -73,10 +75,10 @@ export function SeniorShareApprovalActions({
   }
 
   const approveError = approve.isError
-    ? seniorShareErrorMessage(approve.error, 'Не удалось подтвердить')
+    ? seniorShareErrorMessage(approve.error, t`Не вдалося підтвердити. Спробуйте ще раз`)
     : null
   const rejectError = reject.isError
-    ? seniorShareErrorMessage(reject.error, 'Не удалось отклонить')
+    ? seniorShareErrorMessage(reject.error, t`Не вдалося відхилити. Спробуйте ще раз`)
     : null
 
   return (
@@ -164,21 +166,21 @@ export function SeniorShareApprovalActions({
                 toast that fires a second later; and the required-reason fact
                 is stated once, by the `*` on the label below — the neighbour
                 removed that exact duplicate in #646 fix-round 3. */}
-            <DialogTitle>Отклонить предложение по доле</DialogTitle>
+            <DialogTitle>{t`Відхилити пропозицію щодо частки`}</DialogTitle>
             <DialogDescription>
-              Админ увидит причину и сможет предложить другой процент.
+              {t`Адмін побачить причину й зможе запропонувати інший відсоток.`}
             </DialogDescription>
           </CrmDialogHeader>
           <CrmDialogBody className="space-y-3">
             <div className="space-y-1.5">
               <Label className="text-xs" htmlFor={`senior-share-reject-reason-${scope}-${id}`}>
-                Причина отказа *
+                {t`Причина відмови *`}
               </Label>
               <Textarea
                 id={`senior-share-reject-reason-${scope}-${id}`}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
-                placeholder="Например: ошиблись с расчётом"
+                placeholder={t`Наприклад: помилилися з розрахунком`}
                 rows={3}
                 maxLength={500}
                 aria-describedby={`senior-share-reject-reason-counter-${scope}-${id}`}
@@ -202,7 +204,7 @@ export function SeniorShareApprovalActions({
                 setReason('')
               }}
             >
-              Отмена
+              {t`Скасувати`}
             </Button>
             <Button
               variant="destructive"
@@ -210,7 +212,7 @@ export function SeniorShareApprovalActions({
               disabled={reject.isPending || !reason.trim()}
               data-testid="senior-share-reject-submit"
             >
-              {reject.isPending ? 'Отклонение…' : 'Отклонить'}
+              {reject.isPending ? t`Відхилення…` : t`Відхилити`}
             </Button>
           </CrmDialogFooter>
         </CrmDialogContent>

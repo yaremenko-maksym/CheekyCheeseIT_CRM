@@ -19,11 +19,11 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export interface PdfPreviewProps {
-  /** ObjectURL от URL.createObjectURL(blob). Null = показывает лоадер. */
+  /** ObjectURL from URL.createObjectURL(blob). Null = shows the loader. */
   blobUrl: string | null
-  /** True пока blob ещё грузится (fetch в процессе). */
+  /** True while the blob is still loading (fetch in flight). */
   isLoading: boolean
-  /** True если fetch завершился ошибкой. */
+  /** True if the fetch failed. */
   hasError: boolean
   /** Имя файла для download-атрибута кнопки «Завантажити PDF». */
   filename?: string

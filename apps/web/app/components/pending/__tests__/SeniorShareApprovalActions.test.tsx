@@ -6,10 +6,19 @@
  * (use-user-profile.ts), now generalized by a `scope` param (task addendum
  * item 2).
  */
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render as rtlRender, screen } from '@testing-library/react'
+import type { RenderOptions } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { ReactElement } from 'react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { SeniorShareApprovalActions } from '../SeniorShareApprovalActions'
+
+// task-i18n-stage3e-pr4: the component reads `useLingui()`; assertions are
+// INDEPENDENT uk/en literals, not the code's own `i18n._()` output.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
 
 const mockApprove = vi.fn()
 const mockReject = vi.fn()
@@ -43,7 +52,8 @@ vi.mock('@/hooks/use-user-profile', async (orig) => {
   }
 })
 
-beforeEach(() => {
+beforeEach(async () => {
+  await loadCatalog('uk')
   mockApprove.mockReset()
   mockReject.mockReset()
   approveState = { isPending: false, isError: false, error: null }
@@ -63,8 +73,8 @@ describe('SeniorShareApprovalActions', () => {
 
   it('default (idle, no error) render: exact button labels, own wrapper testid+class, no error paragraphs at all', () => {
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
-    expect(screen.getByText('Подтвердить')).toBeInTheDocument()
-    expect(screen.getByText('Отклонить')).toBeInTheDocument()
+    expect(screen.getByText('Підтвердити')).toBeInTheDocument()
+    expect(screen.getByText('Відхилити')).toBeInTheDocument()
     expect(screen.getByTestId(`senior-share-approval-actions-user-${ID}`)).toHaveClass(
       'justify-end',
     )
@@ -85,27 +95,30 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.getByTestId(`senior-share-reject-user-${ID}`)).not.toHaveAttribute('title')
     expect(screen.getByTestId(`senior-share-approve-user-${ID}`)).toHaveAttribute(
       'aria-label',
-      'Подтвердить',
+      'Підтвердити',
     )
   })
 
-  it('COPY-M-7: the reject dialog names WHICH proposal, speaks of «Админ», and does not repeat the required-reason fact', async () => {
+  it('COPY-M-7: the reject dialog names WHICH proposal, speaks of «Адмін», and does not repeat the required-reason fact', async () => {
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
     await userEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
 
     // Object named (a screen can hold several share proposals at once —
-    // base + per-project), the role called by its product name («Админ», as
+    // base + per-project), the role called by its product name («Адмін», as
     // in the menu item and in the toast that follows a second later), and
     // «Причина обязательна» gone: the `*` on the label already says it, and
     // `ProjectApprovalActions` deliberately removed the same duplicate in
     // #646 fix-round 3.
-    expect(screen.getByText('Отклонить предложение по доле')).toBeInTheDocument()
+    expect(screen.getByText('Відхилити пропозицію щодо частки')).toBeInTheDocument()
     expect(
-      screen.getByText('Админ увидит причину и сможет предложить другой процент.'),
+      screen.getByText('Адмін побачить причину й зможе запропонувати інший відсоток.'),
     ).toBeInTheDocument()
-    expect(screen.queryByText(/администратору/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/Причина обязательна/)).not.toBeInTheDocument()
-    expect(screen.getByText('Причина отказа *')).toBeInTheDocument()
+    expect(screen.queryByText(/адміністратору/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Причина обов’язкова/)).not.toBeInTheDocument()
+    expect(screen.getByText('Причина відмови *')).toBeInTheDocument()
+    // task-i18n-stage3e-pr4: placeholder + the dialog's own cancel button.
+    expect(screen.getByPlaceholderText('Наприклад: помилилися з розрахунком')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Скасувати' })).toBeInTheDocument()
   })
 
   it('onActed is optional — a successful approve with no onActed prop at all does not throw', () => {
@@ -133,7 +146,7 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.getByTestId('senior-share-reject-reason')).toHaveValue('')
   })
 
-  it('Подтвердить calls approve.mutate(undefined, { onSuccess }) and fires onActed on success', () => {
+  it('Підтвердити calls approve.mutate(undefined, { onSuccess }) and fires onActed on success', () => {
     const onActed = vi.fn()
     render(<SeniorShareApprovalActions scope="user" id={ID} onActed={onActed} />)
 
@@ -149,7 +162,7 @@ describe('SeniorShareApprovalActions', () => {
     expect(onActed).toHaveBeenCalledTimes(1)
   })
 
-  it('Отклонить opens a dialog; submit is disabled until a reason is typed, then calls reject.mutate(reason.trim(), …)', async () => {
+  it('Відхилити opens a dialog; submit is disabled until a reason is typed, then calls reject.mutate(reason.trim(), …)', async () => {
     const user = userEvent.setup()
     const onActed = vi.fn()
     render(<SeniorShareApprovalActions scope="user" id={ID} onActed={onActed} />)
@@ -158,14 +171,17 @@ describe('SeniorShareApprovalActions', () => {
     const submit = screen.getByTestId('senior-share-reject-submit')
     expect(submit).toBeDisabled()
 
-    await user.type(screen.getByTestId('senior-share-reject-reason'), '  ошиблись с расчётом  ')
+    await user.type(
+      screen.getByTestId('senior-share-reject-reason'),
+      '  помилилися з розрахунком  ',
+    )
     expect(submit).toBeEnabled()
 
     await user.click(submit)
 
     expect(mockReject).toHaveBeenCalledTimes(1)
     const [reason, options] = mockReject.mock.calls[0] as [string, { onSuccess?: () => void }]
-    expect(reason).toBe('ошиблись с расчётом')
+    expect(reason).toBe('помилилися з розрахунком')
     options.onSuccess?.()
     expect(onActed).toHaveBeenCalledTimes(1)
   })
@@ -186,7 +202,7 @@ describe('SeniorShareApprovalActions', () => {
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
     expect(screen.getByTestId(`senior-share-approve-user-${ID}`)).toBeDisabled()
     expect(screen.getByTestId(`senior-share-approve-user-${ID}-spinner`)).toBeInTheDocument()
-    expect(screen.getByText('Подтверждение…')).toBeInTheDocument()
+    expect(screen.getByText('Підтвердження…')).toBeInTheDocument()
   })
 
   it('a real approve error renders inline error text below the buttons (409/404 mapped by seniorShareErrorMessage)', () => {
@@ -208,7 +224,7 @@ describe('SeniorShareApprovalActions', () => {
       error: { not: 'an axios error' },
     }
     render(<SeniorShareApprovalActions scope="user" id={ID} />)
-    expect(screen.getByText('Не удалось подтвердить')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося підтвердити. Спробуйте ще раз')).toBeInTheDocument()
   })
 
   it('a reject error with neither a mapped status nor a string message falls through to THIS component’s OWN (reject-specific) fallback', () => {
@@ -221,7 +237,7 @@ describe('SeniorShareApprovalActions', () => {
     // The reject error paragraph is inside the dialog body — it only
     // exists once the dialog is open.
     fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
-    expect(screen.getByText('Не удалось отклонить')).toBeInTheDocument()
+    expect(screen.getByText('Не вдалося відхилити. Спробуйте ще раз')).toBeInTheDocument()
   })
 
   it('reject.isPending shows the spinner (own testid) on the trigger button', () => {
@@ -237,7 +253,7 @@ describe('SeniorShareApprovalActions', () => {
     // Only findable this way if `htmlFor` really matches the textarea's `id`
     // — a broken/emptied template on either side makes this query fail even
     // though `getByTestId` would still find the same element.
-    const textarea = screen.getByLabelText('Причина отказа *')
+    const textarea = screen.getByLabelText('Причина відмови *')
     expect(textarea).toHaveAttribute('data-testid', 'senior-share-reject-reason')
     // Only correct if `aria-describedby` really points at the counter
     // paragraph's own `id`.
@@ -276,17 +292,42 @@ describe('SeniorShareApprovalActions', () => {
     expect(screen.getByTestId('senior-share-reject-submit')).toBeDisabled()
   })
 
-  it('reject.isPending swaps the submit button label to "Отклонение…", back to "Отклонить" when idle', () => {
-    // Open the dialog WHILE idle — the "Отклонить" trigger button is itself
+  it('reject.isPending swaps the submit button label to "Відхилення…", back to "Відхилити" when idle', () => {
+    // Open the dialog WHILE idle — the "Відхилити" trigger button is itself
     // `disabled={reject.isPending}`, so opening it only works before the
     // mutation starts; the label swap on the SUBMIT button is what this
     // test is actually about.
     const { rerender } = render(<SeniorShareApprovalActions scope="user" id={ID} />)
     fireEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
-    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Отклонить')
+    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Відхилити')
 
     rejectState = { isPending: true, isError: false, error: null }
     rerender(<SeniorShareApprovalActions scope="user" id={ID} />)
-    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Отклонение…')
+    expect(screen.getByTestId('senior-share-reject-submit')).toHaveTextContent('Відхилення…')
+  })
+})
+
+describe('SeniorShareApprovalActions — en', () => {
+  it('buttons, dialog and the fallbacks read as English with a real ellipsis character', async () => {
+    await loadCatalog('en')
+    approveState = { isPending: false, isError: true, error: { not: 'an axios error' } }
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByText('Confirm')).toBeInTheDocument()
+    expect(screen.getByText('Reject')).toBeInTheDocument()
+    expect(screen.getByText('Could not confirm. Try again')).toBeInTheDocument()
+    await userEvent.click(screen.getByTestId(`senior-share-reject-user-${ID}`))
+    expect(screen.getByText('Reject the share proposal')).toBeInTheDocument()
+    expect(screen.getByText('Reason for rejection *')).toBeInTheDocument()
+  })
+
+  it('the in-flight labels use the single «…» character in both languages, never three dots', async () => {
+    approveState = { isPending: true, isError: false, error: null }
+    const { unmount } = render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByText('Підтвердження…')).toBeInTheDocument()
+    unmount()
+    await loadCatalog('en')
+    render(<SeniorShareApprovalActions scope="user" id={ID} />)
+    expect(screen.getByText('Confirming…')).toBeInTheDocument()
+    expect(document.body.textContent).not.toContain('...')
   })
 })

@@ -7,10 +7,25 @@
  * rendered with WHICH props, plus the title/meta text this file itself
  * owns (§6.1-6.5).
  */
-import { fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render as rtlRender, screen } from '@testing-library/react'
+import type { RenderOptions } from '@testing-library/react'
+import type { ReactElement } from 'react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { PendingItem } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PendingItemRow } from '../PendingItemRow'
+
+// task-i18n-stage3e-pr4: the row reads `useLingui()`/`useLocale()`, so every
+// mount goes through the provider on the SAME `i18n` singleton `loadCatalog`
+// activates; assertions below are INDEPENDENT uk/en literals, not the code's
+// own `i18n._()` output.
+function render(ui: ReactElement, options?: RenderOptions) {
+  return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
+}
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+})
 
 const mockNavigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
@@ -77,7 +92,7 @@ function item(overrides: ItemOverrides): PendingItem {
     subjectType: 'PROJECT',
     subjectId: 'subj-1',
     title: 'Acme Corp',
-    createdAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // ~2 days ago
+    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // ~3 days ago
     actions: ['approve', 'reject', 'open'],
     link: '/projects/subj-1',
     approvalId: '00000000-0000-4000-8000-0000000000a1',
@@ -90,7 +105,7 @@ function item(overrides: ItemOverrides): PendingItem {
 /**
  * COPY-M-5 (fix-round 3): the meta is no longer one flat `<p>` — a
  * `proposedByMe` share row renders TWO lines, and the segments that must not
- * break mid-phrase («26% → предложено 30%», «1 день назад») sit in their own
+ * break mid-phrase («26% → запропоновано 30%», «1 день тому») sit in their own
  * `whitespace-nowrap` spans. RTL's `getByText` reads only an element's DIRECT
  * text children, so a per-line regex would silently stop matching once the
  * text moved into spans — this reads the whole meta block instead.
@@ -106,7 +121,7 @@ function metaLines(subjectId = 'subj-1'): string[] {
 }
 
 describe('PendingItemRow — PROJECT_APPROVAL', () => {
-  it('mine: title + "Предлагает X · давность", renders ProjectApprovalActions', () => {
+  it('mine: title + "Пропонує X · давность", renders ProjectApprovalActions', () => {
     render(
       <PendingItemRow
         item={item({ proposedBy: 'Олексій Коваленко' })}
@@ -118,23 +133,23 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
     // COPY-H-1: present tense — `proposedBy` is a displayName with no
     // gender attached, and «Предложил Ірина Савенко» is wrong for half the
     // names the field can hold. Same form #648 settled on («Подтверждает X»).
-    expect(metaText()).toMatch(/^Предлагает Олексій Коваленко ·/)
+    expect(metaText()).toMatch(/^Пропонує Олексій Коваленко ·/)
     expect(screen.getByTestId('stub-project-approval-actions')).toHaveTextContent(
       'subj-1:Acme Corp',
     )
   })
 
-  it('mine, no proposedBy (fail-safe): renders only давность, no "Предлагает"', () => {
+  it('mine, no proposedBy (fail-safe): renders only давность, no "Пропонує"', () => {
     // `exactOptionalPropertyTypes` rejects `{ proposedBy: undefined }` (an
     // explicit undefined value differs from the key being absent) —
     // destructuring it off is what actually omits the key.
     const { proposedBy: _unused, ...withoutProposedBy } = item({})
     render(<PendingItemRow item={withoutProposedBy} zone="mine" onActed={vi.fn()} />)
-    expect(metaText()).not.toMatch(/Предлагает/)
-    expect(metaText()).toMatch(/назад$/)
+    expect(metaText()).not.toMatch(/Пропонує/)
+    expect(metaText()).toMatch(/тому$/)
   })
 
-  it('proposedByMe: "Ждём: X · давность", renders only Открыть (no revoke endpoint for a project draft)', () => {
+  it('proposedByMe: "Чекаємо: X · давность", renders only Відкрити (no revoke endpoint for a project draft)', () => {
     render(
       <PendingItemRow
         item={item({ waitingFor: ['Ірина Савенко'], actions: ['open'] })}
@@ -142,25 +157,25 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toMatch(/^Ждём: Ірина Савенко ·/)
+    expect(metaText()).toMatch(/^Чекаємо: Ірина Савенко ·/)
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
     expect(screen.getByTestId(`pending-item-open-subj-1`)).toBeInTheDocument()
   })
 
-  it('actions missing approve/reject falls back to Открыть-only, even in `mine`', () => {
+  it('actions missing approve/reject falls back to Відкрити-only, even in `mine`', () => {
     render(<PendingItemRow item={item({ actions: ['open'] })} zone="mine" onActed={vi.fn()} />)
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
   })
 
-  it('proposedByMe with no waitingFor at all (defensive — should not happen): давность only, no "Ждём:"', () => {
+  it('proposedByMe with no waitingFor at all (defensive — should not happen): давность only, no "Чекаємо:"', () => {
     render(
       <PendingItemRow item={item({ actions: ['open'] })} zone="proposedByMe" onActed={vi.fn()} />,
     )
-    expect(metaText()).not.toMatch(/Ждём:/)
+    expect(metaText()).not.toMatch(/Чекаємо:/)
     // Positive half: the line still EXISTS and carries the давность. Without
     // this, an empty meta would satisfy the negative above just as well.
-    expect(metaLines()).toEqual([expect.stringMatching(/^.+назад$/)])
+    expect(metaLines()).toEqual([expect.stringMatching(/^.+тому$/)])
   })
 
   it('multiple names in waitingFor are joined with ", " — not concatenated bare', () => {
@@ -171,10 +186,10 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toMatch(/^Ждём: Ірина Савенко, Олексій Коваленко ·/)
+    expect(metaText()).toMatch(/^Чекаємо: Ірина Савенко, Олексій Коваленко ·/)
   })
 
-  it('has approve but not reject: still falls back to Открыть-only (both are required, not either)', () => {
+  it('has approve but not reject: still falls back to Відкрити-only (both are required, not either)', () => {
     render(
       <PendingItemRow
         item={item({ actions: ['approve', 'open'] })}
@@ -186,7 +201,7 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
   })
 
-  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Открыть-only', () => {
+  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Відкрити-only', () => {
     // Complements the "approve but not reject" case above — together they
     // pin BOTH `&&` links of `zone==='mine' && has('approve') && has('reject')`
     // against being widened to `||` at either position.
@@ -203,7 +218,7 @@ describe('PendingItemRow — PROJECT_APPROVAL', () => {
 })
 
 describe('PendingItemRow — SHARE_APPROVAL', () => {
-  it('mine, with currentPercent: "Сейчас X% → предлагают Y% · давность", renders SeniorShareApprovalActions', () => {
+  it('mine, with currentPercent: "Зараз X% → пропонують Y% · давность", renders SeniorShareApprovalActions', () => {
     render(
       <PendingItemRow
         item={item({
@@ -217,16 +232,16 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    // COPY-M-3: «предлагают» stays in `mine` — there somebody really is
+    // COPY-M-3: «пропонують» stays in `mine` — there somebody really is
     // proposing something TO the reader (the wording `PendingBaseShareBanner`
     // already uses).
-    expect(metaText()).toMatch(/^Сейчас 26% → предлагают 30% ·/)
+    expect(metaText()).toMatch(/^Зараз 26% → пропонують 30% ·/)
     expect(screen.getByTestId('stub-senior-share-approval-actions')).toHaveTextContent(
       'user:subj-1',
     )
   })
 
-  it('mine, currentPercent absent (defensive): "Предлагают Y% · давность", no "Сейчас … →"', () => {
+  it('mine, currentPercent absent (defensive): "Пропонують Y% · давность", no "Зараз … →"', () => {
     const shareItem = item({
       kind: 'SHARE_APPROVAL',
       pendingPercent: 30,
@@ -239,8 +254,8 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toMatch(/^Предлагают 30% ·/)
-    expect(metaText()).not.toMatch(/Сейчас/)
+    expect(metaText()).toMatch(/^Пропонують 30% ·/)
+    expect(metaText()).not.toMatch(/Зараз/)
   })
 
   it('subjectType PROJECT maps to scope="project"', () => {
@@ -260,7 +275,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     )
   })
 
-  it('proposedByMe: two lines — "Сейчас X% → предложено Y%" then "Ждём: NAME · давность" — renders CancelPendingShareButton with the resolved percent', () => {
+  it('proposedByMe: two lines — "Зараз X% → запропоновано Y%" then "Чекаємо: NAME · давность" — renders CancelPendingShareButton with the resolved percent', () => {
     render(
       <PendingItemRow
         item={item({
@@ -274,18 +289,18 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    // COPY-M-3: the ADMIN reading this zone proposed it himself — «предлагают»
+    // COPY-M-3: the ADMIN reading this zone proposed it himself — «пропонують»
     // spoke about his own action in an impersonal third person.
     // COPY-M-5: and it is two lines now, which is what keeps the longest
     // string on the screen from breaking mid-phrase at 320px.
     expect(metaLines()).toEqual([
-      'Сейчас 26% → предложено 30%',
-      expect.stringMatching(/^Ждём: Олексій Коваленко · .+назад$/),
+      'Зараз 26% → запропоновано 30%',
+      expect.stringMatching(/^Чекаємо: Олексій Коваленко · .+тому$/),
     ])
     expect(screen.getByTestId('stub-cancel-pending-share')).toHaveTextContent('project:subj-1:30')
   })
 
-  it('proposedByMe with no waitingFor at all (defensive): "Сейчас X% → предлагают Y% · давность", no "ждём:" segment', () => {
+  it('proposedByMe with no waitingFor at all (defensive): "Зараз X% → пропонують Y% · давность", no "чекаємо:" segment', () => {
     render(
       <PendingItemRow
         item={item({
@@ -298,13 +313,13 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    // COPY-M-8 (fix-round 4): with «Ждём: …» gone there are two segments
+    // COPY-M-8 (fix-round 4): with «Чекаємо: …» gone there are two segments
     // left, not three — and two segments share ONE line, exactly as the
     // neighbouring row in the same zone prints them. The two-line split
     // (COPY-M-5) exists to keep a THREE-segment meta from breaking
     // mid-phrase, not to give давность a line of its own.
-    expect(metaText()).not.toMatch(/ждём:|Ждём:/)
-    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+    expect(metaText()).not.toMatch(/чекаємо:|Чекаємо:/)
+    expect(metaLines()).toEqual([expect.stringMatching(/^Зараз 26% → запропоновано 30% · .+тому$/)])
   })
 
   // COPY-L-6 (fix-round 4) widened the row's input type to include a
@@ -312,7 +327,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
   // all — hence the `'waitingFor' in item &&` guard. These two pin the other
   // two shapes the field can arrive in, which the guard must treat as "no
   // one is waiting" rather than as "print an empty list".
-  it('an EMPTY waitingFor prints no «Ждём:» segment — a label with nothing after it is worse than no label', () => {
+  it('an EMPTY waitingFor prints no «Чекаємо:» segment — a label with nothing after it is worse than no label', () => {
     render(
       <PendingItemRow
         item={item({
@@ -327,8 +342,8 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).not.toMatch(/Ждём/)
-    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+    expect(metaText()).not.toMatch(/Чекаємо/)
+    expect(metaLines()).toEqual([expect.stringMatching(/^Зараз 26% → запропоновано 30% · .+тому$/)])
   })
 
   it('a waitingFor key present but undefined renders the row instead of crashing it', () => {
@@ -346,8 +361,8 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).not.toMatch(/Ждём/)
-    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+    expect(metaText()).not.toMatch(/Чекаємо/)
+    expect(metaLines()).toEqual([expect.stringMatching(/^Зараз 26% → запропоновано 30% · .+тому$/)])
   })
 
   it('multiple names in waitingFor are joined with ", "', () => {
@@ -363,7 +378,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toMatch(/Ждём: Олексій Коваленко, Ірина Савенко ·/)
+    expect(metaText()).toMatch(/Чекаємо: Олексій Коваленко, Ірина Савенко ·/)
   })
 
   it('zone "mine" never enters the proposedByMe branch, even when waitingFor happens to be set', () => {
@@ -378,11 +393,11 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).not.toMatch(/ждём:|Ждём:/)
-    expect(metaText()).toMatch(/^Предлагают 30% ·/)
+    expect(metaText()).not.toMatch(/чекаємо:|Чекаємо:/)
+    expect(metaText()).toMatch(/^Пропонують 30% ·/)
   })
 
-  it('has approve but not reject: still falls back to Открыть-only', () => {
+  it('has approve but not reject: still falls back to Відкрити-only', () => {
     render(
       <PendingItemRow
         item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, actions: ['approve', 'open'] })}
@@ -394,7 +409,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
   })
 
-  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Открыть-only', () => {
+  it('has BOTH approve and reject but is in the WRONG zone (proposedByMe): still falls back to Відкрити-only', () => {
     render(
       <PendingItemRow
         item={item({
@@ -410,7 +425,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
   })
 
-  it('has cancel but is in the WRONG zone (mine): falls back to Открыть-only, does not render CancelPendingShareButton', () => {
+  it('has cancel but is in the WRONG zone (mine): falls back to Відкрити-only, does not render CancelPendingShareButton', () => {
     render(
       <PendingItemRow
         item={item({ kind: 'SHARE_APPROVAL', pendingPercent: 30, actions: ['cancel', 'open'] })}
@@ -424,7 +439,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
 })
 
 describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
-  it('title + "Готов к подписанию" badge as SEPARATE flex items, meta is давность only, single primary Открыть, no approve/reject', () => {
+  it('title + "Готовий до підпису" badge as SEPARATE flex items, meta is давность only, single primary Відкрити, no approve/reject', () => {
     render(
       <PendingItemRow
         item={item({ kind: 'CONTRACT_TO_SIGN', title: 'Ваш контракт', actions: ['open'] })}
@@ -434,14 +449,14 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
     )
     expect(screen.getByText('Ваш контракт')).toBeInTheDocument()
     // COPY-M-2: same capitalisation as the same status in `ContractTab`
-    // («Готов к подписанию») — one status, one spelling.
-    expect(screen.getByText('Готов к подписанию')).toBeInTheDocument()
-    expect(metaText()).not.toMatch(/Предлагает/)
+    // («Готовий до підпису») — one status, one spelling.
+    expect(screen.getByText('Готовий до підпису')).toBeInTheDocument()
+    expect(metaText()).not.toMatch(/Пропонує/)
     expect(screen.getByTestId('pending-item-open-subj-1')).toBeInTheDocument()
     expect(screen.queryByTestId('stub-project-approval-actions')).not.toBeInTheDocument()
   })
 
-  it('meta is давность ONLY — never enters the SHARE_APPROVAL "Предлагают X%" branch', () => {
+  it('meta is давность ONLY — never enters the SHARE_APPROVAL "Пропонують X%" branch', () => {
     render(
       <PendingItemRow
         item={item({
@@ -454,13 +469,13 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toBe('5 минут назад')
-    expect(metaText()).not.toMatch(/Предлагают/)
+    expect(metaText()).toBe('5 хвилин тому')
+    expect(metaText()).not.toMatch(/Пропонують/)
   })
 
-  it('neither PROJECT_APPROVAL nor SHARE_APPROVAL ever shows the CONTRACT_TO_SIGN "Готов к подписанию" badge', () => {
+  it('neither PROJECT_APPROVAL nor SHARE_APPROVAL ever shows the CONTRACT_TO_SIGN "Готовий до підпису" badge', () => {
     const { unmount } = render(<PendingItemRow item={item({})} zone="mine" onActed={vi.fn()} />)
-    expect(screen.queryByText('Готов к подписанию')).not.toBeInTheDocument()
+    expect(screen.queryByText('Готовий до підпису')).not.toBeInTheDocument()
     unmount()
 
     render(
@@ -470,16 +485,16 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(screen.queryByText('Готов к подписанию')).not.toBeInTheDocument()
+    expect(screen.queryByText('Готовий до підпису')).not.toBeInTheDocument()
   })
 })
 
-describe('PendingItemRow — OpenLink (Открыть) navigation', () => {
+describe('PendingItemRow — OpenLink (Відкрити) navigation', () => {
   afterEach(() => {
     mockNavigate.mockReset()
   })
 
-  it('clicking Открыть navigates to item.link via the typed router', () => {
+  it('clicking Відкрити navigates to item.link via the typed router', () => {
     render(
       <PendingItemRow
         item={item({ waitingFor: ['Ірина Савенко'], actions: ['open'] })}
@@ -508,7 +523,7 @@ describe('PendingItemRow — OpenLink (Открыть) navigation', () => {
     assignSpy.mockRestore()
   })
 
-  it('CONTRACT_TO_SIGN renders Открыть as the PRIMARY (filled) button; every other kind renders it secondary (ghost)', () => {
+  it('CONTRACT_TO_SIGN renders Відкрити as the PRIMARY (filled) button; every other kind renders it secondary (ghost)', () => {
     const { unmount } = render(
       <PendingItemRow
         item={item({ kind: 'CONTRACT_TO_SIGN', actions: ['open'] })}
@@ -542,12 +557,9 @@ describe('PendingItemRow — fmtRelative fallback', () => {
     expect(screen.getByText(/not-a-real-date$/)).toBeInTheDocument()
   })
 
-  it('a valid createdAt renders in RUSSIAN with the "ago" suffix — both the locale AND addSuffix option are load-bearing', () => {
-    // date-fns fact, verified directly: formatDistanceToNow(5-min-ago date)
-    // is "5 минут назад" with {addSuffix:true, locale:ru}, "5 минут" with
-    // addSuffix dropped, and "5 minutes ago" (English) with locale dropped —
-    // three genuinely different strings, so a fixed interval pins all of it
-    // in one assertion.
+  it('a valid createdAt renders in UKRAINIAN with the "ago" suffix', () => {
+    // `Intl.RelativeTimeFormat('uk-UA')`, verified directly: -5 minutes is
+    // "5 хвилин тому"; the same instant is "5 minutes ago" in `en`.
     render(
       <PendingItemRow
         item={item({ createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() })}
@@ -555,12 +567,108 @@ describe('PendingItemRow — fmtRelative fallback', () => {
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText(/5 минут назад$/)).toBeInTheDocument()
+    expect(screen.getByText(/5 хвилин тому$/)).toBeInTheDocument()
+  })
+
+  it('the same createdAt renders in ENGLISH once the active locale is en (no date-fns/ru left)', async () => {
+    await loadCatalog('en')
+    render(
+      <PendingItemRow
+        item={item({ createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString() })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText(/5 minutes ago$/)).toBeInTheDocument()
+  })
+})
+
+// task-i18n-stage3e-pr4 (K-docs): the four wordings of the share phrase are ONE
+// ICU `select`; each variant × each language, with independent literals. The
+// percentages 1/2/5 are plain placeholders — a `%` figure takes no plural form.
+describe('PendingItemRow — share phrase: four variants × uk/en', () => {
+  const CASES: Array<[string, 'mine' | 'proposedByMe', number | undefined, string, string]> = [
+    ['mine + current', 'mine', 1, 'Зараз 1% → пропонують 2%', 'Now 1% → they propose 2%'],
+    ['mine, no current', 'mine', undefined, 'Пропонують 2%', 'They propose 2%'],
+    [
+      'proposedByMe + current',
+      'proposedByMe',
+      5,
+      'Зараз 5% → запропоновано 2%',
+      'Now 5% → proposed 2%',
+    ],
+    ['proposedByMe, no current', 'proposedByMe', undefined, 'Запропоновано 2%', 'Proposed 2%'],
+  ]
+  for (const [name, zone, currentPercent, uk, en] of CASES) {
+    for (const [locale, expected] of [
+      ['uk', uk],
+      ['en', en],
+    ] as const) {
+      it(`${locale}: ${name} → «${expected}»`, async () => {
+        await loadCatalog(locale)
+        render(
+          <PendingItemRow
+            item={item({
+              kind: 'SHARE_APPROVAL',
+              subjectType: 'USER',
+              pendingPercent: 2,
+              ...(currentPercent !== undefined ? { currentPercent } : {}),
+              actions: ['approve', 'reject', 'cancel'],
+            })}
+            zone={zone}
+            onActed={vi.fn()}
+          />,
+        )
+        expect(screen.getByText(expected)).toBeInTheDocument()
+      })
+    }
+  }
+})
+
+describe('PendingItemRow — M-14 / H-4 copy in both languages', () => {
+  it('uk + en: an unknown share names the next step, never a bare «refresh»', async () => {
+    const mine = item({ kind: 'PROJECT_APPROVAL', viewerSharePercent: null, actions: ['open'] })
+    const { unmount } = render(<PendingItemRow item={mine} zone="mine" onActed={vi.fn()} />)
+    expect(
+      screen.getByText('Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна'),
+    ).toBeInTheDocument()
+    unmount()
+    await loadCatalog('en')
+    render(<PendingItemRow item={mine} zone="mine" onActed={vi.fn()} />)
+    expect(
+      screen.getByText(
+        'Your share didn’t arrive from the server. Don’t confirm blindly — ask an admin',
+      ),
+    ).toBeInTheDocument()
+  })
+
+  it('uk + en: the contract status is the ONE canon from the documents hub', async () => {
+    const contract = item({ kind: 'CONTRACT_TO_SIGN', title: 'Contract', actions: ['open'] })
+    const { unmount } = render(<PendingItemRow item={contract} zone="mine" onActed={vi.fn()} />)
+    expect(screen.getByText('Готовий до підпису')).toBeInTheDocument()
+    unmount()
+    await loadCatalog('en')
+    render(<PendingItemRow item={contract} zone="mine" onActed={vi.fn()} />)
+    expect(screen.getByText('Ready to sign')).toBeInTheDocument()
+  })
+
+  it('en: waiting-for, proposes, and the untitled-row fallback read as English', async () => {
+    await loadCatalog('en')
+    render(
+      <PendingItemRow
+        item={item({ title: '', waitingFor: ['Iryna'], actions: ['open'] })}
+        zone="proposedByMe"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Action required')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for: Iryna')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open' })).toBeInTheDocument()
   })
 })
 
 describe('PendingItemRow — AC6: unknown kind never crashes', () => {
-  it('renders a generic row (title or fallback text, давность, Открыть if offered) instead of throwing', () => {
+  it('renders a generic row (title or fallback text, давность, Відкрити if offered) instead of throwing', () => {
     const weirdItem = {
       ...item({ actions: ['open'] }),
       kind: 'SOMETHING_NEW',
@@ -601,8 +709,8 @@ describe('PendingItemRow — row wrapper: shared base classes, zone-specific cla
   })
 })
 
-describe('PendingItemRow — COPY-M-3: «предложено» also covers the defensive no-currentPercent shape', () => {
-  it('proposedByMe without currentPercent: «Предложено Y%», never the `mine` form «Предлагают Y%»', () => {
+describe('PendingItemRow — COPY-M-3: «запропоновано» also covers the defensive no-currentPercent shape', () => {
+  it('proposedByMe without currentPercent: «Запропоновано Y%», never the `mine` form «Пропонують Y%»', () => {
     const shareItem = item({
       kind: 'SHARE_APPROVAL',
       subjectType: 'PROJECT',
@@ -619,15 +727,15 @@ describe('PendingItemRow — COPY-M-3: «предложено» also covers the 
       />,
     )
     expect(metaLines()).toEqual([
-      'Предложено 30%',
-      expect.stringMatching(/^Ждём: Олексій Коваленко · .+назад$/),
+      'Запропоновано 30%',
+      expect.stringMatching(/^Чекаємо: Олексій Коваленко · .+тому$/),
     ])
-    expect(metaText()).not.toMatch(/Предлагают/)
+    expect(metaText()).not.toMatch(/Пропонують/)
   })
 })
 
 describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does not repeat the name', () => {
-  it('drops the «Ждём: …» segment — the title already names the senior («Доля по умолчанию — Имя»)', () => {
+  it('drops the «Чекаємо: …» segment — the title already names the senior («Доля по умолчанию — Имя»)', () => {
     render(
       <PendingItemRow
         item={item({
@@ -644,14 +752,14 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
       />,
     )
     expect(screen.getByText('Доля по умолчанию — Олексій Коваленко')).toBeInTheDocument()
-    expect(metaText()).not.toMatch(/Ждём/)
+    expect(metaText()).not.toMatch(/Чекаємо/)
     // COPY-M-8 (fix-round 4): and what is left collapses back onto ONE line —
-    // dropping «Ждём» left two segments, and a third text line for the
+    // dropping «Чекаємо» left two segments, and a third text line for the
     // relative time alone weighed a timestamp the same as the percentages.
-    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предложено 30% · .+назад$/)])
+    expect(metaLines()).toEqual([expect.stringMatching(/^Зараз 26% → запропоновано 30% · .+тому$/)])
   })
 
-  it('a PROJECT-scope share in the same zone DOES keep «Ждём: …» — nothing else names the approver there', () => {
+  it('a PROJECT-scope share in the same zone DOES keep «Чекаємо: …» — nothing else names the approver there', () => {
     render(
       <PendingItemRow
         item={item({
@@ -667,10 +775,10 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
         onActed={vi.fn()}
       />,
     )
-    expect(metaText()).toMatch(/Ждём: Олексій Коваленко/)
+    expect(metaText()).toMatch(/Чекаємо: Олексій Коваленко/)
   })
 
-  it('a USER-scope share in `mine` is untouched — that zone never printed «Ждём» at all', () => {
+  it('a USER-scope share in `mine` is untouched — that zone never printed «Чекаємо» at all', () => {
     render(
       <PendingItemRow
         item={item({
@@ -685,17 +793,17 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
         onActed={vi.fn()}
       />,
     )
-    expect(metaLines()).toEqual([expect.stringMatching(/^Сейчас 26% → предлагают 30% · .+назад$/)])
+    expect(metaLines()).toEqual([expect.stringMatching(/^Зараз 26% → пропонують 30% · .+тому$/)])
   })
 })
 
 describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phrase', () => {
-  it('wraps the relative-time segment in whitespace-nowrap («меньше минуты назад» broke across lines at 320px)', () => {
+  it('wraps the relative-time segment in whitespace-nowrap («щойно» broke across lines at 320px)', () => {
     render(<PendingItemRow item={item({ proposedBy: 'Maksym' })} zone="mine" onActed={vi.fn()} />)
 
     // The phrase is its own element precisely so that it can carry the class
     // — `getByText` lands on that element, not on the paragraph around it.
-    expect(screen.getByText('2 дня назад')).toHaveClass('whitespace-nowrap')
+    expect(screen.getByText('3 дні тому')).toHaveClass('whitespace-nowrap')
   })
 
   it('wraps the «X% → Y%» pair too — the other break point on the longest row of the screen', () => {
@@ -714,7 +822,7 @@ describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phra
       />,
     )
 
-    expect(screen.getByText('Сейчас 26% → предложено 30%')).toHaveClass('whitespace-nowrap')
+    expect(screen.getByText('Зараз 26% → запропоновано 30%')).toHaveClass('whitespace-nowrap')
   })
 
   it('the `mine` «X% → Y%» pair is nowrapped too — same phrase, same rule, other zone', () => {
@@ -731,10 +839,10 @@ describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phra
       />,
     )
 
-    expect(screen.getByText('Сейчас 26% → предлагают 30%')).toHaveClass('whitespace-nowrap')
+    expect(screen.getByText('Зараз 26% → пропонують 30%')).toHaveClass('whitespace-nowrap')
   })
 
-  it('the name in «Ждём: …» is NOT nowrapped — a long list of names still has to wrap somewhere', () => {
+  it('the name in «Чекаємо: …» is NOT nowrapped — a long list of names still has to wrap somewhere', () => {
     render(
       <PendingItemRow
         item={item({
@@ -746,14 +854,14 @@ describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phra
       />,
     )
 
-    expect(screen.getByText('Ждём: Ірина Савенко, Олексій Коваленко')).not.toHaveClass(
+    expect(screen.getByText('Чекаємо: Ірина Савенко, Олексій Коваленко')).not.toHaveClass(
       'whitespace-nowrap',
     )
   })
 })
 
 describe('PendingItemRow — COPY-L-4: an unknown kind never renders a mute row', () => {
-  it('falls back to «Запрос на действие» when the server sent no title', () => {
+  it('falls back to «Запит на дію» when the server sent no title', () => {
     render(
       <PendingItemRow
         item={item({ kind: 'SOMETHING_NEW' as PendingItem['kind'], title: '', actions: ['open'] })}
@@ -761,7 +869,7 @@ describe('PendingItemRow — COPY-L-4: an unknown kind never renders a mute row'
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText('Запрос на действие')).toBeInTheDocument()
+    expect(screen.getByText('Запит на дію')).toBeInTheDocument()
   })
 
   it('uses the real title when there is one — the fallback is a fallback, not a replacement', () => {
@@ -777,7 +885,7 @@ describe('PendingItemRow — COPY-L-4: an unknown kind never renders a mute row'
       />,
     )
     expect(screen.getByText('Согласование отпуска')).toBeInTheDocument()
-    expect(screen.queryByText('Запрос на действие')).not.toBeInTheDocument()
+    expect(screen.queryByText('Запит на дію')).not.toBeInTheDocument()
   })
 })
 
@@ -796,10 +904,10 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
     )
     // Verbatim the widget's own line (PendingProjectApprovalsPanel) — the
     // two surfaces are one click apart, so one wording, not two.
-    expect(screen.getByText(/^Ваша доля: 9% · синьор: Oleksiy Kovalenko$/)).toBeInTheDocument()
+    expect(screen.getByText(/^Ваша частка: 9% · сеньйор: Oleksiy Kovalenko$/)).toBeInTheDocument()
   })
 
-  it('SENIOR sees the percent without a «синьор:» tail — they are the senior', () => {
+  it('SENIOR sees the percent without a «сеньйор:» tail — they are the senior', () => {
     render(
       <PendingItemRow
         item={item({ proposedBy: 'Maksym Yaremenko', viewerSharePercent: 12, seniorName: null })}
@@ -807,8 +915,8 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText('Ваша доля: 12%')).toBeInTheDocument()
-    expect(screen.queryByText(/синьор:/)).not.toBeInTheDocument()
+    expect(screen.getByText('Ваша частка: 12%')).toBeInTheDocument()
+    expect(screen.queryByText(/сеньйор:/)).not.toBeInTheDocument()
   })
 
   it('COPY-M-12: an unknown share says so — the same whole sentence the widget shows, never silence next to a «Подтвердить»', () => {
@@ -824,8 +932,10 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
     // PROJECT_APPROVAL), so a DROP must not read «Доля неизвестна» on the
     // dashboard and nothing at all one click away, with the same
     // «Подтвердить» under both.
-    expect(screen.getByText('Доля неизвестна. Обновите страницу.')).toBeInTheDocument()
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
+    expect(
+      screen.getByText('Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/Ваша частка/)).not.toBeInTheDocument()
   })
 
   it('the observer zone never shows it — the widget never did either', () => {
@@ -836,7 +946,7 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
         onActed={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ваша частка/)).not.toBeInTheDocument()
   })
 
   it('a SHARE_APPROVAL row never shows it — there the percent IS the decision, not context for one', () => {
@@ -853,7 +963,7 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
         onActed={vi.fn()}
       />,
     )
-    expect(screen.queryByText(/Ваша доля/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Ваша частка/)).not.toBeInTheDocument()
   })
 
   it('0% is a real answer and must be shown, not swallowed as falsy', () => {
@@ -864,6 +974,6 @@ describe('PendingItemRow — UX-H-1: the share line on a PROJECT_APPROVAL row of
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText('Ваша доля: 0%')).toBeInTheDocument()
+    expect(screen.getByText('Ваша частка: 0%')).toBeInTheDocument()
   })
 })
