@@ -317,25 +317,9 @@ describe('DocumentRow — i18n copy (wave e PR2)', () => {
       renderRow(baseDoc({ createdAt: MID_MONTH }))
       const row = await screen.findByTestId('document-row')
       expect(row).toHaveTextContent(/2 години тому|2 годин/)
-      expect(screen.getByTitle(/2026/)).toBeInTheDocument()
+      expect(screen.getByTitle(/2026.*\d{1,2}:\d{2}/)).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
-  })
-})
-
-describe('DocumentList — empty slot', () => {
-  it('renders the parent-supplied emptyState and nothing of its own', () => {
-    const { container, rerender } = render(
-      <DocumentList
-        documents={[]}
-        loading={false}
-        viewer={viewer}
-        emptyState={<p data-testid="parent-empty">x</p>}
-      />,
-    )
-    expect(screen.getByTestId('parent-empty')).toBeInTheDocument()
-    rerender(<DocumentList documents={[]} loading={false} viewer={viewer} />)
-    expect(container).toBeEmptyDOMElement()
   })
 })

@@ -12,7 +12,7 @@
  *   - dates go through `@crm/shared` formatters, not `date-fns/locale/ru`;
  *   - delete confirmations use the hub canon (no storage-backend name).
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   RouterProvider,
@@ -104,13 +104,14 @@ function renderDialog(doc: Document, who: SessionUser = viewer) {
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
-  return render(
+  const utils = render(
     <I18nTestProvider>
       <QueryClientProvider client={qc}>
         <RouterProvider router={router} />
       </QueryClientProvider>
     </I18nTestProvider>,
   )
+  return { ...utils, qc }
 }
 
 async function dialogText(): Promise<string> {
@@ -223,6 +224,26 @@ describe('DocumentDetailDialog — metadata rows', () => {
     expect(enText).toMatch(/15 March 2026/)
   })
 
+  it('signing-date row carries the absolute date + time in its tooltip, same as the upload-date row', async () => {
+    renderDialog(
+      makeDoc({
+        category: 'CONTRACT',
+        source: 'employee_contract',
+        signedByName: 'Іван Петренко',
+        signedAt: MID_MONTH,
+      }),
+    )
+    await dialogText()
+    // upload-date row + signing-date row (both MID_MONTH)
+    expect(screen.getAllByTitle(/2026.*\d{1,2}:\d{2}/)).toHaveLength(2)
+  })
+
+  it('a virtual contract without signedAt has no signing-date row', async () => {
+    renderDialog(makeDoc({ category: 'CONTRACT', source: 'employee_contract', signedAt: null }))
+    const text = await dialogText()
+    expect(text).not.toContain('Дата підписання')
+  })
+
   it('upload date: relative text + absolute date in the tooltip', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-03-15T14:00:00.000Z'))
@@ -230,7 +251,7 @@ describe('DocumentDetailDialog — metadata rows', () => {
       renderDialog(makeDoc())
       const text = await dialogText()
       expect(text).toMatch(/2 години тому|2 годин/)
-      expect(screen.getByTitle(/2026/)).toBeInTheDocument()
+      expect(screen.getByTitle(/2026.*\d{1,2}:\d{2}/)).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -249,11 +270,51 @@ describe('DocumentDetailDialog — project row (M-11)', () => {
   })
 
   it('when the project cannot be read: generic label, never `#<id>`', async () => {
-    renderDialog(makeDoc({ projectId: PROJECT_ID }))
+    const { qc } = renderDialog(makeDoc({ projectId: PROJECT_ID }))
     const link = await screen.findByTestId('document-detail-project-link')
     expect(link).toHaveTextContent('Відкрити проєкт')
     expect(link.textContent).not.toContain(PROJECT_ID.slice(-8))
     expect(link.textContent).not.toContain('#')
+    // One failed attempt settles into `error` — no silent retry loop on a 403.
+    await waitFor(() => expect(qc.getQueryState(['projects', PROJECT_ID])?.status).toBe('error'))
+    expect(apiGet).toHaveBeenCalledTimes(1)
+  })
+
+  it('shares the project page cache key: the name lands under ["projects", id]', async () => {
+    apiGet.mockResolvedValue({ data: { id: PROJECT_ID, name: 'Alpha Platform' } })
+    const { qc } = renderDialog(makeDoc({ projectId: PROJECT_ID }))
+    await screen.findByRole('link', { name: 'Alpha Platform' })
+    expect(qc.getQueryData(['projects', PROJECT_ID])).toEqual({
+      id: PROJECT_ID,
+      name: 'Alpha Platform',
+    })
+  })
+
+  it('does not fetch while the dialog is closed', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const rootRoute = createRootRoute({
+      component: () => (
+        <DocumentDetailDialog
+          open={false}
+          onOpenChange={() => undefined}
+          doc={makeDoc({ projectId: PROJECT_ID })}
+          viewer={viewer}
+        />
+      ),
+    })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(apiGet).not.toHaveBeenCalled()
   })
 
   it('en generic label', async () => {
@@ -268,6 +329,30 @@ describe('DocumentDetailDialog — project row (M-11)', () => {
     renderDialog(makeDoc({ projectId: null }))
     await dialogText()
     expect(screen.queryByTestId('document-detail-project-link')).toBeNull()
+    expect(apiGet).not.toHaveBeenCalled()
+  })
+})
+
+describe('DocumentDetailDialog — no document', () => {
+  it('doc=null renders nothing and requests nothing', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const rootRoute = createRootRoute({
+      component: () => (
+        <DocumentDetailDialog open onOpenChange={() => undefined} doc={null} viewer={viewer} />
+      ),
+    })
+    const router = createRouter({
+      routeTree: rootRoute,
+      history: createMemoryHistory({ initialEntries: ['/'] }),
+    })
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <RouterProvider router={router} />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(apiGet).not.toHaveBeenCalled()
   })
 })

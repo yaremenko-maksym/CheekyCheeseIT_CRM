@@ -244,7 +244,7 @@ describe('DocumentCard — i18n copy (wave e PR2)', () => {
       renderCard(makeInvoiceDoc({ createdAt: MID_MONTH }))
       const card = await screen.findByTestId('document-card')
       expect(card).toHaveTextContent(/2 години тому|2 годин/)
-      expect(screen.getByTitle(/2026/)).toBeInTheDocument()
+      expect(screen.getByTitle(/2026.*\d{1,2}:\d{2}/)).toBeInTheDocument()
     } finally {
       vi.useRealTimers()
     }
@@ -259,7 +259,9 @@ describe('DocumentCard — i18n copy (wave e PR2)', () => {
         ownerId: VIEWER_ID,
       }),
     )
-    fireEvent.click(await screen.findByTestId('document-delete'))
+    const trash = await screen.findByTestId('document-delete')
+    expect(trash).toHaveAttribute('aria-label', 'Видалити')
+    fireEvent.click(trash)
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('Перенести в архів?')
     expect(dialog).toHaveTextContent('Документ піде в архів. Повернути його може адмін')

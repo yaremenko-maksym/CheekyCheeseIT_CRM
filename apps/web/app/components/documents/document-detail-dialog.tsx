@@ -229,9 +229,6 @@ export function DocumentDetailDialog({
   // null (hard-deleted user / legacy row).
   const uploaderLabel = doc?.uploadedByDisplayName ?? (doc ? shortId(doc.uploadedBy) : '')
 
-  const relativeDate = doc ? formatRelativeTime(doc.createdAt, locale) : ''
-  const signedAtDate = doc?.signedAt ? formatDate(doc.signedAt, locale, 'long') : null
-
   // Project NAME for the «Project» row (COPY-M-docs-11: it used to print
   // `#<last 8 chars of the id>`). Same key + endpoint as the project page, so
   // the cache is shared; RBAC stays on the API. When the viewer can't read the
@@ -314,6 +311,9 @@ export function DocumentDetailDialog({
     isPdf || isContractVirtual ? activeBlobLoading && !activeBlobUrl : downloadQuery.isFetching
 
   if (!doc) return null
+
+  // Plain derivation (not a hook), so it lives below the null guard.
+  const relativeDate = formatRelativeTime(doc.createdAt, locale)
 
   return (
     <>
@@ -427,12 +427,12 @@ export function DocumentDetailDialog({
                     }
                   />
                 ) : null}
-                {isContractVirtual && doc.signedAt && signedAtDate ? (
+                {isContractVirtual && doc.signedAt ? (
                   <DetailRow
                     icon={Calendar}
                     label={t`Дата підписання`}
-                    value={signedAtDate}
-                    title={doc.signedAt}
+                    value={formatDate(doc.signedAt, locale, 'long')}
+                    title={formatDate(doc.signedAt, locale, 'dateTimeWithYear')}
                   />
                 ) : null}
               </div>
