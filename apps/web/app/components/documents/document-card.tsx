@@ -91,10 +91,6 @@ function extractInvoiceShortId(filename: string): string | null {
   return m && m[1] ? m[1] : null
 }
 
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(-8) : id
-}
-
 export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
   const locale = useLocale()
   const { t, i18n } = useLingui()
@@ -124,8 +120,8 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
 
   // Uploader display name is embedded in the API response (LEFT JOIN
   // on `users`). When the uploader was hard-deleted the field is null
-  // and we fall back to a short id so the card still renders.
-  const uploaderLabel = doc.uploadedByDisplayName ?? shortId(doc.uploadedBy)
+  // and we fall back to a neutral «deleted user» label so the card still renders.
+  const uploaderLabel = doc.uploadedByDisplayName ?? t`Видалений користувач`
 
   // Variant 3 hybrid: prefer the original name (cyrillic preserved); fall
   // back to the sanitized `name` for legacy rows that pre-date migration 0011.
@@ -384,7 +380,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
                 setConfirmSoftDelete(false)
               }}
             >
-              <Trans>Видалити</Trans>
+              <Trans>Перенести в архів</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

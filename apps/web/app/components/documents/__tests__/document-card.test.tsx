@@ -264,11 +264,43 @@ describe('DocumentCard — i18n copy (wave e PR2)', () => {
     fireEvent.click(trash)
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('Перенести в архів?')
+    expect(screen.getByRole('button', { name: 'Перенести в архів' })).toBeInTheDocument()
     expect(dialog).toHaveTextContent('Документ піде в архів. Повернути його може адмін')
     expect(dialog.textContent).not.toMatch(/можна відновити|корзин/i)
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
     })
+  })
+
+  it('archive confirm in en: «Move to archive?» (no article) + «Archive» verb on the button', async () => {
+    await loadCatalog('en')
+    renderCard(
+      makeInvoiceDoc({
+        category: 'SCAN',
+        name: 's.pdf',
+        originalName: 's.pdf',
+        ownerId: VIEWER_ID,
+      }),
+    )
+    fireEvent.click(await screen.findByTestId('document-delete'))
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Move to archive?')
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
+  })
+
+  it('uploader deleted (no display name): neutral «Видалений користувач», never a raw id', async () => {
+    renderCard(makeInvoiceDoc({ uploadedByDisplayName: null }))
+    const link = await screen.findByTestId('document-card-uploader-link')
+    expect(link).toHaveTextContent('Видалений користувач')
+    expect(link.textContent).not.toContain(OWNER_ID.slice(-8))
+  })
+
+  it('uploader deleted in en: «Deleted user»', async () => {
+    await loadCatalog('en')
+    renderCard(makeInvoiceDoc({ uploadedByDisplayName: null }))
+    expect(await screen.findByTestId('document-card-uploader-link')).toHaveTextContent(
+      'Deleted user',
+    )
   })
 
   it('permanent-delete confirm (ADMIN): no «S3», says the loss is irreversible', async () => {

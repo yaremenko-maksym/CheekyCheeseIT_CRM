@@ -90,10 +90,6 @@ interface DocumentDetailDialogProps {
   viewer: SessionUser
 }
 
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(-8) : id
-}
-
 /**
  * Human-readable «Format» row (COPY-M-docs-10): the raw MIME
  * (`application/vnd.openxml…`) was printed as the value. The raw string now
@@ -225,14 +221,14 @@ export function DocumentDetailDialog({
   const canHardDelete = isDeleted && isAdmin
 
   // Uploader display name is part of the document DTO (LEFT JOIN
-  // performed server-side). Fall back to a short id when the field is
+  // performed server-side). Fall back to a neutral «deleted user» label when the field is
   // null (hard-deleted user / legacy row).
-  const uploaderLabel = doc?.uploadedByDisplayName ?? (doc ? shortId(doc.uploadedBy) : '')
+  const uploaderLabel = doc?.uploadedByDisplayName ?? t`Видалений користувач`
 
   // Project NAME for the «Project» row (COPY-M-docs-11: it used to print
   // `#<last 8 chars of the id>`). Same key + endpoint as the project page, so
   // the cache is shared; RBAC stays on the API. When the viewer can't read the
-  // project (403/404) the row falls back to a generic link label — never an id.
+  // project (403/404) the row falls back to a generic link label (the visible text is never an id; the raw id lives only in the row's `title`, plan M-11).
   const projectId = doc?.projectId ?? null
   const projectQuery = useQuery({
     queryKey: ['projects', projectId],
@@ -553,7 +549,7 @@ export function DocumentDetailDialog({
                 onOpenChange(false)
               }}
             >
-              <Trans>Видалити</Trans>
+              <Trans>Перенести в архів</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

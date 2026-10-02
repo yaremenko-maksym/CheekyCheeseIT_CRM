@@ -29,7 +29,7 @@ const CASES: Array<[StatusBadge, string, string, RegExp]> = [
   [{ kind: 'contract', state: 'signed' }, 'Підписано', 'Signed', /emerald/],
   [{ kind: 'invoice', state: 'ready' }, 'Очікує підпису', 'Awaiting signature', /amber/],
   [{ kind: 'invoice', state: 'signed' }, 'Підписано', 'Signed', /emerald/],
-  [{ kind: 'receipt', state: 'pending' }, 'Очікує підтвердження', 'Awaiting confirmation', /amber/],
+  [{ kind: 'receipt', state: 'pending' }, 'Очікує підтвердження', 'Awaiting validation', /amber/],
   [{ kind: 'receipt', state: 'validated' }, 'Підтверджено', 'Validated', /emerald/],
 ]
 

@@ -7,7 +7,7 @@
  *   - the «Format» row shows a human format, the raw MIME lives only in the
  *     row's `title` (COPY-M-docs-10);
  *   - the «Project» row shows the project NAME, the id only in the link's
- *     `title`; without access it degrades to a generic label, never an id
+ *     `title`; without access it degrades to a generic label (visible text is never an id)
  *     (COPY-M-docs-11);
  *   - dates go through `@crm/shared` formatters, not `date-fns/locale/ru`;
  *   - delete confirmations use the hub canon (no storage-backend name).
@@ -382,11 +382,24 @@ describe('DocumentDetailDialog — status, preview fallback, actions', () => {
     expect(screen.getByTestId('document-detail-download')).toHaveTextContent('Завантажити')
   })
 
+  it('uploader deleted (no display name): neutral «Видалений користувач» / «Deleted user», never an id', async () => {
+    renderDialog(makeDoc({ uploadedByDisplayName: null }))
+    expect(await screen.findByTestId('document-detail-uploader-link')).toHaveTextContent(
+      'Видалений користувач',
+    )
+    await loadCatalog('en')
+    renderDialog(makeDoc({ uploadedByDisplayName: null }))
+    expect(
+      (await screen.findAllByTestId('document-detail-uploader-link')).map((e) => e.textContent),
+    ).toContain('Deleted user')
+  })
+
   it('owner archive confirm uses the hub canon', async () => {
     renderDialog(makeDoc({ ownerId: VIEWER_ID }))
     fireEvent.click(await screen.findByTestId('document-detail-delete'))
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('Перенести в архів?')
+    expect(screen.getByRole('button', { name: 'Перенести в архів' })).toBeInTheDocument()
     expect(dialog).toHaveTextContent('Документ піде в архів. Повернути його може адмін')
     expect(dialog.textContent).not.toMatch(/можна відновити|корзин/i)
   })

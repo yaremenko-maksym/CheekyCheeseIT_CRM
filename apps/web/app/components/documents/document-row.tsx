@@ -66,10 +66,6 @@ const CATEGORY_ICON_MAP: Partial<Record<string, typeof FileText>> = {
   INVOICE: FileSignature,
 }
 
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(-8) : id
-}
-
 export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
   const locale = useLocale()
   const { t, i18n } = useLingui()
@@ -91,7 +87,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
   const canRestore = isDeleted && isAdmin
   const canHardDelete = isDeleted && isAdmin
 
-  const uploaderLabel = doc.uploadedByDisplayName ?? shortId(doc.uploadedBy)
+  const uploaderLabel = doc.uploadedByDisplayName ?? t`Видалений користувач`
   const displayName = doc.originalName ?? doc.name
 
   const Icon = CATEGORY_ICON_MAP[doc.category] ?? FileText
@@ -278,7 +274,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
                 setConfirmSoftDelete(false)
               }}
             >
-              <Trans>Видалити</Trans>
+              <Trans>Перенести в архів</Trans>
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

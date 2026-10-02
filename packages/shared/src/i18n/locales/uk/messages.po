@@ -1605,6 +1605,12 @@ msgstr "Виведення дивідендів із балансу рахунк
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Виводити дивіденди може лише адміністратор"
 
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Видалений користувач"
+msgstr "Видалений користувач"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Видалення…"
 msgstr "Видалення…"
@@ -1615,10 +1621,7 @@ msgstr "Видалено"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/documents/document-card.tsx
-#: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
-#: apps/web/app/components/documents/document-detail-dialog.tsx
-#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -6763,6 +6766,12 @@ msgstr "Перемістити місце роботи {position} вниз"
 #: apps/web/app/routes/_authenticated/onboarding/index.tsx
 msgid "Перенаправляємо на дашборд…"
 msgstr "Перенаправляємо на дашборд…"
+
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Перенести в архів"
+msgstr "Перенести в архів"
 
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx

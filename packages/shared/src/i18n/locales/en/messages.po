@@ -1605,6 +1605,12 @@ msgstr "Withdraw dividends from the company account balance"
 msgid "api-error.FINANCE_DIVIDEND_WITHDRAW_ADMIN_ONLY"
 msgstr "Only an admin can withdraw dividends"
 
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
+msgid "Видалений користувач"
+msgstr "Deleted user"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Видалення…"
 msgstr "Deleting…"
@@ -1615,10 +1621,7 @@ msgstr "Deleted"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/documents/document-card.tsx
-#: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
-#: apps/web/app/components/documents/document-detail-dialog.tsx
-#: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
@@ -6524,7 +6527,7 @@ msgstr "Awaiting signature"
 
 #: apps/web/app/components/documents/document-status-badge.tsx
 msgid "Очікує підтвердження"
-msgstr "Awaiting confirmation"
+msgstr "Awaiting validation"
 
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує підтвердження бухгалтером (готівка)"
@@ -6767,8 +6770,14 @@ msgstr "Redirecting to the dashboard…"
 #: apps/web/app/components/documents/document-card.tsx
 #: apps/web/app/components/documents/document-detail-dialog.tsx
 #: apps/web/app/components/documents/document-row.tsx
+msgid "Перенести в архів"
+msgstr "Archive"
+
+#: apps/web/app/components/documents/document-card.tsx
+#: apps/web/app/components/documents/document-detail-dialog.tsx
+#: apps/web/app/components/documents/document-row.tsx
 msgid "Перенести в архів?"
-msgstr "Move to the archive?"
+msgstr "Move to archive?"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx

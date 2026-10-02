@@ -289,6 +289,12 @@ describe('DocumentRow — i18n copy (wave e PR2)', () => {
     )
   })
 
+  it('uploader deleted (no display name): neutral «Видалений користувач», never an id', async () => {
+    renderRow(baseDoc({ uploadedByDisplayName: null }))
+    const link = await screen.findByTestId('document-row-uploader-link')
+    expect(link).toHaveTextContent('Видалений користувач')
+  })
+
   it('owner delete button aria-label + archive confirm text', async () => {
     renderRow(baseDoc({ ownerId: VIEWER_ID }))
     const del = await screen.findByTestId('document-row-delete')
@@ -296,6 +302,7 @@ describe('DocumentRow — i18n copy (wave e PR2)', () => {
     fireEvent.click(del)
     const dialog = await screen.findByRole('alertdialog')
     expect(dialog).toHaveTextContent('Перенести в архів?')
+    expect(screen.getByRole('button', { name: 'Перенести в архів' })).toBeInTheDocument()
     expect(dialog).toHaveTextContent('Документ піде в архів. Повернути його може адмін')
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
