@@ -319,7 +319,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
     await page.waitForLoadState('networkidle')
 
     // Кликаем по карточке контракта
-    const docCard = page.getByText(assertInCatalog(uk, 'Трудовий договір (до підписання)')).first()
+    const docCard = page.getByText(assertInCatalog(uk, 'Трудовий договір (очікує підпису)')).first()
     await expect(docCard).toBeVisible({ timeout: 5000 })
     await docCard.click()
 
