@@ -3,6 +3,7 @@ import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
   INTERNAL_CATEGORIES,
+  contractNameKindSchema,
   createDocumentMetadataSchema,
   documentCategorySchema,
   documentListFiltersSchema,
@@ -93,6 +94,42 @@ describe('documentSchema', () => {
 
   it('accepts a valid document row', () => {
     expect(() => documentSchema.parse(validDoc)).not.toThrow()
+  })
+
+  it('pins the exact set of virtual-contract name kinds (wire contract with the client registry)', () => {
+    expect([...contractNameKindSchema.options]).toEqual([
+      'CONTRACT_SIGNED',
+      'CONTRACT',
+      'CONTRACT_TO_SIGN',
+      'CONTRACT_DRAFT',
+    ])
+    expect(() => contractNameKindSchema.parse('')).toThrow()
+    expect(() => contractNameKindSchema.parse('CONTRACT_UNKNOWN')).toThrow()
+  })
+
+  it('nameKind / contractNumber are optional and nullable; a known kind round-trips', () => {
+    const plain = documentSchema.parse(validDoc)
+    expect(plain.nameKind).toBeUndefined()
+    expect(plain.contractNumber).toBeUndefined()
+    const nulled = documentSchema.parse({ ...validDoc, nameKind: null, contractNumber: null })
+    expect(nulled.nameKind).toBeNull()
+    expect(nulled.contractNumber).toBeNull()
+    const signed = documentSchema.parse({
+      ...validDoc,
+      nameKind: 'CONTRACT_SIGNED',
+      contractNumber: 'CHK-11-2025',
+    })
+    expect(signed.nameKind).toBe('CONTRACT_SIGNED')
+    expect(signed.contractNumber).toBe('CHK-11-2025')
+    expect(() => documentSchema.parse({ ...validDoc, nameKind: 'NOPE' })).toThrow()
+  })
+
+  it('contractNumber length is 1..64 inclusive', () => {
+    const parse = (contractNumber: string) => documentSchema.parse({ ...validDoc, contractNumber })
+    expect(parse('A').contractNumber).toBe('A')
+    expect(parse('x'.repeat(64)).contractNumber).toHaveLength(64)
+    expect(() => parse('')).toThrow()
+    expect(() => parse('x'.repeat(65))).toThrow()
   })
 
   it('accepts deleted documents (deletedAt + deletedBy set)', () => {

@@ -96,6 +96,20 @@ export type StatusBadge = z.infer<typeof statusBadgeSchema>
 export const documentSourceSchema = z.enum(['file', 'employee_contract'])
 export type DocumentSource = z.infer<typeof documentSourceSchema>
 
+/**
+ * i18n server-text PR2. Virtual employee-contract entries no longer carry a
+ * server-composed Russian name: the server ships this discriminant (+ the
+ * contract number) and the client renders `CONTRACT_NAME_MESSAGES[kind]`
+ * (`document-name-registry.ts`) in the viewer's locale.
+ */
+export const contractNameKindSchema = z.enum([
+  'CONTRACT_SIGNED',
+  'CONTRACT',
+  'CONTRACT_TO_SIGN',
+  'CONTRACT_DRAFT',
+])
+export type ContractNameKind = z.infer<typeof contractNameKindSchema>
+
 // ---------------------------------------------------------------------------
 // Document DTO (full row as returned from API)
 // ---------------------------------------------------------------------------
@@ -194,6 +208,18 @@ export const documentSchema = z.object({
    * non-contract documents. AC6 polish — shown in DocumentDetailDialog.
    */
   signedAt: z.string().datetime().nullable().optional(),
+  /**
+   * i18n server-text PR2. For employee_contract virtual entries only: which
+   * contract-name sentence to render. `null`/absent for real uploads — those
+   * keep `originalName ?? name` (a filename, not prose). The client renders
+   * this ONLY when non-null.
+   */
+  nameKind: contractNameKindSchema.nullable().optional(),
+  /**
+   * For `nameKind = 'CONTRACT_SIGNED'` only: the signed contract's number
+   * (already visible to the same viewer inside the old composed name).
+   */
+  contractNumber: z.string().min(1).max(64).nullable().optional(),
 })
 export type Document = z.infer<typeof documentSchema>
 

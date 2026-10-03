@@ -1,9 +1,11 @@
 /**
- * п.4 — Readable contract name in listContractVirtualEntries.
+ * п.4 → i18n server-text PR2 — contract name in listContractVirtualEntries.
  *
- * Verifies that the `name` field returned by DocumentsService for virtual
- * employee-contract entries is a human-readable Russian label instead of the
- * raw `contract-<uuid>` key, while s3Key/download paths remain unchanged.
+ * The server no longer composes a Russian label for virtual employee-contract
+ * entries: it ships `nameKind` (+ `contractNumber` for SIGNED) and the client
+ * renders the words in the viewer's locale (`CONTRACT_NAME_MESSAGES`). `name`
+ * stays a non-empty, ASCII, prose-free marker (the DTO requires min(1)); it
+ * must never expose the raw uuid. s3Key/download paths remain unchanged.
  *
  * Strategy: mock db.query.employeeContracts.findMany to return synthetic rows
  * with signedContract eager-loaded (mirrors the `with: { signedContract: true }`
@@ -102,8 +104,8 @@ function makeService(contractRows: ReturnType<typeof makeContractRow>[]) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('DocumentsService — contract virtual entry readable name (п.4)', () => {
-  it('SIGNED contract with contractNumber → «Трудовой договор CHK-XXXXXX»', async () => {
+describe('DocumentsService — contract virtual entry structured name (PR2)', () => {
+  it('SIGNED contract with contractNumber → nameKind CONTRACT_SIGNED + contractNumber, no Russian name', async () => {
     const rows = [
       makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-7F3A9C', userId: SENIOR.id }),
     ]
@@ -112,33 +114,37 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })
 
     expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Трудовой договор CHK-7F3A9C')
+    expect(result[0]!.nameKind).toBe('CONTRACT_SIGNED')
+    expect(result[0]!.contractNumber).toBe('CHK-7F3A9C')
+    expect(result[0]!.name).not.toMatch(/[а-яА-ЯёЁіїєґІЇЄҐ]/)
   })
 
-  it('READY_TO_SIGN contract → «Трудовой договор (к подписанию)»', async () => {
+  it('READY_TO_SIGN contract → nameKind CONTRACT_TO_SIGN, no number', async () => {
     const rows = [makeContractRow({ status: 'READY_TO_SIGN', userId: SENIOR.id })]
     const svc = makeService(rows)
 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })
 
     expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Трудовой договор (к подписанию)')
+    expect(result[0]!.nameKind).toBe('CONTRACT_TO_SIGN')
+    expect(result[0]!.contractNumber).toBeNull()
   })
 
-  it('DRAFT contract (ADMIN view) → «Трудовой договор (черновик)»', async () => {
+  it('DRAFT contract (ADMIN view) → nameKind CONTRACT_DRAFT, no number', async () => {
     const rows = [makeContractRow({ status: 'DRAFT', userId: SENIOR.id })]
     const svc = makeService(rows)
 
     const result = await svc.list(ADMIN, { category: 'CONTRACT' })
 
     expect(result).toHaveLength(1)
-    expect(result[0]!.name).toBe('Трудовой договор (черновик)')
+    expect(result[0]!.nameKind).toBe('CONTRACT_DRAFT')
+    expect(result[0]!.contractNumber).toBeNull()
   })
 
-  it('SIGNED without signedContract row → нейтральное «Трудовой договор»', async () => {
+  it('SIGNED without signedContract row → neutral CONTRACT, not DRAFT', async () => {
     // Edge case: signedContractId set but relation missing (orphan state).
-    // LOW-fix: SIGNED без relation → нейтральное «Трудовой договор», а не
-    // «(черновик)» (которое семантически некорректно для подписанного договора).
+    // LOW-fix: SIGNED without the relation → neutral kind CONTRACT, never
+    // CONTRACT_DRAFT (semantically wrong for a signed document).
     const rows = [
       {
         id: 'orphan-id',
@@ -152,9 +158,37 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
 
     const result = await svc.list(ADMIN, { category: 'CONTRACT' })
 
-    // Falls back to neutral label — the name does NOT expose the raw uuid
-    expect(result[0]!.name).toBe('Трудовой договор')
+    // Falls back to the neutral kind — nothing exposes the raw uuid
+    expect(result[0]!.nameKind).toBe('CONTRACT')
+    expect(result[0]!.contractNumber).toBeNull()
     expect(result[0]!.name).not.toContain(rows[0]!.id)
+  })
+
+  it('the wire `name` is exactly the fixed ASCII marker (client ignores it when nameKind is set)', async () => {
+    const svc = makeService([makeContractRow({ status: 'READY_TO_SIGN', userId: SENIOR.id })])
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.name).toBe('employee-contract')
+  })
+
+  it('a NOT-signed contract never leaks a contractNumber, even if a signedContract relation is loaded', async () => {
+    // Stale relation on a contract that was moved back to READY_TO_SIGN.
+    const rows = [
+      {
+        id: 'reset-id',
+        userId: SENIOR.id,
+        status: 'READY_TO_SIGN' as const,
+        createdAt: new Date('2026-06-01'),
+        signedContract: { contractNumber: 'CHK-STALE1', pdfSizeBytes: null },
+      },
+    ]
+    const svc = makeService(rows as never)
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.nameKind).toBe('CONTRACT_TO_SIGN')
+    expect(result[0]!.contractNumber).toBeNull()
   })
 
   it('s3Key is absent from public DTO — not exposed to callers (s3/documents hygiene)', async () => {
@@ -169,7 +203,7 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     expect(result[0]).not.toHaveProperty('s3Key')
   })
 
-  it('multiple statuses — each gets correct label', async () => {
+  it('multiple statuses — each gets the correct kind', async () => {
     const rows = [
       makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-111111', userId: SENIOR.id }),
       makeContractRow({ status: 'READY_TO_SIGN', userId: SENIOR.id }),
@@ -180,9 +214,12 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     // ADMIN sees all three
     const result = await svc.list(ADMIN, { category: 'CONTRACT' })
 
-    expect(result[0]!.name).toBe('Трудовой договор CHK-111111')
-    expect(result[1]!.name).toBe('Трудовой договор (к подписанию)')
-    expect(result[2]!.name).toBe('Трудовой договор (черновик)')
+    expect(result.map((r) => r.nameKind)).toEqual([
+      'CONTRACT_SIGNED',
+      'CONTRACT_TO_SIGN',
+      'CONTRACT_DRAFT',
+    ])
+    expect(result.map((r) => r.contractNumber)).toEqual(['CHK-111111', null, null])
   })
 
   it('name does not contain raw UUID', async () => {

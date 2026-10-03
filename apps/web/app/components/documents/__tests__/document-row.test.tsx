@@ -330,3 +330,37 @@ describe('DocumentRow — i18n copy (wave e PR2)', () => {
     }
   })
 })
+
+// i18n server-text PR2 — see the DocumentCard twin of this block.
+describe('DocumentRow — virtual contract name (PR2)', () => {
+  const contractDoc = (over: Partial<Document> = {}) =>
+    baseDoc({
+      category: 'CONTRACT',
+      name: 'employee-contract',
+      originalName: null,
+      source: 'employee_contract',
+      nameKind: 'CONTRACT_SIGNED',
+      contractNumber: 'CHK-11-2025',
+      ...over,
+    })
+
+  it('uk: renders the catalog name by nameKind, not the server marker', async () => {
+    renderRow(contractDoc())
+    const row = await screen.findByTestId('document-row')
+    expect(row).toHaveTextContent('Трудовий договір CHK-11-2025')
+    expect(row.textContent).not.toContain('employee-contract')
+  })
+
+  it('en: same entry renders the English catalog name', async () => {
+    await loadCatalog('en')
+    renderRow(contractDoc({ nameKind: 'CONTRACT_DRAFT', contractNumber: null }))
+    expect(await screen.findByTestId('document-row')).toHaveTextContent(
+      'Employment contract (draft)',
+    )
+  })
+
+  it('a real upload still shows its filename', async () => {
+    renderRow(baseDoc({ originalName: 'Резюме.pdf', nameKind: null }))
+    expect(await screen.findByTestId('document-row')).toHaveTextContent('Резюме.pdf')
+  })
+})

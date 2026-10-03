@@ -9704,6 +9704,26 @@ msgstr "The transaction isn't deleted — there's nothing to restore"
 msgid "api-error.FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING"
 msgstr "The transaction behind this obligation is no longer awaiting payout — refresh the page"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT"
+msgstr "Employment contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_TO_SIGN"
+msgstr "Employment contract (awaiting signature)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_DRAFT"
+msgstr "Employment contract (draft)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_SIGNED"
+msgstr "Employment contract {contractNumber}"
+
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Тут з’являться документи профілю"
 msgstr "Profile documents will appear here"

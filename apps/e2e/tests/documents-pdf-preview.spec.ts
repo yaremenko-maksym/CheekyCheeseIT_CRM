@@ -16,6 +16,14 @@
  */
 
 import { test, expect, USERS, mockAuthAs, API_GLOB } from './fixtures'
+import { loadMessages, assertInCatalog } from '../fixtures/catalog'
+
+// i18n server-text PR2: a virtual contract's name is rendered by the client
+// from `nameKind` — the spec asserts the CURRENT catalog text, not a literal.
+let uk: Record<string, string>
+test.beforeAll(async () => {
+  uk = await loadMessages('uk')
+})
 
 // ---------------------------------------------------------------------------
 // Тестовые данные
@@ -57,8 +65,12 @@ function makeContractDocument() {
     ownerId: CONTRACT_USER_ID,
     projectId: null,
     category: 'CONTRACT',
-    name: `contract-${CONTRACT_USER_ID}.pdf`,
-    originalName: 'Трудовой договор.pdf',
+    // Shape the API returns after i18n server-text PR2: no Russian string in
+    // `name` — the name arrives as the `nameKind` structure.
+    name: 'employee-contract',
+    originalName: null,
+    nameKind: 'CONTRACT_TO_SIGN',
+    contractNumber: null,
     s3Key: `contracts/${CONTRACT_USER_ID}.pdf`,
     thumbnailS3Key: null,
     sizeBytes: 51200,
@@ -307,7 +319,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
     await page.waitForLoadState('networkidle')
 
     // Кликаем по карточке контракта
-    const docCard = page.getByText('Трудовой договор.pdf').first()
+    const docCard = page.getByText(assertInCatalog(uk, 'Трудовий договір (очікує підпису)')).first()
     await expect(docCard).toBeVisible({ timeout: 5000 })
     await docCard.click()
 

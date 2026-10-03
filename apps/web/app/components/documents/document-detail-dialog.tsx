@@ -76,6 +76,7 @@ import {
 import { useDocumentBlob } from '@/hooks/use-document-blob'
 import { fetchContractPdfBlob } from '@/components/user-profile/contract/useEmployeeContract'
 import { DocumentImage } from './document-image'
+import { getDocumentDisplayName } from './document-display-name'
 import { PdfPreview } from './pdf-preview'
 import {
   CATEGORY_LABEL_MESSAGES,
@@ -238,7 +239,12 @@ export function DocumentDetailDialog({
   })
 
   // Display name: original (cyrillic preserved) when available, else sanitized.
-  const displayName = doc?.originalName ?? doc?.name ?? ''
+  // A virtual employee contract carries `nameKind` instead of prose and is
+  // rendered in the viewer's locale (i18n server-text PR2).
+  // Stryker disable next-line StringLiteral: the `''` arm is unreachable — hooks must
+  // run before the `if (!doc) return null` guard below, so `doc` can be null here, but
+  // the title is never rendered in that case; no test can observe the fallback value.
+  const displayName = doc ? getDocumentDisplayName(i18n, doc) : ''
 
   // -------------------------------------------------------------------------
   // Blob loading — единый fetch для превью + скачивание
@@ -320,7 +326,11 @@ export function DocumentDetailDialog({
             a single column — metadata first, preview below. */}
         <CrmDialogContent maxWidth="sm:max-w-4xl">
           <CrmDialogHeader>
-            <DialogTitle data-testid="document-detail-title" className="line-clamp-1 pr-8">
+            <DialogTitle
+              data-testid="document-detail-title"
+              className="line-clamp-1 pr-8"
+              title={displayName}
+            >
               {displayName}
             </DialogTitle>
             {/* Use div instead of DialogDescription to avoid <div>-in-<p> nesting warning (Badge renders <div>). */}

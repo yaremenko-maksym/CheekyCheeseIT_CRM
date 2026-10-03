@@ -94,8 +94,11 @@ const DOC_CONTRACT_DRAFT = makeDoc({
   uploadedBy: SENIOR_ID,
   uploadedByDisplayName: 'Senior Dev',
   category: 'CONTRACT',
-  name: 'employee-contract-draft',
-  originalName: 'employee-contract-draft',
+  // Virtual contract: NO prose on the wire — `nameKind` only (PR2).
+  name: 'employee-contract',
+  originalName: null,
+  nameKind: 'CONTRACT_DRAFT',
+  contractNumber: null,
   source: 'employee_contract',
   statusBadge: { kind: 'contract', state: 'draft' },
 })
@@ -106,8 +109,11 @@ const DOC_CONTRACT_READY = makeDoc({
   uploadedBy: SENIOR_ID,
   uploadedByDisplayName: 'Senior Dev',
   category: 'CONTRACT',
-  name: 'employee-contract-ready',
-  originalName: 'employee-contract-ready',
+  // Virtual contract: NO prose on the wire — `nameKind` only (PR2).
+  name: 'employee-contract',
+  originalName: null,
+  nameKind: 'CONTRACT_TO_SIGN',
+  contractNumber: null,
   source: 'employee_contract',
   statusBadge: { kind: 'contract', state: 'ready' },
 })
@@ -233,6 +239,10 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toHaveAttribute('data-badge-kind', 'contract')
     await expect(badge).toHaveAttribute('data-badge-state', 'draft')
     await expect(badge).toHaveText(assertInCatalog(uk, 'Чернетка'))
+    // The name is rendered from `nameKind` via the catalog, not from `name`.
+    await expect(page.getByTestId('document-row-title').first()).toHaveText(
+      assertInCatalog(uk, 'Трудовий договір (чернетка)'),
+    )
   })
 
   test('AC5b: CONTRACT/ready virtual entry → "Готовий до підпису" badge visible', async ({
@@ -248,6 +258,9 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toHaveAttribute('data-badge-kind', 'contract')
     await expect(badge).toHaveAttribute('data-badge-state', 'ready')
     await expect(badge).toHaveText(assertInCatalog(uk, 'Готовий до підпису'))
+    await expect(page.getByTestId('document-row-title').first()).toHaveText(
+      assertInCatalog(uk, 'Трудовий договір (очікує підпису)'),
+    )
   })
 })
 

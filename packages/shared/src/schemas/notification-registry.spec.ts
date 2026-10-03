@@ -160,6 +160,22 @@ describe('три замороженных типа — реестр, не зам
     expect(rendered.detail).toBe('1 500,00 USDT · ТОВ Ромашка')
   })
 
+  it('DOCUMENT_SIGN_REQUIRED: the new code shape and the legacy stored shape both parse, each KEEPING its key', () => {
+    const schema = notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED')
+    // toEqual on the OUTPUT: z.object strips unknown keys, so a branch that
+    // lost its field would still "parse" — to `{}`.
+    expect(schema.parse({ documentKind: 'EMPLOYEE_CONTRACT' })).toEqual({
+      documentKind: 'EMPLOYEE_CONTRACT',
+    })
+    expect(schema.parse({ documentTitle: 'Ваш контракт' })).toEqual({
+      documentTitle: 'Ваш контракт',
+    })
+    expect(() => schema.parse({ documentKind: 'SOMETHING_ELSE' })).toThrow()
+    expect(() => schema.parse({ documentKind: '' })).toThrow()
+    expect(() => schema.parse({ documentTitle: '' })).toThrow()
+    expect(() => schema.parse({})).toThrow()
+  })
+
   it('INVOICE_SIGN_REQUIRED рендерится из реестра, деталь — сума', () => {
     const data = notificationDataSchemaFor('INVOICE_SIGN_REQUIRED').parse({
       amount: '1500.000000',
@@ -458,7 +474,26 @@ describe('DOCUMENT_SIGN_REQUIRED — деталь снята, но назван�
     expect(notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({}).success).toBe(false)
   })
 
-  it('с названием — принимаются', () => {
+  // i18n server-text PR2: производитель больше не кладёт русскую строку —
+  // только код вида документа; слова принадлежат клиенту.
+  it('с кодом вида документа — принимаются', () => {
+    expect(
+      notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({
+        documentKind: 'EMPLOYEE_CONTRACT',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('неизвестный код вида документа не принимается', () => {
+    expect(
+      notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({ documentKind: 'INVOICE' })
+        .success,
+    ).toBe(false)
+  })
+
+  // Строки, уже лежащие в БД, несут прежнюю форму; отказ их разобрать увёл бы
+  // такое уведомление на запасной путь (сырой n.title).
+  it('прежняя форма с documentTitle (строки в БД) — по-прежнему принимается', () => {
     expect(
       notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({
         documentTitle: 'Ваш контракт',

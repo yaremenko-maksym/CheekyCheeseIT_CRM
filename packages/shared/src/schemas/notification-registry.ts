@@ -415,7 +415,13 @@ const dataSchemas = {
     proposedPercent: percent,
     approvalId,
   }),
-  DOCUMENT_SIGN_REQUIRED: z.object({ documentTitle: objectName }),
+  // i18n server-text PR2: the producer ships a code, not the Russian string
+  // «Ваш контракт». The legacy `documentTitle` shape stays parseable ONLY for
+  // rows already stored in `notifications.data`; nothing writes it any more.
+  DOCUMENT_SIGN_REQUIRED: z.union([
+    z.object({ documentKind: z.literal('EMPLOYEE_CONTRACT') }),
+    z.object({ documentTitle: objectName }),
+  ]),
   APPROVAL_CONFIRMED: z.object({
     approverName: objectName,
     subjectKind: z.enum(['PROJECT', 'PROJECT_SHARE', 'BASE_SHARE']),

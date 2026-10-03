@@ -7,8 +7,9 @@
  * so no backend calls are made — this is purely client-side presentation logic.
  */
 import { msg } from '@lingui/core/macro'
-import type { MessageDescriptor } from '@lingui/core'
+import type { I18n, MessageDescriptor } from '@lingui/core'
 import { compareNames, type Document, type Locale } from '@crm/shared'
+import { getDocumentDisplayName } from '@/components/documents/document-display-name'
 
 // ---------------------------------------------------------------------------
 // Sort key union
@@ -50,10 +51,12 @@ export const DEFAULT_SORT: SortKey = 'date_desc'
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Resolve the human-readable filename (unicode-preserved original, or the
- *  sanitised ASCII name for rows that pre-date migration 0011). */
-function resolveDisplayName(doc: Document): string {
-  return doc.originalName ?? doc.name
+/** Search/sort run on what the user SEES: the filename (unicode-preserved
+ *  original, or the sanitised ASCII name for rows that pre-date migration
+ *  0011), or — for a virtual employee contract (i18n server-text PR2) — the
+ *  catalog name rendered in the viewer's locale. */
+function resolveDisplayName(doc: Document, i18n: I18n): string {
+  return getDocumentDisplayName(i18n, doc)
 }
 
 // ---------------------------------------------------------------------------
@@ -61,15 +64,15 @@ function resolveDisplayName(doc: Document): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Case-insensitive substring filter against `originalName ?? name`.
+ * Case-insensitive substring filter against the displayed name (`originalName ?? name`, or the rendered contract name).
  * Empty / whitespace-only query returns the full list unchanged (new array
  * reference via slice so callers can use the result safely in useMemo).
  */
-export function filterDocuments(docs: Document[], query: string): Document[] {
+export function filterDocuments(docs: Document[], query: string, i18n: I18n): Document[] {
   const trimmed = query.trim()
   if (!trimmed) return docs.slice()
   const lower = trimmed.toLowerCase()
-  return docs.filter((doc) => resolveDisplayName(doc).toLowerCase().includes(lower))
+  return docs.filter((doc) => resolveDisplayName(doc, i18n).toLowerCase().includes(lower))
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +91,12 @@ export function filterDocuments(docs: Document[], query: string): Document[] {
  * under the `ru` collation, and a hardcoded locale here would silently mis-
  * order names on the `en`/`uk` interface once it ships.
  */
-export function sortDocuments(docs: Document[], key: SortKey, locale: Locale): Document[] {
+export function sortDocuments(
+  docs: Document[],
+  key: SortKey,
+  locale: Locale,
+  i18n: I18n,
+): Document[] {
   const copy = docs.slice()
   const compare = compareNames(locale)
 
@@ -100,10 +108,10 @@ export function sortDocuments(docs: Document[], key: SortKey, locale: Locale): D
       copy.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       break
     case 'name_asc':
-      copy.sort((a, b) => compare(resolveDisplayName(a), resolveDisplayName(b)))
+      copy.sort((a, b) => compare(resolveDisplayName(a, i18n), resolveDisplayName(b, i18n)))
       break
     case 'name_desc':
-      copy.sort((a, b) => compare(resolveDisplayName(b), resolveDisplayName(a)))
+      copy.sort((a, b) => compare(resolveDisplayName(b, i18n), resolveDisplayName(a, i18n)))
       break
     case 'size_desc':
       copy.sort((a, b) => b.sizeBytes - a.sizeBytes)

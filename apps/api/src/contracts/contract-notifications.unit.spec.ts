@@ -125,7 +125,8 @@ describe('«ждёт решения: документ на подпись»', ()
       title: 'Контракт на подпись',
       subjectType: 'EMPLOYEE_CONTRACT',
       subjectId: 'contract-1',
-      data: { documentTitle: 'Ваш контракт' },
+      // i18n server-text PR2: a code, never the Russian string «Ваш контракт».
+      data: { documentKind: 'EMPLOYEE_CONTRACT' },
     })
   })
 
