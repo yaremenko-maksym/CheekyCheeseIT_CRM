@@ -406,6 +406,10 @@ describe('i18n server-text PR1: title is a kind + params, never a string', () =>
       const r = share('SHARE_PROJECT', {})
       expect(r.success).toBe(false)
       expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'projectName'])
+      expect(r.error?.issues[0]?.code).toBe('custom')
+      expect(r.error?.issues[0]?.message).toBe(
+        'titleParams.projectName is required for titleKind SHARE_PROJECT',
+      )
       // the wrong param does not satisfy it
       expect(share('SHARE_PROJECT', { seniorName: 'Олена' }).success).toBe(false)
       expect(share('SHARE_PROJECT', { projectName: 'GamingTec' }).success).toBe(true)
@@ -415,6 +419,10 @@ describe('i18n server-text PR1: title is a kind + params, never a string', () =>
       const r = share('SHARE_BASE_OTHER', {})
       expect(r.success).toBe(false)
       expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'seniorName'])
+      expect(r.error?.issues[0]?.code).toBe('custom')
+      expect(r.error?.issues[0]?.message).toBe(
+        'titleParams.seniorName is required for titleKind SHARE_BASE_OTHER',
+      )
       expect(share('SHARE_BASE_OTHER', { projectName: 'GamingTec' }).success).toBe(false)
       expect(share('SHARE_BASE_OTHER', { seniorName: 'Олена' }).success).toBe(true)
     })
