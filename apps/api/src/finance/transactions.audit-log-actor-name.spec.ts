@@ -4,8 +4,10 @@
  *
  * `transaction_audit_log.actor_id` is `ON DELETE SET NULL`, so the LEFT JOIN on
  * `users` yields no name for a removed user. The server used to substitute a
- * Russian placeholder; it now returns `null` and the client renders the
- * localized «User deleted» fallback. A known actor keeps the real name.
+ * Russian placeholder; it now returns `null`. There is no apps/web consumer of
+ * the audit log yet, so the localized «User deleted» fallback is DEFERRED until
+ * a transaction-audit UI exists (tracked in backlog). A known actor keeps the
+ * real name.
  * ADMIN-only: every other role still gets 403 before any read.
  */
 import { describe, expect, it } from 'vitest'
