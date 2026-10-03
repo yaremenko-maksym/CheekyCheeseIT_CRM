@@ -48,6 +48,7 @@ import { HttpStatus, Injectable, Logger, forwardRef, Inject } from '@nestjs/comm
 import { ConfigService } from '@nestjs/config'
 import { and, asc, desc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { FastifyRequest } from 'fastify'
+import type { MessageDescriptor } from '@lingui/core'
 import type {
   ContractTargetRole,
   InvoiceDto,
@@ -61,7 +62,13 @@ import type {
 // task-i18n-stage4-task6: `NOTIFICATION_TITLES[type]` — the neutral, frozen
 // legacy title `CreateNotificationInput.title` still requires (NOT NULL
 // column) — no longer a per-call hand-written Russian string.
-import { amountsDiffer, NOTIFICATION_TITLES } from '@crm/shared'
+import {
+  amountsDiffer,
+  createI18n,
+  INVOICE_PDF_MESSAGES,
+  NOTIFICATION_TITLES,
+  renderMessage,
+} from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -1957,18 +1964,28 @@ export class InvoicesService {
    * and Bank UAH ФОП have completely different field layouts.
    */
   private buildCounterpartyInfo(user: typeof users.$inferSelect): InvoiceCounterpartyInfo {
+    // i18n stage 5: the requisites labels are words, so they follow the
+    // RECIPIENT's locale (the counterparty's own `users.locale`) exactly like
+    // every other label on the PDF; the values (wallet, IBAN, names) are data.
+    const i18n = createI18n(user.locale)
+    const label = (descriptor: MessageDescriptor, value: string): string =>
+      renderMessage(i18n, descriptor, { value })
     const details: string[] = []
     if (user.paymentMethod === 'USDT_ERC20') {
       if (user.walletUsdtErc20) details.push(`USDT (ERC-20): ${user.walletUsdtErc20}`)
       if (user.walletUsdtLabel) details.push(user.walletUsdtLabel)
     } else if (user.paymentMethod === 'BANK_UAH_FOP') {
-      if (user.bankUahRecipient) details.push(`Отримувач: ${user.bankUahRecipient}`)
+      if (user.bankUahRecipient)
+        details.push(label(INVOICE_PDF_MESSAGES.bankRecipient, user.bankUahRecipient))
       if (user.bankUahIban) details.push(`IBAN: ${user.bankUahIban}`)
-      if (user.bankUahRnokpp) details.push(`РНОКПП: ${user.bankUahRnokpp}`)
-      if (user.bankUahBankName) details.push(`Банк: ${user.bankUahBankName}`)
+      if (user.bankUahRnokpp)
+        details.push(label(INVOICE_PDF_MESSAGES.bankRnokpp, user.bankUahRnokpp))
+      if (user.bankUahBankName)
+        details.push(label(INVOICE_PDF_MESSAGES.bankName, user.bankUahBankName))
     }
     return {
       displayName: user.displayName,
+      locale: user.locale,
       paymentMethod: user.paymentMethod ?? null,
       paymentDetails: details,
     }

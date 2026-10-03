@@ -106,6 +106,8 @@ interface UserRow {
   bankUahIban?: string | null
   bankUahRnokpp?: string | null
   bankUahBankName?: string | null
+  /** `users.locale` is NOT NULL DEFAULT 'uk' — the harness mirrors that default. */
+  locale?: 'uk' | 'en'
   createdAt?: Date
 }
 
@@ -428,7 +430,8 @@ function buildHarness(state: HarnessState) {
           findFirst: async (_args: unknown) => {
             const id = ctrl.userFindFirstQueue.shift()
             if (!id) return undefined
-            return state.users.find((u_) => u_.id === id)
+            const row = state.users.find((u_) => u_.id === id)
+            return row ? { locale: 'uk' as const, ...row } : undefined
           },
         },
         projects: {
@@ -702,6 +705,108 @@ describe('InvoicesService', () => {
           }),
         }),
       )
+    })
+
+    // i18n stage 5: the PDF is rendered in the RECIPIENT's locale — the
+    // counterparty's own `users.locale`, never the admin's and never a default.
+    it.each([
+      {
+        locale: 'en' as const,
+        expected: ['Recipient: Olena Koval', 'IBAN: UA00', 'Tax ID (RNOKPP): 123', 'Bank: Mono'],
+      },
+      {
+        locale: 'uk' as const,
+        expected: ['Отримувач: Olena Koval', 'IBAN: UA00', 'РНОКПП: 123', 'Банк: Mono'],
+      },
+    ])(
+      'passes the counterparty locale ($locale) and renders requisites labels in it',
+      async ({ locale, expected }) => {
+        const h = buildHarness({
+          txs: [
+            tx({
+              id: 'tx-1',
+              type: 'SENIOR_INCOME',
+              receiverId: SENIOR.id,
+              projectId: 'p-1',
+              amount: '1000',
+              currency: 'USDT',
+            }),
+          ],
+          sigs: [],
+          users: [
+            {
+              id: SENIOR.id,
+              displayName: SENIOR.displayName,
+              role: 'SENIOR',
+              locale,
+              paymentMethod: 'BANK_UAH_FOP',
+              walletUsdtErc20: '0xabc',
+              bankUahRecipient: 'Olena Koval',
+              bankUahIban: 'UA00',
+              bankUahRnokpp: '123',
+              bankUahBankName: 'Mono',
+            },
+            // The ADMIN is rendered in 'en' on purpose: the admin's locale
+            // must never leak into the recipient's document.
+            { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN', locale: 'en' },
+          ],
+          projects: [{ id: 'p-1', name: 'Acme Corp' }],
+        })
+        h.ctrl.findTxId = 'tx-1'
+        h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+        h.ctrl.lookupProjectId = 'p-1'
+
+        await h.svc.autoCreateForSeniorPayout('tx-1')
+
+        const args = (
+          h.pdfService.generateSignableInvoicePdf as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls[0]?.[0] as {
+          counterparty: { locale: string; paymentDetails: string[] }
+        }
+        expect(args.counterparty.locale).toBe(locale)
+        // BANK_UAH_FOP collects bank lines only (wallet is the USDT branch's).
+        expect(args.counterparty.paymentDetails).toEqual(expected)
+      },
+    )
+
+    it('omits the requisites lines whose profile field is empty (only IBAN filled)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            projectId: 'p-1',
+            amount: '1000',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [],
+        users: [
+          {
+            id: SENIOR.id,
+            displayName: SENIOR.displayName,
+            role: 'SENIOR',
+            paymentMethod: 'BANK_UAH_FOP',
+            bankUahRecipient: null,
+            bankUahIban: 'UA00',
+            bankUahRnokpp: null,
+            bankUahBankName: null,
+          },
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.lookupProjectId = 'p-1'
+
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+
+      const args = (
+        h.pdfService.generateSignableInvoicePdf as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls[0]?.[0] as { counterparty: { paymentDetails: string[] } }
+      expect(args.counterparty.paymentDetails).toEqual(['IBAN: UA00'])
     })
 
     it('returns early for non-SENIOR_INCOME tx', async () => {

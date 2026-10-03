@@ -54,6 +54,7 @@ const samples: SampleSpec[] = [
     amount: '50000.00',
     currency: 'UAH',
     counterparty: {
+      locale: 'uk',
       displayName: EMPLOYEE_NAME,
       paymentMethod: 'BANK_UAH_FOP',
       paymentDetails: [
@@ -72,6 +73,7 @@ const samples: SampleSpec[] = [
     amount: '2500.00',
     currency: 'USDT',
     counterparty: {
+      locale: 'uk',
       displayName: EMPLOYEE_NAME,
       paymentMethod: 'USDT_ERC20',
       paymentDetails: [
@@ -92,6 +94,7 @@ const samples: SampleSpec[] = [
     amount: '35000.00',
     currency: 'UAH',
     counterparty: {
+      locale: 'uk',
       displayName: EMPLOYEE_NAME,
       paymentMethod: 'CASH',
       paymentDetails: [],
@@ -107,6 +110,7 @@ const samples: SampleSpec[] = [
     amount: '1200.00',
     currency: 'USD',
     counterparty: {
+      locale: 'uk',
       displayName: EMPLOYEE_NAME,
       paymentMethod: 'CASH',
       paymentDetails: [],
