@@ -140,7 +140,8 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
         approvalId: APPROVAL_ID_1,
         subjectType: 'PROJECT',
         subjectId: PROJECT_ID,
-        title: 'GamingTec Holdings',
+        titleKind: 'PROJECT_APPROVAL',
+        titleParams: { projectName: 'GamingTec Holdings' },
         proposedBy: 'Admin Adminovich',
         waitingFor: undefined,
         // The viewer IS this project's senior — their own resolved share,
@@ -184,7 +185,7 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
     expect(result.mine).toEqual([])
   })
 
-  it('falls back to "Неизвестно" when the proposer row is missing from usersById', async () => {
+  it('emits proposedBy: null (not a Russian placeholder) when the proposer row is missing from usersById', async () => {
     const approvalsService = makeFakeApprovals([
       makeApproval({
         subjectType: 'PROJECT',
@@ -200,7 +201,11 @@ describe('PendingService.getPending — mine, PROJECT_APPROVAL', () => {
 
     const result = await service.getPending({ id: SENIOR_ID, role: 'SENIOR' } as never)
 
-    expect(result.mine[0]).toMatchObject({ proposedBy: 'Неизвестно' })
+    expect(result.mine[0]).toMatchObject({ proposedBy: null })
+    // The server composes no prose any more: with ASCII fixture names, the
+    // whole serialized response must be free of Cyrillic.
+    expect(JSON.stringify(result)).not.toMatch(/[Ѐ-ӿ]/)
+    expect(result.mine[0]).not.toHaveProperty('title')
   })
 })
 
@@ -435,7 +440,8 @@ describe('PendingService.getPending — mine, SHARE_APPROVAL (USER_SENIOR_SHARE)
         // action at /users/:id), not the raw approvals column.
         subjectType: 'USER',
         subjectId: SENIOR_ID,
-        title: 'Доля по умолчанию',
+        titleKind: 'SHARE_BASE_MINE',
+        titleParams: {},
         proposedBy: 'Admin Adminovich',
         waitingFor: undefined,
         currentPercent: 26,
@@ -487,7 +493,8 @@ describe('PendingService.getPending — mine, CONTRACT_TO_SIGN', () => {
         // `ContractActionBar` gives this object one click away. A
         // CONTRACT_TO_SIGN row only ever reaches `mine`, so "сотрудника" was
         // the table's name (`employee_contracts`) told to the employee.
-        title: 'Ваш контракт',
+        titleKind: 'CONTRACT',
+        titleParams: {},
         createdAt: '2026-09-05T12:00:00.000Z',
         actions: ['open'],
         link: '/profile',
@@ -622,7 +629,8 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         // «Доля по проекту «X»» row next to it in the same section — a bare
         // display name was the only title on this screen that named a person
         // instead, and the name was then printed a second time in the meta.
-        title: 'Доля по умолчанию — Senior One',
+        titleKind: 'SHARE_BASE_OTHER',
+        titleParams: { seniorName: 'Senior One' },
         proposedBy: undefined,
         waitingFor: ['Senior One'],
         currentPercent: 26,
@@ -687,7 +695,8 @@ describe('PendingService.getPending — proposedByMe (ADMIN only)', () => {
         // row one section above already names the same project by company,
         // as does /projects and both project toasts — this row asked for a
         // decision about that same project under a second name.
-        title: 'Доля по проекту «GamingTec Holdings»',
+        titleKind: 'SHARE_PROJECT',
+        titleParams: { projectName: 'GamingTec Holdings' },
         proposedBy: undefined,
         waitingFor: ['Senior One'],
         // No project-level override (null) and no PENDING project-level

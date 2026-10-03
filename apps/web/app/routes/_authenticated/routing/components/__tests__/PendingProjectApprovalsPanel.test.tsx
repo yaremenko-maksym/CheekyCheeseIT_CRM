@@ -15,7 +15,7 @@ import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { PendingItem } from '@crm/shared'
+import type { PendingItem, PendingTitleKind, PendingTitleParams } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PendingProjectApprovalsPanel, card } from '../PendingProjectApprovalsPanel'
 
@@ -74,8 +74,9 @@ interface PendingItemOverrides {
   kind?: PendingItem['kind']
   subjectType?: PendingItem['subjectType']
   subjectId?: string
-  title?: string
-  proposedBy?: string
+  titleKind?: PendingTitleKind
+  titleParams?: PendingTitleParams
+  proposedBy?: string | null
   waitingFor?: string[]
   createdAt?: string
   actions?: PendingItem['actions']
@@ -92,7 +93,8 @@ function pendingItem(overrides: PendingItemOverrides): PendingItem {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
     subjectId: '00000000-0000-0000-0000-0000000000a1',
-    title: 'Acme Corp',
+    titleKind: 'PROJECT_APPROVAL',
+    titleParams: { projectName: 'Acme Corp' },
     proposedBy: 'Олексій Коваленко',
     createdAt: '2026-01-01T00:00:00.000Z',
     approvalId: '00000000-0000-4000-8000-0000000000a1',
@@ -164,8 +166,12 @@ describe('PendingProjectApprovalsPanel', () => {
     mockState = {
       ...mockState,
       mine: [
-        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
-        pendingItem({ subjectId: 'p2', title: 'TechFlow Solutions', proposedBy: 'Ірина Савенко' }),
+        pendingItem({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        pendingItem({
+          subjectId: 'p2',
+          titleParams: { projectName: 'TechFlow Solutions' },
+          proposedBy: 'Ірина Савенко',
+        }),
       ],
     }
     renderPanel()
@@ -193,6 +199,13 @@ describe('PendingProjectApprovalsPanel', () => {
     expect(screen.queryByText(/^Пропонує/)).not.toBeInTheDocument()
   })
 
+  it('an unresolvable proposer (proposedBy: null) renders the localized «Невідомо», not the old Russian placeholder', () => {
+    mockState = { ...mockState, mine: [pendingItem({ proposedBy: null })] }
+    renderPanel()
+    expect(screen.getByText('Пропонує Невідомо')).toBeInTheDocument()
+    expect(screen.queryByText(/Неизвестно/)).not.toBeInTheDocument()
+  })
+
   it('the widget mount never hides the Confirm/Reject labels — no `compact` prop, at any width', () => {
     mockState = { ...mockState, mine: [pendingItem({})] }
     renderPanel()
@@ -210,8 +223,8 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     mockState = {
       ...mockState,
       mine: [
-        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
-        pendingItem({ subjectId: 'p2', title: 'TechFlow' }),
+        pendingItem({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        pendingItem({ subjectId: 'p2', titleParams: { projectName: 'TechFlow' } }),
       ],
     }
     renderPanel()
@@ -265,7 +278,7 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     )
     mockState = {
       ...mockState,
-      mine: [pendingItem({ subjectId: 'p1', title: 'Acme Corp' })],
+      mine: [pendingItem({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
       dataUpdatedAt: 3,
     }
     rerender(
@@ -280,8 +293,8 @@ describe('PendingProjectApprovalsPanel — local dismiss on onActed', () => {
     const user = userEvent.setup()
     mockState = {
       mine: [
-        pendingItem({ subjectId: 'p1', title: 'Acme Corp' }),
-        pendingItem({ subjectId: 'p2', title: 'TechFlow Solutions' }),
+        pendingItem({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        pendingItem({ subjectId: 'p2', titleParams: { projectName: 'TechFlow Solutions' } }),
       ],
       isLoading: false,
       isError: false,

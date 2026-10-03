@@ -178,7 +178,8 @@ export class PendingService {
       // IS the employee: «Контракт сотрудника» was the table's name
       // (`employee_contracts`) spoken to the person it belongs to, and it
       // made the screen the third different name for one document.
-      title: 'Ваш контракт',
+      titleKind: 'CONTRACT',
+      titleParams: {},
       createdAt: row.updatedAt.toISOString(),
       // Task file §Что уже есть: "Подпись не переносить на новый экран —
       // строка ведёт туда" — the ONLY action here is navigating to the
@@ -270,7 +271,9 @@ export class PendingService {
 
     const items: PendingItem[] = []
     for (const row of rows) {
-      const proposedByName = usersById.get(row.proposedByUserId)?.displayName ?? 'Неизвестно'
+      // `null` = proposer unresolvable; the client renders its own localized
+      // «Невідомо» (the server no longer ships a Russian placeholder).
+      const proposedByName = usersById.get(row.proposedByUserId)?.displayName ?? null
       const item = this.buildItemForSubject(row, {
         projectsById,
         usersById,
@@ -435,7 +438,7 @@ export class PendingService {
        * is emphatically NOT the viewer, and a share figure resolved against
        * it would be someone else's number. */
       viewerId: string | null
-      proposedBy: string | undefined
+      proposedBy: string | null | undefined
       waitingFor: string[] | undefined
       actionsForApprovalKinds: PendingItem['actions']
     },
@@ -459,7 +462,8 @@ export class PendingService {
         // renders it inside "Подтвердить проект «…»"). Three consumers, one
         // answer. The project's own `name` is the internal label and is not
         // what identifies the decision to the person making it.
-        title: project.companyName,
+        titleKind: 'PROJECT_APPROVAL',
+        titleParams: { projectName: project.companyName },
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         viewerSharePercent,
@@ -513,7 +517,8 @@ export class PendingService {
         // toasts mirrored whichever it was. The popup of #664 names it from
         // its own producer (`projects.service.ts`); aligning that half is
         // that PR's, tracked as COPY-M-11.
-        title: `Доля по проекту «${project.companyName}»`,
+        titleKind: 'SHARE_PROJECT',
+        titleParams: { projectName: project.companyName },
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent,
@@ -551,7 +556,8 @@ export class PendingService {
         // two lines below. `PendingItemRow` drops that duplicate half now
         // (see its `metaLinesFor`), which only works because the name is
         // guaranteed to be here.
-        title: ctx.isMine ? 'Доля по умолчанию' : `Доля по умолчанию — ${senior.displayName}`,
+        titleKind: ctx.isMine ? 'SHARE_BASE_MINE' : 'SHARE_BASE_OTHER',
+        titleParams: ctx.isMine ? {} : { seniorName: senior.displayName },
         proposedBy: ctx.proposedBy,
         waitingFor: ctx.waitingFor,
         currentPercent: senior.seniorSharePercent,

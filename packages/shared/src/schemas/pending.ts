@@ -36,6 +36,35 @@ export const pendingItemKindSchema = z.enum([
 export type PendingItemKind = z.infer<typeof pendingItemKindSchema>
 
 /**
+ * What the row's title SAYS, as a machine identifier — the server no longer
+ * composes the sentence (i18n server-text PR1): it ships this discriminant
+ * plus `titleParams`, and the client renders it in the VIEWER's locale
+ * through `PENDING_TITLE_MESSAGES` (`pending-title-registry.ts`).
+ */
+export const pendingTitleKindSchema = z.enum([
+  'CONTRACT',
+  'SHARE_PROJECT',
+  'SHARE_BASE_MINE',
+  'SHARE_BASE_OTHER',
+  'PROJECT_APPROVAL',
+])
+export type PendingTitleKind = z.infer<typeof pendingTitleKindSchema>
+
+/**
+ * Substitution values for the title template — NOMINATIVE ONLY (the server
+ * never builds a cased phrase; the client sentence is written so no case
+ * agreement is needed). RBAC: a param is sent only to the viewer who was
+ * already receiving that same datum inside the former Russian `title` —
+ * `PendingService`'s existing visibility scoping decides who gets the row at
+ * all, and this bag adds nothing beyond what that string carried.
+ */
+export const pendingTitleParamsSchema = z.object({
+  projectName: z.string().optional(),
+  seniorName: z.string().optional(),
+})
+export type PendingTitleParams = z.infer<typeof pendingTitleParamsSchema>
+
+/**
  * Which buttons this row's `actions` may legitimately contain. `cancel` is
  * ADMIN-only in practice (`proposedByMe`, and only for `SHARE_APPROVAL` —
  * there is no "withdraw a project draft" endpoint in main yet, task file
@@ -86,24 +115,22 @@ const pendingItemBaseSchema = z.object({
   /** The underlying project id / user id / employee_contracts id. */
   subjectId: z.string().uuid(),
   /**
-   * The titles `PendingService` actually sends, per kind (COPY-L-5,
-   * fix-round 3 — this list previously named "«Ваша базовая доля»" and
-   * "Контракт сотрудника", neither of which the service has ever sent in
-   * that form, making it a fourth name for the same fact for whoever wrote
-   * the next string off this schema):
-   *   PROJECT_APPROVAL  → the project's `companyName`
-   *   SHARE_APPROVAL    → «Доля по умолчанию» (own, in `mine`)
-   *                     / «Доля по умолчанию — {имя}» (someone else's, in
-   *                       `proposedByMe`)
-   *                     / «Доля по проекту «{companyName}»» (COPY-M-10,
-   *                       fix-round 4 — the company, like every other place
-   *                       this project is named; `name` is the internal
-   *                       label)
-   *   CONTRACT_TO_SIGN  → «Ваш контракт»
+   * i18n server-text PR1: the title is NOT a string any more — `titleKind`
+   * (declared per variant below, so each variant admits only its own kinds)
+   * plus these params; the client renders them through
+   * `PENDING_TITLE_MESSAGES`. Per kind, the params that matter:
+   *   PROJECT_APPROVAL → `projectName` (the project's `companyName`)
+   *   SHARE_PROJECT    → `projectName` (the project's `companyName`)
+   *   SHARE_BASE_OTHER → `seniorName` (someone else's base share, `proposedByMe`)
+   *   SHARE_BASE_MINE / CONTRACT → none
    */
-  title: z.string(),
-  /** Who opened the proposal — populated on `mine` rows only. */
-  proposedBy: z.string().optional(),
+  titleParams: pendingTitleParamsSchema,
+  /**
+   * Who opened the proposal — populated on `mine` rows only. `null` = the
+   * proposer's row could not be resolved (was the Russian literal
+   * «Неизвестно»); the client renders its own localized «Невідомо».
+   */
+  proposedBy: z.string().nullable().optional(),
   /** Who has not yet answered — populated on `proposedByMe` rows only. */
   waitingFor: z.array(z.string()).optional(),
   createdAt: z.string().datetime(),
@@ -136,6 +163,9 @@ export const pendingItemSchema = z.discriminatedUnion('kind', [
    */
   pendingItemBaseSchema.extend({
     kind: z.literal('PROJECT_APPROVAL'),
+    titleKind: z.literal('PROJECT_APPROVAL'),
+    /** Required here: this row's whole title IS the project's name. */
+    titleParams: z.object({ projectName: z.string() }),
     approvalId: approvalIdField,
     /**
      * Per kind: `PROJECT_APPROVAL` → always `'PROJECT'` — integration
@@ -195,6 +225,7 @@ export const pendingItemSchema = z.discriminatedUnion('kind', [
    */
   pendingItemBaseSchema.extend({
     kind: z.literal('SHARE_APPROVAL'),
+    titleKind: z.enum(['SHARE_PROJECT', 'SHARE_BASE_MINE', 'SHARE_BASE_OTHER']),
     approvalId: approvalIdField,
     /**
      * Per kind: `SHARE_APPROVAL` → `'USER'` for a person's own base share,
@@ -217,6 +248,7 @@ export const pendingItemSchema = z.discriminatedUnion('kind', [
    */
   pendingItemBaseSchema.extend({
     kind: z.literal('CONTRACT_TO_SIGN'),
+    titleKind: z.literal('CONTRACT'),
     /**
      * Per kind: `CONTRACT_TO_SIGN` → always `'USER'` — the contract is the
      * viewer's own — user-scoped, and its `link` (`/profile`) is a
@@ -275,9 +307,9 @@ export type PendingResponse = z.infer<typeof pendingResponseSchema>
  * percent, a name or an `actions` entry belonging to a flow this bundle has
  * never heard of has no honest rendering here, and «чувствительные поля не
  * пропускать» is the safer default at a boundary whose whole purpose is to
- * stop unvalidated JSON. `title` is dropped with them — it is written for a
- * UI this build does not have, and the row's own fallback («Запрос на
- * действие») is the honest thing to show instead.
+ * stop unvalidated JSON. The title kind/params are dropped with them — they
+ * are written for a UI this build does not have, and the row's own fallback
+ * («Запит на дію») is the honest thing to show instead.
  */
 const KNOWN_PENDING_KINDS: readonly string[] = pendingItemKindSchema.options
 
@@ -296,8 +328,6 @@ export const unknownPendingItemSchema = z
     kind: 'UNKNOWN' as const,
     subjectId: row.subjectId,
     createdAt: row.createdAt,
-    /** Empty on purpose — `PendingItemRow` renders «Запрос на действие». */
-    title: '',
     /** No buttons: this build cannot know what any of them would do. */
     actions: [] as PendingItemAction[],
     link: '',

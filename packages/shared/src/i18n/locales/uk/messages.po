@@ -310,6 +310,11 @@ msgstr "{n, plural, one {Мінімум # символ} few {Мінімум # с
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 msgstr "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.PROJECT_APPROVAL"
+msgstr "{projectName}"
+
 #: apps/web/app/routes/_authenticated/finance/components/CompanySharePayoutStrip.tsx
 msgid "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
 msgstr "{projectsCount, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєкту}}"
@@ -1255,6 +1260,11 @@ msgstr "Ваш HR"
 
 #: apps/web/app/components/onboarding/SignContractStep.tsx
 msgid "Ваш контракт"
+msgstr "Ваш контракт"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.CONTRACT"
 msgstr "Ваш контракт"
 
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
@@ -5779,6 +5789,7 @@ msgstr "Не пройшов"
 msgid "Небезпечна зона"
 msgstr "Небезпечна зона"
 
+#: apps/web/app/components/pending/pending-title.ts
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Невідомо"
 msgstr "Невідомо"
@@ -8128,11 +8139,10 @@ msgstr "Пропозиція недоступна: вона застаріла �
 msgid "notification.SHARE_CONFIRM_REQUIRED.title"
 msgstr "Пропозиція щодо частки"
 
-#. placeholder {0}: item.proposedBy
 #: apps/web/app/components/pending/PendingItemRow.tsx
 #: apps/web/app/routes/_authenticated/routing/components/PendingProjectApprovalsPanel.tsx
-msgid "Пропонує {0}"
-msgstr "Пропонує {0}"
+msgid "Пропонує {proposer}"
+msgstr "Пропонує {proposer}"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Професія"
@@ -10369,6 +10379,16 @@ msgstr "Частка дропа з цієї виплати не проходил
 msgid "Частка дропа у відсотках"
 msgstr "Частка дропа у відсотках"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.SHARE_BASE_MINE"
+msgstr "Частка за замовчуванням"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.SHARE_BASE_OTHER"
+msgstr "Частка за замовчуванням — {seniorName}"
+
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка за замовчуванням тепер {percent}%"
 msgstr "Частка за замовчуванням тепер {percent}%"
@@ -10381,6 +10401,11 @@ msgstr "Частка за замовчуванням: {change}"
 #: apps/web/app/hooks/use-user-profile.ts
 msgid "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.SHARE_PROJECT"
+msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts

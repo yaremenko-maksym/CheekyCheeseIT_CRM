@@ -11,7 +11,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { PendingItem } from '@crm/shared'
+import type { PendingItem, PendingTitleKind, PendingTitleParams } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { PendingPage, focusSelectorsAfterActing } from '../index'
 // task-i18n-stage3a (Task 2) — a SHARE_APPROVAL row mounts
@@ -95,8 +95,9 @@ interface ItemOverrides {
   kind?: PendingItem['kind']
   subjectType?: PendingItem['subjectType']
   subjectId?: string
-  title?: string
-  proposedBy?: string
+  titleKind?: PendingTitleKind
+  titleParams?: PendingTitleParams
+  proposedBy?: string | null
   waitingFor?: string[]
   createdAt?: string
   actions?: PendingItem['actions']
@@ -108,12 +109,21 @@ interface ItemOverrides {
   pendingPercent?: number
 }
 
+// Each kind's own default title kind (a share row → the plain «default share»
+// title, a contract → the contract title).
+const DEFAULT_TITLE_KIND: Record<string, PendingTitleKind> = {
+  PROJECT_APPROVAL: 'PROJECT_APPROVAL',
+  SHARE_APPROVAL: 'SHARE_BASE_MINE',
+  CONTRACT_TO_SIGN: 'CONTRACT',
+}
+
 function item(overrides: ItemOverrides): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
     subjectId: 'subj-1',
-    title: 'Acme Corp',
+    titleKind: DEFAULT_TITLE_KIND[overrides.kind ?? 'PROJECT_APPROVAL'] ?? 'PROJECT_APPROVAL',
+    titleParams: { projectName: 'Acme Corp' },
     proposedBy: 'Admin One',
     createdAt: new Date().toISOString(),
     actions: ['approve', 'reject', 'open'],
@@ -301,16 +311,18 @@ describe('/pending — grouping by kind', () => {
         item({
           kind: 'CONTRACT_TO_SIGN',
           subjectId: 'c1',
-          title: 'Контракт сотрудника',
           actions: ['open'],
         }),
         item({
           kind: 'SHARE_APPROVAL',
           subjectId: 's1',
-          title: 'Доля по умолчанию',
           pendingPercent: 30,
         }),
-        item({ kind: 'PROJECT_APPROVAL', subjectId: 'p1', title: 'Acme Corp' }),
+        item({
+          kind: 'PROJECT_APPROVAL',
+          subjectId: 'p1',
+          titleParams: { projectName: 'Acme Corp' },
+        }),
       ],
     }
     renderPage()
@@ -337,9 +349,13 @@ describe('/pending — en: titles translate, grouping and selectors do not move'
     mockState = {
       ...mockState,
       mine: [
-        item({ kind: 'CONTRACT_TO_SIGN', subjectId: 'c1', title: 'Contract', actions: ['open'] }),
-        item({ kind: 'SHARE_APPROVAL', subjectId: 's1', title: 'Share', pendingPercent: 30 }),
-        item({ kind: 'PROJECT_APPROVAL', subjectId: 'p1', title: 'Acme Corp' }),
+        item({ kind: 'CONTRACT_TO_SIGN', subjectId: 'c1', actions: ['open'] }),
+        item({ kind: 'SHARE_APPROVAL', subjectId: 's1', pendingPercent: 30 }),
+        item({
+          kind: 'PROJECT_APPROVAL',
+          subjectId: 'p1',
+          titleParams: { projectName: 'Acme Corp' },
+        }),
         { ...item({ subjectId: 'x1' }), kind: 'SOMETHING_NEW' } as unknown as PendingItem,
       ],
     }
@@ -380,7 +396,10 @@ describe('/pending — AC4: end-to-end local dismiss through a REAL action compo
     const user = userEvent.setup()
     mockPost.mockReset()
     mockPost.mockResolvedValue({ data: { status: 'ACTIVE' } })
-    mockState = { ...mockState, mine: [item({ subjectId: 'p1', title: 'Acme Corp' })] }
+    mockState = {
+      ...mockState,
+      mine: [item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
+    }
     renderPage()
 
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
@@ -410,8 +429,8 @@ describe('/pending — §12: focus after a row disappears', () => {
     mockState = {
       ...mockState,
       mine: [
-        item({ subjectId: 'p1', title: 'Acme Corp' }),
-        item({ subjectId: 'p2', title: 'Globex' }),
+        item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        item({ subjectId: 'p2', titleParams: { projectName: 'Globex' } }),
       ],
       proposedByMe: [],
     }
@@ -429,8 +448,8 @@ describe('/pending — §12: focus after a row disappears', () => {
     mockState = {
       ...mockState,
       mine: [
-        item({ subjectId: 'p1', title: 'Acme Corp' }),
-        item({ subjectId: 'p2', title: 'Globex' }),
+        item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        item({ subjectId: 'p2', titleParams: { projectName: 'Globex' } }),
       ],
       proposedByMe: [],
     }
@@ -448,12 +467,11 @@ describe('/pending — §12: focus after a row disappears', () => {
     mockState = {
       ...mockState,
       mine: [
-        item({ subjectId: 'p1', title: 'Acme Corp' }),
+        item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
         item({
           kind: 'SHARE_APPROVAL',
           subjectType: 'USER',
           subjectId: 'u1',
-          title: 'Ваша базовая доля',
           currentPercent: 26,
           pendingPercent: 30,
           link: '/profile',
@@ -474,7 +492,7 @@ describe('/pending — §12: focus after a row disappears', () => {
     const user = userEvent.setup()
     mockState = {
       ...mockState,
-      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      mine: [item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
       proposedByMe: [],
     }
     renderPage()
@@ -493,8 +511,8 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     mockState = {
       ...mockState,
       mine: [
-        item({ subjectId: 'p1', title: 'Acme Corp' }),
-        item({ subjectId: 'p2', title: 'Globex' }),
+        item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } }),
+        item({ subjectId: 'p2', titleParams: { projectName: 'Globex' } }),
       ],
       dataUpdatedAt: 1,
     }
@@ -530,7 +548,7 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     const user = userEvent.setup()
     mockState = {
       ...mockState,
-      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      mine: [item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
       dataUpdatedAt: 1,
     }
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -559,7 +577,7 @@ describe('/pending — dismissal pruning on a fresh fetch', () => {
     )
     mockState = {
       ...mockState,
-      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      mine: [item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
       dataUpdatedAt: 3,
     }
     rerender(
@@ -592,7 +610,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
           kind: 'SHARE_APPROVAL',
           subjectType: 'USER',
           subjectId: 's1',
-          title: 'Доля 1',
+          titleKind: 'SHARE_BASE_OTHER',
+          titleParams: { seniorName: 'Share One' },
           pendingPercent: 30,
           actions: ['cancel'],
         }),
@@ -600,7 +619,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
           kind: 'SHARE_APPROVAL',
           subjectType: 'PROJECT',
           subjectId: 's2',
-          title: 'Доля 2',
+          titleKind: 'SHARE_PROJECT',
+          titleParams: { projectName: 'Share Two' },
           pendingPercent: 20,
           actions: ['cancel'],
         }),
@@ -619,8 +639,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
 
     // Removed from `visibleOther` specifically (not left over from `visibleMine`,
     // which a `.filter(proposedByMe)` → `mine`-shaped mutant would produce).
-    expect(screen.queryByText('Доля 1')).not.toBeInTheDocument()
-    expect(screen.getByText('Доля 2')).toBeInTheDocument()
+    expect(screen.queryByText('Частка за замовчуванням — Share One')).not.toBeInTheDocument()
+    expect(screen.getByText('Частка за проєктом «Share Two»')).toBeInTheDocument()
     expect(screen.getByTestId('pending-item-row-SHARE_APPROVAL-s2')).toHaveFocus()
   })
 
@@ -641,7 +661,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
           kind: 'SHARE_APPROVAL',
           subjectType: 'USER',
           subjectId: 's1',
-          title: 'Доля 1',
+          titleKind: 'SHARE_BASE_OTHER',
+          titleParams: { seniorName: 'Share One' },
           pendingPercent: 30,
           actions: ['cancel'],
         }),
@@ -649,7 +670,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
           kind: 'SHARE_APPROVAL',
           subjectType: 'PROJECT',
           subjectId: 's2',
-          title: 'Доля 2',
+          titleKind: 'SHARE_PROJECT',
+          titleParams: { projectName: 'Share Two' },
           pendingPercent: 20,
           actions: ['cancel'],
         }),
@@ -662,8 +684,8 @@ describe('/pending — proposedByMe (ADMIN) dismiss + focus', () => {
       await user.click(await screen.findByTestId('cancel-pending-share-confirm-button-project'))
     })
 
-    expect(screen.queryByText('Доля 2')).not.toBeInTheDocument()
-    expect(screen.getByText('Доля 1')).toBeInTheDocument()
+    expect(screen.queryByText('Частка за проєктом «Share Two»')).not.toBeInTheDocument()
+    expect(screen.getByText('Частка за замовчуванням — Share One')).toBeInTheDocument()
     expect(screen.getByTestId('pending-kind-heading-proposedByMe-SHARE_APPROVAL')).toHaveFocus()
   })
 })
@@ -672,7 +694,7 @@ describe('/pending — visibleOther gate', () => {
   it('mine non-empty, proposedByMe empty: shows «Очікують вашого рішення» only, not «Очікують рішення інших»', () => {
     mockState = {
       ...mockState,
-      mine: [item({ subjectId: 'p1', title: 'Acme Corp' })],
+      mine: [item({ subjectId: 'p1', titleParams: { projectName: 'Acme Corp' } })],
       proposedByMe: [],
     }
     renderPage()
@@ -686,16 +708,15 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     mockState = {
       ...mockState,
       proposedByMe: [
-        item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] }),
+        item({ subjectId: 'proj-1', titleParams: { projectName: 'Acme Corp' }, actions: ['open'] }),
         item({
           kind: 'SHARE_APPROVAL',
           subjectId: 'share-1',
-          title: 'Доля по умолчанию',
           pendingPercent: 30,
           actions: ['cancel'],
         }),
         {
-          ...item({ subjectId: 'weird-1', title: 'Mystery item' }),
+          ...item({ subjectId: 'weird-1', titleParams: { projectName: 'Mystery item' } }),
           kind: 'SOMETHING_NEW',
         } as unknown as PendingItem,
         // Defensive: §2 says this can never actually happen (a contract is
@@ -707,7 +728,6 @@ describe('/pending — proposedByMe grouping across kinds', () => {
         item({
           kind: 'CONTRACT_TO_SIGN',
           subjectId: 'contract-1',
-          title: 'Контракт сотрудника — should never render here',
           actions: ['open'],
         }),
       ],
@@ -727,18 +747,18 @@ describe('/pending — proposedByMe grouping across kinds', () => {
     expect(
       screen.queryByTestId('pending-kind-heading-proposedByMe-CONTRACT_TO_SIGN'),
     ).not.toBeInTheDocument()
-    expect(
-      screen.queryByText('Контракт сотрудника — should never render here'),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByText('Ваш контракт')).not.toBeInTheDocument()
     expect(screen.getByText('Acme Corp')).toBeInTheDocument()
-    expect(screen.getByText('Доля по умолчанию')).toBeInTheDocument()
+    expect(screen.getByText('Частка за замовчуванням')).toBeInTheDocument()
     expect(screen.getByText('Mystery item')).toBeInTheDocument()
   })
 
   it('a known-kind item never leaks into the proposedByMe Інше bucket', () => {
     mockState = {
       ...mockState,
-      proposedByMe: [item({ subjectId: 'proj-1', title: 'Acme Corp', actions: ['open'] })],
+      proposedByMe: [
+        item({ subjectId: 'proj-1', titleParams: { projectName: 'Acme Corp' }, actions: ['open'] }),
+      ],
     }
     renderPage()
     expect(
@@ -750,8 +770,14 @@ describe('/pending — proposedByMe grouping across kinds', () => {
   it('visibleOther feeds the proposedByMe sections — a mine-zone item of the SAME kind never leaks across zones', () => {
     mockState = {
       ...mockState,
-      mine: [item({ subjectId: 'mine-1', title: 'Mine Corp' })],
-      proposedByMe: [item({ subjectId: 'other-1', title: 'Other Corp', actions: ['open'] })],
+      mine: [item({ subjectId: 'mine-1', titleParams: { projectName: 'Mine Corp' } })],
+      proposedByMe: [
+        item({
+          subjectId: 'other-1',
+          titleParams: { projectName: 'Other Corp' },
+          actions: ['open'],
+        }),
+      ],
     }
     renderPage()
 
