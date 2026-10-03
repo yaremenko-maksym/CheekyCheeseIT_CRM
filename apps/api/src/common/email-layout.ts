@@ -54,11 +54,10 @@ export interface EmailLayoutInput {
   footer?: EscapedHtml
   /**
    * Язык письма — значение атрибута `<html lang>` (код локали, не текст).
-   * Дефолт `'ru'` существует ТОЛЬКО до миграции приглашения (PR2 плана
-   * i18n-emails): приглашение ещё не передаёт локаль, и его эталон остаётся
-   * байт-в-байт прежним. PR2 передаёт локаль и делает поле обязательным.
+   * Обязателен и без дефолта: вызывающий, забывший локаль получателя, должен
+   * упасть на typecheck, а не отправить письмо с чужим `lang`.
    */
-  lang?: Locale | 'ru'
+  lang: Locale
 }
 
 function paragraph(html: string, margin: string): string {
@@ -81,7 +80,7 @@ export function renderEmailLayout(input: EmailLayoutInput): string {
   const footer = input.footer === undefined ? '' : `\n${paragraph(input.footer, '24px 0 0 0')}`
 
   return `<!DOCTYPE html>
-<html lang="${input.lang ?? 'ru'}">
+<html lang="${input.lang}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />

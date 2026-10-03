@@ -847,6 +847,49 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
     expect(hashInviteToken(mailerArg.rawToken)).toBe(inviteValues.tokenHash)
   })
 
+  // i18n emails PR2: the invite is rendered in the INVITEE's locale — the same expression as the
+  // inserted `users.locale` column (`data.locale ?? 'uk'`), so mail and row cannot diverge.
+  it.each([
+    ['en', 'en'],
+    ['uk', 'uk'],
+    [undefined, 'uk'],
+  ] as const)(
+    'passes the invitee locale to sendInvite: data.locale %s → %s',
+    async (given, expected) => {
+      const junior = makeJunior()
+      const db = makeDb({ existingUser: undefined, createdUser: junior })
+      const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(undefined) }
+      const service = new UsersService(
+        db as never,
+        makeAccessService() as never,
+        makeAuditLogService() as never,
+        makeTosService(),
+        makeTeamAuditLogService(),
+        makeProjectAuditLogService(),
+        makeTeamsService(),
+        inviteMailer as never,
+        makeApprovalsService() as never,
+        makeNotificationsStub(),
+      )
+      await service.createUser({
+        email: junior.email,
+        personalEmail: 'personal@example.com',
+        displayName: junior.displayName,
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+        ...(given !== undefined && { locale: given }),
+      })
+      expect(inviteMailer.sendInvite).toHaveBeenCalledWith(
+        expect.objectContaining({
+          to: 'personal@example.com',
+          displayName: junior.displayName,
+          locale: expected,
+        }),
+      )
+    },
+  )
+
   it('rejects with ConflictException when the email collides with an existing user_emails row on another user', async () => {
     const junior = makeJunior()
     const db = makeDb({ existingUser: undefined, createdUser: junior })
@@ -1074,7 +1117,10 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     canLogin: boolean
   }
 
-  function makeResendDb(opts: { target?: { id: string; displayName: string }; row?: EmailRow }) {
+  function makeResendDb(opts: {
+    target?: { id: string; displayName: string; locale?: string | null }
+    row?: EmailRow
+  }) {
     const selectWhere = vi.fn().mockResolvedValue(opts.target ? [opts.target] : [])
     const selectChain = {
       select: vi.fn().mockReturnThis(),
@@ -1142,17 +1188,20 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
     expect(insertMock).not.toHaveBeenCalled()
   })
 
-  it('happy path: issues a fresh token and returns { rawToken, email, displayName } exactly', async () => {
+  it('happy path: issues a fresh token and returns { rawToken, email, displayName, locale } exactly', async () => {
     const { db, insertMock } = makeResendDb({
-      target: { id: 'u-1', displayName: 'Ivan Petrov' },
+      target: { id: 'u-1', displayName: 'Ivan Petrov', locale: 'uk' },
       row: { id: 'row-1', email: 'ivan.personal@gmail.com', canLogin: false },
     })
     const service = makeUsersService(db)
     const result = await service.resendPersonalEmailInvite('u-1', 'actor-1')
 
-    expect(result.email).toBe('ivan.personal@gmail.com')
-    expect(result.displayName).toBe('Ivan Petrov')
-    expect(result.rawToken).toMatch(/^[0-9a-f]{64}$/)
+    expect(result).toEqual({
+      rawToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+      email: 'ivan.personal@gmail.com',
+      displayName: 'Ivan Petrov',
+      locale: 'uk',
+    })
     expect(insertMock).toHaveBeenCalledTimes(1)
     const values = insertMock.mock.results[0]?.value?.values as ReturnType<typeof vi.fn>
     const insertedArg = values.mock.calls[0]?.[0] as { userEmailId: string; tokenHash: string }
@@ -1190,6 +1239,46 @@ describe('UsersService.resendPersonalEmailInvite (spec §5, unit doubles for the
   })
 })
 
+describe('UsersService.resendPersonalEmailInvite — returns the INVITEE locale (i18n emails PR2)', () => {
+  function makeLocaleDb(locale: string | null | undefined) {
+    const selectWhere = vi
+      .fn()
+      .mockResolvedValue([{ id: 'u-1', displayName: 'Ivan Petrov', locale }])
+    const dbHandle = {
+      select: vi.fn().mockReturnThis(),
+      from: vi.fn().mockReturnThis(),
+      where: selectWhere,
+      insert: vi.fn().mockReturnValue({
+        values: vi.fn().mockReturnThis(),
+        onConflictDoUpdate: vi.fn().mockResolvedValue(undefined),
+      }),
+      query: {
+        userEmails: {
+          findFirst: vi
+            .fn()
+            .mockResolvedValue({ id: 'row-1', email: 'p@example.com', canLogin: false }),
+        },
+      },
+    }
+    return { db: { db: dbHandle } as unknown as DrizzleDb }
+  }
+
+  it.each([
+    ['en', 'en'],
+    ['uk', 'uk'],
+    ['xx', 'uk'],
+    [null, 'uk'],
+    [undefined, 'uk'],
+  ] as const)(
+    'stored users.locale %s → returns %s (corrupt/absent degrades to uk)',
+    async (stored, expected) => {
+      const { db } = makeLocaleDb(stored)
+      const result = await makeUsersService(db).resendPersonalEmailInvite('u-1', 'actor-1')
+      expect(result.locale).toBe(expected)
+    },
+  )
+})
+
 describe('UsersService.changePersonalEmail (security-review PR #623 round 4, owner decision)', () => {
   interface ExistingRow {
     id: string
@@ -1197,7 +1286,7 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
   }
 
   function makeChangeDb(opts: {
-    target?: { id: string; email: string; displayName: string }
+    target?: { id: string; email: string; displayName: string; locale?: string | null }
     existingRow?: ExistingRow
     assertConflict?: boolean
   }) {
@@ -1366,7 +1455,7 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
 
   it('add (no existing row, newEmail provided) → no delete, inserts the new row + issues an invite token', async () => {
     const { db, transactionMock, deleteMock, insertMock, newRowReturning } = makeChangeDb({
-      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan' },
+      target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan', locale: 'en' },
       existingRow: undefined,
     })
     const service = makeUsersService(db)
@@ -1387,10 +1476,33 @@ describe('UsersService.changePersonalEmail (security-review PR #623 round 4, own
       email: 'new@example.com',
       kind: 'PERSONAL',
     })
-    expect(result?.email).toBe('new@example.com')
-    expect(result?.displayName).toBe('Ivan')
-    expect(result?.rawToken).toMatch(/^[0-9a-f]{64}$/)
+    expect(result).toEqual({
+      rawToken: expect.stringMatching(/^[0-9a-f]{64}$/),
+      email: 'new@example.com',
+      displayName: 'Ivan',
+      locale: 'en',
+    })
   })
+
+  it.each([
+    ['uk', 'uk'],
+    ['xx', 'uk'],
+    [null, 'uk'],
+  ] as const)(
+    'returns the invitee locale: stored %s → %s (corrupt/absent degrades to uk)',
+    async (stored, expected) => {
+      const { db } = makeChangeDb({
+        target: { id: 'u-1', email: 'work@example.com', displayName: 'Ivan', locale: stored },
+        existingRow: undefined,
+      })
+      const result = await makeUsersService(db).changePersonalEmail(
+        'u-1',
+        'new@example.com',
+        'admin-1',
+      )
+      expect(result?.locale).toBe(expected)
+    },
+  )
 
   // mutation-gate closure (PR #623 round 4): mirrors createUser's identical
   // defensive-guard gap — the new PERSONAL row's OWN `.returning()` coming

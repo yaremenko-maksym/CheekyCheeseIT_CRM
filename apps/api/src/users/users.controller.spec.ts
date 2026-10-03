@@ -321,6 +321,7 @@ describe('UsersController.resendPersonalEmailInvite', () => {
         rawToken: 'raw-token-value',
         email: 'ivan.personal@gmail.com',
         displayName: 'Ivan Petrov',
+        locale: 'uk',
       }),
     }
     // copy-review PR #623 (COPY-M-1): the mailer now reports whether
@@ -348,8 +349,41 @@ describe('UsersController.resendPersonalEmailInvite', () => {
       to: 'ivan.personal@gmail.com',
       displayName: 'Ivan Petrov',
       rawToken: 'raw-token-value',
+      locale: 'uk',
     })
     expect(result).toEqual({ ok: true, delivered: true })
+  })
+
+  // i18n emails PR2: the mail is written in the INVITEE's language, which the service reads from
+  // the invitee's own row. The handler takes no request/locale parameter — an admin working in
+  // English cannot turn a Ukrainian invitee's invite into an English one (the real HTTP case with
+  // `Accept-Language: en` + `pref_locale=en` is in the integration spec).
+  it('passes the locale from the service result straight to sendInvite (en and uk)', async () => {
+    const { controller, usersService, inviteMailer } = makeResendController()
+    usersService.resendPersonalEmailInvite.mockResolvedValue({
+      rawToken: 'raw-token-value',
+      email: 'john.personal@gmail.com',
+      displayName: 'John Smith',
+      locale: 'en',
+    })
+    await controller.resendPersonalEmailInvite(admin, 'user-id-1')
+    expect(inviteMailer.sendInvite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locale: 'en' }),
+    )
+  })
+
+  it('an English-speaking admin inviting a uk user: sendInvite gets uk (the sender locale never leaks)', async () => {
+    const { controller, inviteMailer } = makeResendController()
+    const englishAdmin = { ...admin, locale: 'en' } as SessionUser
+    await controller.resendPersonalEmailInvite(englishAdmin, 'user-id-1')
+    expect(inviteMailer.sendInvite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locale: 'uk' }),
+    )
+  })
+
+  it('the handler declares exactly (currentUser, id) — no request / locale parameter to leak the sender locale', () => {
+    expect(UsersController.prototype.resendPersonalEmailInvite.length).toBe(2)
+    expect(UsersController.prototype.changePersonalEmail.length).toBe(3)
   })
 
   it('reports delivered:false when the mailer could not actually send it', async () => {
@@ -390,6 +424,7 @@ describe('UsersController.changePersonalEmail', () => {
         rawToken: 'raw-token-value',
         email: 'new.personal@gmail.com',
         displayName: 'Ivan Petrov',
+        locale: 'uk',
       }),
     }
     const inviteMailer = { sendInvite: vi.fn().mockResolvedValue(true) }
@@ -419,8 +454,36 @@ describe('UsersController.changePersonalEmail', () => {
       to: 'new.personal@gmail.com',
       displayName: 'Ivan Petrov',
       rawToken: 'raw-token-value',
+      locale: 'uk',
     })
     expect(result).toEqual({ ok: true, delivered: true })
+  })
+
+  it("passes the invitee locale from the service result (en), not the admin's", async () => {
+    const { controller, usersService, inviteMailer } = makeChangeController()
+    usersService.changePersonalEmail.mockResolvedValue({
+      rawToken: 'raw-token-value',
+      email: 'john.personal@gmail.com',
+      displayName: 'John Smith',
+      locale: 'en',
+    })
+    await controller.changePersonalEmail(admin, 'user-id-1', {
+      personalEmail: 'john.personal@gmail.com',
+    })
+    expect(inviteMailer.sendInvite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locale: 'en' }),
+    )
+  })
+
+  it("an English-speaking admin changing a uk user's address: sendInvite gets uk", async () => {
+    const { controller, inviteMailer } = makeChangeController()
+    const englishAdmin = { ...admin, locale: 'en' } as SessionUser
+    await controller.changePersonalEmail(englishAdmin, 'user-id-1', {
+      personalEmail: 'new.personal@gmail.com',
+    })
+    expect(inviteMailer.sendInvite).toHaveBeenLastCalledWith(
+      expect.objectContaining({ locale: 'uk' }),
+    )
   })
 
   it('removal (personalEmail: null) — no mailer call, delivered:null', async () => {

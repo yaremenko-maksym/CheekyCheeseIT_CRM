@@ -49,3 +49,26 @@ export function escapeHtml(value: string): EscapedHtml {
 export function trustedHtml(value: string): EscapedHtml {
   return value as EscapedHtml
 }
+
+/**
+ * Предложение с одной выделенной фразой: `phrase` оборачивается в `<strong>`
+ * при ПЕРВОМ вхождении, и текст вокруг, и сама фраза экранируются
+ * (`escapeHtml`) — разметку добавляет только этот хелпер.
+ *
+ * Зачем он, а не «два сообщения каталога по обе стороны тега»: порядок слов
+ * в uk и en разный, и предложение, разрезанное на фрагменты, зафиксировало бы
+ * один порядок для обоих языков. Здесь предложение рендерится целиком, а
+ * фраза — известное сообщение каталога, поэтому её поиск в готовой строке
+ * детерминирован.
+ *
+ * Фраза не найдена (или пустая) — экранированное предложение без тега, без
+ * исключения: письмо с невыделенной оговоркой лучше письма, которое не ушло.
+ */
+export function emphasize(sentence: string, phrase: string): EscapedHtml {
+  const at = phrase === '' ? -1 : sentence.indexOf(phrase)
+  if (at === -1) return escapeHtml(sentence)
+  const before = escapeHtml(sentence.slice(0, at))
+  const middle = escapeHtml(phrase)
+  const after = escapeHtml(sentence.slice(at + phrase.length))
+  return trustedHtml(`${before}<strong>${middle}</strong>${after}`)
+}

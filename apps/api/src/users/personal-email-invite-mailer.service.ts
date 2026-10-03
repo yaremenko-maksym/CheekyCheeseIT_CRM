@@ -1,7 +1,7 @@
 /**
  * PersonalEmailInviteMailerService — task-user-emails-invite (spec §11, §12).
  *
- * Sends the "Доступ к CRM CheekyCheeseIT" invite email a PERSONAL
+ * Sends the "Access to CheekyCheeseIT CRM" invite email (rendered in the invitee's locale, uk/en) a PERSONAL
  * `user_emails` row gets at creation time (and again on an ADMIN resend —
  * see `UsersService.resendPersonalEmailInvite`). Reuses `ResendMailerService`
  * (task-landing-contact-and-hiring-strip) rather than a second HTTP client —
@@ -38,8 +38,9 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { createI18n, EMAIL_INVITE_MESSAGES as M, renderMessage, type Locale } from '@crm/shared'
 import { renderEmailLayout } from '../common/email-layout'
-import { escapeHtml, trustedHtml } from '../common/escape-html'
+import { emphasize, escapeHtml } from '../common/escape-html'
 import type { Env } from '../config/env'
 import { ResendMailerService } from '../contact/resend-mailer.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
@@ -54,6 +55,11 @@ export interface SendInviteInput {
   displayName: string
   /** Raw invite token — this is the ONLY place it is embedded into a URL. */
   rawToken: string
+  /**
+   * Locale of the INVITEE (`users.locale` of the person the mail is addressed to). Required: a
+   * caller that forgets it fails typecheck instead of shipping the admin's or a default language.
+   */
+  locale: Locale
 }
 
 function sleep(ms: number): Promise<void> {
@@ -103,79 +109,63 @@ export class PersonalEmailInviteMailerService {
     }
 
     const link = `${this.apiUrl}/auth/invite/${input.rawToken}`
-    const subject = 'Доступ к CRM CheekyCheeseIT'
+    // The INVITEE's locale (`users.locale` of the person this mail is addressed to), passed in
+    // by the caller — never the admin's request locale. Per-call instance: no global
+    // `i18n.activate`, nothing stored on the service, so two invites in flight cannot bleed.
+    const i18n = createI18n(input.locale)
+    const subject = renderMessage(i18n, M.subject)
     // copy-review PR #623 (COPY-L-2): the DB carries the full legal display
     // name (often Latin-script, e.g. "Oleksiy Kovalenko") — greeting by the
-    // full name in a Russian-language email reads as a mail-merge. First
-    // whitespace-separated token only; falls back to the whole string for a
-    // single-word name (never empty — `displayName` is required at creation).
+    // full name reads as a mail-merge. First whitespace-separated token only;
+    // falls back to the whole string for a single-word name (never empty —
+    // `displayName` is required at creation).
     // Stryker disable next-line Regex: only `[0]` (everything BEFORE the first whitespace match) is ever read — `/\s+/` vs `/\s/` locate the identical first-match position for any input, so no test could ever distinguish them; verified by hand against "Oleksiy   Kovalenko" (multiple internal spaces) — both regexes give `[0] === "Oleksiy"`.
-    const rawFirstName = input.displayName.trim().split(/\s+/)[0] ?? input.displayName
-    const firstName = escapeHtml(rawFirstName)
+    const firstName = input.displayName.trim().split(/\s+/)[0] ?? input.displayName
+
+    // Every sentence is ONE whole catalog message (no fragments assembled here). The name is user
+    // input: the greeting is rendered as plain text first (ICU does not escape params), then the
+    // WHOLE rendered sentence is escaped for the HTML twin; the text twin and subject use the raw
+    // string.
+    const greeting = renderMessage(i18n, M.greeting, { firstName })
+    const line1 = renderMessage(i18n, M.confirmLine1)
+    const line2 = renderMessage(i18n, M.confirmLine2)
+    const buttonLabel = renderMessage(i18n, M.button)
+    const warning = renderMessage(i18n, M.footerWarning)
+    const footer = renderMessage(i18n, M.footer, { warning })
 
     // Spec §11 rules, verbatim: one button, no thank-you/pleasantries, last
-    // line is a protective disclaimer (not politeness) — see the module doc
-    // and the task file's own quote of the owner-approved copy. Table-based
-    // layout + inline styles — spec §12: "Почтовые клиенты — не браузеры".
-    // copy-review PR #623 (COPY-H-1/M-4/M-5/M-9): button names the actual
-    // outcome ("Подтвердить адрес", not "Войти в CRM" — the link does not
-    // mint a session, see AuthController.googleCallback's invite branch);
-    // body states the cost of doing nothing (COPY-M-4); the disclaimer is
-    // full body weight + bold, not the smallest/palest text on the page
-    // (COPY-M-5); outer table is `width="100%" max-width:480px` with a
-    // viewport meta tag so a mobile client scales it instead of forcing a
-    // horizontal scrollbar (COPY-M-9, measured at 320px).
-    // Каркас — общий (`common/email-layout.ts`), тот же, что у писем
-    // уведомлений (SPEC-M-2, spec-review PR #673): «письма от нас выглядят
-    // одним отправителем» (§12) не должно держаться на том, что две копии
-    // таблицы правят синхронно. Разметка этого письма от переезда НЕ
-    // изменилась — ни байта, что и проверяет эталон в спеке.
+    // line is a protective disclaimer (not politeness). Table-based layout +
+    // inline styles — spec §12: "Почтовые клиенты — не браузеры".
+    // copy-review PR #623 (COPY-H-1/M-4/M-5/M-9): the button names the actual
+    // outcome (the link does not mint a session, see AuthController.
+    // googleCallback's invite branch); the body states the cost of doing
+    // nothing (COPY-M-4); the disclaimer is full body weight + bold, not the
+    // palest text on the page (COPY-M-5); outer table is `width="100%"
+    // max-width:480px` with a viewport meta tag (COPY-M-9).
+    // The frame is shared (`common/email-layout.ts`) with the notification emails
+    // (SPEC-M-2, spec-review PR #673).
     //
-    // `trustedHtml` на всех трёх блоках и на оговорке (SR-L-8, security-review
-    // PR #673 круг 2): это литеральные строки, которые пишет разработчик, не
-    // подстановка данных — `firstName` внутри первой строки уже прошёл
-    // `escapeHtml` выше, и оборачивать результат ЕЩЁ раз значило бы
-    // экранировать дважды. `trustedHtml` — явная, грепаемая пометка «за эту
-    // строку поручился код, а не пользователь», а не тихий обход типа.
+    // `escapeHtml` on every rendered sentence (SR-L-8): catalog text and the invitee's name both
+    // go through it, so no raw string reaches the HTML. The one markup spot — `<strong>` on the
+    // warning phrase inside the footer — is `emphasize`, which escapes both sides itself.
     const html = renderEmailLayout({
+      lang: input.locale,
       blocks: [
+        { html: escapeHtml(greeting), spaceAfter: 16 },
         {
-          html: trustedHtml(
-            `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
-          ),
-          spaceAfter: 16,
-        },
-        {
-          html: trustedHtml(
-            'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
-          ),
+          html: escapeHtml(line1),
           // Четыре, а не шестнадцать: эта строка и следующая — одна мысль,
           // разбитая на две для читаемости.
           spaceAfter: 4,
         },
-        {
-          html: trustedHtml('Пока не подтвердите, вход работает только по рабочему.'),
-          spaceAfter: 24,
-        },
+        { html: escapeHtml(line2), spaceAfter: 24 },
       ],
-      button: { href: link, label: 'Подтвердить адрес' },
-      // Защитная оговорка, а не вежливость (§11) — полным весом и жирным
-      // (COPY-M-5, PR #623), поэтому `<strong>` внутри готового HTML.
-      footer: trustedHtml(
-        'Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.',
-      ),
+      button: { href: link, label: buttonLabel },
+      // Защитная оговорка, а не вежливость (§11) — полным весом и жирным (COPY-M-5, PR #623).
+      footer: emphasize(footer, warning),
     })
 
-    const text = [
-      `${rawFirstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
-      '',
-      'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
-      'Пока не подтвердите, вход работает только по рабочему.',
-      '',
-      link,
-      '',
-      'Если письмо пришло по ошибке, не переходите по ссылке.',
-    ].join('\n')
+    const text = [greeting, '', line1, line2, '', link, '', footer].join('\n')
 
     return this.sendWithRetry({ to: [input.to], subject, text, html, replyTo: this.replyTo })
   }
