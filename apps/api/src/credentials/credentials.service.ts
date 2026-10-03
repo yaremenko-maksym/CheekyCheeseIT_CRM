@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { HttpStatus, Injectable } from '@nestjs/common'
 import { and, asc, eq, inArray, isNull } from 'drizzle-orm'
 import type {
   CreateCredentialDto,
@@ -8,6 +8,7 @@ import type {
   UpdateCredentialDto,
 } from '@crm/shared'
 import { projectCredentialSchema } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import { HrAccessService } from '../common/hr-access.service'
 import { CredentialsCryptoService } from './credentials-crypto.service'
 import { DatabaseService } from '../database/database.service'
@@ -55,7 +56,7 @@ export class CredentialsService {
       .limit(1)
 
     const project = rows[0]
-    if (!project) throw new NotFoundException('Проект не найден')
+    if (!project) throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // SR-M-1 (security-review round 3, task-project-draft-status): a JUNIOR
     // seated on a DRAFT/REJECTED project (ProjectsService.addMember does not
@@ -72,11 +73,11 @@ export class CredentialsService {
     // project, the SAME existence-oracle shape `assertAccess` uses
     // elsewhere for a non-invited viewer.
     if (viewer.role !== 'ADMIN' && project.status !== 'ACTIVE') {
-      throw new NotFoundException('Проект не найден')
+      throw apiError('PROJECT_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
 
     const allowed = await this.canAccess(viewer, project)
-    if (!allowed) throw new ForbiddenException('Нет доступа к паролям проекта')
+    if (!allowed) throw apiError('CREDENTIALS_PROJECT_FORBIDDEN', HttpStatus.FORBIDDEN)
 
     return project
   }
@@ -191,7 +192,7 @@ export class CredentialsService {
       })
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Не удалось создать запись')
+    if (!row) throw apiError('CREDENTIALS_CREATE_FAILED', HttpStatus.NOT_FOUND)
 
     return projectCredentialSchema.parse({
       id: row.id,
@@ -251,7 +252,7 @@ export class CredentialsService {
       })
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Запись не найдена')
+    if (!row) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     return projectCredentialSchema.parse({
       id: row.id,
@@ -296,7 +297,7 @@ export class CredentialsService {
       .limit(1)
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Запись не найдена')
+    if (!row) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     return { password: this.crypto.decrypt(row.ciphertext) }
   }
@@ -326,7 +327,7 @@ export class CredentialsService {
     // read. This avoids leaking membership-shaped timing and keeps the cheap
     // authorization decision ahead of the SELECT.
     if (viewer.role !== 'ADMIN' && viewer.role !== 'HR') {
-      throw new ForbiddenException('Нет доступа к паролям пользователя')
+      throw apiError('CREDENTIALS_USER_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
 
     // Active projects the target JUNIOR belongs to.
@@ -350,7 +351,7 @@ export class CredentialsService {
       }
     }
     if (allowedProjectIds.length === 0) {
-      throw new ForbiddenException('Нет доступа к паролям пользователя')
+      throw apiError('CREDENTIALS_USER_FORBIDDEN', HttpStatus.FORBIDDEN)
     }
     return allowedProjectIds
   }
@@ -403,7 +404,7 @@ export class CredentialsService {
     credentialId: string,
   ): Promise<{ password: string }> {
     const projectIds = await this.assertUserCredentialsAccess(viewer, targetUserId)
-    if (projectIds.length === 0) throw new NotFoundException('Запись не найдена')
+    if (projectIds.length === 0) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const rows = await this.db.db
       .select({ ciphertext: projectCredentials.passwordCiphertext })
@@ -417,7 +418,7 @@ export class CredentialsService {
       .limit(1)
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Запись не найдена')
+    if (!row) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     return { password: this.crypto.decrypt(row.ciphertext) }
   }
@@ -434,7 +435,7 @@ export class CredentialsService {
     dto: UpdateCredentialDto,
   ): Promise<ProjectCredential> {
     const projectIds = await this.assertUserCredentialsAccess(viewer, targetUserId)
-    if (projectIds.length === 0) throw new NotFoundException('Запись не найдена')
+    if (projectIds.length === 0) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     // Confirm the credential is in an allowed project before mutating (IDOR guard).
     const owned = await this.db.db
@@ -447,7 +448,7 @@ export class CredentialsService {
         ),
       )
       .limit(1)
-    if (!owned[0]) throw new NotFoundException('Запись не найдена')
+    if (!owned[0]) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     const patch: {
       label?: string
@@ -493,7 +494,7 @@ export class CredentialsService {
       })
 
     const row = rows[0]
-    if (!row) throw new NotFoundException('Запись не найдена')
+    if (!row) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
 
     return projectCredentialSchema.parse({
       id: row.id,
@@ -521,6 +522,6 @@ export class CredentialsService {
       )
       .limit(1)
 
-    if (!rows[0]) throw new NotFoundException('Запись не найдена')
+    if (!rows[0]) throw apiError('CREDENTIALS_NOT_FOUND', HttpStatus.NOT_FOUND)
   }
 }

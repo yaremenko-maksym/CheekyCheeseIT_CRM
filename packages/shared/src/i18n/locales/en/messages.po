@@ -4017,6 +4017,11 @@ msgstr "The entry “{0}” will be deleted permanently."
 msgid "Запис додано"
 msgstr "Entry added"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_NOT_FOUND"
+msgstr "Entry not found"
+
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Записів ще немає."
 msgstr "No entries yet."
@@ -6123,6 +6128,11 @@ msgstr "Could not create the vacancy. Try again"
 msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Could not create the drop — the form keeps your data, try again"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_CREATE_FAILED"
+msgstr "Couldn't create the entry. Try again"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Не вдалося створити команду — спробуйте ще раз"
 msgstr "Could not create the team — try again"
@@ -6343,6 +6353,16 @@ msgstr "No access to the HR contact"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGEND_ACCESS_DENIED"
 msgstr "You don't have access to this project's legend"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_USER_FORBIDDEN"
+msgstr "You don't have access to this user's passwords"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_PROJECT_FORBIDDEN"
+msgstr "You don't have access to this project's passwords"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю"
