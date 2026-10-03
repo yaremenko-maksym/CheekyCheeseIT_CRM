@@ -225,6 +225,9 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
  * imported row whose category is not one of these three must not force a
  * choice among them — see `AdminEditTransactionDialog`'s combobox.
  */
+// The values are STORED free-text `receiver_label` data (see the owner-override note above), not
+// UI copy: the displayed chip text goes through `EXPENSE_CATEGORY_MESSAGES` below.
+// eslint-disable-next-line lingui/no-unlocalized-strings
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']
 
 /**

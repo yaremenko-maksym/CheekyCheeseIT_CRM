@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Archive, ArchiveRestore, ChevronDown, Zap } from 'lucide-react'
 import type { AxiosError } from 'axios'
+import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -71,7 +72,7 @@ export function AdminActionsMenu({
         <DropdownMenuTrigger asChild>
           <Button variant="outline" size="sm" className="gap-1" data-testid="admin-actions-trigger">
             <Zap className="h-4 w-4" />
-            Действия
+            <Trans>Дії</Trans>
             <ChevronDown className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -82,7 +83,7 @@ export function AdminActionsMenu({
               data-testid="admin-action-unarchive"
             >
               <ArchiveRestore className="mr-2 h-4 w-4" />
-              Восстановить из архива
+              <Trans>Відновити з архіву</Trans>
             </DropdownMenuItem>
           ) : (
             <DropdownMenuItem
@@ -91,7 +92,7 @@ export function AdminActionsMenu({
               data-testid="admin-action-archive"
             >
               <Archive className="mr-2 h-4 w-4" />
-              Архивировать
+              <Trans>Архівувати</Trans>
             </DropdownMenuItem>
           )}
         </DropdownMenuContent>

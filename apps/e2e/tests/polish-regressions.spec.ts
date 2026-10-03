@@ -364,7 +364,7 @@ test.describe('AC4 — «сеньйора» spelling on verify page (task-i18n-3
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('AC5 — styled 404 empty-state', () => {
-  test('unknown route renders the styled NotFound with a «На главную» link', async ({
+  test('unknown route renders the styled NotFound with a «На головну» link', async ({
     asAdmin,
   }) => {
     await asAdmin.goto('/nonexistent-xyz')
@@ -373,22 +373,22 @@ test.describe('AC5 — styled 404 empty-state', () => {
     // (Button asChild → renders the TanStack <Link> as an <a href="/">).
     const homeLink = asAdmin.getByTestId('not-found-home-link')
     await expect(homeLink).toBeVisible()
-    await expect(homeLink).toContainText('На главную')
+    await expect(homeLink).toContainText('На головну')
     await expect(homeLink).toHaveAttribute('href', '/')
-    // Russian copy + 404 code — proves it's the styled state, not bare text.
-    await expect(asAdmin.getByText('Страница не найдена')).toBeVisible()
+    // Ukrainian copy + 404 code — proves it's the styled state, not bare text.
+    await expect(asAdmin.getByText('Сторінку не знайдено')).toBeVisible()
     await expect(asAdmin.getByText('404')).toBeVisible()
     // Bare TanStack «Not Found» fallback must NOT be what rendered.
     await expect(asAdmin.getByText(/^Not Found$/)).toHaveCount(0)
   })
 
-  test('clicking «На главную» navigates back to the CRM workspace', async ({ asAdmin }) => {
+  test('clicking «На головну» navigates back to the CRM workspace', async ({ asAdmin }) => {
     // asAdmin already mocks every CRM API call (incl. transactions), so the
     // dashboard shell that /crm lands on renders without extra stubs.
     await asAdmin.goto('/nonexistent-xyz')
     await asAdmin.getByTestId('not-found-home-link').click()
     // /crm redirects into the dashboard shell — assert we left the 404.
-    await expect(asAdmin.getByText('Страница не найдена')).toHaveCount(0)
+    await expect(asAdmin.getByText('Сторінку не знайдено')).toHaveCount(0)
     await expect(asAdmin).toHaveURL(/\/(\/|$)/)
   })
 })

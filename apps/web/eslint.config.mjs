@@ -33,12 +33,11 @@ export default [
     },
   },
   {
-    // task-i18n-stage2-task9 (plan §Task 9): baseline warning for the module
-    // waves of stage 3 — how much untranslated Cyrillic text is still out
-    // there, not a hard gate yet (`warn`, not `error`; that flip is stage 6).
+    // task-i18n-stage2-task9 (plan §Task 9), promoted to a hard gate in stage 6:
+    // visible Cyrillic text in `apps/web/app` must go through the catalog.
     // Third `ignore` entry deliberately narrows the rule to lines that
-    // actually contain Cyrillic: the goal right now is counting untranslated
-    // ru/uk text, not flagging every English technical string (class names,
+    // actually contain Cyrillic: the goal is catching untranslated ru/uk
+    // text, not flagging every English technical string (class names,
     // ids, single tokens) that `no-unlocalized-strings` would otherwise also
     // catch.
     files: ['app/**/*.{ts,tsx}'],
@@ -46,7 +45,7 @@ export default [
     plugins: { lingui: pluginLingui },
     rules: {
       'lingui/no-unlocalized-strings': [
-        'warn',
+        'error',
         {
           // CR-M-1 (#691): the upstream 'single lowercase token' pattern silenced one-word Cyrillic
           // text ('дроп', 'резюме'); a word with any Cyrillic letter must warn — only ALL-CAPS
@@ -80,6 +79,15 @@ export default [
           ],
         },
       ],
+    },
+  },
+  {
+    // stage 6: job-sourcing excluded (auto-submit paused, owner decision
+    // 2026-08-23). Its Russian copy is not migrated and no new work is planned
+    // on it until the approach changes; revisit together with that decision.
+    files: ['app/components/job-sourcing/**/*.{ts,tsx}'],
+    rules: {
+      'lingui/no-unlocalized-strings': 'off',
     },
   },
   {

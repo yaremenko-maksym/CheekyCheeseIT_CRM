@@ -1,3 +1,10 @@
+/* eslint-disable lingui/no-unlocalized-strings --
+   TODO(i18n): the cascade-plan warning and locked-field texts below are Russian
+   strings that travel to the client as plain `message` fields; they move to the
+   api-error / warning-code catalog together with the finance module wave (they
+   interpolate amounts and currencies, so each needs a coded, parameterised
+   catalog entry rather than a literal swap). Deferred out of stage 6 so the
+   rule can become an error everywhere else. */
 import { z } from 'zod'
 import {
   transactionTypeSchema,

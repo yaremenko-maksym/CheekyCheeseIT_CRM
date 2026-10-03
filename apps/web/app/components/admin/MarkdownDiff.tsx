@@ -1,4 +1,5 @@
 import { diffLines } from 'diff'
+import { Trans } from '@lingui/react/macro'
 
 interface MarkdownDiffProps {
   oldText: string
@@ -15,7 +16,7 @@ export function MarkdownDiff({ oldText, newText }: MarkdownDiffProps) {
         className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground"
         data-testid="markdown-diff-empty"
       >
-        Изменений нет — содержимое идентично текущей версии.
+        <Trans>Змін немає — вміст ідентичний поточній версії.</Trans>
       </div>
     )
   }
@@ -26,7 +27,7 @@ export function MarkdownDiff({ oldText, newText }: MarkdownDiffProps) {
         className="rounded-md border bg-muted/30 p-3 text-sm text-muted-foreground"
         data-testid="markdown-diff-initial"
       >
-        Первая публикация — всё содержимое будет добавлено как новое.
+        <Trans>Перша публікація — весь вміст буде додано як новий.</Trans>
       </div>
     )
   }
