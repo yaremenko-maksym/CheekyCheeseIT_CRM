@@ -918,7 +918,7 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('FOP Own Project')
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Прихід зарахується на рахунок адміністратора — Admin One',
+      'Дохід зарахується на рахунок адміністратора — Admin One',
     )
   })
 

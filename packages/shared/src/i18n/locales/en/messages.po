@@ -3416,8 +3416,13 @@ msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Reached the limit of {maxItems} tags"
 
 #: apps/web/app/components/stats/FinanceChart.tsx
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Дохід"
 msgstr "Income"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід (архів)"
+msgstr "Income (archived)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3428,6 +3433,18 @@ msgstr "Only an admin declares income on a USDT project"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_PROJECT_WRONG_INCOME_ROUTE"
 msgstr "Declare income on a USDT project as USDT income so the senior's and drop's shares are booked with it"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід адміна"
+msgstr "Admin income"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід адміна (USDT)"
+msgstr "Admin income (USDT)"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід адміна (готівка)"
+msgstr "Admin income (cash)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -3450,6 +3467,10 @@ msgstr "Income from {0}"
 msgid "email.notification.TRANSACTION_STATUS_CHANGED.subject.rejected"
 msgstr "Income rejected"
 
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід дропа"
+msgstr "Drop income"
+
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
 msgstr "Drop income (unpaid share)"
@@ -3457,6 +3478,10 @@ msgstr "Drop income (unpaid share)"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Дохід дропа з проєкту"
 msgstr "Drop income from a project"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+msgid "Дохід за USDT-проєктами може провести лише адміністратор."
+msgstr "Only an administrator can register income for USDT projects."
 
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
 msgid "Дохід за місяць"
@@ -3466,14 +3491,32 @@ msgstr "Income this month"
 msgid "Дохід за останній місяць"
 msgstr "Revenue for the last month"
 
+#. placeholder {0}: selectedAdminProject.seniorName
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+msgid "Дохід зарахується на рахунок адміністратора — {0}"
+msgstr "Income will be credited to the administrator’s account — {0}"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+msgid "Дохід зарахується на рахунок адміністратора-власника проєкту"
+msgstr "Income will be credited to the project-owner administrator’s account"
+
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+msgid "Дохід зареєстровано, очікує валідації"
+msgstr "Income registered, awaiting validation"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "Дохід із власного проєкту"
 msgstr "Income from your own project"
 
 #: apps/web/app/lib/invoice-labels.ts
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Дохід сеньйора"
 msgstr "Senior income"
+
+#: apps/web/app/routes/_authenticated/finance/constants.ts
+msgid "Дохід сеньйора (USDT)"
+msgstr "Senior income (USDT)"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід сеньйора (неоплачена частка)"
@@ -8264,55 +8307,6 @@ msgstr "Note <0>(optional)</0>"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Примітки"
 msgstr "Notes"
-
-#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "Прихід"
-msgstr "Income"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід (архів)"
-msgstr "Income (archived)"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід адміна"
-msgstr "Admin income"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід адміна (USDT)"
-msgstr "Admin income (USDT)"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід адміна (готівка)"
-msgstr "Admin income (cash)"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід дропа"
-msgstr "Drop income"
-
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Прихід за USDT-проєктами може провести лише адміністратор."
-msgstr "Only an administrator can register income for USDT projects."
-
-#. placeholder {0}: selectedAdminProject.seniorName
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Прихід зарахується на рахунок адміністратора — {0}"
-msgstr "Income will be credited to the administrator’s account — {0}"
-
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Прихід зарахується на рахунок адміністратора-власника проєкту"
-msgstr "Income will be credited to the project-owner administrator’s account"
-
-#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Прихід зареєстровано, очікує валідації"
-msgstr "Income registered, awaiting validation"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід сеньйора"
-msgstr "Senior income"
-
-#: apps/web/app/routes/_authenticated/finance/constants.ts
-msgid "Прихід сеньйора (USDT)"
-msgstr "Senior income (USDT)"
 
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx

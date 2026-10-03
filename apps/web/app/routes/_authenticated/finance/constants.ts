@@ -124,22 +124,22 @@ export function cascadeBlockedReasonMessage(
  * Latin "Admin" leaking into the label (COPY-M-fin-11).
  */
 export const TYPE_LABEL_MESSAGES = {
-  ADMIN_INCOME: msg`Прихід адміна`, // en: Admin income
-  SENIOR_INCOME: msg`Прихід сеньйора`, // en: Senior income
+  ADMIN_INCOME: msg`Дохід адміна`, // en: Admin income
+  SENIOR_INCOME: msg`Дохід сеньйора`, // en: Senior income
   EXPENSE: msg`Витрата`, // en: Expense
   SALARY: msg`Зарплата`, // en: Salary
   ADMIN_TRANSFER: msg`Переказ`, // en: Transfer
   PAYOUT: msg`Виплата`, // en: Payout
   PAYOUT_ADMIN: msg`Частка партнера`, // en: Partner share
-  DROP_INCOME: msg`Прихід дропа`, // en: Drop income
+  DROP_INCOME: msg`Дохід дропа`, // en: Drop income
   PAYOUT_DROP: msg`Частка дропа`, // en: Drop share
   PAYOUT_CONFIRMED: msg`Підтверджений розрахунок`, // en: Confirmed settlement
-  TOV_INCOME: msg`Прихід (архів)`, // en: Income (archived)
+  TOV_INCOME: msg`Дохід (архів)`, // en: Income (archived)
   SENIOR_PENDING_PAYOUT: msg`Очікуваний розрахунок із сеньйором`, // en: Pending senior settlement
   SENIOR_PAID: msg`Розрахунок із сеньйором`, // en: Senior settlement
-  ADMIN_INCOME_CASH: msg`Прихід адміна (готівка)`, // en: Admin income (cash)
-  ADMIN_INCOME_CRYPTO: msg`Прихід адміна (USDT)`, // en: Admin income (USDT)
-  SENIOR_INCOME_CRYPTO: msg`Прихід сеньйора (USDT)`, // en: Senior income (USDT)
+  ADMIN_INCOME_CASH: msg`Дохід адміна (готівка)`, // en: Admin income (cash)
+  ADMIN_INCOME_CRYPTO: msg`Дохід адміна (USDT)`, // en: Admin income (USDT)
+  SENIOR_INCOME_CRYPTO: msg`Дохід сеньйора (USDT)`, // en: Senior income (USDT)
   DIVIDEND_TO_ADMIN: msg`Дивіденди адміну`, // en: Dividends to admin
   DIVIDEND_TAX: msg`Податок на дивіденди`, // en: Dividend tax
   COMPANY_DEPOSIT: msg`Поповнення рахунку компанії`, // en: Company account deposit

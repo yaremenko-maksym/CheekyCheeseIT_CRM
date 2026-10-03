@@ -764,7 +764,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // already surface via the table refresh so a toast would be noise.
       if (type === 'DROP_INCOME') {
         // Stryker disable next-line StringLiteral: onSuccess toast text — this test file's `useMutation` mock never invokes `onSuccess` (mutate is a no-op stub), so no unit test in this suite reaches this line; the toast is pinned end-to-end by `drop-income-ui.spec.ts`.
-        toast.success(t`Прихід зареєстровано, очікує валідації`)
+        toast.success(t`Дохід зареєстровано, очікує валідації`)
       }
       if (type === 'DIVIDEND') {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
@@ -1148,7 +1148,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 className="text-xs text-muted-foreground italic"
                 data-testid="admin-income-accountant-usdt-gate-hint"
               >
-                <Trans>Прихід за USDT-проєктами може провести лише адміністратор.</Trans>
+                <Trans>Дохід за USDT-проєктами може провести лише адміністратор.</Trans>
               </p>
             )}
 
@@ -1329,11 +1329,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               sectionLabel: t`Рахунок отримувача`,
               personalLabel: t`Власник проєкту`,
               // Урок #702, п.9 — ім'я підставляється тільки в називному відмінку:
-              // «Прихід зарахується на рахунок адміністратора — {name}», не
+              // «Дохід зарахується на рахунок адміністратора — {name}», не
               // «адміністратору {name}» (це вимагало б давального відмінка).
               personalDescription: selectedAdminProject?.seniorName
-                ? t`Прихід зарахується на рахунок адміністратора — ${selectedAdminProject.seniorName}`
-                : t`Прихід зарахується на рахунок адміністратора-власника проєкту`,
+                ? t`Дохід зарахується на рахунок адміністратора — ${selectedAdminProject.seniorName}`
+                : t`Дохід зарахується на рахунок адміністратора-власника проєкту`,
               companyDescription: t`Зарахується на рахунок компанії (USDT)`,
             })}
 

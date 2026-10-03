@@ -138,7 +138,7 @@ describe('CreateTransactionDialog — type-card copy (i18n-3d-pr3 AC1)', () => {
   it('renders the uk label + description for every ADMIN-visible type card', () => {
     renderDialog()
     const cases: Array<[string, string, string]> = [
-      ['create-transaction-type-admin_income', 'Прихід адміна', 'Дохід із власного проєкту'],
+      ['create-transaction-type-admin_income', 'Дохід адміна', 'Дохід із власного проєкту'],
       ['create-transaction-type-expense', 'Витрата', 'Витрата компанії'],
       ['create-transaction-type-salary', 'Зарплата', 'Зарплата співробітнику'],
       ['create-transaction-type-admin_transfer', 'Переказ', 'Переказ між партнерами'],

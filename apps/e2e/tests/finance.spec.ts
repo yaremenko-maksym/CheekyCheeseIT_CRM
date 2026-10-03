@@ -313,7 +313,7 @@ test.describe('Finance — таблица транзакций', () => {
     const uk = await loadMessages('uk')
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE, TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText(assertInCatalog(uk, 'Прихід сеньйора')).first()).toBeVisible()
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Дохід сеньйора')).first()).toBeVisible()
     await expect(asAdmin.getByText(assertInCatalog(uk, 'Витрата')).first()).toBeVisible()
     await expect(asAdmin.getByText(assertInCatalog(uk, 'Зарплата')).first()).toBeVisible()
   })
@@ -401,10 +401,10 @@ test.describe('Finance — фильтры и поиск', () => {
     const uk = await loadMessages('uk')
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR, TX_EXPENSE])
     await asAdmin.goto('/finance')
-    await expect(asAdmin.getByText(assertInCatalog(uk, 'Прихід сеньйора')).first()).toBeVisible()
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Дохід сеньйора')).first()).toBeVisible()
     await expect(asAdmin.getByText(assertInCatalog(uk, 'Витрата')).first()).toBeVisible()
     await asAdmin.getByPlaceholder(assertInCatalog(uk, 'Пошук…')).fill(USERS.senior.displayName)
-    await expect(asAdmin.getByText(assertInCatalog(uk, 'Прихід сеньйора')).first()).toBeVisible()
+    await expect(asAdmin.getByText(assertInCatalog(uk, 'Дохід сеньйора')).first()).toBeVisible()
     await expect(asAdmin.getByText(assertInCatalog(uk, 'Витрата'))).not.toBeVisible()
   })
 
@@ -468,7 +468,9 @@ test.describe('Finance — создание транзакции', () => {
     // `TYPE_DESCRIPTION_MESSAGES` — same migrated maps the transaction-row
     // labels elsewhere in this file already used.
     const dialog = asSenior.getByRole('dialog')
-    await expect(dialog.getByText(assertInCatalog(uk, 'Прихід сеньйора'))).toBeVisible()
+    await expect(
+      dialog.getByText(assertInCatalog(uk, 'Дохід сеньйора'), { exact: true }),
+    ).toBeVisible()
     await expect(dialog.getByText(assertInCatalog(uk, 'Витрата компанії'))).not.toBeVisible()
   })
 
@@ -777,7 +779,7 @@ test.describe('Finance — детали транзакции', () => {
     const uk = await loadMessages('uk')
     await mockTransactions(asAdmin, [TX_PENDING_SENIOR])
     await asAdmin.goto('/finance')
-    await asAdmin.getByText(assertInCatalog(uk, 'Прихід сеньйора')).first().click()
+    await asAdmin.getByText(assertInCatalog(uk, 'Дохід сеньйора')).first().click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
     await expect(
       asAdmin.getByRole('heading', { name: assertInCatalog(uk, 'Деталі транзакції') }),

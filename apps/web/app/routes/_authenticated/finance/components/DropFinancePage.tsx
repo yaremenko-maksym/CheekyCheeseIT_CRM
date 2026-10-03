@@ -126,7 +126,7 @@ function IncomeModelBadge({ model }: { model: DropIncomeDto['model'] }) {
     </Badge>
   ) : (
     <Badge variant="outline" className="text-xs">
-      {t`Прихід`}
+      {t`Дохід`}
     </Badge>
   )
 }

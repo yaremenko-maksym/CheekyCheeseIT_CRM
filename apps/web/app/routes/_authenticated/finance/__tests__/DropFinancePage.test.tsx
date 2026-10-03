@@ -113,7 +113,7 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     })
     renderPage()
     const row = screen.getByTestId('drop-income-row-declared-1')
-    expect(row).toHaveTextContent('Прихід')
+    expect(row).toHaveTextContent('Дохід')
     expect(row).not.toHaveTextContent('Нарахування')
   })
 
@@ -138,7 +138,7 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     renderPage()
     const row = screen.getByTestId('drop-income-row-obligation-1')
     expect(row).toHaveTextContent('Нарахування')
-    expect(row).not.toHaveTextContent('Прихід')
+    expect(row).not.toHaveTextContent('Дохід')
     // task-i18n-stage3d-pr2: `fmtUsd` is now locale-aware (`formatNumber`
     // with the active catalog locale) — the `I18nTestProvider` default (`uk`)
     // groups digits with a comma decimal separator, not the old hardcoded
@@ -160,7 +160,7 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
       isLoading: false,
     })
     renderPage()
-    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Прихід')
+    expect(screen.getByTestId('drop-income-row-declared-1')).toHaveTextContent('Дохід')
     expect(screen.getByTestId('drop-income-row-obligation-1')).toHaveTextContent('Нарахування')
   })
 

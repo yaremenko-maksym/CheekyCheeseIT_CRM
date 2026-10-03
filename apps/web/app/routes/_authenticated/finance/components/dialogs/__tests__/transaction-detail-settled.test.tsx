@@ -651,7 +651,7 @@ describe('TransactionDetailDialog — split-view attach button, footer, and rema
     // promise has not resolved yet, so this is exactly the window where
     // `detail ?? tx` (shows `tx` immediately) and a mutated `detail && tx`
     // (shows nothing until the promise settles) diverge.
-    expect(screen.getByText('Прихід адміна')).toBeInTheDocument()
+    expect(screen.getByText('Дохід адміна')).toBeInTheDocument()
   })
 
   // task-i18n-stage3d-pr2 (mutation gate, AC10). `tx={null}` is the real shape
