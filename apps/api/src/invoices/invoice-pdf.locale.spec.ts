@@ -289,6 +289,25 @@ describe('InvoicePdfService — recipient locale', () => {
   )
 
   it(
+    'a UAH bank (FOP) recipient gets the bank method label, not the USDT one, in both locales',
+    { timeout: TEST_TIMEOUT_MS },
+    async () => {
+      const bank = (locale: 'uk' | 'en') => {
+        const p = params(locale)
+        p.counterparty.paymentMethod = 'BANK_UAH_FOP'
+        p.counterparty.paymentDetails = ['IBAN: UA00']
+        return p
+      }
+      await render(bank('uk'))
+      expect(drawn).toContain('Метод: банк UAH (ФОП)')
+      expect(drawn).not.toContain('Метод: USDT ERC-20')
+      await render(bank('en'))
+      expect(drawn).toContain('Method: UAH bank account (FOP)')
+      expect(drawn).not.toContain('Method: USDT ERC-20')
+    },
+  )
+
+  it(
     'en: SALARY with a month renders the whole sentence from one message',
     { timeout: TEST_TIMEOUT_MS },
     async () => {

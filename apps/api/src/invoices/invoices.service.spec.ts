@@ -769,6 +769,46 @@ describe('InvoicesService', () => {
       },
     )
 
+    it('omits the requisites lines whose profile field is empty (only IBAN filled)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-1',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            projectId: 'p-1',
+            amount: '1000',
+            currency: 'USDT',
+          }),
+        ],
+        sigs: [],
+        users: [
+          {
+            id: SENIOR.id,
+            displayName: SENIOR.displayName,
+            role: 'SENIOR',
+            paymentMethod: 'BANK_UAH_FOP',
+            bankUahRecipient: null,
+            bankUahIban: 'UA00',
+            bankUahRnokpp: null,
+            bankUahBankName: null,
+          },
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+        ],
+        projects: [{ id: 'p-1', name: 'Acme Corp' }],
+      })
+      h.ctrl.findTxId = 'tx-1'
+      h.ctrl.userFindFirstQueue = [SENIOR.id, ADMIN.id]
+      h.ctrl.lookupProjectId = 'p-1'
+
+      await h.svc.autoCreateForSeniorPayout('tx-1')
+
+      const args = (
+        h.pdfService.generateSignableInvoicePdf as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls[0]?.[0] as { counterparty: { paymentDetails: string[] } }
+      expect(args.counterparty.paymentDetails).toEqual(['IBAN: UA00'])
+    })
+
     it('returns early for non-SENIOR_INCOME tx', async () => {
       const h = buildHarness({
         txs: [tx({ id: 'tx-1', type: 'EXPENSE' })],

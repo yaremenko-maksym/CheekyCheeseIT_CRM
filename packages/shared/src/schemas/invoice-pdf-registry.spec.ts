@@ -31,6 +31,10 @@ describe('INVOICE_PDF_MESSAGES / INVOICE_PDF_MONTH_MESSAGES', () => {
     for (const id of ids) expect(id).toMatch(/^invoicePdf\./)
   })
 
+  it('every descriptor carries a non-empty uk source message (the fallback the catalog extracts)', () => {
+    for (const d of all) expect((d.message ?? '').length).toBeGreaterThan(0)
+  })
+
   it('carries one entry per calendar month, keyed 01..12', () => {
     // sorted: JS orders canonical-integer keys ('10'..'12') before '01'..'09'.
     expect(Object.keys(INVOICE_PDF_MONTH_MESSAGES).sort()).toEqual([
