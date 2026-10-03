@@ -44,7 +44,7 @@ const CHART_MODES: {
 const BAR_WIDTH = 80
 const Y_AXIS_WIDTH = 56
 
-function ChartTooltip(props: Record<string, unknown>) {
+export function ChartTooltip(props: Record<string, unknown>) {
   const { i18n } = useLingui()
   const active = props.active as boolean | undefined
   const label = props.label as string | undefined
@@ -81,7 +81,7 @@ export function FinanceChart({
   summary,
   className,
 }: {
-  summary: FinanceSummaryDto
+  summary: Pick<FinanceSummaryDto, 'monthly'>
   className?: string
 }) {
   const { i18n } = useLingui()
@@ -196,6 +196,7 @@ export function FinanceChart({
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded-sm"
+              data-testid="finance-chart-swatch"
               style={{ background: effectiveMode.color }}
             />
             <Trans>Динаміка за місяцями</Trans>
