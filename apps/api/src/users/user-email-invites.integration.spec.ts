@@ -54,7 +54,7 @@ import { JwtService } from '@nestjs/jwt'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { jwtPayloadSchema } from '@crm/shared'
 import * as schema from '../database/schema'
 import { userEmailInvites, userEmails, users } from '../database/schema'
@@ -63,6 +63,11 @@ import { isDeadlock } from '../database/pg-errors'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { UsersService } from './users.service'
 import { hashInviteToken } from './invite-token.util'
+import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
+import type { ResendMailerService, SendEmailInput } from '../contact/resend-mailer.service'
+import type { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
+import type { ConfigService } from '@nestjs/config'
+import type { Env } from '../config/env'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 const USER_A_ID = 'a17a0004-0000-0000-0000-000000000001'
@@ -632,6 +637,187 @@ describe.skipIf(!hasDatabaseUrl())(
       const token = guardJwtService.sign(payload)
       const guard = new JwtAuthGuard(guardJwtService, noopReflector, usersService)
       await expect(guard.canActivate(makeGuardCtx(token))).resolves.toBe(true)
+    })
+  },
+)
+
+// ---------------------------------------------------------------------------
+// i18n emails PR2 — the invite is written in the INVITEE's language, proven through
+// the REAL UsersService against real Postgres and the REAL mailer (only the
+// outbound HTTP hop to Resend is captured). SEED namespace: a17a0005-****.
+// The admin-request-locale half (HTTP `Accept-Language` / `pref_locale` cookie never
+// reach the invite) is in `personal-email-controller-guards.rbac.integration.spec.ts`.
+// ---------------------------------------------------------------------------
+
+const EN_USER_ID = 'a17a0005-0000-0000-0000-000000000001'
+const EN_USER_WORK = 'invite-locale-en-work@test.spec'
+const EN_USER_PERSONAL = 'invite-locale-en-personal@test.spec'
+const UK_USER_ID = 'a17a0005-0000-0000-0000-000000000002'
+const UK_USER_WORK = 'invite-locale-uk-work@test.spec'
+const UK_USER_PERSONAL = 'invite-locale-uk-personal@test.spec'
+const CREATE_EN_WORK = 'invite-locale-create-en-work@test.spec'
+const CREATE_EN_PERSONAL = 'invite-locale-create-en-personal@test.spec'
+const CREATE_DEFAULT_WORK = 'invite-locale-create-default-work@test.spec'
+const CREATE_DEFAULT_PERSONAL = 'invite-locale-create-default-personal@test.spec'
+const LOCALE_ACTOR_ID = 'a17a0005-0000-0000-0000-00000000000a'
+const CYRILLIC = /[А-Яа-яЁёІіЇїЄєҐґ]/
+
+describe.skipIf(!hasDatabaseUrl())(
+  'personal-email invite renders in the invitee locale — real DB + real mailer (i18n emails PR2)',
+  () => {
+    let pool: Pool
+    let dbSvc: DatabaseService
+    let usersService: UsersService
+    let sent: SendEmailInput[]
+    let mailer: PersonalEmailInviteMailerService
+
+    beforeAll(async () => {
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(pool, { schema })
+      dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, {
+        pool,
+        db,
+      })
+      sent = []
+      const resend = {
+        isConfigured: true,
+        send: vi.fn((input: SendEmailInput) => {
+          sent.push(input)
+          return Promise.resolve()
+        }),
+      } as unknown as ResendMailerService
+      const telemetry = {
+        recordError: vi.fn().mockResolvedValue(undefined),
+      } as unknown as TelemetryErrorsService
+      const env: Record<string, string> = {
+        FRONTEND_URL: 'https://app.cheekycheese.tech',
+        CONTACT_PUBLIC_EMAIL: 'hr@cheekycheese.tech',
+      }
+      const config = { get: (k: string) => env[k] } as unknown as ConfigService<Env, true>
+      mailer = new PersonalEmailInviteMailerService(resend, telemetry, config)
+
+      // createUser reaches only `db`, `auditLogService.record` and `inviteMailer` on the JUNIOR path.
+      usersService = new UsersService(
+        dbSvc,
+        {} as never,
+        { record: () => Promise.resolve() } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        mailer,
+      )
+
+      await db
+        .insert(users)
+        .values([
+          {
+            id: EN_USER_ID,
+            email: EN_USER_WORK,
+            displayName: 'Invite Locale English',
+            role: 'JUNIOR',
+            locale: 'en',
+          },
+          {
+            id: UK_USER_ID,
+            email: UK_USER_WORK,
+            displayName: 'Invite Locale Ukrainian',
+            role: 'JUNIOR',
+            locale: 'uk',
+          },
+        ])
+        .onConflictDoNothing()
+      await db
+        .insert(userEmails)
+        .values([
+          { userId: EN_USER_ID, email: EN_USER_WORK, kind: 'WORK', canLogin: true },
+          { userId: EN_USER_ID, email: EN_USER_PERSONAL, kind: 'PERSONAL', canLogin: false },
+          { userId: UK_USER_ID, email: UK_USER_WORK, kind: 'WORK', canLogin: true },
+          { userId: UK_USER_ID, email: UK_USER_PERSONAL, kind: 'PERSONAL', canLogin: false },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await dbSvc.db
+          .delete(users)
+          .where(
+            inArray(users.email, [EN_USER_WORK, UK_USER_WORK, CREATE_EN_WORK, CREATE_DEFAULT_WORK]),
+          )
+      } catch {
+        // Non-fatal cleanup failure — do not mask test results.
+      }
+      await pool?.end()
+    }, 15_000)
+
+    it('createUser with locale en + a personal address → the captured invite is English, <html lang="en">, no Cyrillic', async () => {
+      sent.length = 0
+      await usersService.createUser({
+        email: CREATE_EN_WORK,
+        personalEmail: CREATE_EN_PERSONAL,
+        displayName: 'John Smith',
+        role: 'JUNIOR',
+        locale: 'en',
+        actorRole: 'ADMIN',
+        actorId: LOCALE_ACTOR_ID,
+      })
+      expect(sent).toHaveLength(1)
+      const mail = sent[0]!
+      expect(mail.to).toEqual([CREATE_EN_PERSONAL])
+      expect(mail.subject).toBe('Access to CheekyCheeseIT CRM')
+      expect(mail.html).toContain('<html lang="en">')
+      expect(mail.text.startsWith('John, this address was added to CheekyCheeseIT CRM')).toBe(true)
+      expect(`${mail.subject}${mail.text}${mail.html}`).not.toMatch(CYRILLIC)
+    })
+
+    it('createUser without a locale → Ukrainian (the same default the row gets)', async () => {
+      sent.length = 0
+      const created = await usersService.createUser({
+        email: CREATE_DEFAULT_WORK,
+        personalEmail: CREATE_DEFAULT_PERSONAL,
+        displayName: 'Іван Петров',
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: LOCALE_ACTOR_ID,
+      })
+      expect(created.locale).toBe('uk')
+      expect(sent).toHaveLength(1)
+      expect(sent[0]!.subject).toBe('Доступ до CRM CheekyCheeseIT')
+      expect(sent[0]!.html).toContain('<html lang="uk">')
+    })
+
+    it('resend-invite on a uk user → Ukrainian; on an en user → English (the locale is read from the INVITEE row)', async () => {
+      sent.length = 0
+      const ukResult = await usersService.resendPersonalEmailInvite(UK_USER_ID, UK_USER_ID)
+      expect(ukResult.locale).toBe('uk')
+      await mailer.sendInvite({ ...ukResult, to: ukResult.email })
+      const enResult = await usersService.resendPersonalEmailInvite(EN_USER_ID, UK_USER_ID)
+      expect(enResult.locale).toBe('en')
+      await mailer.sendInvite({ ...enResult, to: enResult.email })
+      expect(sent.map((m) => m.subject)).toEqual([
+        'Доступ до CRM CheekyCheeseIT',
+        'Access to CheekyCheeseIT CRM',
+      ])
+      expect(sent.map((m) => m.to)).toEqual([[UK_USER_PERSONAL], [EN_USER_PERSONAL]])
+    })
+
+    it('changePersonalEmail → the NEW address gets the invitee locale', async () => {
+      sent.length = 0
+      const newAddress = 'invite-locale-en-personal-new@test.spec'
+      const result = await usersService.changePersonalEmail(EN_USER_ID, newAddress, UK_USER_ID)
+      expect(result?.locale).toBe('en')
+      if (!result) throw new Error('expected an invite result')
+      await mailer.sendInvite({ ...result, to: result.email })
+      expect(sent).toHaveLength(1)
+      expect(sent[0]!.to).toEqual([newAddress])
+      expect(sent[0]!.subject).toBe('Access to CheekyCheeseIT CRM')
+      expect(sent[0]!.html).toContain('<html lang="en">')
+      // restore the fixture address for re-runs
+      await dbSvc.db
+        .update(userEmails)
+        .set({ email: EN_USER_PERSONAL })
+        .where(and(eq(userEmails.userId, EN_USER_ID), eq(userEmails.kind, 'PERSONAL')))
     })
   },
 )
