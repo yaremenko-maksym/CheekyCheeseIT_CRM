@@ -269,6 +269,11 @@ msgstr "{change} · проєкт {hasProject, select, no {без назви} oth
 msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 msgstr "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.greeting"
+msgstr "{firstName}: цю адресу додали до CRM CheekyCheeseIT як вашу особисту."
+
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "{from}–{to} з {totalItems}"
 msgstr "{from}–{to} з {totalItems}"
@@ -3214,6 +3219,11 @@ msgstr "Додаткові поля для повнішої розмітки в�
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
 msgstr "Дозволено лише PNG, JPEG, GIF, WebP"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.confirm.line2"
+msgstr "Доки не підтвердите, вхід працює лише за робочою адресою."
+
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Документ"
@@ -3333,6 +3343,11 @@ msgstr "Доплатіть з того самого джерела, що й по
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Досвід роботи"
 msgstr "Досвід роботи"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.subject"
+msgstr "Доступ до CRM CheekyCheeseIT"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -5998,6 +6013,11 @@ msgstr "Не можна редагувати обліковий запис ін�
 msgid "не перекладено"
 msgstr "не перекладено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.footer.warning"
+msgstr "не переходьте за посиланням"
+
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "не підтверджено"
 msgstr "не підтверджено"
@@ -7490,6 +7510,11 @@ msgstr "Підтвердити"
 msgid "Підтвердити ({remainingCount})"
 msgstr "Підтвердити ({remainingCount})"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.button"
+msgstr "Підтвердити адресу"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Підтвердити валідацію?"
 msgstr "Підтвердити валідацію?"
@@ -7521,6 +7546,11 @@ msgstr "Підтвердити оплату"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Підтвердити розрахунок"
 msgstr "Підтвердити розрахунок"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.confirm.line1"
+msgstr "Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -10840,13 +10870,13 @@ msgid "Частка за замовчуванням: пропозицію від
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/pending-title-registry.ts
-msgid "pending.title.SHARE_PROJECT"
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.project"
 msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/invoice-pdf-registry.ts
-msgid "invoicePdf.description.project"
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.SHARE_PROJECT"
 msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id
@@ -11137,6 +11167,11 @@ msgstr "Я ознайомлений і згоден зі змістом раху
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "Якщо він потрібен для роботи, напишіть адміністратору"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.footer"
+msgstr "Якщо лист прийшов помилково, {warning}."
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Якщо обрано — надходження за проєктом підуть через дропа (частка 5% за замовчуванням)."
