@@ -856,7 +856,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/уже прошли выплаты/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_LOCKED', statusCode: 400 },
+    })
 
     // Without AC13 the edit lands, term 7's debit drops 260 → 26, and the
     // balance rises by 234 — money the company has already paid out.
@@ -879,7 +881,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 42, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/сверена с блокчейном/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED', statusCode: 400 },
+    })
   })
 
   it('risk 22 (SR-H-3): a row that closed an obligation in the PRE-flip epoch is refused too', async () => {
@@ -936,7 +940,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/зафиксирована в расчёте/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED', statusCode: 400 },
+    })
 
     // Without the disjunct the edit lands, term 7's debit falls 260 → 26 and
     // the balance rises by 234 that has already left the account.

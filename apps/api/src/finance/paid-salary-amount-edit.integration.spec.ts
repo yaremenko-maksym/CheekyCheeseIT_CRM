@@ -411,7 +411,9 @@ describe.skipIf(!HAS_DB_URL)(
           { amount: 500_000, cascadeVersion: versionOfUnchanged },
           ADMIN,
         ),
-      ).rejects.toThrow(/outside the allowed range — check the amount/)
+      ).rejects.toMatchObject({
+        response: { code: 'FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', statusCode: 400 },
+      })
       expect(await row(id)).toEqual(before)
     })
 
