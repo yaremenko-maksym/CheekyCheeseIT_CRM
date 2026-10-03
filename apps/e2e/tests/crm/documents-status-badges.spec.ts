@@ -240,7 +240,7 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toHaveAttribute('data-badge-state', 'draft')
     await expect(badge).toHaveText(assertInCatalog(uk, 'Чернетка'))
     // The name is rendered from `nameKind` via the catalog, not from `name`.
-    await expect(page.getByTestId('document-card-title').first()).toHaveText(
+    await expect(page.getByTestId('document-row-title').first()).toHaveText(
       assertInCatalog(uk, 'Трудовий договір (чернетка)'),
     )
   })
@@ -258,7 +258,7 @@ test.describe('PR-2: employee_contract virtual entries', () => {
     await expect(badge).toHaveAttribute('data-badge-kind', 'contract')
     await expect(badge).toHaveAttribute('data-badge-state', 'ready')
     await expect(badge).toHaveText(assertInCatalog(uk, 'Готовий до підпису'))
-    await expect(page.getByTestId('document-card-title').first()).toHaveText(
+    await expect(page.getByTestId('document-row-title').first()).toHaveText(
       assertInCatalog(uk, 'Трудовий договір (очікує підпису)'),
     )
   })
