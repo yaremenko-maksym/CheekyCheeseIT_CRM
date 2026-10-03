@@ -251,7 +251,14 @@ export class NotificationEmailCronService {
     // `markSent` — журнал доставки хранит ровно то, что реально ушло.
     const to = stripCrlf(decision.to)
 
-    const mail = renderNotificationEmail(item.notification, { frontendUrl: this.frontendUrl })
+    // Язык — получателя ЭТОЙ строки, прочитанный в момент отправки вместе с архивом и
+    // адресом (`deliveryContextFor`). Рендерер строит свой `createI18n(locale)` на вызов:
+    // в кроне между письмами много `await`, и глобальная активация сменила бы язык
+    // посреди сборки соседнего письма.
+    const mail = renderNotificationEmail(item.notification, {
+      frontendUrl: this.frontendUrl,
+      locale: context.locale,
+    })
 
     try {
       await this.mailer.send({

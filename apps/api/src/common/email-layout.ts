@@ -32,6 +32,7 @@
  * (литеральная разметка, которую пишет разработчик — кнопка, `<strong>` в
  * оговорке). Голая строка на месте `html`/`footer` теперь не компилируется.
  */
+import type { Locale } from '@crm/shared'
 import { escapeHtml, type EscapedHtml } from './escape-html'
 
 /** Абзац письма и отступ ПОД ним, в пикселях. */
@@ -51,6 +52,13 @@ export interface EmailLayoutInput {
    * оговорка «если письмо пришло по ошибке…»), у писем уведомлений его нет.
    */
   footer?: EscapedHtml
+  /**
+   * Язык письма — значение атрибута `<html lang>` (код локали, не текст).
+   * Дефолт `'ru'` существует ТОЛЬКО до миграции приглашения (PR2 плана
+   * i18n-emails): приглашение ещё не передаёт локаль, и его эталон остаётся
+   * байт-в-байт прежним. PR2 передаёт локаль и делает поле обязательным.
+   */
+  lang?: Locale | 'ru'
 }
 
 function paragraph(html: string, margin: string): string {
@@ -73,7 +81,7 @@ export function renderEmailLayout(input: EmailLayoutInput): string {
   const footer = input.footer === undefined ? '' : `\n${paragraph(input.footer, '24px 0 0 0')}`
 
   return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${input.lang ?? 'ru'}">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />

@@ -22,6 +22,7 @@ import {
   isActionRequiredNotificationType,
   isEmailChannelLocked,
   isNewNotificationType,
+  type Locale,
   type NewNotificationType,
 } from '@crm/shared'
 import type { SubjectResolution } from './notification-subject-resolver'
@@ -167,6 +168,12 @@ export interface DeliveryContext {
    * котором письмо всё ещё уходит.
    */
   subjectState?: SubjectResolution | undefined
+  /**
+   * Язык ПОЛУЧАТЕЛЯ на момент отправки (`users.locale`; мусор и «пользователя нет»
+   * дают `uk`). `decideDelivery` его не читает — поле нужно только рендерерам письма,
+   * и на решение «слать ли и куда» влиять не может (закреплено тестом).
+   */
+  locale: Locale
 }
 
 export type SendDecision = { send: true; to: string } | { send: false; skipReason: SkipReason }

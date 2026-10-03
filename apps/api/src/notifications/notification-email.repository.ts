@@ -18,7 +18,7 @@ import {
   userEmails,
   users,
 } from '../database/schema'
-import type { NotificationSubjectType } from '@crm/shared'
+import { resolveLocale, type NotificationSubjectType } from '@crm/shared'
 import { backoffMs, type DeliveryContext, type SkipReason } from './notification-email-outbox'
 import type { ClaimedEmail, OutboxGateway } from './notification-email.cron'
 import type { NotificationEmailSource } from './notification-email-copy'
@@ -139,6 +139,7 @@ export class OutboxRepository implements OutboxGateway {
         archivedAt: users.archivedAt,
         email: userEmails.email,
         kind: userEmails.kind,
+        locale: users.locale,
       })
       .from(users)
       .leftJoin(userEmails, eq(userEmails.userId, users.id))
@@ -161,6 +162,11 @@ export class OutboxRepository implements OutboxGateway {
         r.email !== null && r.kind !== null ? [{ email: r.email, kind: r.kind }] : [],
       ),
       emailEnabled: pref?.emailEnabled ?? null,
+      // Язык ПОЛУЧАТЕЛЯ, читаемый в момент отправки (не постановки): локаль,
+      // сменённая между событием и отправкой или между ретраями, учитывается.
+      // `resolveLocale` — мусор / `null` / «пользователя нет» дают `uk`, не
+      // исключение; крон не читает ни cookie, ни заголовки — у него нет запроса.
+      locale: resolveLocale([rows[0]?.locale ?? null]),
     }
   }
 

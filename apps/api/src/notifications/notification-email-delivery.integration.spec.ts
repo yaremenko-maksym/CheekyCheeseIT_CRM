@@ -731,4 +731,101 @@ describe.skipIf(!hasDatabaseUrl())('доставка писем на живой 
       expect(after!.skipReason).toBe('STALE')
     })
   })
+
+  /**
+   * i18n-письма PR1 (п.1.7): язык ПОЛУЧАТЕЛЯ на живом SQL. `users.locale` читает настоящий
+   * `OutboxRepository.deliveryContextFor` в момент отправки; крон — настоящий; подменён только
+   * HTTP к провайдеру (перехватчик письма). Название команды в образцах — ASCII, поэтому
+   * кириллица в английском письме может прийти ТОЛЬКО из каталога, то есть означает
+   * протёкший чужой язык.
+   */
+  describe('i18n: язык получателя на живой базе', () => {
+    const CYRILLIC = /[А-Яа-яЁёІіЇїЄєҐґ]/
+    const TEAM_ID = 'f7a30000-0000-4007-b000-000000000001'
+
+    function teamInput(userId: string) {
+      return {
+        userId,
+        type: 'TEAM_MEMBER_ADDED' as const,
+        title: 'team',
+        subjectType: 'TEAM' as const,
+        subjectId: TEAM_ID,
+        data: { teamName: 'Core Platform' },
+      }
+    }
+
+    async function enqueueTeamMail(userId: string): Promise<void> {
+      await db.transaction(async (tx) => {
+        await service.createInTx(tx, teamInput(userId))
+      })
+    }
+
+    function capturingCron() {
+      const sent: { to: string[]; subject: string; text: string; html: string }[] = []
+      const mailer = {
+        isConfigured: true,
+        send: async (input: { to: string[]; subject: string; text: string; html: string }) => {
+          sent.push(input)
+        },
+      }
+      const config = {
+        get: (key: string) =>
+          key === 'FRONTEND_URL' ? 'https://app.cheekycheese.tech' : 'hr@cheekycheese.tech',
+      }
+      const cron = new NotificationEmailCronService(
+        repo,
+        mailer as never,
+        makeTelemetryErrorsStub() as never,
+        config as never,
+      )
+      return { cron, sent }
+    }
+
+    /** Соседние спеки тоже кладут письма в очередь — смотрим ТОЛЬКО на адреса своих получателей. */
+    const ADDRESS_A = 'a.personal@gmail.com'
+    const ADDRESS_B = 'b@cheekycheese.tech'
+
+    it('два получателя, два языка: каждое письмо на языке СВОЕГО получателя, без чужого', async () => {
+      await db.update(users).set({ locale: 'en' }).where(eq(users.id, USER_A))
+      await db.update(users).set({ locale: 'uk' }).where(eq(users.id, USER_B))
+      await enqueueTeamMail(USER_A)
+      await enqueueTeamMail(USER_B)
+      const { cron, sent } = capturingCron()
+
+      await cron.drainOnce()
+
+      const toA = sent.filter((m) => m.to[0] === ADDRESS_A)
+      const toB = sent.filter((m) => m.to[0] === ADDRESS_B)
+      expect(toA).toHaveLength(1)
+      expect(toB).toHaveLength(1)
+      expect(toA[0]!.subject).toBe('You were added to the team “Core Platform”')
+      expect(toA[0]!.html).toContain('<html lang="en">')
+      // Ни одного кириллического знака ни в теме, ни в тексте, ни в разметке английского письма.
+      expect(`${toA[0]!.subject}\n${toA[0]!.text}\n${toA[0]!.html}`).not.toMatch(CYRILLIC)
+      expect(toB[0]!.subject).toBe('Вас додали до команди «Core Platform»')
+      expect(toB[0]!.html).toContain('<html lang="uk">')
+    })
+
+    it('локаль сменили между постановкой и отправкой — письмо уходит на новом языке', async () => {
+      await enqueueTeamMail(USER_A) // в момент постановки у получателя `uk` (умолчание)
+      await db.update(users).set({ locale: 'en' }).where(eq(users.id, USER_A))
+      const { cron, sent } = capturingCron()
+
+      await cron.drainOnce()
+
+      const toA = sent.filter((m) => m.to[0] === ADDRESS_A)
+      expect(toA).toHaveLength(1)
+      expect(toA[0]!.subject).toBe('You were added to the team “Core Platform”')
+    })
+
+    it('deliveryContextFor отдаёт users.locale этого получателя', async () => {
+      await db.update(users).set({ locale: 'en' }).where(eq(users.id, USER_A))
+
+      const forA = await repo.deliveryContextFor(USER_A, 'TEAM_MEMBER_ADDED')
+      const forB = await repo.deliveryContextFor(USER_B, 'TEAM_MEMBER_ADDED')
+
+      expect(forA.locale).toBe('en')
+      expect(forB.locale).toBe('uk')
+    })
+  })
 })

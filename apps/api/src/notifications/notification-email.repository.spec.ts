@@ -3,7 +3,7 @@ import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import { OutboxRepository } from './notification-email.repository'
 import type { DatabaseService } from '../database/database.service'
-import { approvals, projects } from '../database/schema'
+import { approvals, projects, users } from '../database/schema'
 import type { NotificationEmailSource } from './notification-email-copy'
 
 /**
@@ -116,6 +116,90 @@ describe('OutboxRepository — предикат status=QUEUED на марках'
     void repo.markFailed('e-6', 'Resend API HTTP 500')
 
     expect(sets[0]).toMatchObject({ status: 'FAILED', lastError: 'Resend API HTTP 500' })
+  })
+})
+
+/**
+ * `deliveryContextFor` — язык получателя (i18n-письма PR1, план п.1.5).
+ *
+ * Мокается только исполнитель (`select → from → [leftJoin] → where`); форма самого SQL
+ * доказана живым Postgres (`notification-email-delivery.integration.spec.ts`), а здесь —
+ * то, что НЕ зависит от SQL: в запрос попала колонка `users.locale`, а необработанное
+ * значение из неё превращается в локаль через `resolveLocale` (мусор → `uk`, не исключение).
+ */
+function makeContextDb(
+  userRows: {
+    archivedAt: Date | null
+    email: string | null
+    kind: string | null
+    locale: string | null
+  }[],
+): {
+  db: DatabaseService
+  userSelectFields: unknown[]
+} {
+  const userSelectFields: unknown[] = []
+  const db = {
+    db: {
+      select: (fields: unknown) => ({
+        from: (t: unknown) => {
+          if (t === users) {
+            userSelectFields.push(fields)
+            return { leftJoin: () => ({ where: async () => userRows }) }
+          }
+          return { where: async () => [] }
+        },
+      }),
+    },
+  }
+  return { db: db as unknown as DatabaseService, userSelectFields }
+}
+
+const ROW = { archivedAt: null, email: 'a@example.com', kind: 'PERSONAL', locale: 'uk' }
+
+describe('OutboxRepository.deliveryContextFor — язык получателя', () => {
+  it.each(['uk', 'en'] as const)('отдаёт %s как есть', async (locale) => {
+    const { db } = makeContextDb([{ ...ROW, locale }])
+    const ctx = await new OutboxRepository(db).deliveryContextFor('u-1', 'TEAM_MEMBER_ADDED')
+    expect(ctx.locale).toBe(locale)
+  })
+
+  it.each([['xx'], ['ru'], [''], [null]])(
+    'мусорное значение %j деградирует в uk и не бросает',
+    async (locale) => {
+      const { db } = makeContextDb([{ ...ROW, locale }])
+      const ctx = await new OutboxRepository(db).deliveryContextFor('u-1', 'TEAM_MEMBER_ADDED')
+      expect(ctx.locale).toBe('uk')
+    },
+  )
+
+  it('пользователя нет (гонка с удалением) — uk, а не исключение', async () => {
+    const { db } = makeContextDb([])
+    const ctx = await new OutboxRepository(db).deliveryContextFor('u-gone', 'TEAM_MEMBER_ADDED')
+    expect(ctx.locale).toBe('uk')
+  })
+
+  it('язык берётся с ЭТОГО получателя: колонка users.locale входит в выборку', async () => {
+    const { db, userSelectFields } = makeContextDb([{ ...ROW, locale: 'en' }])
+    await new OutboxRepository(db).deliveryContextFor('u-1', 'TEAM_MEMBER_ADDED')
+    expect(userSelectFields[0]).toMatchObject({ locale: users.locale })
+  })
+
+  it('остальные поля контекста не пострадали от нового поля', async () => {
+    const { db } = makeContextDb([
+      { ...ROW, locale: 'en' },
+      { ...ROW, email: 'b@example.com', kind: 'WORK', locale: 'en' },
+    ])
+    const ctx = await new OutboxRepository(db).deliveryContextFor('u-1', 'TEAM_MEMBER_ADDED')
+    expect(ctx).toEqual({
+      archived: false,
+      addresses: [
+        { email: 'a@example.com', kind: 'PERSONAL' },
+        { email: 'b@example.com', kind: 'WORK' },
+      ],
+      emailEnabled: null,
+      locale: 'en',
+    })
   })
 })
 

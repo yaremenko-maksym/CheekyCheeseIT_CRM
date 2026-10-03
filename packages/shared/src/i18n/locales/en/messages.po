@@ -1279,6 +1279,11 @@ msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "{currency} can't be converted to USDT"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_ADDED.subject"
+msgstr "A transaction was added for you"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TRANSACTION_ADDED.title"
 msgstr "Transaction added for you"
@@ -1289,14 +1294,39 @@ msgid "api-error.DOCUMENT_UPLOAD_CATEGORY_FORBIDDEN"
 msgstr "You can't upload {category, select, RESUME {resumes} SCAN {scans} RECEIPT {receipts} LOGO {logos} other {documents of this type}}"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SHARE_CONFIRM_REQUIRED.line1.project"
+msgstr "You are being asked to change your share on the project “{projectName}”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SHARE_CONFIRM_REQUIRED.line1.base"
+msgstr "You are being asked to change your default share."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.PROJECT_CONFIRM_REQUIRED.line1"
+msgstr "You are being offered a place on the project “{projectName}”."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.TEAM_MEMBER_ADDED.title"
 msgstr "You were added to a team"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TEAM_MEMBER_ADDED.subject"
+msgstr "You were added to the team “{teamName}”"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.PROJECT_MEMBER_ADDED.title"
 msgstr "You were added to a project"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.PROJECT_MEMBER_ADDED.subject"
+msgstr "You were added to the project “{projectName}”"
 
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
@@ -1316,6 +1346,11 @@ msgstr "Your contract"
 #: packages/shared/src/schemas/pending-title-registry.ts
 msgid "pending.title.CONTRACT"
 msgstr "Your contract"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.DOCUMENT_SIGN_REQUIRED.line"
+msgstr "Your contract is ready and waiting for your signature."
 
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
 msgid "Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом"
@@ -1345,6 +1380,16 @@ msgstr "Your edits to the contract text will be replaced with the current templa
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Ваші пропозиції"
 msgstr "Your proposals"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.APPROVAL_REJECTED.subject"
+msgstr "Your proposal was declined"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.APPROVAL_CONFIRMED.subject"
+msgstr "Your proposal was accepted"
 
 #. placeholder {0}: pending.percent
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -2082,6 +2127,11 @@ msgstr "Open"
 msgid "Відкрити «{0}»"
 msgstr "Open “{0}”"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.shared.button.openCrm"
+msgstr "Open the CRM"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Відкрити PDF"
 msgstr "Open PDF"
@@ -2191,12 +2241,12 @@ msgstr "Open transaction: {0}"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_ADDED"
-msgstr "Open Finance"
+msgstr "Open finance"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_STATUS_CHANGED"
-msgstr "Open Finance"
+msgstr "Open finance"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Відкрити чек"
@@ -2269,6 +2319,11 @@ msgstr "Restoring…"
 #: apps/web/app/hooks/use-archive.ts
 msgid "Відновлено: проєкт, сеньйор, команда"
 msgstr "Restored: project, senior, team"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.shared.button.respond"
+msgstr "Respond to the request"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
@@ -2801,6 +2856,11 @@ msgstr "Day"
 msgid "Деталі"
 msgstr "Details"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.shared.details"
+msgstr "Details are in the CRM."
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog.tsx
 msgid "Деталі виплати"
 msgstr "Payout details"
@@ -2808,6 +2868,11 @@ msgstr "Payout details"
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Деталі проєкту"
 msgstr "Project details"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.PROJECT_MEMBER_ADDED.line"
+msgstr "Project details and its members are in the CRM."
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Деталі рахунку"
@@ -3321,11 +3386,21 @@ msgstr "Declare income on a USDT project as USDT income so the senior's and drop
 msgid "api-error.FINANCE_ADMIN_INCOME_PROJECT_MUST_BE_ADMIN_OWNED"
 msgstr "Admin income can only be declared for an admin's project"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_STATUS_CHANGED.subject.validated"
+msgstr "Income validated"
+
 #. placeholder {0}: formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Дохід від {0}"
 msgstr "Income from {0}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_STATUS_CHANGED.subject.rejected"
+msgstr "Income rejected"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 msgid "Дохід дропа (неоплачена частка)"
@@ -3824,6 +3899,26 @@ msgstr "Request to Etherscan, will take a few seconds"
 msgid "Запит на дію"
 msgstr "Action required"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.PROJECT_CONFIRM_REQUIRED.subject"
+msgstr "Request to add the project “{projectName}”"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SHARE_CONFIRM_REQUIRED.subject.base"
+msgstr "Request to change your default share"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SHARE_CONFIRM_REQUIRED.subject.project"
+msgstr "Request to change your share on the project “{projectName}”"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.DOCUMENT_SIGN_REQUIRED.subject"
+msgstr "Request to sign your contract"
+
 #: apps/web/app/lib/axios-utils.ts
 msgid "Запитувані дані не знайдено."
 msgstr "The requested data wasn't found."
@@ -3907,6 +4002,11 @@ msgstr "The invitation wasn’t sent — the mail service didn’t respond. Try 
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.INVITE_INVALID"
 msgstr "The invite is invalid"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.SHARE_CONFIRM_REQUIRED.line2"
+msgstr "Your previous share still applies. The new one takes effect only after you agree."
 
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 msgid "Зараз не призначено на проєкт"
@@ -6283,6 +6383,11 @@ msgstr "New ({newCount})"
 msgid "notification.VACANCY_APPLICATION.title"
 msgstr "New vacancy application"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.VACANCY_APPLICATION.subject"
+msgstr "New application for the vacancy “{vacancyTitle}”"
+
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 msgid "Новий запис у журнал легенди…"
 msgstr "A new entry in the legend journal…"
@@ -8090,6 +8195,11 @@ msgstr "Hide password"
 msgid "Приходів ще немає"
 msgstr "No income yet"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.APPROVAL_REJECTED.line.reason"
+msgstr "The reason is in the CRM."
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Причина видалення (обов’язково)"
 msgstr "Deletion reason (required)"
@@ -8107,6 +8217,11 @@ msgstr "Rejection reason"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REJECTION_REASON_TOO_LONG"
 msgstr "Rejection reason — 500 characters max"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_STATUS_CHANGED.line.rejected"
+msgstr "The reason is in the CRM."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Причина відмови (у разі відмови)"
@@ -8220,6 +8335,11 @@ msgstr "The project is not archived"
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.PROJECT_NOT_FOUND"
 msgstr "Project not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.PROJECT_CONFIRM_REQUIRED.line2"
+msgstr "The project will not start until the participants respond."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -8457,8 +8577,18 @@ msgstr "An invoice isn't issued for this transaction type"
 msgid "Рахунок отримувача"
 msgstr "Recipient account"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.INVOICE_SIGN_REQUIRED.subject"
+msgstr "Invoice awaiting your signature"
+
 #: apps/web/app/hooks/use-invoices.ts
 msgid "Рахунок підписано"
+msgstr "Invoice signed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.INVOICE_SIGNED.subject"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
@@ -9129,6 +9259,11 @@ msgstr "Members"
 msgid "Склад команди"
 msgstr "Team composition"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TEAM_MEMBER_ADDED.line"
+msgstr "The team roster is in the CRM."
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Скопійовано"
@@ -9193,9 +9328,59 @@ msgstr "Interview not found"
 msgid "Співробітник"
 msgstr "Employee"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.rejected.baseShare"
+msgstr "The employee declined the change of their default share."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.rejected.projectShare"
+msgstr "The employee declined the change of their share on the project “{subjectTitle}”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.rejected.projectShareUntitled"
+msgstr "The employee declined the change of their share on the project."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.rejected.project"
+msgstr "The employee declined to take part in the project “{subjectTitle}”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.rejected.projectUntitled"
+msgstr "The employee declined to take part in the project."
+
 #: apps/web/app/components/user-profile/contract/ContractActionBar.tsx
 msgid "Співробітник не зможе підписати, поки ви знову не позначите контракт готовим до підписання"
 msgstr "The employee won’t be able to sign until you mark the contract ready to sign again"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.accepted.project"
+msgstr "The employee agreed to take part in the project “{subjectTitle}”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.accepted.projectUntitled"
+msgstr "The employee agreed to take part in the project."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.accepted.baseShare"
+msgstr "The employee agreed to change their default share."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.accepted.projectShare"
+msgstr "The employee agreed to change their share on the project “{subjectTitle}”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.approval.accepted.projectShareUntitled"
+msgstr "The employee agreed to change their share on the project."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
@@ -9612,6 +9797,11 @@ msgid "api-error.FINANCE_OBLIGATION_AMOUNT_CHANGED"
 msgstr "The obligation amount changed after loading — refresh the page and try closing it again"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.shared.amountAndDetails"
+msgstr "The amount and details are in the CRM."
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.AMOUNT_MUST_BE_POSITIVE"
 msgstr "Amount must be greater than zero"
@@ -9892,6 +10082,11 @@ msgstr "Transaction archived"
 msgid "Транзакція виплати"
 msgstr "Payout transaction"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_ADDED.subject.project"
+msgstr "Transaction on project “{projectName}”"
+
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Транзакція знову з’явиться в загальному списку та в усіх розрахунках."
 msgstr "The transaction will reappear in the general list and in all calculations."
@@ -9959,9 +10154,19 @@ msgstr "You don't have an active team. Create your own or join a drop's team."
 msgid "api-error.ALREADY_HAS_ACTIVE_TEAM"
 msgstr "You already have an active team"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TRANSACTION_ADDED.line"
+msgstr "There is a new transaction in your finances. The amount and details are in the CRM."
+
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "У застосунку"
 msgstr "In-app"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TEAM_NEW_MEMBER.subject"
+msgstr "New member in the team “{teamName}”"
 
 #. placeholder {0}: impact.hrAccountantsOnTeam ?? 0
 #. placeholder {1}: impact.juniorsAffected ?? 0
@@ -10403,6 +10608,11 @@ msgstr "Uploaded by"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Хто перевірив"
 msgstr "Reviewed by"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.TEAM_NEW_MEMBER.line"
+msgstr "See who it is in the CRM."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Хто створив"
