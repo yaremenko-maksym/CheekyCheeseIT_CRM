@@ -53,9 +53,26 @@ function ctx(over: Partial<DeliveryContext> = {}): DeliveryContext {
     archived: false,
     addresses: [{ email: 'ivan@cheekycheese.tech', kind: 'WORK' }],
     emailEnabled: null,
+    locale: 'uk',
     ...over,
   }
 }
+
+describe('decideDelivery — язык получателя не влияет на решение', () => {
+  it.each([
+    ['TEAM_MEMBER_ADDED', {}],
+    ['PROJECT_CONFIRM_REQUIRED', { subjectState: 'active' as const }],
+    ['PROJECT_CONFIRM_REQUIRED', { subjectState: 'missing' as const }],
+    ['TEAM_MEMBER_ADDED', { archived: true }],
+    ['TEAM_MEMBER_ADDED', { emailEnabled: false }],
+    ['TEAM_MEMBER_ADDED', { addresses: [] }],
+    ['SOME_LEGACY_TYPE', {}],
+  ] as const)('%s %j: тот же результат для locale=en и locale=uk', (type, over) => {
+    expect(decideDelivery(type, ctx({ ...over, locale: 'en' }))).toEqual(
+      decideDelivery(type, ctx({ ...over, locale: 'uk' })),
+    )
+  })
+})
 
 describe('decideEnqueue — что попадает в очередь при записи уведомления', () => {
   it('новый тип живому получателю встаёт в очередь', () => {

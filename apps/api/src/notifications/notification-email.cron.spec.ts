@@ -1,5 +1,8 @@
 import { Logger } from '@nestjs/common'
+import { i18n as globalI18n } from '@lingui/core'
 import { describe, expect, it, vi } from 'vitest'
+import type { Locale } from '@crm/shared'
+import { renderNotificationEmail } from './notification-email-copy'
 import {
   MAX_EMAIL_ATTEMPTS,
   type DeliveryContext,
@@ -12,6 +15,13 @@ import {
   type ClaimedEmail,
   type OutboxGateway,
 } from './notification-email.cron'
+
+// Шпион ПОВЕРХ настоящего рендерера (не замена): нужен ровно для одного утверждения —
+// пропущенная строка не рендерится вовсе. Всё остальное в файле видит настоящий текст письма.
+vi.mock('./notification-email-copy', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./notification-email-copy')>()
+  return { ...actual, renderNotificationEmail: vi.fn(actual.renderNotificationEmail) }
+})
 
 /**
  * Отправщик — AC2 позиции 7a: пятнадцать секунд, ретраи, `FAILED` после
@@ -138,6 +148,7 @@ function defaultContext(userId: string): DeliveryContext {
     archived: false,
     addresses: [{ email: `${userId}@cheekycheese.tech`, kind: 'WORK' }],
     emailEnabled: null,
+    locale: 'uk',
   }
 }
 
@@ -179,7 +190,7 @@ function makeService(opts: {
   /** Телеметрия сама отказала — отдельный путь, у него свой тест. */
   telemetryFails?: Error
 }) {
-  const sends: { to: string[]; subject: string; text: string; replyTo: string }[] = []
+  const sends: { to: string[]; subject: string; text: string; html: string; replyTo: string }[] = []
   const mailer = {
     get isConfigured() {
       return opts.configured ?? true
@@ -195,6 +206,7 @@ function makeService(opts: {
         to: input.to,
         subject: input.subject,
         text: input.text,
+        html: input.html,
         replyTo: input.replyTo,
       })
       if (opts.send) await opts.send(input)
@@ -234,7 +246,7 @@ describe('отправщик — успешный путь', () => {
     await service.drainOnce()
 
     expect(sends).toHaveLength(1)
-    expect(sends[0]!.subject).toBe('Запрос на добавление проекта «Мобильный банк»')
+    expect(sends[0]!.subject).toBe('Запит на додавання проєкту «Мобильный банк»')
     // Адрес в письме — из настройки `FRONTEND_URL`, а не из константы в коде.
     // Тип требует действия, поэтому ведёт на `/pending` (SPEC-H-3).
     expect(sends[0]!.text).toContain('https://app.cheekycheese.tech/pending')
@@ -251,6 +263,7 @@ describe('отправщик — успешный путь', () => {
         { email: 'ivan@gmail.com', kind: 'PERSONAL' },
       ],
       emailEnabled: null,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -446,7 +459,7 @@ describe('отправщик — отказы и ретраи', () => {
     // отправить» становилось неотличимо от «не полагалось отправлять»
     // (SPEC-H-1 / SR-L-2). `FAILED` обязан остаться пустым: ошибки не было.
     const gw = makeGateway([claimed()])
-    gw.context = { archived: false, addresses: [], emailEnabled: null }
+    gw.context = { archived: false, addresses: [], emailEnabled: null, locale: 'uk' }
     const { service, sends } = makeService({ gateway: gw })
 
     await service.drainOnce()
@@ -584,7 +597,7 @@ describe('отказы видны в журнале, а не только в б�
     // колонке `skip_reason`. Проза («некуда слать») требовала бы второго
     // словаря рядом с первым.
     const gw = makeGateway([claimed()])
-    gw.context = { archived: false, addresses: [], emailEnabled: null }
+    gw.context = { archived: false, addresses: [], emailEnabled: null, locale: 'uk' }
     const { service } = makeService({ gateway: gw })
     const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
 
@@ -698,6 +711,7 @@ describe('решение принимается в момент ОТПРАВКИ
       archived: false,
       addresses: [{ email: 'u-1@cheekycheese.tech', kind: 'WORK' }],
       emailEnabled: false,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -715,6 +729,7 @@ describe('решение принимается в момент ОТПРАВКИ
       archived: false,
       addresses: [{ email: 'u-1@cheekycheese.tech', kind: 'WORK' }],
       emailEnabled: false,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -744,6 +759,7 @@ describe('решение принимается в момент ОТПРАВКИ
       archived: true,
       addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
       emailEnabled: null,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -764,6 +780,7 @@ describe('решение принимается в момент ОТПРАВКИ
       archived: true,
       addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
       emailEnabled: false,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -830,6 +847,7 @@ describe('устаревшее согласование не уходит пис
       archived: true,
       addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
       emailEnabled: null,
+      locale: 'uk',
     }
     gw.subjectState = 'missing'
     const { service, sends } = makeService({ gateway: gw })
@@ -907,6 +925,7 @@ describe('заголовки письма', () => {
       archived: false,
       addresses: [{ email: 'ivan@gmail.com', kind: 'PERSONAL' }],
       emailEnabled: null,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -936,9 +955,7 @@ describe('заголовки письма', () => {
     await service.drainOnce()
 
     expect(sends[0]!.subject).not.toMatch(/[\r\n]/)
-    expect(sends[0]!.subject).toBe(
-      'Запрос на добавление проекта «Проект Bcc: attacker@example.com»',
-    )
+    expect(sends[0]!.subject).toBe('Запит на додавання проєкту «Проект Bcc: attacker@example.com»')
   })
 
   it('перевод строки в адресе получателя не разрывает заголовки (SR-L-7)', async () => {
@@ -952,6 +969,7 @@ describe('заголовки письма', () => {
       archived: false,
       addresses: [{ email: 'ivan@gmail.com\r\nBcc: attacker@example.com', kind: 'PERSONAL' }],
       emailEnabled: null,
+      locale: 'uk',
     }
     const { service, sends } = makeService({ gateway: gw })
 
@@ -1099,5 +1117,132 @@ describe('зависший проход не глушит отправщик н�
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+/**
+ * Язык получателя (i18n-письма PR1, план п.1.6). Крон читает `users.locale` через
+ * `deliveryContextFor` В МОМЕНТ отправки (вместе с архивом, адресом и настройкой) и передаёт
+ * его рендереру. Ничего активного и глобального: каждое письмо — свой `createI18n(locale)`.
+ */
+const EN_SUBJECT = 'Request to add the project “Мобильный банк”'
+const UK_SUBJECT = 'Запит на додавання проєкту «Мобильный банк»'
+
+/** Подменить локаль ответа шлюза ПО ПОЛУЧАТЕЛЮ: другие поля контекста остаются прежними. */
+function withLocales(
+  gw: ReturnType<typeof makeGateway>,
+  byUser: () => Record<string, Locale>,
+): void {
+  const base = gw.deliveryContextFor.bind(gw)
+  gw.deliveryContextFor = async (userId: string, type: string) => ({
+    ...(await base(userId, type)),
+    locale: byUser()[userId] ?? 'uk',
+  })
+}
+
+describe('отправщик — язык получателя', () => {
+  it('получатель с en получает английское письмо с lang="en"', async () => {
+    const gw = makeGateway([claimed({ userId: 'u-en' })])
+    withLocales(gw, () => ({ 'u-en': 'en' }))
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends[0]!.subject).toBe(EN_SUBJECT)
+    expect(sends[0]!.text).toBe(
+      'You are being offered a place on the project “Мобильный банк”.\n' +
+        'The project will not start until the participants respond.\n\n' +
+        'Respond to the request: https://app.cheekycheese.tech/pending',
+    )
+    expect(sends[0]!.html).toContain('<html lang="en">')
+    expect(sends[0]!.html).toContain('>Respond to the request</a>')
+  })
+
+  it('получатель с uk получает украинское письмо с lang="uk"', async () => {
+    const gw = makeGateway([claimed({ userId: 'u-uk' })])
+    withLocales(gw, () => ({ 'u-uk': 'uk' }))
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(sends[0]!.subject).toBe(UK_SUBJECT)
+    expect(sends[0]!.html).toContain('<html lang="uk">')
+    expect(sends[0]!.html).toContain('>Відповісти на запит</a>')
+  })
+
+  it.each([
+    ['en затем uk', ['u-en', 'u-uk'], [EN_SUBJECT, UK_SUBJECT]],
+    ['uk затем en', ['u-uk', 'u-en'], [UK_SUBJECT, EN_SUBJECT]],
+  ] as const)(
+    'один проход, два получателя (%s): каждое письмо на языке СВОЕГО получателя',
+    async (_name, recipients, subjects) => {
+      const gw = makeGateway(recipients.map((userId, i) => claimed({ id: `e-${i + 1}`, userId })))
+      withLocales(gw, () => ({ 'u-en': 'en', 'u-uk': 'uk' }))
+      const { service, sends } = makeService({ gateway: gw })
+
+      await service.drainOnce()
+
+      // Адрес выводится заглушкой из userId: связка «письмо ↔ адрес ↔ язык» проверяется целиком.
+      expect(sends.map((s) => [s.to[0], s.subject])).toEqual(
+        recipients.map((u, i) => [`${u}@cheekycheese.tech`, subjects[i]]),
+      )
+      expect(sends.map((s) => /lang="(\w+)"/.exec(s.html)?.[1])).toEqual(
+        recipients.map((u) => (u === 'u-en' ? 'en' : 'uk')),
+      )
+    },
+  )
+
+  it('локаль спрашивается у шлюза для userId ЭТОЙ строки и этого типа', async () => {
+    const gw = makeGateway([
+      claimed({ id: 'e-1', userId: 'u-en' }),
+      claimed({ id: 'e-2', userId: 'u-uk' }),
+    ])
+    withLocales(gw, () => ({ 'u-en': 'en', 'u-uk': 'uk' }))
+    const { service } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(gw.contextAskedFor).toEqual([
+      { userId: 'u-en', type: 'PROJECT_CONFIRM_REQUIRED' },
+      { userId: 'u-uk', type: 'PROJECT_CONFIRM_REQUIRED' },
+    ])
+  })
+
+  it('ретрай перечитывает локаль: смена языка между попытками видна во втором письме', async () => {
+    let current: Locale = 'uk'
+    const gw = makeGateway([claimed({ userId: 'u-1', attempts: 3 })])
+    withLocales(gw, () => ({ 'u-1': current }))
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+    current = 'en'
+    gw.claimDue = async () => [claimed({ userId: 'u-1', attempts: 4 })]
+    await service.drainOnce()
+
+    expect(sends.map((s) => s.subject)).toEqual([UK_SUBJECT, EN_SUBJECT])
+  })
+
+  it('пропущенная строка не рендерится вовсе', async () => {
+    vi.mocked(renderNotificationEmail).mockClear()
+    const gw = makeGateway([claimed()])
+    gw.context = { ...gw.context, archived: true, locale: 'en' }
+    const { service, sends } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(gw.skipped).toEqual([{ id: 'e-1', reason: 'USER_ARCHIVED' }])
+    expect(sends).toHaveLength(0)
+    expect(renderNotificationEmail).not.toHaveBeenCalled()
+  })
+
+  it('глобальный синглтон @lingui/core не тронут за проход (никакого i18n.activate)', async () => {
+    const before = globalI18n.locale
+    const gw = makeGateway([claimed({ userId: 'u-en' }), claimed({ id: 'e-2', userId: 'u-uk' })])
+    withLocales(gw, () => ({ 'u-en': 'en', 'u-uk': 'uk' }))
+    const { service } = makeService({ gateway: gw })
+
+    await service.drainOnce()
+
+    expect(globalI18n.locale).toBe(before)
   })
 })

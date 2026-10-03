@@ -64,6 +64,30 @@ describe('renderEmailLayout', () => {
 </html>`)
   })
 
+  it.each(['uk', 'en'] as const)(
+    'lang=%s: меняется ТОЛЬКО атрибут <html lang>, остальное байт-в-байт как у ru',
+    (lang) => {
+      const input = {
+        blocks: [{ html: trustedHtml('Line.'), spaceAfter: 24 }],
+        button: { href: 'https://x.example/', label: 'Go' },
+      }
+      const ru = renderEmailLayout(input)
+      const localized = renderEmailLayout({ ...input, lang })
+      expect(localized).toContain(`<html lang="${lang}">`)
+      expect(localized).not.toContain('lang="ru"')
+      expect(localized.replace(`<html lang="${lang}">`, '<html lang="ru">')).toBe(ru)
+    },
+  )
+
+  it('без lang остаётся ru (переходное состояние до миграции приглашения, PR2)', () => {
+    expect(
+      renderEmailLayout({
+        blocks: [{ html: trustedHtml('Line.'), spaceAfter: 24 }],
+        button: { href: 'https://x.example/', label: 'Go' },
+      }),
+    ).toContain('<html lang="ru">')
+  })
+
   it('без абзаца после кнопки за таблицей кнопки сразу идёт закрытие', () => {
     // Ровно то, чем письма уведомлений отличаются от приглашения. Пустая
     // строка на месте отсутствующего абзаца выглядела бы в клиенте как лишний
