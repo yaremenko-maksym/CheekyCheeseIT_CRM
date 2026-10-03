@@ -241,6 +241,9 @@ export function DocumentDetailDialog({
   // Display name: original (cyrillic preserved) when available, else sanitized.
   // A virtual employee contract carries `nameKind` instead of prose and is
   // rendered in the viewer's locale (i18n server-text PR2).
+  // Stryker disable next-line StringLiteral: the `''` arm is unreachable — hooks must
+  // run before the `if (!doc) return null` guard below, so `doc` can be null here, but
+  // the title is never rendered in that case; no test can observe the fallback value.
   const displayName = doc ? getDocumentDisplayName(i18n, doc) : ''
 
   // -------------------------------------------------------------------------

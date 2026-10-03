@@ -27,7 +27,7 @@ describe('CONTRACT_NAME_MESSAGES', () => {
     )
     expect(renderMessage(UK, CONTRACT_NAME_MESSAGES.CONTRACT)).toBe('Трудовий договір')
     expect(renderMessage(UK, CONTRACT_NAME_MESSAGES.CONTRACT_TO_SIGN)).toBe(
-      'Трудовий договір (до підписання)',
+      'Трудовий договір (очікує підпису)',
     )
     expect(renderMessage(UK, CONTRACT_NAME_MESSAGES.CONTRACT_DRAFT)).toBe(
       'Трудовий договір (чернетка)',

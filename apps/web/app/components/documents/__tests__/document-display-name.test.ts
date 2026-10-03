@@ -39,7 +39,7 @@ describe('getDocumentDisplayName', () => {
       'Трудовий договір',
     )
     expect(getDocumentDisplayName(uk, virtual({ ...noNumber, nameKind: 'CONTRACT_TO_SIGN' }))).toBe(
-      'Трудовий договір (до підписання)',
+      'Трудовий договір (очікує підпису)',
     )
     expect(getDocumentDisplayName(uk, virtual({ ...noNumber, nameKind: 'CONTRACT_DRAFT' }))).toBe(
       'Трудовий договір (чернетка)',
@@ -57,6 +57,16 @@ describe('getDocumentDisplayName', () => {
     )
     expect(getDocumentDisplayName(en, virtual({ ...noNumber, nameKind: 'CONTRACT_DRAFT' }))).toBe(
       'Employment contract (draft)',
+    )
+  })
+
+  it('a SIGNED kind without a number substitutes an empty string, never "null"/"undefined"', async () => {
+    const uk = await localized('uk')
+    expect(getDocumentDisplayName(uk, virtual({ contractNumber: null })).trim()).toBe(
+      'Трудовий договір',
+    )
+    expect(getDocumentDisplayName(uk, virtual({ contractNumber: undefined })).trim()).toBe(
+      'Трудовий договір',
     )
   })
 

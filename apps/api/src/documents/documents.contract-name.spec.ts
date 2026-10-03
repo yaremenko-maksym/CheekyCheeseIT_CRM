@@ -164,6 +164,33 @@ describe('DocumentsService — contract virtual entry structured name (PR2)', ()
     expect(result[0]!.name).not.toContain(rows[0]!.id)
   })
 
+  it('the wire `name` is exactly the fixed ASCII marker (client ignores it when nameKind is set)', async () => {
+    const svc = makeService([makeContractRow({ status: 'READY_TO_SIGN', userId: SENIOR.id })])
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.name).toBe('employee-contract')
+  })
+
+  it('a NOT-signed contract never leaks a contractNumber, even if a signedContract relation is loaded', async () => {
+    // Stale relation on a contract that was moved back to READY_TO_SIGN.
+    const rows = [
+      {
+        id: 'reset-id',
+        userId: SENIOR.id,
+        status: 'READY_TO_SIGN' as const,
+        createdAt: new Date('2026-06-01'),
+        signedContract: { contractNumber: 'CHK-STALE1', pdfSizeBytes: null },
+      },
+    ]
+    const svc = makeService(rows as never)
+
+    const result = await svc.list(SENIOR, { category: 'CONTRACT' })
+
+    expect(result[0]!.nameKind).toBe('CONTRACT_TO_SIGN')
+    expect(result[0]!.contractNumber).toBeNull()
+  })
+
   it('s3Key is absent from public DTO — not exposed to callers (s3/documents hygiene)', async () => {
     const rows = [
       makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-AABBCC', userId: SENIOR.id }),

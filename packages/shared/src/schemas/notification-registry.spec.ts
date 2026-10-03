@@ -160,6 +160,22 @@ describe('три замороженных типа — реестр, не зам
     expect(rendered.detail).toBe('1 500,00 USDT · ТОВ Ромашка')
   })
 
+  it('DOCUMENT_SIGN_REQUIRED: the new code shape and the legacy stored shape both parse, each KEEPING its key', () => {
+    const schema = notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED')
+    // toEqual on the OUTPUT: z.object strips unknown keys, so a branch that
+    // lost its field would still "parse" — to `{}`.
+    expect(schema.parse({ documentKind: 'EMPLOYEE_CONTRACT' })).toEqual({
+      documentKind: 'EMPLOYEE_CONTRACT',
+    })
+    expect(schema.parse({ documentTitle: 'Ваш контракт' })).toEqual({
+      documentTitle: 'Ваш контракт',
+    })
+    expect(() => schema.parse({ documentKind: 'SOMETHING_ELSE' })).toThrow()
+    expect(() => schema.parse({ documentKind: '' })).toThrow()
+    expect(() => schema.parse({ documentTitle: '' })).toThrow()
+    expect(() => schema.parse({})).toThrow()
+  })
+
   it('INVOICE_SIGN_REQUIRED рендерится из реестра, деталь — сума', () => {
     const data = notificationDataSchemaFor('INVOICE_SIGN_REQUIRED').parse({
       amount: '1500.000000',
