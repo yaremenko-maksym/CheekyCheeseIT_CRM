@@ -323,7 +323,11 @@ export function DocumentDetailDialog({
             a single column — metadata first, preview below. */}
         <CrmDialogContent maxWidth="sm:max-w-4xl">
           <CrmDialogHeader>
-            <DialogTitle data-testid="document-detail-title" className="line-clamp-1 pr-8">
+            <DialogTitle
+              data-testid="document-detail-title"
+              className="line-clamp-1 pr-8"
+              title={displayName}
+            >
               {displayName}
             </DialogTitle>
             {/* Use div instead of DialogDescription to avoid <div>-in-<p> nesting warning (Badge renders <div>). */}

@@ -444,6 +444,16 @@ describe('DocumentDetailDialog — virtual contract name (PR2)', () => {
     expect(await dialogText()).toContain('Employment contract (awaiting signature)')
   })
 
+  it('title attribute carries the full name (line-clamp-1 cuts it on 320/375)', async () => {
+    await loadCatalog('en')
+    renderDialog(contractDoc({ nameKind: 'CONTRACT_TO_SIGN', contractNumber: null }))
+    await dialogText()
+    expect(screen.getByTestId('document-detail-title')).toHaveAttribute(
+      'title',
+      'Employment contract (awaiting signature)',
+    )
+  })
+
   it('a real upload still shows its filename', async () => {
     renderDialog(makeDoc({ originalName: 'Скан.pdf', nameKind: null }))
     expect(await dialogText()).toContain('Скан.pdf')

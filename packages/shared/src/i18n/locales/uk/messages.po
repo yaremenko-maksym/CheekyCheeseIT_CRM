@@ -9712,7 +9712,7 @@ msgstr "Трудовий договір"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/document-name-registry.ts
 msgid "document.contractName.CONTRACT_TO_SIGN"
-msgstr "Трудовий договір (до підписання)"
+msgstr "Трудовий договір (очікує підпису)"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/document-name-registry.ts

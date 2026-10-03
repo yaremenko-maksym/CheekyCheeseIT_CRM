@@ -24,7 +24,7 @@ export const CONTRACT_NAME_MESSAGES = {
   },
   CONTRACT_TO_SIGN: /* i18n */ {
     id: 'document.contractName.CONTRACT_TO_SIGN',
-    message: 'Трудовий договір (до підписання)',
+    message: 'Трудовий договір (очікує підпису)',
   },
   CONTRACT_DRAFT: /* i18n */ {
     id: 'document.contractName.CONTRACT_DRAFT',
