@@ -373,6 +373,38 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     )
   })
 
+  it('books the company side as the COMPANY code, not Russian prose (server-text PR3)', async () => {
+    const insertValues = vi.fn(() => ({
+      returning: () =>
+        Promise.resolve([
+          {
+            id: 'd-code',
+            txHash: '0x' + '2'.repeat(64),
+            amount: '500',
+            status: 'PAID',
+            createdAt: new Date(),
+          },
+        ]),
+    }))
+    const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: SENDER_WALLET,
+        confirmed: true,
+        confirmations: 30,
+        amountUsdt: 500,
+        amountUsdtMinor: '500000000',
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    await svc.submitDeposit({ txHashOrLink: '0x' + '2'.repeat(64) }, SENIOR)
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'COMPANY_DEPOSIT', receiverLabel: 'COMPANY' }),
+    )
+  })
+
   it('records a normalised (lowercase) sender address', async () => {
     const insertValues = vi.fn(() => ({
       returning: () =>
@@ -644,6 +676,7 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     receiverRole?: string
     ledgerTotals?: string[]
     inserted?: { id: string }
+    onValues?: (values: unknown) => void
   }) {
     const inserted = opts.inserted ?? { id: 'div-1' }
     // 7 ledger SUM terms: [deposits, payouts, adminIncome, dividends, salary,
@@ -652,7 +685,12 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     const dbtx = {
       execute: vi.fn().mockResolvedValue(undefined),
       select: selectReturning(ledgerTotals),
-      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
+      insert: vi.fn(() => ({
+        values: (v: unknown) => {
+          opts.onValues?.(v)
+          return { returning: () => Promise.resolve([inserted]) }
+        },
+      })),
     }
     return makeDb({
       query: {
@@ -761,6 +799,21 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     expect(res.amount).toBe(1234)
     expect(res.receiverId).toBe(ADMIN.id)
     expect(res.id).toBe('div-1')
+  })
+
+  it('books the company sender as the COMPANY code, not Russian prose (server-text PR3)', async () => {
+    let booked: unknown
+    const db = makeDividendDb({ onValues: (v) => (booked = v) })
+    const svc = makeService(db)
+    await svc.createDividend(
+      { amount: 100, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+      ADMIN,
+    )
+    expect(booked).toMatchObject({
+      type: 'DIVIDEND_TO_ADMIN',
+      senderId: null,
+      senderLabel: 'COMPANY',
+    })
   })
 
   it('acquires the advisory lock before reading balance (TOCTOU serialization)', async () => {

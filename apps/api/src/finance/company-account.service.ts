@@ -1,6 +1,11 @@
 import { HttpStatus, Injectable, Logger, NotFoundException } from '@nestjs/common'
 import { and, eq, isNull, sql } from 'drizzle-orm'
-import { COMPANY_REQUISITES_MAX, extractOnChainTxHash, receiptMandatoryError } from '@crm/shared'
+import {
+  COMPANY_ACCOUNT_LABEL,
+  COMPANY_REQUISITES_MAX,
+  extractOnChainTxHash,
+  receiptMandatoryError,
+} from '@crm/shared'
 import type {
   CompanyAccountDto,
   CompanyDepositDto,
@@ -372,7 +377,7 @@ export class CompanyAccountService {
             senderId: currentUser.id,
             senderLabel: currentUser.displayName,
             receiverId: null,
-            receiverLabel: 'Счёт компании',
+            receiverLabel: COMPANY_ACCOUNT_LABEL,
             txHash,
             txFromAddress: onChainFromAddress,
             createdBy: currentUser.id,
@@ -731,7 +736,7 @@ export class CompanyAccountService {
             amount: String(input.amount),
             currency: 'USDT',
             senderId: null,
-            senderLabel: 'Счёт компании',
+            senderLabel: COMPANY_ACCOUNT_LABEL,
             receiverId,
             recipientId: receiverId,
             createdBy: currentUser.id,

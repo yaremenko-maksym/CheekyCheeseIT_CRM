@@ -647,6 +647,7 @@ jobs:
             apps/api/drizzle/manual/2026-09-12_notification_preferences.sql \
             apps/api/drizzle/manual/2026-09-19_notification_email_skip_stale.sql \
             apps/api/drizzle/manual/2026-09-20_user_locale.sql \
+            apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql \
             scripts/devops/check-security-headers.sh \
             scripts/devops/check-nginx-perimeter.sh \
             scripts/devops/pg-backup.sh \
@@ -2227,6 +2228,22 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-09-20_user_locale.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-09-20_user_locale.sql
+
+      # ── server-text PR3: company-account counterparty label as the COMPANY code ──
+      # Idempotent data migration (UPDATE keyed on the old prose value + a
+      # fail-loud leftover check). Prod count was 0 at the time of writing, so it is
+      # a no-op guard there; it still ships so rows booked with the old prose
+      # before this deploy are converged and the AC is checkable.
+      - name: Copy company-account label code migration via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql'
+          target: '/opt/crm'
+          # apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -4005,6 +4022,28 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$USER_LOCALE_FILE"
             echo "==> user locale DDL applied successfully"
+
+            # ── server-text PR3: company-account counterparty label → COMPANY code ──
+            # Idempotent data migration; fails loud (RAISE EXCEPTION under
+            # ON_ERROR_STOP=1) if any row still carries the old prose marker.
+            # Source: apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql
+            COMPANY_LABEL_CODE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql"
+
+            if [ ! -f "$COMPANY_LABEL_CODE_FILE" ]; then
+              echo "ERROR: migration file not found at $COMPANY_LABEL_CODE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying company-account label code migration (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$COMPANY_LABEL_CODE_FILE"
+            echo "==> company-account label code migration applied successfully"
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS

@@ -53,6 +53,7 @@ import {
 import { cn } from '@/lib/utils'
 import { financeApi } from '@/routes/_authenticated/finance/api'
 import { fmtAmount } from '@/routes/_authenticated/finance/constants'
+import { displayCounterpartyLabel } from '@/routes/_authenticated/finance/components/counterparty-label'
 
 // Hard-coded list of admin partners. Backend re-validates the recipient is an
 // active ADMIN, so we don't need a /users fetch here (DROP/SENIOR can't reach
@@ -174,7 +175,8 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
 
   if (!tx) return null
 
-  const senderDisplay = tx.senderName ?? tx.senderLabel ?? '—'
+  const senderDisplay =
+    tx.senderName ?? displayCounterpartyLabel(tx.senderLabel, t`Рахунок компанії`) ?? '—'
   const amountLabel = fmtAmount(tx.amount, tx.currency)
   const trimmedHash = txHash.trim()
   const cryptoTxHashOk = trimmedHash.length >= 10

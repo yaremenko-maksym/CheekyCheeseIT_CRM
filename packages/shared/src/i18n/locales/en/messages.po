@@ -8239,6 +8239,7 @@ msgid "api-error.INVOICE_VOIDED"
 msgstr "The invoice was voided — refresh the page"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
+#: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx

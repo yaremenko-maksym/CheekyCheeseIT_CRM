@@ -438,7 +438,7 @@ describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)',
     const adminRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_DROP_COMPANY_ID)
     expect(adminRow, 'admin sees the row in the unfiltered list').toBeDefined()
     // Privileged: raw 'COMPANY' literal passes through unmasked (the front-end
-    // display layer maps it to «Счёт компании»).
+    // display layer maps it to the localized company label).
     expect(adminRow!.senderLabel).toBe('COMPANY')
   })
 

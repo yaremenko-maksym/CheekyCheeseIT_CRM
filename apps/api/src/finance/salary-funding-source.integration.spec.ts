@@ -256,7 +256,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
     // ── AC2: paySalary COMPANY_ACCOUNT ─────────────────────────────────────────
 
-    it('paySalary COMPANY_ACCOUNT → USDT forced, sender label «Счёт компании», debits balance', async () => {
+    it('paySalary COMPANY_ACCOUNT → USDT forced, sender label COMPANY code, debits balance', async () => {
       await cleanup()
       await seedCompanyDeposit(1000)
       const before = await myContribution() // +1000 deposit, 0 salary
@@ -283,7 +283,7 @@ describe.skipIf(!hasDatabaseUrl())(
         where: eq(transactions.id, pending.id),
       })
       expect((row as { fundingSource?: string | null }).fundingSource).toBe('COMPANY_ACCOUNT')
-      expect((row as { senderLabel?: string | null }).senderLabel).toBe('Счёт компании')
+      expect((row as { senderLabel?: string | null }).senderLabel).toBe('COMPANY')
       // txDate is stamped at pay time (non-null).
       expect((row as { txDate?: Date | null }).txDate).not.toBeNull()
       // The PAID company salary is counted by the balance formula → contribution
