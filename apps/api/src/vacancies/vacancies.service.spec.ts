@@ -14,7 +14,7 @@
  * vacancies.integration.spec.ts — this file focuses on the service's own
  * branching logic in isolation.
  */
-import { ConflictException, HttpException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
 import type { CreateVacancy, SessionUser } from '@crm/shared'
@@ -405,18 +405,27 @@ describe('VacanciesService', () => {
       const draftRow = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [draftRow] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, draftRow.id, { status: 'CLOSED' })).rejects.toThrow(
-        ConflictException,
-      )
+      const err = await svc
+        .update(ADMIN, draftRow.id, { status: 'CLOSED' })
+        .catch((e: unknown) => e)
+      expect(isApiError('VACANCY_INVALID_STATUS_TRANSITION', 409)(err)).toBe(true)
+      expect((err as HttpException).getResponse()).toMatchObject({
+        params: { from: 'DRAFT', to: 'CLOSED' },
+        message: 'Invalid vacancy status transition: DRAFT → CLOSED',
+      })
     })
 
     it('rejects an invalid transition (PUBLISHED → DRAFT) with 409', async () => {
       const publishedRow = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [publishedRow] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, publishedRow.id, { status: 'DRAFT' })).rejects.toThrow(
-        ConflictException,
-      )
+      const err = await svc
+        .update(ADMIN, publishedRow.id, { status: 'DRAFT' })
+        .catch((e: unknown) => e)
+      expect(isApiError('VACANCY_INVALID_STATUS_TRANSITION', 409)(err)).toBe(true)
+      expect((err as HttpException).getResponse()).toMatchObject({
+        params: { from: 'PUBLISHED', to: 'DRAFT' },
+      })
     })
 
     it('404 when the vacancy does not exist', async () => {

@@ -241,9 +241,12 @@ describe('ApplicationsService.apply()', () => {
         404,
       ),
     )
-    await expect(h.svc.apply('missing-slug', VALID_FIELDS, pdfFile(), '1.2.3.4')).rejects.toThrow(
-      HttpException,
-    )
+    const err = await h.svc
+      .apply('missing-slug', VALID_FIELDS, pdfFile(), '1.2.3.4')
+      .catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(404)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'VACANCY_NOT_FOUND' })
   })
 
   // OWNER DECISION 2026-08-03 (security-review round 2 — overturns round-1

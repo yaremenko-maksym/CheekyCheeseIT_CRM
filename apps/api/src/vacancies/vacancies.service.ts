@@ -27,7 +27,7 @@
  * GoogleIndexingService's no-throw guarantee were ever violated by a future
  * change to that file.
  */
-import { ConflictException, HttpStatus, Injectable, Logger } from '@nestjs/common'
+import { HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import type {
@@ -120,7 +120,7 @@ export class VacanciesService {
 
   /**
    * Up to 3 other PUBLISHED vacancies in the same domain, most recently
-   * published first (task C8 — "Похожие вакансии" internal-linking block).
+   * published first (task C8 — "Similar vacancies" internal-linking block).
    */
   private async findRelated(row: VacancyRow): Promise<VacancyRow[]> {
     return this.db.db.query.vacancies.findMany({
@@ -216,9 +216,10 @@ export class VacanciesService {
     if (dto.status !== undefined && dto.status !== row.status) {
       const allowed = VALID_TRANSITIONS[row.status] ?? []
       if (!allowed.includes(dto.status)) {
-        throw new ConflictException(
-          `Недопустимый переход статуса вакансии: ${row.status} → ${dto.status}`,
-        )
+        throw apiError('VACANCY_INVALID_STATUS_TRANSITION', HttpStatus.CONFLICT, {
+          from: row.status,
+          to: dto.status,
+        })
       }
       if (dto.status === 'PUBLISHED') {
         // AC2 — a vacancy cannot be (re)published without a filled salary

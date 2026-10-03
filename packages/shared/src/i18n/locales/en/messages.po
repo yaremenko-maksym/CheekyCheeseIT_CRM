@@ -6551,6 +6551,11 @@ msgstr "Required experience (months)"
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_INVALID_STATUS_TRANSITION"
+msgstr "Invalid vacancy status transition: {from} → {to}"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустимий формат"
 msgstr "Invalid format"

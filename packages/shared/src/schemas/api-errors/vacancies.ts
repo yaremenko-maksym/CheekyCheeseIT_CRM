@@ -3,16 +3,18 @@ import type { MessageDescriptor } from '@lingui/core'
 /**
  * task-i18n-6b-wave2-vacancies (i18n stage-6B Wave 2). Error codes for vacancies
  * throw-sites that carried literal Russian messages. Codes → apiError() calls.
- * 6 new codes (VACANCY_*); ADMIN_HR_ONLY also included here even though already
- * in auth-users-projects.ts, because vacancies.service uses it (shared code,
- * Wave 3 applications will also use it). VACANCY_SLUG_EXISTS carries a `slug`
- * param; others are static.
+ * 8 codes: 7 VACANCY_* plus ADMIN_HR_ONLY. ADMIN_HR_ONLY is a SHARED code that
+ * is declared HERE for the first time (it is not defined anywhere else) and is
+ * reused by Wave 3 (applications). VACANCY_SLUG_EXISTS carries a `slug` param,
+ * VACANCY_INVALID_STATUS_TRANSITION carries `from` and `to` (enum-like status
+ * values, not PII); the others are static.
  */
 export const VACANCIES_ERROR_CODES = [
   'ADMIN_HR_ONLY',
   'VACANCY_CLOSE_BEFORE_DELETE',
   'VACANCY_CLOSED',
   'VACANCY_HAS_APPLICATIONS',
+  'VACANCY_INVALID_STATUS_TRANSITION',
   'VACANCY_NOT_FOUND',
   'VACANCY_SALARY_RANGE_REQUIRED',
   'VACANCY_SLUG_EXISTS',
@@ -24,6 +26,7 @@ export const VACANCIES_ERROR_PARAMS = {
   VACANCY_CLOSE_BEFORE_DELETE: [],
   VACANCY_CLOSED: [],
   VACANCY_HAS_APPLICATIONS: [],
+  VACANCY_INVALID_STATUS_TRANSITION: ['from', 'to'],
   VACANCY_NOT_FOUND: [],
   VACANCY_SALARY_RANGE_REQUIRED: [],
   VACANCY_SLUG_EXISTS: ['slug'],
@@ -46,6 +49,10 @@ export const VACANCIES_ERROR_MESSAGES: Record<VacanciesErrorCode, MessageDescrip
     id: 'api-error.VACANCY_HAS_APPLICATIONS',
     message: 'Не можна видалити вакансію з відгуками',
   },
+  VACANCY_INVALID_STATUS_TRANSITION: /* i18n */ {
+    id: 'api-error.VACANCY_INVALID_STATUS_TRANSITION',
+    message: 'Неприпустимий перехід статусу вакансії: {from} → {to}',
+  },
   VACANCY_NOT_FOUND: /* i18n */ {
     id: 'api-error.VACANCY_NOT_FOUND',
     message: 'Вакансію не знайдено',
@@ -65,6 +72,7 @@ export const VACANCIES_ERROR_FALLBACK_EN: Record<VacanciesErrorCode, string> = {
   VACANCY_CLOSE_BEFORE_DELETE: 'Close the published vacancy first',
   VACANCY_CLOSED: 'This vacancy is closed',
   VACANCY_HAS_APPLICATIONS: "Can't delete a vacancy that has applications",
+  VACANCY_INVALID_STATUS_TRANSITION: 'Invalid vacancy status transition: {from} → {to}',
   VACANCY_NOT_FOUND: 'Vacancy not found',
   VACANCY_SALARY_RANGE_REQUIRED: 'Set the salary range: min, max, currency and period',
   VACANCY_SLUG_EXISTS: 'A vacancy with slug {slug} already exists',
