@@ -850,6 +850,20 @@ describe('DocumentsService.upload — DTO shape', () => {
     )
     expect(doc.uploadedByDisplayName).toBe(ADMIN.displayName)
   })
+
+  // i18n server-text PR2: a real upload's `name` is a filename, not prose — it
+  // carries no contract-name structure, so the client keeps `originalName ?? name`.
+  it('a real upload has no contract-name structure (nameKind/contractNumber null)', async () => {
+    const h = makeHarness()
+    const doc = await h.service.upload(
+      ADMIN,
+      { buffer: PDF_MAGIC_BUF, mimetype: 'application/pdf', originalname: 'cv.pdf' },
+      { category: 'RESUME' },
+    )
+    expect(doc.nameKind).toBeNull()
+    expect(doc.contractNumber).toBeNull()
+    expect(doc.originalName).toBe('cv.pdf')
+  })
 })
 
 // =============================================================================

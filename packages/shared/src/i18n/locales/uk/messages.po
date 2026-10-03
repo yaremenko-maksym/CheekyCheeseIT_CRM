@@ -9704,6 +9704,26 @@ msgstr "Транзакція не видалена — відновлювати 
 msgid "api-error.FINANCE_OBLIGATION_CLOSE_SOURCE_NOT_PENDING"
 msgstr "Транзакція, з якої виникло зобов’язання, вже не очікує виплати — оновіть сторінку"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT"
+msgstr "Трудовий договір"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_TO_SIGN"
+msgstr "Трудовий договір (до підписання)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_DRAFT"
+msgstr "Трудовий договір (чернетка)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/document-name-registry.ts
+msgid "document.contractName.CONTRACT_SIGNED"
+msgstr "Трудовий договір {contractNumber}"
+
 #: apps/web/app/components/user-profile/tabs/DocumentsTab.tsx
 msgid "Тут з’являться документи профілю"
 msgstr "Тут з’являться документи профілю"

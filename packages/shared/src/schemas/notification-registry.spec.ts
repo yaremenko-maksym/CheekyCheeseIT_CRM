@@ -458,7 +458,26 @@ describe('DOCUMENT_SIGN_REQUIRED — деталь снята, но назван�
     expect(notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({}).success).toBe(false)
   })
 
-  it('с названием — принимаются', () => {
+  // i18n server-text PR2: производитель больше не кладёт русскую строку —
+  // только код вида документа; слова принадлежат клиенту.
+  it('с кодом вида документа — принимаются', () => {
+    expect(
+      notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({
+        documentKind: 'EMPLOYEE_CONTRACT',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('неизвестный код вида документа не принимается', () => {
+    expect(
+      notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({ documentKind: 'INVOICE' })
+        .success,
+    ).toBe(false)
+  })
+
+  // Строки, уже лежащие в БД, несут прежнюю форму; отказ их разобрать увёл бы
+  // такое уведомление на запасной путь (сырой n.title).
+  it('прежняя форма с documentTitle (строки в БД) — по-прежнему принимается', () => {
     expect(
       notificationDataSchemaFor('DOCUMENT_SIGN_REQUIRED').safeParse({
         documentTitle: 'Ваш контракт',

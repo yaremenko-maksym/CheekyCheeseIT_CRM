@@ -26,6 +26,7 @@ import {
   DOCUMENT_MAX_BYTES,
   DOCUMENT_MIME_WHITELIST,
   INTERNAL_CATEGORIES,
+  type ContractNameKind,
   type CreateDocumentMetadata,
   type Document as DocumentDto,
   type DocumentCategory,
@@ -64,6 +65,14 @@ import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.serv
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 import type { DrizzleTx } from '../database/types'
 import { apiError } from '../common/api-error'
+
+/**
+ * i18n server-text PR2: `name` of a virtual employee-contract entry. The DTO
+ * requires a non-empty name, but the human label is client-owned
+ * (`CONTRACT_NAME_MESSAGES`, selected by `nameKind`) — this is a fixed ASCII
+ * marker, not prose and never the raw uuid.
+ */
+const VIRTUAL_CONTRACT_NAME_MARKER = 'employee-contract'
 
 /** What the controller hands us after parsing the multipart request. */
 export interface UploadFileInput {
@@ -596,10 +605,15 @@ export class DocumentsService {
    * category = 'CONTRACT' (for consistent filter/grouping), and
    * source = 'employee_contract' (discriminator).
    *
-   * п.4: `name` is a human-readable Russian label instead of the raw uuid key.
-   *   - SIGNED: «Трудовой договор CHK-XXXXXX» (contract_number from signed_contracts)
-   *   - READY_TO_SIGN: «Трудовой договор (к подписанию)»
-   *   - DRAFT: «Трудовой договор (черновик)»
+   * i18n server-text PR2: the server composes NO prose. It ships a stable
+   * `nameKind` discriminant (+ `contractNumber` for SIGNED) and the client
+   * renders `CONTRACT_NAME_MESSAGES[nameKind]` in the viewer's locale.
+   *   - SIGNED + number: CONTRACT_SIGNED (contract_number from signed_contracts)
+   *   - SIGNED, no relation: CONTRACT (neutral — never DRAFT for a signed doc)
+   *   - READY_TO_SIGN: CONTRACT_TO_SIGN
+   *   - otherwise: CONTRACT_DRAFT
+   * `name` (DTO requires min(1)) is a fixed ASCII marker that the client
+   * ignores whenever `nameKind` is set; it never carries the raw uuid.
    * s3Key / download paths are not touched.
    */
   private mapContractVirtualEntry(
@@ -624,20 +638,21 @@ export class DocumentsService {
           ? 'ready'
           : 'draft'
 
-    // Human-readable name (п.4). For SIGNED contracts use the stable contract
-    // number so the entry is identifiable without exposing the raw uuid.
-    // LOW: SIGNED contracts without a signedContract relation (e.g. legacy data
-    // or relation not eagerly loaded) fall back to the neutral «Трудовой договор»
-    // rather than «(черновик)» which would be semantically incorrect for a
-    // signed document.
-    const readableName =
-      contract.status === 'SIGNED' && contract.signedContract?.contractNumber
-        ? `Трудовой договор ${contract.signedContract.contractNumber}`
-        : contract.status === 'SIGNED'
-          ? 'Трудовой договор'
-          : contract.status === 'READY_TO_SIGN'
-            ? 'Трудовой договор (к подписанию)'
-            : 'Трудовой договор (черновик)'
+    // Name structure (PR2). SIGNED contracts carry the stable contract number
+    // so the entry is identifiable without exposing the raw uuid. A SIGNED
+    // contract without a signedContract relation (legacy data / relation not
+    // eagerly loaded) gets the neutral CONTRACT kind rather than CONTRACT_DRAFT,
+    // which would be semantically wrong for a signed document.
+    const contractNumber =
+      contract.status === 'SIGNED' ? (contract.signedContract?.contractNumber ?? null) : null
+    const nameKind: ContractNameKind =
+      contract.status === 'SIGNED'
+        ? contractNumber
+          ? 'CONTRACT_SIGNED'
+          : 'CONTRACT'
+        : contract.status === 'READY_TO_SIGN'
+          ? 'CONTRACT_TO_SIGN'
+          : 'CONTRACT_DRAFT'
 
     const uploadedByDisplayName = actorUserDisplayNames[contract.userId] ?? null
 
@@ -654,8 +669,10 @@ export class DocumentsService {
       ownerId: contract.userId,
       projectId: null,
       category: 'CONTRACT',
-      name: readableName,
+      name: VIRTUAL_CONTRACT_NAME_MARKER,
       originalName: null,
+      nameKind,
+      contractNumber,
       // s3Key omitted — not part of public DTO; virtual employee_contract entries
       // are served via a separate PDF endpoint, not direct S3 download.
       thumbnailS3Key: null,
@@ -1522,6 +1539,11 @@ export class DocumentsService {
       invoicePendingSignature,
       source,
       statusBadge,
+      // i18n server-text PR2: real uploads carry a filename in `name`, not a
+      // contract-name structure — the client renders the structure only when
+      // `nameKind` is non-null.
+      nameKind: null,
+      contractNumber: null,
     }
   }
 
