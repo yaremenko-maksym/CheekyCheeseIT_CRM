@@ -7,7 +7,7 @@
  *
  * This file pins:
  *   - PAYOUT_DROP (settled drop-share, PAID) — company-funded (senderId=null,
- *     senderLabel='COMPANY') shows the «Счёт компании» alias → the drop, NOT
+ *     senderLabel='COMPANY') shows the localized company alias → the drop, NOT
  *     a bare «—».
  *   - PAYOUT_DROP — ADMIN_PERSONAL-funded (senderId/senderName = the paying
  *     admin) shows the admin AND the drop.
@@ -18,7 +18,7 @@
  *     never emitted by any flow) still renders the dash, so the audit's
  *     exclusion list stays honest.
  */
-import { describe, expect, it, vi, beforeAll } from 'vitest'
+import { describe, expect, it, vi, beforeAll, afterAll } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { TransactionDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -140,7 +140,7 @@ describe('TransactionRow — FromTo (fix/payout-drop-from-to)', () => {
     expect(screen.getByText(DROP_NAME).tagName).toBe('A')
   })
 
-  it('COMPANY_DEPOSIT shows the submitter → «Счёт компании», not a bare «—»', () => {
+  it('COMPANY_DEPOSIT shows the submitter → «Рахунок компанії», not a bare «—»', () => {
     renderRow(
       makeTx({
         type: 'COMPANY_DEPOSIT',
@@ -148,22 +148,22 @@ describe('TransactionRow — FromTo (fix/payout-drop-from-to)', () => {
         senderLabel: DROP_NAME,
         senderName: DROP_NAME,
         receiverId: null,
-        receiverLabel: 'Счёт компании',
+        receiverLabel: 'COMPANY',
         receiverName: null,
       }),
     )
 
     expect(screen.getByText(DROP_NAME)).toBeInTheDocument()
-    expect(screen.getByText('Счёт компании')).toBeInTheDocument()
+    expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
     expect(screen.queryByText('—')).not.toBeInTheDocument()
   })
 
-  it('DIVIDEND_TO_ADMIN shows «Счёт компании» → the receiving admin, not a bare «—»', () => {
+  it('DIVIDEND_TO_ADMIN shows «Рахунок компанії» → the receiving admin, not a bare «—»', () => {
     renderRow(
       makeTx({
         type: 'DIVIDEND_TO_ADMIN',
         senderId: null,
-        senderLabel: 'Счёт компании',
+        senderLabel: 'COMPANY',
         senderName: null,
         receiverId: ADMIN_ID,
         receiverLabel: null,
@@ -171,9 +171,49 @@ describe('TransactionRow — FromTo (fix/payout-drop-from-to)', () => {
       }),
     )
 
-    expect(screen.getByText('Счёт компании')).toBeInTheDocument()
+    expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
     expect(screen.getByText(ADMIN_NAME)).toBeInTheDocument()
     expect(screen.queryByText('—')).not.toBeInTheDocument()
+  })
+
+  it('company-funded SALARY and EXPENSE render the code as the localized alias, never raw «COMPANY»', () => {
+    const salary = renderRow(
+      makeTx({ type: 'SALARY', senderId: null, senderLabel: 'COMPANY', senderName: null }),
+    )
+    expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
+    expect(screen.queryByText('COMPANY')).not.toBeInTheDocument()
+    salary.unmount()
+
+    renderRow(
+      makeTx({
+        type: 'EXPENSE',
+        senderId: null,
+        senderLabel: 'COMPANY',
+        senderName: null,
+        receiverId: null,
+        receiverLabel: 'Hosting',
+        receiverName: null,
+      }),
+    )
+    expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
+    expect(screen.getByText('Hosting')).toBeInTheDocument()
+    expect(screen.queryByText('COMPANY')).not.toBeInTheDocument()
+  })
+
+  it('an EXPENSE category is free text — it is never rewritten, even if it equals the code', () => {
+    renderRow(
+      makeTx({
+        type: 'EXPENSE',
+        senderId: ADMIN_ID,
+        senderLabel: null,
+        senderName: ADMIN_NAME,
+        receiverId: null,
+        receiverLabel: 'COMPANY',
+        receiverName: null,
+      }),
+    )
+    expect(screen.getByText('COMPANY')).toBeInTheDocument()
+    expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
   })
 
   it('a genuinely unused placeholder type (TOV_INCOME) still renders the dash (regression guard)', () => {
@@ -242,6 +282,23 @@ describe('TransactionRow — FromTo masking composition (non-privileged DTO)', (
 
     expect(screen.getByText('CheekyCheeseIT')).toBeInTheDocument()
     expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
+  })
+})
+
+describe('TransactionRow — company code in the English locale', () => {
+  beforeAll(async () => {
+    await loadCatalog('en')
+  })
+  afterAll(async () => {
+    await loadCatalog('uk')
+  })
+
+  it('renders «Company account» for the COMPANY code (not the uk text, not raw)', () => {
+    renderRow(makeTx({ type: 'DIVIDEND_TO_ADMIN', senderLabel: 'COMPANY' }))
+
+    expect(screen.getByText('Company account')).toBeInTheDocument()
+    expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
+    expect(screen.queryByText('COMPANY')).not.toBeInTheDocument()
   })
 })
 

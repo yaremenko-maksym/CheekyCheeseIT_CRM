@@ -29,6 +29,7 @@ import {
 } from '../constants'
 import { settlementSplit } from '../cascade-preview'
 import { canAttachReceipt } from './receipt-permissions'
+import { withLocalizedCompanyLabels } from './counterparty-label'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
   const { i18n } = useLingui()
@@ -126,28 +127,16 @@ function Party({
   )
 }
 
-// fix/payout-drop-from-to (UX polish): the backend books company-funded
-// sender rows with the raw literal senderLabel='COMPANY' (see
-// PendingSettlementService.settleByCompany §D5) — an English token that reads
-// oddly inside an otherwise-Russian row. Display-only normalization to the
-// Russian alias so PAYOUT_DROP / SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT
-// read consistently with the rest of the UI. Any other label (e.g. an
-// admin's displayName on an ADMIN_PERSONAL-funded row) passes through
-// unchanged; a missing label falls back to the existing company alias.
-//
-// `companyLabel` is passed in (not read from a module-level constant) —
-// this is a plain helper called from `FromTo`, a component, which is the one
-// place that may call `useLingui()`. `CheekyCheeseIT` is the product's own
-// brand name, not a translatable phrase (`russian-language.md` proper-noun
-// carve-out) — it stays as a literal on both locales.
-function displaySenderLabel(label: string | null | undefined, companyLabel: string): string {
-  if (label === 'COMPANY') return companyLabel
-  return label ?? 'CheekyCheeseIT'
-}
-
-function FromTo({ tx }: { tx: TransactionDto }) {
+// server-text PR3: the backend books the company account as the raw code
+// (`COMPANY_ACCOUNT_LABEL`) in sender/receiver labels. `FromTo` localizes it ONCE
+// up front (see `withLocalizedCompanyLabels`), so every case below can read
+// `tx.senderLabel` / `tx.receiverLabel` as display text. `CheekyCheeseIT` is the
+// product's own brand name, not a translatable phrase (`russian-language.md`
+// proper-noun carve-out) — it stays as a literal on both locales.
+function FromTo({ tx: rawTx }: { tx: TransactionDto }) {
   const { t } = useLingui()
   const companyLabel = t`Рахунок компанії`
+  const tx = withLocalizedCompanyLabels(rawTx, companyLabel)
   switch (tx.type) {
     case 'ADMIN_INCOME':
     case 'SENIOR_INCOME':
@@ -235,12 +224,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'SENIOR_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party
-            id={null}
-            name={null}
-            label={displaySenderLabel(tx.senderLabel, companyLabel)}
-            type="user"
-          />
+          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -254,12 +238,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'DROP_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party
-            id={null}
-            name={null}
-            label={displaySenderLabel(tx.senderLabel, companyLabel)}
-            type="user"
-          />
+          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -293,7 +272,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
           <Party
             id={tx.senderId}
             name={tx.senderName}
-            label={displaySenderLabel(tx.senderLabel, companyLabel)}
+            label={tx.senderLabel ?? 'CheekyCheeseIT'}
             type="user"
           />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
@@ -308,7 +287,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     //
     // COMPANY_DEPOSIT: a SENIOR/DROP submits a verified USDT deposit onto the
     // shared company wallet (submitDeposit). senderId/senderName = the
-    // submitter (clickable), receiverId=null + receiverLabel='Счёт компании'.
+    // submitter (clickable), receiverId=null + receiverLabel=COMPANY code.
     case 'COMPANY_DEPOSIT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
@@ -319,7 +298,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
       )
 
     // DIVIDEND_TO_ADMIN: ADMIN withdraws dividends from the company account
-    // (createDividend). senderId=null + senderLabel='Счёт компании' (company
+    // (createDividend). senderId=null + senderLabel=COMPANY code (company
     // alias, non-clickable), receiverId = the admin (clickable).
     case 'DIVIDEND_TO_ADMIN':
       return (
