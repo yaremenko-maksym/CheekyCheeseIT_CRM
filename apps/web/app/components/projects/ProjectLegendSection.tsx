@@ -23,6 +23,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { useAddLegendEntry, useLegend, useUpsertLegend } from '@/hooks/use-legend'
 import { useLocale } from '@/lib/i18n'
+import { resolveLegendAuthor } from './legend-author'
 
 interface ProjectLegendSectionProps {
   projectId: string
@@ -31,7 +32,7 @@ interface ProjectLegendSectionProps {
 }
 
 export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSectionProps) {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const locale = useLocale()
   const { data: legend, isLoading } = useLegend(projectId, canAccess)
   const upsert = useUpsertLegend(projectId)
@@ -209,7 +210,7 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                         <span className="text-muted-foreground text-xs mr-1.5">
                           {formatDate(entry.createdAt, locale, 'short')}
                           {' · '}
-                          {entry.authorName}:
+                          {resolveLegendAuthor(i18n, entry.authorName)}:
                         </span>
                         <span className="whitespace-pre-wrap">{entry.text}</span>
                       </li>

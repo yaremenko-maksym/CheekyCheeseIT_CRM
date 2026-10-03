@@ -219,7 +219,7 @@ describe('«сотрудник подтвердил»', () => {
     expect(h.created).toHaveLength(0)
   })
 
-  it('сотрудник исчез — подпись не пустая, а честно обезличенная', async () => {
+  it('сотрудник исчез — имя null (клиент подставит локализованную подпись), а не русская строка', async () => {
     const h = makeHarness(makeRow())
     const svcDb = (
       h.svc as unknown as { db: { db: { transaction: (cb: (t: unknown) => unknown) => unknown } } }
@@ -246,7 +246,7 @@ describe('«сотрудник подтвердил»', () => {
       subjectId: SUBJECT_ID,
       approverUserId: APPROVER_ID,
     })
-    expect(h.created[0]?.['data']).toMatchObject({ approverName: 'Сотрудник' })
+    expect(h.created[0]?.['data']).toMatchObject({ approverName: null })
   })
 })
 

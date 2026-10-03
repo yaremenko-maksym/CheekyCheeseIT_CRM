@@ -5790,8 +5790,14 @@ msgid "Небезпечна зона"
 msgstr "Danger zone"
 
 #: apps/web/app/components/pending/pending-title.ts
+#: apps/web/app/components/projects/legend-author.ts
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 msgid "Невідомо"
+msgstr "Unknown"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.approverUnknown"
 msgstr "Unknown"
 
 #. js-lingui-explicit-id

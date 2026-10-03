@@ -11,6 +11,7 @@ import { useLegend, useUpsertLegend, useAddLegendEntry } from '@/hooks/use-legen
 import { useForm } from '@tanstack/react-form'
 import { upsertLegendSchema, formatDate } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
+import { resolveLegendAuthor } from '@/components/projects/legend-author'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -548,7 +549,7 @@ function LegendCoverBlock({ projectId, legend }: LegendBlockProps) {
 // ---------------------------------------------------------------------------
 
 function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
-  const { t } = useLingui()
+  const { t, i18n } = useLingui()
   const locale = useLocale()
   const [showForm, setShowForm] = useState(false)
   const [entryText, setEntryText] = useState('')
@@ -609,7 +610,7 @@ function LegendJournalBlock({ projectId, legend }: LegendBlockProps) {
                   <span className="text-muted-foreground text-xs mr-1.5">
                     {formatDate(entry.eventDate ?? entry.createdAt, locale, 'short')}
                     {' · '}
-                    {entry.authorName}:
+                    {resolveLegendAuthor(i18n, entry.authorName)}:
                   </span>
                   <span className="whitespace-pre-wrap">{entry.text}</span>
                 </li>

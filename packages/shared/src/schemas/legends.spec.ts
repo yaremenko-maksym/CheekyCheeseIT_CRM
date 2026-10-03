@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { addLegendEntrySchema, legendSchema, upsertLegendSchema } from './legends'
+import {
+  addLegendEntrySchema,
+  legendEntrySchema,
+  legendSchema,
+  upsertLegendSchema,
+} from './legends'
 
 // task-i18n-stage4-task5: no spec file existed for this schema before this
 // task. `legendSchema.fullName` and `upsertLegendSchema.fullName` share one
@@ -102,5 +107,28 @@ describe('addLegendEntrySchema', () => {
 
   it('rejects text over 5000 characters', () => {
     expect(() => addLegendEntrySchema.parse({ text: 'a'.repeat(5001) })).toThrow()
+  })
+})
+
+// i18n server-text PR4 (S4): the API sends `authorName: null` for an author whose
+// user row is gone (it used to send the Russian «Неизвестный»); the client names
+// the author in the viewer's locale.
+describe('legendEntrySchema.authorName', () => {
+  const entry = {
+    id: uuid,
+    legendId: uuid,
+    authorId: uuid,
+    text: 'x',
+    eventDate: null,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  }
+
+  it('accepts null (author row gone) and a real name', () => {
+    expect(legendEntrySchema.parse({ ...entry, authorName: null }).authorName).toBeNull()
+    expect(legendEntrySchema.parse({ ...entry, authorName: 'Іван' }).authorName).toBe('Іван')
+  })
+
+  it('still requires the field to be present', () => {
+    expect(legendEntrySchema.safeParse(entry).success).toBe(false)
   })
 })

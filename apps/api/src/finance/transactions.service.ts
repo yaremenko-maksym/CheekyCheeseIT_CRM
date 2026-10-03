@@ -4977,7 +4977,9 @@ export class TransactionsService {
       actorId: r.actorId,
       // `actorId` carries `ON DELETE SET NULL` — a hard-deleted user must not
       // make their own past actions unreadable.
-      actorName: r.actorName ?? '— (пользователь удалён)',
+      // i18n server-text PR4 (S4): null, not a Russian placeholder — the client
+      // renders the localized «User deleted» fallback.
+      actorName: r.actorName,
       metadata: r.metadata as Record<string, unknown>,
       createdAt: r.createdAt.toISOString(),
     }))

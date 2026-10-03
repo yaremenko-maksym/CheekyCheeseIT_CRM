@@ -173,7 +173,9 @@ export class LegendsService {
       id: r.id,
       legendId: r.legendId,
       authorId: r.authorId,
-      authorName: r.authorName ?? 'Неизвестный',
+      // i18n server-text PR4 (S4): null, not a Russian placeholder — the client
+      // renders the localized «Unknown» fallback.
+      authorName: r.authorName,
       text: r.text,
       eventDate: r.eventDate ?? null,
       createdAt: r.createdAt.toISOString(),
