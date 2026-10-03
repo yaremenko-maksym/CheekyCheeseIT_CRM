@@ -627,6 +627,39 @@ describe('LegendsService.loadEntries — eventDate sort (AC9)', () => {
     expect(legend.entries[0].createdAt).toBe('2024-02-01T00:00:00.000Z')
   })
 
+  it('entry whose author row is gone returns authorName null, not a placeholder string', async () => {
+    const { service, chain } = buildService()
+
+    chain.limit
+      .mockResolvedValueOnce([seniorProject]) // loadProject
+      .mockResolvedValueOnce([mockLegendRow]) // loadLegendRow
+      .mockResolvedValueOnce([]) // loadDefaults (ADMIN)
+    chain.orderBy.mockResolvedValueOnce([
+      {
+        id: 'b0000001-0000-4000-a000-000000000005',
+        legendId: LEGEND_ID,
+        authorId: AUTHOR_ID,
+        authorName: null,
+        text: 'Orphaned author',
+        eventDate: null,
+        createdAt: new Date('2024-02-01T00:00:00Z'),
+      },
+      {
+        id: 'b0000001-0000-4000-a000-000000000006',
+        legendId: LEGEND_ID,
+        authorId: AUTHOR_ID,
+        authorName: 'Real Author',
+        text: 'Known author',
+        eventDate: null,
+        createdAt: new Date('2024-02-02T00:00:00Z'),
+      },
+    ])
+
+    const legend = await service.getLegend(admin, PROJECT_ID)
+    expect(legend.entries[0].authorName).toBeNull()
+    expect(legend.entries[1].authorName).toBe('Real Author')
+  })
+
   it('addEntry saves eventDate to the DB row', async () => {
     const { service, chain } = buildService()
 

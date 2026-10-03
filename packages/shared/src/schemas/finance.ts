@@ -1164,13 +1164,16 @@ export type RestoreTransactionDto = z.infer<typeof restoreTransactionSchema>
 // ATTACH/REPLACE entry was journaled but nothing in the API ever read it back.
 // GET /api/transactions/:id/audit-log (ADMIN only) surfaces the journal for a
 // single transaction — `actorName` is resolved server-side (a raw `actorId`
-// UUID is not user-facing) and falls back to a placeholder when the actor row
-// no longer exists (`ON DELETE SET NULL` on `transaction_audit_log.actor_id`).
+// UUID is not user-facing) and is `null` when the actor row no longer exists
+// (`ON DELETE SET NULL` on `transaction_audit_log.actor_id`). There is no
+// apps/web consumer of the audit log yet, so the localized «User deleted»
+// fallback is DEFERRED until a transaction-audit UI exists (tracked in
+// backlog) (i18n server-text PR4, S4).
 export const transactionAuditLogEntrySchema = z.object({
   id: z.string().uuid(),
   action: z.string(),
   actorId: z.string().uuid().nullable(),
-  actorName: z.string(),
+  actorName: z.string().nullable(),
   metadata: z.record(z.string(), z.unknown()),
   createdAt: z.string(),
 })

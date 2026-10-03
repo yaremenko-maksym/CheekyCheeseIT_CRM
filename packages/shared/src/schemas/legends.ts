@@ -8,7 +8,8 @@ export const legendEntrySchema = z.object({
   id: z.string().uuid(),
   legendId: z.string().uuid(),
   authorId: z.string().uuid(),
-  authorName: z.string(),
+  /** `null` when the author's user row is gone — the client renders a localized fallback. */
+  authorName: z.string().nullable(),
   text: z.string(),
   /** Optional event date (YYYY-MM-DD). Falls back to createdAt for display if null. */
   eventDate: z.string().nullable(),

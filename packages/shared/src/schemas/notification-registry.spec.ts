@@ -351,7 +351,7 @@ describe('реестр сообщений — источник для i18n:extra
     }
   })
 
-  it('MISC_MESSAGES — все десять «мелких» сообщений', () => {
+  it('MISC_MESSAGES — все одиннадцать «мелких» сообщений', () => {
     const expected: Record<string, { id: string; message: string }> = {
       percentText: {
         id: 'notification.percentText',
@@ -392,6 +392,8 @@ describe('реестр сообщений — источник для i18n:extra
         id: 'notification.action.documentSignUnavailable',
         message: 'Підпис більше не потрібен',
       },
+      // i18n server-text PR4 (S4): сервер більше не підставляє «Сотрудник».
+      approverUnknown: { id: 'notification.approverUnknown', message: 'Невідомо' },
     }
     expect(Object.keys(MISC_MESSAGES).sort()).toEqual(Object.keys(expected).sort())
     for (const [key, exp] of Object.entries(expected)) {
@@ -1740,5 +1742,48 @@ describe('SR-L-1 — проєкт/об’єкт, названий рядком "
     expect(describeNotification('APPROVAL_CONFIRMED', withoutTitle, UK)).toBe(
       'Іван — проєкт без назви',
     )
+  })
+})
+
+/**
+ * i18n server-text PR4 (S4): сервер перестал подставлять русское «Сотрудник»
+ * вместо имени подтверждающего, чья строка исчезла, — он пишет `null`, а
+ * подпись выбирает клиент по локали получателя.
+ */
+describe('S4 — имя підтверджувача null → локалізований підпис', () => {
+  const base = { approverName: null, subjectKind: 'PROJECT', subjectTitle: 'Alpha' }
+  const confirmed = (extra: object = {}) =>
+    notificationDataSchemaFor('APPROVAL_CONFIRMED').parse({ ...base, ...extra })
+  const rejected = (extra: object = {}) =>
+    notificationDataSchemaFor('APPROVAL_REJECTED').parse({
+      ...base,
+      reasonPreview: null,
+      ...extra,
+    })
+
+  it('APPROVAL_CONFIRMED: null дає «Невідомо» / «Unknown», а не рядок «null»', () => {
+    const data = confirmed()
+    expect(describeNotification('APPROVAL_CONFIRMED', data, UK)).toBe('Невідомо — проєкт Alpha')
+    expect(describeNotification('APPROVAL_CONFIRMED', data, EN)).toBe('Unknown — project Alpha')
+  })
+
+  it('APPROVAL_REJECTED (без причини і з причиною): null дає той самий підпис', () => {
+    const noReason = rejected({ reasonPreview: null })
+    expect(describeNotification('APPROVAL_REJECTED', noReason, UK)).toBe('Невідомо — проєкт Alpha')
+    const withReason = rejected({ reasonPreview: 'Занадто дорого' })
+    expect(describeNotification('APPROVAL_REJECTED', withReason, EN)).toContain(
+      'Unknown — project Alpha',
+    )
+  })
+
+  it('справжнє ім’я (в тому числі буквально "null") виводиться дослівно', () => {
+    const real = confirmed({ approverName: 'Іван' })
+    expect(describeNotification('APPROVAL_CONFIRMED', real, UK)).toBe('Іван — проєкт Alpha')
+    const literalNull = confirmed({ approverName: 'null' })
+    expect(describeNotification('APPROVAL_CONFIRMED', literalNull, UK)).toBe('null — проєкт Alpha')
+  })
+
+  it('порожній рядок як і раніше відхиляється схемою (null — єдиний «немає імені»)', () => {
+    expect(() => confirmed({ approverName: '' })).toThrow()
   })
 })

@@ -422,13 +422,17 @@ const dataSchemas = {
     z.object({ documentKind: z.literal('EMPLOYEE_CONTRACT') }),
     z.object({ documentTitle: objectName }),
   ]),
+  // i18n server-text PR4 (S4): `approverName` is `null` when the approver's row
+  // is gone at decision time — the producer no longer writes the Russian
+  // «Сотрудник»; the renderer substitutes `MISC_MESSAGES.approverUnknown`.
+  // Rows already stored keep their literal name and stay parseable.
   APPROVAL_CONFIRMED: z.object({
-    approverName: objectName,
+    approverName: objectName.nullable(),
     subjectKind: z.enum(['PROJECT', 'PROJECT_SHARE', 'BASE_SHARE']),
     subjectTitle: objectName.nullable(),
   }),
   APPROVAL_REJECTED: z.object({
-    approverName: objectName,
+    approverName: objectName.nullable(),
     subjectKind: z.enum(['PROJECT', 'PROJECT_SHARE', 'BASE_SHARE']),
     subjectTitle: objectName.nullable(),
     // Превью, а не причина целиком, и ОТСУТСТВИЕ превью допустимо (§10 +
@@ -648,10 +652,19 @@ export const MISC_MESSAGES = {
     id: 'notification.action.documentSignUnavailable',
     message: 'Підпис більше не потрібен',
   },
+  // i18n server-text PR4 (S4): the approver's name when the server has none.
+  approverUnknown: /* i18n */ {
+    id: 'notification.approverUnknown',
+    message: 'Невідомо',
+  },
 } satisfies Record<string, MessageDescriptor>
 
 function percentText(value: number | null, i18n: I18n): string {
   return renderMessage(i18n, MISC_MESSAGES.percentText, { value })
+}
+
+function approverLabel(name: string | null, i18n: I18n): string {
+  return name ?? renderMessage(i18n, MISC_MESSAGES.approverUnknown)
 }
 
 function subjectPhrase(
@@ -840,7 +853,7 @@ export function describeNotification<T extends NewNotificationType>(
     case 'APPROVAL_CONFIRMED': {
       const d = data as NotificationDataByType['APPROVAL_CONFIRMED']
       return renderMessage(i18n, DETAIL_MESSAGES.APPROVAL_CONFIRMED, {
-        approverName: d.approverName,
+        approverName: approverLabel(d.approverName, i18n),
         subjectPhrase: subjectPhrase(d.subjectKind, d.subjectTitle, i18n),
       })
     }
@@ -848,7 +861,7 @@ export function describeNotification<T extends NewNotificationType>(
       // COPY-M-7 / UX-M-2: причина идёт ПЕРВОЙ строкой, ограничена ОДНИМ рядом.
       const d = data as NotificationDataByType['APPROVAL_REJECTED']
       const params = {
-        approverName: d.approverName,
+        approverName: approverLabel(d.approverName, i18n),
         subjectPhrase: subjectPhrase(d.subjectKind, d.subjectTitle, i18n),
       }
       if (d.reasonPreview === null) {

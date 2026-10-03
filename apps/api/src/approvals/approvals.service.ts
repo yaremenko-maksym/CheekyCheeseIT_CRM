@@ -261,7 +261,9 @@ export class ApprovalsService {
 
     // Имя снимается В МОМЕНТ решения: уведомление живёт дольше объекта (§7.4),
     // и строка о том, кто что решил, не должна становиться безымянной.
-    const approverName = approver?.displayName ?? 'Сотрудник'
+    // i18n server-text PR4 (S4): null, not a Russian placeholder — the
+    // notification renderer substitutes the localized fallback.
+    const approverName = approver?.displayName ?? null
 
     if (rejectionReason === null) {
       await this.notifications.createInTx(tx, {
