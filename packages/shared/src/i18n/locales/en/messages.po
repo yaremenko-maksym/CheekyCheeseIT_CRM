@@ -11369,3 +11369,33 @@ msgstr "If selected — project income will go through the drop (5% share by def
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
 msgstr "Any issued invoice will be voided and reissued for the employee to sign"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSE_BEFORE_DELETE"
+msgstr "Close the published vacancy first"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSED"
+msgstr "This vacancy is closed"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_HAS_APPLICATIONS"
+msgstr "Can't delete a vacancy that has applications"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_NOT_FOUND"
+msgstr "Vacancy not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SALARY_RANGE_REQUIRED"
+msgstr "Set the salary range: min, max, currency and period"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SLUG_EXISTS"
+msgstr "A vacancy with this slug \"{slug}\" already exists"

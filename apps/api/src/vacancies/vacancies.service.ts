@@ -27,16 +27,7 @@
  * GoogleIndexingService's no-throw guarantee were ever violated by a future
  * change to that file.
  */
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  HttpException,
-  HttpStatus,
-  Injectable,
-  Logger,
-  NotFoundException,
-} from '@nestjs/common'
+import { ConflictException, HttpStatus, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import type {
@@ -49,6 +40,7 @@ import type {
   VacancyLocale,
   VacancyStatus,
 } from '@crm/shared'
+import { apiError } from '../common/api-error'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { vacancies, vacancyApplications } from '../database/schema'
@@ -116,12 +108,12 @@ export class VacanciesService {
    */
   async getPublishedRowBySlug(slug: string): Promise<VacancyRow> {
     const row = await this.db.db.query.vacancies.findFirst({ where: eq(vacancies.slug, slug) })
-    if (!row) throw new NotFoundException('Вакансия не найдена')
+    if (!row) throw apiError('VACANCY_NOT_FOUND', HttpStatus.NOT_FOUND)
     if (row.status === 'CLOSED') {
-      throw new HttpException('Вакансия закрыта', HttpStatus.GONE)
+      throw apiError('VACANCY_CLOSED', HttpStatus.GONE)
     }
     if (row.status !== 'PUBLISHED') {
-      throw new NotFoundException('Вакансия не найдена')
+      throw apiError('VACANCY_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     return row
   }
@@ -292,11 +284,11 @@ export class VacanciesService {
     const row = await this.getRowOrThrow(id)
 
     if (row.status !== 'DRAFT' && row.status !== 'CLOSED') {
-      throw new ConflictException('Опубликованную вакансию нужно сначала закрыть')
+      throw apiError('VACANCY_CLOSE_BEFORE_DELETE', HttpStatus.CONFLICT)
     }
     const count = await this.countApplicationsFor(id)
     if (count > 0) {
-      throw new ConflictException('Нельзя удалить вакансию с откликами')
+      throw apiError('VACANCY_HAS_APPLICATIONS', HttpStatus.CONFLICT)
     }
     await this.db.db.delete(vacancies).where(eq(vacancies.id, id))
   }
@@ -304,7 +296,7 @@ export class VacanciesService {
   /** Shared with ApplicationsService admin endpoints (applications list/update/delete/resume-url). */
   async getRowOrThrow(id: string): Promise<VacancyRow> {
     const row = await this.db.db.query.vacancies.findFirst({ where: eq(vacancies.id, id) })
-    if (!row) throw new NotFoundException('Вакансия не найдена')
+    if (!row) throw apiError('VACANCY_NOT_FOUND', HttpStatus.NOT_FOUND)
     return row
   }
 
@@ -314,7 +306,7 @@ export class VacanciesService {
 
   private assertAdminOrHr(actor: SessionUser): void {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
-      throw new ForbiddenException('Доступно только ADMIN и HR')
+      throw apiError('ADMIN_HR_ONLY', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -339,7 +331,7 @@ export class VacanciesService {
       fields.salaryCurrency == null ||
       fields.salaryPeriod == null
     ) {
-      throw new BadRequestException('Укажите вилку зарплаты: минимум, максимум, валюту и период')
+      throw apiError('VACANCY_SALARY_RANGE_REQUIRED', HttpStatus.BAD_REQUEST)
     }
   }
 
@@ -384,7 +376,7 @@ export class VacanciesService {
     const existing = await this.db.db.query.vacancies.findFirst({
       where: eq(vacancies.slug, slug),
     })
-    if (existing) throw new ConflictException(`Вакансия со slug "${slug}" уже существует`)
+    if (existing) throw apiError('VACANCY_SLUG_EXISTS', HttpStatus.CONFLICT, { slug })
   }
 
   private async countApplicationsFor(vacancyId: string): Promise<number> {

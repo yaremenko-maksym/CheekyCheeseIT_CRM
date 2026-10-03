@@ -11369,3 +11369,33 @@ msgstr "Якщо обрано — надходження за проєктом �
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
 msgstr "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSE_BEFORE_DELETE"
+msgstr "Спочатку закрийте опубліковану вакансію"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSED"
+msgstr "Вакансію закрито"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_HAS_APPLICATIONS"
+msgstr "Не можна видалити вакансію з відгуками"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_NOT_FOUND"
+msgstr "Вакансію не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SALARY_RANGE_REQUIRED"
+msgstr "Вкажіть вилку зарплаты: мінімум, максимум, валюту та період"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SLUG_EXISTS"
+msgstr "Вакансія з таким slug \"{slug}\" вже існує"

@@ -235,10 +235,13 @@ describe('ApplicationsService.apply()', () => {
 
   it('vacancy not found/published → propagates 404 from VacanciesService', async () => {
     h.vacanciesService.getPublishedRowBySlug.mockRejectedValue(
-      new NotFoundException('Вакансия не найдена'),
+      new HttpException(
+        { statusCode: 404, code: 'VACANCY_NOT_FOUND', message: 'Вакансію не знайдено', params: {} },
+        404,
+      ),
     )
     await expect(h.svc.apply('missing-slug', VALID_FIELDS, pdfFile(), '1.2.3.4')).rejects.toThrow(
-      NotFoundException,
+      HttpException,
     )
   })
 
