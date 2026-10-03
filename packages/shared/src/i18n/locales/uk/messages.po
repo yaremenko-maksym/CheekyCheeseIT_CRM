@@ -3982,6 +3982,11 @@ msgstr "Запис «{0}» буде видалено безповоротно."
 msgid "Запис додано"
 msgstr "Запис додано"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_NOT_FOUND"
+msgstr "Запис не знайдено"
+
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Записів ще немає."
 msgstr "Записів ще немає."
@@ -6078,6 +6083,11 @@ msgstr "Не вдалося створити вакансію. Спробуйт�
 msgid "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 msgstr "Не вдалося створити дропа — дані залишилися у формі, спробуйте ще раз"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_CREATE_FAILED"
+msgstr "Не вдалося створити запис. Спробуйте ще раз"
+
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Не вдалося створити команду — спробуйте ще раз"
 msgstr "Не вдалося створити команду — спробуйте ще раз"
@@ -6298,6 +6308,16 @@ msgstr "Немає доступу до контакту HR"
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
 msgid "api-error.LEGEND_ACCESS_DENIED"
 msgstr "Немає доступу до легенди проєкту"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_USER_FORBIDDEN"
+msgstr "Немає доступу до паролів цього користувача"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.CREDENTIALS_PROJECT_FORBIDDEN"
+msgstr "Немає доступу до паролів цього проєкту"
 
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Немає доступу до профілю"

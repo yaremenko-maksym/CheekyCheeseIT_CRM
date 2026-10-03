@@ -23,7 +23,7 @@
  * `.limit()` call in THAT test's own call path), which cannot support a
  * second invocation of the method under test.
  */
-import { NotFoundException, ForbiddenException } from '@nestjs/common'
+import { HttpException, HttpStatus } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
@@ -88,8 +88,9 @@ describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible 
 
       const err = await svc.list(JUNIOR, PROJECT_ID).catch((e: unknown) => e)
 
-      expect(err).toBeInstanceOf(NotFoundException)
-      expect((err as NotFoundException).message).toBe('Проект не найден')
+      expect(err).toBeInstanceOf(HttpException)
+      expect((err as HttpException).getStatus()).toBe(HttpStatus.NOT_FOUND)
+      expect((err as HttpException).getResponse()).toMatchObject({ code: 'PROJECT_NOT_FOUND' })
       // Exactly one .limit() call (the project fetch) — the status gate
       // short-circuited before juniorIsActiveMember's own select ran.
       expect(limit).toHaveBeenCalledTimes(1)
@@ -114,7 +115,11 @@ describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible 
 
     const err = await svc.list(JUNIOR, PROJECT_ID).catch((e: unknown) => e)
 
-    expect(err).toBeInstanceOf(ForbiddenException)
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(HttpStatus.FORBIDDEN)
+    expect((err as HttpException).getResponse()).toMatchObject({
+      code: 'CREDENTIALS_PROJECT_FORBIDDEN',
+    })
   })
 
   it('ADMIN is exempt from the status gate on a DRAFT project', async () => {
@@ -128,7 +133,8 @@ describe('CredentialsService.list — SR-M-1: a non-ACTIVE project is invisible 
 
     const err = await svc.list(JUNIOR, PROJECT_ID).catch((e: unknown) => e)
 
-    expect(err).toBeInstanceOf(NotFoundException)
-    expect((err as NotFoundException).message).toBe('Проект не найден')
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(HttpStatus.NOT_FOUND)
+    expect((err as HttpException).getResponse()).toMatchObject({ code: 'PROJECT_NOT_FOUND' })
   })
 })
