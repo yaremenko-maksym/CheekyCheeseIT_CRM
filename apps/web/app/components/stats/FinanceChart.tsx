@@ -11,6 +11,9 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
+import { msg } from '@lingui/core/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import type { MessageDescriptor } from '@lingui/core'
 import type { FinanceSummaryDto } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -22,23 +25,33 @@ import {
 } from '@/components/ui/select'
 
 type ChartMode = 'income' | 'expenses' | 'salary' | 'profit'
+type ChartDataKey = 'income' | 'expenses' | 'salaries' | 'profit'
 
-const CHART_MODES: { value: ChartMode; label: string; key: string; color: string }[] = [
-  { value: 'income', label: 'Приходы', key: 'Доход', color: '#22c55e' },
-  { value: 'profit', label: 'Прибыль', key: 'Прибыль', color: '#06b6d4' },
-  { value: 'expenses', label: 'Расходы', key: 'Расходы', color: '#f97316' },
-  { value: 'salary', label: 'Зарплаты', key: 'Зарплаты', color: '#a855f7' },
+// `key` is the chart-data field (a stable identifier, also the Recharts `dataKey`), NOT display
+// text — the visible name is `label`, resolved through the catalog at render time.
+const CHART_MODES: {
+  value: ChartMode
+  label: MessageDescriptor
+  key: ChartDataKey
+  color: string
+}[] = [
+  { value: 'income', label: msg`Дохід`, key: 'income', color: '#22c55e' },
+  { value: 'profit', label: msg`Прибуток`, key: 'profit', color: '#06b6d4' },
+  { value: 'expenses', label: msg`Витрати`, key: 'expenses', color: '#f97316' },
+  { value: 'salary', label: msg`Зарплати`, key: 'salaries', color: '#a855f7' },
 ]
 
 const BAR_WIDTH = 80
 const Y_AXIS_WIDTH = 56
 
-function ChartTooltip(props: Record<string, unknown>) {
+export function ChartTooltip(props: Record<string, unknown>) {
+  const { i18n } = useLingui()
   const active = props.active as boolean | undefined
   const label = props.label as string | undefined
   const payload = props.payload as { dataKey: string; value: number; color: string }[] | undefined
 
   if (!active || !payload?.length) return null
+  const seriesNames = new Map<string, string>(CHART_MODES.map((m) => [m.key, i18n._(m.label)]))
   return (
     <div className="rounded-lg border border-border bg-popover/95 backdrop-blur-sm shadow-xl p-3 text-xs min-w-40">
       <p className="font-semibold text-foreground mb-2">{label}</p>
@@ -49,7 +62,7 @@ function ChartTooltip(props: Record<string, unknown>) {
               className="inline-block h-2.5 w-2.5 rounded-sm shrink-0"
               style={{ background: entry.color }}
             />
-            {entry.dataKey}
+            {seriesNames.get(entry.dataKey) ?? entry.dataKey}
           </span>
           <span className="font-medium tabular-nums text-foreground">
             $
@@ -68,9 +81,10 @@ export function FinanceChart({
   summary,
   className,
 }: {
-  summary: FinanceSummaryDto
+  summary: Pick<FinanceSummaryDto, 'monthly'>
   className?: string
 }) {
+  const { i18n } = useLingui()
   const scrollRef = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState<ChartMode>('income')
 
@@ -78,10 +92,10 @@ export function FinanceChart({
     () =>
       summary.monthly.map((m) => ({
         month: m.month,
-        Доход: m.income,
-        Расходы: m.expenses,
-        Зарплаты: m.salaries,
-        Прибыль: m.profit,
+        income: m.income,
+        expenses: m.expenses,
+        salaries: m.salaries,
+        profit: m.profit,
       })),
     [summary.monthly],
   )
@@ -164,7 +178,7 @@ export function FinanceChart({
   }, [handleMouseMove, handleMouseUp])
 
   const values = useMemo(
-    () => chartData.map((d) => d[effectiveMode.key as keyof typeof d] as number),
+    () => chartData.map((d) => d[effectiveMode.key]),
     [chartData, effectiveMode.key],
   )
   const minVal = values.length ? Math.min(...values) : 0
@@ -182,9 +196,10 @@ export function FinanceChart({
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <span
               className="inline-block h-3 w-3 rounded-sm"
+              data-testid="finance-chart-swatch"
               style={{ background: effectiveMode.color }}
             />
-            Динамика по месяцам
+            <Trans>Динаміка за місяцями</Trans>
           </CardTitle>
           <Select value={effectiveMode.value} onValueChange={(v) => setMode(v as ChartMode)}>
             <SelectTrigger className="h-7 text-xs w-32">
@@ -193,7 +208,7 @@ export function FinanceChart({
             <SelectContent>
               {CHART_MODES.map((m) => (
                 <SelectItem key={m.value} value={m.value} className="text-xs">
-                  {m.label}
+                  {i18n._(m.label)}
                 </SelectItem>
               ))}
             </SelectContent>

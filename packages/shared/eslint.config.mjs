@@ -38,16 +38,16 @@ export default [
     },
   },
   {
-    // task-i18n-stage2-task9 (plan §Task 9): same baseline-warning rule as
-    // apps/web/eslint.config.mjs — see that file's comment for the full
-    // rationale (`warn` for now, `error` from stage 6; third `ignore` entry
-    // narrows to lines actually containing Cyrillic).
+    // task-i18n-stage2-task9 (plan §Task 9), promoted to `error` in stage 6:
+    // same rule as apps/web/eslint.config.mjs — see that file's comment for the
+    // full rationale (third `ignore` entry narrows to lines actually containing
+    // Cyrillic).
     files: ['src/**/*.ts'],
     ignores: ['src/**/*.spec.ts'],
     plugins: { lingui: pluginLingui },
     rules: {
       'lingui/no-unlocalized-strings': [
-        'warn',
+        'error',
         {
           // CR-M-1 (#691): the upstream 'single lowercase token' pattern silenced one-word Cyrillic
           // text ('дроп', 'резюме'); a word with any Cyrillic letter must warn — only ALL-CAPS
@@ -81,6 +81,29 @@ export default [
           ],
         },
       ],
+    },
+  },
+  {
+    // Source message catalogs. The `message:` literals in these files ARE the
+    // i18n source that `lingui extract` reads (uk source text); flagging them
+    // is a false positive. Narrow by path on purpose — NOT a global
+    // `ignoreNames: ['message']`, which would also silence real hardcoded
+    // `message:` strings elsewhere.
+    files: [
+      'src/schemas/api-errors/**/*.ts',
+      'src/schemas/*-registry.ts',
+      'src/schemas/zod-errors.ts',
+    ],
+    rules: {
+      'lingui/no-unlocalized-strings': 'off',
+    },
+  },
+  {
+    // Technology/skill names are stored tag values (identifiers users pick and
+    // the API persists), not UI copy: translating them would change the data.
+    files: ['src/data/technologies.ts'],
+    rules: {
+      'lingui/no-unlocalized-strings': 'off',
     },
   },
   {

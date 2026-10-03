@@ -14,6 +14,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { companyAccountApi } from '../finance/api'
 
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/
@@ -33,13 +34,14 @@ export function ChangeWalletAddressDialog({
   currentAddress: string | null
 }) {
   const qc = useQueryClient()
+  const { t } = useLingui()
   const [address, setAddress] = useState('')
 
   const mutation = useMutation({
     mutationFn: () => companyAccountApi.updateWallet({ walletAddress: address.trim() }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['company-account'] })
-      toast.success('Адрес кошелька обновлён')
+      toast.success(t`Адресу гаманця оновлено`)
       handleClose()
     },
   })
@@ -63,9 +65,11 @@ export function ChangeWalletAddressDialog({
     >
       <CrmDialogContent maxWidth="sm:max-w-md">
         <CrmDialogHeader>
-          <DialogTitle>Изменить адрес кошелька компании</DialogTitle>
+          <DialogTitle>
+            <Trans>Змінити адресу гаманця компанії</Trans>
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Смена ERC-20 адреса для получения USDT-депозитов
+            <Trans>Зміна ERC-20 адреси для отримання USDT-депозитів</Trans>
           </DialogDescription>
         </CrmDialogHeader>
 
@@ -74,23 +78,29 @@ export function ChangeWalletAddressDialog({
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
               <p className="text-xs text-amber-300/90">
-                Смена адреса вступит в силу немедленно. Сообщите партнёрам новый адрес для
-                пополнений.
+                <Trans>
+                  Зміна адреси набуде чинності негайно. Повідомте партнерам нову адресу для
+                  поповнень.
+                </Trans>
               </p>
             </div>
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs">Текущий адрес</Label>
+            <Label className="text-xs">
+              <Trans>Поточна адреса</Trans>
+            </Label>
             <Input
               readOnly
-              value={currentAddress ?? 'Не указан'}
+              value={currentAddress ?? t`Не вказано`}
               className="h-8 bg-muted/30 font-mono text-xs"
             />
           </div>
 
           <div className="space-y-1">
-            <Label className="text-xs">Новый адрес (ERC-20)</Label>
+            <Label className="text-xs">
+              <Trans>Нова адреса (ERC-20)</Trans>
+            </Label>
             <div className="relative">
               <Input
                 value={address}
@@ -114,7 +124,7 @@ export function ChangeWalletAddressDialog({
               )}
             </div>
             <p id="wallet-addr-hint" className="text-[10px] text-muted-foreground">
-              Ethereum ERC-20, начинается с 0x, 42 символа
+              <Trans>Ethereum ERC-20, починається з 0x, 42 символи</Trans>
             </p>
           </div>
 
@@ -123,10 +133,10 @@ export function ChangeWalletAddressDialog({
 
         <CrmDialogFooter>
           <Button variant="outline" onClick={handleClose}>
-            Отмена
+            <Trans>Скасувати</Trans>
           </Button>
           <Button onClick={() => mutation.mutate()} disabled={!isValid || mutation.isPending}>
-            {mutation.isPending ? 'Сохранение…' : 'Сохранить адрес'}
+            {mutation.isPending ? t`Збереження…` : t`Зберегти адресу`}
           </Button>
         </CrmDialogFooter>
       </CrmDialogContent>

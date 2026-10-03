@@ -58,14 +58,14 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     await loadCatalog('uk')
   })
 
-  it('renders the trigger with Russian "Действия" label', () => {
+  it('renders the trigger with uk "Дії" label', () => {
     renderMenu()
     const trigger = screen.getByTestId('admin-actions-trigger')
     expect(trigger).toBeInTheDocument()
-    expect(trigger).toHaveTextContent('Действия')
+    expect(trigger).toHaveTextContent('Дії')
   })
 
-  it('opens dropdown when trigger is clicked (active entity → Архивировать item)', async () => {
+  it('opens dropdown when trigger is clicked (active entity → Архівувати item)', async () => {
     const user = userEvent.setup()
     renderMenu({ isArchived: false })
 
@@ -73,19 +73,19 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
     const archiveItem = await screen.findByTestId('admin-action-archive')
     expect(archiveItem).toBeInTheDocument()
-    expect(archiveItem).toHaveTextContent('Архивировать')
+    expect(archiveItem).toHaveTextContent('Архівувати')
     // Unarchive item must NOT be present for an active entity
     expect(screen.queryByTestId('admin-action-unarchive')).not.toBeInTheDocument()
   })
 
-  it('shows only Восстановить из архива for archived entities', async () => {
+  it('shows only Відновити з архіву for archived entities', async () => {
     const user = userEvent.setup()
     renderMenu({ isArchived: true })
 
     await user.click(screen.getByTestId('admin-actions-trigger'))
 
     const unarchive = await screen.findByTestId('admin-action-unarchive')
-    expect(unarchive).toHaveTextContent('Восстановить из архива')
+    expect(unarchive).toHaveTextContent('Відновити з архіву')
     expect(screen.queryByTestId('admin-action-archive')).not.toBeInTheDocument()
   })
 
@@ -114,7 +114,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
     expect(screen.queryByTestId('admin-action-archive')).not.toBeInTheDocument()
   })
 
-  it('Clicking Архивировать opens the ArchiveConfirmDialog (renders title in role=dialog)', async () => {
+  it('Clicking Архівувати opens the ArchiveConfirmDialog (renders title in role=dialog)', async () => {
     const user = userEvent.setup()
     renderMenu({ isArchived: false })
 

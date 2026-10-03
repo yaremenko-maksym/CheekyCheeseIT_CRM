@@ -1,3 +1,6 @@
+// TODO(i18n, task_3ec0e901): move to param catalog — the cascade-plan warning and locked-field
+// texts below are Russian `message` literals, each silenced by a line-level disable so that a NEW
+// literal added to this file is still caught by lingui/no-unlocalized-strings.
 import { z } from 'zod'
 import {
   transactionTypeSchema,
@@ -557,6 +560,7 @@ function resolveDerivative(
     ? [
         {
           code: 'OBLIGATION_CURRENCY_MISMATCH',
+          // eslint-disable-next-line lingui/no-unlocalized-strings
           message: `Обязательство учтено в ${derivative.obligation!.currency}, а сумма источника — в ${sourceCurrency}: записать пересчитанную долю в обязательство другой валюты нельзя`,
         },
       ]
@@ -580,6 +584,7 @@ function resolveDerivative(
         {
           code: 'NO_SHARE_SNAPSHOT',
           message:
+            // eslint-disable-next-line lingui/no-unlocalized-strings
             'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
         },
         ...obligationCurrencyWarning,
@@ -708,14 +713,17 @@ function resolveDerivative(
       // this is shown and PENDING after saving — what happens to it is that its
       // amount is held at the accumulator and nothing more is owed.
       message: isSettled
-        ? `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
-        : `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма останется на уровне выплаченного, разница сама не вернётся`,
+        ? // eslint-disable-next-line lingui/no-unlocalized-strings
+          `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
+        : // eslint-disable-next-line lingui/no-unlocalized-strings
+          `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма останется на уровне выплаченного, разница сама не вернётся`,
     })
   }
   if (derivative.hasSignedInvoice) {
     warnings.push({
       code: 'SIGNED_INVOICE',
       message:
+        // eslint-disable-next-line lingui/no-unlocalized-strings
         'По этой строке инвойс уже подписан контрагентом — правка не отразится в подписанном документе',
     })
   }
@@ -724,8 +732,10 @@ function resolveDerivative(
       code: 'NON_USDT_CURRENCY',
       message:
         settledCurrency === null
-          ? `Валюта уже выплаченной суммы (${settledAmount}) не зафиксирована — сравнить с новой долей в ${sourceCurrency} нельзя`
-          : `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
+          ? // eslint-disable-next-line lingui/no-unlocalized-strings
+            `Валюта уже выплаченной суммы (${settledAmount}) не зафиксирована — сравнить с новой долей в ${sourceCurrency} нельзя`
+          : // eslint-disable-next-line lingui/no-unlocalized-strings
+            `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
     })
   }
   // `newAmount` above is computed as usual even on a mismatch: the NUMBER is
@@ -774,6 +784,7 @@ function resolveSourceWarnings(source: CascadeSourceSnapshot): CascadeWarning[] 
     warnings.push({
       code: 'SOURCE_SIGNED_INVOICE',
       message:
+        // eslint-disable-next-line lingui/no-unlocalized-strings
         'По этой строке уже есть инвойс, подписанный контрагентом — правка суммы не отразится в подписанном документе',
     })
   }
@@ -968,9 +979,11 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
 export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
   /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
   CURRENCY:
+    // eslint-disable-next-line lingui/no-unlocalized-strings
     'Валюта оплаченной строки не редактируется — платёж уже прошёл в этой валюте, правьте сторнирующей транзакцией',
   /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
   SALARY_MONTH:
+    // eslint-disable-next-line lingui/no-unlocalized-strings
     'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, правьте сторнирующей транзакцией',
 } as const
 
@@ -997,10 +1010,13 @@ export const CASCADE_LEDGER_FACT_MESSAGES: Record<
   // «Расчёт» is the glossary name for a settle (`CONTEXT.md`), so the second
   // one now names a carrier instead of restating its own label.
   SETTLED_AMOUNT_RECORDED:
+    // eslint-disable-next-line lingui/no-unlocalized-strings
     'По этой строке уже прошли выплаты — её сумма подтверждена фактически перечисленным, правьте сторнирующей транзакцией',
   CLOSES_OBLIGATION:
+    // eslint-disable-next-line lingui/no-unlocalized-strings
     'Этой строкой закрыто обязательство — её сумма зафиксирована в расчёте, правьте сторнирующей транзакцией',
   ONCHAIN_DEPOSIT:
+    // eslint-disable-next-line lingui/no-unlocalized-strings
     'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
 }
 
