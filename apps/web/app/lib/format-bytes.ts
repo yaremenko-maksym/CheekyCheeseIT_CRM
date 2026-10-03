@@ -26,7 +26,11 @@ import { formatNumber, type Locale } from '@crm/shared'
  */
 const NBSP = ' '
 
+// Per-locale unit abbreviations are a formatter table keyed by locale (like `Intl` data), not
+// translatable UI copy: the locale is already resolved by the caller, so routing these through
+// the message catalog would only add a second lookup for the same decision.
 const UNITS: Record<Locale, readonly string[]> = {
+  // eslint-disable-next-line lingui/no-unlocalized-strings
   uk: ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'],
   en: ['B', 'KB', 'MB', 'GB', 'TB'],
 }

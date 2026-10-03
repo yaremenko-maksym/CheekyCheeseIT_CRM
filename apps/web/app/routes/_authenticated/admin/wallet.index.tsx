@@ -3,6 +3,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, FileText, Pencil, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
+import { Trans, useLingui } from '@lingui/react/macro'
 import { COMPANY_REQUISITES_MAX } from '@crm/shared'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ const CodeMirrorEditor = lazy(async () => {
 
 function CompanyWalletPage() {
   const qc = useQueryClient()
+  const { t } = useLingui()
   const [walletOpen, setWalletOpen] = useState(false)
 
   const { data: account, isLoading } = useQuery({
@@ -48,7 +50,7 @@ function CompanyWalletPage() {
   const copyAddr = () => {
     if (!walletAddress) return
     void navigator.clipboard.writeText(walletAddress)
-    toast.success('Адрес скопирован')
+    toast.success(t`Адресу скопійовано`)
   }
 
   // ── Requisites editor state ────────────────────────────────────────────────
@@ -75,25 +77,27 @@ function CompanyWalletPage() {
       // (empty/whitespace is coerced to null server-side).
       setRequisites(updated.requisitesMarkdown ?? '')
       void qc.invalidateQueries({ queryKey: ['company-account'] })
-      toast.success('Реквизиты сохранены')
+      toast.success(t`Реквізити збережено`)
     },
     onError: () => {
-      toast.error('Не удалось сохранить реквизиты')
+      toast.error(t`Не вдалося зберегти реквізити`)
     },
   })
 
   return (
     <div className="flex flex-col gap-4" data-testid="admin-company-page">
       <p className="text-sm text-muted-foreground">
-        Настройки компании: кошелёк для приёма USDT и реквизиты, которые автоматически добавляются в
-        конец каждого нового контракта при подписании.
+        <Trans>
+          Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються
+          в кінець кожного нового контракту під час підписання.
+        </Trans>
       </p>
 
       <Card className="max-w-2xl border-border" data-testid="admin-company-wallet-card">
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <Wallet className="h-4 w-4 text-primary" />
-            Кошелёк компании (USDT ERC-20)
+            <Trans>Гаманець компанії (USDT ERC-20)</Trans>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -101,7 +105,9 @@ function CompanyWalletPage() {
             <Skeleton className="h-9 w-full" />
           ) : (
             <div className="space-y-1.5">
-              <p className="text-xs text-muted-foreground">Текущий адрес</p>
+              <p className="text-xs text-muted-foreground">
+                <Trans>Поточна адреса</Trans>
+              </p>
               {walletAddress ? (
                 <div className="flex items-center gap-2 rounded-md border border-border bg-muted/20 px-3 py-2">
                   <code
@@ -116,21 +122,23 @@ function CompanyWalletPage() {
                     size="sm"
                     className="h-7 w-7 shrink-0 px-0"
                     onClick={copyAddr}
-                    aria-label="Скопировать адрес кошелька"
+                    aria-label={t`Скопіювати адресу гаманця`}
                   >
                     <Copy className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               ) : (
                 <p className="text-sm text-amber-500" data-testid="admin-company-wallet-empty">
-                  Адрес не настроен
+                  <Trans>Адресу не налаштовано</Trans>
                 </p>
               )}
             </div>
           )}
 
           <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
-            <p className="text-xs text-muted-foreground">Сеть: Ethereum ERC-20</p>
+            <p className="text-xs text-muted-foreground">
+              <Trans>Мережа: Ethereum ERC-20</Trans>
+            </p>
             <Button
               variant="outline"
               size="sm"
@@ -139,7 +147,7 @@ function CompanyWalletPage() {
               data-testid="admin-company-wallet-edit"
             >
               <Pencil className="mr-1.5 h-3.5 w-3.5" />
-              Изменить адрес
+              <Trans>Змінити адресу</Trans>
             </Button>
           </div>
         </CardContent>
@@ -150,14 +158,16 @@ function CompanyWalletPage() {
         <CardHeader className="pb-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold">
             <FileText className="h-4 w-4 text-primary" />
-            Реквизиты компании
+            <Trans>Реквізити компанії</Trans>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-xs text-muted-foreground">
-            Markdown. Этот блок добавляется в конец каждого нового контракта под заголовком
-            «Реквизиты компании». Шаблоны контрактов менять не нужно. Изменения влияют только на
-            будущие подписания — уже подписанные контракты не меняются.
+            <Trans>
+              Markdown. Цей блок додається в кінець кожного нового контракту під заголовком
+              «Реквізити компанії». Шаблони контрактів змінювати не потрібно. Зміни стосуються лише
+              майбутніх підписань — уже підписані контракти не змінюються.
+            </Trans>
           </p>
 
           {isLoading || requisites === null ? (
@@ -201,7 +211,7 @@ function CompanyWalletPage() {
               disabled={isPristine || isTooLong || saveRequisites.isPending || isLoading}
               data-testid="admin-company-requisites-save"
             >
-              {saveRequisites.isPending ? 'Сохранение…' : 'Сохранить'}
+              {saveRequisites.isPending ? t`Збереження…` : t`Зберегти`}
             </Button>
           </div>
         </CardContent>

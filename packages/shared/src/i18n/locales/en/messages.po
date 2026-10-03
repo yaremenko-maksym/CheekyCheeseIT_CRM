@@ -469,6 +469,10 @@ msgstr "Email is linked to the Google account and cannot be changed"
 msgid "ERC-20, прив’язаний до долара"
 msgstr "ERC-20, pegged to the dollar"
 
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Ethereum ERC-20, починається з 0x, 42 символи"
+msgstr "Ethereum ERC-20, starts with 0x, 42 characters"
+
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Google for Jobs (необов’язково)"
 msgstr "Google for Jobs (optional)"
@@ -563,6 +567,10 @@ msgstr "ID: {0}…"
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "JPG, PNG, PDF — до 10 МБ"
 msgstr "JPG, PNG, PDF — up to 10 MB"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Markdown. Цей блок додається в кінець кожного нового контракту під заголовком «Реквізити компанії». Шаблони контрактів змінювати не потрібно. Зміни стосуються лише майбутніх підписань — уже підписані контракти не змінюються."
+msgstr "Markdown. This block is added to the end of every new contract under the heading “Company requisites”. There is no need to change the contract templates. Changes only affect future signings — contracts that are already signed stay as they are."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
@@ -815,9 +823,18 @@ msgstr "Registration address (Sole proprietor)"
 msgid "contract-variable.registrationAddress"
 msgstr "Registration address (sole proprietor)"
 
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Адресу гаманця оновлено"
+msgstr "Wallet address updated"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Адресу не налаштовано"
 msgstr "Address not configured"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Адресу скопійовано"
+msgstr "Address copied"
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Акт виконаних робіт (дохід сеньйора)"
@@ -933,6 +950,7 @@ msgstr "The archive is empty"
 msgid "api-error.DROP_ARCHIVE_ADMIN_ONLY"
 msgstr "Only an admin can archive a drop"
 
+#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/archive/ArchiveConfirmDialog.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/ArchiveUserDialog.tsx
@@ -2064,6 +2082,7 @@ msgstr "Expense"
 msgid "Витрата компанії"
 msgstr "Company expense"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Витрати"
 msgstr "Expenses"
@@ -2290,6 +2309,7 @@ msgstr "Restore all"
 msgid "api-error.DOCUMENT_RESTORE_ADMIN_ONLY"
 msgstr "Only an administrator can restore a document"
 
+#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/users/UserRow.tsx
 #: apps/web/app/components/users/UserRow.tsx
@@ -2650,6 +2670,10 @@ msgstr "USDT wallet (ERC-20)"
 msgid "contract-variable.walletUsdt"
 msgstr "USDT ERC-20 wallet (if provided)"
 
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Гаманець компанії (USDT ERC-20)"
+msgstr "Company wallet (USDT ERC-20)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_WALLET_NOT_CONFIGURED"
@@ -2959,6 +2983,10 @@ msgstr "Dividends withdrawn"
 msgid "api-error.FINANCE_DIVIDEND_RECIPIENT_MUST_BE_ADMIN"
 msgstr "Dividends can only be withdrawn to an admin's account"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
+msgid "Динаміка за місяцями"
+msgstr "Monthly trend"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Діє попередній відсоток, поки новий не підтверджено."
 msgstr "The previous percentage applies until the new one is confirmed."
@@ -2967,6 +2995,7 @@ msgstr "The previous percentage applies until the new one is confirmed."
 msgid "Діє попередня частка, поки нову не підтверджено"
 msgstr "The previous share applies until the new one is confirmed"
 
+#: apps/web/app/components/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/admin-actions/AdminActionsMenu.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
@@ -4064,6 +4093,7 @@ msgstr "Salary"
 msgid "Зарплата співробітнику"
 msgstr "Employee salary"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Зарплати"
 msgstr "Salaries"
@@ -4123,6 +4153,7 @@ msgstr "The request has been created"
 #: apps/web/app/components/user-profile/resume/ResumeSectionCard.tsx
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
@@ -4132,6 +4163,10 @@ msgstr "The request has been created"
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Зберегти"
 msgstr "Save"
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Зберегти адресу"
+msgstr "Save address"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -4157,6 +4192,8 @@ msgstr "Save draft"
 
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
@@ -4235,10 +4272,22 @@ msgstr "Only an admin or an accountant can see the missed salary months report"
 msgid "Згорнути"
 msgstr "Collapse"
 
+#: apps/web/app/components/admin/MarkdownDiff.tsx
+msgid "Змін немає — вміст ідентичний поточній версії."
+msgstr "No changes — the content is identical to the current version."
+
 #. placeholder {0}: editingUser?.displayName
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Зміна email може розірвати вхід через Google для <0>{0}</0>. Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google."
 msgstr "Changing the email may break Google sign-in for <0>{0}</0>. Make sure the user knows about the change and updates their Google account if needed."
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Зміна ERC-20 адреси для отримання USDT-депозитів"
+msgstr "Changing the ERC-20 address used to receive USDT deposits"
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Зміна адреси набуде чинності негайно. Повідомте партнерам нову адресу для поповнень."
+msgstr "The new address takes effect immediately. Tell your partners the new address for top-ups."
 
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "Зміна реквізитів"
@@ -4274,6 +4323,14 @@ msgstr "Change the email?"
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "Змінити аватар"
 msgstr "Change avatar"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Змінити адресу"
+msgstr "Change address"
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Змінити адресу гаманця компанії"
+msgstr "Change the company wallet address"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5116,6 +5173,10 @@ msgstr "Zoom"
 msgid "Меню користувача"
 msgstr "User menu"
 
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Мережа: Ethereum ERC-20"
+msgstr "Network: Ethereum ERC-20"
+
 #: apps/web/app/components/finance/ConfirmPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод оплати"
@@ -5216,6 +5277,10 @@ msgstr "Languages"
 msgid "Можливо, користувача архівовано — перевірте фільтр «В архіві» у списку"
 msgstr "The user may be archived — check the “Archived” filter in the list"
 
+#: apps/web/app/components/not-found.tsx
+msgid "Можливо, посилання застаріло або сторінку було переміщено."
+msgstr "The link may be outdated or the page may have been moved."
+
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Можливо, у вас немає доступу до цієї команди"
 msgstr "You may not have access to this team"
@@ -5261,6 +5326,10 @@ msgstr "In the accountant's validation"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 msgid "На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до адміністратора."
 msgstr "On all of your projects, the administrator declares income (USDT). Contact the administrator."
+
+#: apps/web/app/components/not-found.tsx
+msgid "На головну"
+msgstr "Go to home"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -5418,6 +5487,10 @@ msgstr "The setting will appear after the app is updated"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.NOTIFICATION_TYPE_UNKNOWN"
 msgstr "Settings are outdated — refresh the page"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються в кінець кожного нового контракту під час підписання."
+msgstr "Company settings: the wallet for receiving USDT and the requisites that are automatically added to the end of every new contract at signing."
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Наприклад: видалено помилково"
@@ -5756,6 +5829,10 @@ msgstr "Could not save the password. Try again"
 msgid "Не вдалося зберегти профіль. Спробуйте ще раз"
 msgstr "Could not save the profile. Try again"
 
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Не вдалося зберегти реквізити"
+msgstr "Failed to save the requisites"
+
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Не вдалося зібрати PDF"
 msgstr "Could not build the PDF"
@@ -5970,6 +6047,10 @@ msgstr "Failed to log in: {errMessage}"
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "не вказано"
 msgstr "not set"
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Не вказано"
+msgstr "Not specified"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
@@ -6361,6 +6442,10 @@ msgstr "No matches — clear the filters"
 #: apps/web/app/routes/_authenticated/pending/index.tsx
 msgid "Нічого не чекає на ваше рішення"
 msgstr "Nothing is waiting for your decision"
+
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+msgid "Нова адреса (ERC-20)"
+msgstr "New address (ERC-20)"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -7236,6 +7321,10 @@ msgstr "The persona is not filled in. Click “Create”."
 msgid "Перша версія"
 msgstr "First version"
 
+#: apps/web/app/components/admin/MarkdownDiff.tsx
+msgid "Перша публікація — весь вміст буде додано як новий."
+msgstr "First publication — all of the content will be added as new."
+
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "Перша сторінка"
 msgstr "First page"
@@ -7903,6 +7992,11 @@ msgstr "Link, row {position}"
 msgid "invoicePdf.description.contract"
 msgstr "Services rendered by the contractor under contract No. {contractNumber}"
 
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Поточна адреса"
+msgstr "Current address"
+
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
 msgstr "The current Terms version will be deactivated (kept in history). All users will need to accept the new Terms of Service version again."
@@ -8046,6 +8140,10 @@ msgstr "The senior can't be removed from a team — delete the team instead"
 msgid "Прибрати файл"
 msgstr "Remove file"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
+msgid "Прибуток"
+msgstr "Profit"
+
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Прибуток за останній місяць"
 msgstr "Net profit for the last month"
@@ -8163,6 +8261,7 @@ msgstr "Note <0>(optional)</0>"
 msgid "Примітки"
 msgstr "Notes"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Прихід"
 msgstr "Income"
@@ -8807,6 +8906,14 @@ msgstr "Payout details"
 msgid "contract-variable.requisites"
 msgstr "Payment details — filled in automatically based on the payment method"
 
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Реквізити збережено"
+msgstr "Requisites saved"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Реквізити компанії"
+msgstr "Company requisites"
+
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Реквізити не вказано"
 msgstr "No payout details set"
@@ -9189,6 +9296,7 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/components/users/RejoinTeamDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 #: apps/web/app/routes/_authenticated/admin/contracts.$role.tsx
 #: apps/web/app/routes/_authenticated/admin/login-as.tsx
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
@@ -9302,6 +9410,10 @@ msgstr "Copied"
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Скопіювати {label}"
 msgstr "Copy {label}"
+
+#: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
+msgid "Скопіювати адресу гаманця"
+msgstr "Copy wallet address"
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
@@ -9717,6 +9829,10 @@ msgstr "Tech stack"
 #: apps/web/app/components/onboarding/ContractWaitScreen.tsx
 msgid "Сторінка оновиться сама, щойно контракт буде готовий"
 msgstr "The page will refresh on its own once the contract is ready"
+
+#: apps/web/app/components/not-found.tsx
+msgid "Сторінку не знайдено"
+msgstr "Page not found"
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Сторона"

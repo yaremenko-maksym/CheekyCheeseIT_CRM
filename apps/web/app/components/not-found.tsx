@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { Compass, Home } from 'lucide-react'
+import { Trans } from '@lingui/react/macro'
 import { Button } from '@/components/ui/button'
 
 /**
@@ -15,14 +16,16 @@ export function NotFound() {
         <Compass className="h-8 w-8" />
       </div>
       <p className="mt-6 text-5xl font-bold tracking-tight tabular-nums text-foreground/90">404</p>
-      <h1 className="mt-2 text-lg font-semibold tracking-tight">Страница не найдена</h1>
+      <h1 className="mt-2 text-lg font-semibold tracking-tight">
+        <Trans>Сторінку не знайдено</Trans>
+      </h1>
       <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-        Возможно, ссылка устарела или страница была перемещена.
+        <Trans>Можливо, посилання застаріло або сторінку було переміщено.</Trans>
       </p>
       <Button asChild className="mt-6" data-testid="not-found-home-link">
         <Link to="/">
           <Home className="mr-2 h-4 w-4" />
-          На главную
+          <Trans>На головну</Trans>
         </Link>
       </Button>
     </div>
