@@ -23,7 +23,7 @@ import type { MessageDescriptor } from '@lingui/core'
 export const INVOICE_PDF_MESSAGES = {
   titleAct: /* i18n */ {
     id: 'invoicePdf.title.act',
-    message: 'АКТ ВИКОНАНИХ РОБІТ',
+    message: 'АКТ НАДАНИХ ПОСЛУГ',
   },
   titleSalary: /* i18n */ {
     id: 'invoicePdf.title.salary',
@@ -47,7 +47,7 @@ export const INVOICE_PDF_MESSAGES = {
   },
   sectionDescription: /* i18n */ {
     id: 'invoicePdf.section.description',
-    message: 'ОПИС ПОСЛУГИ',
+    message: 'ОПИС ПОСЛУГ',
   },
   sectionAmount: /* i18n */ {
     id: 'invoicePdf.section.amount',
@@ -131,7 +131,7 @@ export const INVOICE_PDF_MESSAGES = {
   },
   signatureMethodAuto: /* i18n */ {
     id: 'invoicePdf.signature.methodAuto',
-    message: 'Автоматичний електронний',
+    message: 'Автоматичний електронний підпис',
   },
   signatureMethodClick: /* i18n */ {
     id: 'invoicePdf.signature.methodClick',

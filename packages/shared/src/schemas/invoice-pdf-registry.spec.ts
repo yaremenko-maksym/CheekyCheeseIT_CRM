@@ -70,7 +70,7 @@ describe('INVOICE_PDF_MESSAGES / INVOICE_PDF_MONTH_MESSAGES', () => {
       expect(en).not.toMatch(/[Ѐ-ӿ]/)
     }
     expect(renderMessage(EN, INVOICE_PDF_MESSAGES.titleAct)).toBe('ACT OF SERVICES RENDERED')
-    expect(renderMessage(UK, INVOICE_PDF_MESSAGES.titleAct)).toBe('АКТ ВИКОНАНИХ РОБІТ')
+    expect(renderMessage(UK, INVOICE_PDF_MESSAGES.titleAct)).toBe('АКТ НАДАНИХ ПОСЛУГ')
   })
 
   it('substitutes params untouched, in the order each locale writes them', () => {

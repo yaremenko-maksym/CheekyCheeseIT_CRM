@@ -702,7 +702,7 @@ msgstr "Auto (by payment method)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
 msgid "invoicePdf.signature.methodAuto"
-msgstr "Automatic electronic"
+msgstr "Automatic electronic signature"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Автоматичний електронний підпис компанії під час випуску рахунку"
@@ -814,14 +814,14 @@ msgstr "Registration address (sole proprietor)"
 msgid "Адресу не налаштовано"
 msgstr "Address not configured"
 
+#: apps/web/app/routes/invoice.v.$transactionId.tsx
+msgid "Акт виконаних робіт (дохід сеньйора)"
+msgstr "Certificate of completed work (senior income)"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
 msgid "invoicePdf.title.act"
 msgstr "ACT OF SERVICES RENDERED"
-
-#: apps/web/app/routes/invoice.v.$transactionId.tsx
-msgid "Акт виконаних робіт (дохід сеньйора)"
-msgstr "Certificate of completed work (senior income)"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -8672,7 +8672,7 @@ msgstr "Payment details updated"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
 msgid "invoicePdf.requisites.missing"
-msgstr "Payment details: not provided, please contact the administrator"
+msgstr "Payment details: not provided, please contact the admin"
 
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Рівень"

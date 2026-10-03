@@ -702,7 +702,7 @@ msgstr "Авто (за методом оплати)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
 msgid "invoicePdf.signature.methodAuto"
-msgstr "Автоматичний електронний"
+msgstr "Автоматичний електронний підпис"
 
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Автоматичний електронний підпис компанії під час випуску рахунку"
@@ -814,14 +814,14 @@ msgstr "Адреса реєстрації (ФОП)"
 msgid "Адресу не налаштовано"
 msgstr "Адресу не налаштовано"
 
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/invoice-pdf-registry.ts
-msgid "invoicePdf.title.act"
-msgstr "АКТ ВИКОНАНИХ РОБІТ"
-
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Акт виконаних робіт (дохід сеньйора)"
 msgstr "Акт виконаних робіт (дохід сеньйора)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.title.act"
+msgstr "АКТ НАДАНИХ ПОСЛУГ"
 
 #: apps/web/app/routes/_authenticated/admin/tos.index.tsx
 msgid "активна"
@@ -6480,7 +6480,7 @@ msgstr "Опис (Markdown)"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
 msgid "invoicePdf.section.description"
-msgstr "ОПИС ПОСЛУГИ"
+msgstr "ОПИС ПОСЛУГ"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts

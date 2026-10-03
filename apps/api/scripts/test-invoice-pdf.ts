@@ -37,6 +37,7 @@ async function main(): Promise<void> {
       address: 'г. Киев, ул. Хрещатик, 22, оф. 5',
     },
     counterparty: {
+      locale: 'uk',
       displayName: 'Иван Петрович Иванов',
       paymentMethod: 'USDT_ERC20',
       paymentDetails: [
@@ -80,6 +81,7 @@ async function main(): Promise<void> {
       address: 'г. Киев, ул. Хрещатик, 22, оф. 5',
     },
     counterparty: {
+      locale: 'uk',
       displayName: 'Олена Кузьменко',
       paymentMethod: 'BANK_UAH_FOP',
       paymentDetails: [
