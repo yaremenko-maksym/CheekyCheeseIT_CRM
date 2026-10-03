@@ -10870,13 +10870,13 @@ msgid "Частка за замовчуванням: пропозицію від
 msgstr "Частка за замовчуванням: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/invoice-pdf-registry.ts
-msgid "invoicePdf.description.project"
+#: packages/shared/src/schemas/pending-title-registry.ts
+msgid "pending.title.SHARE_PROJECT"
 msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/pending-title-registry.ts
-msgid "pending.title.SHARE_PROJECT"
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.project"
 msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id

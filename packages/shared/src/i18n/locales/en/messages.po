@@ -10870,14 +10870,14 @@ msgid "Частка за замовчуванням: пропозицію від
 msgstr "Default share: proposal rejected — the previous one stays. The admin will see the reason"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/invoice-pdf-registry.ts
-msgid "invoicePdf.description.project"
-msgstr "Share of project “{projectName}”"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/pending-title-registry.ts
 msgid "pending.title.SHARE_PROJECT"
 msgstr "Share in project “{projectName}”"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.project"
+msgstr "Share of project “{projectName}”"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
