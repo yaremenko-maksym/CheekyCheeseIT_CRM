@@ -9,9 +9,26 @@
 import { render as rtlRender, screen, within, type RenderOptions } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ChartTooltip, FinanceChart } from './FinanceChart'
+
+// Recharts measures a 0x0 container under happy-dom and renders nothing, so the data keys and
+// the Y-axis domain the component computes would be unobservable. Thin stand-ins expose them.
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  BarChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  CartesianGrid: () => null,
+  ReferenceLine: () => null,
+  Tooltip: () => null,
+  XAxis: () => null,
+  YAxis: ({ domain }: { domain?: [number, number] }) => (
+    <div data-testid="y-axis" data-domain={JSON.stringify(domain)} />
+  ),
+  Bar: ({ dataKey, fill }: { dataKey: string; fill: string }) => (
+    <div data-testid="bar" data-key={dataKey} data-fill={fill} />
+  ),
+}))
 
 function render(ui: ReactElement, options?: RenderOptions) {
   return rtlRender(ui, { wrapper: I18nTestProvider, ...options })
@@ -58,6 +75,29 @@ describe('FinanceChart — labels', () => {
   })
 })
 
+describe('FinanceChart — plotted series', () => {
+  it('plots the matching data field and Y domain for each mode', async () => {
+    const user = userEvent.setup()
+    render(<FinanceChart summary={SUMMARY} />)
+
+    // income [100, 200] → pad 10 → domain [0, 210]
+    expect(screen.getAllByTestId('bar').at(-1)).toHaveAttribute('data-key', 'income')
+    expect(screen.getAllByTestId('y-axis')[0]).toHaveAttribute('data-domain', '[0,210]')
+
+    const expected: [string, string, string][] = [
+      ['Прибуток', 'profit', '[0,96]'], // [30, 90] → pad 6 → ceil(96)
+      ['Витрати', 'expenses', '[0,51]'], // [40, 50] → pad 1 → 51
+      ['Зарплати', 'salaries', '[0,63]'], // [30, 60] → pad 3 → 63
+    ]
+    for (const [label, key, domain] of expected) {
+      await user.click(screen.getByRole('combobox'))
+      await user.click(await screen.findByRole('option', { name: label }))
+      expect(screen.getAllByTestId('bar').at(-1)).toHaveAttribute('data-key', key)
+      expect(screen.getAllByTestId('y-axis')[0]).toHaveAttribute('data-domain', domain)
+    }
+  })
+})
+
 describe('ChartTooltip — series names', () => {
   it('renders the catalog label for a known series, not its data key', () => {
     render(
@@ -67,6 +107,8 @@ describe('ChartTooltip — series names', () => {
         payload={[
           { dataKey: 'income', value: 1234.5, color: '#22c55e' },
           { dataKey: 'salaries', value: 60, color: '#a855f7' },
+          { dataKey: 'profit', value: 30, color: '#06b6d4' },
+          { dataKey: 'expenses', value: 40, color: '#f97316' },
         ]}
       />,
     )
@@ -74,6 +116,8 @@ describe('ChartTooltip — series names', () => {
     expect(screen.getByText('2026-02')).toBeInTheDocument()
     expect(screen.getByText('Прихід')).toBeInTheDocument()
     expect(screen.getByText('Зарплати')).toBeInTheDocument()
+    expect(screen.getByText('Прибуток')).toBeInTheDocument()
+    expect(screen.getByText('Витрати')).toBeInTheDocument()
     expect(screen.queryByText('income')).not.toBeInTheDocument()
     expect(screen.queryByText('salaries')).not.toBeInTheDocument()
     expect(screen.getByText('$1,234.50')).toBeInTheDocument()

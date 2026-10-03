@@ -151,6 +151,18 @@ describe('CompanyWalletPage — requisites save', () => {
     })
   })
 
+  it('shows «Збереження…» on the button while the save is in flight', async () => {
+    const user = userEvent.setup()
+    apiGetMock.mockResolvedValue({ data: { walletAddress: WALLET, requisitesMarkdown: 'old' } })
+    apiPatchMock.mockReturnValue(new Promise(() => {}))
+    render(<CompanyWalletPage />)
+
+    await user.type(await screen.findByLabelText('requisites-editor'), '!')
+    await user.click(screen.getByRole('button', { name: 'Зберегти' }))
+
+    expect(await screen.findByRole('button', { name: 'Збереження…' })).toBeDisabled()
+  })
+
   it('toasts «Не вдалося зберегти реквізити» when the save fails', async () => {
     const user = userEvent.setup()
     apiGetMock.mockResolvedValue({ data: { walletAddress: WALLET, requisitesMarkdown: 'old' } })
@@ -185,6 +197,19 @@ describe('ChangeWalletAddressDialog (opened from the page)', () => {
     expect(screen.getByText('Ethereum ERC-20, починається з 0x, 42 символи')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Скасувати' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Зберегти адресу' })).toBeDisabled()
+  })
+
+  it('shows «Збереження…» on the dialog button while the address save is in flight', async () => {
+    const user = userEvent.setup()
+    apiGetMock.mockResolvedValue({ data: { walletAddress: WALLET, requisitesMarkdown: null } })
+    apiPatchMock.mockReturnValue(new Promise(() => {}))
+    render(<CompanyWalletPage />)
+
+    await user.click(await screen.findByRole('button', { name: 'Змінити адресу' }))
+    await user.type(await screen.findByPlaceholderText('0x…'), NEW_WALLET)
+    await user.click(screen.getByRole('button', { name: 'Зберегти адресу' }))
+
+    expect(await screen.findByRole('button', { name: 'Збереження…' })).toBeDisabled()
   })
 
   it('saves a valid address and toasts «Адресу гаманця оновлено»', async () => {
