@@ -10,6 +10,7 @@
  */
 import {
   BadRequestException,
+  HttpException,
   NotFoundException,
   PayloadTooLargeException,
   UnsupportedMediaTypeException,

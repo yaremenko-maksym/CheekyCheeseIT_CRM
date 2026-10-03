@@ -14,13 +14,7 @@
  * vacancies.integration.spec.ts — this file focuses on the service's own
  * branching logic in isolation.
  */
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  HttpException,
-  NotFoundException,
-} from '@nestjs/common'
+import { ConflictException, HttpException } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
 import type { CreateVacancy, SessionUser } from '@crm/shared'
@@ -28,6 +22,18 @@ import type { Env } from '../config/env'
 import { vacancies, vacancyApplications } from '../database/schema'
 import type { GoogleIndexingService } from './google-indexing.service'
 import { VacanciesService } from './vacancies.service'
+
+/**
+ * Predicate for `.rejects.toSatisfy(...)`: the thrown value is an
+ * `apiError()` HttpException carrying the expected envelope `code` + HTTP
+ * status (the service no longer throws bare Nest exceptions with free text).
+ */
+function isApiError(code: string, status: number) {
+  return (err: unknown): boolean =>
+    err instanceof HttpException &&
+    err.getStatus() === status &&
+    (err.getResponse() as { code?: string }).code === code
+}
 
 const LANDING_ORIGIN = 'https://cheekycheese.tech'
 
@@ -275,8 +281,8 @@ describe('VacanciesService', () => {
     it('rejects with 409 when the slug already exists', async () => {
       const h = makeHarness({ findFirstQueue: [makeRow()] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(
-        svc.create(ADMIN, {
+      const err: unknown = await svc
+        .create(ADMIN, {
           title: 'Senior Frontend Engineer',
           slug: 'senior-frontend-engineer',
           descriptionMd: 'Full description here.',
@@ -285,8 +291,14 @@ describe('VacanciesService', () => {
           employmentType: 'FULL_TIME',
           location: 'Remote',
           ...VALID_SALARY,
-        }),
-      ).rejects.toThrow(ConflictException)
+        })
+        .catch((e: unknown) => e)
+      expect(isApiError('VACANCY_SLUG_EXISTS', 409)(err)).toBe(true)
+      // The envelope carries the slug param (the client interpolates it).
+      expect((err as HttpException).getResponse()).toMatchObject({
+        params: { slug: 'senior-frontend-engineer' },
+        message: 'A vacancy with slug senior-frontend-engineer already exists',
+      })
     })
 
     it('rejects with 403 for a non ADMIN/HR actor (defense-in-depth)', async () => {
@@ -303,7 +315,7 @@ describe('VacanciesService', () => {
           location: 'Remote',
           ...VALID_SALARY,
         }),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toSatisfy(isApiError('ADMIN_HR_ONLY', 403))
     })
 
     it('HR (not just ADMIN) can create', async () => {
@@ -338,7 +350,9 @@ describe('VacanciesService', () => {
         employmentType: 'FULL_TIME',
         location: 'Remote',
       } as unknown as CreateVacancy
-      await expect(svc.create(ADMIN, dtoMissingSalary)).rejects.toThrow(BadRequestException)
+      await expect(svc.create(ADMIN, dtoMissingSalary)).rejects.toSatisfy(
+        isApiError('VACANCY_SALARY_RANGE_REQUIRED', 400),
+      )
     })
   })
 
@@ -408,8 +422,8 @@ describe('VacanciesService', () => {
     it('404 when the vacancy does not exist', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, 'missing-id', { title: 'New title' })).rejects.toThrow(
-        NotFoundException,
+      await expect(svc.update(ADMIN, 'missing-id', { title: 'New title' })).rejects.toSatisfy(
+        isApiError('VACANCY_NOT_FOUND', 404),
       )
     })
 
@@ -435,8 +449,8 @@ describe('VacanciesService', () => {
       const draftRow = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
-        BadRequestException,
+      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toSatisfy(
+        isApiError('VACANCY_SALARY_RANGE_REQUIRED', 400),
       )
     })
 
@@ -444,8 +458,8 @@ describe('VacanciesService', () => {
       const closedRow = makeRow({ status: 'CLOSED' })
       const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
-        BadRequestException,
+      await expect(svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })).rejects.toSatisfy(
+        isApiError('VACANCY_SALARY_RANGE_REQUIRED', 400),
       )
     })
 
@@ -458,8 +472,8 @@ describe('VacanciesService', () => {
       })
       const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
-        BadRequestException,
+      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toSatisfy(
+        isApiError('VACANCY_SALARY_RANGE_REQUIRED', 400),
       )
     })
 
@@ -598,7 +612,9 @@ describe('VacanciesService', () => {
       const row = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [row] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
+      await expect(svc.remove(ADMIN, row.id)).rejects.toSatisfy(
+        isApiError('VACANCY_CLOSE_BEFORE_DELETE', 409),
+      )
     })
 
     it('rejects with 409 when the DRAFT vacancy already has applications', async () => {
@@ -608,7 +624,9 @@ describe('VacanciesService', () => {
         applicationCounts: [{ vacancyId: row.id, count: 2 }],
       })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
+      await expect(svc.remove(ADMIN, row.id)).rejects.toSatisfy(
+        isApiError('VACANCY_HAS_APPLICATIONS', 409),
+      )
     })
 
     it('rejects with 409 when the CLOSED vacancy already has applications', async () => {
@@ -618,7 +636,9 @@ describe('VacanciesService', () => {
         applicationCounts: [{ vacancyId: row.id, count: 1 }],
       })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
+      await expect(svc.remove(ADMIN, row.id)).rejects.toSatisfy(
+        isApiError('VACANCY_HAS_APPLICATIONS', 409),
+      )
     })
 
     it('deletes a DRAFT vacancy with zero applications', async () => {
@@ -643,13 +663,17 @@ describe('VacanciesService', () => {
       const row = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [row] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.getPublicBySlug(row.slug)).rejects.toThrow(NotFoundException)
+      await expect(svc.getPublicBySlug(row.slug)).rejects.toSatisfy(
+        isApiError('VACANCY_NOT_FOUND', 404),
+      )
     })
 
     it('getPublicBySlug throws 404 for a missing slug', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.getPublicBySlug('does-not-exist')).rejects.toThrow(NotFoundException)
+      await expect(svc.getPublicBySlug('does-not-exist')).rejects.toSatisfy(
+        isApiError('VACANCY_NOT_FOUND', 404),
+      )
     })
 
     it('getPublicBySlug returns the detail DTO for a PUBLISHED vacancy', async () => {
@@ -805,7 +829,7 @@ describe('VacanciesService', () => {
     it('listAdmin rejects with 403 for a non ADMIN/HR actor', async () => {
       const h = makeHarness({ listRows: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
-      await expect(svc.listAdmin(SENIOR)).rejects.toThrow(ForbiddenException)
+      await expect(svc.listAdmin(SENIOR)).rejects.toSatisfy(isApiError('ADMIN_HR_ONLY', 403))
     })
   })
 })

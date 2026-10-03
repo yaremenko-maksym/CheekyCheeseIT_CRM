@@ -52,11 +52,11 @@ export const VACANCIES_ERROR_MESSAGES: Record<VacanciesErrorCode, MessageDescrip
   },
   VACANCY_SALARY_RANGE_REQUIRED: /* i18n */ {
     id: 'api-error.VACANCY_SALARY_RANGE_REQUIRED',
-    message: 'Вкажіть вилку зарплаты: мінімум, максимум, валюту та період',
+    message: 'Вкажіть вилку зарплати: мінімум, максимум, валюту та період',
   },
   VACANCY_SLUG_EXISTS: /* i18n */ {
     id: 'api-error.VACANCY_SLUG_EXISTS',
-    message: 'Вакансія з таким slug "{slug}" вже існує',
+    message: 'Вакансія зі slug {slug} вже існує',
   },
 }
 
@@ -67,5 +67,5 @@ export const VACANCIES_ERROR_FALLBACK_EN: Record<VacanciesErrorCode, string> = {
   VACANCY_HAS_APPLICATIONS: "Can't delete a vacancy that has applications",
   VACANCY_NOT_FOUND: 'Vacancy not found',
   VACANCY_SALARY_RANGE_REQUIRED: 'Set the salary range: min, max, currency and period',
-  VACANCY_SLUG_EXISTS: 'A vacancy with this slug "{slug}" already exists',
+  VACANCY_SLUG_EXISTS: 'A vacancy with slug {slug} already exists',
 }

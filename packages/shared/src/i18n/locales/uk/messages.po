@@ -1232,8 +1232,18 @@ msgstr "Вакансії"
 msgid "Вакансію видалено"
 msgstr "Вакансію видалено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSED"
+msgstr "Вакансію закрито"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Вакансію не знайдено"
+msgstr "Вакансію не знайдено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_NOT_FOUND"
 msgstr "Вакансію не знайдено"
 
 #: apps/web/app/hooks/use-vacancies.ts
@@ -1262,6 +1272,11 @@ msgstr "Вакансія «{0}» буде видалена назавжди. Ц�
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.detail"
 msgstr "Вакансія «{vacancyTitle}»"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SLUG_EXISTS"
+msgstr "Вакансія зі slug {slug} вже існує"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
@@ -2465,6 +2480,11 @@ msgid "Вкажіть вилку зарплати у формі редагува
 msgstr "Вкажіть вилку зарплати у формі редагування перед публікацією"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SALARY_RANGE_REQUIRED"
+msgstr "Вкажіть вилку зарплати: мінімум, максимум, валюту та період"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SHARE_PERCENT_RANGE_0_100"
 msgstr "Вкажіть від 0 до 100"
@@ -3418,6 +3438,11 @@ msgstr "Доступ лише для адміністратора"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Доступно лише в dev-збірці. Оберіть «успіх» або «помилку», щоб розблокувати «Підтвердити оплату»."
 msgstr "Доступно лише в dev-збірці. Оберіть «успіх» або «помилку», щоб розблокувати «Підтвердити оплату»."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.ADMIN_HR_ONLY"
+msgstr "Доступно лише для ADMIN і HR"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Доступно через {cooldownSeconds}с"
@@ -6180,6 +6205,11 @@ msgstr "Не зберігати"
 #: apps/web/app/components/users/UserRow.tsx
 msgid "Не можна архівувати себе"
 msgstr "Не можна архівувати себе"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_HAS_APPLICATIONS"
+msgstr "Не можна видалити вакансію з відгуками"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -9632,6 +9662,11 @@ msgstr "Спочатку більші"
 msgid "Спочатку виберіть область"
 msgstr "Спочатку виберіть область"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSE_BEFORE_DELETE"
+msgstr "Спочатку закрийте опубліковану вакансію"
+
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Спочатку збережіть, щоб оновити перегляд"
 msgstr "Спочатку збережіть, щоб оновити перегляд"
@@ -11369,33 +11404,3 @@ msgstr "Якщо обрано — надходження за проєктом �
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CascadeImpactPanel.tsx
 msgid "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
 msgstr "Якщо рахунок уже виставлено, його буде анульовано — співробітник підпише новий"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_CLOSE_BEFORE_DELETE"
-msgstr "Спочатку закрийте опубліковану вакансію"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_CLOSED"
-msgstr "Вакансію закрито"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_HAS_APPLICATIONS"
-msgstr "Не можна видалити вакансію з відгуками"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_NOT_FOUND"
-msgstr "Вакансію не знайдено"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_SALARY_RANGE_REQUIRED"
-msgstr "Вкажіть вилку зарплаты: мінімум, максимум, валюту та період"
-
-#. js-lingui-explicit-id
-#: packages/shared/src/schemas/api-errors/vacancies.ts
-msgid "api-error.VACANCY_SLUG_EXISTS"
-msgstr "Вакансія з таким slug \"{slug}\" вже існує"
