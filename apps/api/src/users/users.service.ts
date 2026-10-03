@@ -878,6 +878,9 @@ export class UsersService {
 
     // Build insert payload — only include payment columns when relevant so we
     // keep "no requisites" rows clean (null in DB rather than empty string).
+    // Single source for the invitee's locale: the SAME const feeds the `users.locale`
+    // column and the invite mail, so they cannot diverge by construction.
+    const locale: Locale = data.locale ?? 'uk'
     const insertValues: typeof users.$inferInsert = {
       email: data.email,
       displayName: data.displayName,
@@ -893,7 +896,7 @@ export class UsersService {
       // column default) so the returned row (and the audit event's
       // `after: created.displayName` sibling fields) reflect the same value
       // this method's own callers expect back immediately.
-      locale: data.locale ?? 'uk',
+      locale,
     }
     if (data.seniorSharePercent !== undefined)
       insertValues.seniorSharePercent = data.seniorSharePercent
@@ -991,9 +994,8 @@ export class UsersService {
         to: data.personalEmail,
         displayName: data.displayName,
         rawToken: personalInviteToken,
-        // The INVITEE's locale — the same expression as the inserted `users.locale` column
-        // (`data.locale ?? 'uk'`), so the mail and the row cannot diverge; never the admin's.
-        locale: data.locale ?? 'uk',
+        // The INVITEE's locale — the same const as the inserted `users.locale` column; never the admin's.
+        locale,
       })
     }
 

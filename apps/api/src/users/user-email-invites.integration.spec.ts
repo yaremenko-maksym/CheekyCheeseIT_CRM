@@ -783,7 +783,7 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect(created.locale).toBe('uk')
       expect(sent).toHaveLength(1)
-      expect(sent[0]!.subject).toBe('Доступ до CRM CheekyCheeseIT')
+      expect(sent[0]!.subject).toBe('Доступ до CheekyCheeseIT CRM')
       expect(sent[0]!.html).toContain('<html lang="uk">')
     })
 
@@ -796,7 +796,7 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(enResult.locale).toBe('en')
       await mailer.sendInvite({ ...enResult, to: enResult.email })
       expect(sent.map((m) => m.subject)).toEqual([
-        'Доступ до CRM CheekyCheeseIT',
+        'Доступ до CheekyCheeseIT CRM',
         'Access to CheekyCheeseIT CRM',
       ])
       expect(sent.map((m) => m.to)).toEqual([[UK_USER_PERSONAL], [EN_USER_PERSONAL]])

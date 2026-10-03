@@ -7550,7 +7550,7 @@ msgstr "Confirm the settlement"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invite-email-registry.ts
 msgid "email.invite.confirm.line1"
-msgstr "Confirm it — then you will be able to sign in with either your work address or this one."
+msgstr "Confirm it — then you can sign in with either your work address or this one."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts

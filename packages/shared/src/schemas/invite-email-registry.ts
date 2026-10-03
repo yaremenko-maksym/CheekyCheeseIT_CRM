@@ -22,11 +22,11 @@ import type { MessageDescriptor } from '@lingui/core'
 export const EMAIL_INVITE_MESSAGES = {
   subject: /* i18n */ {
     id: 'email.invite.subject',
-    message: 'Доступ до CRM CheekyCheeseIT',
+    message: 'Доступ до CheekyCheeseIT CRM',
   },
   greeting: /* i18n */ {
     id: 'email.invite.greeting',
-    message: '{firstName}: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+    message: '{firstName}: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
   },
   confirmLine1: /* i18n */ {
     id: 'email.invite.confirm.line1',

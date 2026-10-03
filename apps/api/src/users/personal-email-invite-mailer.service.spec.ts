@@ -214,7 +214,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(call.to).toEqual([INPUT.to])
     // Spec §11: subject is the exact approved string, no "Запит на …" prefix
     // (this is the one email that is NOT a request).
-    expect(call.subject).toBe('Доступ до CRM CheekyCheeseIT')
+    expect(call.subject).toBe('Доступ до CheekyCheeseIT CRM')
     expect(call.html).toContain(`/auth/invite/${INPUT.rawToken}`)
     expect(call.text).toContain(`/auth/invite/${INPUT.rawToken}`)
     // The link is built off FRONTEND_URL + /api, not a hardcoded host.
@@ -306,7 +306,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(lastCall(mailer).html).toBe(
       expectedHtml({
         lang: 'uk',
-        greeting: 'Іван: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+        greeting: 'Іван: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
         line1: 'Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї.',
         line2: 'Доки не підтвердите, вхід працює лише за робочою адресою.',
         href: `https://app.cheekycheese.tech/api/auth/invite/${INPUT.rawToken}`,
@@ -323,8 +323,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
       expectedHtml({
         lang: 'en',
         greeting: 'John, this address was added to CheekyCheeseIT CRM as your personal one.',
-        line1:
-          'Confirm it — then you will be able to sign in with either your work address or this one.',
+        line1: 'Confirm it — then you can sign in with either your work address or this one.',
         line2: 'Until you confirm, sign-in works only with your work address.',
         href: `https://app.cheekycheese.tech/api/auth/invite/${INPUT_EN.rawToken}`,
         button: 'Confirm address',
@@ -372,7 +371,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     )
     expect(calls.map((c) => c.subject)).toEqual([
       'Access to CheekyCheeseIT CRM',
-      'Доступ до CRM CheekyCheeseIT',
+      'Доступ до CheekyCheeseIT CRM',
       'Access to CheekyCheeseIT CRM',
     ])
     expect(globalI18n.locale).toBe(before)
@@ -387,7 +386,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(subjects).toEqual([
       'Access to CheekyCheeseIT CRM',
       'Access to CheekyCheeseIT CRM',
-      'Доступ до CRM CheekyCheeseIT',
+      'Доступ до CheekyCheeseIT CRM',
     ])
   })
 
@@ -444,7 +443,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     // FIRST name only (INPUT.displayName is two words — 'Іван Петров').
     expect(call.text).toBe(
       [
-        'Іван: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+        'Іван: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
         '',
         'Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї.',
         'Доки не підтвердите, вхід працює лише за робочою адресою.',
@@ -465,7 +464,7 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
       [
         'John, this address was added to CheekyCheeseIT CRM as your personal one.',
         '',
-        'Confirm it — then you will be able to sign in with either your work address or this one.',
+        'Confirm it — then you can sign in with either your work address or this one.',
         'Until you confirm, sign-in works only with your work address.',
         '',
         `https://app.cheekycheese.tech/api/auth/invite/${INPUT_EN.rawToken}`,

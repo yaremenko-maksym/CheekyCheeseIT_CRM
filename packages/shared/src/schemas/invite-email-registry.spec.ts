@@ -10,11 +10,11 @@ import { EMAIL_INVITE_MESSAGES as M } from './invite-email-registry'
  */
 
 const SOURCE_ROWS: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
-  ['subject', 'email.invite.subject', 'Доступ до CRM CheekyCheeseIT'],
+  ['subject', 'email.invite.subject', 'Доступ до CheekyCheeseIT CRM'],
   [
     'greeting',
     'email.invite.greeting',
-    '{firstName}: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+    '{firstName}: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
   ],
   [
     'confirmLine1',
@@ -47,7 +47,7 @@ describe('uk / en golden renders (hand-written expectations)', () => {
   const en = createI18n('en')
 
   it('uk: subject, button, confirm lines', () => {
-    expect(renderMessage(uk, M.subject)).toBe('Доступ до CRM CheekyCheeseIT')
+    expect(renderMessage(uk, M.subject)).toBe('Доступ до CheekyCheeseIT CRM')
     expect(renderMessage(uk, M.button)).toBe('Підтвердити адресу')
     expect(renderMessage(uk, M.confirmLine1)).toBe(
       'Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї.',
@@ -61,7 +61,7 @@ describe('uk / en golden renders (hand-written expectations)', () => {
     expect(renderMessage(en, M.subject)).toBe('Access to CheekyCheeseIT CRM')
     expect(renderMessage(en, M.button)).toBe('Confirm address')
     expect(renderMessage(en, M.confirmLine1)).toBe(
-      'Confirm it — then you will be able to sign in with either your work address or this one.',
+      'Confirm it — then you can sign in with either your work address or this one.',
     )
     expect(renderMessage(en, M.confirmLine2)).toBe(
       'Until you confirm, sign-in works only with your work address.',
@@ -70,10 +70,10 @@ describe('uk / en golden renders (hand-written expectations)', () => {
 
   it('uk: greeting with a Latin and with a Cyrillic first name', () => {
     expect(renderMessage(uk, M.greeting, { firstName: 'Oleksiy' })).toBe(
-      'Oleksiy: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+      'Oleksiy: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
     )
     expect(renderMessage(uk, M.greeting, { firstName: 'Олексій' })).toBe(
-      'Олексій: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+      'Олексій: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
     )
   })
 
@@ -102,7 +102,7 @@ describe('uk / en golden renders (hand-written expectations)', () => {
       '{firstName}, this address was added to CheekyCheeseIT CRM as your personal one.',
     )
     expect(renderMessage(uk, M.greeting, { firstName: '{warning}' })).toBe(
-      '{warning}: цю адресу додали до CRM CheekyCheeseIT як вашу особисту.',
+      '{warning}: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
     )
   })
 })

@@ -272,7 +272,7 @@ msgstr "{count, plural, one {# документ} few {# документи} many
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invite-email-registry.ts
 msgid "email.invite.greeting"
-msgstr "{firstName}: цю адресу додали до CRM CheekyCheeseIT як вашу особисту."
+msgstr "{firstName}: цю адресу додали до CheekyCheeseIT CRM як вашу особисту."
 
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "{from}–{to} з {totalItems}"
@@ -3347,7 +3347,7 @@ msgstr "Досвід роботи"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invite-email-registry.ts
 msgid "email.invite.subject"
-msgstr "Доступ до CRM CheekyCheeseIT"
+msgstr "Доступ до CheekyCheeseIT CRM"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

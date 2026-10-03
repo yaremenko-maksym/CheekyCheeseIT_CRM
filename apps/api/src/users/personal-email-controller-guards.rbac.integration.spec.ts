@@ -345,7 +345,7 @@ describe("UsersController personal-email routes — real @Roles('ADMIN') RBAC in
       expect(res.statusCode).toBe(201)
       expect(JSON.parse(res.payload)).toEqual({ ok: true, delivered: true })
       expect(sentMails).toHaveLength(1)
-      expect(sentMails[0]!.subject).toBe('Доступ до CRM CheekyCheeseIT')
+      expect(sentMails[0]!.subject).toBe('Доступ до CheekyCheeseIT CRM')
       expect(sentMails[0]!.html).toContain('<html lang="uk">')
     })
 
@@ -386,7 +386,7 @@ describe("UsersController personal-email routes — real @Roles('ADMIN') RBAC in
       })
       expect(res.statusCode).toBe(200)
       expect(sentMails).toHaveLength(1)
-      expect(sentMails[0]!.subject).toBe('Доступ до CRM CheekyCheeseIT')
+      expect(sentMails[0]!.subject).toBe('Доступ до CheekyCheeseIT CRM')
       expect(sentMails[0]!.html).toContain('<html lang="uk">')
     })
 

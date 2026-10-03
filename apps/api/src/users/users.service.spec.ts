@@ -887,6 +887,10 @@ describe('UsersService.createUser — user_emails writes (§4.4)', () => {
           locale: expected,
         }),
       )
+      // Single source: the inserted `users.locale` column equals the mail locale.
+      const insertValuesMock = (db.db.insert as ReturnType<typeof vi.fn>).mock.results[0]?.value
+        ?.values as ReturnType<typeof vi.fn>
+      expect(insertValuesMock).toHaveBeenCalledWith(expect.objectContaining({ locale: expected }))
     },
   )
 
