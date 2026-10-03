@@ -54,6 +54,7 @@ import {
   useHardDeleteDocument,
   useRestoreDocument,
 } from '@/hooks/use-documents'
+import { getDocumentDisplayName } from './document-display-name'
 
 interface DocumentRowProps {
   doc: Document
@@ -88,7 +89,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
   const canHardDelete = isDeleted && isAdmin
 
   const uploaderLabel = doc.uploadedByDisplayName ?? t`Видалений користувач`
-  const displayName = doc.originalName ?? doc.name
+  const displayName = getDocumentDisplayName(i18n, doc)
 
   const Icon = CATEGORY_ICON_MAP[doc.category] ?? FileText
 

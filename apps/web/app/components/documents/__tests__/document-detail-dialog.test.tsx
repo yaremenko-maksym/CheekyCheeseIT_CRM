@@ -416,3 +416,36 @@ describe('DocumentDetailDialog — status, preview fallback, actions', () => {
     expect(dialog.textContent).not.toMatch(/S3|баз[иі]/)
   })
 })
+
+// i18n server-text PR2 — the dialog title renders the structure in the
+// viewer's locale for a virtual contract; a real upload keeps its filename.
+describe('DocumentDetailDialog — virtual contract name (PR2)', () => {
+  const contractDoc = (over: Partial<Document> = {}) =>
+    makeDoc({
+      category: 'CONTRACT',
+      name: 'employee-contract',
+      originalName: null,
+      source: 'employee_contract',
+      nameKind: 'CONTRACT_SIGNED',
+      contractNumber: 'CHK-11-2025',
+      ...over,
+    })
+
+  it('uk: title is the catalog name by nameKind, not the server marker', async () => {
+    renderDialog(contractDoc())
+    const text = await dialogText()
+    expect(text).toContain('Трудовий договір CHK-11-2025')
+    expect(text).not.toContain('employee-contract')
+  })
+
+  it('en: title is the English catalog name', async () => {
+    await loadCatalog('en')
+    renderDialog(contractDoc({ nameKind: 'CONTRACT_TO_SIGN', contractNumber: null }))
+    expect(await dialogText()).toContain('Employment contract (awaiting signature)')
+  })
+
+  it('a real upload still shows its filename', async () => {
+    renderDialog(makeDoc({ originalName: 'Скан.pdf', nameKind: null }))
+    expect(await dialogText()).toContain('Скан.pdf')
+  })
+})

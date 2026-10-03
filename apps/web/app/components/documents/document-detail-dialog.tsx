@@ -76,6 +76,7 @@ import {
 import { useDocumentBlob } from '@/hooks/use-document-blob'
 import { fetchContractPdfBlob } from '@/components/user-profile/contract/useEmployeeContract'
 import { DocumentImage } from './document-image'
+import { getDocumentDisplayName } from './document-display-name'
 import { PdfPreview } from './pdf-preview'
 import {
   CATEGORY_LABEL_MESSAGES,
@@ -238,7 +239,9 @@ export function DocumentDetailDialog({
   })
 
   // Display name: original (cyrillic preserved) when available, else sanitized.
-  const displayName = doc?.originalName ?? doc?.name ?? ''
+  // A virtual employee contract carries `nameKind` instead of prose and is
+  // rendered in the viewer's locale (i18n server-text PR2).
+  const displayName = doc ? getDocumentDisplayName(i18n, doc) : ''
 
   // -------------------------------------------------------------------------
   // Blob loading — единый fetch для превью + скачивание

@@ -332,3 +332,40 @@ describe('DocumentCard — i18n copy (wave e PR2)', () => {
     expect(await screen.findByTestId('document-download')).toHaveTextContent('Download')
   })
 })
+
+// i18n server-text PR2 — the server ships `nameKind` + `contractNumber` for a
+// virtual employee contract (no Russian prose); the card renders it in the
+// viewer's locale. A real upload keeps its filename.
+describe('DocumentCard — virtual contract name (PR2)', () => {
+  const contractDoc = (over: Partial<Document> = {}) =>
+    makeInvoiceDoc({
+      category: 'CONTRACT',
+      name: 'employee-contract',
+      originalName: null,
+      source: 'employee_contract',
+      invoiceTransactionId: null,
+      nameKind: 'CONTRACT_SIGNED',
+      contractNumber: 'CHK-11-2025',
+      ...over,
+    })
+
+  it('uk: renders the catalog name by nameKind, not the server marker', async () => {
+    renderCard(contractDoc())
+    const card = await screen.findByTestId('document-card')
+    expect(card).toHaveTextContent('Трудовий договір CHK-11-2025')
+    expect(card.textContent).not.toContain('employee-contract')
+  })
+
+  it('en: same entry renders the English catalog name', async () => {
+    await loadCatalog('en')
+    renderCard(contractDoc({ nameKind: 'CONTRACT_TO_SIGN', contractNumber: null }))
+    expect(await screen.findByTestId('document-card')).toHaveTextContent(
+      'Employment contract (awaiting signature)',
+    )
+  })
+
+  it('a real upload still shows its filename', async () => {
+    renderCard(makeInvoiceDoc({ originalName: 'Рахунок.pdf', nameKind: null }))
+    expect(await screen.findByTestId('document-card')).toHaveTextContent('Рахунок.pdf')
+  })
+})

@@ -63,6 +63,7 @@ import {
 } from '@/hooks/use-documents'
 import { DocumentImage } from './document-image'
 import { DocumentStatusBadge } from './document-status-badge'
+import { getDocumentDisplayName } from './document-display-name'
 import {
   CATEGORY_LABEL_MESSAGES,
   DELETE_CONFIRM_MESSAGES,
@@ -125,7 +126,9 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
 
   // Variant 3 hybrid: prefer the original name (cyrillic preserved); fall
   // back to the sanitized `name` for legacy rows that pre-date migration 0011.
-  const displayName = doc.originalName ?? doc.name
+  // A virtual employee contract carries `nameKind` instead of prose and is
+  // rendered in the viewer's locale (i18n server-text PR2).
+  const displayName = getDocumentDisplayName(i18n, doc)
 
   // INVOICE-specific: the document filename embeds the first 8 chars of the
   // parent transaction id. We surface them as a deep link into the Invoices

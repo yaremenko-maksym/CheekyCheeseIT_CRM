@@ -52,12 +52,12 @@ function makeDoc(overrides: Partial<Document>): Document {
 describe('filterDocuments', () => {
   it('returns full list when query is empty string', () => {
     const docs = [makeDoc({ originalName: 'Резюме.pdf' }), makeDoc({ originalName: 'Скан.jpg' })]
-    expect(filterDocuments(docs, '')).toHaveLength(2)
+    expect(filterDocuments(docs, '', i18n)).toHaveLength(2)
   })
 
   it('returns full list when query is whitespace only', () => {
     const docs = [makeDoc({ originalName: 'foo.pdf' })]
-    expect(filterDocuments(docs, '   ')).toHaveLength(1)
+    expect(filterDocuments(docs, '   ', i18n)).toHaveLength(1)
   })
 
   it('filters by substring in originalName (case-insensitive)', () => {
@@ -65,9 +65,9 @@ describe('filterDocuments', () => {
       makeDoc({ originalName: 'Резюме Senior.pdf', name: 'rezyume.pdf' }),
       makeDoc({ originalName: 'Скан паспорта.jpg', name: 'scan.jpg' }),
     ]
-    expect(filterDocuments(docs, 'резюме')).toHaveLength(1)
-    expect(filterDocuments(docs, 'РЕЗЮМЕ')).toHaveLength(1)
-    expect(filterDocuments(docs, 'senior')).toHaveLength(1)
+    expect(filterDocuments(docs, 'резюме', i18n)).toHaveLength(1)
+    expect(filterDocuments(docs, 'РЕЗЮМЕ', i18n)).toHaveLength(1)
+    expect(filterDocuments(docs, 'senior', i18n)).toHaveLength(1)
   })
 
   it('falls back to name when originalName is null', () => {
@@ -75,8 +75,8 @@ describe('filterDocuments', () => {
       makeDoc({ originalName: null, name: 'my-contract.pdf' }),
       makeDoc({ originalName: null, name: 'avatar.png' }),
     ]
-    expect(filterDocuments(docs, 'contract')).toHaveLength(1)
-    expect(filterDocuments(docs, 'CONTRACT')).toHaveLength(1)
+    expect(filterDocuments(docs, 'contract', i18n)).toHaveLength(1)
+    expect(filterDocuments(docs, 'CONTRACT', i18n)).toHaveLength(1)
   })
 
   it('matches kirilic in originalName', () => {
@@ -84,25 +84,25 @@ describe('filterDocuments', () => {
       makeDoc({ originalName: 'Підписаний договір.pdf' }),
       makeDoc({ originalName: 'Invoice_2026.pdf' }),
     ]
-    expect(filterDocuments(docs, 'договір')).toHaveLength(1)
-    expect(filterDocuments(docs, 'ДОГОВІР')).toHaveLength(1)
+    expect(filterDocuments(docs, 'договір', i18n)).toHaveLength(1)
+    expect(filterDocuments(docs, 'ДОГОВІР', i18n)).toHaveLength(1)
   })
 
   it('returns empty array when no match', () => {
     const docs = [makeDoc({ originalName: 'Резюме.pdf' })]
-    expect(filterDocuments(docs, 'totally-absent')).toHaveLength(0)
+    expect(filterDocuments(docs, 'totally-absent', i18n)).toHaveLength(0)
   })
 
   it('matches partial substring in middle of filename', () => {
     const docs = [makeDoc({ originalName: 'Трудовий_договір_CHK-7F3A9C.pdf' })]
-    expect(filterDocuments(docs, 'CHK-7F')).toHaveLength(1)
-    expect(filterDocuments(docs, 'chk-7f')).toHaveLength(1)
+    expect(filterDocuments(docs, 'CHK-7F', i18n)).toHaveLength(1)
+    expect(filterDocuments(docs, 'chk-7f', i18n)).toHaveLength(1)
   })
 
   it('does NOT mutate the original array', () => {
     const docs = [makeDoc({ originalName: 'A.pdf' }), makeDoc({ originalName: 'B.pdf' })]
     const original = [...docs]
-    filterDocuments(docs, 'A')
+    filterDocuments(docs, 'A', i18n)
     expect(docs).toEqual(original)
   })
 })
@@ -117,7 +117,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' }),
       makeDoc({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z' }),
     ]
-    const sorted = sortDocuments(docs, 'date_desc', 'uk')
+    const sorted = sortDocuments(docs, 'date_desc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('new')
     expect(sorted[1]?.id).toBe('old')
   })
@@ -127,7 +127,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'new', createdAt: '2026-06-01T00:00:00.000Z' }),
       makeDoc({ id: 'old', createdAt: '2026-01-01T00:00:00.000Z' }),
     ]
-    const sorted = sortDocuments(docs, 'date_asc', 'uk')
+    const sorted = sortDocuments(docs, 'date_asc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('old')
     expect(sorted[1]?.id).toBe('new')
   })
@@ -138,7 +138,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'a', originalName: 'Абитуриент.pdf', name: 'abiturient.pdf' }),
       makeDoc({ id: 'b', originalName: 'Балans.pdf', name: 'balans.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_asc', 'uk')
+    const sorted = sortDocuments(docs, 'name_asc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('a')
     expect(sorted[1]?.id).toBe('b')
     expect(sorted[2]?.id).toBe('c')
@@ -150,7 +150,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'b', originalName: 'Балans.pdf', name: 'balans.pdf' }),
       makeDoc({ id: 'c', originalName: 'Цена.pdf', name: 'tsena.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_desc', 'uk')
+    const sorted = sortDocuments(docs, 'name_desc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('c')
     expect(sorted[1]?.id).toBe('b')
     expect(sorted[2]?.id).toBe('a')
@@ -169,7 +169,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'a', originalName: 'Андрій.pdf', name: 'andriy.pdf' }),
       makeDoc({ id: 'e', originalName: 'Євген.pdf', name: 'yevgen.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_asc', 'uk')
+    const sorted = sortDocuments(docs, 'name_asc', 'uk', i18n)
     expect(sorted.map((d) => d.id)).toEqual(['a', 'e', 'i'])
   })
 
@@ -179,7 +179,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'large', sizeBytes: 99999 }),
       makeDoc({ id: 'medium', sizeBytes: 4096 }),
     ]
-    const sorted = sortDocuments(docs, 'size_desc', 'uk')
+    const sorted = sortDocuments(docs, 'size_desc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('large')
     expect(sorted[1]?.id).toBe('medium')
     expect(sorted[2]?.id).toBe('small')
@@ -191,7 +191,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'small', sizeBytes: 512 }),
       makeDoc({ id: 'medium', sizeBytes: 4096 }),
     ]
-    const sorted = sortDocuments(docs, 'size_asc', 'uk')
+    const sorted = sortDocuments(docs, 'size_asc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('small')
     expect(sorted[1]?.id).toBe('medium')
     expect(sorted[2]?.id).toBe('large')
@@ -202,7 +202,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'b', originalName: null, name: 'zebra.pdf' }),
       makeDoc({ id: 'a', originalName: null, name: 'apple.pdf' }),
     ]
-    const sorted = sortDocuments(docs, 'name_asc', 'uk')
+    const sorted = sortDocuments(docs, 'name_asc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('a')
     expect(sorted[1]?.id).toBe('b')
   })
@@ -213,7 +213,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'a', createdAt: '2026-01-01T00:00:00.000Z' }),
     ]
     const original = [...docs]
-    sortDocuments(docs, 'date_asc', 'uk')
+    sortDocuments(docs, 'date_asc', 'uk', i18n)
     expect(docs[0]?.id).toBe('b') // original order preserved
     expect(docs).toEqual(original)
   })
@@ -225,7 +225,7 @@ describe('sortDocuments', () => {
       makeDoc({ id: 'second', createdAt: sameDate }),
       makeDoc({ id: 'third', createdAt: sameDate }),
     ]
-    const sorted = sortDocuments(docs, 'date_desc', 'uk')
+    const sorted = sortDocuments(docs, 'date_desc', 'uk', i18n)
     expect(sorted[0]?.id).toBe('first')
     expect(sorted[1]?.id).toBe('second')
     expect(sorted[2]?.id).toBe('third')
@@ -292,10 +292,51 @@ describe('filterDocuments + sortDocuments combined', () => {
       makeDoc({ id: 'other', originalName: 'Скан.jpg', sizeBytes: 50 }),
       makeDoc({ id: 'r1', originalName: 'Резюме А.pdf', sizeBytes: 500 }),
     ]
-    const filtered = filterDocuments(docs, 'резюме')
-    const sorted = sortDocuments(filtered, 'size_desc', 'uk')
+    const filtered = filterDocuments(docs, 'резюме', i18n)
+    const sorted = sortDocuments(filtered, 'size_desc', 'uk', i18n)
     expect(sorted).toHaveLength(2)
     expect(sorted[0]?.id).toBe('r1')
     expect(sorted[1]?.id).toBe('r2')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// i18n server-text PR2 — a virtual employee contract has no server-composed
+// name: search and name-sort must work on what the user SEES (the catalog name
+// in the viewer's locale), not on the `employee-contract` marker in `name`.
+// ---------------------------------------------------------------------------
+
+describe('filter/sort on a virtual employee contract (PR2)', () => {
+  const contract = makeDoc({
+    id: 'contract',
+    category: 'CONTRACT',
+    name: 'employee-contract',
+    originalName: null,
+    source: 'employee_contract',
+    nameKind: 'CONTRACT_SIGNED',
+    contractNumber: 'CHK-7F3A9C',
+  })
+
+  it('uk: found by the visible word and number, not by the marker', async () => {
+    await loadCatalog('uk')
+    expect(filterDocuments([contract], 'договір', i18n)).toHaveLength(1)
+    expect(filterDocuments([contract], 'chk-7f', i18n)).toHaveLength(1)
+    expect(filterDocuments([contract], 'employee-contract', i18n)).toHaveLength(0)
+  })
+
+  it('en: found by the English visible word', async () => {
+    await loadCatalog('en')
+    expect(filterDocuments([contract], 'employment', i18n)).toHaveLength(1)
+    expect(filterDocuments([contract], 'договір', i18n)).toHaveLength(0)
+  })
+
+  it('name sort orders the contract by its visible name', async () => {
+    await loadCatalog('uk')
+    const before = makeDoc({ id: 'a', originalName: 'Анкета.pdf' })
+    const after = makeDoc({ id: 'z', originalName: 'Я.pdf' })
+    const sorted = sortDocuments([after, contract, before], 'name_asc', 'uk', i18n)
+    // «Анкета» < «Трудовий договір …» < «Я»; the marker «employee-contract»
+    // would have sorted by latin «e» instead.
+    expect(sorted.map((d) => d.id)).toEqual(['a', 'contract', 'z'])
   })
 })
