@@ -306,7 +306,7 @@ describe('cascade preview — the client half of the loop', () => {
           sharePercent: null,
           remainingToPay: null,
           needsReconfirm: false,
-          warnings: [{ code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' }],
+          warnings: [{ code: 'NO_SHARE_SNAPSHOT', params: {} }],
         },
       ]),
     )
@@ -329,7 +329,10 @@ describe('cascade preview — the client half of the loop', () => {
           remainingToPay: 0,
           needsReconfirm: false,
           warnings: [
-            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000 — рядок залишається PAID' },
+            {
+              code: 'OVERPAYMENT',
+              params: { paid: 'yes', settledAmount: 5000, recomputedShare: 3000, currency: 'USDT' },
+            },
           ],
         },
       ]),
@@ -477,7 +480,7 @@ describe('cascade preview — the client half of the loop', () => {
     expect(screen.queryByTestId('cascade-preview-error')).toBeNull()
   })
 
-  it('CP-34. QA-H-2 — currency on a PAID row cannot be entered wrong, and the reason is in Russian', async () => {
+  it('CP-34. QA-H-2 — currency on a PAID row cannot be entered wrong, and the reason is in the catalog language', async () => {
     // Found by manual QA: the only refusal left in the cascade still had the
     // old shape. The operator could change the currency of a settled row,
     // click Save, and get back `Cannot change currency or salary month of a
@@ -488,7 +491,9 @@ describe('cascade preview — the client half of the loop', () => {
     renderDialog()
 
     const note = await screen.findByTestId('admin-edit-locked-currency-note')
-    expect(note.textContent).toContain('сторнирующей')
+    expect(note.textContent).toBe(
+      'Валюту оплаченого рядка не можна змінити — платіж уже пройшов у цій валюті, виправляйте сторнувальною транзакцією',
+    )
     // No English left in it — the defect was the language as much as the timing.
     expect(note.textContent).not.toMatch(/[A-Za-z]{4}/)
 
@@ -518,7 +523,9 @@ describe('cascade preview — the client half of the loop', () => {
     renderDialog({ ...PAID_TX, type: 'SALARY', salaryMonth: '2026-01' })
 
     const note = await screen.findByTestId('admin-edit-locked-salary-month-note')
-    expect(note.textContent).toContain('сторнирующей')
+    expect(note.textContent).toBe(
+      'Місяць зарплати в оплаченому рядку не можна змінити — за ним уже пораховано місячні підсумки, виправляйте сторнувальною транзакцією',
+    )
     expect(note.textContent).not.toMatch(/[A-Za-z]{4}/)
     expect(screen.getByPlaceholderText('2025-03')).toHaveProperty('disabled', true)
   })
@@ -727,7 +734,7 @@ describe('cascade preview — the client half of the loop', () => {
           sharePercent: null,
           remainingToPay: null,
           needsReconfirm: false,
-          warnings: [{ code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' }],
+          warnings: [{ code: 'NO_SHARE_SNAPSHOT', params: {} }],
         },
       ]),
     )

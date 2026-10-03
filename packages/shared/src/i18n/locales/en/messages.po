@@ -315,6 +315,11 @@ msgstr "{n, plural, one {Maximum # character} other {Maximum # characters}}"
 msgid "{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}"
 msgstr "{n, plural, one {Minimum # character} other {Minimum # characters}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.OVERPAYMENT"
+msgstr "{paid, select, yes {{settledAmount} has already been paid out — the recalculated share of {recomputedShare} is below what was paid, the row stays paid, the difference won't come back on its own} other {{settledAmount} has already been paid out — the recalculated share of {recomputedShare} is below what was paid, the amount stays at the paid-out level, the difference won't come back on its own}}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
@@ -346,6 +351,11 @@ msgstr ""
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
 msgstr "{remainingCount, plural, one {transaction left in the queue} other {transactions left in the queue}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.NON_USDT_CURRENCY"
+msgstr "{settledCurrencyKnown, select, no {The currency of the amount already paid out ({settledAmount}) isn't recorded — it can't be compared with the new share in {sourceCurrency}} other {The payout on this row is recorded in {settledCurrency}, not in {sourceCurrency} — “already paid out” and “new share” are not in the same currency}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -1300,6 +1310,11 @@ msgstr "Salary currency from the profile"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "{currency} can't be converted to USDT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAID_ROW_CURRENCY_LOCKED"
+msgstr "The currency of a paid row can't be changed — the payment already went through in this currency, correct it with a reversing transaction"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -3058,6 +3073,11 @@ msgstr "Only USDT ERC-20 payouts are available for the “{roleLabel}” role."
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Seniors and admins can only be paid to USDT ERC-20"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.NO_SHARE_SNAPSHOT"
+msgstr "No share percentage is stored for this row — it can't be recalculated, a manual decision is needed"
+
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC"
 msgstr "Up to {maxSize}. Formats: PDF, JPG, PNG, WebP, HEIC"
@@ -3740,6 +3760,21 @@ msgstr "By rate"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_OVERPAID"
 msgstr "More has been paid on this obligation than was owed — the overpayment needs a manual review"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.SIGNED_INVOICE"
+msgstr "The invoice for this row is already signed by the counterparty — the edit won't show in the signed document"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_SETTLED_AMOUNT_LOCKED"
+msgstr "Payouts have already been made on this row — its amount is backed by what was actually transferred, correct it with a reversing transaction"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.SOURCE_SIGNED_INVOICE"
+msgstr "This row already has an invoice signed by the counterparty — the amount edit won't show in the signed document"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -4466,6 +4501,11 @@ msgstr "Obligation"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_ALREADY_CLOSED"
 msgstr "The obligation is already closed or cancelled"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.OBLIGATION_CURRENCY_MISMATCH"
+msgstr "The obligation is recorded in {obligationCurrency} while the source amount is in {sourceCurrency}: the recalculated share can't be written into an obligation in another currency"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5284,6 +5324,11 @@ msgstr "Month"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Місяць {0}"
 msgstr "Month {0}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAID_ROW_SALARY_MONTH_LOCKED"
+msgstr "The salary month of a paid row can't be changed — monthly totals are already calculated for it, correct it with a reversing transaction"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Місяць із найбільшою виручкою за весь час."
@@ -9990,6 +10035,11 @@ msgstr "Amount: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED"
+msgstr "The deposit amount has been matched against the blockchain — it can't be changed, record any discrepancy as a separate transaction"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
 msgstr "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction"
 
@@ -10845,6 +10895,11 @@ msgstr "This transaction hash has already been used for another payout"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "This transaction hash has already been used for a payout or a company account deposit"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_CLOSING_ROW_AMOUNT_LOCKED"
+msgstr "This row closed an obligation — its amount is fixed in the settlement, correct it with a reversing transaction"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts

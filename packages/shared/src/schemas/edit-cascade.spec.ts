@@ -6,13 +6,15 @@ import {
   computeCascadeVersion,
   resolveEditCascade,
   cascadeWarningCodeSchema,
+  cascadeWarningSchema,
   cascadePlanSchema,
   cascadeEditPreviewQuerySchema,
   cascadeEditPreviewBlockedReasonSchema,
   cascadeEditPreviewResponseSchema,
   cascadeLedgerFactReasonSchema,
   classifyEditedRowLedgerFact,
-  CASCADE_LEDGER_FACT_MESSAGES,
+  CASCADE_LEDGER_FACT_ERROR_CODES,
+  PAID_ROW_LOCKED_FIELD_ERROR_CODES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
   recomputeObligationAtRecordedRate,
@@ -285,19 +287,22 @@ describe('classifyEditedRowLedgerFact — AC13 stated once (CR-M-1)', () => {
     ).toBe('SETTLED_AMOUNT_RECORDED')
   })
 
-  it('has a distinct operator-facing message for every reason, each naming a carrier', () => {
-    // task-paid-salary-amount-edit: PAYMENT_FACT_RECORDED left this Russian
-    // table — its refusal is the catalogued api-error
-    // `FINANCE_PAYMENT_FACT_AMOUNT_LOCKED` now (uk/en), on the 400 and on the
-    // banner alike. The other three keep their texts until finance migrates.
-    expect(Object.keys(CASCADE_LEDGER_FACT_MESSAGES).sort()).toEqual([
-      'CLOSES_OBLIGATION',
-      'ONCHAIN_DEPOSIT',
-      'SETTLED_AMOUNT_RECORDED',
-    ])
-    const messages = Object.values(CASCADE_LEDGER_FACT_MESSAGES)
-    expect(new Set(messages).size).toBe(messages.length)
-    for (const m of messages) expect(m.length).toBeGreaterThan(20)
+  it('maps every reason to its OWN catalogued api-error code, spelled out', () => {
+    // Literals on purpose: reading the expected codes back out of the table
+    // under test would pass by construction. The 400 and the preview banner
+    // both resolve this code, so a swapped pair would show an operator the
+    // wrong carrier.
+    expect(CASCADE_LEDGER_FACT_ERROR_CODES).toEqual({
+      PAYMENT_FACT_RECORDED: 'FINANCE_PAYMENT_FACT_AMOUNT_LOCKED',
+      SALARY_OBLIGATION_OUT_OF_RANGE: 'FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE',
+      SETTLED_AMOUNT_RECORDED: 'FINANCE_SETTLED_AMOUNT_LOCKED',
+      CLOSES_OBLIGATION: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED',
+      ONCHAIN_DEPOSIT: 'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED',
+    })
+    expect(PAID_ROW_LOCKED_FIELD_ERROR_CODES).toEqual({
+      CURRENCY: 'FINANCE_PAID_ROW_CURRENCY_LOCKED',
+      SALARY_MONTH: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED',
+    })
   })
 
   it('carries exactly these five codes, spelled out', () => {
@@ -431,7 +436,7 @@ describe('resolveEditCascade — AC6 case 3: decrease WITH overpayment', () => {
     expect(d.warnings).toEqual([
       {
         code: 'OVERPAYMENT',
-        message: expect.stringContaining('260'),
+        params: { paid: 'yes', settledAmount: 260, recomputedShare: 26, currency: 'USDT' },
       },
     ])
   })
@@ -484,15 +489,9 @@ describe('resolveEditCascade — AC6 case 4: no share snapshot ⇒ refuse, not g
     expect(d.sharePercent).toBeNull()
     expect(d.remainingToPay).toBeNull()
     expect(d.needsReconfirm).toBe(false)
-    // Exact message content pinned (not `expect.any(String)`) — a mutant that
-    // blanks the literal string in the source is otherwise invisible here.
-    expect(d.warnings).toEqual([
-      {
-        code: 'NO_SHARE_SNAPSHOT',
-        message:
-          'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
-      },
-    ])
+    // The wire carries the code and NO text (the sentence is rendered by the
+    // client from the catalog); `toEqual` pins that no stray prose or param leaks.
+    expect(d.warnings).toEqual([{ code: 'NO_SHARE_SNAPSHOT', params: {} }])
   })
 
   it('PAID derivative with settledSharePercent=null (legacy flip, pre-task-1 row)', () => {
@@ -563,8 +562,12 @@ describe('resolveEditCascade — AC6 case 7: валюта расчёта не US
     const d = plan.derivatives[0]!
     expect(d.warnings).toContainEqual({
       code: 'NON_USDT_CURRENCY',
-      message:
-        'Выплата по этой строке учтена в UAH, а не в USDT — «уже выплачено» и «новая доля» не в одной валюте',
+      params: {
+        settledCurrencyKnown: 'yes',
+        settledAmount: 9000,
+        settledCurrency: 'UAH',
+        sourceCurrency: 'USDT',
+      },
     })
   })
 
@@ -586,16 +589,18 @@ describe('resolveEditCascade — AC6 case 7: валюта расчёта не US
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ settledCurrency: null })])
     const plan = resolveEditCascade(s, { amount: 2000 })
     const d = plan.derivatives[0]!
-    // Exact message content pinned (not `expect.any(String)`) — mutation-gate
-    // (round 2 fix pass): a mutant that always takes the non-null message
-    // branch (`settledCurrency === null` → `false`) OR blanks the null-branch
-    // template to `` is otherwise invisible through a code-only assertion,
-    // since both branches produce the SAME `NON_USDT_CURRENCY` code.
+    // Exact params pinned (not just the code) — mutation-gate (round 2 fix
+    // pass): both branches produce the SAME `NON_USDT_CURRENCY` code, so only the
+    // `settledCurrencyKnown` flag tells the client which sentence to render.
     expect(d.warnings).toEqual([
       {
         code: 'NON_USDT_CURRENCY',
-        message:
-          'Валюта уже выплаченной суммы (260) не зафиксирована — сравнить с новой долей в USDT нельзя',
+        params: {
+          settledCurrencyKnown: 'no',
+          settledAmount: 260,
+          settledCurrency: '',
+          sourceCurrency: 'USDT',
+        },
       },
     ])
     expect(d.remainingToPay).toBeNull()
@@ -651,7 +656,7 @@ describe('resolveEditCascade — HIGH-1 (security-review round 1): settled_amoun
     expect(d.warnings).toEqual([
       {
         code: 'OVERPAYMENT',
-        message: expect.stringContaining('260'),
+        params: { paid: 'no', settledAmount: 260, recomputedShare: 26, currency: 'USDT' },
       },
     ])
   })
@@ -714,8 +719,10 @@ describe('resolveEditCascade — HIGH-2 (security-review round 1): a cross-curre
       ]),
       { amount: 500 },
     ).derivatives[0]!
-    const openText = open.warnings.find((w) => w.code === 'OVERPAYMENT')!.message
-    expect(openText).not.toContain('остаётся оплаченной')
+    // The flag the client's `select` reads: an OPEN row is NOT `paid`, so the
+    // «залишається оплаченим» branch cannot be chosen for it (the rendered
+    // sentences are pinned per locale in `edit-cascade-warning-registry.spec.ts`).
+    expect(open.warnings.find((w) => w.code === 'OVERPAYMENT')!.params.paid).toBe('no')
 
     // …while the PAID row, which really does stay paid, keeps saying so.
     const paid = resolveEditCascade(
@@ -724,8 +731,7 @@ describe('resolveEditCascade — HIGH-2 (security-review round 1): a cross-curre
       ]),
       { amount: 500 },
     ).derivatives[0]!
-    const paidText = paid.warnings.find((w) => w.code === 'OVERPAYMENT')!.message
-    expect(paidText).toContain('остаётся оплаченной')
+    expect(paid.warnings.find((w) => w.code === 'OVERPAYMENT')!.params.paid).toBe('yes')
   })
 
   it('does NOT claim OVERPAYMENT purely because the non-USDT figure is numerically larger than the USDT share', () => {
@@ -826,16 +832,7 @@ describe('resolveEditCascade — MED-1 (security-review round 1): warnings about
   it('flags SOURCE_SIGNED_INVOICE when the row being edited already carries a counterparty-signed invoice', () => {
     const s = snapshot({ hasSignedInvoice: true }, [])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    // Exact message content pinned (not `expect.any(String)`) — a mutant
-    // that blanks the literal string in the source is otherwise invisible
-    // here (mutation-gate finding, round 2).
-    expect(plan.sourceWarnings).toEqual([
-      {
-        code: 'SOURCE_SIGNED_INVOICE',
-        message:
-          'По этой строке уже есть инвойс, подписанный контрагентом — правка суммы не отразится в подписанном документе',
-      },
-    ])
+    expect(plan.sourceWarnings).toEqual([{ code: 'SOURCE_SIGNED_INVOICE', params: {} }])
   })
 
   it('is present even when the proposed amount equals the stored one — a static fact about the row, not about the edit', () => {
@@ -856,11 +853,7 @@ describe('resolveEditCascade — signed-invoice warning (AC4 warning list)', () 
   it('warns when the derivative already carries a counterparty signature', () => {
     const s = snapshot({ amount: 1000 }, [makePaidDerivative({ hasSignedInvoice: true })])
     const plan = resolveEditCascade(s, { amount: 2000 })
-    expect(plan.derivatives[0]!.warnings).toContainEqual({
-      code: 'SIGNED_INVOICE',
-      message:
-        'По этой строке инвойс уже подписан контрагентом — правка не отразится в подписанном документе',
-    })
+    expect(plan.derivatives[0]!.warnings).toContainEqual({ code: 'SIGNED_INVOICE', params: {} })
   })
 })
 
@@ -1181,13 +1174,34 @@ describe('cascadeWarningCodeSchema — wire contract', () => {
   })
 })
 
+describe('cascadeWarningSchema — params are strings and numbers only', () => {
+  it('accepts a string value and a number value side by side, and returns them untouched', () => {
+    const parsed = cascadeWarningSchema.parse({
+      code: 'OVERPAYMENT',
+      params: { paid: 'no', settledAmount: 260 },
+    })
+    expect(parsed.params).toEqual({ paid: 'no', settledAmount: 260 })
+  })
+
+  it('rejects a param that is neither a string nor a number — a nested object or a boolean cannot reach the text', () => {
+    expect(() => cascadeWarningSchema.parse({ code: 'OVERPAYMENT', params: { a: true } })).toThrow()
+    expect(() =>
+      cascadeWarningSchema.parse({ code: 'OVERPAYMENT', params: { a: { b: 1 } } }),
+    ).toThrow()
+  })
+
+  it('requires params — a bare code with no facts is not a warning', () => {
+    expect(() => cascadeWarningSchema.parse({ code: 'SIGNED_INVOICE' })).toThrow()
+  })
+})
+
 describe('cascadePlanSchema — full round-trip (also covers nested cascadeDerivativePlanSchema/cascadeWarningSchema)', () => {
   it('parses a full plan and retains every field at every nesting level', () => {
-    const warning: CascadeWarning = { code: 'OVERPAYMENT', message: 'уже выплачено 260' }
-    const sourceWarning: CascadeWarning = {
-      code: 'SOURCE_ORIGINAL_AMOUNT_SET',
-      message: 'фактический платёж уже зафиксирован',
+    const warning: CascadeWarning = {
+      code: 'OVERPAYMENT',
+      params: { paid: 'yes', settledAmount: 260, recomputedShare: 26, currency: 'USDT' },
     }
+    const sourceWarning: CascadeWarning = { code: 'SOURCE_ORIGINAL_AMOUNT_SET', params: {} }
     const derivativePlan: CascadeDerivativePlan = {
       id: '11111111-1111-4111-8111-111111111111',
       type: 'SENIOR_PENDING_PAYOUT',
@@ -1331,7 +1345,7 @@ describe('resolveEditCascade — OBLIGATION_CURRENCY_MISMATCH (пункт 95 б�
     expect(codes).toContain('OBLIGATION_CURRENCY_MISMATCH')
   })
 
-  it('names BOTH currencies in the message so a human can tell which is which', () => {
+  it('carries BOTH currencies as params so the client text can tell which is which', () => {
     const s = snapshot({ amount: 1000, currency: 'USDT' }, [
       makePendingDerivative({
         obligation: {
@@ -1346,8 +1360,7 @@ describe('resolveEditCascade — OBLIGATION_CURRENCY_MISMATCH (пункт 95 б�
     const warning = resolveEditCascade(s, { amount: 2000 }).derivatives[0]!.warnings.find(
       (w) => w.code === 'OBLIGATION_CURRENCY_MISMATCH',
     )
-    expect(warning?.message).toContain('EUR')
-    expect(warning?.message).toContain('USDT')
+    expect(warning?.params).toEqual({ obligationCurrency: 'EUR', sourceCurrency: 'USDT' })
   })
 
   it('still computes newAmount normally — the NUMBER is right, writing it into a foreign-currency column is not', () => {

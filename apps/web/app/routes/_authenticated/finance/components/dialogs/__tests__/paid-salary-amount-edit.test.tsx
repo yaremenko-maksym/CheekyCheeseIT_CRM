@@ -328,7 +328,7 @@ describe('rows whose amount stays pinned: disabled on open, not refused after ty
     } as TransactionDto)
     expect(amountInput().disabled).toBe(true)
     expect(screen.getByTestId('admin-edit-locked-amount-note').textContent).toContain(
-      'уже прошли выплаты',
+      'уже були виплати',
     )
   })
 

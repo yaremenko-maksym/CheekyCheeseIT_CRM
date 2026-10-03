@@ -54,6 +54,11 @@ export const FINANCE_INVOICES_ERROR_CODES = [
   'FINANCE_ROW_STATE_CHANGED_WHILE_EDITING',
   'FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW',
   'FINANCE_PAYMENT_FACT_AMOUNT_LOCKED',
+  'FINANCE_PAID_ROW_CURRENCY_LOCKED',
+  'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED',
+  'FINANCE_SETTLED_AMOUNT_LOCKED',
+  'FINANCE_CLOSING_ROW_AMOUNT_LOCKED',
+  'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED',
   'FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE',
   'FINANCE_CASCADE_PREVIEW_STALE',
   'FINANCE_SHARE_LEFT_PENDING_DURING_SAVE',
@@ -213,6 +218,11 @@ export const FINANCE_INVOICES_ERROR_PARAMS = {
   FINANCE_ROW_STATE_CHANGED_WHILE_EDITING: [],
   FINANCE_PAID_ROW_AMOUNT_EDIT_NEEDS_PREVIEW: [],
   FINANCE_PAYMENT_FACT_AMOUNT_LOCKED: [],
+  FINANCE_PAID_ROW_CURRENCY_LOCKED: [],
+  FINANCE_PAID_ROW_SALARY_MONTH_LOCKED: [],
+  FINANCE_SETTLED_AMOUNT_LOCKED: [],
+  FINANCE_CLOSING_ROW_AMOUNT_LOCKED: [],
+  FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED: [],
   FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE: [],
   FINANCE_CASCADE_PREVIEW_STALE: [],
   FINANCE_SHARE_LEFT_PENDING_DURING_SAVE: [],
@@ -408,6 +418,35 @@ export const FINANCE_INVOICES_ERROR_MESSAGES: Record<FinanceInvoicesErrorCode, M
       id: 'api-error.FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE',
       message:
         'За записаним курсом переказу ця сума дає зобов’язання поза допустимими межами — перевірте суму',
+    },
+    // The five «this amount/field is pinned» refusals that used to be Russian
+    // `@crm/shared` constants (`PAID_ROW_LOCKED_FIELD_MESSAGES`,
+    // `CASCADE_LEDGER_FACT_MESSAGES`). Each names the CARRIER of the lock, then
+    // the remedy; one sentence, no closing period.
+    FINANCE_PAID_ROW_CURRENCY_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_PAID_ROW_CURRENCY_LOCKED',
+      message:
+        'Валюту оплаченого рядка не можна змінити — платіж уже пройшов у цій валюті, виправляйте сторнувальною транзакцією',
+    },
+    FINANCE_PAID_ROW_SALARY_MONTH_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_PAID_ROW_SALARY_MONTH_LOCKED',
+      message:
+        'Місяць зарплати в оплаченому рядку не можна змінити — за ним уже пораховано місячні підсумки, виправляйте сторнувальною транзакцією',
+    },
+    FINANCE_SETTLED_AMOUNT_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_SETTLED_AMOUNT_LOCKED',
+      message:
+        'За цим рядком уже були виплати — його суму підтверджено фактично переказаним, виправляйте сторнувальною транзакцією',
+    },
+    FINANCE_CLOSING_ROW_AMOUNT_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_CLOSING_ROW_AMOUNT_LOCKED',
+      message:
+        'Цим рядком закрито зобов’язання — його суму зафіксовано в розрахунку, виправляйте сторнувальною транзакцією',
+    },
+    FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED: /* i18n */ {
+      id: 'api-error.FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED',
+      message:
+        'Суму депозиту звірено з блокчейном — її не можна змінити, розбіжність оформлюйте окремою транзакцією',
     },
     FINANCE_CASCADE_PREVIEW_STALE: /* i18n */ {
       id: 'api-error.FINANCE_CASCADE_PREVIEW_STALE',
@@ -953,6 +992,16 @@ export const FINANCE_INVOICES_ERROR_FALLBACK_EN: Record<FinanceInvoicesErrorCode
     "This payment's amount is recorded together with the transfer rate — it can't be changed here, correct it with a reversing transaction",
   FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE:
     'At the recorded transfer rate this amount gives a salary obligation outside the allowed range — check the amount',
+  FINANCE_PAID_ROW_CURRENCY_LOCKED:
+    "The currency of a paid row can't be changed — the payment already went through in this currency, correct it with a reversing transaction",
+  FINANCE_PAID_ROW_SALARY_MONTH_LOCKED:
+    "The salary month of a paid row can't be changed — monthly totals are already calculated for it, correct it with a reversing transaction",
+  FINANCE_SETTLED_AMOUNT_LOCKED:
+    'Payouts have already been made on this row — its amount is backed by what was actually transferred, correct it with a reversing transaction',
+  FINANCE_CLOSING_ROW_AMOUNT_LOCKED:
+    'This row closed an obligation — its amount is fixed in the settlement, correct it with a reversing transaction',
+  FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED:
+    "The deposit amount has been matched against the blockchain — it can't be changed, record any discrepancy as a separate transaction",
   FINANCE_CASCADE_PREVIEW_STALE: 'The data changed after the preview — refresh it and save again',
   FINANCE_SHARE_LEFT_PENDING_DURING_SAVE:
     'One of the shares changed status while saving — nothing was saved, refresh the page and try again',

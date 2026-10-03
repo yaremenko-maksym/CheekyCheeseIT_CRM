@@ -18,12 +18,7 @@ import {
   RouterProvider,
 } from '@tanstack/react-router'
 import { Toaster } from 'sonner'
-import {
-  formatDate,
-  INVOICE_SIGN_IMPERSONATION_MESSAGE,
-  type InvoiceDto,
-  type SessionUser,
-} from '@crm/shared'
+import { formatDate, type InvoiceDto, type SessionUser } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { InvoiceDetailDialog } from '../invoice-detail-dialog'
 
@@ -310,7 +305,11 @@ describe('InvoiceDetailDialog', () => {
       expect(btn).toHaveAttribute('aria-describedby', 'invoice-sign-explain-impersonating')
 
       const banner = screen.getByTestId('invoice-sign-impersonating-banner')
-      expect(banner).toHaveTextContent(`${INVOICE_SIGN_IMPERSONATION_MESSAGE}.`)
+      // Independent literal (the catalog entry `INVOICE_SIGN_IMPERSONATION`, uk)
+      // + the closing period the banner adds.
+      expect(banner).toHaveTextContent(
+        'Ви увійшли як інший співробітник — підписати його рахунок може лише він сам.',
+      )
       expect(banner).toHaveAttribute('id', 'invoice-sign-explain-impersonating')
 
       // Neither the ordinary "signed" nor "counterparty-only" badge shows —
@@ -322,6 +321,19 @@ describe('InvoiceDetailDialog', () => {
       fireEvent.click(btn)
       expect(screen.queryByTestId('invoice-sign-confirm-dialog')).not.toBeInTheDocument()
       expect(mockSign).not.toHaveBeenCalled()
+    })
+
+    it('renders the explanation from the catalog in the active locale (en)', async () => {
+      await loadCatalog('en')
+      try {
+        renderDialog({ invoice: pendingInvoice, viewer: impersonatedCounterpartyUser })
+        const banner = await screen.findByTestId('invoice-sign-impersonating-banner')
+        expect(banner).toHaveTextContent(
+          "You're signed in as another employee — only they can sign their invoice.",
+        )
+      } finally {
+        await loadCatalog('uk')
+      }
     })
 
     it('renders no impersonation banner when NOT impersonating (isolates the impersonating gate)', async () => {

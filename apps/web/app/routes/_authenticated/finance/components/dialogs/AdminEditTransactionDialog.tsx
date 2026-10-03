@@ -3,10 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { Trans, useLingui } from '@lingui/react/macro'
-import { amountsDiffer, type TransactionDto } from '@crm/shared'
+import { amountsDiffer, PAID_ROW_LOCKED_FIELD_ERROR_CODES, type TransactionDto } from '@crm/shared'
 import { cn, parseStrictAmount } from '@/lib/utils'
-import { getAxiosStatus } from '@/lib/axios-utils'
-import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
+import { getAxiosStatus, translateApiError } from '@/lib/axios-utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -509,7 +508,7 @@ export function AdminEditTransactionDialog({
                   className="text-xs text-muted-foreground"
                   data-testid="admin-edit-locked-currency-note"
                 >
-                  {PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY}
+                  {translateApiError(PAID_ROW_LOCKED_FIELD_ERROR_CODES.CURRENCY, undefined)}
                 </p>
               )}
 
@@ -675,7 +674,7 @@ export function AdminEditTransactionDialog({
                       className="text-xs text-muted-foreground"
                       data-testid="admin-edit-locked-salary-month-note"
                     >
-                      {PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH}
+                      {translateApiError(PAID_ROW_LOCKED_FIELD_ERROR_CODES.SALARY_MONTH, undefined)}
                     </p>
                   )}
                 </div>

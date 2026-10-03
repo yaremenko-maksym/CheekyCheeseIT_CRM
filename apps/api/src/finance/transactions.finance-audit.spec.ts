@@ -97,14 +97,18 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
     const { svc } = makeSvc({ ...settledSalary, type: 'EXPENSE' })
     await expect(
       svc.adminUpdateTransaction('tx-1', { currency: 'EUR' }, admin()),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED', statusCode: 400 },
+    })
   })
 
   it('rejects a salaryMonth edit on a PAID company-funded SENIOR_INCOME', async () => {
     const { svc } = makeSvc({ ...settledSalary, type: 'SENIOR_INCOME' })
     await expect(
       svc.adminUpdateTransaction('tx-1', { salaryMonth: '2026-01' }, admin()),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED', statusCode: 400 },
+    })
   })
 
   it('ALLOWS a notes-only edit on a PAID company-funded SALARY (metadata not locked)', async () => {
@@ -345,7 +349,9 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
         { amount: SAME_AMOUNT_NUM, currency: 'EUR' },
         admin(),
       ),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED', statusCode: 400 },
+    })
   })
 
   // AC4: PAID + different salaryMonth → must BLOCK (400).
@@ -353,7 +359,9 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
     const { svc } = makeSvc({ ...paidAdminIncome, salaryMonth: '2026-01' })
     await expect(
       svc.adminUpdateTransaction('tx-biz18-001', { salaryMonth: '2026-02' }, admin()),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED', statusCode: 400 },
+    })
   })
 
   // AC5: PENDING (not PAID) + changed amount → must SUCCEED.

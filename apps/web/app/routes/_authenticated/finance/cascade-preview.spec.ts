@@ -122,7 +122,12 @@ describe('canSaveCascadeEdit — the Save gate', () => {
     p.plan!.derivatives = [
       derivative({
         needsReconfirm: false,
-        warnings: [{ code: 'OBLIGATION_CURRENCY_MISMATCH', message: 'учтено в другой валюте' }],
+        warnings: [
+          {
+            code: 'OBLIGATION_CURRENCY_MISMATCH',
+            params: { obligationCurrency: 'EUR', sourceCurrency: 'USDT' },
+          },
+        ],
       }),
     ]
 
@@ -131,7 +136,15 @@ describe('canSaveCascadeEdit — the Save gate', () => {
 
   it('G-6. NON_USDT_CURRENCY blocks only when the row is actually reverting (refusal 3)', () => {
     const warnings: CascadeDerivativePlan['warnings'] = [
-      { code: 'NON_USDT_CURRENCY', message: 'выплата учтена в UAH' },
+      {
+        code: 'NON_USDT_CURRENCY',
+        params: {
+          settledCurrencyKnown: 'yes',
+          settledAmount: 9000,
+          settledCurrency: 'UAH',
+          sourceCurrency: 'USDT',
+        },
+      },
     ]
 
     const reverting = preview()
@@ -151,7 +164,7 @@ describe('canSaveCascadeEdit — the Save gate', () => {
     p.plan!.derivatives = [
       derivative({
         needsReconfirm: true,
-        warnings: [{ code: 'SIGNED_INVOICE', message: 'Инвойс уже подписан контрагентом' }],
+        warnings: [{ code: 'SIGNED_INVOICE', params: {} }],
       }),
     ]
 
@@ -171,7 +184,12 @@ describe('canSaveCascadeEdit — the Save gate', () => {
         settledAmount: 5000,
         settledCurrency: 'USDT',
         remainingToPay: 0,
-        warnings: [{ code: 'OVERPAYMENT', message: 'Уже выплачено 5000 — строка остаётся PAID' }],
+        warnings: [
+          {
+            code: 'OVERPAYMENT',
+            params: { paid: 'yes', settledAmount: 5000, recomputedShare: 100, currency: 'USDT' },
+          },
+        ],
       }),
     ]
 

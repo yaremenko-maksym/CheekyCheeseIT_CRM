@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { MAKSYM_ID, PAID_ROW_LOCKED_FIELD_MESSAGES, roundShareAmount } from '@crm/shared'
+import { MAKSYM_ID, roundShareAmount } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { PendingSettlementService } from './pending-settlement.service'
@@ -646,12 +646,13 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     const source = await sourceIncome(PROJECT_SENIOR)
     await settleSvc.settleByCompany((await derivativeFor(SENIOR.id)).obligation.id, ADMIN)
 
-    await expect(svc.adminUpdateTransaction(source.id, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      // QA-H-2: the refusal is Russian now and names one field with a remedy.
-      // Asserted against the shared constant, not a literal — the dialog shows
-      // the SAME string proactively, and a copy here could drift from it.
-      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
-    )
+    await expect(
+      svc.adminUpdateTransaction(source.id, { currency: 'EUR' }, ADMIN),
+    ).rejects.toMatchObject({
+      // QA-H-2: the refusal names one field with a remedy; it is a catalogued
+      // code, the SAME entry the dialog shows proactively.
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED' },
+    })
 
     expect((await sourceIncome(PROJECT_SENIOR)).currency).toBe('USDT')
     // The point of the refusal: one off-currency company row makes this throw,
@@ -855,7 +856,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/уже прошли выплаты/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_LOCKED', statusCode: 400 },
+    })
 
     // Without AC13 the edit lands, term 7's debit drops 260 → 26, and the
     // balance rises by 234 — money the company has already paid out.
@@ -878,7 +881,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 42, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/сверена с блокчейном/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED', statusCode: 400 },
+    })
   })
 
   it('risk 22 (SR-H-3): a row that closed an obligation in the PRE-flip epoch is refused too', async () => {
@@ -935,7 +940,9 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
         { amount: 26, cascadeVersion: 'no-such-version' },
         ADMIN,
       ),
-    ).rejects.toThrow(/зафиксирована в расчёте/)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED', statusCode: 400 },
+    })
 
     // Without the disjunct the edit lands, term 7's debit falls 260 → 26 and
     // the balance rises by 234 that has already left the account.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { createI18n } from '../i18n'
+import { API_ERROR_MESSAGES } from './api-errors'
 import {
-  INVOICE_SIGN_IMPERSONATION_MESSAGE,
   invoiceListItemSchema,
   invoiceListResponseSchema,
   invoiceSchema,
@@ -272,17 +273,21 @@ describe('signInvoiceRequestSchema', () => {
 })
 
 /**
- * Fix-раунд 3 (task-680, SR-M-4). Литерал — SSOT для серверного 403 на
- * `POST /invoices/:transactionId/sign` и клиентского пояснения рядом с
- * кнопкой подписи счёта. Мутационный гейт в `packages/shared` видит ТОЛЬКО
- * тесты этого пакета — ассертация в `apps/api`/`apps/web` на тот же
- * импортированный литерал этот мутант не убивает, потому что три пакета
- * гоняются раздельно (`mutation-gate-runbook.md`, «3-package matrix»).
+ * The invoice-sign impersonation refusal is a catalog code, not a string
+ * constant: the server's 403 and the dialog banner beside the disabled sign
+ * button render the SAME entry. The mutation gate in `packages/shared` sees only
+ * this package's tests, so the exact uk/en texts are pinned here as independent
+ * literals (an assertion in `apps/web` on the same lookup would not kill a
+ * mutant in the catalog — the three packages run separately).
  */
-describe('INVOICE_SIGN_IMPERSONATION_MESSAGE', () => {
-  it('точный текст — форма как у отказа по подписи контракта/ToS; без точки на конце', () => {
-    expect(INVOICE_SIGN_IMPERSONATION_MESSAGE).toBe(
-      'Пока вы вошли как другой сотрудник, подписать его счёт нельзя — это должен сделать он сам',
+describe('INVOICE_SIGN_IMPERSONATION catalog entry', () => {
+  it('renders the exact uk and en sentence — no closing period, «рахунок» not «інвойс»', () => {
+    const descriptor = API_ERROR_MESSAGES.INVOICE_SIGN_IMPERSONATION
+    expect(createI18n('uk')._(descriptor)).toBe(
+      'Ви увійшли як інший співробітник — підписати його рахунок може лише він сам',
+    )
+    expect(createI18n('en')._(descriptor)).toBe(
+      "You're signed in as another employee — only they can sign their invoice",
     )
   })
 })

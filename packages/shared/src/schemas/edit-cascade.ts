@@ -1,7 +1,5 @@
-// TODO(i18n, task_3ec0e901): move to param catalog — the cascade-plan warning and locked-field
-// texts below are Russian `message` literals, each silenced by a line-level disable so that a NEW
-// literal added to this file is still caught by lingui/no-unlocalized-strings.
 import { z } from 'zod'
+import type { FinanceInvoicesErrorCode } from './api-errors/finance-invoices'
 import {
   transactionTypeSchema,
   MAX_TRANSACTION_AMOUNT,
@@ -311,9 +309,16 @@ export const cascadeWarningCodeSchema = z.enum([
 ])
 export type CascadeWarningCode = z.infer<typeof cascadeWarningCodeSchema>
 
+/**
+ * A warning is a CODE plus the FACTS it is about — never a sentence. The text is
+ * rendered by the client from `CASCADE_WARNING_MESSAGES`
+ * (`edit-cascade-warning-registry.ts`) in the viewer's locale; `params` names are
+ * pinned per code by `CASCADE_WARNING_PARAMS`. Amounts are numbers (the client
+ * formats them), currencies are codes, variants are explicit flag params.
+ */
 export const cascadeWarningSchema = z.object({
   code: cascadeWarningCodeSchema,
-  message: z.string(),
+  params: z.record(z.string(), z.string().or(z.number())),
 })
 export type CascadeWarning = z.infer<typeof cascadeWarningSchema>
 
@@ -560,8 +565,10 @@ function resolveDerivative(
     ? [
         {
           code: 'OBLIGATION_CURRENCY_MISMATCH',
-          // eslint-disable-next-line lingui/no-unlocalized-strings
-          message: `Обязательство учтено в ${derivative.obligation!.currency}, а сумма источника — в ${sourceCurrency}: записать пересчитанную долю в обязательство другой валюты нельзя`,
+          params: {
+            obligationCurrency: derivative.obligation!.currency,
+            sourceCurrency,
+          },
         },
       ]
     : []
@@ -583,9 +590,7 @@ function resolveDerivative(
       warnings: [
         {
           code: 'NO_SHARE_SNAPSHOT',
-          message:
-            // eslint-disable-next-line lingui/no-unlocalized-strings
-            'Нет снимка процента доли на этой строке — пересчитать невозможно, требуется ручное решение',
+          params: {},
         },
         ...obligationCurrencyWarning,
       ],
@@ -712,30 +717,30 @@ function resolveDerivative(
       // PENDING_PAYMENT earlier and is still open now: that row is PENDING when
       // this is shown and PENDING after saving — what happens to it is that its
       // amount is held at the accumulator and nothing more is owed.
-      message: isSettled
-        ? // eslint-disable-next-line lingui/no-unlocalized-strings
-          `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, строка остаётся оплаченной, разница сама не вернётся`
-        : // eslint-disable-next-line lingui/no-unlocalized-strings
-          `Уже выплачено ${settledAmount} — пересчитанная доля ${recomputedShare} меньше выплаченного, сумма останется на уровне выплаченного, разница сама не вернётся`,
+      // `overpaid` implies `!currencyMismatch`, so the paid sum and the share are
+      // in the SOURCE's own currency — the one `currency` the client formats both with.
+      params: {
+        paid: isSettled ? 'yes' : 'no',
+        settledAmount,
+        recomputedShare,
+        currency: sourceCurrency,
+      },
     })
   }
   if (derivative.hasSignedInvoice) {
-    warnings.push({
-      code: 'SIGNED_INVOICE',
-      message:
-        // eslint-disable-next-line lingui/no-unlocalized-strings
-        'По этой строке инвойс уже подписан контрагентом — правка не отразится в подписанном документе',
-    })
+    warnings.push({ code: 'SIGNED_INVOICE', params: {} })
   }
   if (currencyMismatch) {
     warnings.push({
       code: 'NON_USDT_CURRENCY',
-      message:
-        settledCurrency === null
-          ? // eslint-disable-next-line lingui/no-unlocalized-strings
-            `Валюта уже выплаченной суммы (${settledAmount}) не зафиксирована — сравнить с новой долей в ${sourceCurrency} нельзя`
-          : // eslint-disable-next-line lingui/no-unlocalized-strings
-            `Выплата по этой строке учтена в ${settledCurrency}, а не в ${sourceCurrency} — «уже выплачено» и «новая доля» не в одной валюте`,
+      // `settledCurrency` is always a string on the wire; when it was never
+      // recorded the flag says so and the text does not read the value.
+      params: {
+        settledCurrencyKnown: settledCurrency === null ? 'no' : 'yes',
+        settledAmount,
+        settledCurrency: settledCurrency ?? '',
+        sourceCurrency,
+      },
     })
   }
   // `newAmount` above is computed as usual even on a mismatch: the NUMBER is
@@ -781,12 +786,7 @@ function resolveSourceWarnings(source: CascadeSourceSnapshot): CascadeWarning[] 
   // and sent the operator to a «документ об оплате» that does not exist. The
   // code stays in `cascadeWarningCodeSchema` for wire compatibility only.
   if (source.hasSignedInvoice) {
-    warnings.push({
-      code: 'SOURCE_SIGNED_INVOICE',
-      message:
-        // eslint-disable-next-line lingui/no-unlocalized-strings
-        'По этой строке уже есть инвойс, подписанный контрагентом — правка суммы не отразится в подписанном документе',
-    })
+    warnings.push({ code: 'SOURCE_SIGNED_INVOICE', params: {} })
   }
   return warnings
 }
@@ -947,78 +947,56 @@ export const cascadeLedgerFactReasonSchema = z.enum([
 export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSchema>
 
 /**
- * The operator-facing refusal for each reason. Each one names the CARRIER, not
- * merely "нельзя" — the operator has to know what the amount is pinned to
- * before they can decide what to do instead.
- *
- * Lives beside the classifier rather than inside the API service so the write
- * path's 400 body and the preview's blocked reason are two renderings of ONE
- * text, and so task 5's UI can show the same sentence without restating it.
- */
-/**
- * QA-H-2 (manual QA, HIGH) — the two fields a PAID row locks, and why.
+ * QA-H-2 (manual QA, HIGH) — the two fields a PAID row locks, and why, as
+ * api-error CODES (text: `api-errors/finance-invoices.ts`, uk/en).
  *
  * These live here, beside the ledger-fact family, for the reason that family
  * lives here: the SERVER raises them as a 400 and the CLIENT shows them
- * proactively, and a text duplicated across that boundary drifts. Same register
- * as the four above — name the CARRIER of the refusal, then the remedy, one
- * sentence, no closing period.
+ * proactively, and a text duplicated across that boundary drifts — so both
+ * resolve the SAME catalog entry by code. Each names the CARRIER of the
+ * refusal, then the remedy, one sentence, no closing period.
  *
  * COPY-L-5: the currency text explains itself with a fact about the CURRENCY
- * («платёж уже прошёл в этой валюте»), not about the amount — a reader standing
+ * («платіж уже пройшов у цій валюті»), not about the amount — a reader standing
  * at the currency selector was being handed an argument about the neighbouring
- * field. COPY-L-6: «правьте», the verb the four ledger-fact messages already
- * use; one remedy should not have two verbs.
- *
- * The refusal itself is not new; it was `Cannot change currency or salary month
- * of a settled (PAID) transaction`, in English, delivered only after the click.
- * English is a rule violation on its own (`russian-language.md`), and it was
- * the last refusal in the cascade still shaped that way while its neighbours
- * had already been fixed.
+ * field. COPY-L-6: one remedy («виправляйте сторнувальною транзакцією») across
+ * the family, not two verbs.
  */
-export const PAID_ROW_LOCKED_FIELD_MESSAGES = {
+export const PAID_ROW_LOCKED_FIELD_ERROR_CODES = {
   /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
-  CURRENCY:
-    // eslint-disable-next-line lingui/no-unlocalized-strings
-    'Валюта оплаченной строки не редактируется — платёж уже прошёл в этой валюте, правьте сторнирующей транзакцией',
+  CURRENCY: 'FINANCE_PAID_ROW_CURRENCY_LOCKED',
   /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
-  SALARY_MONTH:
-    // eslint-disable-next-line lingui/no-unlocalized-strings
-    'Месяц зарплаты на оплаченной строке не редактируется — по нему уже посчитаны месячные итоги, правьте сторнирующей транзакцией',
-} as const
+  SALARY_MONTH: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED',
+} as const satisfies Record<'CURRENCY' | 'SALARY_MONTH', FinanceInvoicesErrorCode>
 
 /**
- * task-paid-salary-amount-edit — `PAYMENT_FACT_RECORDED` is NOT in this table
- * any more. Its old text sent the operator to «исправьте документ об оплате»,
- * a document the system does not have; the replacement is the catalogued
- * api-error `FINANCE_PAYMENT_FACT_AMOUNT_LOCKED` (uk/en, `russian-language.md`:
- * a changed string goes through the catalog), which the 400 and the preview
- * banner both render. The other three keep their Russian until finance migrates.
+ * The operator-facing refusal for each ledger-fact reason, as an api-error
+ * CODE. The write path's 400 (`apiError(code)`) and the preview's blocked banner
+ * (`translateApiError(code)`) are two renderings of ONE catalog entry, so the
+ * screen and the refusal cannot drift. Each one names the CARRIER, not merely
+ * «не можна» — the operator has to know what the amount is pinned to before
+ * they can decide what to do instead.
+ *
+ * i18n: these were Russian `@crm/shared` string constants
+ * (`CASCADE_LEDGER_FACT_MESSAGES`); a text that crosses the server/client
+ * boundary is a code + catalog, never a literal. (`PAYMENT_FACT_RECORDED` had
+ * already moved: its old text sent the operator to a «документ об оплате» the
+ * system does not have.)
  */
-export const CASCADE_LEDGER_FACT_MESSAGES: Record<
-  Exclude<CascadeLedgerFactReason, 'PAYMENT_FACT_RECORDED' | 'SALARY_OBLIGATION_OUT_OF_RANGE'>,
-  string
-> = {
+export const CASCADE_LEDGER_FACT_ERROR_CODES = {
+  PAYMENT_FACT_RECORDED: 'FINANCE_PAYMENT_FACT_AMOUNT_LOCKED',
+  // CR-M-1 — «перевірте суму», never a reversing transaction: the salary is
+  // editable, only not to this figure.
+  SALARY_OBLIGATION_OUT_OF_RANGE: 'FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE',
   // COPY-M-3 (copy-review): these two used to open with the SAME four words
-  // («Эта строка закрывает обязательство»), while describing different facts —
-  // the first has an accumulator of actual transfers behind it, the second IS
-  // the closing transaction. The second also explained itself with itself
-  // («сумма подтверждена закрытым обязательством»). Neither text changed in the
-  // diff of this task, but this is the first task in which a human ever sees
-  // them: before the preview panel existed, `blockedReason` had no reader.
-  //
-  // «Расчёт» is the glossary name for a settle (`CONTEXT.md`), so the second
-  // one now names a carrier instead of restating its own label.
-  SETTLED_AMOUNT_RECORDED:
-    // eslint-disable-next-line lingui/no-unlocalized-strings
-    'По этой строке уже прошли выплаты — её сумма подтверждена фактически перечисленным, правьте сторнирующей транзакцией',
-  CLOSES_OBLIGATION:
-    // eslint-disable-next-line lingui/no-unlocalized-strings
-    'Этой строкой закрыто обязательство — её сумма зафиксирована в расчёте, правьте сторнирующей транзакцией',
-  ONCHAIN_DEPOSIT:
-    // eslint-disable-next-line lingui/no-unlocalized-strings
-    'Сумма депозита сверена с блокчейном — она не редактируется, оформляйте расхождение отдельной транзакцией',
-}
+  // while describing different facts — the first has an accumulator of actual
+  // transfers behind it, the second IS the closing transaction. «Розрахунок»
+  // is the glossary name for a settle (`CONTEXT.md`), so the second names a
+  // carrier instead of restating its own label.
+  SETTLED_AMOUNT_RECORDED: 'FINANCE_SETTLED_AMOUNT_LOCKED',
+  CLOSES_OBLIGATION: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED',
+  ONCHAIN_DEPOSIT: 'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED',
+} as const satisfies Record<CascadeLedgerFactReason, FinanceInvoicesErrorCode>
 
 /**
  * task-paid-salary-amount-edit — the obligation a corrected paid figure stands
