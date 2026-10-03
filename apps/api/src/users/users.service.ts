@@ -45,7 +45,7 @@ import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TosService } from '../tos/tos.service'
 import { ApprovalsService } from '../approvals/approvals.service'
-import { NOTIFICATION_TITLES, type Locale } from '@crm/shared'
+import { NOTIFICATION_TITLES, resolveLocale, type Locale } from '@crm/shared'
 import { NotificationsService } from '../notifications/notifications.service'
 import { AuditLogService, REDACTED_TOKEN } from './audit-log.service'
 import { UsersAccessService } from './users-access.service'
@@ -878,6 +878,9 @@ export class UsersService {
 
     // Build insert payload — only include payment columns when relevant so we
     // keep "no requisites" rows clean (null in DB rather than empty string).
+    // Single source for the invitee's locale: the SAME const feeds the `users.locale`
+    // column and the invite mail, so they cannot diverge by construction.
+    const locale: Locale = data.locale ?? 'uk'
     const insertValues: typeof users.$inferInsert = {
       email: data.email,
       displayName: data.displayName,
@@ -893,7 +896,7 @@ export class UsersService {
       // column default) so the returned row (and the audit event's
       // `after: created.displayName` sibling fields) reflect the same value
       // this method's own callers expect back immediately.
-      locale: data.locale ?? 'uk',
+      locale,
     }
     if (data.seniorSharePercent !== undefined)
       insertValues.seniorSharePercent = data.seniorSharePercent
@@ -991,6 +994,8 @@ export class UsersService {
         to: data.personalEmail,
         displayName: data.displayName,
         rawToken: personalInviteToken,
+        // The INVITEE's locale — the same const as the inserted `users.locale` column; never the admin's.
+        locale,
       })
     }
 
@@ -2974,7 +2979,7 @@ export class UsersService {
   async resendPersonalEmailInvite(
     userId: string,
     actorId: string,
-  ): Promise<{ rawToken: string; email: string; displayName: string }> {
+  ): Promise<{ rawToken: string; email: string; displayName: string; locale: Locale }> {
     const target = await this.findById(userId)
     if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
     const row = await this.db.db.query.userEmails.findFirst({
@@ -3000,7 +3005,14 @@ export class UsersService {
       action: 'personal_email_invite_resend',
       changes: { personalEmailInvite: { before: REDACTED_TOKEN, after: REDACTED_TOKEN } },
     })
-    return { rawToken, email: row.email, displayName: target.displayName }
+    return {
+      rawToken,
+      email: row.email,
+      displayName: target.displayName,
+      // The INVITEE's stored language (corrupt/absent degrades to `uk`) — the caller renders the
+      // mail in it; the admin's request locale is never consulted.
+      locale: resolveLocale([target.locale]),
+    }
   }
 
   /**
@@ -3044,7 +3056,7 @@ export class UsersService {
     userId: string,
     newEmail: string | null,
     actorId: string,
-  ): Promise<{ rawToken: string; email: string; displayName: string } | null> {
+  ): Promise<{ rawToken: string; email: string; displayName: string; locale: Locale } | null> {
     const target = await this.findById(userId)
     if (!target) throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
 
@@ -3119,7 +3131,12 @@ export class UsersService {
     })
 
     if (newEmail && personalInviteToken) {
-      return { rawToken: personalInviteToken, email: newEmail, displayName: target.displayName }
+      return {
+        rawToken: personalInviteToken,
+        email: newEmail,
+        displayName: target.displayName,
+        locale: resolveLocale([target.locale]),
+      }
     }
     return null
   }

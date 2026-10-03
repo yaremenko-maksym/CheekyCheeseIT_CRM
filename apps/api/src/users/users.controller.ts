@@ -491,14 +491,20 @@ export class UsersController {
     @CurrentUser() currentUser: SessionUser,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    const { rawToken, email, displayName } = await this.usersService.resendPersonalEmailInvite(
-      id,
-      currentUser.id,
-    )
+    // `locale` is the INVITEE's stored language, read by the service from the invitee's own row.
+    // Deliberately NO `@RequestLocale()` here: the only request present is the admin's, and its
+    // cookie / `Accept-Language` would write the invitee's mail in the admin's language.
+    const { rawToken, email, displayName, locale } =
+      await this.usersService.resendPersonalEmailInvite(id, currentUser.id)
     // copy-review PR #623 (COPY-M-1): report whether the mail actually left
     // this process — the frontend toast must not claim "отправлено" when
     // sendInvite silently no-op'd (missing API key) or exhausted its retries.
-    const delivered = await this.inviteMailer.sendInvite({ to: email, displayName, rawToken })
+    const delivered = await this.inviteMailer.sendInvite({
+      to: email,
+      displayName,
+      rawToken,
+      locale,
+    })
     return { ok: true, delivered }
   }
 
@@ -545,6 +551,8 @@ export class UsersController {
       to: result.email,
       displayName: result.displayName,
       rawToken: result.rawToken,
+      // The invitee's stored language, not the admin's request locale (see resend-invite above).
+      locale: result.locale,
     })
     return { ok: true, delivered }
   }

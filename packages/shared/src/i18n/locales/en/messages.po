@@ -269,6 +269,11 @@ msgstr "{change} · project {hasProject, select, no {untitled} other {{projectNa
 msgid "{count, plural, one {# документ} few {# документи} many {# документів} other {# документа}}"
 msgstr "{count, plural, one {# document} other {# documents}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.greeting"
+msgstr "{firstName}, this address was added to CheekyCheeseIT CRM as your personal one."
+
 #: apps/web/app/routes/_authenticated/finance/components/Pagination.tsx
 msgid "{from}–{to} з {totalItems}"
 msgstr "{from}–{to} of {totalItems}"
@@ -3214,6 +3219,11 @@ msgstr "Additional fields for fuller vacancy markup in Google search."
 msgid "Дозволено лише PNG, JPEG, GIF, WebP"
 msgstr "Only PNG, JPEG, GIF, WebP are allowed"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.confirm.line2"
+msgstr "Until you confirm, sign-in works only with your work address."
+
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "Документ"
@@ -3333,6 +3343,11 @@ msgstr "Pay the rest from the same source as the earlier payout on this obligati
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Досвід роботи"
 msgstr "Work experience"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.subject"
+msgstr "Access to CheekyCheeseIT CRM"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -5998,6 +6013,11 @@ msgstr "You can't edit another admin's account"
 msgid "не перекладено"
 msgstr "not translated"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.footer.warning"
+msgstr "do not follow the link"
+
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "не підтверджено"
 msgstr "not confirmed"
@@ -7490,6 +7510,11 @@ msgstr "Confirm"
 msgid "Підтвердити ({remainingCount})"
 msgstr "Confirm ({remainingCount})"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.button"
+msgstr "Confirm address"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "Підтвердити валідацію?"
 msgstr "Confirm validation?"
@@ -7521,6 +7546,11 @@ msgstr "Confirm payment"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 msgid "Підтвердити розрахунок"
 msgstr "Confirm the settlement"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.confirm.line1"
+msgstr "Confirm it — then you can sign in with either your work address or this one."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -11137,6 +11167,11 @@ msgstr "I have reviewed and agree with the content of the invoice"
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
 msgid "Якщо він потрібен для роботи, напишіть адміністратору"
 msgstr "If you need it for work, contact an admin"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invite-email-registry.ts
+msgid "email.invite.footer"
+msgstr "If this email reached you by mistake, {warning}."
 
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Якщо обрано — надходження за проєктом підуть через дропа (частка 5% за замовчуванням)."

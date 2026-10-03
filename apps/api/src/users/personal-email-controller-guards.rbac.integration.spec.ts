@@ -53,10 +53,14 @@ import { JwtModule, JwtService } from '@nestjs/jwt'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
+import type { ConfigService } from '@nestjs/config'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
+import type { ResendMailerService, SendEmailInput } from '../contact/resend-mailer.service'
+import type { Env } from '../config/env'
+import type { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { AuditInterceptor } from '../common/interceptors/audit.interceptor'
 import { AuditLogService } from './audit-log.service'
 import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
@@ -119,19 +123,48 @@ const ROLE_ROWS = new Map<string, { role: Role; archivedAt: Date | null }>(
 // stubbed to throw unconditionally: this file exists to pin the GUARD, the
 // business logic itself is `user-email-invites.integration.spec.ts`'s job.
 const STUB_NOT_FOUND_MESSAGE = 'stub: personal-email-controller-guards rig — guard test only'
+//
+// i18n emails PR2: the two service methods can ALSO be switched to return an invitee result (the
+// `inviteeResult` slot below), so the sender-locale tests can drive the REAL controller -> REAL
+// mailer path. Default (null) keeps the original guard-only behaviour: reject with the stub 404.
+interface InviteeResult {
+  rawToken: string
+  email: string
+  displayName: string
+  locale: 'uk' | 'en'
+}
+let inviteeResult: InviteeResult | null = null
 const usersServiceStub = {
   findById: (id: string) => Promise.resolve(ROLE_ROWS.get(id)),
-  resendPersonalEmailInvite: () => Promise.reject(new NotFoundException(STUB_NOT_FOUND_MESSAGE)),
-  changePersonalEmail: () => Promise.reject(new NotFoundException(STUB_NOT_FOUND_MESSAGE)),
+  resendPersonalEmailInvite: () =>
+    inviteeResult
+      ? Promise.resolve(inviteeResult)
+      : Promise.reject(new NotFoundException(STUB_NOT_FOUND_MESSAGE)),
+  changePersonalEmail: () =>
+    inviteeResult
+      ? Promise.resolve(inviteeResult)
+      : Promise.reject(new NotFoundException(STUB_NOT_FOUND_MESSAGE)),
 } as unknown as UsersService
 
-// `PersonalEmailInviteMailerService.sendInvite` is never reached by either
-// handler in this rig — the stubbed service methods above throw BEFORE the
-// controller gets to call it — but the token must still resolve for Nest DI
-// to construct `UsersController`.
-const inviteMailerStub = {
-  sendInvite: () => Promise.resolve(true),
-} as unknown as PersonalEmailInviteMailerService
+// The REAL mailer, with only the outbound HTTP hop to Resend captured. Guard-only cases never
+// reach it (the stubbed service rejects BEFORE the controller calls it); the sender-locale cases
+// at the bottom do, and assert on what would have left the process.
+const sentMails: SendEmailInput[] = []
+const mailerEnv: Record<string, string> = {
+  FRONTEND_URL: 'https://app.cheekycheese.tech',
+  CONTACT_PUBLIC_EMAIL: 'hr@cheekycheese.tech',
+}
+const inviteMailerStub = new PersonalEmailInviteMailerService(
+  {
+    isConfigured: true,
+    send: (input: SendEmailInput) => {
+      sentMails.push(input)
+      return Promise.resolve()
+    },
+  } as unknown as ResendMailerService,
+  { recordError: () => Promise.resolve() } as unknown as TelemetryErrorsService,
+  { get: (k: string) => mailerEnv[k] } as unknown as ConfigService<Env, true>,
+)
 
 // `@UseInterceptors(AuditInterceptor)` sits at the CLASS level on
 // `UsersController`. Neither target handler carries `@AuditLog` (see
@@ -282,6 +315,94 @@ describe("UsersController personal-email routes — real @Roles('ADMIN') RBAC in
       })
       expect(res.statusCode).toBe(404)
       expect(JSON.parse(res.payload).message).toBe(STUB_NOT_FOUND_MESSAGE)
+    })
+  })
+
+  // i18n emails PR2 — the invite is written in the INVITEE's language. The only request present
+  // at send time is the ADMIN's; its `pref_locale` cookie and `Accept-Language` must never reach
+  // the mail. Driven over real HTTP through the real guard chain, real controller, real mailer.
+  describe('invite language — the sender (admin) request locale never leaks into the mail', () => {
+    const EN_HEADERS = { 'accept-language': 'en-US,en;q=0.9' }
+
+    afterAll(() => {
+      inviteeResult = null
+    })
+
+    it('admin with pref_locale=en + Accept-Language: en resends to a UK invitee -> the mail is Ukrainian', async () => {
+      inviteeResult = {
+        rawToken: 'a'.repeat(64),
+        email: 'uk.invitee@test.spec',
+        displayName: 'Іван Петров',
+        locale: 'uk',
+      }
+      sentMails.length = 0
+      const res = await app.inject({
+        method: 'POST',
+        url: resendUrl,
+        headers: EN_HEADERS,
+        cookies: { jwt: tokenFor(ADMIN), pref_locale: 'en' },
+      })
+      expect(res.statusCode).toBe(201)
+      expect(JSON.parse(res.payload)).toEqual({ ok: true, delivered: true })
+      expect(sentMails).toHaveLength(1)
+      expect(sentMails[0]!.subject).toBe('Доступ до CheekyCheeseIT CRM')
+      expect(sentMails[0]!.html).toContain('<html lang="uk">')
+    })
+
+    it('admin with a UK cookie + Accept-Language: uk resends to an EN invitee -> the mail is English', async () => {
+      inviteeResult = {
+        rawToken: 'b'.repeat(64),
+        email: 'en.invitee@test.spec',
+        displayName: 'John Smith',
+        locale: 'en',
+      }
+      sentMails.length = 0
+      const res = await app.inject({
+        method: 'POST',
+        url: resendUrl,
+        headers: { 'accept-language': 'uk-UA,uk;q=0.9' },
+        cookies: { jwt: tokenFor(ADMIN), pref_locale: 'uk' },
+      })
+      expect(res.statusCode).toBe(201)
+      expect(sentMails).toHaveLength(1)
+      expect(sentMails[0]!.subject).toBe('Access to CheekyCheeseIT CRM')
+      expect(sentMails[0]!.html).toContain('<html lang="en">')
+    })
+
+    it('PATCH personal-email: an English-speaking admin changing a UK invitee address -> Ukrainian mail', async () => {
+      inviteeResult = {
+        rawToken: 'c'.repeat(64),
+        email: 'new.uk.invitee@test.spec',
+        displayName: 'Олена Коваль',
+        locale: 'uk',
+      }
+      sentMails.length = 0
+      const res = await app.inject({
+        method: 'PATCH',
+        url: changeUrl,
+        headers: EN_HEADERS,
+        cookies: { jwt: tokenFor(ADMIN), pref_locale: 'en' },
+        payload: changePayload,
+      })
+      expect(res.statusCode).toBe(200)
+      expect(sentMails).toHaveLength(1)
+      expect(sentMails[0]!.subject).toBe('Доступ до CheekyCheeseIT CRM')
+      expect(sentMails[0]!.html).toContain('<html lang="uk">')
+    })
+
+    it('non-ADMIN stays 403 on both endpoints while the service WOULD succeed (the surface is not loosened; nothing is sent)', async () => {
+      inviteeResult = {
+        rawToken: 'd'.repeat(64),
+        email: 'x.invitee@test.spec',
+        displayName: 'X',
+        locale: 'uk',
+      }
+      sentMails.length = 0
+      for (const persona of NON_ADMIN) {
+        expect(await post(persona, resendUrl)).toBe(403)
+        expect(await patch(persona, changeUrl, changePayload)).toBe(403)
+      }
+      expect(sentMails).toHaveLength(0)
     })
   })
 })

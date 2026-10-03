@@ -19,12 +19,16 @@
  * annotated with which survivor(s) it kills.
  */
 import { Logger } from '@nestjs/common'
+import { i18n as globalI18n } from '@lingui/core'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ConfigService } from '@nestjs/config'
 import type { Env } from '../config/env'
 import type { ResendMailerService, SendEmailInput } from '../contact/resend-mailer.service'
 import type { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
-import { PersonalEmailInviteMailerService } from './personal-email-invite-mailer.service'
+import {
+  PersonalEmailInviteMailerService,
+  type SendInviteInput,
+} from './personal-email-invite-mailer.service'
 
 /**
  * `get` is a `vi.fn()` (not a bare arrow) — kills the `{ infer: true }` →
@@ -67,8 +71,78 @@ function makeHarness(
 
 const INPUT = {
   to: 'ivan.personal@gmail.com',
-  displayName: 'Иван Петров',
+  displayName: 'Іван Петров',
   rawToken: 'a'.repeat(64),
+  locale: 'uk' as const,
+}
+
+/** ASCII display name: any Cyrillic in the rendered mail can only come from the catalog. */
+const INPUT_EN = {
+  to: 'john.personal@gmail.com',
+  displayName: 'John Smith',
+  rawToken: 'b'.repeat(64),
+  locale: 'en' as const,
+}
+
+const CYRILLIC = /[А-Яа-яЁёІіЇїЄєҐґ]/
+
+function lastCall(mailer: ResendMailerService): SendEmailInput {
+  return (mailer.send as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0] as SendEmailInput
+}
+
+/**
+ * Скелет письма — тот же, что закреплён в `email-layout.spec.ts`; здесь он собирается один раз,
+ * а все слова приходят дословными литералами из каждого теста (ожидание не вычисляется из кода).
+ */
+function expectedHtml(p: {
+  lang: string
+  greeting: string
+  line1: string
+  line2: string
+  href: string
+  button: string
+  footer: string
+}): string {
+  return `<!DOCTYPE html>
+<html lang="${p.lang}">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
+          <tr>
+            <td style="padding:32px 32px 24px 32px;">
+              <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
+                ${p.greeting}
+              </p>
+              <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#18181b;">
+                ${p.line1}
+              </p>
+              <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
+                ${p.line2}
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td style="border-radius:6px;background-color:#18181b;">
+                    <a href="${p.href}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">${p.button}</a>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:24px 0 0 0;font-size:16px;line-height:24px;color:#18181b;">
+                ${p.footer}
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`
 }
 
 afterEach(() => {
@@ -112,6 +186,16 @@ describe('PersonalEmailInviteMailerService.sendInvite — RESEND_API_KEY not con
     )
   })
 
+  it('records the ENGLISH service message for an en invite too (telemetry is not catalog text)', async () => {
+    const { svc, telemetry } = makeHarness({ isConfigured: false })
+    await expect(svc.sendInvite(INPUT_EN)).resolves.toBe(false)
+    expect(telemetry.recordError).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Personal-email invite not sent — RESEND_API_KEY not configured',
+      }),
+    )
+  })
+
   it('logs a warning naming the reason (not an empty/generic message)', async () => {
     const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
     const { svc } = makeHarness({ isConfigured: false })
@@ -128,9 +212,9 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(mailer.send).toHaveBeenCalledTimes(1)
     const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
     expect(call.to).toEqual([INPUT.to])
-    // Spec §11: subject is the exact approved string, no "Запрос на …" prefix
+    // Spec §11: subject is the exact approved string, no "Запит на …" prefix
     // (this is the one email that is NOT a request).
-    expect(call.subject).toBe('Доступ к CRM CheekyCheeseIT')
+    expect(call.subject).toBe('Доступ до CheekyCheeseIT CRM')
     expect(call.html).toContain(`/auth/invite/${INPUT.rawToken}`)
     expect(call.text).toContain(`/auth/invite/${INPUT.rawToken}`)
     // The link is built off FRONTEND_URL + /api, not a hardcoded host.
@@ -138,26 +222,47 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(call.replyTo).toBe('hr@cheekycheese.tech')
   })
 
-  it('escapes every one of the five HTML-significant characters in displayName, individually', async () => {
+  it.each([INPUT, INPUT_EN])(
+    'escapes every one of the five HTML-significant characters in displayName, individually ($locale)',
+    async (base) => {
+      const { svc, mailer } = makeHarness()
+      // One fixture per character — a fixture combining them would still kill
+      // each mutant, but a per-character table names exactly which escape
+      // broke if one ever regresses. The WHOLE rendered greeting is escaped.
+      const cases: Array<[string, string]> = [
+        ['&', '&amp;'],
+        ['<', '&lt;'],
+        ['>', '&gt;'],
+        ['"', '&quot;'],
+        ["'", '&#39;'],
+      ]
+      for (const [raw, escaped] of cases) {
+        await svc.sendInvite({ ...base, displayName: `x${raw}y` })
+        const call = lastCall(mailer)
+        expect(call.html).toContain(`x${escaped}y`)
+        expect(call.html).not.toContain(`x${raw}y`)
+        // the plain-text twin carries the raw name
+        expect(call.text.startsWith(`x${raw}y`)).toBe(true)
+      }
+    },
+  )
+
+  it.each([INPUT, INPUT_EN])(
+    'a <script> name is inert in the HTML and raw in the text ($locale)',
+    async (base) => {
+      const { svc, mailer } = makeHarness()
+      await svc.sendInvite({ ...base, displayName: '<script>alert(1)</script>' })
+      const call = lastCall(mailer)
+      expect(call.html).not.toContain('<script>')
+      expect(call.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+      expect(call.text).toContain('<script>alert(1)</script>')
+    },
+  )
+
+  it('a name that looks like an ICU placeholder renders literally', async () => {
     const { svc, mailer } = makeHarness()
-    // One fixture per character — a fixture combining them would still kill
-    // each mutant, but a per-character table names exactly which escape
-    // broke if one ever regresses.
-    const cases: Array<[string, string]> = [
-      ['&', '&amp;'],
-      ['<', '&lt;'],
-      ['>', '&gt;'],
-      ['"', '&quot;'],
-      ["'", '&#39;'],
-    ]
-    for (const [raw, escaped] of cases) {
-      await svc.sendInvite({ ...INPUT, displayName: `x${raw}y` })
-      const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls.at(
-        -1,
-      )?.[0] as SendEmailInput
-      expect(call.html).toContain(`x${escaped}y`)
-      expect(call.html).not.toContain(`x${raw}y`)
-    }
+    await svc.sendInvite({ ...INPUT_EN, displayName: '{firstName}' })
+    expect(lastCall(mailer).text.startsWith('{firstName}, this address')).toBe(true)
   })
 
   // COPY-L-2 (copy-review PR #623 round 4): greets by the FIRST word only,
@@ -170,9 +275,18 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     const { svc, mailer } = makeHarness()
     await svc.sendInvite({ ...INPUT, displayName: '  Oleksiy Kovalenko  ' })
     const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
-    expect(call.text.startsWith('Oleksiy,')).toBe(true)
+    expect(call.text.startsWith('Oleksiy: ')).toBe(true)
     expect(call.text).not.toContain('Kovalenko')
-    expect(call.html).toContain('Oleksiy,')
+    expect(call.html).toContain('Oleksiy: ')
+    expect(call.html).not.toContain('Kovalenko')
+  })
+
+  it('greets by the first word only in en as well', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite({ ...INPUT_EN, displayName: '  Oleksiy Kovalenko  ' })
+    const call = lastCall(mailer)
+    expect(call.text.startsWith('Oleksiy, this address')).toBe(true)
+    expect(call.html).toContain('Oleksiy, this address')
     expect(call.html).not.toContain('Kovalenko')
   })
 
@@ -183,59 +297,103 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(call.html.match(/<a /g)).toHaveLength(1)
   })
 
-  it('the HTML is exactly this — the layout moved to a shared helper and must not have shifted', async () => {
-    // SPEC-M-2 (spec-review PR #673): каркас письма вынесен в
-    // `common/email-layout.ts` и теперь общий с десятью письмами уведомлений.
-    // Перенос обязан быть побайтовым: у письма два независимых вызывающих, и
-    // правка ради одного молча меняла бы второе, а увидеть это можно только в
-    // чужом почтовом клиенте, когда письмо уже ушло.
-    //
-    // Эталон целиком, а не `toContain`: гейт мутаций показал, что пять
-    // отдельных проверок «содержит фразу» пропускают опустошение любого из
-    // абзацев и подмену отступа — то есть каркас держался ни на чём.
+  it('uk: the HTML is exactly this (greeting, two lines, button, <strong> footer)', async () => {
+    // SPEC-M-2 (spec-review PR #673): the layout is shared with the notification emails; the
+    // whole document is pinned (not `toContain`) so emptying a paragraph or swapping a margin
+    // cannot survive. i18n PR2: the words are the `uk` catalog, `<html lang="uk">`.
     const { svc, mailer } = makeHarness()
     await svc.sendInvite(INPUT)
-    const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
-    expect(call.html).toBe(`<!DOCTYPE html>
-<html lang="ru">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-</head>
-<body style="margin:0;padding:0;background-color:#f4f4f5;font-family:Arial,Helvetica,sans-serif;">
-  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f5;padding:32px 0;">
-    <tr>
-      <td align="center">
-        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background-color:#ffffff;border-radius:8px;overflow:hidden;">
-          <tr>
-            <td style="padding:32px 32px 24px 32px;">
-              <p style="margin:0 0 16px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Иван, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.
-              </p>
-              <p style="margin:0 0 4px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.
-              </p>
-              <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Пока не подтвердите, вход работает только по рабочему.
-              </p>
-              <table role="presentation" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="border-radius:6px;background-color:#18181b;">
-                    <a href="https://app.cheekycheese.tech/api/auth/invite/${INPUT.rawToken}" style="display:inline-block;padding:12px 24px;font-size:15px;color:#ffffff;text-decoration:none;font-weight:bold;">Подтвердить адрес</a>
-                  </td>
-                </tr>
-              </table>
-              <p style="margin:24px 0 0 0;font-size:16px;line-height:24px;color:#18181b;">
-                Если письмо пришло по ошибке, <strong>не переходите по ссылке</strong>.
-              </p>
-            </td>
-          </tr>
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`)
+    expect(lastCall(mailer).html).toBe(
+      expectedHtml({
+        lang: 'uk',
+        greeting: 'Іван: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
+        line1: 'Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї.',
+        line2: 'Доки не підтвердите, вхід працює лише за робочою адресою.',
+        href: `https://app.cheekycheese.tech/api/auth/invite/${INPUT.rawToken}`,
+        button: 'Підтвердити адресу',
+        footer: 'Якщо лист прийшов помилково, <strong>не переходьте за посиланням</strong>.',
+      }),
+    )
+  })
+
+  it('en: the HTML is exactly this (greeting, two lines, button, <strong> footer)', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT_EN)
+    expect(lastCall(mailer).html).toBe(
+      expectedHtml({
+        lang: 'en',
+        greeting: 'John, this address was added to CheekyCheeseIT CRM as your personal one.',
+        line1: 'Confirm it — then you can sign in with either your work address or this one.',
+        line2: 'Until you confirm, sign-in works only with your work address.',
+        href: `https://app.cheekycheese.tech/api/auth/invite/${INPUT_EN.rawToken}`,
+        button: 'Confirm address',
+        footer: 'If this email reached you by mistake, <strong>do not follow the link</strong>.',
+      }),
+    )
+  })
+
+  it.each([
+    ['uk', INPUT, '<html lang="uk">'],
+    ['en', INPUT_EN, '<html lang="en">'],
+  ] as const)('%s: <html lang> matches the locale', async (_l, input, tag) => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(input)
+    expect(lastCall(mailer).html).toContain(tag)
+    expect(lastCall(mailer).html).not.toContain('lang="ru"')
+  })
+
+  it('en: no Cyrillic anywhere in subject, text or html', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT_EN)
+    const call = lastCall(mailer)
+    expect(call.subject).not.toMatch(CYRILLIC)
+    expect(call.text).not.toMatch(CYRILLIC)
+    expect(call.html).not.toMatch(CYRILLIC)
+  })
+
+  it('uk: no Russian-only letters (ы э ъ ё) in the mail', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT)
+    const call = lastCall(mailer)
+    for (const part of [call.subject, call.text, call.html]) {
+      expect(part).not.toMatch(/[ыэъё]/i)
+    }
+  })
+
+  it('invites in a row (en, uk, en) each carry their own language; the global @lingui/core singleton is untouched', async () => {
+    const before = globalI18n.locale
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT_EN)
+    await svc.sendInvite(INPUT)
+    await svc.sendInvite(INPUT_EN)
+    const calls = (mailer.send as ReturnType<typeof vi.fn>).mock.calls.map(
+      (c) => c[0] as SendEmailInput,
+    )
+    expect(calls.map((c) => c.subject)).toEqual([
+      'Access to CheekyCheeseIT CRM',
+      'Доступ до CheekyCheeseIT CRM',
+      'Access to CheekyCheeseIT CRM',
+    ])
+    expect(globalI18n.locale).toBe(before)
+  })
+
+  it('concurrent invites in different locales do not bleed into each other', async () => {
+    const { svc, mailer } = makeHarness()
+    await Promise.all([svc.sendInvite(INPUT_EN), svc.sendInvite(INPUT), svc.sendInvite(INPUT_EN)])
+    const subjects = (mailer.send as ReturnType<typeof vi.fn>).mock.calls
+      .map((c) => (c[0] as SendEmailInput).subject)
+      .sort()
+    expect(subjects).toEqual([
+      'Access to CheekyCheeseIT CRM',
+      'Access to CheekyCheeseIT CRM',
+      'Доступ до CheekyCheeseIT CRM',
+    ])
+  })
+
+  it('sendInvite without a locale does not compile', () => {
+    // @ts-expect-error — `locale` is required: the invitee's language is never guessed
+    const input: SendInviteInput = { to: 'a@b.c', displayName: 'A', rawToken: 'x' }
+    expect(input.to).toBe('a@b.c')
   })
 
   it('spec §11: the last line is the protective disclaimer, not a thank-you', async () => {
@@ -243,11 +401,38 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     await svc.sendInvite(INPUT)
     const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
     const lines = call.text.trim().split('\n')
-    expect(lines[lines.length - 1]).toBe('Если письмо пришло по ошибке, не переходите по ссылке.')
-    expect(call.text.toLowerCase()).not.toContain('спасибо')
+    expect(lines[lines.length - 1]).toBe(
+      'Якщо лист прийшов помилково, не переходьте за посиланням.',
+    )
+    expect(call.text.toLowerCase()).not.toContain('дякуємо')
+    expect(call.text.toLowerCase()).not.toContain('спасибі')
   })
 
-  it('the plain-text body is the exact 8-line structure — greeting, blank, promise, cost-of-inaction, blank, link, blank, disclaimer', async () => {
+  it('en: the last line is the protective disclaimer, not a thank-you', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT_EN)
+    const lines = lastCall(mailer).text.trim().split('\n')
+    expect(lines[lines.length - 1]).toBe(
+      'If this email reached you by mistake, do not follow the link.',
+    )
+    expect(lastCall(mailer).text.toLowerCase()).not.toContain('thank')
+  })
+
+  it('the <strong> wraps the warning phrase inside the footer sentence in both locales; the text twin has no tags', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT)
+    expect(lastCall(mailer).html).toContain(
+      'Якщо лист прийшов помилково, <strong>не переходьте за посиланням</strong>.',
+    )
+    expect(lastCall(mailer).text).not.toContain('<strong>')
+    await svc.sendInvite(INPUT_EN)
+    expect(lastCall(mailer).html).toContain(
+      'If this email reached you by mistake, <strong>do not follow the link</strong>.',
+    )
+    expect(lastCall(mailer).text).not.toContain('<strong>')
+  })
+
+  it('uk: the plain-text body is the exact 8-line structure — greeting, blank, promise, cost-of-inaction, blank, link, blank, disclaimer', async () => {
     const { svc, mailer } = makeHarness()
     await svc.sendInvite(INPUT)
     const call = (mailer.send as ReturnType<typeof vi.fn>).mock.calls[0]?.[0] as SendEmailInput
@@ -255,20 +440,39 @@ describe('PersonalEmailInviteMailerService.sendInvite — happy path', () => {
     expect(link).toBeTruthy()
     // copy-review PR #623 (COPY-H-1/M-4/L-2): rewritten body — button/copy
     // name the actual outcome, state the cost of doing nothing, greet by
-    // FIRST name only (INPUT.displayName is two words — 'Иван Петров').
-    const firstName = INPUT.displayName.split(' ')[0]
+    // FIRST name only (INPUT.displayName is two words — 'Іван Петров').
     expect(call.text).toBe(
       [
-        `${firstName}, этот адрес добавили в CRM CheekyCheeseIT как ваш личный.`,
+        'Іван: цю адресу додали до CheekyCheeseIT CRM як вашу особисту.',
         '',
-        'Подтвердите его — тогда входить можно будет и с рабочего адреса, и с этого.',
-        'Пока не подтвердите, вход работает только по рабочему.',
+        'Підтвердіть її — тоді входити можна буде і з робочої адреси, і з цієї.',
+        'Доки не підтвердите, вхід працює лише за робочою адресою.',
         '',
         link,
         '',
-        'Если письмо пришло по ошибке, не переходите по ссылке.',
+        'Якщо лист прийшов помилково, не переходьте за посиланням.',
       ].join('\n'),
     )
+    expect(link).toBe(`https://app.cheekycheese.tech/api/auth/invite/${INPUT.rawToken}`)
+  })
+
+  it('en: the plain-text body is the exact 8-line structure', async () => {
+    const { svc, mailer } = makeHarness()
+    await svc.sendInvite(INPUT_EN)
+    const call = lastCall(mailer)
+    expect(call.text).toBe(
+      [
+        'John, this address was added to CheekyCheeseIT CRM as your personal one.',
+        '',
+        'Confirm it — then you can sign in with either your work address or this one.',
+        'Until you confirm, sign-in works only with your work address.',
+        '',
+        `https://app.cheekycheese.tech/api/auth/invite/${INPUT_EN.rawToken}`,
+        '',
+        'If this email reached you by mistake, do not follow the link.',
+      ].join('\n'),
+    )
+    expect(call.subject).toBe('Access to CheekyCheeseIT CRM')
   })
 })
 

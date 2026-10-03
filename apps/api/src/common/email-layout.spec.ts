@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { renderEmailLayout, type EmailBlock } from './email-layout'
+import { renderEmailLayout, type EmailBlock, type EmailLayoutInput } from './email-layout'
 import { escapeHtml, trustedHtml } from './escape-html'
 
 /**
@@ -22,6 +22,7 @@ describe('renderEmailLayout', () => {
   it('письмо из двух строк с кнопкой собирается ровно так', () => {
     expect(
       renderEmailLayout({
+        lang: 'uk',
         blocks: [
           { html: trustedHtml('Первая строка.'), spaceAfter: 16 },
           { html: trustedHtml('Вторая строка.'), spaceAfter: 24 },
@@ -29,7 +30,7 @@ describe('renderEmailLayout', () => {
         button: { href: 'https://app.cheekycheese.tech/pending', label: 'Ответить на запрос' },
       }),
     ).toBe(`<!DOCTYPE html>
-<html lang="ru">
+<html lang="uk">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -65,34 +66,37 @@ describe('renderEmailLayout', () => {
   })
 
   it.each(['uk', 'en'] as const)(
-    'lang=%s: меняется ТОЛЬКО атрибут <html lang>, остальное байт-в-байт как у ru',
+    'lang=%s: <html lang> несёт код локали, остальное письмо от языка не зависит',
     (lang) => {
       const input = {
         blocks: [{ html: trustedHtml('Line.'), spaceAfter: 24 }],
         button: { href: 'https://x.example/', label: 'Go' },
       }
-      const ru = renderEmailLayout(input)
-      const localized = renderEmailLayout({ ...input, lang })
-      expect(localized).toContain(`<html lang="${lang}">`)
-      expect(localized).not.toContain('lang="ru"')
-      expect(localized.replace(`<html lang="${lang}">`, '<html lang="ru">')).toBe(ru)
+      const other = lang === 'uk' ? 'en' : 'uk'
+      const rendered = renderEmailLayout({ ...input, lang })
+      expect(rendered).toContain(`<html lang="${lang}">`)
+      expect(rendered).not.toContain(`lang="${other}"`)
+      expect(rendered).not.toContain('lang="ru"')
+      expect(rendered.replace(`<html lang="${lang}">`, `<html lang="${other}">`)).toBe(
+        renderEmailLayout({ ...input, lang: other }),
+      )
     },
   )
 
-  it('без lang остаётся ru (переходное состояние до миграции приглашения, PR2)', () => {
-    expect(
-      renderEmailLayout({
-        blocks: [{ html: trustedHtml('Line.'), spaceAfter: 24 }],
-        button: { href: 'https://x.example/', label: 'Go' },
-      }),
-    ).toContain('<html lang="ru">')
+  it('без lang письмо не компилируется (приглашение больше не пишет ru молча, PR2)', () => {
+    // @ts-expect-error — `lang` обязателен: забытый вызывающий падает на typecheck, а не уходит с чужим языком
+    const input: EmailLayoutInput = {
+      blocks: [{ html: trustedHtml('Line.'), spaceAfter: 24 }],
+      button: { href: 'https://x.example/', label: 'Go' },
+    }
+    expect(input.blocks).toHaveLength(1)
   })
-
   it('без абзаца после кнопки за таблицей кнопки сразу идёт закрытие', () => {
     // Ровно то, чем письма уведомлений отличаются от приглашения. Пустая
     // строка на месте отсутствующего абзаца выглядела бы в клиенте как лишний
     // отступ.
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: trustedHtml('Одна строка.'), spaceAfter: 24 }],
       button: { href: 'https://app.cheekycheese.tech/', label: 'Открыть CRM' },
     })
@@ -102,6 +106,7 @@ describe('renderEmailLayout', () => {
 
   it('абзац после кнопки получает отступ СВЕРХУ, а не снизу', () => {
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: trustedHtml('Строка.'), spaceAfter: 24 }],
       button: { href: 'https://x.example/', label: 'Кнопка' },
       footer: trustedHtml('Оговорка.'),
@@ -116,6 +121,7 @@ describe('renderEmailLayout', () => {
     // вызывающем (см. заголовок модуля). `trustedHtml` — то же самое явное
     // поручительство, которое пишет приглашение для этой самой строки.
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: trustedHtml('Текст со <strong>акцентом</strong>.'), spaceAfter: 24 }],
       button: { href: 'https://x.example/', label: 'Кнопка' },
     })
@@ -126,6 +132,7 @@ describe('renderEmailLayout', () => {
     // В отличие от абзацев: разметки в них не бывает, а кавычка в адресе
     // разрывает атрибут и делает всё за ним частью разметки.
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: trustedHtml('Строка.'), spaceAfter: 24 }],
       button: { href: 'https://x.example/?a="><script>alert(1)</script>', label: 'Кнопка & Co' },
     })
@@ -136,6 +143,7 @@ describe('renderEmailLayout', () => {
 
   it('одна кнопка и ровно одна ссылка — §11', () => {
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: trustedHtml('Строка.'), spaceAfter: 24 }],
       button: { href: 'https://x.example/', label: 'Кнопка' },
       footer: trustedHtml('Оговорка со ссылкой писать нельзя.'),
@@ -147,6 +155,7 @@ describe('renderEmailLayout', () => {
     // Иначе «последний абзац отделяет текст от кнопки» превратилось бы в
     // правило хелпера, и приглашение (16 / 4 / 24) его бы нарушало.
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [
         { html: trustedHtml('Раз.'), spaceAfter: 16 },
         { html: trustedHtml('Два.'), spaceAfter: 4 },
@@ -163,6 +172,7 @@ describe('renderEmailLayout', () => {
     // `escapeHtml` — другой источник `EscapedHtml`, тот же, которым
     // `notification-email-copy.ts` оборачивает КАЖДУЮ строку тела письма.
     const html = renderEmailLayout({
+      lang: 'uk',
       blocks: [{ html: escapeHtml('<script>alert(1)</script>'), spaceAfter: 24 }],
       button: { href: 'https://x.example/', label: 'Кнопка' },
     })
