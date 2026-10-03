@@ -43,6 +43,12 @@
         "GHSA-965w-775f-mr7g",
         "GHSA-93r5-fhx6-vmg9"
       ]
+    },
+    {
+      "module": "braces",
+      "tier": "build/dev-only",
+      "reason": "`braces` (3.0.3, the LATEST published release; the advisory's patched range is `<0.0.0`, i.e. NO fixed version exists on npm, so an override/bump is impossible) is reachable only through devDependency chains: `pnpm why braces -r` shows every path under `devDependencies:` — root lint-staged -> micromatch -> braces, root eslint-plugin-lingui -> micromatch -> braces, root and apps/web @lingui/cli (and @lingui/vite-plugin -> @lingui/cli) -> chokidar / micromatch -> braces. Zero paths under `dependencies:` in apps/api, apps/web or packages/shared: these are glob-matching helpers of the pre-commit hook, ESLint and the Lingui message-extraction CLI, never bundled into the shipped SPA nor loaded by the API runtime. GHSA-vfj7-8cjw-p6xm is a stack-exhaustion DoS triggered by deeply nested brace patterns passed to braces(); the patterns fed to these tools come from our own committed config/globs and file names in the repository, not from untrusted input, and the worst outcome is a crashed local/CI dev command. Fix path: re-check when braces publishes a patched release (then add an override floor), or when micromatch/chokidar drop it. Round 6 (2026-10-03, infra/audit-gate-refresh-2026-10-03): the same run also reported two @fastify/busboy advisories (GHSA-xjh9-v7x6-24jw, GHSA-x8mw-p69m-v3mx); those ARE production-reachable (apps/api -> @fastify/multipart -> @fastify/busboy, file uploads) and were genuinely fixed by a `@fastify/busboy >=3.2.1 <4.0.0` pnpm.overrides floor (resolves 3.2.2; @fastify/multipart declares ^3.0.0, no version-pins.md pin crossed), not excepted.",
+      "ghsa_ids": ["GHSA-vfj7-8cjw-p6xm"]
     }
   ]
 }
