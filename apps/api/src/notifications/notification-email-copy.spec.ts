@@ -316,7 +316,7 @@ const GOLDEN: Record<Locale, Golden> = {
     },
     PROJECT_CONFIRM_REQUIRED: {
       subject: 'Запит на додавання проєкту «Mobile Bank»',
-      text: 'Вам пропонують участь у проєкті «Mobile Bank».\nПроєкт не стартує, доки учасники не відповіли.',
+      text: 'Вам пропонують участь у проєкті «Mobile Bank».\nПроєкт не стартує, доки учасники не відповідять.',
       // Ведёт на `/pending` — значит и называет то, что там делают (COPY-L-5).
       button: 'Відповісти на запит',
     },
@@ -363,12 +363,12 @@ const GOLDEN: Record<Locale, Golden> = {
     TRANSACTION_ADDED: {
       subject: 'Transaction on project “Mobile Bank”',
       text: 'There is a new transaction in your finances. The amount and details are in the CRM.',
-      button: 'Open Finance',
+      button: 'Open finance',
     },
     TRANSACTION_STATUS_CHANGED: {
       subject: 'Income rejected',
       text: 'The reason is in the CRM.',
-      button: 'Open Finance',
+      button: 'Open finance',
     },
     TEAM_MEMBER_ADDED: {
       subject: 'You were added to the team “Platform Core”',
@@ -382,7 +382,7 @@ const GOLDEN: Record<Locale, Golden> = {
     },
     TEAM_NEW_MEMBER: {
       subject: 'New member in the team “Platform Core”',
-      text: 'Who it is — in the CRM.',
+      text: 'See who it is in the CRM.',
       button: 'Open team',
     },
     PROJECT_CONFIRM_REQUIRED: {
@@ -501,7 +501,7 @@ describe.each(LOCALES)('%s: ветки, которых в таблице эта�
       en: {
         subject: 'Income validated',
         line: 'The amount and details are in the CRM.',
-        button: 'Open Finance',
+        button: 'Open finance',
       },
     }[locale]
     expect(mail.subject).toBe(want.subject)
@@ -588,28 +588,28 @@ const APPROVAL_CASES: ReadonlyArray<{
     kind: 'PROJECT_SHARE',
     title: PROJECT,
     uk: 'Співробітник погодився на зміну частки за проєктом «Mobile Bank».',
-    en: 'The employee agreed to the change of their share on the project “Mobile Bank”.',
+    en: 'The employee agreed to change their share on the project “Mobile Bank”.',
   },
   {
     decision: 'APPROVAL_CONFIRMED',
     kind: 'PROJECT_SHARE',
     title: null,
     uk: 'Співробітник погодився на зміну частки за проєктом.',
-    en: 'The employee agreed to the change of their share on the project.',
+    en: 'The employee agreed to change their share on the project.',
   },
   {
     decision: 'APPROVAL_CONFIRMED',
     kind: 'BASE_SHARE',
     title: null,
     uk: 'Співробітник погодився на зміну частки за замовчуванням.',
-    en: 'The employee agreed to the change of their default share.',
+    en: 'The employee agreed to change their default share.',
   },
   {
     decision: 'APPROVAL_CONFIRMED',
     kind: 'BASE_SHARE',
     title: PROJECT,
     uk: 'Співробітник погодився на зміну частки за замовчуванням.',
-    en: 'The employee agreed to the change of their default share.',
+    en: 'The employee agreed to change their default share.',
   },
   {
     decision: 'APPROVAL_REJECTED',
@@ -999,7 +999,7 @@ describe('каркас письма (§12: почтовые клиенты — �
                 Вам пропонують участь у проєкті «${PROJECT}».
               </p>
               <p style="margin:0 0 24px 0;font-size:16px;line-height:24px;color:#18181b;">
-                Проєкт не стартує, доки учасники не відповіли.
+                Проєкт не стартує, доки учасники не відповідять.
               </p>
               <table role="presentation" cellpadding="0" cellspacing="0">
                 <tr>

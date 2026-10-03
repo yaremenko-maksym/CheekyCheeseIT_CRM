@@ -75,7 +75,7 @@ const SOURCE_ROWS: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
   [
     'projectConfirmLine2',
     'email.notification.PROJECT_CONFIRM_REQUIRED.line2',
-    'Проєкт не стартує, доки учасники не відповіли.',
+    'Проєкт не стартує, доки учасники не відповідять.',
   ],
   [
     'shareConfirmSubjectBase',
@@ -266,7 +266,7 @@ const GOLDEN_PARAMETERISED: ReadonlyArray<
     'acceptedProjectShare',
     { subjectTitle: 'Alpha' },
     'Співробітник погодився на зміну частки за проєктом «Alpha».',
-    'The employee agreed to the change of their share on the project “Alpha”.',
+    'The employee agreed to change their share on the project “Alpha”.',
   ],
   [
     'rejectedProject',
@@ -304,10 +304,10 @@ const GOLDEN_PLAIN: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
     'Деталі проєкту та його склад — у CRM.',
     'Project details and its members are in the CRM.',
   ],
-  ['teamNewMemberLine', 'Хто саме — у CRM.', 'Who it is — in the CRM.'],
+  ['teamNewMemberLine', 'Хто саме — у CRM.', 'See who it is in the CRM.'],
   [
     'projectConfirmLine2',
-    'Проєкт не стартує, доки учасники не відповіли.',
+    'Проєкт не стартує, доки учасники не відповідять.',
     'The project will not start until the participants respond.',
   ],
   [
@@ -342,12 +342,12 @@ const GOLDEN_PLAIN: ReadonlyArray<readonly [keyof typeof M, string, string]> = [
   [
     'acceptedProjectShareUntitled',
     'Співробітник погодився на зміну частки за проєктом.',
-    'The employee agreed to the change of their share on the project.',
+    'The employee agreed to change their share on the project.',
   ],
   [
     'acceptedBaseShare',
     'Співробітник погодився на зміну частки за замовчуванням.',
-    'The employee agreed to the change of their default share.',
+    'The employee agreed to change their default share.',
   ],
   [
     'rejectedProjectUntitled',
@@ -430,8 +430,23 @@ describe('catalog hygiene', () => {
       // COPY-L-2: the object name is the only thing two such emails differ by, and a phone inbox
       // shows ~40 chars — the name must start inside the first 24. Scoped to the subjects where
       // the mandated uk source already meets it (the legacy Russian never did for the others).
+      // Deliberately NOT covered (SPEC-M-1, accepted by the orchestrator, not forgotten):
+      // projectConfirmSubject, shareConfirmSubjectProject, vacancyApplicationSubject — their uk
+      // subjects are longer; the name still lands within ~35 chars / the inbox preview, so a
+      // long subject is accepted there. Their en counterparts are not checked by this rule either.
+      // The two member-added subjects are checked in uk only (the mandated source language);
+      // their en text is not bound by this rule.
       const i18n = createI18n(loc)
-      for (const k of ['transactionAddedSubjectProject', 'teamNewMemberSubject'] as const) {
+      const keysToCheck =
+        loc === 'uk'
+          ? ([
+              'transactionAddedSubjectProject',
+              'teamNewMemberSubject',
+              'teamMemberAddedSubject',
+              'projectMemberAddedSubject',
+            ] as const)
+          : (['transactionAddedSubjectProject', 'teamNewMemberSubject'] as const)
+      for (const k of keysToCheck) {
         const out = renderMessage(i18n, M[k], { projectName: '@@', teamName: '@@' })
         expect(out.indexOf('@@')).toBeLessThanOrEqual(24 + 1) // +1 for the opening quote char
       }

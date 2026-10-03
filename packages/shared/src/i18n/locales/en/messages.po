@@ -2241,12 +2241,12 @@ msgstr "Open transaction: {0}"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_ADDED"
-msgstr "Open Finance"
+msgstr "Open finance"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.action.TRANSACTION_STATUS_CHANGED"
-msgstr "Open Finance"
+msgstr "Open finance"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Відкрити чек"
@@ -9370,17 +9370,17 @@ msgstr "The employee agreed to take part in the project."
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.approval.accepted.baseShare"
-msgstr "The employee agreed to the change of their default share."
+msgstr "The employee agreed to change their default share."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.approval.accepted.projectShare"
-msgstr "The employee agreed to the change of their share on the project “{subjectTitle}”."
+msgstr "The employee agreed to change their share on the project “{subjectTitle}”."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.approval.accepted.projectShareUntitled"
-msgstr "The employee agreed to the change of their share on the project."
+msgstr "The employee agreed to change their share on the project."
 
 #: apps/web/app/routes/_authenticated/index.tsx
 msgid "Співробітників"
@@ -10612,7 +10612,7 @@ msgstr "Reviewed by"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.TEAM_NEW_MEMBER.line"
-msgstr "Who it is — in the CRM."
+msgstr "See who it is in the CRM."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Хто створив"

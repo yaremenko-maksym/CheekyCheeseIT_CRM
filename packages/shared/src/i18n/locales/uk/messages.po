@@ -8339,7 +8339,7 @@ msgstr "Проєкт не знайдено"
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.PROJECT_CONFIRM_REQUIRED.line2"
-msgstr "Проєкт не стартує, доки учасники не відповіли."
+msgstr "Проєкт не стартує, доки учасники не відповідять."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts

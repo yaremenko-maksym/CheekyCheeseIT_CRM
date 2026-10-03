@@ -79,7 +79,7 @@ export const EMAIL_NOTIFICATION_MESSAGES = {
   },
   projectConfirmLine2: /* i18n */ {
     id: 'email.notification.PROJECT_CONFIRM_REQUIRED.line2',
-    message: 'Проєкт не стартує, доки учасники не відповіли.',
+    message: 'Проєкт не стартує, доки учасники не відповідять.',
   },
   shareConfirmSubjectBase: /* i18n */ {
     id: 'email.notification.SHARE_CONFIRM_REQUIRED.subject.base',
