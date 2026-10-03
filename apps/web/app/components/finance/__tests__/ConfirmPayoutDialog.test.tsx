@@ -260,4 +260,51 @@ describe('ConfirmPayoutDialog', () => {
     capturedOnSuccess?.()
     expect(toast.success).toHaveBeenCalledWith('Оплату підтверджено')
   })
+
+  // Sender row — `senderName ?? displayCounterpartyLabel(senderLabel, …) ?? '—'`.
+  // The span carries title={senderDisplay}, so getByTitle pins the exact text and
+  // a `??` → `&&` swap fails on at least one of these cases.
+  describe('sender display', () => {
+    it('shows the sender name when present, ignoring the label', () => {
+      render(
+        <ConfirmPayoutDialog
+          tx={makeTx({ senderName: 'Senior One', senderLabel: 'COMPANY' })}
+          onClose={vi.fn()}
+        />,
+      )
+      expect(screen.getByTitle('Senior One')).toHaveTextContent('Senior One')
+      expect(screen.queryByTitle('Рахунок компанії')).not.toBeInTheDocument()
+    })
+
+    it('localizes the COMPANY code when there is no name', () => {
+      render(
+        <ConfirmPayoutDialog
+          tx={makeTx({ senderName: null, senderLabel: 'COMPANY' })}
+          onClose={vi.fn()}
+        />,
+      )
+      expect(screen.getByTitle('Рахунок компанії')).toHaveTextContent('Рахунок компанії')
+      expect(screen.queryByText('COMPANY')).not.toBeInTheDocument()
+    })
+
+    it('passes a non-code label through when there is no name', () => {
+      render(
+        <ConfirmPayoutDialog
+          tx={makeTx({ senderName: null, senderLabel: 'Acme Ltd' })}
+          onClose={vi.fn()}
+        />,
+      )
+      expect(screen.getByTitle('Acme Ltd')).toHaveTextContent('Acme Ltd')
+    })
+
+    it('falls back to the dash when there is neither name nor label', () => {
+      render(
+        <ConfirmPayoutDialog
+          tx={makeTx({ senderName: null, senderLabel: null })}
+          onClose={vi.fn()}
+        />,
+      )
+      expect(screen.getByTitle('—')).toHaveTextContent('—')
+    })
+  })
 })

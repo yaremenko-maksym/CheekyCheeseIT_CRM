@@ -285,6 +285,46 @@ describe('TransactionRow — FromTo masking composition (non-privileged DTO)', (
   })
 })
 
+describe('TransactionRow — pending-payout sender label (SENIOR/DROP_PENDING_PAYOUT)', () => {
+  const pendingBase = {
+    status: 'PENDING_PAYMENT',
+    senderId: null,
+    senderName: null,
+    receiverId: DROP_ID,
+    receiverName: DROP_NAME,
+    receiverLabel: null,
+  } as const
+
+  it.each(['SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT'] as const)(
+    '%s with the COMPANY code renders «Рахунок компанії», not the brand, raw code or dash',
+    (type) => {
+      renderRow(makeTx({ ...pendingBase, type, senderLabel: 'COMPANY' }))
+      expect(screen.getByText('Рахунок компанії')).toBeInTheDocument()
+      expect(screen.queryByText('CheekyCheeseIT')).not.toBeInTheDocument()
+      expect(screen.queryByText('COMPANY')).not.toBeInTheDocument()
+      expect(screen.queryByText('—')).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(['SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT'] as const)(
+    '%s with no senderLabel falls back to the «CheekyCheeseIT» brand (not a dash)',
+    (type) => {
+      renderRow(makeTx({ ...pendingBase, type, senderLabel: null }))
+      expect(screen.getByText('CheekyCheeseIT')).toBeInTheDocument()
+      expect(screen.queryByText('—')).not.toBeInTheDocument()
+    },
+  )
+
+  it.each(['SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT'] as const)(
+    '%s keeps an already-masked «CheekyCheeseIT» label as is',
+    (type) => {
+      renderRow(makeTx({ ...pendingBase, type, senderLabel: 'CheekyCheeseIT' }), 'SENIOR')
+      expect(screen.getByText('CheekyCheeseIT')).toBeInTheDocument()
+      expect(screen.queryByText('Рахунок компанії')).not.toBeInTheDocument()
+    },
+  )
+})
+
 describe('TransactionRow — company code in the English locale', () => {
   beforeAll(async () => {
     await loadCatalog('en')
