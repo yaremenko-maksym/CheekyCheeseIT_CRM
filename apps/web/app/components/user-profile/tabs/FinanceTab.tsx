@@ -24,6 +24,7 @@ import {
   TYPE_LABEL_MESSAGES,
   type ExchangeRates,
 } from '@/routes/_authenticated/finance/constants'
+import { withLocalizedCompanyLabels } from '@/routes/_authenticated/finance/components/counterparty-label'
 import { TransactionRow } from '@/routes/_authenticated/finance/components/TransactionRow'
 import { TransactionDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog'
 
@@ -163,6 +164,10 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
     [transactions],
   )
 
+  // Same text the row prints for the company account — search must match what
+  // the operator SEES («Рахунок компанії»), never the raw `COMPANY` code.
+  const companyLabel = t`Рахунок компанії`
+
   const filtered = useMemo(() => {
     return txWithTimestamp
       .filter(({ tx }) => {
@@ -170,11 +175,12 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
         if (statusFilter !== 'all' && tx.status !== statusFilter) return false
         if (search) {
           const q = search.toLowerCase()
+          const shown = withLocalizedCompanyLabels(tx, companyLabel)
           const haystack = [
             tx.senderName,
             tx.receiverName,
-            tx.senderLabel,
-            tx.receiverLabel,
+            shown.senderLabel,
+            shown.receiverLabel,
             tx.projectName,
             tx.notes,
           ]
@@ -187,7 +193,7 @@ export function FinanceTab({ userId, targetRole }: { userId: string; targetRole?
       })
       .sort((a, b) => b.ts - a.ts)
       .map(({ tx }) => tx)
-  }, [txWithTimestamp, search, typeFilter, statusFilter])
+  }, [txWithTimestamp, search, typeFilter, statusFilter, companyLabel])
 
   const hasActive = search !== '' || typeFilter !== 'all' || statusFilter !== 'all'
 

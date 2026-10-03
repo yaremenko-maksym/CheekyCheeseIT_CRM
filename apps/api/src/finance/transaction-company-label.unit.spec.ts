@@ -1,7 +1,7 @@
 /**
  * server-text PR3 — the company account is booked as the CODE `'COMPANY'`
- * (not the Russian «Счёт компании» prose), and masking treats both markers the
- * same during the rollout window.
+ * (not the Russian «Счёт компании» prose). The legacy prose alias was retired
+ * (prod had no such rows): it is now an ordinary label, no longer a company side.
  *
  * RBAC invariant (security-critical): swapping the stored marker must not
  * widen who sees the real label. Non-privileged viewers (SENIOR / JUNIOR /
@@ -23,7 +23,7 @@ const ACCOUNTANT_ID = '44444444-4444-4444-8444-444444444444'
 const VIEWER_ID = '11111111-1111-4111-8111-111111111111'
 const ROW_ID = '33333333-3333-4333-8333-333333333333'
 
-// Legacy stored prose that rows written before the code switch may still carry.
+// Retired prose alias — must NOT be treated as the company side any more.
 const LEGACY_MARKER = 'Счёт компании'
 
 function user(role: SessionUser['role'], id: string): SessionUser {
@@ -110,10 +110,9 @@ describe('COMPANY_ACCOUNT_LABEL contract', () => {
   })
 })
 
-describe.each([
-  ['code (new writes)', COMPANY_ACCOUNT_LABEL],
-  ['legacy prose (pre-migration rows)', LEGACY_MARKER],
-])('company-account counterparty masking — %s', (_name, marker) => {
+describe('company-account counterparty masking', () => {
+  const marker = COMPANY_ACCOUNT_LABEL
+
   it.each([
     ['SENIOR', 'SENIOR_PENDING_PAYOUT'],
     ['DROP', 'PAYOUT_DROP'],
@@ -145,5 +144,15 @@ describe.each([
     const [dto] = await svc.findAll(user(role, id))
 
     expect(dto?.senderLabel).toBe(marker)
+  })
+})
+
+describe('retired legacy prose alias is an ordinary label', () => {
+  it('SENIOR viewer no longer gets it rebranded (not a company side)', async () => {
+    const svc = serviceReturning(companyPaidRow('SENIOR_PENDING_PAYOUT', 'SENIOR', LEGACY_MARKER))
+
+    const [dto] = await svc.findAll(user('SENIOR', VIEWER_ID))
+
+    expect(dto?.senderLabel).toBe(LEGACY_MARKER)
   })
 })
