@@ -5,7 +5,6 @@ import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
@@ -377,14 +376,14 @@ describe.skipIf(!HAS_DB_URL)(
           { amount: 48_867, currency: 'USD', cascadeVersion: preview.version! },
           ADMIN,
         ),
-      ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY)
+      ).rejects.toMatchObject({ response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED' } })
       await expect(
         svc.adminUpdateTransaction(
           id,
           { amount: 48_867, salaryMonth: '2026-07', cascadeVersion: preview.version! },
           ADMIN,
         ),
-      ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH)
+      ).rejects.toMatchObject({ response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED' } })
 
       expect(await row(id)).toEqual(before)
       expect(invoicesSpy.voidAndReissueInvoiceForAmountEdit).not.toHaveBeenCalled()

@@ -30,9 +30,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
-import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common'
+import { ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
-import { PAID_ROW_LOCKED_FIELD_MESSAGES } from '@crm/shared'
 import { resolveEditCascade, computeCascadeVersion, type CascadeSnapshot } from '@crm/shared'
 
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -485,7 +484,9 @@ describe('AC1: BIZ-18 narrowed surgically', () => {
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED', statusCode: 400 },
+    })
   })
 
   it('still refuses a SALARY MONTH change on a PAID row', async () => {
@@ -494,7 +495,9 @@ describe('AC1: BIZ-18 narrowed surgically', () => {
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { salaryMonth: '2026-08' }, ADMIN),
-    ).rejects.toBeInstanceOf(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED', statusCode: 400 },
+    })
   })
 
   it('a metadata-only edit on a PAID row is still allowed and needs no preview token', async () => {
@@ -925,7 +928,9 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       originalAmount: null,
       payoutRequestId: null,
     })
-    await expect(result).rejects.toThrow(/уже прошли выплаты/)
+    await expect(result).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_LOCKED', statusCode: 400 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -939,13 +944,17 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         obligations: [obligationRow({ sourceTransactionId: SOURCE_ID, status: 'PAID' })],
       },
     )
-    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
+    await expect(result).rejects.toMatchObject({
+      response: { code: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED', statusCode: 400 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
   it('refuses a company deposit — its figure was observed on-chain', async () => {
     const { result, ops } = await attemptEdit({ type: 'COMPANY_DEPOSIT' })
-    await expect(result).rejects.toThrow(/сверена с блокчейном/)
+    await expect(result).rejects.toMatchObject({
+      response: { code: 'FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED', statusCode: 400 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -997,7 +1006,9 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
       type: 'SENIOR_INCOME',
       settledAmount: '260.000000',
     })
-    await expect(result).rejects.toThrow(/уже прошли выплаты/)
+    await expect(result).rejects.toMatchObject({
+      response: { code: 'FINANCE_SETTLED_AMOUNT_LOCKED', statusCode: 400 },
+    })
   })
 
   it('only a CLOSED obligation on the edited row counts — an open one is the ordinary IOU case', async () => {
@@ -1062,7 +1073,9 @@ describe('AC13: the edited row must not itself be a ledger fact', () => {
         ],
       },
     )
-    await expect(result).rejects.toThrow(/зафиксирована в расчёте/)
+    await expect(result).rejects.toMatchObject({
+      response: { code: 'FINANCE_CLOSING_ROW_AMOUNT_LOCKED', statusCode: 400 },
+    })
     expect(ops.filter((o) => o.kind === 'update' || o.kind === 'insert')).toEqual([])
   })
 
@@ -2470,41 +2483,40 @@ describe('AC12: idempotency', () => {
 // ---------------------------------------------------------------------------
 
 describe('refusal messages', () => {
-  it('the PAID guard names the FIELD the operator actually touched, in Russian, with a remedy', async () => {
+  it('the PAID guard names the FIELD the operator actually touched, by catalogued code', async () => {
     // QA-H-2: this used to be one English sentence naming both frozen fields
     // at once — `Cannot change currency or salary month of a settled (PAID)
-    // transaction`. English breaks `russian-language.md`, naming both fields
-    // tells an operator who touched a currency about salary months, and naming
-    // no remedy leaves them stuck. The two fields are frozen for two unrelated
-    // reasons, so they get two texts.
+    // transaction`. Naming both fields tells an operator who touched a currency
+    // about salary months, and naming no remedy leaves them stuck. The two
+    // fields are frozen for two unrelated reasons, so they get two codes.
     //
-    // Asserted against the shared constants rather than string literals: the
-    // SAME strings are what the dialog shows proactively, and a literal copied
-    // here would let the two drift silently — the failure mode this whole
-    // series has been fixing.
+    // The codes are spelled out as literals (the same entries the dialog shows
+    // proactively): reading them back from the table the service reads would
+    // pass by construction, and a swapped pair is exactly the defect to catch.
     const { db } = makeDouble()
     const svc = makeTransactionsService({ db })
     stubFindOne(svc)
-    await expect(svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
-    )
+    await expect(
+      svc.adminUpdateTransaction(SOURCE_ID, { currency: 'EUR' }, ADMIN),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED', statusCode: 400 },
+    })
 
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { salaryMonth: '2026-01' }, ADMIN),
-    ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED', statusCode: 400 },
+    })
 
-    // The original point of this test, kept, but stated as BEHAVIOUR rather
-    // than as a substring: task 3 removed `amount` from this guard, and it must
-    // not quietly come back. A first draft asserted the text «does not mention
-    // сумма» and failed on its own fixture — the currency text legitimately
-    // says «сумма подтверждена фактическим платежом», naming the amount as a
-    // FACT, not as a frozen field. A word-search cannot tell those apart; the
-    // refusal an amount edit actually receives can.
+    // The original point of this test, kept, stated as BEHAVIOUR: task 3
+    // removed `amount` from this guard, and it must not quietly come back. The
+    // refusal an amount edit actually receives (whatever it is) is not the
+    // currency lock.
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 2000 }, ADMIN),
-    ).rejects.not.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY)
+    ).rejects.not.toMatchObject({ response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED' } })
   })
 
   it('the stale-version refusal instructs the only reader who can act on it — request the preview again', async () => {
@@ -3245,10 +3257,10 @@ describe('paid salary: amount edit recomputes the obligation at the recorded rat
     stubFindOne(svc)
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 48867, currency: 'USD' }, ADMIN),
-    ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY)
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED' } })
     await expect(
       svc.adminUpdateTransaction(SOURCE_ID, { amount: 48867, salaryMonth: '2026-07' }, ADMIN),
-    ).rejects.toThrow(PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH)
+    ).rejects.toMatchObject({ response: { code: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED' } })
   })
 
   it('the preview describes the same obligation the write stores', async () => {

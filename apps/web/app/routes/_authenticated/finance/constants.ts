@@ -2,11 +2,14 @@ import { msg } from '@lingui/core/macro'
 import { i18n } from '@lingui/core'
 import type { MessageDescriptor } from '@lingui/core'
 import {
-  CASCADE_LEDGER_FACT_MESSAGES,
+  CASCADE_LEDGER_FACT_ERROR_CODES,
+  CASCADE_WARNING_MESSAGES,
   DEFAULT_LOCALE,
   formatDate,
   formatNumber,
   type CascadeEditPreviewBlockedReason,
+  type CascadeWarning,
+  type RenderedCascadeWarningCode,
   type TransactionType,
   type TransactionStatus,
   type Locale,
@@ -26,42 +29,12 @@ function activeLocale(): Locale {
 }
 
 /**
- * task-cascade-preview-ui (task 5) — why the amount on THIS row cannot be
- * edited, in the operator's language.
- *
- * @deprecated task-i18n-3d-pr1 fix-round (FIX-CASCADE-1). Kept — not
- * migrated — because its remaining three entries are
- * `...CASCADE_LEDGER_FACT_MESSAGES`, a `@crm/shared` constant this PR does
- * not own (server-authored, stays Russian until finance's shared layer
- * migrates — see the note on `CASCADE_LEDGER_FACT_MESSAGES` in
- * `edit-cascade.ts`). `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` used to live
- * here too, but task-i18n-3d-pr4 wired `CascadeImpactPanel.tsx` onto
- * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` below, and `cascadeBlockedReasonMessage()`
- * now intercepts both keys before this table is ever read for them — so they
- * were removed from the type and the object rather than kept as unreachable
- * Russian strings.
- */
-export const CASCADE_BLOCKED_REASON_MESSAGES: Record<
-  Exclude<
-    CascadeEditPreviewBlockedReason,
-    | 'PAYMENT_FACT_RECORDED'
-    | 'SALARY_OBLIGATION_OUT_OF_RANGE'
-    | 'PAYOUT_FAMILY'
-    | 'LINKED_TO_PAYOUT_REQUEST'
-  >,
-  string
-> = {
-  ...CASCADE_LEDGER_FACT_MESSAGES,
-}
-
-/**
  * task-i18n-3d-pr1 fix-round (FIX-CASCADE-1), wired in by task-i18n-3d-pr4
  * (`CascadeImpactPanel.tsx`'s own migration). The catalog-backed rendering of
- * the two reasons `CASCADE_BLOCKED_REASON_MESSAGES` authors itself (not
- * `@crm/shared`'s) — `cascadeBlockedReasonMessage()` below now reads THESE
- * for `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST`, leaving only the three
- * `CASCADE_LEDGER_FACT_MESSAGES` entries (server-authored, `@crm/shared`,
- * out of this PR's ownership) Russian in `CASCADE_BLOCKED_REASON_MESSAGES`.
+ * the two blocked reasons this module authors itself (`PAYOUT_FAMILY`,
+ * `LINKED_TO_PAYOUT_REQUEST`) — every other reason is a ledger fact whose text
+ * is an api-error catalog entry (`CASCADE_LEDGER_FACT_ERROR_CODES`), read by
+ * `cascadeBlockedReasonMessage()` below.
  */
 export const CASCADE_BLOCKED_REASON_OWN_MESSAGES = {
   PAYOUT_FAMILY: msg`Це рядок виплати — сума підтверджена виконаним переказом, вона не редагується, виправляйте сторнувальною транзакцією`, // en: This is a payout row — the amount is confirmed by an executed transfer and is not editable, fix it with a reversing transaction
@@ -82,31 +55,69 @@ export function cascadeBlockedFallbackMessage(): string {
 /**
  * task-paid-salary-amount-edit — the ONE way to render a blocked reason.
  *
- * `PAYMENT_FACT_RECORDED` is translated through the api-error catalog
- * (`FINANCE_PAYMENT_FACT_AMOUNT_LOCKED`, uk/en) — the SAME entry the write
- * path's 400 carries, so the banner and the refusal cannot drift. Resolved at
- * call time, not stored in the table above, because a catalog lookup depends
- * on the active locale. `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` resolve
- * through `CASCADE_BLOCKED_REASON_OWN_MESSAGES` (own-authored, catalog-backed);
- * the remaining three keep their `@crm/shared`-authored Russian text until
- * that package migrates.
+ * Every ledger-fact reason resolves through the api-error catalog by the code
+ * `CASCADE_LEDGER_FACT_ERROR_CODES` assigns it (uk/en) — the SAME entry the
+ * write path's 400 carries, so the banner and the refusal cannot drift.
+ * Resolved at call time because a catalog lookup depends on the active locale.
+ * `PAYOUT_FAMILY`/`LINKED_TO_PAYOUT_REQUEST` resolve through
+ * `CASCADE_BLOCKED_REASON_OWN_MESSAGES` (own-authored, catalog-backed).
  */
 export function cascadeBlockedReasonMessage(
   reason: CascadeEditPreviewBlockedReason | null | undefined,
 ): string {
   if (!reason) return cascadeBlockedFallbackMessage()
-  if (reason === 'PAYMENT_FACT_RECORDED') {
-    return translateApiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', undefined)
-  }
-  // CR-M-1 — «перевірте суму», never a reversing transaction: the salary is
-  // editable, only not to this figure.
-  if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
-    return translateApiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', undefined)
-  }
   if (reason === 'PAYOUT_FAMILY' || reason === 'LINKED_TO_PAYOUT_REQUEST') {
     return i18n._(CASCADE_BLOCKED_REASON_OWN_MESSAGES[reason])
   }
-  return CASCADE_BLOCKED_REASON_MESSAGES[reason]
+  return translateApiError(CASCADE_LEDGER_FACT_ERROR_CODES[reason], undefined)
+}
+
+/** The wire params that are money (numbers the client formats); every other param is substituted as-is. */
+const CASCADE_WARNING_AMOUNT_PARAMS: ReadonlySet<string> = new Set([
+  'settledAmount',
+  'recomputedShare',
+])
+
+function isRenderedCascadeWarningCode(
+  code: CascadeWarning['code'],
+): code is RenderedCascadeWarningCode {
+  return Object.prototype.hasOwnProperty.call(CASCADE_WARNING_MESSAGES, code)
+}
+
+/**
+ * The sentence for one cascade-plan warning, in the viewer's locale.
+ *
+ * The server sends a CODE plus the FACTS (`CascadeWarning.params`) — never prose
+ * — so the plan is locale-free on the wire and the text is rendered here from
+ * `CASCADE_WARNING_MESSAGES`. Amounts arrive as numbers and are formatted the same
+ * way the table beside them formats its figures (`fmtAmount`, with the currency
+ * the param names); an amount with no recorded currency is shown as a bare
+ * number rather than invented a unit. Everything else (currency codes, the
+ * `paid` / `settledCurrencyKnown` select flags) is substituted as-is.
+ *
+ * A code with no catalog entry (`SOURCE_ORIGINAL_AMOUNT_SET`, no longer emitted)
+ * gets the generic fallback, not an empty line.
+ */
+export function cascadeWarningMessage(warning: CascadeWarning): string {
+  if (!isRenderedCascadeWarningCode(warning.code)) {
+    return translateApiError('GENERIC', undefined)
+  }
+  const descriptor = CASCADE_WARNING_MESSAGES[warning.code]
+  const currency = warning.params.currency
+  const values: Record<string, string | number> = {}
+  for (const [key, value] of Object.entries(warning.params)) {
+    values[key] =
+      CASCADE_WARNING_AMOUNT_PARAMS.has(key) && typeof value === 'number'
+        ? typeof currency === 'string'
+          ? fmtAmount(value, currency)
+          : formatNumber(value, activeLocale(), { maximumFractionDigits: 6 })
+        : value
+  }
+  // Same two-step as `translateApiError`: the id is passed as its own
+  // (non-literal) expression so `lingui extract` skips this call site — the
+  // descriptors are extracted from the registry's own `/* i18n */` literals.
+  const options = { message: descriptor.message }
+  return i18n._(descriptor.id, values, options)
 }
 
 /**

@@ -604,7 +604,7 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
     })
   })
 
-  it('PAID ADMIN_INCOME (non-company-funded) — editing currency throws BadRequestException', async () => {
+  it('PAID ADMIN_INCOME (non-company-funded) — editing currency is refused with the 400 currency-lock code', async () => {
     const svc = makeTxServiceWithExistingTx({
       id: 'tx-paid-002',
       type: 'ADMIN_INCOME',
@@ -614,7 +614,9 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
     const admin = makeViewer('ADMIN', 'admin-id')
     await expect(
       svc.adminUpdateTransaction('tx-paid-002', { currency: 'EUR' }, admin),
-    ).rejects.toThrow(BadRequestException)
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED', statusCode: 400 },
+    })
   })
 
   it('PAID ADMIN_INCOME (non-company-funded) — editing notes is allowed', async () => {

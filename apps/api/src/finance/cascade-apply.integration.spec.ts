@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { MAKSYM_ID, PAID_ROW_LOCKED_FIELD_MESSAGES, roundShareAmount } from '@crm/shared'
+import { MAKSYM_ID, roundShareAmount } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { PendingSettlementService } from './pending-settlement.service'
@@ -646,12 +646,13 @@ describe.skipIf(!hasDatabaseUrl())('task-cascade-apply — the cascade against r
     const source = await sourceIncome(PROJECT_SENIOR)
     await settleSvc.settleByCompany((await derivativeFor(SENIOR.id)).obligation.id, ADMIN)
 
-    await expect(svc.adminUpdateTransaction(source.id, { currency: 'EUR' }, ADMIN)).rejects.toThrow(
-      // QA-H-2: the refusal is Russian now and names one field with a remedy.
-      // Asserted against the shared constant, not a literal — the dialog shows
-      // the SAME string proactively, and a copy here could drift from it.
-      PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY,
-    )
+    await expect(
+      svc.adminUpdateTransaction(source.id, { currency: 'EUR' }, ADMIN),
+    ).rejects.toMatchObject({
+      // QA-H-2: the refusal names one field with a remedy; it is a catalogued
+      // code, the SAME entry the dialog shows proactively.
+      response: { code: 'FINANCE_PAID_ROW_CURRENCY_LOCKED' },
+    })
 
     expect((await sourceIncome(PROJECT_SENIOR)).currency).toBe('USDT')
     // The point of the refusal: one off-currency company row makes this throw,

@@ -8,11 +8,13 @@
  * every edit of a paid amount was refused.
  *
  * ONE TEXT, NOT TWO DESCRIPTIONS. Every sentence about MONEY here — why a row
- * is blocked, why a warning fired, why a save was rejected — is rendered
- * verbatim from the server (`warning.message`,
- * `CASCADE_BLOCKED_REASON_MESSAGES`, the 400/409 body). This component writes
- * only field labels. A second, friendlier phrasing of a refusal on the client
- * is how the two descriptions drift, and on a money path the drift is silent.
+ * is blocked, why a warning fired, why a save was rejected — comes from ONE
+ * catalog entry per fact: the server sends a code (+ params for a warning), and
+ * the client renders it (`cascadeWarningMessage`, `cascadeBlockedReasonMessage`
+ * — the api-error entry the 400 carries — and the 400/409 envelope). This
+ * component writes only field labels. A second, friendlier phrasing of a refusal
+ * on the client is how the two descriptions drift, and on a money path the
+ * drift is silent.
  *
  * LAYOUT. One data source, two renders: a table from `sm:` up, cards below it.
  * The breakpoint is 640px rather than the module's usual 768px on purpose —
@@ -36,6 +38,7 @@ import { useLocale } from '@/lib/i18n'
 
 import {
   cascadeBlockedReasonMessage,
+  cascadeWarningMessage,
   TYPE_COLORS,
   TYPE_LABEL_MESSAGES,
   fmtAmount,
@@ -157,7 +160,7 @@ function WarningLine({
       data-testid={testId}
     >
       <Icon className="h-3.5 w-3.5 shrink-0 mt-px" aria-hidden />
-      <span>{warning.message}</span>
+      <span>{cascadeWarningMessage(warning)}</span>
     </p>
   )
 }

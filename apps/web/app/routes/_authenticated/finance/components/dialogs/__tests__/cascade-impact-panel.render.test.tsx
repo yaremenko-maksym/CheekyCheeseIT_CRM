@@ -121,18 +121,18 @@ describe('CascadeImpactPanel — the source line', () => {
     expect(line.textContent).toContain('USDT')
   })
 
-  it('PR-2. a warning about the SOURCE row is rendered verbatim, above the table', () => {
+  it('PR-2. a warning about the SOURCE row is rendered from the catalog, above the table', () => {
     renderPanel({
       preview: preview([derivative()], {
-        sourceWarnings: [
-          { code: 'SOURCE_SIGNED_INVOICE', message: 'По цьому рядку вже є підписаний рахунок' },
-        ],
+        sourceWarnings: [{ code: 'SOURCE_SIGNED_INVOICE', params: {} }],
       }),
     })
 
     expect(
       screen.getByTestId('cascade-source-warning-SOURCE_SIGNED_INVOICE').textContent,
-    ).toContain('По цьому рядку вже є підписаний рахунок')
+    ).toContain(
+      'За цим рядком уже є рахунок, підписаний контрагентом — правка суми не відобразиться в підписаному документі',
+    )
   })
 })
 
@@ -291,7 +291,7 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
           newAmount: null,
           sharePercent: null,
           remainingToPay: null,
-          warnings: [{ code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' }],
+          warnings: [{ code: 'NO_SHARE_SNAPSHOT', params: {} }],
         }),
       ]),
     })
@@ -331,7 +331,17 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
           settledAmount: 2000,
           settledCurrency: 'UAH',
           remainingToPay: null,
-          warnings: [{ code: 'NON_USDT_CURRENCY', message: 'Виплату враховано в UAH' }],
+          warnings: [
+            {
+              code: 'NON_USDT_CURRENCY',
+              params: {
+                settledCurrencyKnown: 'yes',
+                settledAmount: 9000,
+                settledCurrency: 'UAH',
+                sourceCurrency: 'USDT',
+              },
+            },
+          ],
         }),
       ]),
     })
@@ -360,24 +370,32 @@ describe('CascadeImpactPanel — one derivative, both layouts', () => {
     expect(screen.queryByTestId('cascade-derivative-reconfirm-d1-mobile')).toBeNull()
   })
 
-  it('PR-12. every warning is rendered verbatim in BOTH layouts, under its own id', () => {
+  it('PR-12. every warning is rendered from the catalog in BOTH layouts, under its own id', () => {
     renderPanel({
       preview: preview([
         derivative({
           warnings: [
-            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000 — рядок залишається оплаченим' },
-            { code: 'SIGNED_INVOICE', message: 'Инвойс уже подписан контрагентом' },
+            {
+              code: 'OVERPAYMENT',
+              params: { paid: 'yes', settledAmount: 5000, recomputedShare: 100, currency: 'USDT' },
+            },
+            { code: 'SIGNED_INVOICE', params: {} },
           ],
         }),
       ]),
     })
 
-    expect(screen.getByTestId('cascade-derivative-warning-d1-OVERPAYMENT').textContent).toContain(
-      'Вже виплачено 5000 — рядок залишається оплаченим',
-    )
+    const overpayment = screen.getByTestId('cascade-derivative-warning-d1-OVERPAYMENT')
+    // The amounts come through the same formatter as the table (digits + the
+    // currency the param names); the sentence is the PAID branch of the select.
+    expect(digits(overpayment)).toContain('500000')
+    expect(overpayment.textContent).toContain('USDT')
+    expect(overpayment.textContent).toContain('рядок залишається оплаченим')
     expect(
       screen.getByTestId('cascade-derivative-warning-d1-SIGNED_INVOICE-mobile').textContent,
-    ).toContain('Инвойс уже подписан контрагентом')
+    ).toContain(
+      'За цим рядком рахунок уже підписано контрагентом — правка не відобразиться в підписаному документі',
+    )
   })
 
   it('PR-13. the mobile card holds no warning block at all when there is nothing to say', () => {
@@ -447,7 +465,14 @@ describe('CascadeImpactPanel — the figures, exactly', () => {
   it('PR-30. a warning line lives in the layout whose id it carries', () => {
     renderPanel({
       preview: preview([
-        derivative({ warnings: [{ code: 'OVERPAYMENT', message: 'Вже виплачено 5000' }] }),
+        derivative({
+          warnings: [
+            {
+              code: 'OVERPAYMENT',
+              params: { paid: 'yes', settledAmount: 5000, recomputedShare: 100, currency: 'USDT' },
+            },
+          ],
+        }),
       ]),
     })
 
@@ -492,8 +517,11 @@ describe('CascadeImpactPanel — severity is visible, not just present', () => {
         derivative({
           newAmount: null,
           warnings: [
-            { code: 'NO_SHARE_SNAPSHOT', message: 'Нет снимка процента доли' },
-            { code: 'OVERPAYMENT', message: 'Вже виплачено 5000' },
+            { code: 'NO_SHARE_SNAPSHOT', params: {} },
+            {
+              code: 'OVERPAYMENT',
+              params: { paid: 'yes', settledAmount: 5000, recomputedShare: 100, currency: 'USDT' },
+            },
           ],
         }),
       ]),
@@ -514,7 +542,7 @@ describe('CascadeImpactPanel — severity is visible, not just present', () => {
           warnings: [
             {
               code: 'OBLIGATION_CURRENCY_MISMATCH',
-              message: 'Обязательство учтено в другой валюте',
+              params: { obligationCurrency: 'EUR', sourceCurrency: 'USDT' },
             },
           ],
         }),

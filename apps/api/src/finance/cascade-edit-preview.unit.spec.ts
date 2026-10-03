@@ -222,9 +222,7 @@ describe('getEditCascadePreview — no derivatives', () => {
       db: makeDb({ findFirstImpl, findManyDerivatives, findManyObligations, findManySignatures }),
     })
     const result = await svc.getEditCascadePreview(SOURCE_ID, 2000, ADMIN)
-    expect(result.plan!.sourceWarnings).toEqual([
-      { code: 'SOURCE_SIGNED_INVOICE', message: expect.any(String) },
-    ])
+    expect(result.plan!.sourceWarnings).toEqual([{ code: 'SOURCE_SIGNED_INVOICE', params: {} }])
   })
 
   it('BLOCKS a PAID row carrying originalAmount rather than warning about it (CR-M-1)', async () => {
@@ -324,6 +322,9 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
         sourceTransactionId: SENIOR_DERIV_ID,
         status: 'PENDING',
         amount: '260.000000',
+        // The column is NOT NULL in production; a row without it made the
+        // mismatch warning fire on `undefined` and carry no currency param.
+        currency: 'USDT',
         updatedAt: T_SENIOR_OBL,
       },
       {
@@ -331,6 +332,7 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
         sourceTransactionId: DROP_DERIV_ID,
         status: 'PAID',
         amount: '50.000000',
+        currency: 'UAH',
         updatedAt: T_DROP_OBL,
       },
     ])
@@ -380,6 +382,7 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
             id: SENIOR_OBL_ID,
             status: 'PENDING',
             amount: 260,
+            currency: 'USDT',
             updatedAt: T_SENIOR_OBL.toISOString(),
           },
         },
@@ -400,6 +403,7 @@ describe('getEditCascadePreview — full row→snapshot mapping (loadCascadeSnap
             id: DROP_OBL_ID,
             status: 'PAID',
             amount: 50,
+            currency: 'UAH',
             updatedAt: T_DROP_OBL.toISOString(),
           },
         },

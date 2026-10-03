@@ -187,25 +187,7 @@ export const invoiceListFiltersSchema = z.object({
 })
 export type InvoiceListFilters = z.infer<typeof invoiceListFiltersSchema>
 
-// ---------------------------------------------------------------------------
-// Impersonation guard message
-// ---------------------------------------------------------------------------
-
-/**
- * Fix-раунд 3 (task-680, SR-M-4, бэклог 212 продолжение). Один литерал на
- * серверный отказ `POST /invoices/:transactionId/sign` под «войти как»
- * (`invoices.service.ts`, `ForbiddenException`) и на клиентское пояснение
- * рядом с кнопкой подписи счёта — та же форма, что уже закрыта для подписи
- * контракта (`CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `contracts.ts`) и
- * принятия ToS (`TOS_ACCEPT_IMPERSONATION_MESSAGE`, `tos.ts`): владелец
- * решил 2026-09-19, что под «войти как» админ не принимает финансовых
- * решений за сотрудника — счёт с денежной стороной особенно.
- *
- * Без точки: конвенция сообщений исключений `apps/api` не ставит точку
- * нигде (см. `'Инвойс уже подписан'` рядом в `invoices.service.ts`).
- */
-// TODO(i18n, task_3ec0e901): Russian text rendered verbatim by the web invoice dialog and used as the API
-// exception message; moves to the catalog with the finance/invoices module wave.
-export const INVOICE_SIGN_IMPERSONATION_MESSAGE =
-  // eslint-disable-next-line lingui/no-unlocalized-strings
-  'Пока вы вошли как другой сотрудник, подписать его счёт нельзя — это должен сделать он сам'
+// The «signed in as another employee» refusal for `POST /invoices/:transactionId/sign`
+// is the api-error code `INVOICE_SIGN_IMPERSONATION` (`api-errors/base.ts`, uk/en):
+// the server throws it, the invoice dialog renders the SAME catalog entry beside
+// the disabled sign button. There is no string constant here any more.

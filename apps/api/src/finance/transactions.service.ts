@@ -1,6 +1,5 @@
 import { randomBytes } from 'crypto'
 import {
-  BadRequestException,
   ForbiddenException,
   HttpStatus,
   Injectable,
@@ -44,9 +43,9 @@ import {
   resolveEditCascade,
   computeCascadeVersion,
   classifyEditedRowLedgerFact,
-  CASCADE_LEDGER_FACT_MESSAGES,
+  CASCADE_LEDGER_FACT_ERROR_CODES,
   settledCurrencyMismatch,
-  PAID_ROW_LOCKED_FIELD_MESSAGES,
+  PAID_ROW_LOCKED_FIELD_ERROR_CODES,
   floorAmountAtAccumulator,
   isCascadeAmountEdit,
   cascadeEditPreviewResponseSchema,
@@ -3127,17 +3126,18 @@ export class TransactionsService {
     // Lifting all three "заодно" is exactly the failure ADR AC5 §3 predicts:
     // they sit in one condition, so the easy edit takes all three.
     //
-    // QA-H-2 (manual QA, HIGH): the text is Russian, names the CARRIER of the
-    // refusal and the remedy, and is the SAME string the dialog shows
-    // proactively — one constant in `@crm/shared`, so the screen and the 400
-    // cannot drift apart. It also branches, because the two fields are locked
+    // QA-H-2 (manual QA, HIGH): the text names the CARRIER of the refusal and
+    // the remedy, and is the SAME catalog entry the dialog shows proactively —
+    // one api-error code in `@crm/shared` (`PAID_ROW_LOCKED_FIELD_ERROR_CODES`),
+    // so the screen and the 400 cannot drift apart. It also branches, because the two fields are locked
     // for two unrelated reasons (see the block above) and telling an operator
     // about salary months when they touched a currency is noise.
     if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged)) {
-      throw new BadRequestException(
+      throw apiError(
         currencyChanged
-          ? PAID_ROW_LOCKED_FIELD_MESSAGES.CURRENCY
-          : PAID_ROW_LOCKED_FIELD_MESSAGES.SALARY_MONTH,
+          ? PAID_ROW_LOCKED_FIELD_ERROR_CODES.CURRENCY
+          : PAID_ROW_LOCKED_FIELD_ERROR_CODES.SALARY_MONTH,
+        HttpStatus.BAD_REQUEST,
       )
     }
 
@@ -4075,15 +4075,11 @@ export class TransactionsService {
     // paid salary passes unless its obligation at the recorded rate could not
     // be stored, and only the figure can tell.
     const reason = classifyEditedRowLedgerFact(source, requestedAmount)
-    if (reason === 'PAYMENT_FACT_RECORDED') {
-      throw apiError('FINANCE_PAYMENT_FACT_AMOUNT_LOCKED', HttpStatus.BAD_REQUEST)
-    }
-    // CR-M-1 — not a pinned row, a figure that gives an unstorable obligation:
-    // the remedy is another amount, so it is told so, not sent to a reversal.
-    if (reason === 'SALARY_OBLIGATION_OUT_OF_RANGE') {
-      throw apiError('FINANCE_SALARY_OBLIGATION_OUT_OF_RANGE', HttpStatus.BAD_REQUEST)
-    }
-    if (reason) throw new BadRequestException(CASCADE_LEDGER_FACT_MESSAGES[reason])
+    // One code per reason (`CASCADE_LEDGER_FACT_ERROR_CODES`, shared with the
+    // preview banner). CR-M-1: `SALARY_OBLIGATION_OUT_OF_RANGE` is not a pinned
+    // row but a figure that gives an unstorable obligation — its code tells the
+    // operator to check the amount, not to reverse.
+    if (reason) throw apiError(CASCADE_LEDGER_FACT_ERROR_CODES[reason], HttpStatus.BAD_REQUEST)
   }
 
   /**

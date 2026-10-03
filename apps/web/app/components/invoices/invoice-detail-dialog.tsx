@@ -46,7 +46,6 @@ import { i18n } from '@lingui/core'
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 import {
-  INVOICE_SIGN_IMPERSONATION_MESSAGE,
   formatDate,
   formatRelativeTime,
   type InvoiceDto,
@@ -77,7 +76,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useLocale } from '@/lib/i18n'
-import { getApiErrorMessage } from '@/lib/axios-utils'
+import { getApiErrorMessage, translateApiError } from '@/lib/axios-utils'
 import { useInvoice, useSignInvoice } from '@/hooks/use-invoices'
 import { useDocumentPreviewUrl } from '@/hooks/use-documents'
 import { formatAmount } from '@/lib/format-amount'
@@ -88,20 +87,17 @@ import { useInvoiceTypeLabel } from '@/lib/invoice-labels'
 // ---------------------------------------------------------------------------
 
 /**
- * Fix-раунд 3 (task-680, SR-M-4). Той самий літерал, що віддає сервер у 403
- * на `POST /invoices/:transactionId/sign` (`INVOICE_SIGN_IMPERSONATION_MESSAGE`,
- * `packages/shared/src/schemas/invoices.ts`) — крапка в кінці додана так
- * само, як `IMPERSONATION_EXPLANATION` у `SignContractStep.tsx` /
- * `AcceptTosStep.tsx`.
- *
- * task-i18n-stage3d-pr4 (known limitation, see task file / plan «Опасность»):
- * `INVOICE_SIGN_IMPERSONATION_MESSAGE` itself is a raw `@crm/shared` string
- * constant (not a catalog `MessageDescriptor`) shared verbatim with the
- * server's own 403 body — out of THIS wave's ownership (same class as
- * `CASCADE_LEDGER_FACT_MESSAGES`). It stays Russian until that constant
- * migrates; only this file's OWN static text is translated here.
+ * Fix-раунд 3 (task-680, SR-M-4). The explanation beside the disabled sign
+ * button is the SAME catalog entry the server's 403 on
+ * `POST /invoices/:transactionId/sign` carries (api-error code
+ * `INVOICE_SIGN_IMPERSONATION`, uk/en) — resolved at render time through
+ * `translateApiError`, so the banner and the refusal cannot drift and the text
+ * follows the viewer's locale. The closing period is added here, as
+ * `IMPERSONATION_EXPLANATION` does in `SignContractStep.tsx` / `AcceptTosStep.tsx`.
  */
-const IMPERSONATION_EXPLANATION = `${INVOICE_SIGN_IMPERSONATION_MESSAGE}.`
+function impersonationExplanation(): string {
+  return `${translateApiError('INVOICE_SIGN_IMPERSONATION', undefined)}.`
+}
 const IMPERSONATION_EXPLANATION_ID = 'invoice-sign-explain-impersonating'
 
 const TYPE_CLASS: Record<InvoiceDto['type'], string> = {
@@ -423,7 +419,7 @@ function InvoiceDetailContent({
             className="mt-4 rounded-md border border-amber-300/30 bg-amber-300/5 p-4 text-sm text-amber-300"
           >
             <AlertTriangle className="inline h-4 w-4 mr-2" />
-            {IMPERSONATION_EXPLANATION}
+            {impersonationExplanation()}
           </div>
         )}
       </CrmDialogBody>

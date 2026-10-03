@@ -315,6 +315,11 @@ msgstr "{n, plural, one {Максимум # символ} few {Максимум 
 msgid "{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}"
 msgstr "{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.OVERPAYMENT"
+msgstr "{paid, select, yes {Вже виплачено {settledAmount} — перерахована частка {recomputedShare} менша за виплачене, рядок залишається оплаченим, різниця сама не повернеться} other {Вже виплачено {settledAmount} — перерахована частка {recomputedShare} менша за виплачене, сума залишиться на рівні виплаченого, різниця сама не повернеться}}"
+
 #: apps/web/app/routes/_authenticated/routing/components/DropBalanceCard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 msgid "{pendingObligationCount, plural, one {# зобов’язання} few {# зобов’язання} many {# зобов’язань} other {# зобов’язання}}"
@@ -346,6 +351,11 @@ msgstr ""
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 msgid "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
 msgstr "{remainingCount, plural, one {транзакція залишилась в черзі} few {транзакції залишилось в черзі} many {транзакцій залишилось в черзі} other {транзакції залишилось в черзі}}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.NON_USDT_CURRENCY"
+msgstr "{settledCurrencyKnown, select, no {Валюту вже виплаченої суми ({settledAmount}) не зафіксовано — порівняти з новою часткою в {sourceCurrency} неможливо} other {Виплату за цим рядком враховано в {settledCurrency}, а не в {sourceCurrency} — «вже виплачено» і «нова частка» не в одній валюті}}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
@@ -1300,6 +1310,11 @@ msgstr "Валюта зарплати з профілю"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "Валюту {currency} не можна конвертувати в USDT"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAID_ROW_CURRENCY_LOCKED"
+msgstr "Валюту оплаченого рядка не можна змінити — платіж уже пройшов у цій валюті, виправляйте сторнувальною транзакцією"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
@@ -3058,6 +3073,11 @@ msgstr "Для ролі «{roleLabel}» доступні лише виплати
 msgid "api-error.SENIOR_ADMIN_USDT_ONLY"
 msgstr "Для сеньйора й адміністратора доступний лише один спосіб виплати — USDT ERC-20"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.NO_SHARE_SNAPSHOT"
+msgstr "Для цього рядка не збережено відсоток частки — перерахувати неможливо, потрібне ручне рішення"
+
 #: apps/web/app/components/documents/upload-document-dialog.tsx
 msgid "До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC"
 msgstr "До {maxSize}, формати: PDF, JPG, PNG, WebP, HEIC"
@@ -3740,6 +3760,21 @@ msgstr "За ставкою"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_OVERPAID"
 msgstr "За цим зобов’язанням виплачено більше, ніж належало — переплату треба розібрати вручну"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.SIGNED_INVOICE"
+msgstr "За цим рядком рахунок уже підписано контрагентом — правка не відобразиться в підписаному документі"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_SETTLED_AMOUNT_LOCKED"
+msgstr "За цим рядком уже були виплати — його суму підтверджено фактично переказаним, виправляйте сторнувальною транзакцією"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.SOURCE_SIGNED_INVOICE"
+msgstr "За цим рядком уже є рахунок, підписаний контрагентом — правка суми не відобразиться в підписаному документі"
 
 #: apps/web/app/components/admin/TosPdfPreview.tsx
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
@@ -4466,6 +4501,11 @@ msgstr "Зобов’язання"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_OBLIGATION_ALREADY_CLOSED"
 msgstr "Зобов’язання вже закрито або скасовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/edit-cascade-warning-registry.ts
+msgid "cascadeWarning.OBLIGATION_CURRENCY_MISMATCH"
+msgstr "Зобов’язання враховано в {obligationCurrency}, а сума джерела — в {sourceCurrency}: записати перераховану частку в зобов’язання іншої валюти не можна"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -5284,6 +5324,11 @@ msgstr "Місяць"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Місяць {0}"
 msgstr "Місяць {0}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_PAID_ROW_SALARY_MONTH_LOCKED"
+msgstr "Місяць зарплати в оплаченому рядку не можна змінити — за ним уже пораховано місячні підсумки, виправляйте сторнувальною транзакцією"
 
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Місяць із найбільшою виручкою за весь час."
@@ -9990,6 +10035,11 @@ msgstr "Сума: {0}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_ONCHAIN_DEPOSIT_AMOUNT_LOCKED"
+msgstr "Суму депозиту звірено з блокчейном — її не можна змінити, розбіжність оформлюйте окремою транзакцією"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_PAYMENT_FACT_AMOUNT_LOCKED"
 msgstr "Суму цього платежу зафіксовано разом із курсом переказу — тут її не змінити, виправте сторнувальною транзакцією"
 
@@ -10845,6 +10895,11 @@ msgstr "Цей хеш транзакції вже використано для 
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_TX_HASH_ALREADY_CONSUMED"
 msgstr "Цей хеш уже використано для виплати або поповнення рахунку компанії"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/finance-invoices.ts
+msgid "api-error.FINANCE_CLOSING_ROW_AMOUNT_LOCKED"
+msgstr "Цим рядком закрито зобов’язання — його суму зафіксовано в розрахунку, виправляйте сторнувальною транзакцією"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-registry.ts
