@@ -108,7 +108,7 @@ import { receiptMandatoryError, selfPayError, transactionAmountError } from '@cr
 // task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
 // so the web pre-submit obligation-preview banner and this service compute the
 // exact same rounded share amount — see the module doc in packages/shared.
-import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
+import { COMPANY_ACCOUNT_LABEL, MONEY_SCALE, roundShareAmount } from '@crm/shared'
 // Re-exported for backward compatibility: pre-move call sites (e.g.
 // admin-income-drop-backfill.integration.spec.ts, task-admin-income-drop-backfill,
 // merged independently of this move) still import `roundShareAmount` from this
@@ -232,6 +232,14 @@ function invoiceFailureStage(
   if (outcome === 'REISSUE_FAILED') return 'REISSUE'
   return null
 }
+
+/**
+ * server-text PR3 — the prose the company account used to be booked under
+ * before it became the `COMPANY_ACCOUNT_LABEL` code. Accepted ONLY by
+ * `isInternalCompanySide`, so rows not yet reached by the data migration are
+ * still masked for non-privileged viewers. Never written.
+ */
+const LEGACY_COMPANY_ACCOUNT_LABEL = 'Счёт компании'
 
 @Injectable()
 export class TransactionsService {
@@ -818,8 +826,9 @@ export class TransactionsService {
    * SENIOR/JUNIOR/DROP/HR can never learn which admin funded a payout nor
    * enumerate the admin profile via a leaked id.
    *
-   * The account pool is recognised by its label literals (`'COMPANY'` raw, or
-   * the Russian «Счёт компании» alias booked by CompanyAccountService) or, as a
+   * The account pool is recognised by its label code (`COMPANY_ACCOUNT_LABEL`)
+   * or the legacy Russian alias that CompanyAccountService booked before
+   * server-text PR3 (still accepted until the data migration ran in prod) or, as a
    * defensive fallback for legacy rows, a company-account-funded row whose side
    * carries no user id. An ADMIN partner is recognised by the joined role.
    *
@@ -834,8 +843,11 @@ export class TransactionsService {
     fundingSource: string | null | undefined,
   ): boolean {
     const isCompanyAccount =
-      sideLabel === 'COMPANY' ||
-      sideLabel === 'Счёт компании' ||
+      sideLabel === COMPANY_ACCOUNT_LABEL ||
+      // Legacy prose marker — rows written before server-text PR3. Kept during
+      // rollout until the data migration has run in prod; then removed (PR3
+      // Step 11, tracked in the PR body).
+      sideLabel === LEGACY_COMPANY_ACCOUNT_LABEL ||
       (fundingSource === 'COMPANY_ACCOUNT' && (sideId === null || sideId === undefined))
     const isAdminPartner = !!sideId && sideRole === 'ADMIN'
     // MED-1 (security review PR #384): `transactions.senderId → users.id` is
@@ -5349,7 +5361,7 @@ export class TransactionsService {
     if (isCompanyFunded) {
       currency = 'USDT'
       senderId = null
-      senderLabel = 'Счёт компании'
+      senderLabel = COMPANY_ACCOUNT_LABEL
       fundingSource = 'COMPANY_ACCOUNT'
     }
 
@@ -8364,10 +8376,10 @@ export class TransactionsService {
 
     if (isCompanyFunded) {
       // COMPANY_ACCOUNT: money leaves the shared company USDT account. Force USDT
-      // (USDT-only account), no personal sender, labelled «Счёт компании».
+      // (USDT-only account), no personal sender, labelled with the COMPANY_ACCOUNT_LABEL code.
       currency = 'USDT'
       senderId = null
-      senderLabel = 'Счёт компании'
+      senderLabel = COMPANY_ACCOUNT_LABEL
     } else {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
       // defaults to the calling (ADMIN) user; an explicit payerAdminId must

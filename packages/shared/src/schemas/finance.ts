@@ -121,6 +121,16 @@ export type SeniorSharePercentSource = z.infer<typeof seniorSharePercentSourceSc
 export const dropSharePercentSourceSchema = z.enum(['PROJECT', 'USER_DEFAULT'])
 export type DropSharePercentSource = z.infer<typeof dropSharePercentSourceSchema>
 
+/**
+ * server-text PR3 — the stable CODE stored in `transactions.sender_label` /
+ * `receiver_label` when the shared company account is the party (settle-by-
+ * company, COMPANY_DEPOSIT, DIVIDEND_TO_ADMIN, company-funded EXPENSE/SALARY).
+ * It is a code, not prose: the web maps it to the viewer-locale «Рахунок
+ * компанії» / "Company account" through the Lingui catalog. Non-privileged
+ * viewers never receive it (`mapTx` rebrands the side to `CheekyCheeseIT`).
+ */
+export const COMPANY_ACCOUNT_LABEL = 'COMPANY'
+
 export const transactionSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema,

@@ -191,7 +191,7 @@ describe.skipIf(!hasDatabaseUrl())(
           amount: String(amount),
           currency: 'USDT',
           senderId: null,
-          senderLabel: 'Счёт компании',
+          senderLabel: 'COMPANY',
           receiverId,
           salaryMonth: '2026-06',
           fundingSource: 'COMPANY_ACCOUNT',
