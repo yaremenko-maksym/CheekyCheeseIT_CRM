@@ -1302,14 +1302,14 @@ msgid "api-error.FINANCE_USDT_CONVERSION_CURRENCY_UNSUPPORTED"
 msgstr "{currency} can't be converted to USDT"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.TRANSACTION_ADDED.title"
-msgstr "Transaction added for you"
-
-#. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts
 msgid "email.notification.TRANSACTION_ADDED.subject"
 msgstr "A transaction was added for you"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.TRANSACTION_ADDED.title"
+msgstr "Transaction added for you"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/documents-contracts-notifications.ts
@@ -8716,13 +8716,13 @@ msgid "Рахунок підписано"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-registry.ts
-msgid "notification.INVOICE_SIGNED.title"
+#: packages/shared/src/schemas/notification-email-registry.ts
+msgid "email.notification.INVOICE_SIGNED.subject"
 msgstr "Invoice signed"
 
 #. js-lingui-explicit-id
-#: packages/shared/src/schemas/notification-email-registry.ts
-msgid "email.notification.INVOICE_SIGNED.subject"
+#: packages/shared/src/schemas/notification-registry.ts
+msgid "notification.INVOICE_SIGNED.title"
 msgstr "Invoice signed"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx

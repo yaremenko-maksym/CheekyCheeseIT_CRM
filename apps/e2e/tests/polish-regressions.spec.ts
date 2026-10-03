@@ -364,6 +364,10 @@ test.describe('AC4 — «сеньйора» spelling on verify page (task-i18n-3
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('AC5 — styled 404 empty-state', () => {
+  // The 404 renders before the session's locale is known, so the language comes from the browser;
+  // pin it to Ukrainian so the catalog's uk text is what the assertions read.
+  test.use({ locale: 'uk-UA' })
+
   test('unknown route renders the styled NotFound with a «На головну» link', async ({
     asAdmin,
   }) => {
