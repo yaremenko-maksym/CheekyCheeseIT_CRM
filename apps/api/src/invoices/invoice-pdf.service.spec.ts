@@ -57,14 +57,15 @@ const baseParams = (): GenerateSignableInvoiceParams => ({
   },
   company: {
     name: 'CheekyCheese IT',
-    address: 'г. Киев, ул. Тестовая 1',
+    address: 'м. Київ, вул. Тестова 1',
   },
   counterparty: {
-    displayName: 'Иван Иванов',
+    displayName: 'Іван Іваненко',
+    locale: 'uk',
     paymentMethod: 'USDT_ERC20',
     paymentDetails: [
-      'Адрес: 0x1234567890abcdef1234567890abcdef12345678',
-      'Метка: Основной кошелёк',
+      'Адреса: 0x1234567890abcdef1234567890abcdef12345678',
+      'Мітка: Основний гаманець',
     ],
   },
   signatures: [],
@@ -87,7 +88,7 @@ describe('InvoicePdfService', () => {
 
   describe('generateSignableInvoicePdf — 0 signatures', () => {
     it(
-      'produces a valid PDF that contains the "Ожидает подписи" placeholder',
+      'produces a valid PDF that contains the "awaiting signature" placeholder',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -118,7 +119,7 @@ describe('InvoicePdfService', () => {
 
   describe('generateSignableInvoicePdf — 1 signature (COMPANY only)', () => {
     it(
-      'renders only the company signature block + Ожидает подписи for counterparty',
+      'renders only the company signature block + awaiting-signature placeholder for counterparty',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -165,7 +166,7 @@ describe('InvoicePdfService', () => {
           },
           {
             role: 'COUNTERPARTY',
-            signerName: 'Иван Иванов',
+            signerName: 'Іван Іваненко',
             signedAt: FIXED_SIGNED_AT_COUNTERPARTY,
             method: 'MANUAL_CLICK',
             pdfHashFull: fakeFullHash,
@@ -205,7 +206,7 @@ describe('InvoicePdfService', () => {
         }
         const counterpartySig = {
           role: 'COUNTERPARTY' as const,
-          signerName: 'Иван Иванов',
+          signerName: 'Іван Іваненко',
           signedAt: FIXED_SIGNED_AT_COUNTERPARTY,
           method: 'MANUAL_CLICK' as const,
           pdfHashFull: fakeFullHash,
@@ -283,7 +284,7 @@ describe('InvoicePdfService', () => {
 
   describe('counterparty with no payment method', () => {
     it(
-      'renders the "Не указано" warning and still produces a valid PDF',
+      'renders the "not provided" warning and still produces a valid PDF',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -301,7 +302,7 @@ describe('InvoicePdfService', () => {
 
   describe('counterparty with CASH payment method (SALARY only)', () => {
     it(
-      'renders "Метод: Cash (<CCY>)" without "(без реквизитов)" hint and produces a valid PDF',
+      'renders the cash-method line without a requisites hint and produces a valid PDF',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const params = baseParams()
@@ -332,7 +333,7 @@ describe('InvoicePdfService', () => {
     )
 
     it(
-      'CASH render differs by currency — Cash (UAH) vs Cash (USD)',
+      'CASH render differs by currency — cash (UAH) vs cash (USD)',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         const uahParams = baseParams()
@@ -353,7 +354,7 @@ describe('InvoicePdfService', () => {
         usdParams.counterparty.paymentDetails = []
         const usdResult = await service.generateSignableInvoicePdf(usdParams)
 
-        // Different currency suffix in the "Метод: Cash (<CCY>)" line — hashes
+        // Different currency suffix in the cash-method line — hashes
         // must diverge to confirm the suffix is wired into the rendered text.
         expect(uahResult.sha256Hash).not.toBe(usdResult.sha256Hash)
       },
@@ -578,7 +579,7 @@ describe('InvoicePdfService', () => {
     )
 
     it(
-      'preserves Период line when salaryMonth provided',
+      'preserves the period line when salaryMonth provided',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         // Same params with vs. without salaryMonth must produce different PDFs.
@@ -601,7 +602,7 @@ describe('InvoicePdfService', () => {
     )
 
     it(
-      'legacy fallback — without contractNumber renders previous Доля по проекту',
+      'legacy fallback — without contractNumber renders the per-project share line',
       { timeout: TEST_TIMEOUT_MS },
       async () => {
         // Existing invoices (per-tx SENIOR_INCOME) keep working — neither

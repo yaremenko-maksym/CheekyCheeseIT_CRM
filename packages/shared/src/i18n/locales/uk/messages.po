@@ -297,6 +297,11 @@ msgstr "{memberName} · команда {teamName}"
 msgid "notification.INVOICE_SIGNED.detail"
 msgstr "{money} · {counterpartyName}"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.period"
+msgstr "{month} {year}"
+
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "{n, plural, one {Максимум # символ} few {Максимум # символи} many {Максимум # символів} other {Максимум # символа}}"
 msgstr "{n, plural, one {Максимум # символ} few {Максимум # символи} many {Максимум # символів} other {Максимум # символа}}"
@@ -410,9 +415,24 @@ msgstr "<0>{entityName}</0> та команда «<1>{0}</1>» — пов’яз
 msgid "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 msgstr "<0>{received}/{total}</0> надходжень від компаній за цей місяць"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.uahEquivalent"
+msgstr "≈ {amount} UAH (курс НБУ {rateDate})"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.contractor"
+msgstr "1. Від ВИКОНАВЦЯ"
+
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
 msgid "10 цифр"
 msgstr "10 цифр"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.client"
+msgstr "2. Від ЗАМОВНИКА"
 
 #: apps/web/app/routes/_authenticated/finance/utils/company-share.ts
 msgid "3+ валюти — точна сума у вікні"
@@ -538,6 +558,11 @@ msgstr "ID: {0}…"
 #: apps/web/app/routes/_authenticated/finance/components/ReceiptInput.tsx
 msgid "JPG, PNG, PDF — до 10 МБ"
 msgstr "JPG, PNG, PDF — до 10 МБ"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.number"
+msgstr "№ {number}"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
@@ -674,6 +699,11 @@ msgstr "Авто (CHK-N-YYYY)"
 msgid "Авто (за методом оплати)"
 msgstr "Авто (за методом оплати)"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.methodAuto"
+msgstr "Автоматичний електронний"
+
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Автоматичний електронний підпис компанії під час випуску рахунку"
 msgstr "Автоматичний електронний підпис компанії під час випуску рахунку"
@@ -783,6 +813,11 @@ msgstr "Адреса реєстрації (ФОП)"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Адресу не налаштовано"
 msgstr "Адресу не налаштовано"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.title.act"
+msgstr "АКТ ВИКОНАНИХ РОБІТ"
 
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Акт виконаних робіт (дохід сеньйора)"
@@ -968,6 +1003,16 @@ msgstr "Банк"
 msgid "Банк (необов’язково)"
 msgstr "Банк (необов’язково)"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.method.bankUahFop"
+msgstr "банк UAH (ФОП)"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.bank.name"
+msgstr "Банк: {value}"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Банківський збір"
 msgstr "Банківський збір"
@@ -1006,6 +1051,11 @@ msgstr "Бекстори"
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
 msgstr "Бенефіти"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.03"
+msgstr "березень"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Бічна навігація CRM — перехід між розділами системи."
@@ -1371,6 +1421,11 @@ msgstr "Введіть ціле число від 0 до 100"
 #: apps/web/app/components/user-profile/resume/ResumeLayoutPanel.tsx
 msgid "Великий"
 msgstr "Великий"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.09"
+msgstr "вересень"
 
 #. placeholder {0}: resume.version
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
@@ -1801,6 +1856,11 @@ msgstr "Вийти"
 msgid "Виключити"
 msgstr "Виключити"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.section.contractor"
+msgstr "ВИКОНАВЕЦЬ"
+
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Використовуватиметься адреса гаманця в мережі Ethereum."
 msgstr "Використовуватиметься адреса гаманця в мережі Ethereum."
@@ -1860,6 +1920,11 @@ msgstr "Виплата (оплачена)"
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Виплата зарплати"
 msgstr "Виплата зарплати"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.title.salary"
+msgstr "ВИПЛАТА ЗАРПЛАТИ"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
@@ -2555,6 +2620,11 @@ msgstr "Година"
 msgid "Готівка"
 msgstr "Готівка"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.method.cash"
+msgstr "готівка ({currency})"
+
 #: apps/web/app/components/user-profile/contract/ContractFillForm.tsx
 #: apps/web/app/components/user-profile/contract/ContractTab.tsx
 msgid "Готовий до підписання"
@@ -2588,6 +2658,11 @@ msgstr "Гроші"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal.tsx
 msgid "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
 msgstr "Гроші ще не надіслано — переведіть суму та вкажіть хеш транзакції нижче."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.12"
+msgstr "грудень"
 
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
@@ -2708,6 +2783,11 @@ msgstr "Дата транзакції"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.DATE_NOT_IN_FUTURE"
 msgstr "Дата транзакції не може бути в майбутньому"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.date"
+msgstr "Дата: {date}"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 msgid "Дашборд"
@@ -3352,6 +3432,11 @@ msgstr "Дропа створено"
 msgid "api-error.INTERVIEW_DROP_FORBIDDEN"
 msgstr "Дропам недоступні співбесіди"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.methodClick"
+msgstr "Електронний click-підпис"
+
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
 msgstr "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
@@ -3383,6 +3468,11 @@ msgstr "Єдиний HR у системі"
 #: apps/web/app/components/users/AccountantChipField.tsx
 msgid "Єдиний бухгалтер у системі"
 msgstr "Єдиний бухгалтер у системі"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.10"
+msgstr "жовтень"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 msgid "Журнал"
@@ -3704,6 +3794,11 @@ msgstr "Замінити чек після оплати можуть лише а
 msgid "Замітки"
 msgstr "Замітки"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.section.client"
+msgstr "ЗАМОВНИК"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Занадто багато запитів. Спробуйте через хвилину."
 msgstr "Занадто багато запитів. Спробуйте через хвилину."
@@ -3832,6 +3927,16 @@ msgstr "Зареєструвати прихід"
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
 msgid "Заробітку за останні місяці ще немає"
 msgstr "Заробітку за останні місяці ще немає"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.salary"
+msgstr "Заробітна плата працівника"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.salaryForPeriod"
+msgstr "Заробітна плата працівника за {period}"
 
 #: apps/web/app/components/archive/ArchivePendingTransactionsList.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
@@ -4344,6 +4449,11 @@ msgstr "Категорія витрати"
 msgid "Кваліфікація"
 msgstr "Кваліфікація"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.04"
+msgstr "квітень"
+
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Керування — з налаштувань проєктів."
 msgstr "Керування — з налаштувань проєктів."
@@ -4795,6 +4905,11 @@ msgstr "Легенда не заповнена"
 msgid "Легенду збережено"
 msgstr "Легенду збережено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.07"
+msgstr "липень"
+
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Лист"
 msgstr "Лист"
@@ -4815,6 +4930,11 @@ msgstr "Листи, які отримує співробітник. У заст�
 #: apps/web/app/components/user-profile/tabs/NotificationSettingsTab.tsx
 msgid "Листи:"
 msgstr "Листи:"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.11"
+msgstr "листопад"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 msgid "Лише латиниця, починається з букви, макс. 50 символів"
@@ -4842,6 +4962,11 @@ msgstr "Логотип — це файл або посилання, не оби�
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Логотип компанії"
 msgstr "Логотип компанії"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.02"
+msgstr "лютий"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "м. Київ, вул. Хрещатик, 1"
@@ -4884,6 +5009,11 @@ msgstr "Метод оплати"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Метод ручного підтвердження"
 msgstr "Метод ручного підтвердження"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.method.line"
+msgstr "Метод: {method}"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Минулий місяць"
@@ -6348,6 +6478,11 @@ msgid "Опис (Markdown)"
 msgstr "Опис (Markdown)"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.section.description"
+msgstr "ОПИС ПОСЛУГИ"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.REASON_REQUIRED_RELEASE"
 msgstr "Опишіть причину — вона потрапить до журналу"
@@ -6549,6 +6684,11 @@ msgid "api-error.FINANCE_TX_RECIPIENT_MISMATCH_COMPANY_WALLET"
 msgstr "Отримувач транзакції не збігається з гаманцем компанії"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.bank.recipient"
+msgstr "Отримувач: {value}"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_DIVIDEND_RECEIVER_ARCHIVED"
 msgstr "Отримувача заархівовано — виплатити дивіденди не можна"
@@ -6623,6 +6763,11 @@ msgstr "Очікування"
 msgid "Очікує"
 msgstr "Очікує"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.pendingAuto"
+msgstr "Очікує автопідпису"
+
 #: apps/web/app/routes/_authenticated/finance/constants.ts
 msgid "Очікує валідації"
 msgstr "Очікує валідації"
@@ -6643,6 +6788,11 @@ msgstr "Очікує виплати"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Очікує підпису"
+msgstr "Очікує підпису"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.signature.pending"
 msgstr "Очікує підпису"
 
 #: apps/web/app/components/documents/document-status-badge.tsx
@@ -6737,6 +6887,11 @@ msgstr "Перевірено системою CheekyCheeseIT CRM · {0}"
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 msgid "Перевірити"
 msgstr "Перевірити"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.verify"
+msgstr "Перевірити документ"
 
 #. placeholder {0}: summary.pendingValidation.count
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
@@ -6938,6 +7093,11 @@ msgstr "Період, місце роботи {position}"
 msgid "Період, наприклад 2021 — наст. час"
 msgstr "Період, наприклад 2021 — наст. час"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.period"
+msgstr "Період: {period}"
+
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 msgid "Персона"
@@ -7096,6 +7256,11 @@ msgstr "Підписати рахунок?"
 #: apps/web/app/components/invoices/invoice-detail-dialog.tsx
 msgid "Підписи"
 msgstr "Підписи"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.section.signatures"
+msgstr "ПІДПИСИ"
 
 #. placeholder {0}: data.signatures.length
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
@@ -7597,6 +7762,11 @@ msgstr "Посилання не працює. Відкрийте посилан�
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Посилання, рядок {position}"
 msgstr "Посилання, рядок {position}"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.contract"
+msgstr "Послуги виконавця згідно з контрактом № {contractNumber}"
 
 #: apps/web/app/routes/_authenticated/admin/tos.new.tsx
 msgid "Поточна версія умов буде деактивована (збережеться в історії). Усі користувачі мають прийняти нову версію умов використання заново."
@@ -8499,6 +8669,11 @@ msgstr "Реквізити не заповнено"
 msgid "Реквізити оновлено"
 msgstr "Реквізити оновлено"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.requisites.missing"
+msgstr "Реквізити: не вказано, зверніться до адміністратора"
+
 #: apps/web/app/components/user-profile/resume/ResumeTab.tsx
 msgid "Рівень"
 msgstr "Рівень"
@@ -8550,6 +8725,11 @@ msgstr "РНОКПП (ІПН ФОП) співробітника"
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.RNOKPP_REQUIRED"
 msgstr "РНОКПП обов’язковий"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.bank.rnokpp"
+msgstr "РНОКПП: {value}"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
@@ -8766,6 +8946,11 @@ msgstr "Середній дохід / міс."
 msgid "Середньомісячна виручка за весь час роботи компанії."
 msgstr "Середньомісячна виручка за весь час роботи компанії."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.08"
+msgstr "серпень"
+
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Симулювати помилку"
 msgstr "Симулювати помилку"
@@ -8786,6 +8971,11 @@ msgstr "Системні змінні"
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Сітка"
 msgstr "Сітка"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.01"
+msgstr "січень"
 
 #: apps/web/app/components/documents/document-labels.ts
 msgid "скан"
@@ -9402,6 +9592,11 @@ msgid "Сума дивідендів у USDT"
 msgstr "Сума дивідендів у USDT"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.section.amount"
+msgstr "СУМА ДО СПЛАТИ"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.TRANSACTION_AMOUNT_TOO_SMALL"
 msgstr "Сума занадто мала — мінімум 0.000001"
@@ -9601,6 +9796,11 @@ msgstr "Ті самі розділи і той самий експорт у PDF 
 #: apps/web/app/routes/login.tsx
 msgid "Тільки для співробітників"
 msgstr "Тільки для співробітників"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.05"
+msgstr "травень"
 
 #: apps/web/app/routes/_authenticated/routing/components/InProgressPanel.tsx
 msgid "Транзакції в роботі"
@@ -10435,6 +10635,11 @@ msgid "pending.title.SHARE_PROJECT"
 msgstr "Частка за проєктом «{projectName}»"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.description.project"
+msgstr "Частка за проєктом «{projectName}»"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
 msgid "contract-variable.companySharePercent"
 msgstr "Частка компанії, % (100 − частка співробітника)"
@@ -10582,6 +10787,11 @@ msgstr "Чекають рішення"
 #: apps/web/app/routes/_authenticated/documents.tsx
 msgid "Чеки додаються в розділі «Фінанси» під час створення транзакції."
 msgstr "Чеки додаються в розділі «Фінанси» під час створення транзакції."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/invoice-pdf-registry.ts
+msgid "invoicePdf.month.06"
+msgstr "червень"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 msgid "через 3 місяці"

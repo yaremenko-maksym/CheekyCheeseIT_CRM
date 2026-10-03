@@ -3,9 +3,16 @@
  * transaction flows that require client-side counter-signing:
  *
  *   1. SENIOR_INCOME (senior payout to the company / company → senior IOU
- *      settlement) -> "АКТ ВЫПОЛНЕННЫХ РАБОТ"
- *   2. SALARY (company -> employee monthly salary) ->
- *      "ВЫПЛАТА ЗАРПЛАТЫ"
+ *      settlement) -> the "act of services rendered"
+ *   2. SALARY (company -> employee monthly salary) -> the "salary payment"
+ *
+ * i18n stage 5: every label is rendered in the RECIPIENT's locale
+ * (`counterparty.locale` = the counterparty's `users.locale`) from the
+ * `INVOICE_PDF_MESSAGES` catalog (`@crm/shared`) through a per-call
+ * `createI18n(locale)` — never a global/active locale, so two concurrent
+ * renders for recipients with different locales cannot bleed into each other.
+ * Amounts, dates, the № short id, hash, verify URL, brand and the COMPANY
+ * signature mask are data, not words, and are byte-identical across locales.
  *
  * task-drop-company-debt-and-invoices (PDF refresh):
  *   - Brand "Wedge Terminal" mark drawn in the header (left), brand
@@ -17,13 +24,14 @@
  *
  * Two passes:
  *   - Auto-sign COMPANY: PDF generated with only the COMPANY signature
- *     block (brand name); "Ожидает подписи" placeholder for counterparty.
+ *     block (brand name); "awaiting signature" placeholder for counterparty.
  *   - After counterparty click-sign: re-generated with both signature blocks
  *     including the 8-char short hash, timestamp, IP last-octet stamp.
  *
  * Fonts: pdf-lib's standard 14 fonts (Helvetica/Times/Courier) are AFM-encoded
  * with no Cyrillic glyphs. We ship Roboto Regular + Bold (Apache 2.0) under
- * `src/assets/fonts/`. pdf-lib needs `@pdf-lib/fontkit` registered on the doc
+ * `src/assets/fonts/` — the files carry the full Ukrainian alphabet (і ї є ґ)
+ * and Latin (pinned by `invoice-pdf.locale.spec.ts`). pdf-lib needs `@pdf-lib/fontkit` registered on the doc
  * to embed custom TTFs; without it pdf-lib falls back to WinAnsi which
  * renders cyrillic as boxes.
  *
@@ -45,7 +53,19 @@ import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb, type Color } from 'p
 import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
 import { PDF_COLORS, PDF_LAYOUT } from '../common/pdf/pdf.constants'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
-import type { InvoiceSignerRole, InvoiceSignatureMethod } from '@crm/shared'
+import {
+  INVOICE_PDF_MESSAGES,
+  INVOICE_PDF_MONTH_MESSAGES,
+  createI18n,
+  renderMessage,
+  type InvoiceSignerRole,
+  type InvoiceSignatureMethod,
+  type Locale,
+} from '@crm/shared'
+import type { MessageDescriptor } from '@lingui/core'
+
+/** Renders one catalog descriptor in the recipient's locale (bound per render). */
+type Translate = (descriptor: MessageDescriptor, values?: Record<string, unknown>) => string
 
 // ---------------------------------------------------------------------------
 // Input types
@@ -64,16 +84,23 @@ export interface InvoiceCompanyInfo {
 /**
  * Side B (the counterparty). `paymentMethod` mirrors the `users.payment_method`
  * column populated in PHASE 7. When `details` is empty the PDF falls back to
- * "Не указано, обратитесь к ADMIN" so we never silently ship a PDF with no
+ * a "not provided, contact the administrator" line so we never silently ship a PDF with no
  * payment requisites.
  */
 export interface InvoiceCounterpartyInfo {
   displayName: string
   /**
+   * i18n stage 5. The RECIPIENT's locale (`users.locale` of this very
+   * counterparty) — the language every label on the PDF is rendered in.
+   * Required (not optional): a caller that forgets it must fail to compile
+   * rather than silently ship every invoice in the default locale.
+   */
+  locale: Locale
+  /**
    * `CASH` is supported only for SALARY invoices — used when the company pays
    * an employee in cash and there are no payment requisites to render. In this
    * case `paymentDetails` is ignored and the renderer draws only a single
-   * `Метод: Cash (<CCY>)` line (no requisites placeholder), where `<CCY>` is
+   * localized "Method: cash (<CCY>)" line (no requisites placeholder), where `<CCY>` is
    * the transaction currency (UAH / USD / EUR / USDT).
    */
   paymentMethod: 'USDT_ERC20' | 'BANK_UAH_FOP' | 'CASH' | null
@@ -108,17 +135,17 @@ export interface InvoiceTransactionInfo {
    */
   projectNames?: string[] | null
   /**
-   * task-aggregate-invoice-per-payout. When set, the «Описание услуг» block
-   * renders «Услуги исполнителя согласно контракту № <contractNumber>» as the
+   * task-aggregate-invoice-per-payout. When set, the service-description block
+   * renders the "services under contract № <contractNumber>" sentence as the
    * primary line. Required for the new aggregated-PAYOUT flow; when null/
-   * undefined the legacy «Доля по проекту X» description is used.
+   * undefined the legacy "share of project X" description is used.
    * Placeholder formula in v1: `CHK-${userId.slice(0,8)}-${year}`. A dedicated
    * contracts module will replace the formula in a later phase.
    */
   contractNumber?: string | null
-  /** YYYY-MM. Used in "Период: ..." line for both flows. */
+  /** YYYY-MM. Used in the "Period: ..." line for both flows. */
   salaryMonth?: string | null
-  /** Timestamp shown next to "Дата:", typically `tx_date ?? created_at`. */
+  /** Timestamp shown next to the date label, typically `tx_date ?? created_at`. */
   txDate: Date
 }
 
@@ -205,9 +232,14 @@ export class InvoicePdfService {
     // task-fix-invoice-pdf-polish AC2: `company` is destructured for
     // back-compat with the InvoiceCompanyInfo struct shape but is no longer
     // rendered anywhere on the PDF (address line dropped from both header
-    // and ИСПОЛНИТЕЛЬ block). Prefix with `_` so the unused-vars lint rule
+    // and contractor block). Prefix with `_` so the unused-vars lint rule
     // recognises the intent.
     const { transaction, company: _company, counterparty, verifyUrl, uahEquivalent } = params
+
+    // One i18n instance per render, in the recipient's locale. Everything
+    // wordy below goes through `t`; nothing is concatenated from fragments.
+    const i18n = createI18n(counterparty.locale)
+    const t: Translate = (descriptor, values) => renderMessage(i18n, descriptor, values)
 
     // ----- Setup: delegate font embedding + doc creation to PdfGenerationService -----
     const {
@@ -261,7 +293,7 @@ export class InvoicePdfService {
     // task-fix-invoice-pdf-polish AC2: header-right address line removed.
     // The header now contains only the brand mark + wordmark. The `company`
     // param is still accepted (back-compat with `InvoicesService` callers)
-    // but the address is never rendered. See the ИСПОЛНИТЕЛЬ block below
+    // but the address is never rendered. See the contractor block below
     // for the matching simplification.
 
     y -= markSize + 18
@@ -282,8 +314,11 @@ export class InvoicePdfService {
     // advance from 22pt to 16pt so the title sits centrally between the
     // header separator and the metadata row.
     y -= 14
-    const title =
-      transaction.type === 'SENIOR_INCOME' ? 'АКТ ВЫПОЛНЕННЫХ РАБОТ' : 'ВЫПЛАТА ЗАРПЛАТЫ'
+    const title = t(
+      transaction.type === 'SENIOR_INCOME'
+        ? INVOICE_PDF_MESSAGES.titleAct
+        : INVOICE_PDF_MESSAGES.titleSalary,
+    )
     this.pdfGen.drawText(page, title, {
       x: layout.margin,
       y,
@@ -294,14 +329,14 @@ export class InvoicePdfService {
     y -= 16
 
     const shortId = transaction.id.replace(/-/g, '').slice(0, 8)
-    this.pdfGen.drawText(page, `№ ${shortId}`, {
+    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.number, { number: shortId }), {
       x: layout.margin,
       y,
       font: fontRegular,
       size: 11,
       color: layout.colors.muted,
     })
-    const dateLabel = `Дата: ${this.formatDate(transaction.txDate)}`
+    const dateLabel = t(INVOICE_PDF_MESSAGES.date, { date: this.formatDate(transaction.txDate) })
     const dateWidth = fontRegular.widthOfTextAtSize(dateLabel, 11)
     this.pdfGen.drawText(page, dateLabel, {
       x: pageWidth - layout.margin - dateWidth,
@@ -320,12 +355,12 @@ export class InvoicePdfService {
       layout.colors.separator,
     )
 
-    // ----- ИСПОЛНИТЕЛЬ block -----
+    // ----- Contractor block -----
     // task-fix-invoice-pdf-polish AC2: render brand name only — no address,
     // email or other contact fields. The `company.address` value remains on
     // the InvoiceCompanyInfo struct for backward compatibility but is no
     // longer drawn anywhere on the PDF body.
-    y = this.drawSectionHeader(page, 'ИСПОЛНИТЕЛЬ', y, layout, fontBold)
+    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionContractor), y, layout, fontBold)
     y = this.drawLine(page, COMPANY_BRAND_NAME, y, layout, fontRegular)
     y -= 6
     y = this.pdfGen.drawSeparator(
@@ -336,13 +371,13 @@ export class InvoicePdfService {
       layout.colors.separator,
     )
 
-    // ----- ЗАКАЗЧИК block -----
-    y = this.drawSectionHeader(page, 'ЗАКАЗЧИК', y, layout, fontBold)
+    // ----- Client block -----
+    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionClient), y, layout, fontBold)
     y = this.drawLine(page, counterparty.displayName, y, layout, fontRegular)
     if (counterparty.paymentMethod === null) {
       y = this.drawLine(
         page,
-        'Реквизиты: Не указано, обратитесь к ADMIN',
+        t(INVOICE_PDF_MESSAGES.requisitesMissing),
         y,
         layout,
         fontRegular,
@@ -352,14 +387,31 @@ export class InvoicePdfService {
       // CASH (SALARY only): no requisites to render. The currency suffix
       // disambiguates the payout currency at a glance — 35 000 UAH cash vs
       // $500 USD cash vs €400 EUR cash look very different to a stakeholder.
-      // No "(без реквизитов)" hint is drawn — the absence of requisites lines
+      // No "(no requisites)" hint is drawn — the absence of requisites lines
       // is itself the signal, and the muted hint was visual noise (round 2
       // user feedback on PR #81).
-      y = this.drawLine(page, `Метод: Cash (${transaction.currency})`, y, layout, fontRegular)
+      y = this.drawLine(
+        page,
+        t(INVOICE_PDF_MESSAGES.methodLine, {
+          method: t(INVOICE_PDF_MESSAGES.methodCash, { currency: transaction.currency }),
+        }),
+        y,
+        layout,
+        fontRegular,
+      )
     } else {
+      // 'USDT ERC-20' is a network/token code, not a word — never translated.
       const methodLabel =
-        counterparty.paymentMethod === 'USDT_ERC20' ? 'USDT ERC-20' : 'Bank UAH (ФОП)'
-      y = this.drawLine(page, `Метод: ${methodLabel}`, y, layout, fontRegular)
+        counterparty.paymentMethod === 'USDT_ERC20'
+          ? 'USDT ERC-20'
+          : t(INVOICE_PDF_MESSAGES.methodBankUahFop)
+      y = this.drawLine(
+        page,
+        t(INVOICE_PDF_MESSAGES.methodLine, { method: methodLabel }),
+        y,
+        layout,
+        fontRegular,
+      )
       for (const detail of counterparty.paymentDetails) {
         y = this.drawLine(page, detail, y, layout, fontRegular)
       }
@@ -373,9 +425,15 @@ export class InvoicePdfService {
       layout.colors.separator,
     )
 
-    // ----- ОПИСАНИЕ УСЛУГИ block -----
-    y = this.drawSectionHeader(page, 'ОПИСАНИЕ УСЛУГИ', y, layout, fontBold)
-    const description = this.buildDescription(transaction)
+    // ----- Service description block -----
+    y = this.drawSectionHeader(
+      page,
+      t(INVOICE_PDF_MESSAGES.sectionDescription),
+      y,
+      layout,
+      fontBold,
+    )
+    const description = this.buildDescription(transaction, t)
     for (const line of description) {
       y = this.drawLine(page, line, y, layout, fontRegular)
     }
@@ -388,7 +446,7 @@ export class InvoicePdfService {
       layout.colors.separator,
     )
 
-    // ----- СУММА К ОПЛАТЕ block (large prominent amount) -----
+    // ----- Amount due block (large prominent amount) -----
     // task-fix-invoice-pdf-polish AC3 (round 2): the amount block must be
     // VERTICALLY SYMMETRIC — equal optical padding above and below the big
     // amount glyph. Previous round-1 layout had `y -= 16` above the amount
@@ -402,7 +460,7 @@ export class InvoicePdfService {
     // visual gaps now read as ~20pt and the block scans as a single centred
     // unit. Below the UAH line we keep the standard 14pt drawLine return +
     // 6pt margin before the separator so the next section breathes correctly.
-    y = this.drawSectionHeader(page, 'СУММА К ОПЛАТЕ', y, layout, fontBold)
+    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionAmount), y, layout, fontBold)
     // +4pt top-padding (over the drawSectionHeader's native 16pt) so the
     // distance from the section label baseline to the amount baseline (20pt)
     // matches the amount-to-UAH baseline distance below.
@@ -419,7 +477,10 @@ export class InvoicePdfService {
     // sits dead-centre between its label and the UAH equiv line.
     y -= 20
     if (uahEquivalent && transaction.currency !== 'UAH') {
-      const equivLine = `≈ ${uahEquivalent.formatted} UAH (курс НБУ ${uahEquivalent.rateDate})`
+      const equivLine = t(INVOICE_PDF_MESSAGES.uahEquivalent, {
+        amount: uahEquivalent.formatted,
+        rateDate: uahEquivalent.rateDate,
+      })
       y = this.drawLine(page, equivLine, y, layout, fontRegular, layout.colors.muted)
     }
     y -= 6
@@ -431,8 +492,8 @@ export class InvoicePdfService {
       layout.colors.separator,
     )
 
-    // ----- ПОДПИСИ block -----
-    y = this.drawSectionHeader(page, 'ПОДПИСИ', y, layout, fontBold)
+    // ----- Signatures block -----
+    y = this.drawSectionHeader(page, t(INVOICE_PDF_MESSAGES.sectionSignatures), y, layout, fontBold)
 
     const sortedSignatures = [...params.signatures].sort((a, b) =>
       a.role === 'COMPANY' ? -1 : b.role === 'COMPANY' ? 1 : 0,
@@ -440,7 +501,7 @@ export class InvoicePdfService {
     const companySig = sortedSignatures.find((s) => s.role === 'COMPANY')
     const counterpartySig = sortedSignatures.find((s) => s.role === 'COUNTERPARTY')
 
-    y = this.drawCompanySignature(page, y, layout, fontBold, fontRegular, companySig)
+    y = this.drawCompanySignature(page, y, layout, fontBold, fontRegular, companySig, t)
     y -= 4
     y = this.drawCounterpartySignature(
       page,
@@ -450,6 +511,7 @@ export class InvoicePdfService {
       fontRegular,
       counterpartySig,
       counterparty.displayName,
+      t,
     )
     y -= 4
     y = this.pdfGen.drawSeparator(
@@ -461,7 +523,7 @@ export class InvoicePdfService {
     )
 
     // ----- QR + verify link -----
-    await this.drawVerifyBlock(page, doc, y, layout, fontRegular, verifyUrl)
+    await this.drawVerifyBlock(page, doc, y, layout, fontRegular, verifyUrl, t)
 
     // ----- Footer -----
     const year = transaction.txDate.getUTCFullYear()
@@ -554,8 +616,9 @@ export class InvoicePdfService {
     fontBold: PDFFont,
     fontRegular: PDFFont,
     sig: InvoiceSignatureInfo | undefined,
+    t: Translate,
   ): number {
-    this.pdfGen.drawText(page, '1. От ИСПОЛНИТЕЛЯ', {
+    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.signatureContractor), {
       x: layout.margin,
       y,
       font: fontBold,
@@ -565,7 +628,7 @@ export class InvoicePdfService {
     y -= layout.lineHeight + 2
 
     if (!sig) {
-      this.pdfGen.drawText(page, '   Ожидает авто-подписи', {
+      this.pdfGen.drawText(page, `   ${t(INVOICE_PDF_MESSAGES.signaturePendingAuto)}`, {
         x: layout.margin,
         y,
         font: fontRegular,
@@ -592,9 +655,7 @@ export class InvoicePdfService {
       color: layout.colors.muted,
     })
     y -= layout.lineHeight
-    const methodLabel =
-      sig.method === 'AUTO_COMPANY' ? 'Автоматическая электронная' : 'Электронная click-подпись'
-    this.pdfGen.drawText(page, `   Метод: ${methodLabel}`, {
+    this.pdfGen.drawText(page, `   ${this.signatureMethodLine(sig.method, t)}`, {
       x: layout.margin,
       y,
       font: fontRegular,
@@ -616,8 +677,9 @@ export class InvoicePdfService {
     fontRegular: PDFFont,
     sig: InvoiceSignatureInfo | undefined,
     fallbackName: string,
+    t: Translate,
   ): number {
-    this.pdfGen.drawText(page, '2. От ЗАКАЗЧИКА', {
+    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.signatureClient), {
       x: layout.margin,
       y,
       font: fontBold,
@@ -627,7 +689,7 @@ export class InvoicePdfService {
     y -= layout.lineHeight + 2
 
     if (!sig) {
-      this.pdfGen.drawText(page, '   Ожидает подписи', {
+      this.pdfGen.drawText(page, `   ${t(INVOICE_PDF_MESSAGES.signaturePending)}`, {
         x: layout.margin,
         y,
         font: fontRegular,
@@ -681,9 +743,7 @@ export class InvoicePdfService {
     // stays on the input interface so existing callers compile without
     // changes; the value is simply not rendered.
 
-    const methodLabel =
-      sig.method === 'AUTO_COMPANY' ? 'Автоматическая электронная' : 'Электронная click-подпись'
-    this.pdfGen.drawText(page, `   Метод: ${methodLabel}`, {
+    this.pdfGen.drawText(page, `   ${this.signatureMethodLine(sig.method, t)}`, {
       x: layout.margin,
       y,
       font: fontRegular,
@@ -704,6 +764,7 @@ export class InvoicePdfService {
     },
     fontRegular: PDFFont,
     verifyUrl: string,
+    t: Translate,
   ): Promise<void> {
     // Delegate QR PNG generation + embedding to PdfGenerationService.
     const qrImage = await this.pdfGen.embedQrPng(doc, verifyUrl)
@@ -715,7 +776,7 @@ export class InvoicePdfService {
 
     const textX = qrX + qrSize + 14
     const textY = y - 16
-    this.pdfGen.drawText(page, 'Проверить документ', {
+    this.pdfGen.drawText(page, t(INVOICE_PDF_MESSAGES.verify), {
       x: textX,
       y: textY,
       font: fontRegular,
@@ -770,12 +831,26 @@ export class InvoicePdfService {
     return decPart !== undefined ? `${withSep}.${decPart}` : withSep
   }
 
-  private buildDescription(tx: InvoiceTransactionInfo): string[] {
+  /**
+   * "Method: <automatic electronic | electronic click signature>" — one message
+   * for the line, one per method label, so a locale never reorders fragments.
+   */
+  private signatureMethodLine(method: InvoiceSignatureMethod, t: Translate): string {
+    return t(INVOICE_PDF_MESSAGES.methodLine, {
+      method: t(
+        method === 'AUTO_COMPANY'
+          ? INVOICE_PDF_MESSAGES.signatureMethodAuto
+          : INVOICE_PDF_MESSAGES.signatureMethodClick,
+      ),
+    })
+  }
+
+  private buildDescription(tx: InvoiceTransactionInfo, t: Translate): string[] {
     if (tx.type === 'SENIOR_INCOME') {
       const lines: string[] = []
       // task-aggregate-invoice-per-payout round 2: the description must contain
       // ONLY the contract reference + (optional) period line. The list of
-      // projects was previously rendered as a secondary «Проекты: A · B · C»
+      // projects was previously rendered as a secondary «Projects: A · B · C»
       // line, but user feedback (round 2, 02.06.2026) flagged it as noise — a
       // signed act covers the contractual scope, the per-project breakdown
       // lives in the linked transactions / payout receipt rather than the act
@@ -783,53 +858,53 @@ export class InvoicePdfService {
       // with the InvoicesService caller (which still passes it for audit /
       // logging) but the PDF body never renders it.
       if (tx.contractNumber) {
-        lines.push(`Услуги исполнителя согласно контракту № ${tx.contractNumber}`)
+        lines.push(
+          t(INVOICE_PDF_MESSAGES.descriptionContract, { contractNumber: tx.contractNumber }),
+        )
       } else if (tx.projectName) {
         // Legacy single-project per-tx invoices keep their original phrasing.
-        lines.push(`Доля по проекту "${tx.projectName}"`)
+        lines.push(t(INVOICE_PDF_MESSAGES.descriptionProject, { projectName: tx.projectName }))
       } else {
         // Aggregated PAYOUT with no signed contract on record — render em-dash
         // so the PDF has a contract reference line rather than a generic label.
-        lines.push('Услуги исполнителя согласно контракту № —')
+        lines.push(t(INVOICE_PDF_MESSAGES.descriptionContract, { contractNumber: '—' }))
       }
       if (tx.salaryMonth) {
-        lines.push(`Период: ${this.formatMonth(tx.salaryMonth)}`)
+        lines.push(
+          t(INVOICE_PDF_MESSAGES.descriptionPeriod, {
+            period: this.formatPeriod(tx.salaryMonth, t),
+          }),
+        )
       }
       return lines
     }
     // SALARY
     const lines: string[] = []
     if (tx.salaryMonth) {
-      lines.push(`Заработная плата сотрудника за ${this.formatMonth(tx.salaryMonth)}`)
+      lines.push(
+        t(INVOICE_PDF_MESSAGES.descriptionSalaryForPeriod, {
+          period: this.formatPeriod(tx.salaryMonth, t),
+        }),
+      )
     } else {
-      lines.push('Заработная плата сотрудника')
+      lines.push(t(INVOICE_PDF_MESSAGES.descriptionSalary))
     }
     return lines
   }
 
-  /** "2026-05" -> "май 2026". Fallback to raw string on parse failure. */
-  private formatMonth(yyyymm: string): string {
+  /**
+   * "2026-05" -> "травень 2026" / "May 2026" (month name from the catalog, the
+   * month-year order from the `period` message). Fallback to the raw string on
+   * parse failure or an out-of-range month — never "undefined 2026".
+   */
+  private formatPeriod(yyyymm: string, t: Translate): string {
     const match = /^(\d{4})-(\d{2})$/.exec(yyyymm)
     if (!match) return yyyymm
-    const yearStr = match[1]
-    const monthStr = match[2]
-    const monthIdx = Number(monthStr) - 1
-    const months = [
-      'январь',
-      'февраль',
-      'март',
-      'апрель',
-      'май',
-      'июнь',
-      'июль',
-      'август',
-      'сентябрь',
-      'октябрь',
-      'ноябрь',
-      'декабрь',
-    ]
-    if (monthIdx < 0 || monthIdx >= months.length) return yyyymm
-    return `${months[monthIdx]} ${yearStr}`
+    const monthKey = match[2] as string
+    if (!(monthKey in INVOICE_PDF_MONTH_MESSAGES)) return yyyymm
+    const descriptor =
+      INVOICE_PDF_MONTH_MESSAGES[monthKey as keyof typeof INVOICE_PDF_MONTH_MESSAGES]
+    return t(INVOICE_PDF_MESSAGES.period, { month: t(descriptor), year: match[1] })
   }
 
   // ---------------------------------------------------------------------------
