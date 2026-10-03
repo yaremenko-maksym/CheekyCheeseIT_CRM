@@ -46,11 +46,11 @@ beforeEach(async () => {
 })
 
 describe('FinanceChart — labels', () => {
-  it('shows the title and the default «Прихід» mode with its swatch colour', () => {
+  it('shows the title and the default «Дохід» mode with its swatch colour', () => {
     render(<FinanceChart summary={SUMMARY} />)
 
     expect(screen.getByText('Динаміка за місяцями')).toBeInTheDocument()
-    expect(screen.getByRole('combobox')).toHaveTextContent('Прихід')
+    expect(screen.getByRole('combobox')).toHaveTextContent('Дохід')
     expect(screen.getByTestId('finance-chart-swatch')).toHaveStyle({ background: '#22c55e' })
   })
 
@@ -62,7 +62,7 @@ describe('FinanceChart — labels', () => {
       ['Прибуток', '#06b6d4'],
       ['Витрати', '#f97316'],
       ['Зарплати', '#a855f7'],
-      ['Прихід', '#22c55e'],
+      ['Дохід', '#22c55e'],
     ]
     for (const [label, color] of expected) {
       await user.click(screen.getByRole('combobox'))
@@ -114,7 +114,7 @@ describe('ChartTooltip — series names', () => {
     )
 
     expect(screen.getByText('2026-02')).toBeInTheDocument()
-    expect(screen.getByText('Прихід')).toBeInTheDocument()
+    expect(screen.getByText('Дохід')).toBeInTheDocument()
     expect(screen.getByText('Зарплати')).toBeInTheDocument()
     expect(screen.getByText('Прибуток')).toBeInTheDocument()
     expect(screen.getByText('Витрати')).toBeInTheDocument()
@@ -134,6 +134,6 @@ describe('ChartTooltip — series names', () => {
       <ChartTooltip active={false} payload={[{ dataKey: 'income', value: 1, color: '#000' }]} />,
     )
 
-    expect(screen.queryByText('Прихід')).not.toBeInTheDocument()
+    expect(screen.queryByText('Дохід')).not.toBeInTheDocument()
   })
 })

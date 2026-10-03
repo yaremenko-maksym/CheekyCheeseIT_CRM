@@ -135,7 +135,7 @@ function CompanyWalletPage() {
             </div>
           )}
 
-          <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-3">
             <p className="text-xs text-muted-foreground">
               <Trans>Мережа: Ethereum ERC-20</Trans>
             </p>

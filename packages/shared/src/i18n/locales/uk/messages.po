@@ -3415,6 +3415,10 @@ msgstr "Досягнення, місце роботи {position}"
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Досягнуто ліміт {maxItems} тегів"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
+msgid "Дохід"
+msgstr "Дохід"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY"
@@ -8261,7 +8265,6 @@ msgstr "Примітка <0>(необов’язково)</0>"
 msgid "Примітки"
 msgstr "Примітки"
 
-#: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Прихід"
 msgstr "Прихід"

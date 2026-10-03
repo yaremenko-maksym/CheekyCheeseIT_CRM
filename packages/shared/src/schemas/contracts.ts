@@ -183,6 +183,10 @@ export interface ContractTemplateRow {
   customVariables: CustomVariable[]
 }
 
+/* eslint-disable lingui/no-unlocalized-strings --
+   contract-variable descriptor registry — `message:` literals are the i18n source (read by
+   `lingui extract`). Block-scoped, not a path override: this file also holds ordinary schemas,
+   where a stray Russian literal must still be caught. */
 /**
  * Canonical map of template variable bare-keys → human-readable descriptions.
  *
@@ -357,6 +361,7 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
     message: 'Номер контракту — присвоюється під час підписання, напр. CHK-7F3A9C',
   },
 } as const satisfies Record<string, MessageDescriptor>
+/* eslint-enable lingui/no-unlocalized-strings */
 
 export type ContractVariableKey = keyof typeof CONTRACT_VARIABLE_DESCRIPTIONS
 

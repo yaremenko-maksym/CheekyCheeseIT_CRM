@@ -570,7 +570,7 @@ msgstr "JPG, PNG, PDF — up to 10 MB"
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Markdown. Цей блок додається в кінець кожного нового контракту під заголовком «Реквізити компанії». Шаблони контрактів змінювати не потрібно. Зміни стосуються лише майбутніх підписань — уже підписані контракти не змінюються."
-msgstr "Markdown. This block is added to the end of every new contract under the heading “Company requisites”. There is no need to change the contract templates. Changes only affect future signings — contracts that are already signed stay as they are."
+msgstr "Markdown. This block is added to the end of every new contract under the heading “Company details”. There is no need to change the contract templates. Changes only affect future signings — contracts that are already signed stay as they are."
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/invoice-pdf-registry.ts
@@ -3415,6 +3415,10 @@ msgstr "Achievements, job {position}"
 msgid "Досягнуто ліміт {maxItems} тегів"
 msgstr "Reached the limit of {maxItems} tags"
 
+#: apps/web/app/components/stats/FinanceChart.tsx
+msgid "Дохід"
+msgstr "Income"
+
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_USDT_PROJECT_INCOME_ADMIN_ONLY"
@@ -5329,7 +5333,7 @@ msgstr "On all of your projects, the administrator declares income (USDT). Conta
 
 #: apps/web/app/components/not-found.tsx
 msgid "На головну"
-msgstr "Go to home"
+msgstr "Go home"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/contracts.ts
@@ -5490,7 +5494,7 @@ msgstr "Settings are outdated — refresh the page"
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Налаштування компанії: гаманець для отримання USDT і реквізити, які автоматично додаються в кінець кожного нового контракту під час підписання."
-msgstr "Company settings: the wallet for receiving USDT and the requisites that are automatically added to the end of every new contract at signing."
+msgstr "Company settings: the wallet for receiving USDT and the details that are automatically added to the end of every new contract at signing."
 
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 msgid "Наприклад: видалено помилково"
@@ -5831,7 +5835,7 @@ msgstr "Could not save the profile. Try again"
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Не вдалося зберегти реквізити"
-msgstr "Failed to save the requisites"
+msgstr "Failed to save the details"
 
 #: apps/web/app/components/user-profile/resume/ResumePdfPreview.tsx
 msgid "Не вдалося зібрати PDF"
@@ -6050,7 +6054,7 @@ msgstr "not set"
 
 #: apps/web/app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx
 msgid "Не вказано"
-msgstr "Not specified"
+msgstr "Not set"
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Не задано — діє частка сеньйора за замовчуванням (26%, якщо не змінювали). Пересуньте повзунок, щоб задати частку для команди."
@@ -8261,7 +8265,6 @@ msgstr "Note <0>(optional)</0>"
 msgid "Примітки"
 msgstr "Notes"
 
-#: apps/web/app/components/stats/FinanceChart.tsx
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 msgid "Прихід"
 msgstr "Income"
@@ -8908,11 +8911,11 @@ msgstr "Payment details — filled in automatically based on the payment method"
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Реквізити збережено"
-msgstr "Requisites saved"
+msgstr "Details saved"
 
 #: apps/web/app/routes/_authenticated/admin/wallet.index.tsx
 msgid "Реквізити компанії"
-msgstr "Company requisites"
+msgstr "Company details"
 
 #: apps/web/app/components/user-profile/tabs/RequisitesTab.tsx
 msgid "Реквізити не вказано"

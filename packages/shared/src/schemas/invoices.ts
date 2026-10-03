@@ -204,7 +204,7 @@ export type InvoiceListFilters = z.infer<typeof invoiceListFiltersSchema>
  * Без точки: конвенция сообщений исключений `apps/api` не ставит точку
  * нигде (см. `'Инвойс уже подписан'` рядом в `invoices.service.ts`).
  */
-// TODO(i18n): Russian text rendered verbatim by the web invoice dialog and used as the API
+// TODO(i18n, task_3ec0e901): Russian text rendered verbatim by the web invoice dialog and used as the API
 // exception message; moves to the catalog with the finance/invoices module wave.
 export const INVOICE_SIGN_IMPERSONATION_MESSAGE =
   // eslint-disable-next-line lingui/no-unlocalized-strings

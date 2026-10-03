@@ -35,7 +35,7 @@ const CHART_MODES: {
   key: ChartDataKey
   color: string
 }[] = [
-  { value: 'income', label: msg`Прихід`, key: 'income', color: '#22c55e' },
+  { value: 'income', label: msg`Дохід`, key: 'income', color: '#22c55e' },
   { value: 'profit', label: msg`Прибуток`, key: 'profit', color: '#06b6d4' },
   { value: 'expenses', label: msg`Витрати`, key: 'expenses', color: '#f97316' },
   { value: 'salary', label: msg`Зарплати`, key: 'salaries', color: '#a855f7' },

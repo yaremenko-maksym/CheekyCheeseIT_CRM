@@ -93,8 +93,6 @@ export default [
       'src/schemas/api-errors/**/*.ts',
       'src/schemas/*-registry.ts',
       'src/schemas/zod-errors.ts',
-      // contract-variable descriptors (`/* i18n */ { id, message }`)
-      'src/schemas/contracts.ts',
     ],
     rules: {
       'lingui/no-unlocalized-strings': 'off',
