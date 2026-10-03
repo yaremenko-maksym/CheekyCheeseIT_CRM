@@ -295,9 +295,9 @@ test.describe('SENIOR INCOME — шаг 2а: отклонение транзак
 
     // Project name is dynamic seed data — text assertion is the contract for
     // "the dialog actually surfaced the row I clicked". Same for the type
-    // label «Прихід сеньйора» — it's how the user verifies the row type.
+    // label «Дохід сеньйора» — it's how the user verifies the row type.
     const uk = await loadMessages('uk')
-    await expect(dlg).toContainText(assertInCatalog(uk, 'Прихід сеньйора'))
+    await expect(dlg).toContainText(assertInCatalog(uk, 'Дохід сеньйора'))
     await expect(dlg).toContainText(PROJECT_NAME)
   })
 

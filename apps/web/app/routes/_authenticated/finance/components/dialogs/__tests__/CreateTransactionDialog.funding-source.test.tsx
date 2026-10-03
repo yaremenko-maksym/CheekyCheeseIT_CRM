@@ -256,7 +256,7 @@ describe('CreateTransactionDialog — ACCOUNTANT constrained "Счёт полу�
     // interpolation (that branch is pinned with a real project fixture in
     // CreateTransactionDialog.usdt-income.test.tsx).
     expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
-      'Прихід зарахується на рахунок адміністратора-власника проєкту',
+      'Дохід зарахується на рахунок адміністратора-власника проєкту',
     )
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
