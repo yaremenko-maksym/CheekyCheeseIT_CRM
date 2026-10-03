@@ -37,7 +37,12 @@
  */
 import { forwardRef, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common'
 import { and, eq, inArray, sql } from 'drizzle-orm'
-import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError, selfPayError } from '@crm/shared'
+import {
+  COMPANY_ACCOUNT_LABEL,
+  MAX_TRANSACTION_AMOUNT,
+  receiptMandatoryError,
+  selfPayError,
+} from '@crm/shared'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -431,7 +436,7 @@ export class PendingSettlementService {
     }
 
     let senderId: string | null = null
-    let senderLabel = 'COMPANY'
+    let senderLabel: string = COMPANY_ACCOUNT_LABEL
     // task-remove-settle-currency: default is the OBLIGATION's own currency
     // (always USDT for a senior/drop IOU — see transactions.service.ts
     // createIous). The settle dialog no longer sends a currency at all; this
