@@ -603,7 +603,7 @@ describe.skipIf(!hasDatabaseUrl())(
 
       const plan = await svc.getEditCascadePreview(income.id, 2000, ADMIN_MAKSYM)
       expect(plan.plan!.sourceWarnings).toEqual([
-        { code: 'SOURCE_SIGNED_INVOICE', message: expect.any(String) },
+        { code: 'SOURCE_SIGNED_INVOICE', params: {} },
       ])
 
       await dbSvc.db.delete(invoiceSignatures).where(eq(invoiceSignatures.transactionId, income.id))
