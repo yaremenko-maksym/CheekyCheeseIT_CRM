@@ -231,7 +231,7 @@ function DropIncomesTable() {
       <CardHeader className="pb-2 pt-4 px-5">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {t`МОЇ ПРИХОДИ`}
+            {t`МОЇ ДОХОДИ`}
           </span>
 
           {/* Filters */}
@@ -311,7 +311,7 @@ function DropIncomesTable() {
         ) : incomes.length === 0 ? (
           <div className="px-5 py-8 text-center">
             <p className="text-sm text-muted-foreground">
-              {hasFilters ? t`Немає приходів за обраними фільтрами` : t`Приходів ще немає`}
+              {hasFilters ? t`Немає доходів за обраними фільтрами` : t`Доходів ще немає`}
             </p>
             {hasFilters && (
               <Button variant="ghost" size="sm" className="mt-2 text-xs" onClick={resetFilters}>
@@ -354,7 +354,7 @@ function DropIncomesTable() {
                         className="block text-[10px] font-normal text-muted-foreground"
                         data-testid={`drop-income-amount-kind-${income.id}`}
                       >
-                        {income.model === 'declared' ? t`Валовий прихід` : t`Ваша частка`}
+                        {income.model === 'declared' ? t`Валовий дохід` : t`Ваша частка`}
                       </span>
                     </TableCell>
                     <TableCell>
@@ -504,7 +504,7 @@ export function DropFinancePage() {
           data-testid="drop-register-income-btn"
         >
           <Plus className="h-4 w-4 mr-1" aria-hidden="true" />
-          {t`Зареєструвати прихід`}
+          {t`Зареєструвати дохід`}
         </Button>
       </div>
       <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />

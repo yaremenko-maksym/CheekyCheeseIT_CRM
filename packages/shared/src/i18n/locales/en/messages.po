@@ -1281,7 +1281,7 @@ msgid "api-error.FINANCE_VALIDATE_WRONG_TYPE"
 msgstr "Only senior or drop income can be validated"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "Валовий прихід"
+msgid "Валовий дохід"
 msgstr "Gross income"
 
 #: apps/web/app/components/ui/amount-currency-input.tsx
@@ -1520,7 +1520,7 @@ msgid "Верстка резюме не зібралася. Змініть оф�
 msgstr "Could not build the resume PDF. Change the formatting or contact an admin."
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "Весь прихід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
+msgid "Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить зобов’язання виплатити сеньйору та дропу їхні частки."
 msgstr "The entire (gross) income will go to the selected recipient. The company will automatically create obligations to pay the senior and drop their shares."
 
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -3539,6 +3539,10 @@ msgstr "Only a drop can see drop income"
 msgid "Доходи на валідації та виплати в черзі"
 msgstr "Income in validation and queued payouts"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Доходів ще немає"
+msgstr "No income yet"
+
 #: apps/web/app/components/user-profile/UserProfileHeader.tsx
 msgid "Дошка співбесід"
 msgstr "Interview board"
@@ -3717,7 +3721,7 @@ msgid "api-error.FINANCE_DERIVATIVE_ROW_CURRENCY_PAIR_UNRESOLVABLE"
 msgstr "One of the shares was already paid in {settledCurrency} and its new amount is in {currency} — a manual reconciliation is needed"
 
 #: apps/web/app/routes/_authenticated/finance/components/CompanySharePayoutStrip.tsx
-msgid "За перевіреними приходами, які ще не включено в заявку на виплату"
+msgid "За перевіреними доходами, які ще не включено в заявку на виплату"
 msgstr "From validated income not yet included in a payout request"
 
 #: apps/web/app/routes/_authenticated/users/index.tsx
@@ -4112,7 +4116,7 @@ msgid "Зарахується на рахунок компанії (USDT)"
 msgstr "Will be credited to the company account (USDT)"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "Зареєструвати прихід"
+msgid "Зареєструвати дохід"
 msgstr "Register income"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsSparkline.tsx
@@ -5342,7 +5346,7 @@ msgid "Можна прикріпити пізніше в розділі «Про
 msgstr "You can attach one later in the Projects section"
 
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "МОЇ ПРИХОДИ"
+msgid "МОЇ ДОХОДИ"
 msgstr "MY INCOME"
 
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
@@ -5371,7 +5375,7 @@ msgstr "In the accountant's validation"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
-msgid "На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до адміністратора."
+msgid "На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до адміністратора."
 msgstr "On all of your projects, the administrator declares income (USDT). Contact the administrator."
 
 #: apps/web/app/components/not-found.tsx
@@ -6338,6 +6342,10 @@ msgstr "No access? Contact an admin."
 msgid "Немає доходів"
 msgstr "No income"
 
+#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
+msgid "Немає доходів за обраними фільтрами"
+msgstr "No income matches the selected filters"
+
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Немає доходів, що очікують валідації"
 msgstr "No income awaiting validation"
@@ -6402,10 +6410,6 @@ msgstr "You don't have permission to attach a receipt to this transaction"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/receipt-panel.tsx
 msgid "Немає прикріпленого чека"
 msgstr "No receipt attached"
-
-#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "Немає приходів за обраними фільтрами"
-msgstr "No income matches the selected filters"
 
 #: apps/web/app/components/users/UserDialog.tsx
 msgid "Немає проєктів без активного джуніора"
@@ -8316,10 +8320,6 @@ msgstr "Hide “{label}”"
 #: apps/web/app/components/user-profile/ProfileCredentialsSection.tsx
 msgid "Приховати пароль"
 msgstr "Hide password"
-
-#: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
-msgid "Приходів ще немає"
-msgstr "No income yet"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/notification-email-registry.ts

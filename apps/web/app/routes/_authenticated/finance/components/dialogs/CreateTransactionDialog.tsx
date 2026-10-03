@@ -1115,7 +1115,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 data-testid="senior-income-usdt-gate-hint"
               >
                 <Trans>
-                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до
                   адміністратора.
                 </Trans>
               </p>
@@ -1128,7 +1128,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 data-testid="drop-income-usdt-gate-hint"
               >
                 <Trans>
-                  На всіх ваших проєктах прихід декларує адміністратор (USDT). Звертайтеся до
+                  На всіх ваших проєктах дохід декларує адміністратор (USDT). Звертайтеся до
                   адміністратора.
                 </Trans>
               </p>
@@ -1199,7 +1199,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               {isSelectedProjectUsdt && (
                 <p className="text-xs text-muted-foreground">
                   <Trans>
-                    Весь прихід (gross) піде обраному отримувачу. Компанія автоматично створить
+                    Весь дохід (gross) піде обраному отримувачу. Компанія автоматично створить
                     зобов’язання виплатити сеньйору та дропу їхні частки.
                   </Trans>
                 </p>

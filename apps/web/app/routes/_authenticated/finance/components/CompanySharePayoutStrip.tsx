@@ -91,7 +91,7 @@ export function CompanySharePayoutStrip({
           {isMixedCurrency ? (
             <Trans>Кілька валют — точна сума у вікні</Trans>
           ) : (
-            <Trans>За перевіреними приходами, які ще не включено в заявку на виплату</Trans>
+            <Trans>За перевіреними доходами, які ще не включено в заявку на виплату</Trans>
           )}
         </span>
       </span>

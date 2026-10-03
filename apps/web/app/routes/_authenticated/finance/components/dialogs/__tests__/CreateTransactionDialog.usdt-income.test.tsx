@@ -466,7 +466,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('FOP Own Project')
     expect(
-      screen.queryByText(/Весь прихід \(gross\) піде обраному отримувачу/),
+      screen.queryByText(/Весь дохід \(gross\) піде обраному отримувачу/),
     ).not.toBeInTheDocument()
   })
 
@@ -475,7 +475,7 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     await selectProject('USDT Own Project')
     expect(
-      await screen.findByText(/Весь прихід \(gross\) піде обраному отримувачу/),
+      await screen.findByText(/Весь дохід \(gross\) піде обраному отримувачу/),
     ).toBeInTheDocument()
   })
 
