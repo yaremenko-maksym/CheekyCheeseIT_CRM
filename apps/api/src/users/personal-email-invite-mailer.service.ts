@@ -1,9 +1,11 @@
 /**
  * PersonalEmailInviteMailerService — task-user-emails-invite (spec §11, §12).
  *
- * Sends the "Access to CheekyCheeseIT CRM" invite email (rendered in the invitee's locale, uk/en) a PERSONAL
- * `user_emails` row gets at creation time (and again on an ADMIN resend —
- * see `UsersService.resendPersonalEmailInvite`). Reuses `ResendMailerService`
+ * Sends the "Access to CheekyCheeseIT CRM" invite email a PERSONAL `user_emails` row gets
+ * at creation time (and again on an ADMIN resend — see
+ * `UsersService.resendPersonalEmailInvite`). The copy lives in the `@crm/shared` catalog
+ * (`EMAIL_INVITE_MESSAGES`, uk source + en) and is rendered in the INVITEE's locale
+ * (`input.locale`), never the admin's. Reuses `ResendMailerService`
  * (task-landing-contact-and-hiring-strip) rather than a second HTTP client —
  * same `from`/reply-to config (`CONTACT_FROM_EMAIL` / `CONTACT_PUBLIC_EMAIL`),
  * no new env var.
