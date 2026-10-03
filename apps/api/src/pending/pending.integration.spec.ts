@@ -221,7 +221,11 @@ describe.skipIf(!hasDatabaseUrl())('PendingService.getPending — against real P
       const result = await pendingSvc.getPending(viewer(SENIOR_ID, 'SENIOR'))
 
       const projectItem = result.mine.find((i) => i.subjectId === projectId)
-      expect(projectItem).toMatchObject({ kind: 'PROJECT_APPROVAL', title: expect.any(String) })
+      expect(projectItem).toMatchObject({
+        kind: 'PROJECT_APPROVAL',
+        titleKind: 'PROJECT_APPROVAL',
+        titleParams: { projectName: expect.any(String) },
+      })
       expect(projectItem).not.toHaveProperty('currentPercent')
       expect(projectItem).not.toHaveProperty('pendingPercent')
 

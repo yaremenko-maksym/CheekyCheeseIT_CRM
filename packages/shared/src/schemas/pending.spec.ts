@@ -21,6 +21,7 @@ import {
   pendingItemSchema,
   pendingResponseClientSchema,
   pendingResponseSchema,
+  pendingTitleKindSchema,
 } from './pending'
 
 const uuid1 = 'a0000000-0000-4000-8000-000000000001'
@@ -33,7 +34,8 @@ const projectApprovalItem = {
   approvalId: approvalId1,
   subjectType: 'PROJECT' as const,
   subjectId: uuid1,
-  title: 'GamingTec',
+  titleKind: 'PROJECT_APPROVAL' as const,
+  titleParams: { projectName: 'GamingTec' },
   createdAt,
   actions: ['approve', 'reject', 'open'] as const,
   link: '/projects/' + uuid1,
@@ -46,7 +48,8 @@ const shareApprovalItem = {
   approvalId: approvalId1,
   subjectType: 'PROJECT' as const,
   subjectId: uuid1,
-  title: 'Доля по проекту «GamingTec»',
+  titleKind: 'SHARE_PROJECT' as const,
+  titleParams: { projectName: 'GamingTec' },
   createdAt,
   actions: ['approve', 'reject', 'open'] as const,
   link: '/projects/' + uuid1,
@@ -58,7 +61,8 @@ const contractItem = {
   kind: 'CONTRACT_TO_SIGN' as const,
   subjectType: 'USER' as const,
   subjectId: uuid2,
-  title: 'Ваш контракт',
+  titleKind: 'CONTRACT' as const,
+  titleParams: {},
   createdAt,
   actions: ['open'] as const,
   link: '/profile',
@@ -298,7 +302,6 @@ describe('COPY-L-6 (PR #667 fix-round 4): an unknown `kind` degrades, it does no
       kind: 'UNKNOWN',
       subjectId: uuid2,
       createdAt,
-      title: '',
       actions: [],
       link: '',
     })
@@ -333,5 +336,117 @@ describe('COPY-L-6 (PR #667 fix-round 4): an unknown `kind` degrades, it does no
   it('degrades in `proposedByMe` too — the observer zone reads the same payload', () => {
     const parsed = pendingResponseClientSchema.parse({ mine: [], proposedByMe: [futureItem] })
     expect(parsed.proposedByMe[0]?.kind).toBe('UNKNOWN')
+  })
+})
+
+describe('i18n server-text PR1: title is a kind + params, never a string', () => {
+  it('pendingTitleKindSchema is exactly the five kinds the registry renders', () => {
+    expect([...pendingTitleKindSchema.options]).toEqual([
+      'CONTRACT',
+      'SHARE_PROJECT',
+      'SHARE_BASE_MINE',
+      'SHARE_BASE_OTHER',
+      'PROJECT_APPROVAL',
+    ])
+  })
+
+  it('strips a legacy `title` from every variant (a stray server prose never reaches the client)', () => {
+    for (const item of [projectApprovalItem, shareApprovalItem, contractItem]) {
+      const parsed = pendingItemSchema.parse({ ...item, title: 'Ваш контракт' })
+      expect(parsed).not.toHaveProperty('title')
+    }
+  })
+
+  it('each variant admits only its own titleKind — a contract row cannot claim a share title', () => {
+    expect(
+      pendingItemSchema.safeParse({ ...contractItem, titleKind: 'SHARE_BASE_MINE' }).success,
+    ).toBe(false)
+    expect(
+      pendingItemSchema.safeParse({ ...shareApprovalItem, titleKind: 'CONTRACT' }).success,
+    ).toBe(false)
+    expect(
+      pendingItemSchema.safeParse({ ...projectApprovalItem, titleKind: 'SHARE_PROJECT' }).success,
+    ).toBe(false)
+    expect(pendingItemSchema.safeParse({ ...contractItem, titleKind: undefined }).success).toBe(
+      false,
+    )
+  })
+
+  it('a SHARE_APPROVAL row admits each of its three title kinds, and nothing else', () => {
+    const params = {
+      SHARE_PROJECT: { projectName: 'GamingTec' },
+      SHARE_BASE_MINE: {},
+      SHARE_BASE_OTHER: { seniorName: 'Олена' },
+    }
+    for (const titleKind of ['SHARE_PROJECT', 'SHARE_BASE_MINE', 'SHARE_BASE_OTHER'] as const) {
+      expect(
+        pendingItemSchema.parse({
+          ...shareApprovalItem,
+          titleKind,
+          titleParams: params[titleKind],
+        }),
+      ).toMatchObject({ titleKind })
+    }
+    expect(
+      pendingItemSchema.safeParse({ ...shareApprovalItem, titleKind: 'PROJECT_APPROVAL' }).success,
+    ).toBe(false)
+  })
+
+  it('a PROJECT_APPROVAL row must carry projectName — its whole title is that name', () => {
+    expect(pendingItemSchema.safeParse({ ...projectApprovalItem, titleParams: {} }).success).toBe(
+      false,
+    )
+  })
+
+  describe('CR-M-1: titleParams are required per titleKind', () => {
+    const share = (titleKind: string, titleParams: Record<string, string>) =>
+      pendingItemSchema.safeParse({ ...shareApprovalItem, titleKind, titleParams })
+
+    it('SHARE_PROJECT without projectName fails, and the issue points at it', () => {
+      const r = share('SHARE_PROJECT', {})
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'projectName'])
+      expect(r.error?.issues[0]?.code).toBe('custom')
+      expect(r.error?.issues[0]?.message).toBe(
+        'titleParams.projectName is required for titleKind SHARE_PROJECT',
+      )
+      // the wrong param does not satisfy it
+      expect(share('SHARE_PROJECT', { seniorName: 'Олена' }).success).toBe(false)
+      expect(share('SHARE_PROJECT', { projectName: 'GamingTec' }).success).toBe(true)
+    })
+
+    it('SHARE_BASE_OTHER without seniorName fails, and the issue points at it', () => {
+      const r = share('SHARE_BASE_OTHER', {})
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'seniorName'])
+      expect(r.error?.issues[0]?.code).toBe('custom')
+      expect(r.error?.issues[0]?.message).toBe(
+        'titleParams.seniorName is required for titleKind SHARE_BASE_OTHER',
+      )
+      expect(share('SHARE_BASE_OTHER', { projectName: 'GamingTec' }).success).toBe(false)
+      expect(share('SHARE_BASE_OTHER', { seniorName: 'Олена' }).success).toBe(true)
+    })
+
+    it('SHARE_BASE_MINE needs no param; an extra one is tolerated (the renderer ignores it)', () => {
+      expect(share('SHARE_BASE_MINE', {}).success).toBe(true)
+      expect(share('SHARE_BASE_MINE', { seniorName: 'Олена' }).success).toBe(true)
+    })
+
+    it('CONTRACT needs no param', () => {
+      expect(pendingItemSchema.safeParse({ ...contractItem, titleParams: {} }).success).toBe(true)
+    })
+
+    it('PROJECT_APPROVAL without projectName still fails', () => {
+      expect(
+        pendingItemSchema.safeParse({ ...projectApprovalItem, titleParams: { seniorName: 'x' } })
+          .success,
+      ).toBe(false)
+    })
+  })
+
+  it('accepts proposedBy: null (unresolvable proposer) and keeps it null', () => {
+    expect(pendingItemSchema.parse({ ...projectApprovalItem, proposedBy: null })).toMatchObject({
+      proposedBy: null,
+    })
   })
 })

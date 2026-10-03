@@ -167,15 +167,17 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     try {
       await loginViaApi(page, SEED_EMAILS.seniorA)
       await page.goto('/pending')
-      // Row-anchored, and deliberately NOT `getByText('Доля по умолчанию')`:
-      // since COPY-L-1 the toast says «Доля по умолчанию теперь 31%», which
-      // CONTAINS the row's title. A text-based "row is gone" assertion would
+      // Row-anchored, and deliberately NOT a bare `getByText` of the title:
+      // the toast says «Частка за замовчуванням тепер 31%», which CONTAINS
+      // the row's title. A text-based "row is gone" assertion would
       // therefore also wait for the toast to expire — and then the toast
       // assertion below could only ever look at an empty toast region
       // (measured: that is exactly how this test failed once).
       const shareRow = page.getByTestId(`pending-item-row-SHARE_APPROVAL-${seniorA.id}`)
       await expect(shareRow).toBeVisible()
-      await expect(shareRow).toContainText('Доля по умолчанию')
+      // The title is the client-rendered `pending.title.SHARE_BASE_MINE`
+      // catalog entry (the server only sends titleKind + titleParams).
+      await expect(shareRow).toContainText(assertInCatalog(uk, 'Частка за замовчуванням'))
       // The row's share phrase is one ICU `select` message («Зараз N% →
       // пропонують 31%»), so there is no single catalog string to look up —
       // the unit tests pin all four variants × uk/en; here the proposed
@@ -190,8 +192,8 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
       // poll), persistent second.
       // task-i18n-stage3a (Task 2): the CLIENT toast (useApproveSeniorShareChange)
       // is now uk via useLingui() — «Частка за замовчуванням тепер 31%». The
-      // row's own title above stays Russian (server-side, pending.service.ts —
-      // out of this PR's perimeter, stage 4 territory).
+      // row's own title above is client-rendered from the server's
+      // titleKind (no server prose any more).
       await expect(page.getByText(/Частка за замовчуванням тепер 31%/)).toBeVisible()
       await expect(shareRow).toBeHidden()
     } finally {
@@ -222,8 +224,8 @@ test.describe.serial('/pending — AC4: senior-share approval actions', () => {
     await patchUserSharePercentViaAPI(page, seniorB.id, { seniorSharePercent: 33 })
 
     await page.goto('/pending')
-    // Row-anchored: the person's name is in the row title («Доля по
-    // умолчанию — {имя}», COPY-M-4), and the same name also appears in the
+    // Row-anchored: the person's name is in the row title («Частка за
+    // замовчуванням — {ім’я}», COPY-M-4), and the same name also appears in the
     // users list this ADMIN view renders elsewhere — matching it as free
     // text is a strict-mode violation by construction.
     // (Before COPY-M-4 the name was printed twice inside this row alone:

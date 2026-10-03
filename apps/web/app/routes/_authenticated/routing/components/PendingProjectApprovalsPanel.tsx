@@ -1,7 +1,8 @@
 import { Clock } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
-import { Trans } from '@lingui/react/macro'
+import { Trans, useLingui } from '@lingui/react/macro'
+import { renderPendingTitle, resolveProposer } from '@/components/pending/pending-title'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { usePendingItems } from '@/hooks/use-pending-items'
@@ -71,6 +72,7 @@ export const card = {
  * a field out of a DTO that carried both.
  */
 export function PendingProjectApprovalsPanel() {
+  const { i18n } = useLingui()
   const { mine, isLoading, isError, dataUpdatedAt } = usePendingItems()
   const pending = mine.filter((item) => item.kind === 'PROJECT_APPROVAL')
   const [dismissedIds, setDismissedIds] = useState<ReadonlySet<string>>(new Set())
@@ -133,55 +135,58 @@ export function PendingProjectApprovalsPanel() {
           </div>
         </CardHeader>
         <CardContent className="space-y-2 px-5 pb-4">
-          {visiblePending.map((item) => (
-            <div
-              key={item.subjectId}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 bg-muted/20 px-3 py-2"
-              data-testid={`pending-project-approval-${item.subjectId}`}
-            >
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium">{item.title}</p>
-                {item.proposedBy ? (
-                  // COPY-H-1 (PR #667 fix-round 3): present tense —
-                  // `proposedBy` is a displayName with no gender attached, so
-                  // the past tense «Предложил Ірина Савенко» was wrong for
-                  // half the names the field can hold. Same resolution #648
-                  // reached for «Подтверждает {имя}», and the same wording
-                  // the /pending row uses for this very item.
-                  <p className="truncate text-xs text-muted-foreground">
-                    <Trans>Пропонує {item.proposedBy}</Trans>
-                  </p>
-                ) : null}
-                {/* COPY-L-4 / COPY-L-7 (PR #646 fix-rounds 3-4) are kept
+          {visiblePending.map((item) => {
+            const proposer = resolveProposer(i18n, item.proposedBy)
+            return (
+              <div
+                key={item.subjectId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border/40 bg-muted/20 px-3 py-2"
+                data-testid={`pending-project-approval-${item.subjectId}`}
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{renderPendingTitle(i18n, item)}</p>
+                  {proposer ? (
+                    // COPY-H-1 (PR #667 fix-round 3): present tense —
+                    // `proposedBy` is a displayName with no gender attached, so
+                    // the past tense «Предложил Ірина Савенко» was wrong for
+                    // half the names the field can hold. Same resolution #648
+                    // reached for «Подтверждает {имя}», and the same wording
+                    // the /pending row uses for this very item.
+                    <p className="truncate text-xs text-muted-foreground">
+                      <Trans>Пропонує {proposer}</Trans>
+                    </p>
+                  ) : null}
+                  {/* COPY-L-4 / COPY-L-7 (PR #646 fix-rounds 3-4) are kept
                     verbatim in behaviour: a missing figure gets a WHOLE
                     replacement sentence rather than an em-dash dropped into
                     the normal template (a bare "Ваша доля: —%" reads as a
                     real value), and that sentence is `line-clamp-2`, not
                     `truncate`, because at 320px `truncate` was cutting off
                     the actionable half of it. */}
-                {item.viewerSharePercent != null ? (
-                  <p className="truncate text-[11px] text-amber-300/70">
-                    {item.seniorName ? (
-                      <Trans>
-                        Ваша частка: {item.viewerSharePercent}% · сеньйор: {item.seniorName}
-                      </Trans>
-                    ) : (
-                      <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
-                    )}
-                  </p>
-                ) : (
-                  <p className="line-clamp-2 text-[11px] text-amber-300/70">
-                    <Trans>Частка невідома. Оновіть сторінку</Trans>
-                  </p>
-                )}
+                  {item.viewerSharePercent != null ? (
+                    <p className="truncate text-[11px] text-amber-300/70">
+                      {item.seniorName ? (
+                        <Trans>
+                          Ваша частка: {item.viewerSharePercent}% · сеньйор: {item.seniorName}
+                        </Trans>
+                      ) : (
+                        <Trans>Ваша частка: {item.viewerSharePercent}%</Trans>
+                      )}
+                    </p>
+                  ) : (
+                    <p className="line-clamp-2 text-[11px] text-amber-300/70">
+                      <Trans>Частка невідома. Оновіть сторінку</Trans>
+                    </p>
+                  )}
+                </div>
+                <ProjectApprovalActions
+                  projectId={item.subjectId}
+                  companyName={item.titleParams.projectName}
+                  onActed={() => setDismissedIds((prev) => new Set(prev).add(item.subjectId))}
+                />
               </div>
-              <ProjectApprovalActions
-                projectId={item.subjectId}
-                companyName={item.title}
-                onActed={() => setDismissedIds((prev) => new Set(prev).add(item.subjectId))}
-              />
-            </div>
-          ))}
+            )
+          })}
         </CardContent>
       </Card>
     </motion.div>

@@ -42,7 +42,8 @@ function item(overrides: Partial<ProjectApprovalItem>): PendingItem {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
     subjectId: 'subj-1',
-    title: 'Acme Corp',
+    titleKind: 'PROJECT_APPROVAL',
+    titleParams: { projectName: 'Acme Corp' },
     createdAt: new Date().toISOString(),
     actions: ['approve', 'reject'],
     link: '/projects/subj-1',
@@ -74,7 +75,10 @@ describe('PendingKindSection', () => {
         kind="PROJECT_APPROVAL"
         title="Проєкти"
         icon={Briefcase}
-        items={[item({ subjectId: 'p1' }), item({ subjectId: 'p2', title: 'Other Co' })]}
+        items={[
+          item({ subjectId: 'p1' }),
+          item({ subjectId: 'p2', titleParams: { projectName: 'Other Co' } }),
+        ]}
         zone="mine"
         onActed={vi.fn()}
       />,

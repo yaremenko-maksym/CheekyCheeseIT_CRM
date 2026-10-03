@@ -11,7 +11,7 @@ import { fireEvent, render as rtlRender, screen } from '@testing-library/react'
 import type { RenderOptions } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { PendingItem } from '@crm/shared'
+import type { PendingItem, PendingTitleKind, PendingTitleParams } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { PendingItemRow } from '../PendingItemRow'
 
@@ -70,8 +70,9 @@ interface ItemOverrides {
   kind?: PendingItem['kind']
   subjectType?: PendingItem['subjectType']
   subjectId?: string
-  title?: string
-  proposedBy?: string
+  titleKind?: PendingTitleKind
+  titleParams?: PendingTitleParams
+  proposedBy?: string | null
   /** `| undefined` explicitly (the project runs `exactOptionalPropertyTypes`):
    * one case below passes the KEY with an undefined VALUE, which is a shape
    * the row has to survive and a different one from omitting the key. */
@@ -86,12 +87,22 @@ interface ItemOverrides {
   pendingPercent?: number
 }
 
+// Each kind's own default title kind — a share row defaults to the plain
+// «default share» title, a contract to the contract title; tests that care
+// about a specific wording pass `titleKind`/`titleParams` explicitly.
+const DEFAULT_TITLE_KIND: Record<string, PendingTitleKind> = {
+  PROJECT_APPROVAL: 'PROJECT_APPROVAL',
+  SHARE_APPROVAL: 'SHARE_BASE_MINE',
+  CONTRACT_TO_SIGN: 'CONTRACT',
+}
+
 function item(overrides: ItemOverrides): PendingItem {
   return {
     kind: 'PROJECT_APPROVAL',
     subjectType: 'PROJECT',
     subjectId: 'subj-1',
-    title: 'Acme Corp',
+    titleKind: DEFAULT_TITLE_KIND[overrides.kind ?? 'PROJECT_APPROVAL'] ?? 'PROJECT_APPROVAL',
+    titleParams: { projectName: 'Acme Corp' },
     createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(), // ~3 days ago
     actions: ['approve', 'reject', 'open'],
     link: '/projects/subj-1',
@@ -100,6 +111,13 @@ function item(overrides: ItemOverrides): PendingItem {
     seniorName: null,
     ...overrides,
   } as unknown as PendingItem
+}
+
+/** The shape of a row this bundle cannot title: no `titleKind` at all (what
+ * COPY-L-6's degraded unknown-kind row carries). */
+function noTitleItem(overrides: ItemOverrides): PendingItem {
+  const { titleKind: _k, titleParams: _p, ...rest } = item(overrides)
+  return rest as unknown as PendingItem
 }
 
 /**
@@ -223,7 +241,7 @@ describe('PendingItemRow — SHARE_APPROVAL', () => {
       <PendingItemRow
         item={item({
           kind: 'SHARE_APPROVAL',
-          title: 'Доля по умолчанию',
+          titleKind: 'SHARE_BASE_MINE',
           currentPercent: 26,
           pendingPercent: 30,
           subjectType: 'USER',
@@ -442,12 +460,13 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
   it('title + "Готовий до підпису" badge as SEPARATE flex items, meta is давность only, single primary Відкрити, no approve/reject', () => {
     render(
       <PendingItemRow
-        item={item({ kind: 'CONTRACT_TO_SIGN', title: 'Ваш контракт', actions: ['open'] })}
+        item={item({ kind: 'CONTRACT_TO_SIGN', titleKind: 'CONTRACT', actions: ['open'] })}
         zone="mine"
         onActed={vi.fn()}
       />,
     )
     expect(screen.getByText('Ваш контракт')).toBeInTheDocument()
+    expect(screen.getByText('Ваш контракт')).toHaveAttribute('title', 'Ваш контракт')
     // COPY-M-2: same capitalisation as the same status in `ContractTab`
     // («Готовий до підпису») — one status, one spelling.
     expect(screen.getByText('Готовий до підпису')).toBeInTheDocument()
@@ -461,7 +480,7 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
       <PendingItemRow
         item={item({
           kind: 'CONTRACT_TO_SIGN',
-          title: 'Ваш контракт',
+          titleKind: 'CONTRACT',
           actions: ['open'],
           createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
         })}
@@ -643,7 +662,7 @@ describe('PendingItemRow — M-14 / H-4 copy in both languages', () => {
   })
 
   it('uk + en: the contract status is the ONE canon from the documents hub', async () => {
-    const contract = item({ kind: 'CONTRACT_TO_SIGN', title: 'Contract', actions: ['open'] })
+    const contract = item({ kind: 'CONTRACT_TO_SIGN', titleKind: 'CONTRACT', actions: ['open'] })
     const { unmount } = render(<PendingItemRow item={contract} zone="mine" onActed={vi.fn()} />)
     expect(screen.getByText('Готовий до підпису')).toBeInTheDocument()
     unmount()
@@ -656,7 +675,7 @@ describe('PendingItemRow — M-14 / H-4 copy in both languages', () => {
     await loadCatalog('en')
     render(
       <PendingItemRow
-        item={item({ title: '', waitingFor: ['Iryna'], actions: ['open'] })}
+        item={noTitleItem({ waitingFor: ['Iryna'], actions: ['open'] })}
         zone="proposedByMe"
         onActed={vi.fn()}
       />,
@@ -735,13 +754,14 @@ describe('PendingItemRow — COPY-M-3: «запропоновано» also cover
 })
 
 describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does not repeat the name', () => {
-  it('drops the «Чекаємо: …» segment — the title already names the senior («Доля по умолчанию — Имя»)', () => {
+  it('drops the «Чекаємо: …» segment — the title already names the senior («Частка за замовчуванням — Ім’я»)', () => {
     render(
       <PendingItemRow
         item={item({
           kind: 'SHARE_APPROVAL',
           subjectType: 'USER',
-          title: 'Доля по умолчанию — Олексій Коваленко',
+          titleKind: 'SHARE_BASE_OTHER',
+          titleParams: { seniorName: 'Олексій Коваленко' },
           currentPercent: 26,
           pendingPercent: 30,
           waitingFor: ['Олексій Коваленко'],
@@ -751,8 +771,14 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText('Доля по умолчанию — Олексій Коваленко')).toBeInTheDocument()
+    expect(screen.getByText('Частка за замовчуванням — Олексій Коваленко')).toBeInTheDocument()
     expect(metaText()).not.toMatch(/Чекаємо/)
+    // UX-M-1: the title is truncated on one line from 640px — the native
+    // tooltip carries the full string so the senior's name stays reachable.
+    expect(screen.getByText('Частка за замовчуванням — Олексій Коваленко')).toHaveAttribute(
+      'title',
+      'Частка за замовчуванням — Олексій Коваленко',
+    )
     // COPY-M-8 (fix-round 4): and what is left collapses back onto ONE line —
     // dropping «Чекаємо» left two segments, and a third text line for the
     // relative time alone weighed a timestamp the same as the percentages.
@@ -765,7 +791,8 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
         item={item({
           kind: 'SHARE_APPROVAL',
           subjectType: 'PROJECT',
-          title: 'Доля по проекту «TechFlow»',
+          titleKind: 'SHARE_PROJECT',
+          titleParams: { projectName: 'TechFlow' },
           currentPercent: 26,
           pendingPercent: 30,
           waitingFor: ['Олексій Коваленко'],
@@ -784,7 +811,7 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
         item={item({
           kind: 'SHARE_APPROVAL',
           subjectType: 'USER',
-          title: 'Доля по умолчанию',
+          titleKind: 'SHARE_BASE_MINE',
           currentPercent: 26,
           pendingPercent: 30,
           actions: ['approve', 'reject'],
@@ -861,10 +888,10 @@ describe('PendingItemRow — COPY-M-5: the segments that must not break mid-phra
 })
 
 describe('PendingItemRow — COPY-L-4: an unknown kind never renders a mute row', () => {
-  it('falls back to «Запит на дію» when the server sent no title', () => {
+  it('falls back to «Запит на дію» when the row carries no title kind', () => {
     render(
       <PendingItemRow
-        item={item({ kind: 'SOMETHING_NEW' as PendingItem['kind'], title: '', actions: ['open'] })}
+        item={noTitleItem({ kind: 'SOMETHING_NEW' as PendingItem['kind'], actions: ['open'] })}
         zone="mine"
         onActed={vi.fn()}
       />,
@@ -872,20 +899,86 @@ describe('PendingItemRow — COPY-L-4: an unknown kind never renders a mute row'
     expect(screen.getByText('Запит на дію')).toBeInTheDocument()
   })
 
-  it('uses the real title when there is one — the fallback is a fallback, not a replacement', () => {
+  it('the fallback is a fallback, not a replacement — a row WITH a title kind renders its catalog title', () => {
     render(
       <PendingItemRow
         item={item({
-          kind: 'SOMETHING_NEW' as PendingItem['kind'],
-          title: 'Согласование отпуска',
-          actions: ['open'],
+          kind: 'SHARE_APPROVAL',
+          titleKind: 'SHARE_PROJECT',
+          titleParams: { projectName: 'TechFlow' },
+          subjectType: 'PROJECT',
+          currentPercent: 26,
+          pendingPercent: 30,
         })}
         zone="mine"
         onActed={vi.fn()}
       />,
     )
-    expect(screen.getByText('Согласование отпуска')).toBeInTheDocument()
+    expect(screen.getByText('Частка за проєктом «TechFlow»')).toBeInTheDocument()
     expect(screen.queryByText('Запит на дію')).not.toBeInTheDocument()
+  })
+})
+
+describe('PendingItemRow — i18n server-text PR1: the title is rendered from kind + params in the viewer locale', () => {
+  const shareBaseOther = item({
+    kind: 'SHARE_APPROVAL',
+    subjectType: 'USER',
+    titleKind: 'SHARE_BASE_OTHER',
+    titleParams: { seniorName: 'Олексій' },
+    currentPercent: 26,
+    pendingPercent: 30,
+    actions: ['cancel'],
+  })
+
+  it('uk: SHARE_BASE_OTHER reads «Частка за замовчуванням — Олексій» (the name is substituted, nominative, untouched)', () => {
+    render(<PendingItemRow item={shareBaseOther} zone="proposedByMe" onActed={vi.fn()} />)
+    expect(screen.getByText('Частка за замовчуванням — Олексій')).toBeInTheDocument()
+  })
+
+  it('en: the same row reads «Default share — Олексій» — a second original, not the uk text', async () => {
+    await loadCatalog('en')
+    render(<PendingItemRow item={shareBaseOther} zone="proposedByMe" onActed={vi.fn()} />)
+    expect(screen.getByText('Default share — Олексій')).toBeInTheDocument()
+  })
+
+  it('en: the contract and project-approval titles read in English too', async () => {
+    await loadCatalog('en')
+    const { unmount } = render(
+      <PendingItemRow
+        item={item({ kind: 'CONTRACT_TO_SIGN', titleKind: 'CONTRACT', actions: ['open'] })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByText('Your contract')).toBeInTheDocument()
+    unmount()
+    render(<PendingItemRow item={item({})} zone="mine" onActed={vi.fn()} />)
+    expect(screen.getByText('Acme Corp')).toBeInTheDocument()
+  })
+
+  it('PROJECT_APPROVAL hands the project name from titleParams — not a composed title — to the approval actions', () => {
+    render(
+      <PendingItemRow
+        item={item({ titleParams: { projectName: 'TechFlow Solutions' } })}
+        zone="mine"
+        onActed={vi.fn()}
+      />,
+    )
+    expect(screen.getByTestId('stub-project-approval-actions')).toHaveTextContent(
+      'subj-1:TechFlow Solutions',
+    )
+  })
+
+  it('uk: an unknown proposer (proposedBy: null) renders the localized «Невідомо», never the old Russian placeholder', () => {
+    render(<PendingItemRow item={item({ proposedBy: null })} zone="mine" onActed={vi.fn()} />)
+    expect(metaText()).toMatch(/^Пропонує Невідомо ·/)
+    expect(metaText()).not.toMatch(/Неизвестно/)
+  })
+
+  it('en: an unknown proposer reads «Proposed by Unknown»', async () => {
+    await loadCatalog('en')
+    render(<PendingItemRow item={item({ proposedBy: null })} zone="mine" onActed={vi.fn()} />)
+    expect(metaText()).toMatch(/^Proposed by Unknown ·/)
   })
 })
 

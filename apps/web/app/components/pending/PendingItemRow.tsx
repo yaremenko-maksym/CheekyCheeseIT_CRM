@@ -12,6 +12,7 @@ import { DOCUMENT_STATUS_MESSAGES } from '@/components/documents/document-labels
 import { ProjectApprovalActions } from '@/components/projects/ProjectApprovalActions'
 import { CancelPendingShareButton } from '@/components/pending-share/cancel-pending-share'
 import { SeniorShareApprovalActions } from '@/components/pending/SeniorShareApprovalActions'
+import { renderPendingTitle, resolveProposer } from '@/components/pending/pending-title'
 import { formatRelativeTime } from '@crm/shared'
 import type { Locale, PendingItem, PendingItemOrUnknown } from '@crm/shared'
 
@@ -85,7 +86,8 @@ function metaLinesFor(
     // carrying no gender, so the past tense «Предложил» was wrong for half
     // the names it can hold — the same defect #648 already fixed once by
     // switching to «Подтверждает {имя}».
-    return [item.proposedBy ? [{ text: i18n._(msg`Пропонує ${item.proposedBy}`) }, rel] : [rel]]
+    const proposer = resolveProposer(i18n, item.proposedBy)
+    return [proposer ? [{ text: i18n._(msg`Пропонує ${proposer}`) }, rel] : [rel]]
   }
 
   if (item.kind === 'SHARE_APPROVAL') {
@@ -177,7 +179,7 @@ function renderActions(item: PendingItemOrUnknown, zone: PendingZone, onActed: (
       return (
         <ProjectApprovalActions
           projectId={item.subjectId}
-          companyName={item.title}
+          companyName={item.titleParams.projectName}
           onActed={onActed}
         />
       )
@@ -241,6 +243,7 @@ export interface PendingItemRowProps {
 export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
   const { t, i18n } = useLingui()
   const locale = useLocale()
+  const title = renderPendingTitle(i18n, item) ?? t`Запит на дію`
   return (
     <div
       className={cn(
@@ -272,7 +275,9 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           // 320px when they shared one `<p>` (see design spec §6.3's own
           // writeup of that fix).
           <div className="item-title-row flex flex-wrap items-center gap-1.5">
-            <p className="min-w-10 flex-1 truncate text-sm font-medium">{item.title}</p>
+            <p className="min-w-10 flex-1 truncate text-sm font-medium" title={title}>
+              {title}
+            </p>
             <Badge variant="default" className="flex-none">
               {/* COPY-M-2 (fix-round 3) / COPY-H-docs-4 (wave e): the SAME status of
                   the same object reads the same everywhere — the wording lives
@@ -285,12 +290,18 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           // §10.4: one line + truncate from 640px up, 2-line wrap-anywhere
           // below it — an 80-char project/share title must not push the
           // action buttons off the row (AC7).
-          <p className="line-clamp-2 wrap-anywhere text-sm font-medium sm:line-clamp-none sm:truncate">
+          // UX-M-1: `title` = the full rendered string, so a truncated name
+          // (768px uk: «Частка за замовчуванням — {seniorName}») stays
+          // reachable by hover / long-press.
+          <p
+            className="line-clamp-2 wrap-anywhere text-sm font-medium sm:line-clamp-none sm:truncate"
+            title={title}
+          >
             {/* COPY-L-4 (fix-round 3) / design spec §6.5: a forward-compatible
                 unknown kind with no title used to render a row of nothing but
                 a date — the graceful degradation stopped being honest exactly
                 where it exists for. */}
-            {item.title || t`Запит на дію`}
+            {title}
           </p>
         )}
         <div data-testid={`pending-item-meta-${item.subjectId}`}>

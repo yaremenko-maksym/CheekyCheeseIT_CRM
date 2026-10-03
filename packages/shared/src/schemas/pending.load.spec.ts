@@ -26,7 +26,8 @@ const contractItem = {
   kind: 'CONTRACT_TO_SIGN' as const,
   subjectType: 'USER' as const,
   subjectId: uuid,
-  title: 'Ваш контракт',
+  titleKind: 'CONTRACT' as const,
+  titleParams: {},
   createdAt,
   actions: ['open'] as const,
   link: '/profile',
@@ -45,6 +46,6 @@ describe('pending.ts — the unions are populated at module load, not merely dec
     expect(pendingItemClientSchema.parse(contractItem)).toEqual(contractItem)
     expect(
       pendingItemClientSchema.parse({ kind: 'PAYOUT_TO_CONFIRM', subjectId: uuid, createdAt }),
-    ).toEqual({ kind: 'UNKNOWN', subjectId: uuid, createdAt, title: '', actions: [], link: '' })
+    ).toEqual({ kind: 'UNKNOWN', subjectId: uuid, createdAt, actions: [], link: '' })
   })
 })
