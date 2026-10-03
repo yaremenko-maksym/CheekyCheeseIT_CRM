@@ -233,14 +233,6 @@ function invoiceFailureStage(
   return null
 }
 
-/**
- * server-text PR3 — the prose the company account used to be booked under
- * before it became the `COMPANY_ACCOUNT_LABEL` code. Accepted ONLY by
- * `isInternalCompanySide`, so rows not yet reached by the data migration are
- * still masked for non-privileged viewers. Never written.
- */
-const LEGACY_COMPANY_ACCOUNT_LABEL = 'Счёт компании'
-
 @Injectable()
 export class TransactionsService {
   // Invoice triggers fire on best-effort and only log failures so a hiccup in
@@ -827,10 +819,9 @@ export class TransactionsService {
    * enumerate the admin profile via a leaked id.
    *
    * The account pool is recognised by its label code (`COMPANY_ACCOUNT_LABEL`)
-   * or the legacy Russian alias that CompanyAccountService booked before
-   * server-text PR3 (still accepted until the data migration ran in prod) or, as a
-   * defensive fallback for legacy rows, a company-account-funded row whose side
-   * carries no user id. An ADMIN partner is recognised by the joined role.
+   * or, as a defensive fallback, a company-account-funded row whose side
+   * carries no user id. The pre-server-text-PR3 Russian prose alias is no longer
+   * recognised (prod has no such rows; nothing writes it). An ADMIN partner is recognised by the joined role.
    *
    * NOTE: the actual recipient of a company payout (the drop/senior — a
    * non-ADMIN user with their own id) is never an internal party, so viewers
@@ -844,10 +835,6 @@ export class TransactionsService {
   ): boolean {
     const isCompanyAccount =
       sideLabel === COMPANY_ACCOUNT_LABEL ||
-      // Legacy prose marker — rows written before server-text PR3. Kept during
-      // rollout until the data migration has run in prod; then removed (PR3
-      // Step 11, tracked in the PR body).
-      sideLabel === LEGACY_COMPANY_ACCOUNT_LABEL ||
       (fundingSource === 'COMPANY_ACCOUNT' && (sideId === null || sideId === undefined))
     const isAdminPartner = !!sideId && sideRole === 'ADMIN'
     // MED-1 (security review PR #384): `transactions.senderId → users.id` is

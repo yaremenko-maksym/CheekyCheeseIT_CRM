@@ -53,6 +53,7 @@ vi.mock('@/lib/axios', () => ({
 // on the rendered amount text).
 vi.mock('@crm/shared', () => ({
   totalEarnedSchema: { parse: (x: unknown) => x },
+  COMPANY_ACCOUNT_LABEL: 'COMPANY',
   resolveLocale: () => 'uk' as const,
   formatMoney: (amount: number | string, currency: string) => {
     const n = Number(amount)
