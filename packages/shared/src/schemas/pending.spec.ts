@@ -373,10 +373,19 @@ describe('i18n server-text PR1: title is a kind + params, never a string', () =>
   })
 
   it('a SHARE_APPROVAL row admits each of its three title kinds, and nothing else', () => {
+    const params = {
+      SHARE_PROJECT: { projectName: 'GamingTec' },
+      SHARE_BASE_MINE: {},
+      SHARE_BASE_OTHER: { seniorName: 'Олена' },
+    }
     for (const titleKind of ['SHARE_PROJECT', 'SHARE_BASE_MINE', 'SHARE_BASE_OTHER'] as const) {
-      expect(pendingItemSchema.parse({ ...shareApprovalItem, titleKind })).toMatchObject({
-        titleKind,
-      })
+      expect(
+        pendingItemSchema.parse({
+          ...shareApprovalItem,
+          titleKind,
+          titleParams: params[titleKind],
+        }),
+      ).toMatchObject({ titleKind })
     }
     expect(
       pendingItemSchema.safeParse({ ...shareApprovalItem, titleKind: 'PROJECT_APPROVAL' }).success,
@@ -387,6 +396,44 @@ describe('i18n server-text PR1: title is a kind + params, never a string', () =>
     expect(pendingItemSchema.safeParse({ ...projectApprovalItem, titleParams: {} }).success).toBe(
       false,
     )
+  })
+
+  describe('CR-M-1: titleParams are required per titleKind', () => {
+    const share = (titleKind: string, titleParams: Record<string, string>) =>
+      pendingItemSchema.safeParse({ ...shareApprovalItem, titleKind, titleParams })
+
+    it('SHARE_PROJECT without projectName fails, and the issue points at it', () => {
+      const r = share('SHARE_PROJECT', {})
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'projectName'])
+      // the wrong param does not satisfy it
+      expect(share('SHARE_PROJECT', { seniorName: 'Олена' }).success).toBe(false)
+      expect(share('SHARE_PROJECT', { projectName: 'GamingTec' }).success).toBe(true)
+    })
+
+    it('SHARE_BASE_OTHER without seniorName fails, and the issue points at it', () => {
+      const r = share('SHARE_BASE_OTHER', {})
+      expect(r.success).toBe(false)
+      expect(r.error?.issues[0]?.path).toEqual(['titleParams', 'seniorName'])
+      expect(share('SHARE_BASE_OTHER', { projectName: 'GamingTec' }).success).toBe(false)
+      expect(share('SHARE_BASE_OTHER', { seniorName: 'Олена' }).success).toBe(true)
+    })
+
+    it('SHARE_BASE_MINE needs no param; an extra one is tolerated (the renderer ignores it)', () => {
+      expect(share('SHARE_BASE_MINE', {}).success).toBe(true)
+      expect(share('SHARE_BASE_MINE', { seniorName: 'Олена' }).success).toBe(true)
+    })
+
+    it('CONTRACT needs no param', () => {
+      expect(pendingItemSchema.safeParse({ ...contractItem, titleParams: {} }).success).toBe(true)
+    })
+
+    it('PROJECT_APPROVAL without projectName still fails', () => {
+      expect(
+        pendingItemSchema.safeParse({ ...projectApprovalItem, titleParams: { seniorName: 'x' } })
+          .success,
+      ).toBe(false)
+    })
   })
 
   it('accepts proposedBy: null (unresolvable proposer) and keeps it null', () => {

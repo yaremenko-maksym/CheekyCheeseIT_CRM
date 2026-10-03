@@ -275,7 +275,9 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           // 320px when they shared one `<p>` (see design spec §6.3's own
           // writeup of that fix).
           <div className="item-title-row flex flex-wrap items-center gap-1.5">
-            <p className="min-w-10 flex-1 truncate text-sm font-medium">{title}</p>
+            <p className="min-w-10 flex-1 truncate text-sm font-medium" title={title}>
+              {title}
+            </p>
             <Badge variant="default" className="flex-none">
               {/* COPY-M-2 (fix-round 3) / COPY-H-docs-4 (wave e): the SAME status of
                   the same object reads the same everywhere — the wording lives
@@ -288,7 +290,13 @@ export function PendingItemRow({ item, zone, onActed }: PendingItemRowProps) {
           // §10.4: one line + truncate from 640px up, 2-line wrap-anywhere
           // below it — an 80-char project/share title must not push the
           // action buttons off the row (AC7).
-          <p className="line-clamp-2 wrap-anywhere text-sm font-medium sm:line-clamp-none sm:truncate">
+          // UX-M-1: `title` = the full rendered string, so a truncated name
+          // (768px uk: «Частка за замовчуванням — {seniorName}») stays
+          // reachable by hover / long-press.
+          <p
+            className="line-clamp-2 wrap-anywhere text-sm font-medium sm:line-clamp-none sm:truncate"
+            title={title}
+          >
             {/* COPY-L-4 (fix-round 3) / design spec §6.5: a forward-compatible
                 unknown kind with no title used to render a row of nothing but
                 a date — the graceful degradation stopped being honest exactly

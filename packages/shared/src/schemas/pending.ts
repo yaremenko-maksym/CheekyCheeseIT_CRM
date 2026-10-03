@@ -154,6 +154,24 @@ const pendingItemBaseSchema = z.object({
  */
 const approvalIdField = z.string().uuid()
 
+/**
+ * CR-M-1 (PR #744 review): which `titleParams` key each SHARE_APPROVAL title
+ * kind cannot render without (`null` = no param). The outer union is keyed by
+ * `kind`, but `kind: 'SHARE_APPROVAL'` fans out to THREE title kinds with
+ * different requirements, so the pairing can only be keyed by `titleKind` —
+ * a `superRefine` on that one variant (PROJECT_APPROVAL already requires
+ * `projectName` through its own `titleParams` override; CONTRACT needs none).
+ * `satisfies` rather than `as const`, so Stryker can still mutate the values.
+ */
+const SHARE_TITLE_REQUIRED_PARAM = {
+  SHARE_PROJECT: 'projectName',
+  SHARE_BASE_MINE: null,
+  SHARE_BASE_OTHER: 'seniorName',
+} satisfies Record<
+  'SHARE_PROJECT' | 'SHARE_BASE_MINE' | 'SHARE_BASE_OTHER',
+  keyof PendingTitleParams | null
+>
+
 export const pendingItemSchema = z.discriminatedUnion('kind', [
   /**
    * `currentPercent`/`pendingPercent` do not exist on this variant's shape
@@ -223,24 +241,39 @@ export const pendingItemSchema = z.discriminatedUnion('kind', [
    * "raw pending value" — the resolved fallback number is what the viewer
    * needs to see.
    */
-  pendingItemBaseSchema.extend({
-    kind: z.literal('SHARE_APPROVAL'),
-    titleKind: z.enum(['SHARE_PROJECT', 'SHARE_BASE_MINE', 'SHARE_BASE_OTHER']),
-    approvalId: approvalIdField,
-    /**
-     * Per kind: `SHARE_APPROVAL` → `'USER'` for a person's own base share,
-     * `'PROJECT'` for a project-level override (`PendingService` sets the
-     * literal directly per branch — both values are legitimate for this
-     * kind, unlike PROJECT_APPROVAL/CONTRACT_TO_SIGN's fixed single value).
-     * REQUIRED rather than optional so the client needs no fail-safe
-     * default: PR #667's web half had to guess `'project'` on a missing
-     * value, which would have routed a base-share decision at a project
-     * endpoint.
-     */
-    subjectType: pendingItemSubjectTypeSchema,
-    currentPercent: z.number().int().min(0).max(100),
-    pendingPercent: z.number().int().min(0).max(100),
-  }),
+  pendingItemBaseSchema
+    .extend({
+      kind: z.literal('SHARE_APPROVAL'),
+      titleKind: z.enum(['SHARE_PROJECT', 'SHARE_BASE_MINE', 'SHARE_BASE_OTHER']),
+      approvalId: approvalIdField,
+      /**
+       * Per kind: `SHARE_APPROVAL` → `'USER'` for a person's own base share,
+       * `'PROJECT'` for a project-level override (`PendingService` sets the
+       * literal directly per branch — both values are legitimate for this
+       * kind, unlike PROJECT_APPROVAL/CONTRACT_TO_SIGN's fixed single value).
+       * REQUIRED rather than optional so the client needs no fail-safe
+       * default: PR #667's web half had to guess `'project'` on a missing
+       * value, which would have routed a base-share decision at a project
+       * endpoint.
+       */
+      subjectType: pendingItemSubjectTypeSchema,
+      currentPercent: z.number().int().min(0).max(100),
+      pendingPercent: z.number().int().min(0).max(100),
+    })
+    .superRefine((item, ctx) => {
+      // An extra param (e.g. `seniorName` on SHARE_BASE_MINE) is not an error:
+      // Zod's default object mode strips nothing here (both keys are declared on
+      // the base), and the client renderer simply ignores what its template
+      // does not use — only a MISSING required param would render a hole.
+      const required = SHARE_TITLE_REQUIRED_PARAM[item.titleKind]
+      if (required !== null && item.titleParams[required] === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['titleParams', required],
+          message: `titleParams.${required} is required for titleKind ${item.titleKind}`,
+        })
+      }
+    }),
   /**
    * Contracts are not `approvals` rows (`PendingService.buildContractItem`
    * queries `employee_contracts` directly) — no `approvalId`, no percent or

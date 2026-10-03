@@ -466,6 +466,7 @@ describe('PendingItemRow — CONTRACT_TO_SIGN', () => {
       />,
     )
     expect(screen.getByText('Ваш контракт')).toBeInTheDocument()
+    expect(screen.getByText('Ваш контракт')).toHaveAttribute('title', 'Ваш контракт')
     // COPY-M-2: same capitalisation as the same status in `ContractTab`
     // («Готовий до підпису») — one status, one spelling.
     expect(screen.getByText('Готовий до підпису')).toBeInTheDocument()
@@ -772,6 +773,12 @@ describe('PendingItemRow — COPY-M-4: a USER-scope share in `proposedByMe` does
     )
     expect(screen.getByText('Частка за замовчуванням — Олексій Коваленко')).toBeInTheDocument()
     expect(metaText()).not.toMatch(/Чекаємо/)
+    // UX-M-1: the title is truncated on one line from 640px — the native
+    // tooltip carries the full string so the senior's name stays reachable.
+    expect(screen.getByText('Частка за замовчуванням — Олексій Коваленко')).toHaveAttribute(
+      'title',
+      'Частка за замовчуванням — Олексій Коваленко',
+    )
     // COPY-M-8 (fix-round 4): and what is left collapses back onto ONE line —
     // dropping «Чекаємо» left two segments, and a third text line for the
     // relative time alone weighed a timestamp the same as the percentages.
