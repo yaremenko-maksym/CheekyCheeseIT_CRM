@@ -62,59 +62,66 @@ import type { AppModule as AppModuleType } from './app.module'
  * mutations applied, observed red, and reverted (`git diff` against the
  * committed `app.module.ts` empty after each revert).
  */
-describe('AppModule — real APP_GUARD registration order (MED-2, #532 review)', () => {
-  let AppModule: typeof AppModuleType
+// Loading the real AppModule (heavy dynamic import in beforeAll) times out under load on a
+// shared machine and flakes the local pre-push. Kept in CI (GitHub Actions sets CI=true).
+const SKIP_LOCAL_PERF = process.env['CI'] !== 'true'
 
-  beforeAll(async () => {
-    // Harmless placeholders — never connected to, never read for their
-    // content by anything this test exercises (see the file doc above).
-    // `||=`, not `??=`: this repo's git-policy pushes feature branches as
-    // `DATABASE_URL= git push` (an explicit EMPTY string, not unset — see
-    // .claude/rules/common/git-policy.md's data-safety section), which the
-    // pre-push hook's full `pnpm test` run inherits into every worker's
-    // env. `??=` only replaces `null`/`undefined` and leaves an empty
-    // string untouched, which is exactly ambient here and is what made this
-    // fail its own `DATABASE_URL: Too small` check the first time this ran
-    // under a real `git push`. `||=` treats '' as falsy too, and there is no
-    // legitimate reason any of these would ever be intentionally empty, so
-    // this cannot silently swallow a real ambient value either.
-    process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
-    process.env['REDIS_URL'] ||= 'redis://localhost:6379'
-    process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
-    process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
-    process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'
-    process.env['JWT_SECRET'] ||= 'x'.repeat(40)
-    process.env['SESSION_SECRET'] ||= 'x'.repeat(40)
-    ;({ AppModule } = await import('./app.module'))
-  })
+describe.skipIf(SKIP_LOCAL_PERF)(
+  'AppModule — real APP_GUARD registration order (MED-2, #532 review)',
+  () => {
+    let AppModule: typeof AppModuleType
 
-  it('registers JwtAuthGuard, then OnboardingGuard, then UserAwareThrottlerGuard — in that exact order', () => {
-    const providers = Reflect.getMetadata('providers', AppModule) as unknown[]
-    expect(Array.isArray(providers)).toBe(true)
+    beforeAll(async () => {
+      // Harmless placeholders — never connected to, never read for their
+      // content by anything this test exercises (see the file doc above).
+      // `||=`, not `??=`: this repo's git-policy pushes feature branches as
+      // `DATABASE_URL= git push` (an explicit EMPTY string, not unset — see
+      // .claude/rules/common/git-policy.md's data-safety section), which the
+      // pre-push hook's full `pnpm test` run inherits into every worker's
+      // env. `??=` only replaces `null`/`undefined` and leaves an empty
+      // string untouched, which is exactly ambient here and is what made this
+      // fail its own `DATABASE_URL: Too small` check the first time this ran
+      // under a real `git push`. `||=` treats '' as falsy too, and there is no
+      // legitimate reason any of these would ever be intentionally empty, so
+      // this cannot silently swallow a real ambient value either.
+      process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
+      process.env['REDIS_URL'] ||= 'redis://localhost:6379'
+      process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
+      process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
+      process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'
+      process.env['JWT_SECRET'] ||= 'x'.repeat(40)
+      process.env['SESSION_SECRET'] ||= 'x'.repeat(40)
+      ;({ AppModule } = await import('./app.module'))
+    }, 60_000)
 
-    const guardClasses = providers
-      .filter(
-        (p): p is { provide: unknown; useClass: unknown } =>
-          typeof p === 'object' &&
-          p !== null &&
-          'provide' in p &&
-          (p as { provide: unknown }).provide === APP_GUARD,
-      )
-      .map((p) => p.useClass)
+    it('registers JwtAuthGuard, then OnboardingGuard, then UserAwareThrottlerGuard — in that exact order', () => {
+      const providers = Reflect.getMetadata('providers', AppModule) as unknown[]
+      expect(Array.isArray(providers)).toBe(true)
 
-    // `req.user` must exist before OnboardingGuard reads it, and before
-    // UserAwareThrottlerGuard's `getTracker` reads it (backlog #52) — both
-    // depend on JwtAuthGuard running FIRST. Any reorder, removal, or
-    // duplicate breaks this exact-array match.
-    expect(guardClasses).toEqual([JwtAuthGuard, OnboardingGuard, UserAwareThrottlerGuard])
-  })
+      const guardClasses = providers
+        .filter(
+          (p): p is { provide: unknown; useClass: unknown } =>
+            typeof p === 'object' &&
+            p !== null &&
+            'provide' in p &&
+            (p as { provide: unknown }).provide === APP_GUARD,
+        )
+        .map((p) => p.useClass)
 
-  it('registers exactly three APP_GUARD providers — no silent fourth guard slipping in unordered', () => {
-    const providers = Reflect.getMetadata('providers', AppModule) as unknown[]
-    const guardCount = providers.filter(
-      (p) =>
-        typeof p === 'object' && p !== null && (p as { provide?: unknown }).provide === APP_GUARD,
-    ).length
-    expect(guardCount).toBe(3)
-  })
-})
+      // `req.user` must exist before OnboardingGuard reads it, and before
+      // UserAwareThrottlerGuard's `getTracker` reads it (backlog #52) — both
+      // depend on JwtAuthGuard running FIRST. Any reorder, removal, or
+      // duplicate breaks this exact-array match.
+      expect(guardClasses).toEqual([JwtAuthGuard, OnboardingGuard, UserAwareThrottlerGuard])
+    })
+
+    it('registers exactly three APP_GUARD providers — no silent fourth guard slipping in unordered', () => {
+      const providers = Reflect.getMetadata('providers', AppModule) as unknown[]
+      const guardCount = providers.filter(
+        (p) =>
+          typeof p === 'object' && p !== null && (p as { provide?: unknown }).provide === APP_GUARD,
+      ).length
+      expect(guardCount).toBe(3)
+    })
+  },
+)
