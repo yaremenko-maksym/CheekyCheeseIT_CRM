@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  dismissJobQueueItemSchema,
+  jobCollectionResultSchema,
+  jobQueueCardSchema,
+  jobQueueListSchema,
+  jobQueueQuerySchema,
+  jobSourceTypeSchema,
   jobSourceBudgetSchema,
   jobSourceBudgetStateSchema,
   jobSourceBudgetWindowSchema,
@@ -163,6 +169,8 @@ describe('the source DTO keeps its shape', () => {
     enabled: true,
     triggerMode: 'SCHEDULED' as const,
     lastCollectedAt: null,
+    minIntervalHours: null,
+    disabledReason: null,
     budget,
   }
 
@@ -184,5 +192,80 @@ describe('the source DTO keeps its shape', () => {
   it('refuses a negative remaining count', () => {
     expect(jobSourceBudgetSchema.safeParse({ ...budget, remaining: -1 }).success).toBe(false)
     expect(jobSourceBudgetSchema.safeParse({ ...budget, used: -1 }).success).toBe(false)
+  })
+})
+
+describe('vacancy-sourcing contracts', () => {
+  it('knows all 31 source types, DOU_RSS first', () => {
+    expect(jobSourceTypeSchema.options).toHaveLength(31)
+    expect(jobSourceTypeSchema.options[0]).toBe('DOU_RSS')
+    expect(jobSourceTypeSchema.options).toContain('WTTJ_HTML')
+  })
+
+  it('collection result defaults the new counters to 0 (old payloads still parse)', () => {
+    const parsed = jobCollectionResultSchema.parse({
+      sourceType: 'DOU_RSS',
+      fetched: 1,
+      created: 1,
+      duplicates: 0,
+      invalid: 0,
+      suggestionsCreated: 0,
+    })
+    expect(parsed.merged).toBe(0)
+    expect(parsed.filtered).toBe(0)
+  })
+
+  it('queue item rejects a non-https also-seen-on url', () => {
+    const base = {
+      id: '11111111-1111-4111-8111-111111111111',
+      sourceType: 'REMOTEOK_API',
+      url: 'https://x.test/a',
+      title: 't',
+      companyName: 'c',
+      location: null,
+      seniority: 'SENIOR',
+      matchedKeywords: [],
+      matchedSeniors: [],
+      stackUnknown: false,
+      publishedAt: null,
+      firstSeenAt: '2026-10-04T00:00:00.000Z',
+      queueStatus: 'NEW',
+      takenByName: null,
+      takenAt: null,
+      descriptionMd: 'd',
+    }
+    expect(() =>
+      jobQueueCardSchema.parse({
+        ...base,
+        alsoSeenOn: [{ source: 'DJINNI_RSS', url: 'javascript:alert(1)' }],
+      }),
+    ).toThrow()
+    expect(
+      jobQueueCardSchema.parse({
+        ...base,
+        alsoSeenOn: [{ source: 'DJINNI_RSS', url: 'https://djinni.co/j/1' }],
+      }).alsoSeenOn,
+    ).toHaveLength(1)
+  })
+
+  it('queue query defaults to NEW / 20 and caps limit at 50', () => {
+    expect(jobQueueQuerySchema.parse({})).toMatchObject({ status: 'NEW', limit: 20 })
+    expect(() => jobQueueQuerySchema.parse({ limit: '51' })).toThrow()
+    expect(jobQueueQuerySchema.parse({ limit: '50' }).limit).toBe(50)
+    expect(() => jobQueueQuerySchema.parse({ limit: '0' })).toThrow()
+  })
+
+  it('dismiss defaults the reason to NOT_RELEVANT', () => {
+    expect(dismissJobQueueItemSchema.parse({}).reason).toBe('NOT_RELEVANT')
+  })
+
+  it('list schema carries per-status counters', () => {
+    expect(
+      jobQueueListSchema.parse({
+        items: [],
+        nextCursor: null,
+        counts: { NEW: 0, IN_PROGRESS: 0, DISMISSED: 0 },
+      }).counts.NEW,
+    ).toBe(0)
   })
 })

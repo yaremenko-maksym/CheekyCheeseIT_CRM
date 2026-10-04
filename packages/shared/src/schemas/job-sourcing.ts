@@ -38,11 +38,43 @@ import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keyw
 // ---------------------------------------------------------------------------
 
 /**
- * Source of a posting. Slice 1 ships exactly ONE value; the enum (rather than a
- * bare string) is what makes adding LinkedIn/Indeed aggregators in slice 2 a
- * matter of appending a member + a provider implementation.
+ * Source of a posting. The enum (rather than a bare string) is what makes
+ * adding a source a matter of appending a member + a provider implementation.
+ * Order is the pg-enum order (`job_source_type`); `DOU_RSS` stays first.
  */
-export const jobSourceTypeSchema = z.enum(['DOU_RSS'])
+export const jobSourceTypeSchema = z.enum([
+  'DOU_RSS',
+  'REMOTEOK_API',
+  'REMOTIVE_API',
+  'HIMALAYAS_API',
+  'JOBICY_API',
+  'ARBEITNOW_API',
+  'WORKINGNOMADS_API',
+  'JOBGETHER_API',
+  'HN_HIRING',
+  'GREENHOUSE_ATS',
+  'LEVER_ATS',
+  'ASHBY_ATS',
+  'WORKABLE_ATS',
+  'SMARTRECRUITERS_ATS',
+  'RECRUITEE_ATS',
+  'PERSONIO_ATS',
+  'JOOBLE_API',
+  'JSEARCH_API',
+  'THEIRSTACK_API',
+  'MUSE_API',
+  'REED_API',
+  'DJINNI_RSS',
+  'WWR_RSS',
+  'EUREMOTEJOBS_RSS',
+  'JUSTJOIN_HTML',
+  'NOFLUFF_HTML',
+  'LANDINGJOBS_HTML',
+  'NEXTLEVELJOBS_HTML',
+  'DICE_HTML',
+  'THEHUB_HTML',
+  'WTTJ_HTML',
+])
 
 /** Lifecycle of a posting offered to one senior. */
 export const jobSuggestionStatusSchema = z.enum(['NEW', 'APPLIED', 'REJECTED'])
@@ -234,6 +266,10 @@ export const jobCollectionResultSchema = z.object({
   duplicates: z.number().int().nonnegative(),
   /** Entries dropped because they could not be parsed into a posting. */
   invalid: z.number().int().nonnegative(),
+  /** Postings folded into an existing cross-source twin (`also_seen_on`). */
+  merged: z.number().int().nonnegative().default(0),
+  /** Postings dropped by the relevance funnel (remote / seniority / stack / exclusions). */
+  filtered: z.number().int().nonnegative().default(0),
   /** NEW suggestion rows created across all eligible seniors. */
   suggestionsCreated: z.number().int().nonnegative(),
 })
@@ -321,6 +357,8 @@ export const jobSourceSchema = z.object({
   enabled: z.boolean(),
   triggerMode: jobSourceTriggerModeSchema,
   lastCollectedAt: z.string().datetime().nullable(),
+  minIntervalHours: z.number().int().positive().nullable(),
+  disabledReason: z.string().max(500).nullable(),
   budget: jobSourceBudgetSchema,
 })
 
@@ -331,6 +369,69 @@ export const jobSourceListSchema = z.object({
 export const jobCollectionRunSchema = z.object({
   results: z.array(jobCollectionResultSchema),
   failures: z.array(jobCollectionFailureSchema),
+})
+
+// ---------------------------------------------------------------------------
+// Vacancy queue (HR-facing, vacancy-sourcing phase 1)
+// ---------------------------------------------------------------------------
+
+export const jobSeniorityLevelSchema = z.enum(['MIDDLE', 'SENIOR', 'LEAD', 'UNKNOWN'])
+export const jobQueueStatusSchema = z.enum(['NEW', 'IN_PROGRESS', 'DISMISSED'])
+export const jobSignalKindSchema = z.enum(['OPENED', 'TAKEN', 'DEAD_LINK', 'SPAM'])
+
+export const jobAlsoSeenOnSchema = z.object({
+  source: jobSourceTypeSchema,
+  url: externalHttpsUrlSchema,
+})
+
+export const jobQueueMatchedSeniorSchema = z.object({
+  id: z.string().uuid(),
+  displayName: z.string().max(255),
+})
+
+export const jobQueueItemSchema = z.object({
+  id: z.string().uuid(),
+  sourceType: jobSourceTypeSchema,
+  url: externalHttpsUrlSchema,
+  title: z.string().max(500),
+  companyName: z.string().max(255),
+  location: z.string().max(500).nullable(),
+  seniority: jobSeniorityLevelSchema,
+  /** Canonical stack keywords the posting mentions (union over seniors). */
+  matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(200),
+  /** ONLY seniors the viewer may see (HR: own active teams). */
+  matchedSeniors: z.array(jobQueueMatchedSeniorSchema).max(200),
+  /** The posting had nothing to judge the stack by — shown with a low rank. */
+  stackUnknown: z.boolean(),
+  alsoSeenOn: z.array(jobAlsoSeenOnSchema).max(20),
+  publishedAt: z.string().datetime().nullable(),
+  firstSeenAt: z.string().datetime(),
+  queueStatus: jobQueueStatusSchema,
+  takenByName: z.string().max(255).nullable(),
+  takenAt: z.string().datetime().nullable(),
+})
+
+/** The card = list row + the (markdown, never raw HTML) description. */
+export const jobQueueCardSchema = jobQueueItemSchema.extend({ descriptionMd: z.string() })
+
+export const jobQueueListSchema = z.object({
+  items: z.array(jobQueueItemSchema),
+  nextCursor: z.string().max(300).nullable(),
+  counts: z.object({
+    NEW: z.number().int().nonnegative(),
+    IN_PROGRESS: z.number().int().nonnegative(),
+    DISMISSED: z.number().int().nonnegative(),
+  }),
+})
+
+export const jobQueueQuerySchema = z.object({
+  status: jobQueueStatusSchema.default('NEW'),
+  cursor: z.string().max(300).optional(),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+})
+
+export const dismissJobQueueItemSchema = z.object({
+  reason: z.enum(['NOT_RELEVANT', 'SPAM', 'DEAD_LINK']).default('NOT_RELEVANT'),
 })
 
 // ---------------------------------------------------------------------------
@@ -358,3 +459,13 @@ export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>
 export type JobSourceBudgetDto = z.infer<typeof jobSourceBudgetSchema>
 export type JobSourceDto = z.infer<typeof jobSourceSchema>
 export type JobSourceListDto = z.infer<typeof jobSourceListSchema>
+export type JobSeniorityLevel = z.infer<typeof jobSeniorityLevelSchema>
+export type JobQueueStatus = z.infer<typeof jobQueueStatusSchema>
+export type JobSignalKind = z.infer<typeof jobSignalKindSchema>
+export type JobAlsoSeenOn = z.infer<typeof jobAlsoSeenOnSchema>
+export type JobQueueMatchedSenior = z.infer<typeof jobQueueMatchedSeniorSchema>
+export type JobQueueItemDto = z.infer<typeof jobQueueItemSchema>
+export type JobQueueCardDto = z.infer<typeof jobQueueCardSchema>
+export type JobQueueListDto = z.infer<typeof jobQueueListSchema>
+export type JobQueueQuery = z.infer<typeof jobQueueQuerySchema>
+export type DismissJobQueueItemDto = z.infer<typeof dismissJobQueueItemSchema>
