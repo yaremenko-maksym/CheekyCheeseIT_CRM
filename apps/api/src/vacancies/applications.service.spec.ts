@@ -8,15 +8,9 @@
  * the real 24h-duplicate SQL are additionally covered against a real DB in
  * vacancies.integration.spec.ts (AC6/AC4).
  */
-import {
-  BadRequestException,
-  HttpException,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { HttpException, UnsupportedMediaTypeException } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import type { ApiErrorCode, SessionUser } from '@crm/shared'
 import {
   ApplicationsService,
   MIMIC_DELAY_JITTER_MS,
@@ -30,6 +24,25 @@ import type { CompressionService } from '../documents/compression.service'
 import { CompressionError } from '../documents/compression.service'
 import type { NotificationsService } from '../notifications/notifications.service'
 import type { DatabaseService } from '../database/database.service'
+
+/**
+ * Pins the api-error envelope of a refusal: HTTP status (the public landing
+ * form derives its error copy from the status alone) + stable `code` + params.
+ */
+async function expectApiError(
+  promise: Promise<unknown>,
+  code: ApiErrorCode,
+  status: number,
+  params?: Record<string, string | number>,
+): Promise<void> {
+  const err = await promise.then(
+    () => undefined,
+    (e: unknown) => e,
+  )
+  expect(err).toBeInstanceOf(HttpException)
+  expect((err as HttpException).getStatus()).toBe(status)
+  expect((err as HttpException).getResponse()).toMatchObject(params ? { code, params } : { code })
+}
 
 /** Minimal PDF magic bytes (%PDF header) — matches 'application/pdf'. */
 const PDF_MAGIC_BUF = Buffer.from('%PDF-1.4 stub-content-for-testing')
@@ -228,9 +241,11 @@ describe('ApplicationsService.apply()', () => {
 
   it('turnstile invalid → 400, vacancy is never looked up', async () => {
     h = makeHarness({ turnstileValid: false })
-    await expect(
+    await expectApiError(
       h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4'),
-    ).rejects.toThrow(BadRequestException)
+      'APPLICATION_TURNSTILE_FAILED',
+      400,
+    )
     expect(h.vacanciesService.getPublishedRowBySlug).not.toHaveBeenCalled()
   })
 
@@ -403,39 +418,48 @@ describe('ApplicationsService.apply()', () => {
   })
 
   it('missing file → 400', async () => {
-    await expect(
+    await expectApiError(
       h.svc.apply('senior-frontend-engineer', VALID_FIELDS, null, '1.2.3.4'),
-    ).rejects.toThrow(BadRequestException)
+      'APPLICATION_RESUME_REQUIRED',
+      400,
+    )
   })
 
-  it('file larger than 5MB → 413', async () => {
+  it('file larger than 5MB → 413 with maxMb=5', async () => {
     const bigBuf = Buffer.alloc(6 * 1024 * 1024, 0)
     PDF_MAGIC_BUF.copy(bigBuf)
-    await expect(
+    await expectApiError(
       h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile({ buffer: bigBuf }), '1.2.3.4'),
-    ).rejects.toThrow(PayloadTooLargeException)
+      'APPLICATION_RESUME_TOO_LARGE',
+      413,
+      { maxMb: 5 },
+    )
   })
 
   it('declared mimetype not application/pdf → 415', async () => {
-    await expect(
+    await expectApiError(
       h.svc.apply(
         'senior-frontend-engineer',
         VALID_FIELDS,
         pdfFile({ mimetype: 'image/png' }),
         '1.2.3.4',
       ),
-    ).rejects.toThrow(UnsupportedMediaTypeException)
+      'APPLICATION_RESUME_PDF_ONLY',
+      415,
+    )
   })
 
   it('magic-bytes mismatch (declared pdf, actual PNG content) → 415', async () => {
-    await expect(
+    await expectApiError(
       h.svc.apply(
         'senior-frontend-engineer',
         VALID_FIELDS,
         pdfFile({ buffer: PNG_MAGIC_BUF }),
         '1.2.3.4',
       ),
-    ).rejects.toThrow(UnsupportedMediaTypeException)
+      'APPLICATION_RESUME_PDF_ONLY',
+      415,
+    )
   })
 
   // SR-M-3 (PR #702 fix-round 1): `err.message` — the raw sharp/pdf-lib
@@ -510,21 +534,25 @@ describe('ApplicationsService.apply()', () => {
   describe('enumeration-oracle ordering — fully closed (§6 + MED-4, still closed after owner decision 2026-08-03)', () => {
     it('missing file still 400s even when the email already applied (duplicate row exists) — NOT a fake success', async () => {
       h = makeHarness({ duplicateRow: existingApplicationRow() })
-      await expect(
+      await expectApiError(
         h.svc.apply('senior-frontend-engineer', VALID_FIELDS, null, '1.2.3.4'),
-      ).rejects.toThrow(BadRequestException)
+        'APPLICATION_RESUME_REQUIRED',
+        400,
+      )
     })
 
     it('wrong MIME still 415s even when the email already applied — NOT a fake success', async () => {
       h = makeHarness({ duplicateRow: existingApplicationRow() })
-      await expect(
+      await expectApiError(
         h.svc.apply(
           'senior-frontend-engineer',
           VALID_FIELDS,
           pdfFile({ mimetype: 'image/png' }),
           '1.2.3.4',
         ),
-      ).rejects.toThrow(UnsupportedMediaTypeException)
+        'APPLICATION_RESUME_PDF_ONLY',
+        415,
+      )
     })
 
     it('a fully valid resubmission (real PDF, matching MIME) ALSO mimics success — no residual 429 signal', async () => {
@@ -689,10 +717,28 @@ describe('ApplicationsService.getResumeUrl()', () => {
   // task-file-storage-hardening §2 — resumeS3Key is null once the 180-day
   // file-only retention purge has run: the application row survives, only
   // the file is gone. 404, and the presigned-URL call is never made.
+  it('role outside ADMIN/HR → 403 ADMIN_HR_ONLY, no presign attempted', async () => {
+    const { svc, s3 } = makeResumeHarness('Ivan Petrenko')
+    const senior = { id: 'senior-1', role: 'SENIOR' } as unknown as SessionUser
+    await expectApiError(svc.getResumeUrl(senior, 'vac-1', 'app-1'), 'ADMIN_HR_ONLY', 403)
+    expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
+  })
+
+  it('application belonging to another vacancy (IDOR) → 404 APPLICATION_NOT_FOUND', async () => {
+    const { svc } = makeResumeHarness('Ivan Petrenko')
+    await expectApiError(
+      svc.getResumeUrl(ADMIN_ACTOR, 'vac-OTHER', 'app-1'),
+      'APPLICATION_NOT_FOUND',
+      404,
+    )
+  })
+
   it('resumeS3Key=null (already retention-purged) → 404, no presign attempted', async () => {
     const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { resumeS3Key: null })
-    await expect(svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
-      NotFoundException,
+    await expectApiError(
+      svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1'),
+      'APPLICATION_RESUME_EXPIRED',
+      404,
     )
     expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
   })
@@ -801,16 +847,20 @@ describe('ApplicationsService.getResumePreviewUrl()', () => {
   // is never even reached.
   it('SENIOR (role outside the team) → NotFoundException (404), no lookup attempted', async () => {
     const { svc, vacanciesService } = makeResumeHarness('Ivan Petrenko')
-    await expect(svc.getResumePreviewUrl(SENIOR_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
-      NotFoundException,
+    await expectApiError(
+      svc.getResumePreviewUrl(SENIOR_ACTOR, 'vac-1', 'app-1'),
+      'APPLICATION_NOT_FOUND',
+      404,
     )
     expect(vacanciesService.getRowOrThrow).not.toHaveBeenCalled()
   })
 
   it('resumeS3Key=null (retention-purged) → 404, no presign attempted', async () => {
     const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { resumeS3Key: null })
-    await expect(svc.getResumePreviewUrl(ADMIN_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
-      NotFoundException,
+    await expectApiError(
+      svc.getResumePreviewUrl(ADMIN_ACTOR, 'vac-1', 'app-1'),
+      'APPLICATION_RESUME_EXPIRED',
+      404,
     )
     expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
   })

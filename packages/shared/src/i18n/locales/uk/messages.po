@@ -2146,6 +2146,11 @@ msgstr "Відгук видалено"
 msgid "Відгук кандидата {0} буде видалено. Завантажений файл резюме також буде видалено з сервера. Цю дію не можна скасувати."
 msgstr "Відгук кандидата {0} буде видалено. Завантажений файл резюме також буде видалено з сервера. Цю дію не можна скасувати."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_NOT_FOUND"
+msgstr "Відгук не знайдено"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -3168,6 +3173,11 @@ msgstr "Додайте кастомну змінну. Співробітник �
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 msgid "Додайте нову співбесіду на дошку."
 msgstr "Додайте нову співбесіду на дошку."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_REQUIRED"
+msgstr "Додайте файл резюме"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Додано"
@@ -7273,6 +7283,11 @@ msgid "Перевірка…"
 msgstr "Перевірка…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_TURNSTILE_FAILED"
+msgstr "Перевірку Turnstile не пройдено"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.VALIDATION_FAILED_FORM"
 msgstr "Перевірте заповнені поля"
@@ -8972,9 +8987,19 @@ msgstr "Резюме видалено"
 msgid "Резюме видалено (минув термін зберігання)"
 msgstr "Резюме видалено (минув термін зберігання)"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_EXPIRED"
+msgstr "Резюме видалено після завершення терміну зберігання"
+
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме збережено"
 msgstr "Резюме збережено"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_PDF_ONLY"
+msgstr "Резюме має бути у форматі PDF"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Резюме не розпізнано автоматично"
@@ -10716,6 +10741,11 @@ msgstr "Файл не передано — виберіть файл і спро
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Файл резюме"
 msgstr "Файл резюме"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_TOO_LARGE"
+msgstr "Файл резюме завеликий: максимум {maxMb} МБ"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Факт переказу"
