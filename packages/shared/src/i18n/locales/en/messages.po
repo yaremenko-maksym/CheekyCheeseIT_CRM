@@ -5071,6 +5071,11 @@ msgstr "The user is already a team member"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ENTITLEMENT_TARGET_ARCHIVED"
+msgstr "The user is archived — their role and payment terms can't be changed. Earned payouts are settled as usual; to change the terms, unarchive the user first"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.USER_ALREADY_ARCHIVED"
 msgstr "The user is already archived"
 
@@ -6281,6 +6286,11 @@ msgstr "Unknown"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS"
 msgstr "Insufficient funds in the company account"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.FORBIDDEN_INSUFFICIENT_ROLE"
+msgstr "You don't have permission to do this"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Недостатньо прав для цієї дії."

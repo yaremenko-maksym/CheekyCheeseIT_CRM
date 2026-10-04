@@ -5071,6 +5071,11 @@ msgstr "Користувач уже є учасником команди"
 
 #. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.ENTITLEMENT_TARGET_ARCHIVED"
+msgstr "Користувача архівовано — змінити роль і умови оплати не можна. Зароблені виплати закриваються як зазвичай; щоб змінити умови, спершу розархівуйте користувача"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.USER_ALREADY_ARCHIVED"
 msgstr "Користувача вже заархівовано"
 
@@ -6281,6 +6286,11 @@ msgstr "Невідомо"
 #: packages/shared/src/schemas/api-errors/finance-invoices.ts
 msgid "api-error.FINANCE_COMPANY_ACCOUNT_INSUFFICIENT_FUNDS"
 msgstr "Недостатньо коштів на рахунку компанії"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/auth-users-projects.ts
+msgid "api-error.FORBIDDEN_INSUFFICIENT_ROLE"
+msgstr "Недостатньо прав для виконання цієї дії"
 
 #: apps/web/app/lib/axios-utils.ts
 msgid "Недостатньо прав для цієї дії."

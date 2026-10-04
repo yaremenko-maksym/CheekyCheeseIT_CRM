@@ -117,8 +117,10 @@ const ADMIN: SessionUser = {
   legalFullName: null,
 }
 
-/** Refusal text of the shared users-row guard (`archived-entitlement.ts`). */
-const ENTITLEMENT_REFUSAL = /архивирован/
+/** Refusal of the shared users-row guard (`archived-entitlement.ts`): the api-error code + 400 status. */
+const ENTITLEMENT_REFUSAL = {
+  response: expect.objectContaining({ code: 'ENTITLEMENT_TARGET_ARCHIVED', statusCode: 400 }),
+}
 
 let pool: Pool | null = null
 let dbSvc: DatabaseService
@@ -338,7 +340,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
   describe('AC1 — ProjectsService.addMember', () => {
     it('refuses an archived user, and inserts no membership row', async () => {
       // Not the shared ENTITLEMENT_REFUSAL sentinel (users.service.ts's
-      // ARCHIVED_ENTITLEMENT_MESSAGE) — addMember's own refusal migrated to
+      // ARCHIVED_ENTITLEMENT_CODE) — addMember's own refusal migrated to
       // apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', ...) under
       // task-i18n-stage4-task1, so assert on the code instead.
       await expect(
@@ -361,9 +363,9 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
   // ── AC2 — the frozen columns ─────────────────────────────────────────────
   describe('AC2 — role and pay terms are frozen while archived', () => {
     it('changeRole refuses, and the stored role does not move', async () => {
-      await expect(usersService.changeRole(ARCHIVED_JUNIOR_ID, 'HR', ADMIN_ID)).rejects.toThrow(
-        ENTITLEMENT_REFUSAL,
-      )
+      await expect(
+        usersService.changeRole(ARCHIVED_JUNIOR_ID, 'HR', ADMIN_ID),
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect((await rowOf(ARCHIVED_JUNIOR_ID)).role).toBe('JUNIOR')
     })
 
@@ -376,7 +378,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
     it('changeSalary refuses, and monthlySalary does not move', async () => {
       await expect(
         usersService.changeSalary(ARCHIVED_JUNIOR_ID, { monthlySalary: 9000 }),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect(Number((await rowOf(ARCHIVED_JUNIOR_ID)).monthlySalary)).toBe(1500)
     })
 
@@ -391,14 +393,14 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
     it('adminUpdateUser refuses a role change on an archived user', async () => {
       await expect(
         usersService.adminUpdateUser(ARCHIVED_JUNIOR_ID, { role: 'HR' }, ADMIN_ID),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect((await rowOf(ARCHIVED_JUNIOR_ID)).role).toBe('JUNIOR')
     })
 
     it('adminUpdateUser refuses a salary change on an archived user', async () => {
       await expect(
         usersService.adminUpdateUser(ARCHIVED_JUNIOR_ID, { monthlySalary: 4200 }, ADMIN_ID),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect(Number((await rowOf(ARCHIVED_JUNIOR_ID)).monthlySalary)).toBe(1500)
     })
 
@@ -466,7 +468,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
           role: 'HR',
           updatedAt: new Date(),
         }),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
 
       expect((await rowOf(ARCHIVED_JUNIOR_ID)).role).toBe('JUNIOR')
     })
@@ -593,16 +595,16 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
 
       // 4. Flip back to JUNIOR — the only remaining step, and the one that
       //    would resume monthly accrual on the still-open membership.
-      await expect(usersService.changeRole(CHAIN_USER_ID, 'JUNIOR', ADMIN_ID)).rejects.toThrow(
-        ENTITLEMENT_REFUSAL,
-      )
+      await expect(
+        usersService.changeRole(CHAIN_USER_ID, 'JUNIOR', ADMIN_ID),
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect((await rowOf(CHAIN_USER_ID)).role).toBe('HR')
 
       // 4b. …and the same step through the OTHER door (`PATCH /:id`), because
       //     two doors into one state is what made this defect possible.
       await expect(
         usersService.adminUpdateUser(CHAIN_USER_ID, { role: 'JUNIOR' }, ADMIN_ID),
-      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+      ).rejects.toMatchObject(ENTITLEMENT_REFUSAL)
       expect((await rowOf(CHAIN_USER_ID)).role).toBe('HR')
     })
 
