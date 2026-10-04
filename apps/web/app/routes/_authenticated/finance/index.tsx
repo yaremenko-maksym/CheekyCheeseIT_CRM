@@ -244,6 +244,7 @@ function TransactionsTable({
   onAdminEdit,
   onDelete,
   onPaySalary,
+  onAddSalaryPart,
   onSettleSeniorPayout,
   onOpenPayoutDetail,
   onInitiatePayout,
@@ -270,6 +271,7 @@ function TransactionsTable({
   onAdminEdit: (tx: TransactionDto) => void
   onDelete: (tx: TransactionDto) => void
   onPaySalary: (tx: TransactionDto) => void
+  onAddSalaryPart: (tx: TransactionDto) => void
   /**
    * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
    * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) — settles the senior IOU from
@@ -536,6 +538,7 @@ function TransactionsTable({
                     onAdminEdit={onAdminEdit}
                     onDelete={onDelete}
                     onPaySalary={onPaySalary}
+                    onAddSalaryPart={onAddSalaryPart}
                     onSettleSeniorPayout={onSettleSeniorPayout}
                     onOpenPayoutDetail={onOpenPayoutDetail}
                     {...(onInitiatePayout ? { onInitiatePayout } : {})}
@@ -590,6 +593,7 @@ function FinancePage() {
   const isDrop = role === 'DROP'
 
   const [showCreate, setShowCreate] = useState(false)
+  const [salaryPartSource, setSalaryPartSource] = useState<TransactionDto | null>(null)
   const [validateTx, setValidateTx] = useState<TransactionDto | null>(null)
   const [editTx, setEditTx] = useState<TransactionDto | null>(null)
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
@@ -631,6 +635,16 @@ function FinancePage() {
 
   const openPayoutDetail = useCallback((payoutRequestId: string) => {
     setPayoutDetailId(payoutRequestId)
+  }, [])
+
+  const openSalaryPart = useCallback((tx: TransactionDto) => {
+    setSalaryPartSource(tx)
+    setShowCreate(true)
+  }, [])
+
+  const closeCreate = useCallback(() => {
+    setShowCreate(false)
+    setSalaryPartSource(null)
   }, [])
 
   const closePayoutDetail = useCallback(() => {
@@ -1035,6 +1049,7 @@ function FinancePage() {
                 onAdminEdit={setAdminEditTx}
                 onDelete={setDeleteTx}
                 onPaySalary={setPaySalaryTx}
+                onAddSalaryPart={openSalaryPart}
                 onSettleSeniorPayout={onSettleSeniorPayout}
                 onOpenPayoutDetail={openPayoutDetail}
                 {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
@@ -1053,7 +1068,19 @@ function FinancePage() {
           </Card>
 
           {/* Dialogs */}
-          <CreateTransactionDialog open={showCreate} onClose={() => setShowCreate(false)} />
+          <CreateTransactionDialog
+            open={showCreate}
+            onClose={closeCreate}
+            {...(salaryPartSource?.receiverId && salaryPartSource.salaryMonth
+              ? {
+                  salaryPrefill: {
+                    receiverId: salaryPartSource.receiverId,
+                    salaryMonth: salaryPartSource.salaryMonth,
+                    currency: salaryPartSource.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+                  },
+                }
+              : {})}
+          />
           <ValidateDialog
             tx={validateTx}
             queue={validateQueue}

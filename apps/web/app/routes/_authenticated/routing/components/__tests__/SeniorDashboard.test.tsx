@@ -89,7 +89,22 @@ function makeSummary(overrides: Partial<SeniorSummaryDto> = {}): SeniorSummaryDt
     // `mySalaryStatus` — DEPRECATED, kept byte-identical to the pre-E-6 shape
     // (security-review MED-3); `mySalaryState` is the new, disambiguated field.
     mySalaryStatus: { amount: 50000, currency: 'UAH', status: 'PENDING' },
-    mySalaryState: { state: 'EXISTS', amount: 50000, currency: 'UAH', status: 'PENDING' },
+    mySalaryState: {
+      state: 'EXISTS',
+      amount: 50000,
+      currency: 'UAH',
+      status: 'PENDING',
+      transactionCount: 1,
+      totals: [
+        {
+          currency: 'UAH',
+          amount: 50000,
+          paidAmount: 0,
+          pendingAmount: 50000,
+          lockedAmount: 0,
+        },
+      ],
+    },
     // task-senior-stats-block — «Статистика заработка» (additive). 8-month
     // history (oldest → newest); newest = «this month», prev = «last month».
     earningsStats: {
@@ -297,7 +312,22 @@ describe('SeniorDashboard', () => {
       useSeniorSummaryMock.mockReturnValue({
         data: makeSummary({
           mySalaryStatus: { amount: 2000, currency: 'USD', status: 'PAID' },
-          mySalaryState: { state: 'EXISTS', amount: 2000, currency: 'USD', status: 'PAID' },
+          mySalaryState: {
+            state: 'EXISTS',
+            amount: 2000,
+            currency: 'USD',
+            status: 'PAID',
+            transactionCount: 1,
+            totals: [
+              {
+                currency: 'USD',
+                amount: 2000,
+                paidAmount: 2000,
+                pendingAmount: 0,
+                lockedAmount: 0,
+              },
+            ],
+          },
         }),
         isLoading: false,
         isError: false,

@@ -3277,6 +3277,11 @@ msgstr "Додати сеньйора до команди може лише ад
 msgid "Додати учасника"
 msgstr "Додати учасника"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
+msgid "Додати частину зарплати"
+msgstr "Додати частину зарплати"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx
