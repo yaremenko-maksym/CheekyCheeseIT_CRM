@@ -677,6 +677,41 @@ describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () =>
     expect(left.map((p) => p.id)).toEqual([applied.posting.id])
   })
 
+  it('keeps old IN_PROGRESS and DISMISSED queue postings, drops the old NEW one', async () => {
+    await service.collectSource(source)
+    const rows = await dbSvc.db
+      .select({ id: jobPostings.id })
+      .from(jobPostings)
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+    expect(rows.length).toBeGreaterThanOrEqual(3)
+    const [inProgress, dismissed, stale] = rows as [{ id: string }, { id: string }, { id: string }]
+
+    const longAgo = new Date('2020-01-01T00:00:00Z')
+    await dbSvc.db
+      .update(jobPostings)
+      .set({ collectedAt: longAgo })
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+    await dbSvc.db
+      .update(jobPostings)
+      .set({ queueStatus: 'IN_PROGRESS' })
+      .where(eq(jobPostings.id, inProgress.id))
+    await dbSvc.db
+      .update(jobPostings)
+      .set({ queueStatus: 'DISMISSED' })
+      .where(eq(jobPostings.id, dismissed.id))
+
+    await service.purgeStalePostings()
+
+    const left = await dbSvc.db
+      .select({ id: jobPostings.id })
+      .from(jobPostings)
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+    const ids = left.map((p) => p.id)
+    expect(ids).toContain(inProgress.id)
+    expect(ids).toContain(dismissed.id)
+    expect(ids).not.toContain(stale.id)
+  })
+
   it('keeps recent postings', async () => {
     await service.collectSource(source)
     expect(await service.purgeStalePostings()).toBe(0)
