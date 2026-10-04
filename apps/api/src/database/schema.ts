@@ -2794,6 +2794,7 @@ export const jobPostings = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::text[]`),
+    // Stryker disable next-line StringLiteral: equivalent mutant — drizzle falls back to the property KEY when a column name is empty, and the key is also `seniority`, so the generated column is identical; the default 'UNKNOWN' on this same line is asserted by job-queue-schema.spec.ts
     seniority: jobSeniorityEnum('seniority').notNull().default('UNKNOWN'),
     stackUnknown: boolean('stack_unknown').notNull().default(false),
     rankScore: integer('rank_score').notNull().default(0),
@@ -2847,6 +2848,7 @@ export const jobSuggestions = pgTable(
 export const jobPostingSignals = pgTable(
   'job_posting_signals',
   {
+    // Stryker disable next-line StringLiteral: equivalent mutant — drizzle falls back to the property KEY when a column name is empty, and the key is also `id`, so the generated column is identical
     id: uuid('id').defaultRandom().primaryKey(),
     postingId: uuid('posting_id')
       .notNull()

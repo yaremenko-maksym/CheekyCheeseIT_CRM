@@ -1,4 +1,5 @@
-import { getTableConfig } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
+import { getTableConfig, PgDialect } from 'drizzle-orm/pg-core'
 import { describe, expect, it } from 'vitest'
 import {
   jobSourceTypeSchema,
@@ -52,6 +53,63 @@ describe('vacancy queue schema', () => {
     const dedupe = indexes.find((i) => i.config.name === 'uq_job_postings_dedupe_key')
     expect(dedupe?.config.unique).toBe(true)
     expect(dedupe?.config.where).toBeDefined()
+  })
+
+  describe('column semantics (what the DB will actually enforce)', () => {
+    const postingCols = getTableConfig(jobPostings).columns
+    const col = (name: string) => {
+      const found = postingCols.find((c) => c.name === name)
+      if (!found) throw new Error(`no column ${name}`)
+      return found
+    }
+    const render = (s: unknown) => new PgDialect().sqlToQuery(s as SQL).sql
+
+    it('queue defaults are the values the HR queue relies on', () => {
+      expect(col('seniority').default).toBe('UNKNOWN')
+      expect(col('queue_status').default).toBe('NEW')
+      expect(col('stack_unknown').default).toBe(false)
+      expect(col('rank_score').default).toBe(0)
+      for (const n of [
+        'seniority',
+        'queue_status',
+        'stack_unknown',
+        'rank_score',
+        'last_seen_at',
+      ]) {
+        expect(col(n).notNull).toBe(true)
+      }
+      expect(col('dedupe_key').notNull).toBe(false)
+    })
+
+    it('array / jsonb defaults are the empty literals of the right element type', () => {
+      expect(render(col('also_seen_on').default)).toBe(`'[]'::jsonb`)
+      expect(render(col('matched_senior_ids').default)).toBe(`'{}'::uuid[]`)
+      expect(render(col('matched_keywords').default)).toBe(`'{}'::text[]`)
+    })
+
+    it('the new timestamps are timestamptz', () => {
+      expect(col('taken_at').getSQLType()).toBe('timestamp with time zone')
+      expect(col('last_seen_at').getSQLType()).toBe('timestamp with time zone')
+    })
+
+    it('dedupe unique index is partial on NOT NULL; matched-seniors index is GIN', () => {
+      const indexes = getTableConfig(jobPostings).indexes
+      const dedupe = indexes.find((i) => i.config.name === 'uq_job_postings_dedupe_key')
+      expect(render(dedupe?.config.where)).toContain('"dedupe_key" IS NOT NULL')
+      const gin = indexes.find((i) => i.config.name === 'idx_job_postings_matched_seniors')
+      expect(gin?.config.method).toBe('gin')
+    })
+
+    it('taken_by and the signal FKs null out / cascade the way the DDL declares', () => {
+      const takenBy = getTableConfig(jobPostings).foreignKeys.find(
+        (f) => f.reference().columns[0]?.name === 'taken_by',
+      )
+      expect(takenBy?.onDelete).toBe('set null')
+      const fks = getTableConfig(jobPostingSignals).foreignKeys
+      const byColumn = (n: string) => fks.find((f) => f.reference().columns[0]?.name === n)
+      expect(byColumn('posting_id')?.onDelete).toBe('cascade')
+      expect(byColumn('user_id')?.onDelete).toBe('set null')
+    })
   })
 
   it('job_sources carries cadence + disabled reason', () => {
