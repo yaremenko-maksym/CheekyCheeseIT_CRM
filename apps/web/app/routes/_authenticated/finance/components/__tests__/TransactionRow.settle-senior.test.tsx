@@ -105,6 +105,7 @@ function renderRow(props: {
   tx: TransactionDto
   role: string
   onSettleSeniorPayout?: (tx: TransactionDto) => void
+  onAddSalaryPart?: (tx: TransactionDto) => void
 }) {
   return render(
     <table>
@@ -118,6 +119,7 @@ function renderRow(props: {
           onAdminEdit={() => {}}
           onDelete={() => {}}
           onPaySalary={() => {}}
+          {...(props.onAddSalaryPart ? { onAddSalaryPart: props.onAddSalaryPart } : {})}
           onOpenPayoutDetail={() => {}}
           onConfirmPayout={() => {}}
           {...(props.onSettleSeniorPayout
@@ -270,5 +272,48 @@ describe('TransactionRow — settle drop payout button (mirror of settle senior)
   it('not shown when the onSettleSeniorPayout handler is absent (DROP row)', () => {
     renderRow({ tx: makeDropTx(), role: 'ADMIN' })
     expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+})
+
+describe('TransactionRow — multipart salary action', () => {
+  const salaryTx = makeTx({
+    type: 'SALARY',
+    status: 'PAID',
+    salaryMonth: '2026-04',
+    receiverId: SENIOR_ID,
+  })
+  const addPartTestId = `tx-row-add-salary-part-${TX_ID}`
+
+  it('ADMIN can add another part from an existing salary row', async () => {
+    const onAdd = vi.fn()
+    renderRow({ tx: salaryTx, role: 'ADMIN', onAddSalaryPart: onAdd })
+    expect(screen.getByTestId(addPartTestId)).toHaveTextContent('Додати частину зарплати')
+    await userEvent.click(screen.getByTestId(addPartTestId))
+    expect(onAdd).toHaveBeenCalledWith(salaryTx)
+  })
+
+  it('ACCOUNTANT can add another salary part', () => {
+    renderRow({ tx: salaryTx, role: 'ACCOUNTANT', onAddSalaryPart: () => {} })
+    expect(screen.getByTestId(addPartTestId)).toBeInTheDocument()
+  })
+
+  it('employee roles do not get the privileged add-part action', () => {
+    renderRow({ tx: salaryTx, role: 'JUNIOR', onAddSalaryPart: () => {} })
+    expect(screen.queryByTestId(addPartTestId)).not.toBeInTheDocument()
+  })
+
+  it('does not expose mutations on a soft-deleted salary row', () => {
+    renderRow({
+      tx: makeTx({
+        type: 'SALARY',
+        status: 'PAID',
+        salaryMonth: '2026-04',
+        receiverId: SENIOR_ID,
+        deletedAt: '2026-10-04T18:00:00.000Z',
+      }),
+      role: 'ADMIN',
+      onAddSalaryPart: () => {},
+    })
+    expect(screen.queryByTestId(addPartTestId)).not.toBeInTheDocument()
   })
 })

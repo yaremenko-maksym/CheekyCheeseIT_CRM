@@ -60,7 +60,10 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
       // users-all — return one admin so the user pools have an option.
       if (Array.isArray(queryKey) && queryKey[0] === 'users-all') {
         return {
-          data: [{ id: 'admin-1', displayName: 'Admin User', role: 'ADMIN' }],
+          data: [
+            { id: 'admin-1', displayName: 'Admin User', role: 'ADMIN' },
+            { id: 'junior-1', displayName: 'Junior User', role: 'JUNIOR' },
+          ],
           isLoading: false,
           isFetching: false,
           error: null,
@@ -118,6 +121,25 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     renderDialog()
     clickTypeCard('create-transaction-type-salary')
     expect(screen.getByTestId('create-transaction-receiver-trigger')).toBeInTheDocument()
+  })
+
+  it('prefills employee/month/currency when opened via add-part action', () => {
+    render(
+      <CreateTransactionDialog
+        open
+        onClose={() => {}}
+        salaryPrefill={{ receiverId: 'junior-1', salaryMonth: '2026-04', currency: 'USD' }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+
+    expect(screen.getByTestId('create-transaction-dialog-title')).toHaveTextContent(
+      'Додати частину зарплати',
+    )
+    expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-04')
+    expect(screen.getByTestId('create-transaction-receiver-trigger')).toHaveTextContent(
+      'Junior User',
+    )
   })
 })
 
