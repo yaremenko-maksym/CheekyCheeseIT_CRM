@@ -4434,7 +4434,7 @@ export class TransactionsService {
             // next reader trusts it INSTEAD of looking, and the thing they
             // skip is the thing that changed. The narrow claim above is the
             // one that is actually true, and it names where to go and see.
-            notes: `Возврат в ожидание выплаты после правки суммы дохода (обязательство ${obligation.id})`,
+            notes: `Повернення в очікування виплати після зміни суми доходу (зобов'язання ${obligation.id})`,
             updatedAt: new Date(),
           })
           .where(eq(transactions.id, derivativePlan.id))

@@ -2984,7 +2984,7 @@ describe('task 3b: a paid DROP derivative is revertible', () => {
     const write = derivativeWrites(ops)[0]!
     const notes = write.set.notes as string
     expect(notes).not.toMatch(/^Выплата/)
-    expect(notes).toMatch(/ожидание выплаты/)
+    expect(notes).toMatch(/очікування виплати/)
     // The obligation stays nameable from the row itself, as it was before.
     expect(notes).toContain(DROP_OBL_ID)
   })

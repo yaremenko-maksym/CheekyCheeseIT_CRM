@@ -469,7 +469,7 @@ describe.skipIf(!hasDatabaseUrl())('task-drop-topup — closing a drop remainder
     // operator reads in the list, and «Выплата drop IOU» on a row awaiting
     // payment is simply untrue.
     expect(row.notes).not.toMatch(/^Выплата/)
-    expect(row.notes).toContain('Возврат в ожидание выплаты')
+    expect(row.notes).toContain('Повернення в очікування виплати')
     expect(row.notes).toContain(obligation.id)
   })
 

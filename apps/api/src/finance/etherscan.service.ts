@@ -207,7 +207,7 @@ export class EtherscanService {
       confirmations: 0,
       amountUsdt: null,
       amountUsdtMinor: null,
-      error: 'Верификация недоступна: блокчейн-провайдер не ответил корректно, попробуйте позже',
+      error: 'Верифікація недоступна: блокчейн-провайдер не відповів коректно, спробуйте пізніше',
     }
   }
 
@@ -501,7 +501,7 @@ export class EtherscanService {
           confirmations: 0,
           amountUsdt: null,
           amountUsdtMinor: null,
-          error: 'Верификация недоступна: ключ Etherscan не настроен',
+          error: 'Верифікація недоступна: ключ Etherscan не налаштовано',
         }
       }
       this.logger.warn('ETHERSCAN_API_KEY not set — keyless deposit verification (dev/test only)')
@@ -517,7 +517,7 @@ export class EtherscanService {
           confirmations: 0,
           amountUsdt: null,
           amountUsdtMinor: null,
-          error: 'Кошелёк компании не настроен',
+          error: 'Гаманець компанії не налаштовано',
         }
       }
       // Dev stub amount so the keyless happy-path actually credits (the M4 gate
@@ -547,7 +547,7 @@ export class EtherscanService {
         confirmations: 0,
         amountUsdt: null,
         amountUsdtMinor: null,
-        error: 'Кошелёк компании не настроен',
+        error: 'Гаманець компанії не налаштовано',
       }
     }
 

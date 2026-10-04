@@ -1008,7 +1008,7 @@ export class PendingSettlementService {
       priorSettledAmount > 0 &&
       (settleFundingSource !== sourceFundingSource || senderId !== sourceSenderId)
     ) {
-      const describe = (value: string | null) => value ?? 'личный счёт администратора'
+      const describe = (value: string | null) => value ?? 'особистий рахунок адміністратора'
       // The person, when there was one. `senderLabel` is written by the same
       // flip that writes `senderId` (the payer's display name for an
       // `ADMIN_PERSONAL` settle, 'COMPANY' otherwise), so no extra read is

@@ -223,6 +223,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
     const r = await svc.verifyDeposit(TX_HASH, null, 12)
     expect(r.toMatches).toBe(false)
     expect(r.confirmed).toBe(false)
+    expect(r.error).toBe('Гаманець компанії не налаштовано')
   })
 
   it('confirmations not parseable → treated as 0, not confirmed', async () => {
@@ -445,7 +446,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       mockRateLimited(0)
       const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
       expect(r.confirmed).toBe(false) // fail-closed, as before
-      expect(r.error).toMatch(/Верификация недоступна/)
+      expect(r.error).toMatch(/Верифікація недоступна/)
       // The old code reported a confident, WRONG chain fact here.
       expect(r.error).not.toMatch(/отменена/)
     })
@@ -454,7 +455,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       mockRateLimited(1)
       const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
       expect(r.confirmed).toBe(false)
-      expect(r.error).toMatch(/Верификация недоступна/)
+      expect(r.error).toMatch(/Верифікація недоступна/)
       expect(r.error).not.toMatch(/отменена/)
     })
 
@@ -463,7 +464,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
       expect(r.toMatches).toBe(false)
       expect(r.confirmed).toBe(false)
-      expect(r.error).toMatch(/Верификация недоступна/)
+      expect(r.error).toMatch(/Верифікація недоступна/)
     })
 
     it('a body without `result` at all → "верификация недоступна"', async () => {
@@ -473,7 +474,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
         json: () => Promise.resolve({ status: '0', message: 'NOTOK' }),
       })
       const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
-      expect(r.error).toMatch(/Верификация недоступна/)
+      expect(r.error).toMatch(/Верифікація недоступна/)
     })
   })
 })
@@ -492,6 +493,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
     const r = await svc.verifyDeposit(TX_HASH, null, 12)
     expect(r.toMatches).toBe(false)
     expect(r.confirmed).toBe(false)
+    expect(r.error).toBe('Гаманець компанії не налаштовано')
   })
 
   // The keyless dev stub has no chain data, so it reports no sender and its
@@ -514,7 +516,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.confirmed).toBe(false)
     expect(r.amountUsdt).toBeNull()
-    expect(r.error).toBeDefined()
+    expect(r.error).toBe('Верифікація недоступна: ключ Etherscan не налаштовано')
   })
 
   // 'production' NODE_ENV → fail-closed (the canonical prod case). Pins that the
@@ -525,6 +527,6 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.confirmed).toBe(false)
     expect(r.amountUsdt).toBeNull()
-    expect(r.error).toBeDefined()
+    expect(r.error).toBe('Верифікація недоступна: ключ Etherscan не налаштовано')
   })
 })
