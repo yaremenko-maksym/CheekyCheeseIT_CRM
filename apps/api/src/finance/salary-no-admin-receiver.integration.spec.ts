@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Body, Controller, Global, Inject, Module, Post } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
@@ -310,7 +311,7 @@ describe.skipIf(!hasDatabaseUrl())(
         method: 'POST',
         url: '/api/transactions/salary',
         cookies: { jwt: tokenFor(caller) },
-        payload,
+        payload: { ...payload, idempotencyKey: randomUUID() },
       })
       let json: unknown = null
       try {

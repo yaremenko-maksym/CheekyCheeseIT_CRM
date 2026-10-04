@@ -14,13 +14,22 @@
  * apps/api's salary-status.helper.spec.ts.
  */
 import { describe, expect, it } from 'vitest'
-import { boardSeniorSchema, mySalaryStateSchema, mySalaryStatusSchema } from './interviews'
+import {
+  boardSeniorSchema,
+  mySalaryAggregateStateSchema,
+  mySalaryStateSchema,
+  mySalaryStatusSchema,
+} from './interviews'
 
-const EXISTS = {
+const LEGACY_EXISTS = {
   state: 'EXISTS' as const,
   amount: 1500,
   currency: 'USD' as const,
   status: 'PENDING' as const,
+}
+
+const AGGREGATE_EXISTS = {
+  ...LEGACY_EXISTS,
   transactionCount: 1,
   totals: [
     {
@@ -49,48 +58,29 @@ describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
     expect(result).toEqual({ state: 'AWAITING_CREATION' })
   })
 
-  it('parses EXISTS with aggregate metadata', () => {
-    const result = mySalaryStateSchema.parse(EXISTS)
-    expect(result).toEqual(EXISTS)
+  it('keeps the pre-multipart EXISTS shape byte-compatible', () => {
+    const result = mySalaryStateSchema.parse(LEGACY_EXISTS)
+    expect(result).toEqual(LEGACY_EXISTS)
   })
 
-  it('EXISTS accepts every valid aggregate salary status', () => {
-    for (const status of ['PENDING', 'PARTIALLY_PAID', 'PAID', 'LOCKED'] as const) {
-      expect(() => mySalaryStateSchema.parse({ ...EXISTS, status })).not.toThrow()
+  it('EXISTS accepts only the legacy salary statuses', () => {
+    for (const status of ['PENDING', 'PAID', 'LOCKED'] as const) {
+      expect(() => mySalaryStateSchema.parse({ ...LEGACY_EXISTS, status })).not.toThrow()
     }
+    expect(() =>
+      mySalaryStateSchema.parse({ ...LEGACY_EXISTS, status: 'PARTIALLY_PAID' }),
+    ).toThrow()
   })
 
   it('EXISTS accepts every valid currency', () => {
     for (const currency of ['USDT', 'USD', 'EUR', 'UAH'] as const) {
       expect(() =>
         mySalaryStateSchema.parse({
-          ...EXISTS,
+          ...LEGACY_EXISTS,
           currency,
-          totals: [{ ...EXISTS.totals[0], currency }],
         }),
       ).not.toThrow()
     }
-  })
-
-  it('EXISTS permits null convenience amount/currency for a mixed-currency month', () => {
-    expect(() =>
-      mySalaryStateSchema.parse({
-        ...EXISTS,
-        amount: null,
-        currency: null,
-        transactionCount: 2,
-        totals: [
-          EXISTS.totals[0],
-          {
-            currency: 'EUR',
-            amount: 400,
-            paidAmount: 400,
-            pendingAmount: 0,
-            lockedAmount: 0,
-          },
-        ],
-      }),
-    ).not.toThrow()
   })
 
   it('rejects EXISTS missing amount/currency/status — the discriminant alone is not enough', () => {
@@ -108,10 +98,47 @@ describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
   it('rejects an invalid status inside EXISTS (e.g. REJECTED — not a valid SALARY status)', () => {
     expect(() =>
       mySalaryStateSchema.parse({
-        ...EXISTS,
+        ...LEGACY_EXISTS,
         status: 'REJECTED',
       }),
     ).toThrow()
+  })
+})
+
+describe('mySalaryAggregateStateSchema (additive multipart field)', () => {
+  it('parses aggregate metadata and PARTIALLY_PAID', () => {
+    const result = mySalaryAggregateStateSchema.parse({
+      ...AGGREGATE_EXISTS,
+      status: 'PARTIALLY_PAID',
+    })
+    expect(result).toEqual({ ...AGGREGATE_EXISTS, status: 'PARTIALLY_PAID' })
+  })
+
+  it('permits null convenience amount/currency for a mixed-currency month', () => {
+    expect(() =>
+      mySalaryAggregateStateSchema.parse({
+        ...AGGREGATE_EXISTS,
+        amount: null,
+        currency: null,
+        transactionCount: 2,
+        totals: [
+          AGGREGATE_EXISTS.totals[0],
+          {
+            currency: 'EUR',
+            amount: 400,
+            paidAmount: 400,
+            pendingAmount: 0,
+            lockedAmount: 0,
+          },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  it('keeps all three no-row states distinguishable', () => {
+    for (const state of ['NOT_CONFIGURED', 'NOT_CRON_ELIGIBLE', 'AWAITING_CREATION'] as const) {
+      expect(mySalaryAggregateStateSchema.parse({ state })).toEqual({ state })
+    }
   })
 })
 

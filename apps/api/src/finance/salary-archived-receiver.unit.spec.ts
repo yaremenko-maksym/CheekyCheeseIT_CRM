@@ -308,6 +308,7 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     const db = {
       db: {
         query: {
+          transactions: { findFirst: vi.fn().mockResolvedValue(undefined) },
           users: { findFirst: vi.fn().mockResolvedValue(receiver) },
         },
         insert:
@@ -324,7 +325,17 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     receiverId: ARCHIVED_HR.id,
     amount: 1500,
     salaryMonth: '2099-12',
+    idempotencyKey: 'a1111111-1111-4111-8111-111111111111',
   }
+
+  it('rejects a direct service call without an idempotency key before any DB write', async () => {
+    const svc = makeSalaryService(ACTIVE_HR)
+    const { idempotencyKey: _omitted, ...withoutKey } = payload
+
+    await expect(svc.createSalary(withoutKey as never, ADMIN_USER)).rejects.toThrow(
+      'idempotencyKey is required for manual salary creation',
+    )
+  })
 
   it('refuses with the archived-receiver message', async () => {
     const svc = makeSalaryService(ARCHIVED_HR)

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { ForbiddenException, Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -190,7 +191,13 @@ describe.skipIf(!HAS_DB_URL)(
     /** 1180 USD owed, 48 675 UAH actually paid ⇒ rate 41.25 (48 675 / 1180). */
     async function paidSalary(): Promise<string> {
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 1180, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 1180,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await svc.paySalary(

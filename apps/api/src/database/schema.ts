@@ -1385,17 +1385,18 @@ export const transactions = pgTable(
     // additive migration push-friendly and the nullable semantics simple.
     fundingSource: varchar('funding_source', { length: 16 }),
     /**
-     * Client-supplied idempotency key. SHARED across FOUR idempotent flows —
-     * one nullable column, one key namespace, guarded by four DISJOINT partial
+     * Client-supplied idempotency key. SHARED across FIVE idempotent flows —
+     * one nullable column, one key namespace, guarded by five DISJOINT partial
      * unique indexes (one per `type`):
      *   - BIZ-19 (MED-2): DIVIDEND_TO_ADMIN (createDividend).
      *   - PR #367 (MED-1): ADMIN_INCOME    (declareUsdtProjectIncome).
      *   - backlog 73/A-3: SENIOR_INCOME    (createSeniorIncome).
      *   - backlog 73/A-3: DROP_INCOME      (createDropIncome).
+     *   - multipart salary: SALARY          (createSalary).
      * The caller generates a UUID and passes it on the first request; a
      * subsequent request with the same key returns the existing row (no-op).
-     * NULL for all other rows and for legacy callers without a key
-     * (backward-compat: keyless rows get fresh rows, unaffected by the indexes).
+     * NULL for all other rows and historical salary rows created before the
+     * manual-salary idempotency contract became mandatory.
      *
      * ADD COLUMN + INDEX DDL (apply to dev/prod manually before deploy):
      *   ALTER TABLE transactions ADD COLUMN idempotency_key uuid;
@@ -1527,6 +1528,21 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_drop_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'DROP_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
+    // Multipart salary: an idempotency key names one manual salary-part intent.
+    // Two equal-looking parts with DIFFERENT keys remain legal; retrying the
+    // SAME intent (including a concurrent retry) cannot create a second row.
+    // Historical keyless rows remain valid; new MANUAL rows are covered by
+    // the CHECK below and must carry a key.
+    uniqueIndex('uq_transactions_salary_idempotency_key')
+      .on(t.idempotencyKey)
+      .where(sql`${t.type} = 'SALARY' AND ${t.idempotencyKey} IS NOT NULL`),
+    // New manual salary parts must always carry an idempotency key. Legacy
+    // rows remain valid because they have salary_origin NULL; cron-owned rows
+    // use CRON and intentionally do not need a client intent key.
+    check(
+      'ck_transactions_manual_salary_idempotency_key',
+      sql`${t.type} <> 'SALARY' OR ${t.salaryOrigin} IS DISTINCT FROM 'MANUAL' OR ${t.idempotencyKey} IS NOT NULL`,
+    ),
     // security-review round 2 (PR #517, MED-F) — structural race guard for the
     // admin-income-drop-backfill apply script. See the doc comment on
     // `sourceIncomeTransactionId` above for the full reasoning: at most one
@@ -1581,10 +1597,7 @@ export const salaryMonthInitializations = pgTable(
     initializedAt: timestamp('initialized_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
-    uniqueIndex('uq_salary_month_initializations_receiver_month').on(
-      t.receiverId,
-      t.salaryMonth,
-    ),
+    uniqueIndex('uq_salary_month_initializations_receiver_month').on(t.receiverId, t.salaryMonth),
   ],
 )
 

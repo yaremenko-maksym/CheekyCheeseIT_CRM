@@ -33,7 +33,12 @@
  */
 
 import { and, eq } from 'drizzle-orm'
-import type { MySalaryStateDto, SalaryStatus } from '@crm/shared'
+import type {
+  MultipartSalaryStatus,
+  MySalaryAggregateStateDto,
+  MySalaryStateDto,
+  SalaryStatus,
+} from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW —
 // a deleted SALARY reminder cannot resurface here no matter what, see
@@ -47,12 +52,17 @@ import { nonDeletedTransactions } from '../database/schema'
  * function stays free of NestJS DI and is trivially testable with a plain
  * mock.
  */
-export async function getOwnSalaryStatus(
+export interface OwnSalaryStates {
+  legacy: MySalaryStateDto
+  aggregate: MySalaryAggregateStateDto
+}
+
+export async function getOwnSalaryStates(
   db: DatabaseService['db'],
   userId: string,
   salaryMonth: string,
   salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
-): Promise<MySalaryStateDto> {
+): Promise<OwnSalaryStates> {
   const salaryRows = await db
     .select()
     .from(nonDeletedTransactions)
@@ -65,13 +75,27 @@ export async function getOwnSalaryStatus(
     )
 
   const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
-  const validRows = salaryRows.filter((row) =>
-    validStatuses.includes(row.status as SalaryStatus),
-  )
+  const validRows = salaryRows.filter((row) => validStatuses.includes(row.status as SalaryStatus))
   if (validRows.length === 0) {
-    if (!salaryConfig.hasMonthlySalary) return { state: 'NOT_CONFIGURED' }
-    if (!salaryConfig.isCronEligibleRole) return { state: 'NOT_CRON_ELIGIBLE' }
-    return { state: 'AWAITING_CREATION' }
+    const state: MySalaryStateDto = !salaryConfig.hasMonthlySalary
+      ? { state: 'NOT_CONFIGURED' }
+      : !salaryConfig.isCronEligibleRole
+        ? { state: 'NOT_CRON_ELIGIBLE' }
+        : { state: 'AWAITING_CREATION' }
+    return { legacy: state, aggregate: state }
+  }
+
+  // Preserve the pre-multipart wire contract exactly. Before this feature the
+  // database guaranteed one row per receiver/month and the helper selected one
+  // row. A stale browser bundle still parses this shape strictly, so this field
+  // remains a representative single part while the additive aggregate field
+  // below carries the complete multipart truth.
+  const legacyRow = validRows[0]!
+  const legacy: MySalaryStateDto = {
+    state: 'EXISTS',
+    amount: Number(legacyRow.amount),
+    currency: legacyRow.currency,
+    status: legacyRow.status as SalaryStatus,
   }
 
   const byCurrency = new Map<
@@ -100,14 +124,12 @@ export async function getOwnSalaryStatus(
     else current.pendingAmount += amount
     byCurrency.set(currency, current)
   }
-  const totals = [...byCurrency.values()].sort((a, b) =>
-    a.currency.localeCompare(b.currency),
-  )
+  const totals = [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency))
 
   const paidCount = validRows.filter((row) => row.status === 'PAID').length
   const allPaid = paidCount === validRows.length
   const allLocked = validRows.every((row) => row.status === 'LOCKED')
-  const status: SalaryStatus = allPaid
+  const status: MultipartSalaryStatus = allPaid
     ? 'PAID'
     : paidCount > 0
       ? 'PARTIALLY_PAID'
@@ -116,7 +138,7 @@ export async function getOwnSalaryStatus(
         : 'PENDING'
   const singleCurrency = totals.length === 1 ? totals[0]! : null
 
-  return {
+  const aggregate: MySalaryAggregateStateDto = {
     state: 'EXISTS',
     amount: singleCurrency?.amount ?? null,
     currency: singleCurrency?.currency ?? null,
@@ -124,4 +146,15 @@ export async function getOwnSalaryStatus(
     transactionCount: validRows.length,
     totals,
   }
+  return { legacy, aggregate }
+}
+
+/** Backward-compatible projection used by pre-multipart call sites. */
+export async function getOwnSalaryStatus(
+  db: DatabaseService['db'],
+  userId: string,
+  salaryMonth: string,
+  salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
+): Promise<MySalaryStateDto> {
+  return (await getOwnSalaryStates(db, userId, salaryMonth, salaryConfig)).legacy
 }

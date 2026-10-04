@@ -404,6 +404,12 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
       amount: 1500,
       status: 'PENDING',
       currency: 'USD',
+    })
+    expect(r.mySalaryAggregateState).toEqual({
+      state: 'EXISTS',
+      amount: 1500,
+      status: 'PENDING',
+      currency: 'USD',
       transactionCount: 1,
       totals: [
         {
@@ -430,14 +436,20 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
 
-    expect(r.mySalaryState).toMatchObject({
+    expect(r.mySalaryState).toEqual({
+      state: 'EXISTS',
+      amount: 500,
+      currency: 'USD',
+      status: 'PAID',
+    })
+    expect(r.mySalaryAggregateState).toMatchObject({
       state: 'EXISTS',
       amount: 1000,
       currency: 'USD',
       status: 'PARTIALLY_PAID',
       transactionCount: 2,
     })
-    expect(r.mySalaryStatus).toEqual({ amount: 1000, currency: 'USD', status: 'PENDING' })
+    expect(r.mySalaryStatus).toEqual({ amount: 500, currency: 'USD', status: 'PAID' })
   })
 
   it('keeps mixed-currency aggregates only on mySalaryState because the legacy field cannot represent them', async () => {
@@ -450,14 +462,20 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
 
-    expect(r.mySalaryState).toMatchObject({
+    expect(r.mySalaryState).toEqual({
+      state: 'EXISTS',
+      amount: 500,
+      currency: 'USD',
+      status: 'PAID',
+    })
+    expect(r.mySalaryAggregateState).toMatchObject({
       state: 'EXISTS',
       amount: null,
       currency: null,
       status: 'PARTIALLY_PAID',
       transactionCount: 2,
     })
-    expect(r.mySalaryStatus).toBeNull()
+    expect(r.mySalaryStatus).toEqual({ amount: 500, currency: 'USD', status: 'PAID' })
   })
 
   it('maps an invalid salary status to NOT_CONFIGURED when monthlySalary is unset (defensive)', async () => {
@@ -467,6 +485,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
+    expect(r.mySalaryAggregateState).toEqual({ state: 'NOT_CONFIGURED' })
     expect(r.mySalaryStatus).toBeNull()
   })
 
@@ -485,6 +504,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
+    expect(r.mySalaryAggregateState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
     expect(r.mySalaryStatus).toBeNull()
   })
 

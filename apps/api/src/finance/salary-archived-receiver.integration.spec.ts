@@ -18,6 +18,7 @@
  * copy-pasted into a prod script:
  *   pnpm --filter @crm/api exec vitest run salary-archived-receiver.integration.spec
  */
+import { randomUUID } from 'node:crypto'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -233,7 +234,12 @@ describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, r
   it('AC2: createSalary refuses an archived receiver', async () => {
     await expect(
       svc.createSalary(
-        { receiverId: ARCHIVED_HR_ID, amount: 1500, salaryMonth: MONTH },
+        {
+          receiverId: ARCHIVED_HR_ID,
+          amount: 1500,
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_USER,
       ),
     ).rejects.toMatchObject({
