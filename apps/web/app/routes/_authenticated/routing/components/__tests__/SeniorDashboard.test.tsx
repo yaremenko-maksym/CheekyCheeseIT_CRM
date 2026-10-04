@@ -94,6 +94,12 @@ function makeSummary(overrides: Partial<SeniorSummaryDto> = {}): SeniorSummaryDt
       amount: 50000,
       currency: 'UAH',
       status: 'PENDING',
+    },
+    mySalaryAggregateState: {
+      state: 'EXISTS',
+      amount: 50000,
+      currency: 'UAH',
+      status: 'PENDING',
       transactionCount: 1,
       totals: [
         {
@@ -313,6 +319,12 @@ describe('SeniorDashboard', () => {
         data: makeSummary({
           mySalaryStatus: { amount: 2000, currency: 'USD', status: 'PAID' },
           mySalaryState: {
+            state: 'EXISTS',
+            amount: 2000,
+            currency: 'USD',
+            status: 'PAID',
+          },
+          mySalaryAggregateState: {
             state: 'EXISTS',
             amount: 2000,
             currency: 'USD',
