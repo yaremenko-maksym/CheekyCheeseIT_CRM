@@ -257,6 +257,16 @@ jobs:
           git diff --exit-code -- packages/shared/src/i18n/locales || {
             echo "::error::Run 'pnpm i18n:extract' and commit the updated .po catalogs"; exit 1; }
 
+      # i18n stage-6B Wave 6: no Russian-only letters (ы э ъ ё) in apps/api string
+      # literals or the uk/en catalogs. Lingui's no-unlocalized-strings does not
+      # cover apps/api; this is the backstop. Codepoint-aware Node + TS AST (a bash
+      # grep byte-matches UTF-8 and false-flags Ukrainian) — see the script header.
+      # Added as a step in this existing job, not a new job: required-check names
+      # are pinned in branch protection.
+      - name: No Russian letters in api literals / i18n catalogs
+        if: steps.scope.outputs.code == 'true'
+        run: node scripts/devops/check-no-russian-letters.mjs
+
       # task-prod-runtime-vulns (2026-08-16): `pnpm audit` had no automated
       # check at all before this — 21 high-severity findings accumulated on
       # main unnoticed. Gates on moderate+ severity; a finding is either fixed
