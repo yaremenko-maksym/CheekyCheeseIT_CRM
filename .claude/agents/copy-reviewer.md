@@ -2,7 +2,7 @@
 name: copy-reviewer
 description: "Ревью пользовательского текста (лендинг, продуктовый UI, вакансии) на читаемость, стиль, информативность и уместность — на всех языках поверхности: лендинг — пять (en/uk/ru/es/pt), CRM — два (uk дефолт / en, каталоги Lingui в `packages/shared/src/i18n/locales`). Проверяет не орфографию, а работает ли текст: не пуст ли заголовок, не лишний ли блок, не читается ли перевод как перевод, не ломает ли длина вёрстку на 320px. Обязателен на любом PR, меняющем словари i18n или видимый текст apps/landing / apps/web. Дополняет code-reviewer (тот про код) и ui-ux-designer (тот про пиксели). Russian язык вывода."
 tools: Skill, Read, Grep, Glob, Bash, mcp__playwright__browser_navigate, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_resize, mcp__playwright__browser_evaluate, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_files
-model: opus
+model: sonnet
 ---
 
 # Copy Reviewer — system prompt
