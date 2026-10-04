@@ -4379,8 +4379,25 @@ jobs:
             # scripts/devops/drop-share-pending-parity-backfill-runbook.md for the historical
             # record of why this step existed and what it would have done.
 
-            echo "==> Cleaning dangling images"
-            docker image prune -f || true
+            # Disk hygiene (incident 2026-10-04: 696 accumulated images = 60 GB, disk 93%).
+            # Every deploy pulls a fresh api+nginx image tagged by git SHA and nothing ever
+            # removed the old ones — plain `docker image prune -f` only drops DANGLING
+            # (untagged) images, and SHA-tagged ones are never dangling.
+            #
+            # `-a --filter until=168h` removes every image NOT used by any container
+            # (running or stopped) whose CREATION time is older than 7 days. Consequences:
+            #   - active images (crm api/nginx/postgres/redis, signal-plus) are never touched —
+            #     Docker refuses to remove an image that a container references;
+            #   - volumes are untouched (`image prune` never deletes volumes);
+            #   - the last 7 days of SHA-tagged images stay for a fast rollback; older ones
+            #     are re-pullable from GHCR (rollback dispatch with `image_tag` re-pulls).
+            # Reached only when every FATAL check above passed (this is the last step of the
+            # script). `|| true`: a prune failure must not fail an already-successful deploy.
+            echo "==> Pruning unused images older than 7 days (keeps rollback window)"
+            docker image prune -af --filter "until=168h" || true
+            echo "==> Disk after prune"
+            df -h / | tail -n 1 || true
+            docker system df || true
 
             echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"
 
