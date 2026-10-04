@@ -1356,7 +1356,7 @@ describe('PendingSettlementService.settleByCompany', () => {
         })
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('source=«COMPANY_ACCOUNT»'))
         expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('settle=«личный счёт администратора»'),
+          expect.stringContaining('settle=«особистий рахунок адміністратора»'),
         )
       })
 
