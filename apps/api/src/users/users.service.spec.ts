@@ -1924,10 +1924,12 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(ConflictException)
     await expect(promise).rejects.toThrow(
-      'Цей Google-акаунт уже прив’язано до іншої адреси в системі',
+      'Цей обліковий запис Google уже прив’язано до іншої адреси в системі',
     )
-    // Distinct from "already used" — same exception TYPE, different message.
-    await expect(promise).rejects.not.toThrow('Приглашение уже использовано')
+    // Distinct from "already used" — same exception TYPE, different message/code.
+    await expect(promise).rejects.not.toMatchObject({
+      response: expect.objectContaining({ code: 'INVITE_ALREADY_USED' }),
+    })
     expect(transactionMock).toHaveBeenCalledTimes(1)
   })
 
@@ -1944,7 +1946,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     await expect(promise).rejects.toThrow('duplicate key value violates unique constraint')
     // NOT relabelled as the google_id-specific message.
     await expect(promise).rejects.not.toThrow(
-      'Цей Google-акаунт уже прив’язано до іншої адреси в системі',
+      'Цей обліковий запис Google уже прив’язано до іншої адреси в системі',
     )
   })
 })

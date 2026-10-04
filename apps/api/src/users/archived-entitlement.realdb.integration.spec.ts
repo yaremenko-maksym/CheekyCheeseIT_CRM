@@ -340,7 +340,7 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
   describe('AC1 — ProjectsService.addMember', () => {
     it('refuses an archived user, and inserts no membership row', async () => {
       // Not the shared ENTITLEMENT_REFUSAL sentinel (users.service.ts's
-      // ARCHIVED_ENTITLEMENT_MESSAGE) — addMember's own refusal migrated to
+      // ARCHIVED_ENTITLEMENT_CODE) — addMember's own refusal migrated to
       // apiError('ARCHIVED_USER_CANNOT_JOIN_PROJECT', ...) under
       // task-i18n-stage4-task1, so assert on the code instead.
       await expect(

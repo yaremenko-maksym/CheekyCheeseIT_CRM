@@ -134,7 +134,7 @@ const USER_LIST_PROJECTION = {
  * message rather than guessing from the exception class alone.
  */
 export const GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE =
-  'Цей Google-акаунт уже прив’язано до іншої адреси в системі'
+  'Цей обліковий запис Google уже прив’язано до іншої адреси в системі'
 
 /**
  * LOW-2 (security-review PR #623 round 4): sentinel `ForbiddenException`

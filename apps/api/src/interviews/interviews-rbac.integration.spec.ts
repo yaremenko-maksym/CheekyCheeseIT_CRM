@@ -614,10 +614,10 @@ describe.skipIf(!hasDatabaseUrl())(
     // (`GET /api/interviews`, `@Roles('ADMIN', 'SENIOR', 'HR')`) DROP is not
     // in the allow-list at all, so the GLOBAL `RolesGuard` (which runs
     // before any handler body) already rejects it with its own generic,
-    // code-less `ForbiddenException(GUARD_REFUSAL_MESSAGE)` — `assertNotDrop`
+    // `ForbiddenException` (code `FORBIDDEN_INSUFFICIENT_ROLE`) — `assertNotDrop`
     // is verified-unreachable for DROP through this endpoint (confirmed by
-    // running this spec against a real DB: the response body carries no
-    // `code` field at all, only `statusCode` + `message`). Pinning `code:
+    // running this spec against a real DB: the response body carries the guard's
+    // `FORBIDDEN_INSUFFICIENT_ROLE` code, status 403). Pinning `code:
     // 'INTERVIEW_DROP_FORBIDDEN'` here would assert something that is not
     // and cannot become true without also adding DROP to the route's
     // `@Roles` list — status-only is the correct, honest assertion.
