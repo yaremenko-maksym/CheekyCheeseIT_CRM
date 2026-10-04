@@ -11,7 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
-import { GUARD_REFUSAL_MESSAGE, RolesGuard } from '../common/guards/roles.guard'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { jobSources, users } from '../database/schema'
@@ -141,8 +141,8 @@ describe.skipIf(!hasDatabaseUrl())(
         cookies: { jwt: signFor(as) },
         payload: method === 'POST' ? {} : undefined,
       })
-      const body = res.body ? (JSON.parse(res.body) as { message?: string }) : {}
-      return { status: res.statusCode, message: body.message ?? '' }
+      const body = res.body ? (JSON.parse(res.body) as { code?: string }) : {}
+      return { status: res.statusCode, code: body.code ?? '' }
     }
 
     const call = async (method: 'GET' | 'POST', url: string, as: SessionUser) =>
@@ -159,16 +159,16 @@ describe.skipIf(!hasDatabaseUrl())(
      * not assumed (all four guard-removal mutations survived the first version of
      * this file).
      *
-     * The two layers answer with different messages, so the message is what tells
-     * them apart. These HTTP tests pin the DECORATOR by requiring the guard's
-     * wording; the service check is pinned separately, by calling the service
+     * The two layers answer differently, so the response is what tells them
+     * apart. These HTTP tests pin the DECORATOR by requiring the guard's api-error
+     * code; the service check is pinned separately, by calling the service
      * directly further down. Neither test can now cover for the other's absence.
      *
-     * backlog item 133: pins the exported constant, not a copied literal — the
-     * guard's wording was genericized (no more role list in the message) and
-     * this is now the only other place in the repo that cares what it says.
+     * i18n stage-6B Wave 4: the guard now refuses with the generic
+     * `FORBIDDEN_INSUFFICIENT_ROLE` code (no role list anywhere in the body), so
+     * the test pins the CODE, not a Russian sentence.
      */
-    const GUARD_REFUSAL = GUARD_REFUSAL_MESSAGE
+    const GUARD_REFUSAL_CODE = 'FORBIDDEN_INSUFFICIENT_ROLE'
     const SERVICE_REFUSAL = 'Источники подбора вакансий настраивает ADMIN'
 
     beforeAll(async () => {
@@ -238,11 +238,11 @@ describe.skipIf(!hasDatabaseUrl())(
     describe('GET /api/job-sourcing/sources — budget state is ADMIN-only', () => {
       for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
         it(`${p.role} → 403, refused by the controller guard`, async () => {
-          const { status, message } = await request('GET', '/api/job-sourcing/sources', p)
+          const { status, code } = await request('GET', '/api/job-sourcing/sources', p)
           expect(status).toBe(403)
           // Asserting WHICH layer refused is what makes the decorator testable at
           // all — see the GUARD_REFUSAL note above.
-          expect(message).toContain(GUARD_REFUSAL)
+          expect(code).toBe(GUARD_REFUSAL_CODE)
         })
       }
 
@@ -259,9 +259,9 @@ describe.skipIf(!hasDatabaseUrl())(
     describe('POST /api/job-sourcing/collect — spending the quota is ADMIN-only', () => {
       for (const p of [HR, SENIOR, JUNIOR, ACCOUNTANT, DROP]) {
         it(`${p.role} → 403 (controller guard) AND nothing is collected`, async () => {
-          const { status, message } = await request('POST', '/api/job-sourcing/collect', p)
+          const { status, code } = await request('POST', '/api/job-sourcing/collect', p)
           expect(status).toBe(403)
-          expect(message).toContain(GUARD_REFUSAL)
+          expect(code).toBe(GUARD_REFUSAL_CODE)
           // The status code alone would not prove the quota was safe — a refusal
           // that still hit the provider would spend a request per rejected call.
           expect(provider.collectCalls).toBe(0)

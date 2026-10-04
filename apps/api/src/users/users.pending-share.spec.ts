@@ -14,7 +14,6 @@
 import { ForbiddenException, HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { ARCHIVED_ENTITLEMENT_MESSAGE } from './archived-entitlement'
 import { UsersService } from './users.service'
 import { users } from '../database/schema'
 import { resolveSeniorShare } from '../finance/senior-share-resolver'
@@ -566,7 +565,9 @@ describe('UsersService.adminUpdateUser — proposeSeniorShareChangeInTx branches
     })
     await expect(
       h.service.adminUpdateUser('senior-1', { seniorSharePercent: 80 }, 'admin-1'),
-    ).rejects.toThrow(ARCHIVED_ENTITLEMENT_MESSAGE)
+    ).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ENTITLEMENT_TARGET_ARCHIVED', statusCode: 400 }),
+    })
   })
 
   it('does not propose when the effective role is not SENIOR, even if seniorSharePercent is present in the payload', async () => {

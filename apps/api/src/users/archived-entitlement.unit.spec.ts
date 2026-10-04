@@ -42,11 +42,11 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import path from 'node:path'
 
-import { BadRequestException, HttpException } from '@nestjs/common'
+import { HttpException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
-  ARCHIVED_ENTITLEMENT_MESSAGE,
+  ARCHIVED_ENTITLEMENT_CODE,
   ENTITLEMENT_FIELDS,
   changedEntitlementFields,
   createsEntitlementForArchivedUser,
@@ -208,12 +208,12 @@ describe('archived-entitlement — the discriminator', () => {
     ).toEqual(['salaryCurrency'])
   })
 
-  it('the refusal text names the state AND the way out', () => {
-    // Asserted against literal fragments, NOT against the exported constant —
-    // comparing the constant with itself is the "assertion that cannot fail"
-    // this repo's mutation gate exists to catch.
-    expect(ARCHIVED_ENTITLEMENT_MESSAGE).toContain('архивирован')
-    expect(ARCHIVED_ENTITLEMENT_MESSAGE).toContain('разархивируйте')
+  it('the refusal is the ENTITLEMENT_TARGET_ARCHIVED api-error code', () => {
+    // Asserted against a literal, NOT the exported constant compared with
+    // itself — that is the "assertion that cannot fail" this repo's mutation
+    // gate exists to catch. The text itself (state + the way out) lives in the
+    // uk/en catalogs and is pinned by api-errors.spec.ts.
+    expect(ARCHIVED_ENTITLEMENT_CODE).toBe('ENTITLEMENT_TARGET_ARCHIVED')
   })
 })
 
@@ -225,9 +225,9 @@ describe('archived-entitlement — layer 1: the in-JS pre-check', () => {
     const { db, update } = makeDb({ selects: [[{ ...archived, id: 'u1' }]] })
     const svc = makeService(db)
 
-    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toThrow(
-      ARCHIVED_ENTITLEMENT_MESSAGE,
-    )
+    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ENTITLEMENT_TARGET_ARCHIVED', statusCode: 400 }),
+    })
     expect(update).not.toHaveBeenCalled()
   })
 
@@ -270,8 +270,11 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     const svc = makeService(db)
 
     const err = await svc.changeRole('u1', 'HR', 'admin-1').catch((e: unknown) => e)
-    expect(err).toBeInstanceOf(BadRequestException)
-    expect((err as Error).message).toBe(ARCHIVED_ENTITLEMENT_MESSAGE)
+    expect(err).toBeInstanceOf(HttpException)
+    expect((err as HttpException).getStatus()).toBe(400)
+    expect(err).toMatchObject({
+      response: expect.objectContaining({ code: 'ENTITLEMENT_TARGET_ARCHIVED', statusCode: 400 }),
+    })
     expect(update).toHaveBeenCalledTimes(1)
   })
 
@@ -301,9 +304,9 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     })
     const svc = makeService(db)
 
-    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toThrow(
-      ARCHIVED_ENTITLEMENT_MESSAGE,
-    )
+    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toMatchObject({
+      response: expect.objectContaining({ code: 'ENTITLEMENT_TARGET_ARCHIVED' }),
+    })
     const projection = select.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined
     expect(projection).toBeDefined()
     expect(Object.keys(projection!)).toContain('archivedAt')
@@ -489,7 +492,7 @@ describe('archived-entitlement — the inventory of everything that writes `user
     // swaps it in, and THAT method goes through `updateUserRow` itself, so
     // it does not appear here as a second writer). `proposeSeniorShareChangeInTx`
     // still runs its OWN archived-refusal by hand (reusing
-    // `changedEntitlementFields`/`ARCHIVED_ENTITLEMENT_MESSAGE`) before this
+    // `changedEntitlementFields`/`ARCHIVED_ENTITLEMENT_CODE`) before this
     // write — see that method's own doc.
     'users/users.service.ts::proposeSeniorShareChangeInTx': 'pending_senior_share_percent only',
     'users/users.service.ts::rejectSeniorShareChange':

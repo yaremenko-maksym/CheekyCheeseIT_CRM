@@ -45,6 +45,8 @@ export const AUTH_USERS_PROJECTS_ERROR_CODES = [
   'EMAIL_ALREADY_IN_USE',
   'EMAIL_NOT_AUTHORIZED',
   'EMAIL_TAKEN_BY_ANOTHER_USER',
+  'ENTITLEMENT_TARGET_ARCHIVED',
+  'FORBIDDEN_INSUFFICIENT_ROLE',
   'GOOGLE_ACCOUNT_MISMATCH',
   'GOOGLE_CREDENTIAL_INVALID',
   'HR_JOIN_OWN_DROP_TEAM_ONLY',
@@ -132,6 +134,8 @@ export const AUTH_USERS_PROJECTS_ERROR_PARAMS = {
   EMAIL_ALREADY_IN_USE: [],
   EMAIL_NOT_AUTHORIZED: [],
   EMAIL_TAKEN_BY_ANOTHER_USER: [],
+  ENTITLEMENT_TARGET_ARCHIVED: [],
+  FORBIDDEN_INSUFFICIENT_ROLE: [],
   GOOGLE_ACCOUNT_MISMATCH: [],
   GOOGLE_CREDENTIAL_INVALID: [],
   HR_JOIN_OWN_DROP_TEAM_ONLY: [],
@@ -318,6 +322,15 @@ export const AUTH_USERS_PROJECTS_ERROR_MESSAGES: Record<
   EMAIL_TAKEN_BY_ANOTHER_USER: /* i18n */ {
     id: 'api-error.EMAIL_TAKEN_BY_ANOTHER_USER',
     message: 'Ця електронна адреса вже зайнята. Введіть іншу',
+  },
+  ENTITLEMENT_TARGET_ARCHIVED: /* i18n */ {
+    id: 'api-error.ENTITLEMENT_TARGET_ARCHIVED',
+    message:
+      'Користувача архівовано — змінити роль і умови оплати не можна. Зароблені виплати закриваються як зазвичай; щоб змінити умови, спершу розархівуйте користувача',
+  },
+  FORBIDDEN_INSUFFICIENT_ROLE: /* i18n */ {
+    id: 'api-error.FORBIDDEN_INSUFFICIENT_ROLE',
+    message: 'Недостатньо прав для виконання цієї дії',
   },
   GOOGLE_ACCOUNT_MISMATCH: /* i18n */ {
     id: 'api-error.GOOGLE_ACCOUNT_MISMATCH',
@@ -560,6 +573,9 @@ export const AUTH_USERS_PROJECTS_ERROR_FALLBACK_EN: Record<AuthUsersProjectsErro
   EMAIL_ALREADY_IN_USE: 'This email is already taken. Enter a different one',
   EMAIL_NOT_AUTHORIZED: "This email doesn't have access. Contact an admin",
   EMAIL_TAKEN_BY_ANOTHER_USER: 'This email is already taken. Enter a different one',
+  ENTITLEMENT_TARGET_ARCHIVED:
+    "The user is archived — their role and payment terms can't be changed. Earned payouts are settled as usual; to change the terms, unarchive the user first",
+  FORBIDDEN_INSUFFICIENT_ROLE: "You don't have permission to do this",
   GOOGLE_ACCOUNT_MISMATCH: 'This email is already linked to a different Google account',
   GOOGLE_CREDENTIAL_INVALID: "Couldn't verify your Google sign-in. Try again",
   HR_JOIN_OWN_DROP_TEAM_ONLY: 'HR can only add a senior to their own drop team',

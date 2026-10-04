@@ -1,26 +1,24 @@
-import { ForbiddenException } from '@nestjs/common'
+import { ForbiddenException, HttpException } from '@nestjs/common'
 import type { ExecutionContext } from '@nestjs/common'
 import type { Reflector } from '@nestjs/core'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import { API_ERROR_MESSAGES, API_ERROR_PARAMS, type SessionUser } from '@crm/shared'
 
-import { GUARD_REFUSAL_MESSAGE, RolesGuard } from './roles.guard'
+import { RolesGuard } from './roles.guard'
 
 /**
  * Direct unit coverage of `RolesGuard.canActivate` — added because the
  * CI mutation gate (Stryker, "changed code only") found a SURVIVING mutant
- * on `GUARD_REFUSAL_MESSAGE` after backlog item 133 (security-review round
- * on PR #577): mutating the literal to `""` still passed every existing
- * test, because none of them asserted the message's CONTENT — the
- * guard-layer specs (payout-requests.roles-guard.spec.ts,
- * transactions.summary.roles-guard.spec.ts, drop-income-update.roles-guard
- * .spec.ts) only assert `statusCode === 403`, and
- * job-sourcing-rbac.integration.spec.ts asserts `.toContain(GUARD_REFUSAL_
- * MESSAGE)` — which is ALSO blind to this exact mutant, since `''.includes
- * ('')` is true regardless of what the constant is mutated to.
+ * on the refusal after backlog item 133 (security-review round
+ * on PR #577): mutating the refusal text to `""` still passed every existing
+ * test, because none of them asserted its CONTENT — the guard-layer specs
+ * (payout-requests.roles-guard.spec.ts, transactions.summary.roles-guard
+ * .spec.ts, drop-income-update.roles-guard.spec.ts) only assert
+ * `statusCode === 403`.
  *
- * The fix has to compare against a HARDCODED literal, not the constant
- * itself (comparing the constant to itself can never fail, mutated or not).
+ * Since i18n stage-6B Wave 4 the refusal is the `FORBIDDEN_INSUFFICIENT_ROLE`
+ * api-error code; the fix still compares against HARDCODED literals (code,
+ * status, English fallback), never a constant against itself.
  */
 function buildContext(opts: {
   required: string[] | undefined
@@ -78,7 +76,7 @@ describe('RolesGuard.canActivate', () => {
     ).toBe(true)
   })
 
-  it("user's role is NOT in the required list → throws ForbiddenException with the EXACT generic message (kills the empty-string mutant)", () => {
+  it("user's role is NOT in the required list → 403 with the EXACT generic api-error code (kills the empty-code mutant)", () => {
     const guard = new RolesGuard(buildReflector(['ADMIN', 'ACCOUNTANT']))
     let caught: unknown
     try {
@@ -86,23 +84,44 @@ describe('RolesGuard.canActivate', () => {
     } catch (e) {
       caught = e
     }
-    expect(caught).toBeInstanceOf(ForbiddenException)
-    const response = (caught as ForbiddenException).getResponse() as { message?: string }
-    // Hardcoded literal — NOT `GUARD_REFUSAL_MESSAGE` itself. Comparing the
-    // constant to itself can never fail under mutation (a mutated "" would
-    // still equal a mutated ""), which is exactly the surviving mutant this
-    // spec exists to kill.
-    expect(response.message).toBe('Недостаточно прав для выполнения этого действия')
-    // Belt-and-suspenders: also confirms the exported constant matches the
-    // same literal, so a future edit to one without the other is caught.
-    expect(GUARD_REFUSAL_MESSAGE).toBe('Недостаточно прав для выполнения этого действия')
+    expect(caught).toBeInstanceOf(HttpException)
+    expect((caught as HttpException).getStatus()).toBe(403)
+    const response = (caught as HttpException).getResponse() as {
+      statusCode?: number
+      code?: string
+      message?: string
+    }
+    // Hardcoded literals — NOT a shared constant compared with itself, which
+    // can never fail under mutation (a mutated "" would still equal itself).
+    expect(response.statusCode).toBe(403)
+    expect(response.code).toBe('FORBIDDEN_INSUFFICIENT_ROLE')
+    expect(response.message).toBe("You don't have permission to do this")
   })
 
-  it('backlog item 133: the message never contains a role name — genericized, not just reworded', () => {
-    // Regression guard for the ORIGINAL finding (not the mutant): a future
-    // edit must not reintroduce `${required.join(', ')}` into the string.
-    for (const role of ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP']) {
-      expect(GUARD_REFUSAL_MESSAGE).not.toContain(role)
+  it('backlog item 133 (SECURITY): the refusal never reveals the required role — no params, no role name anywhere in the envelope', () => {
+    // Regression guard for the ORIGINAL finding: a future edit must neither
+    // reintroduce `${required.join(', ')}` into the text nor add a `params`
+    // channel carrying the allow-list. Asserted on the REAL thrown envelope
+    // (code + params + English fallback), for every role the guard could name.
+    const guard = new RolesGuard(buildReflector(['ADMIN', 'ACCOUNTANT']))
+    let caught: unknown
+    try {
+      guard.canActivate(buildContext({ required: ['ADMIN', 'ACCOUNTANT'], user: JUNIOR }))
+    } catch (e) {
+      caught = e
     }
+    const response = (caught as HttpException).getResponse() as { params?: unknown }
+    expect(response.params).toBeUndefined()
+    const wire = JSON.stringify(response)
+    const roles = ['ADMIN', 'ACCOUNTANT', 'SENIOR', 'JUNIOR', 'HR', 'DROP']
+    for (const role of roles) {
+      expect(wire).not.toContain(role)
+    }
+    // The uk catalog text (what a client with a catalog shows) is covered too.
+    const uk = API_ERROR_MESSAGES.FORBIDDEN_INSUFFICIENT_ROLE.message as string
+    for (const role of roles) {
+      expect(uk).not.toContain(role)
+    }
+    expect(API_ERROR_PARAMS.FORBIDDEN_INSUFFICIENT_ROLE).toEqual([])
   })
 })

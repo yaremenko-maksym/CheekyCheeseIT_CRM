@@ -1870,7 +1870,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const service = makeUsersService(db)
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(ForbiddenException)
-    await expect(promise).rejects.toThrow('Учётная запись уволена — приглашение недействительно')
+    await expect(promise).rejects.toThrow('Обліковий запис звільнено — запрошення недійсне')
     expect(transactionMock).not.toHaveBeenCalled()
     // Kills the `findById({})` ObjectLiteral mutant — a query with no real
     // WHERE clause would match ANY user, not specifically the row's owner.
@@ -1924,7 +1924,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     const promise = service.acceptPersonalEmailInvite('tok', 'real@example.com', 'sub-1')
     await expect(promise).rejects.toBeInstanceOf(ConflictException)
     await expect(promise).rejects.toThrow(
-      'Этот Google-аккаунт уже привязан к другому адресу в системе',
+      'Цей Google-акаунт уже прив’язано до іншої адреси в системі',
     )
     // Distinct from "already used" — same exception TYPE, different message.
     await expect(promise).rejects.not.toThrow('Приглашение уже использовано')
@@ -1944,7 +1944,7 @@ describe('UsersService.acceptPersonalEmailInvite (spec §2, unit doubles for the
     await expect(promise).rejects.toThrow('duplicate key value violates unique constraint')
     // NOT relabelled as the google_id-specific message.
     await expect(promise).rejects.not.toThrow(
-      'Этот Google-аккаунт уже привязан к другому адресу в системе',
+      'Цей Google-акаунт уже прив’язано до іншої адреси в системі',
     )
   })
 })

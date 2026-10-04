@@ -10,7 +10,7 @@ import { THROTTLER_ERROR_MESSAGE } from './throttle-decorators'
  * COPY-H-6 (copy-review, HIGH, PR #613 round 3).
  *
  * Pins the actual wire behaviour the bug was about: a rejected request past
- * the global limit must carry `THROTTLER_ERROR_MESSAGE` — Russian — in its
+ * the global limit must carry `THROTTLER_ERROR_MESSAGE` — Ukrainian — in its
  * response body, not `@nestjs/throttler`'s own undocumented default
  * (`"ThrottlerException: Too Many Requests"`, English, and NOT one of
  * Nest's own generic HTTP reason phrases either — see that constant's own
@@ -68,7 +68,7 @@ async function buildApp(limit: number): Promise<NestFastifyApplication> {
   return app
 }
 
-describe('ThrottlerModule errorMessage — COPY-H-6, the 429 body is Russian', () => {
+describe('ThrottlerModule errorMessage — COPY-H-6, the 429 body is Ukrainian', () => {
   let app: NestFastifyApplication
 
   afterEach(async () => {
@@ -97,11 +97,15 @@ describe('ThrottlerModule errorMessage — COPY-H-6, the 429 body is Russian', (
     expect(body.message).not.toContain('Too Many Requests')
   })
 
-  it('THROTTLER_ERROR_MESSAGE is itself Russian, not an echo of the NestJS default', () => {
-    // A cheap guard against the constant regressing to the literal English
-    // default by copy-paste — Cyrillic somewhere in the string is enough to
-    // tell the two apart.
-    expect(THROTTLER_ERROR_MESSAGE).toMatch(/[а-яё]/i)
+  it('THROTTLER_ERROR_MESSAGE is itself Ukrainian (no Russian letters), not an echo of the NestJS default', () => {
+    // Hardcoded literal, NOT the constant compared with itself — a mutated
+    // constant must not be able to equal itself. i18n stage-6B Wave 4: the
+    // Russian text became Ukrainian; the Russian-only letters ы э ъ ё must
+    // never come back.
+    expect(THROTTLER_ERROR_MESSAGE).toBe(
+      'Забагато запитів поспіль. Зачекайте трохи й повторіть спробу.',
+    )
+    expect(THROTTLER_ERROR_MESSAGE).not.toMatch(/[ыэъё]/i)
     expect(THROTTLER_ERROR_MESSAGE).not.toBe('ThrottlerException: Too Many Requests')
   })
 })

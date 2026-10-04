@@ -212,7 +212,7 @@ export const GLOBAL_TTL_DEFAULT_MS = 60_000
  * bare 429 now carries instead of nothing.
  */
 export const THROTTLER_ERROR_MESSAGE =
-  'Слишком много запросов подряд. Подождите немного и повторите попытку.'
+  'Забагато запитів поспіль. Зачекайте трохи й повторіть спробу.'
 
 // ── Private helpers (called per-request via Resolvable) ─────────────────────
 

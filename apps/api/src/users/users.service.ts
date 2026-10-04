@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpStatus,
@@ -36,7 +35,7 @@ import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import { generateInviteToken, hashInviteToken, INVITE_TOKEN_TTL_MS } from './invite-token.util'
 import {
-  ARCHIVED_ENTITLEMENT_MESSAGE,
+  ARCHIVED_ENTITLEMENT_CODE,
   changedEntitlementFields,
   type EntitlementSnapshot,
 } from './archived-entitlement'
@@ -135,7 +134,7 @@ const USER_LIST_PROJECTION = {
  * message rather than guessing from the exception class alone.
  */
 export const GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE =
-  'Этот Google-аккаунт уже привязан к другому адресу в системе'
+  'Цей Google-акаунт уже прив’язано до іншої адреси в системі'
 
 /**
  * LOW-2 (security-review PR #623 round 4): sentinel `ForbiddenException`
@@ -146,7 +145,7 @@ export const GOOGLE_ACCOUNT_ALREADY_BOUND_MESSAGE =
  * the SAME `?error=` code the ordinary login path already uses for a fired
  * user (`login.tsx`'s `ERROR_MESSAGES`).
  */
-export const INVITE_TARGET_ARCHIVED_MESSAGE = 'Учётная запись уволена — приглашение недействительно'
+export const INVITE_TARGET_ARCHIVED_MESSAGE = 'Обліковий запис звільнено — запрошення недійсне'
 
 // task-pending-share (position 5). Pulled out of `notifyPendingSeniorShareProposed`'s
 // own signature so that method fits on one line — see that method's doc
@@ -251,7 +250,7 @@ export class UsersService {
    * the exact same "actual change, not mere presence" rule `updateUserRow`
    * already applies to every other entitlement column, so resubmitting an
    * unchanged form does not spam a proposal). Reuses
-   * `ARCHIVED_ENTITLEMENT_MESSAGE` for the archived-user refusal — an
+   * `ARCHIVED_ENTITLEMENT_CODE` for the archived-user refusal — an
    * archived senior must not acquire a new entitlement any more than any
    * other entitlement write (archived-entitlement.ts's own module doc).
    *
@@ -286,7 +285,7 @@ export class UsersService {
       return null
     }
     if (existing.archivedAt) {
-      throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+      throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
     }
     const [approval] = await this.approvals.proposeInTx(tx, {
       subjectType: UsersService.SENIOR_SHARE_SUBJECT_TYPE,
@@ -1666,7 +1665,7 @@ export class UsersService {
   ): Promise<User> {
     const changed = changedEntitlementFields(existing, set)
     if (changed.length > 0 && existing.archivedAt) {
-      throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+      throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
     }
 
     const rows = await db
@@ -1689,7 +1688,7 @@ export class UsersService {
         .select({ archivedAt: users.archivedAt })
         .from(users)
         .where(eq(users.id, id))
-      if (current?.archivedAt) throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+      if (current?.archivedAt) throw apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)
     }
     throw apiError('USER_NOT_FOUND', HttpStatus.NOT_FOUND)
   }

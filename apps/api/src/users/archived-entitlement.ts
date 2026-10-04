@@ -74,10 +74,12 @@ export type EntitlementField = keyof typeof ENTITLEMENT_FIELD_KIND
 
 export const ENTITLEMENT_FIELDS = Object.keys(ENTITLEMENT_FIELD_KIND) as EntitlementField[]
 
-/** Operator-facing refusal. One message for every door, by design. */
-export const ARCHIVED_ENTITLEMENT_MESSAGE =
-  'Пользователь архивирован — нельзя менять роль и условия оплаты. ' +
-  'Уже заработанные выплаты закрываются как обычно; чтобы изменить условия, сначала разархивируйте.'
+/**
+ * Operator-facing refusal. One code for every door, by design: every throw
+ * site is `apiError(ARCHIVED_ENTITLEMENT_CODE, HttpStatus.BAD_REQUEST)` (400).
+ * i18n stage-6B Wave 4 replaced the former Russian message constant.
+ */
+export const ARCHIVED_ENTITLEMENT_CODE = 'ENTITLEMENT_TARGET_ARCHIVED' as const
 
 /** The subset of a `users` row this module reads. */
 export type EntitlementSnapshot = Pick<User, 'archivedAt'> & Partial<Pick<User, EntitlementField>>
