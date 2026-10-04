@@ -4251,10 +4251,41 @@ jobs:
               --env-file .env.production \
               up -d --remove-orphans
 
+            # Multipart salary activation removes the unique index the PREVIOUS
+            # API image needs as its ON CONFLICT arbiter. Starting a container
+            # only proves it was launched, not that the new API can actually
+            # boot. Gate the breaking DDL on readiness of the NEW container so
+            # a crash-loop cannot leave the database incompatible with the last
+            # known-good API before the replacement is known to be runnable.
+            echo "==> Pre-activation health check — waiting for new API container"
+            for i in $(seq 1 20); do
+              if docker compose \
+                   -f docker-compose.prod.yml \
+                   -f docker-compose.ghcr.yml \
+                   --env-file .env.production \
+                   exec -T api \
+                   wget -qO- http://127.0.0.1:3001/api/health 2>/dev/null; then
+                echo ""
+                echo "New API healthy before multipart salary activation after ${i}x checks"
+                break
+              fi
+              if [ "$i" -eq 20 ]; then
+                echo "ERROR: new API did not become healthy within 40s; refusing breaking salary activation"
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  logs --tail=50 api
+                exit 1
+              fi
+              sleep 2
+            done
+
             # The new API no longer depends on the old receiver/month uniqueness:
             # automatic idempotency is now the salary_month_initializations marker.
-            # Apply the breaking half only after the image swap so the previous API
-            # can never observe a database without its ON CONFLICT arbiter.
+            # Apply the breaking half only after the image swap AND the readiness
+            # gate above so the previous API can never observe a database without
+            # its ON CONFLICT arbiter merely because the replacement failed to boot.
             MULTIPART_SALARY_ACTIVATE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql"
             if [ ! -f "$MULTIPART_SALARY_ACTIVATE_FILE" ]; then
               echo "ERROR: migration file not found at $MULTIPART_SALARY_ACTIVATE_FILE — scp-action may have flattened the tree."
@@ -4272,7 +4303,8 @@ jobs:
               < "$MULTIPART_SALARY_ACTIVATE_FILE"
             echo "==> multipart salary activation applied successfully"
 
-            echo "==> Health check — waiting for API container"
+            # Verify the API remains healthy after the schema contract changes.
+            echo "==> Post-activation health check — verifying API container"
             for i in $(seq 1 20); do
               if docker compose \
                    -f docker-compose.prod.yml \
@@ -4281,7 +4313,7 @@ jobs:
                    exec -T api \
                    wget -qO- http://127.0.0.1:3001/api/health 2>/dev/null; then
                 echo ""
-                echo "API healthy after ${i}x checks"
+                echo "API healthy after multipart salary activation (${i}x checks)"
                 break
               fi
               if [ "$i" -eq 20 ]; then
