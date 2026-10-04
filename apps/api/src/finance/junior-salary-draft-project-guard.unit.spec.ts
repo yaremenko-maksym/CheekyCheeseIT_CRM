@@ -25,20 +25,29 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 
+import { salaryMonthInitializations, transactions } from '../database/schema'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 function makeCronService(members: unknown[]) {
   const insertedValues: Record<string, unknown>[] = []
-  const insert = vi.fn(() => ({
-    values: vi.fn((values: Record<string, unknown>) => {
-      insertedValues.push(values)
-      return {
-        onConflictDoNothing: vi.fn(() => ({
-          returning: vi.fn().mockResolvedValue([]),
-        })),
-      }
-    }),
-  }))
+  let txId = 0
+  const dbtx = {
+    query: { transactions: { findFirst: vi.fn().mockResolvedValue(undefined) } },
+    insert: vi.fn((table: unknown) => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        if (table === salaryMonthInitializations) {
+          return {
+            onConflictDoNothing: () => ({ returning: async () => [{ id: 'marker-1' }] }),
+          }
+        }
+        if (table === transactions) {
+          insertedValues.push(values)
+          return { returning: async () => [{ id: `salary-${++txId}` }] }
+        }
+        throw new Error('unexpected insert table')
+      }),
+    })),
+  }
 
   const db = {
     db: {
@@ -49,7 +58,7 @@ function makeCronService(members: unknown[]) {
         },
         projectMembers: { findMany: vi.fn().mockResolvedValue(members) },
       },
-      insert,
+      transaction: (cb: (tx: typeof dbtx) => Promise<unknown>) => cb(dbtx),
     },
   } as never
 

@@ -1420,6 +1420,9 @@ export const transactions = pgTable(
     notes: varchar('notes', { length: 1000 }),
     // Calendar month this transaction belongs to (for SALARY/LOCKED logic): YYYY-MM
     salaryMonth: varchar('salary_month', { length: 7 }),
+    // A SALARY row is one concrete salary part. Manual and cron-created parts
+    // may coexist for the same employee/month; NULL identifies legacy rows.
+    salaryOrigin: varchar('salary_origin', { length: 8 }),
     // User-specified transaction date (defaults to creation time if not provided)
     txDate: timestamp('tx_date', { withTimezone: true }),
     createdBy: uuid('created_by')
@@ -1480,15 +1483,9 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_company_deposit_tx_hash')
       .on(t.txHash)
       .where(sql`${t.type} = 'COMPANY_DEPOSIT' AND ${t.txHash} IS NOT NULL`),
-    // Audit 2026-06-27 (LOW #5). Idempotency for the monthly salary cron: a given
-    // (receiver, salaryMonth) can hold at most ONE SALARY row. Without it the cron
-    // had a find-then-insert gap (TOCTOU) — a concurrent / re-run cron could
-    // create duplicate salary reminders for the same employee+month. Partial
-    // (WHERE type='SALARY' AND salaryMonth IS NOT NULL) so non-salary rows and
-    // legacy salary rows with no month are unaffected. The cron now inserts with
-    // `onConflictDoNothing` targeting this index — the DB is the single source of
-    // truth for "already created", closing the gap.
-    uniqueIndex('uq_transactions_salary_receiver_month')
+    // Several salary parts for one employee/month are legitimate. Cron
+    // idempotency is owned by salary_month_initializations below.
+    index('idx_transactions_salary_receiver_month')
       .on(t.receiverId, t.salaryMonth)
       .where(sql`${t.type} = 'SALARY' AND ${t.salaryMonth} IS NOT NULL`),
     // BIZ-19: idempotency key for DIVIDEND_TO_ADMIN. Client supplies a UUID;
@@ -1566,6 +1563,28 @@ export const transactions = pgTable(
     //   ALTER TABLE transactions ADD CONSTRAINT ck_transactions_sender_ne_receiver
     //     CHECK (sender_id <> receiver_id);
     check('ck_transactions_sender_ne_receiver', sql`${t.senderId} <> ${t.receiverId}`),
+  ],
+)
+
+// Monthly cron idempotency must not constrain the business ledger: operators
+// may create several salary parts for one employee/month. A durable marker
+// claims only the automatic component and survives salary edits/soft-deletes.
+export const salaryMonthInitializations = pgTable(
+  'salary_month_initializations',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    receiverId: uuid('receiver_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    salaryMonth: varchar('salary_month', { length: 7 }).notNull(),
+    initializedBy: uuid('initialized_by').references(() => users.id, { onDelete: 'set null' }),
+    initializedAt: timestamp('initialized_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_salary_month_initializations_receiver_month').on(
+      t.receiverId,
+      t.salaryMonth,
+    ),
   ],
 )
 
@@ -3455,6 +3474,8 @@ export type Interview = typeof interviews.$inferSelect
 export type NewInterview = typeof interviews.$inferInsert
 export type Transaction = typeof transactions.$inferSelect
 export type NewTransaction = typeof transactions.$inferInsert
+export type SalaryMonthInitialization = typeof salaryMonthInitializations.$inferSelect
+export type NewSalaryMonthInitialization = typeof salaryMonthInitializations.$inferInsert
 export type JobSource = typeof jobSources.$inferSelect
 export type NewJobSource = typeof jobSources.$inferInsert
 export type JobPosting = typeof jobPostings.$inferSelect

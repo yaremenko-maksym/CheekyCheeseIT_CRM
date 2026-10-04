@@ -602,7 +602,8 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(afterFirstIds).not.toContain(HR_MISSING.id)
       expect(afterFirstIds).not.toContain(JUNIOR_MISSING.id)
 
-      // Real DB proof: exactly ONE SALARY row per receiver for this month.
+      // Real DB proof: backfill creates exactly one automatic salary component
+      // per missing receiver for this month.
       const rows = await dbSvc.db.query.transactions.findMany({
         where: (t, { and: andOp, eq: eqOp }) =>
           andOp(eqOp(t.type, 'SALARY'), eqOp(t.salaryMonth, TARGET_MONTH)),

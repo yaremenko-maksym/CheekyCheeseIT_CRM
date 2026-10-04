@@ -405,12 +405,9 @@ describe.skipIf(!hasDatabaseUrl())(
     // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
     // balance gate at creation — so the role assertions (201/403) are deterministic
     // regardless of the company-account balance. No funding fields needed here.
-    // Audit 2026-06-27 (LOW #5): the partial unique index
-    // `uq_transactions_salary_receiver_month` now allows at most ONE SALARY per
-    // (receiver, month). The two success cases (ACCOUNTANT + ADMIN) must therefore
-    // target DISTINCT months — otherwise the second would correctly hit the unique
-    // constraint (400). RBAC parity is unchanged: both privileged roles get 201,
-    // forbidden roles get 403 (they never reach the insert, so month is irrelevant).
+    // Multipart salary permits several rows for one receiver/month. This RBAC
+    // spec still uses explicit months simply to keep fixtures easy to identify;
+    // both privileged roles get 201 and forbidden roles get 403.
     const salaryPayload = (salaryMonth = '2025-03') => ({
       receiverId: JUNIOR.id,
       amount: 500,

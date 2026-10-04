@@ -648,6 +648,8 @@ jobs:
             apps/api/drizzle/manual/2026-09-19_notification_email_skip_stale.sql \
             apps/api/drizzle/manual/2026-09-20_user_locale.sql \
             apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql \
+            apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql \
+            apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql \
             apps/api/drizzle/manual/2026-10-05_vacancy_sourcing_schema.sql \
             apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
             scripts/devops/check-security-headers.sh \
@@ -2272,6 +2274,30 @@ jobs:
           target: '/opt/crm'
           # apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql
+
+      # Multipart salary changes one invariant in two deploy phases. The prepare
+      # migration is backward-compatible with the currently-running API; the
+      # activate migration removes the old salary uniqueness only after the new
+      # API image is running. Both files are hard-required above so rollback to
+      # an older API is rejected before touching the VPS: once multiple rows for
+      # one receiver/month exist, the old unique constraint cannot be restored.
+      - name: Copy multipart salary prepare migration via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql'
+          target: '/opt/crm'
+
+      - name: Copy multipart salary activate migration via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql'
+          target: '/opt/crm'
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -4113,6 +4139,30 @@ jobs:
               < "$VACANCY_SEED_FILE"
             echo "==> vacancy sourcing sources seed applied successfully"
 
+            # ── multipart salary: PREPARE while the previous API may still serve ──
+            # Adds salary_origin + the durable cron marker and backfills existing
+            # salary months, but DELIBERATELY keeps uq_transactions_salary_receiver_month.
+            # The previous API still uses that unique index as its ON CONFLICT
+            # arbiter. The breaking index replacement happens only after Step 3
+            # has swapped in the new API image.
+            MULTIPART_SALARY_PREPARE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql"
+
+            if [ ! -f "$MULTIPART_SALARY_PREPARE_FILE" ]; then
+              echo "ERROR: migration file not found at $MULTIPART_SALARY_PREPARE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Preparing multipart salary schema (backward-compatible) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$MULTIPART_SALARY_PREPARE_FILE"
+            echo "==> multipart salary prepare migration applied successfully"
+
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
             # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS
             # host BEFORE the container swap below. nginx/conf.d/crm.conf,
@@ -4200,6 +4250,27 @@ jobs:
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
               up -d --remove-orphans
+
+            # The new API no longer depends on the old receiver/month uniqueness:
+            # automatic idempotency is now the salary_month_initializations marker.
+            # Apply the breaking half only after the image swap so the previous API
+            # can never observe a database without its ON CONFLICT arbiter.
+            MULTIPART_SALARY_ACTIVATE_FILE="/opt/crm/apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql"
+            if [ ! -f "$MULTIPART_SALARY_ACTIVATE_FILE" ]; then
+              echo "ERROR: migration file not found at $MULTIPART_SALARY_ACTIVATE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Activating multipart salary uniqueness model — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$MULTIPART_SALARY_ACTIVATE_FILE"
+            echo "==> multipart salary activation applied successfully"
 
             echo "==> Health check — waiting for API container"
             for i in $(seq 1 20); do

@@ -54,6 +54,7 @@ import type { SessionUser } from '@crm/shared'
 
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { salaryMonthInitializations, transactions } from '../database/schema'
 
 const ADMIN_USER: SessionUser = {
   id: 'admin-1',
@@ -136,22 +137,24 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
   // the state that theory could not cover.
   function makeCronService(members: unknown[]) {
     const insertedValues: Record<string, unknown>[] = []
-    const insert = vi.fn(() => ({
-      values: vi.fn((values: Record<string, unknown>) => {
-        insertedValues.push(values)
-        // task-salary-month-gap-and-status (HIGH-1): createMonthlySalaries now
-        // chains `.returning(...)` after `.onConflictDoNothing(...)` (to tell
-        // a real insert apart from a real conflict for the audit-log gate) —
-        // no test in this file passes an `actor`, so the exact resolved value
-        // is inert here; it just has to be a chainable object, not a bare
-        // resolved Promise (which has no `.returning` method).
-        return {
-          onConflictDoNothing: vi.fn(() => ({
-            returning: vi.fn().mockResolvedValue([]),
-          })),
-        }
-      }),
-    }))
+    let txId = 0
+    const dbtx = {
+      query: { transactions: { findFirst: vi.fn().mockResolvedValue(undefined) } },
+      insert: vi.fn((table: unknown) => ({
+        values: vi.fn((values: Record<string, unknown>) => {
+          if (table === salaryMonthInitializations) {
+            return {
+              onConflictDoNothing: () => ({ returning: async () => [{ id: 'marker-1' }] }),
+            }
+          }
+          if (table === transactions) {
+            insertedValues.push(values)
+            return { returning: async () => [{ id: `salary-${++txId}` }] }
+          }
+          throw new Error('unexpected insert table')
+        }),
+      })),
+    }
 
     const db = {
       db: {
@@ -162,7 +165,7 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
           },
           projectMembers: { findMany: vi.fn().mockResolvedValue(members) },
         },
-        insert,
+        transaction: (cb: (tx: typeof dbtx) => Promise<unknown>) => cb(dbtx),
       },
     } as never
 
