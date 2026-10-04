@@ -355,6 +355,7 @@ export function CreateTransactionDialog({
   const [dropIncomeIdempotencyKey, setDropIncomeIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   )
+  const [salaryIdempotencyKey, setSalaryIdempotencyKey] = useState(() => crypto.randomUUID())
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -743,6 +744,7 @@ export function CreateTransactionDialog({
           amount: amt,
           currency,
           salaryMonth,
+          idempotencyKey: salaryIdempotencyKey,
           notes: notes || null,
           txDate: txDate || null,
         })
@@ -843,6 +845,7 @@ export function CreateTransactionDialog({
     // new intent).
     setSeniorIncomeIdempotencyKey(crypto.randomUUID())
     setDropIncomeIdempotencyKey(crypto.randomUUID())
+    setSalaryIdempotencyKey(crypto.randomUUID())
   }
 
   // EXPENSE and ADMIN_INCOME's ACCOUNTANT branch render the SAME two-button
@@ -997,7 +1000,11 @@ export function CreateTransactionDialog({
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
-            {salaryPrefill ? <Trans>Додати частину зарплати</Trans> : <Trans>Нова транзакція</Trans>}
+            {salaryPrefill ? (
+              <Trans>Додати частину зарплати</Trans>
+            ) : (
+              <Trans>Нова транзакція</Trans>
+            )}
           </DialogTitle>
           <DialogDescription className="sr-only">
             <Trans>Створення транзакції</Trans>
