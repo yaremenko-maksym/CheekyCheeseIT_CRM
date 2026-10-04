@@ -1,77 +1,21 @@
-# Agents — Coexistence Status (Phase 1)
+# Agents — два набора промптов
 
-## Текущее состояние (после Phase 1)
+Статус на 2026-10-05. Прежняя версия описывала Phase 3 как «предстоящую» и ссылалась на
+`reviewer.md` / `CLAUDE-pm.md` / `CLAUDE-coder.md` / `CLAUDE-reviewer.md` / `CLAUDE-devops.md` —
+этих файлов нет (стабы удалены 2026-06-16, reviewer разделён на `code-reviewer` + `security-reviewer`).
 
-В проекте сосуществуют **два набора agent prompts**:
+## Active — рабочие агенты проекта
 
-### Active (production) — naшая система
+`.claude/agents/*.md`. Актуальный список и роли — `.claude/agents/README.md`; здесь не дублируется.
+Из `CLAUDE-*.md` жив только `.claude/agents/CLAUDE-legal.md` (операционные заметки legal).
 
-**`.claude/agents/*.md`** — 8 agent prompts работают и обслуживают daily workflow:
+## Reference — каталог ECC (read-only)
 
-- `pm.md` + `CLAUDE-pm.md` + `pm-snippets.md` — orchestrator
-- `docs/business/roles/ba.md` — human role (moved out of .claude/agents/ in Phase 6, 2026-06-03)
-- `coder.md` + `CLAUDE-coder.md` — fullstack dev
-- `autotest.md` — E2E test dev
-- `reviewer.md` + `CLAUDE-reviewer.md` — code review
-- `devops.md` + `CLAUDE-devops.md` — CI/CD
-- `legal.md` + `CLAUDE-legal.md` — UA legal
-- `architect.md` — migration orchestrator (текущая фаза)
-
-Эти агенты **продолжают работать как есть**. PM продолжает dispatch их через `Agent(...)`.
-
-### Reference (ECC catalog, доступный для invocation)
-
-**`agents/*.md`** — 61 ECC catalog agent скопированы из ECC v2.0.0-rc.1 для:
-
-- Format reference (YAML frontmatter pattern для Phase 3)
-- Direct invocation теми custom agents которые знают про ECC sub-agents:
-  - PM может invoke `planner` для декомпоза
-  - Coder может invoke `tdd-guide`, `typescript-reviewer`, `database-reviewer`
-  - Architect (этот файл) уже invokeит `architect` (ECC system design agent) когда design decision
-- Source для Phase 3 миграции (наши project agents будут декомпозированы / интегрированы с ECC sub-agents)
-
-## ECC catalog agents — кто что делает
-
-Ключевые для нас (full каталог в `AGENTS.md` upstream copy):
-
-- `planner` — implementation planning (PM may invoke)
-- `architect` — system design (ECC's, не наш Migration Architect — naming overlap, не путать)
-- `tdd-guide` — RED→GREEN→IMPROVE workflow
-- `code-reviewer` — code quality review (Phase 3 заменит monolithic reviewer.md часть)
-- `security-reviewer` — vulnerability detection (Phase 3 split с code-reviewer)
-- `typescript-reviewer` — TS-specific review
-- `database-reviewer` — PostgreSQL/Drizzle review
-- `build-error-resolver` — build errors (DevOps invoke)
-- `e2e-runner` — Playwright E2E (AutoTest invoke)
-- `harness-optimizer` — Claude Code config tuning
-- `loop-operator` — autonomous loop execution
-
-## Phase 3 миграция (предстоит)
-
-Согласно ADR Section 6 Phase 3 — 6 sub-PRs:
-
-1. PM → port to ECC YAML frontmatter (largest, highest risk)
-2. Coder → decompose + ECC sub-agent integration
-3. AutoTest → port + ECC playwright skills
-4. Reviewer → split into `code-reviewer` + `security-reviewer`
-5. DevOps → port + ECC `build-error-resolver` integration
-6. Legal → port to ECC YAML, keep custom
-
-После Phase 3 cutover:
-
-- `.claude/agents/*.md` move to `.claude/agents/_legacy/`
-- New project agents live в `agents/` или в hybrid pattern (TBD)
-- 1 неделя coexistence period before cleanup
-
-## Что НЕ делать в этом файле / директории
-
-- Не редактировать `agents/*.md` напрямую — это ECC upstream reference (read-only до Phase 3)
-- Phase 3 миграция создаст НОВЫЕ project agent файлы (PM/Coder/etc.) в this directory, рядом с ECC catalog
-- Daily workflow продолжает dispatch через `.claude/agents/*.md` пока Phase 3 не сделает cutover
+`agents/*.md` — копия каталога агентов ECC v2.0.0-rc.1 (pin — `ecc-pin.txt`) как образец формата
+и источник для точечного вызова. Не редактировать: это upstream-референс.
+Имена в каталоге могут совпадать с нашими (`architect`, `code-reviewer`) — **наши лежат в `.claude/agents/`**.
 
 ## Источники
 
-- ADR Section 2.1 — per-agent migration decisions
-- ADR Section 6 Phase 3 — full plan
-- ECC catalog overview: `AGENTS.md` (project-adapted) + `docs/architecture/ecc-reference/AGENTS.upstream.md`
-- Coexistence pattern из architect.md
+- `.claude/agents/README.md` — актуальный реестр агентов
+- `docs/architecture/2026-05-31-ecc-migration-design.md` — ADR миграции (историческое)

@@ -29,7 +29,7 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
 - [x] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ✅ closed — единый кошелёк; верификация прихода по ссылке на tx (etherscan + прогресс-бар блоков, idempotent по `txHash`); ADMIN-дивиденды; salary/expense/admin-income + drop-payout через счёт компании. **НЕ on-chain** (смарт-контракты отменены владельцем 2026-06-17). PR #249–#265 (+ #277 throttle). Детали — §1.1
 - [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже в корне `/` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)
-- **Текущий фокус (2026-06-22):** плавная миграция дизайна в **Claude Design** (design-gate Tier 1/2, экран за экраном; пилот — HR-дашборд). Cross-cutting UI, не нумерованная фаза. Затем PHASE 9.
+- **Текущий фокус (снэпшот 2026-06-22, мог устареть — сверять с `git log` и бэклогом; сюда перенесён из CLAUDE.md 2026-10-05):** плавная миграция дизайна в **Claude Design** (design-gate Tier 1/2, экран за экраном; пилот — HR-дашборд). Cross-cutting UI, не нумерованная фаза. Затем PHASE 9.
 
 ### 1.1. PHASE 8 — реализовано ✅ (ПЕРЕОПРЕДЕЛЕНО 2026-06-17; смарт-контракты отменены)
 
