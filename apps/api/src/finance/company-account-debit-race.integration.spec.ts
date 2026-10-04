@@ -407,5 +407,58 @@ describe.skipIf(!hasDatabaseUrl())(
       })
       expect((row as { status?: string }).status).toBe('PAID')
     }, 30_000)
+
+    it('COMPANY_ACCOUNT racing ADMIN_PERSONAL on the same salary → exactly one payment wins', async () => {
+      await seedDeposit(1_000_000)
+      const salary = await seedPendingSalary(JUNIOR_A.id, 100)
+
+      // Hold the salary row so both service calls can observe the same PENDING
+      // snapshot and queue their writes. Start the personal path first: once
+      // the lock is released it flips the row, and the company-path UPDATE
+      // must re-check status=PENDING rather than overwrite that completed pay.
+      const blocker = await _pool!.connect()
+      await blocker.query('BEGIN')
+      await blocker.query('SELECT id FROM transactions WHERE id = $1 FOR UPDATE', [salary])
+
+      const personal = svc.paySalary(
+        salary,
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN.id,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xmixedsourcepersonal',
+        },
+        ADMIN,
+      )
+
+      // Give the personal UPDATE a chance to enter the row-lock queue first,
+      // then start the company path behind it.
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      const company = svc.paySalary(
+        salary,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xmixedsourcecompany',
+        },
+        ADMIN,
+      )
+      await new Promise((resolve) => setTimeout(resolve, 25))
+      await blocker.query('COMMIT')
+      blocker.release()
+
+      const results = await Promise.allSettled([personal, company])
+      expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const rejected = results.filter((r) => r.status === 'rejected')
+      expect(rejected).toHaveLength(1)
+      expect((rejected[0] as PromiseRejectedResult).reason.response.code).toBe(
+        'FINANCE_TRANSACTION_NOT_PENDING',
+      )
+
+      const paid = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, salary),
+      })
+      expect(paid?.status).toBe('PAID')
+    }, 30_000)
   },
 )

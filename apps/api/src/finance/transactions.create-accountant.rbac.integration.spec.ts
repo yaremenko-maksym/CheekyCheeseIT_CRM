@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Body, Controller, Global, Inject, Module, Post } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { JwtModule, JwtService } from '@nestjs/jwt'
@@ -19,6 +20,7 @@ import {
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { DatabaseService } from '../database/database.service'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { TransactionsService } from './transactions.service'
 import type { InvoicesService } from '../invoices/invoices.service'
@@ -293,6 +295,7 @@ describe.skipIf(!hasDatabaseUrl())(
       app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
       await app.register(cookie, { secret: 'create-acct-rbac-integration-cookie-secret' })
       app.setGlobalPrefix('api')
+      app.useGlobalFilters(new ZodExceptionFilter())
       await app.init()
       await app.getHttpAdapter().getInstance().ready()
 
@@ -413,6 +416,7 @@ describe.skipIf(!hasDatabaseUrl())(
       amount: 500,
       currency: 'USD',
       salaryMonth,
+      idempotencyKey: randomUUID(),
     })
     // ACCOUNTANT must pass an explicit ADMIN sender; ADMIN may omit it (defaults
     // to self). Receiver is always the other admin.
@@ -542,8 +546,7 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── salary ──────────────────────────────────────────────────────────────────
     describe('POST /transactions/salary', () => {
       it('ACCOUNTANT → 201', async () => {
-        // Distinct month from the ADMIN case so both 201 under the (receiver,month)
-        // unique index (audit #5). '2025-03' window namespaced to ACCOUNTANT.
+        // Explicit month only keeps this RBAC fixture easy to identify.
         const { status, json } = await post(
           '/api/transactions/salary',
           ACCOUNTANT,
@@ -554,19 +557,23 @@ describe.skipIf(!hasDatabaseUrl())(
       })
 
       it('ADMIN → 201 (regression)', async () => {
-        // Distinct month from the ACCOUNTANT case (unique index, audit #5).
         const { status } = await post('/api/transactions/salary', ADMIN, salaryPayload('2025-04'))
         expect(status).toBe(201)
       })
 
-      it('duplicate (receiver, month) → 400 (unique index, audit #5)', async () => {
-        // First create for a fresh month succeeds; a second create for the SAME
-        // (receiver, month) is rejected with a clean 400 (not a raw 500).
+      it('missing idempotencyKey → 400 so stale clients cannot create an unprotected salary', async () => {
+        const { idempotencyKey: _omitted, ...withoutKey } = salaryPayload('2025-06')
+        const { status } = await post('/api/transactions/salary', ADMIN, withoutKey)
+        expect(status).toBe(400)
+      })
+
+      it('same receiver/month with two intent keys → two salary parts', async () => {
         const dupMonth = '2025-05'
         const first = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
         expect(first.status).toBe(201)
         const second = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
-        expect(second.status).toBe(400)
+        expect(second.status).toBe(201)
+        expect((second.json as { id: string }).id).not.toBe((first.json as { id: string }).id)
       })
 
       for (const [label, persona] of FORBIDDEN) {

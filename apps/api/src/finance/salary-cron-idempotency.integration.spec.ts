@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -40,6 +41,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  */
 
 const MONTH = '2099-12' // far-future month so no live cron data collides
+const MOVE_MONTH = '2099-11'
 
 const HR_EMP_ID = 'fc600000-0000-4000-aa00-000000000002'
 const ACCT_ID = 'fc600000-0000-4000-aa00-000000000003'
@@ -133,8 +135,10 @@ describe.skipIf(!hasDatabaseUrl())(
     async function cleanup() {
       await dbSvc.db
         .delete(salaryMonthInitializations)
-        .where(eq(salaryMonthInitializations.salaryMonth, MONTH))
-      await dbSvc.db.delete(transactions).where(eq(transactions.salaryMonth, MONTH))
+        .where(inArray(salaryMonthInitializations.salaryMonth, [MONTH, MOVE_MONTH]))
+      await dbSvc.db
+        .delete(transactions)
+        .where(inArray(transactions.salaryMonth, [MONTH, MOVE_MONTH]))
     }
 
     async function countSalaries(receiverId: string): Promise<number> {
@@ -151,14 +155,14 @@ describe.skipIf(!hasDatabaseUrl())(
       return parseInt(rows[0]?.c ?? '0', 10)
     }
 
-    async function countInitializations(receiverId: string): Promise<number> {
+    async function countInitializations(receiverId: string, month = MONTH): Promise<number> {
       const rows = await dbSvc.db
         .select({ c: sql<string>`COUNT(*)` })
         .from(salaryMonthInitializations)
         .where(
           and(
             eq(salaryMonthInitializations.receiverId, receiverId),
-            eq(salaryMonthInitializations.salaryMonth, MONTH),
+            eq(salaryMonthInitializations.salaryMonth, month),
           ),
         )
       return parseInt(rows[0]?.c ?? '0', 10)
@@ -177,8 +181,16 @@ describe.skipIf(!hasDatabaseUrl())(
         const oldIdx = await probe.query(
           `SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='uq_transactions_salary_receiver_month' LIMIT 1`,
         )
+        const salaryIdempotencyIdx = await probe.query(
+          `SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='uq_transactions_salary_idempotency_key' LIMIT 1`,
+        )
         await probe.end()
-        if (!markerTable.rows[0]?.table_name || newIdx.rowCount === 0 || oldIdx.rowCount !== 0) {
+        if (
+          !markerTable.rows[0]?.table_name ||
+          newIdx.rowCount === 0 ||
+          oldIdx.rowCount !== 0 ||
+          salaryIdempotencyIdx.rowCount === 0
+        ) {
           throw new Error(
             '[salary-cron-idempotency] FAILED — multipart salary schema missing (run db:push on scratch DB)',
           )
@@ -259,11 +271,23 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('manual createSalary allows multiple parts without claiming cron initialization', async () => {
       await svc.createSalary(
-        { receiverId: HR_EMP_ID, amount: 500, currency: 'USD', salaryMonth: MONTH },
+        {
+          receiverId: HR_EMP_ID,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_ACTOR,
       )
       await svc.createSalary(
-        { receiverId: HR_EMP_ID, amount: 500, currency: 'USD', salaryMonth: MONTH },
+        {
+          receiverId: HR_EMP_ID,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_ACTOR,
       )
 
@@ -271,9 +295,67 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await countInitializations(HR_EMP_ID)).toBe(0)
     }, 30_000)
 
+    it('manual createSalary replays the same idempotency key without creating a duplicate', async () => {
+      const idempotencyKey = randomUUID()
+      const payload = {
+        receiverId: HR_EMP_ID,
+        amount: 500,
+        currency: 'USD' as const,
+        salaryMonth: MONTH,
+        idempotencyKey,
+      }
+
+      const first = await svc.createSalary(payload, ADMIN_ACTOR)
+      const replay = await svc.createSalary(payload, ADMIN_ACTOR)
+
+      expect(replay.id).toBe(first.id)
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+      expect(await countInitializations(HR_EMP_ID)).toBe(0)
+    }, 30_000)
+
+    it('concurrent manual retries with one idempotency key create exactly one salary part', async () => {
+      const idempotencyKey = randomUUID()
+      const payload = {
+        receiverId: HR_EMP_ID,
+        amount: 500,
+        currency: 'USD' as const,
+        salaryMonth: MONTH,
+        idempotencyKey,
+      }
+
+      const [a, b] = await Promise.all([
+        svc.createSalary(payload, ADMIN_ACTOR),
+        svc.createSalary(payload, ADMIN_ACTOR),
+      ])
+
+      expect(a.id).toBe(b.id)
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    it('identical manual salary parts remain legal when they carry different intent keys', async () => {
+      const base = {
+        receiverId: HR_EMP_ID,
+        amount: 500,
+        currency: 'USD' as const,
+        salaryMonth: MONTH,
+      }
+
+      const first = await svc.createSalary({ ...base, idempotencyKey: randomUUID() }, ADMIN_ACTOR)
+      const second = await svc.createSalary({ ...base, idempotencyKey: randomUUID() }, ADMIN_ACTOR)
+
+      expect(second.id).not.toBe(first.id)
+      expect(await countSalaries(HR_EMP_ID)).toBe(2)
+    }, 30_000)
+
     it('manual part first, then cron keeps it and adds exactly one automatic part', async () => {
       await svc.createSalary(
-        { receiverId: HR_EMP_ID, amount: 111, currency: 'EUR', salaryMonth: MONTH },
+        {
+          receiverId: HR_EMP_ID,
+          amount: 111,
+          currency: 'EUR',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_ACTOR,
       )
 
@@ -302,6 +384,28 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(await countInitializations(HR_EMP_ID)).toBe(1)
     }, 30_000)
 
+    it('DB rejects a keyless MANUAL salary while legacy/CRON keyless rows remain valid', async () => {
+      await expect(
+        dbSvc.db.insert(transactions).values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '500',
+          currency: 'USD',
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: HR_EMP_ID,
+          salaryMonth: MONTH,
+          salaryOrigin: 'MANUAL',
+          idempotencyKey: null,
+          createdBy: MAKSYM_ID,
+        }),
+      ).rejects.toMatchObject({
+        cause: {
+          code: '23514',
+          constraint: 'ck_transactions_manual_salary_idempotency_key',
+        },
+      })
+    }, 30_000)
+
     it('legacy NULL-origin salary prevents a post-upgrade cron duplicate and seeds the marker', async () => {
       await dbSvc.db.insert(transactions).values({
         type: 'SALARY',
@@ -324,7 +428,13 @@ describe.skipIf(!hasDatabaseUrl())(
     it('cron first, then a manual part keeps both rows', async () => {
       await svc.createMonthlySalaries(MONTH)
       await svc.createSalary(
-        { receiverId: HR_EMP_ID, amount: 333, currency: 'USD', salaryMonth: MONTH },
+        {
+          receiverId: HR_EMP_ID,
+          amount: 333,
+          currency: 'USD',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_ACTOR,
       )
 
@@ -356,7 +466,13 @@ describe.skipIf(!hasDatabaseUrl())(
 
     it('manual part plus concurrent cron runs still creates exactly one automatic part', async () => {
       await svc.createSalary(
-        { receiverId: HR_EMP_ID, amount: 222, currency: 'USD', salaryMonth: MONTH },
+        {
+          receiverId: HR_EMP_ID,
+          amount: 222,
+          currency: 'USD',
+          salaryMonth: MONTH,
+          idempotencyKey: randomUUID(),
+        },
         ADMIN_ACTOR,
       )
 
@@ -388,6 +504,30 @@ describe.skipIf(!hasDatabaseUrl())(
       await svc.createMonthlySalaries(MONTH)
       expect(await countSalaries(HR_EMP_ID)).toBe(0)
       expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    it('moving an unpaid cron salary moves its marker and frees the old month for cron', async () => {
+      await svc.createMonthlySalaries(MONTH)
+      const automatic = await dbSvc.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.type, 'SALARY'),
+          eq(transactions.receiverId, HR_EMP_ID),
+          eq(transactions.salaryMonth, MONTH),
+          eq(transactions.salaryOrigin, 'CRON'),
+        ),
+      })
+      expect(automatic).toBeDefined()
+      expect(await countInitializations(HR_EMP_ID, MONTH)).toBe(1)
+
+      await svc.adminUpdateTransaction(automatic!.id, { salaryMonth: MOVE_MONTH }, ADMIN_ACTOR)
+
+      expect(await countSalaries(HR_EMP_ID)).toBe(0)
+      expect(await countInitializations(HR_EMP_ID, MONTH)).toBe(0)
+      expect(await countInitializations(HR_EMP_ID, MOVE_MONTH)).toBe(1)
+
+      await svc.createMonthlySalaries(MONTH)
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+      expect(await countInitializations(HR_EMP_ID, MONTH)).toBe(1)
     }, 30_000)
   },
 )

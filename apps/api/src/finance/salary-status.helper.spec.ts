@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { DatabaseService } from '../database/database.service'
-import { getOwnSalaryStatus } from './salary-status.helper'
+import { getOwnSalaryStates, getOwnSalaryStatus } from './salary-status.helper'
 
 type TransactionRow = {
   status: string
@@ -37,9 +37,9 @@ function row(
 describe('getOwnSalaryStatus', () => {
   describe('no valid salary part exists', () => {
     it('returns NOT_CONFIGURED when monthly salary is not configured', async () => {
-      expect(
-        await getOwnSalaryStatus(makeDb([]), USER_ID, SALARY_MONTH, NOT_CONFIGURED),
-      ).toEqual({ state: 'NOT_CONFIGURED' })
+      expect(await getOwnSalaryStatus(makeDb([]), USER_ID, SALARY_MONTH, NOT_CONFIGURED)).toEqual({
+        state: 'NOT_CONFIGURED',
+      })
     })
 
     it('returns NOT_CRON_ELIGIBLE when configured role is not processed by cron', async () => {
@@ -70,7 +70,7 @@ describe('getOwnSalaryStatus', () => {
 
   describe('multipart aggregation', () => {
     it('keeps single-part values while exposing aggregate metadata', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
         makeDb([row('2500', 'PENDING', 'UAH')]),
         USER_ID,
         SALARY_MONTH,
@@ -93,10 +93,16 @@ describe('getOwnSalaryStatus', () => {
           },
         ],
       })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 2500,
+        currency: 'UAH',
+        status: 'PENDING',
+      })
     })
 
     it('aggregates paid and pending parts in one currency as PARTIALLY_PAID', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
         makeDb([row('500', 'PAID'), row('500', 'PENDING')]),
         USER_ID,
         SALARY_MONTH,
@@ -119,10 +125,16 @@ describe('getOwnSalaryStatus', () => {
           },
         ],
       })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'PAID',
+      })
     })
 
     it('reports PAID only when every valid part is paid', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result } = await getOwnSalaryStates(
         makeDb([row('400', 'PAID'), row('600', 'PAID')]),
         USER_ID,
         SALARY_MONTH,
@@ -141,7 +153,7 @@ describe('getOwnSalaryStatus', () => {
     })
 
     it('reports LOCKED when every valid part is locked', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result } = await getOwnSalaryStates(
         makeDb([row('300', 'LOCKED'), row('200', 'LOCKED')]),
         USER_ID,
         SALARY_MONTH,
@@ -160,7 +172,7 @@ describe('getOwnSalaryStatus', () => {
     })
 
     it('does not collapse mixed currencies into a misleading amount', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
         makeDb([row('500', 'PAID', 'USD'), row('450', 'PENDING', 'EUR')]),
         USER_ID,
         SALARY_MONTH,
@@ -190,10 +202,16 @@ describe('getOwnSalaryStatus', () => {
           },
         ],
       })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'PAID',
+      })
     })
 
     it('counts only valid salary parts', async () => {
-      const result = await getOwnSalaryStatus(
+      const { aggregate: result } = await getOwnSalaryStates(
         makeDb([row('100', 'CANCELLED'), row('9999.99', 'PENDING')]),
         USER_ID,
         SALARY_MONTH,

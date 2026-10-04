@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import {
+  BadRequestException,
   ForbiddenException,
   HttpStatus,
   Injectable,
@@ -96,7 +97,7 @@ import { EtherscanService } from './etherscan.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
-import { getOwnSalaryStatus } from './salary-status.helper'
+import { getOwnSalaryStates } from './salary-status.helper'
 import { previousSalaryMonthKey } from './salary-month.util'
 import {
   computeCompanyAccountBalanceFromLedger,
@@ -3453,6 +3454,79 @@ export class TransactionsService {
           throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
         }
 
+        // Multipart salary: before this feature, the receiver/month unique
+        // index itself was cron idempotency. Moving an unpaid salary row to
+        // another month therefore automatically freed the old month. The
+        // durable marker must preserve that behaviour for legacy/CRON rows or
+        // an admin correction would leave a stale marker behind and cron would
+        // silently skip the now-empty old month forever.
+        //
+        // MANUAL parts never own a cron marker, so moving one must not disturb
+        // a marker that may belong to an automatic part in the same month.
+        if (
+          salaryMonthChanged &&
+          tx.type === 'SALARY' &&
+          tx.receiverId &&
+          tx.salaryMonth &&
+          data.salaryMonth &&
+          tx.salaryOrigin !== 'MANUAL'
+        ) {
+          const claimedTarget = await dbtx
+            .insert(salaryMonthInitializations)
+            .values({
+              receiverId: tx.receiverId,
+              salaryMonth: data.salaryMonth,
+              initializedBy: currentUser.impersonatorId ?? currentUser.id,
+            })
+            .onConflictDoNothing({
+              target: [
+                salaryMonthInitializations.receiverId,
+                salaryMonthInitializations.salaryMonth,
+              ],
+            })
+            .returning({ id: salaryMonthInitializations.id })
+
+          // If the destination was already initialized, another automatic or
+          // legacy salary already owns that month. The moved row is now an
+          // explicit operator-created extra part; reclassifying it as MANUAL
+          // prevents two rows from claiming automatic origin semantics.
+          if (claimedTarget.length === 0) {
+            await dbtx
+              .update(transactions)
+              .set({ salaryOrigin: 'MANUAL' })
+              .where(eq(transactions.id, id))
+          }
+
+          // Keep the old marker only when another raw legacy/CRON row still
+          // proves that month was initialized. Deliberately include
+          // soft-deleted rows: deleting an automatic salary is an audit event,
+          // not permission for cron to resurrect it (same invariant as
+          // createMonthlySalaries).
+          const [oldAutomaticEvidence] = await dbtx
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.type, 'SALARY'),
+                eq(transactions.receiverId, tx.receiverId),
+                eq(transactions.salaryMonth, tx.salaryMonth),
+                or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+              ),
+            )
+            .limit(1)
+
+          if (!oldAutomaticEvidence) {
+            await dbtx
+              .delete(salaryMonthInitializations)
+              .where(
+                and(
+                  eq(salaryMonthInitializations.receiverId, tx.receiverId),
+                  eq(salaryMonthInitializations.salaryMonth, tx.salaryMonth),
+                ),
+              )
+          }
+        }
+
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
         // — the money-defining fields this endpoint can mutate. Only written
         // when one of them actually changed (mirrors TeamAuditLogService's
@@ -5416,6 +5490,7 @@ export class TransactionsService {
       amount: number
       currency?: string
       salaryMonth: string
+      idempotencyKey: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
     },
@@ -5430,6 +5505,22 @@ export class TransactionsService {
     // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
+
+    if (!data.idempotencyKey) {
+      throw new BadRequestException('idempotencyKey is required for manual salary creation')
+    }
+
+    // One key represents one manual salary-part intent. The public schema
+    // requires it, and the DB CHECK below rejects any MANUAL SALARY write that
+    // bypasses the controller without one. This read handles sequential replay;
+    // the partial unique index closes the concurrent race.
+    const replay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'SALARY'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (replay) return this.findOne(replay.id, currentUser)
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
@@ -5507,27 +5598,43 @@ export class TransactionsService {
     // A SALARY transaction is one concrete salary part. Operators may record
     // several parts for the same employee/month; only the automatic monthly
     // component is idempotent (via salary_month_initializations).
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'SALARY' as const,
-        status: 'PENDING' as const,
-        amount: String(data.amount),
-        currency,
-        senderId: null,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: data.receiverId,
-        salaryMonth: data.salaryMonth,
-        salaryOrigin: 'MANUAL',
-        notes: data.notes ?? null,
-        fundingSource: null,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    let tx: typeof transactions.$inferSelect
+    try {
+      const [created] = await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY' as const,
+          status: 'PENDING' as const,
+          amount: String(data.amount),
+          currency,
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: data.receiverId,
+          salaryMonth: data.salaryMonth,
+          salaryOrigin: 'MANUAL',
+          idempotencyKey: data.idempotencyKey,
+          notes: data.notes ?? null,
+          fundingSource: null,
+          txDate: this.resolveTxDate(data.txDate),
+          createdBy: currentUser.id,
+        })
+        .returning()
+      tx = created!
+    } catch (err) {
+      if (uniqueViolationConstraint(err) === 'uq_transactions_salary_idempotency_key') {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
+      }
+      throw err
+    }
 
-    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
-    return this.findOne(tx!.id, currentUser)
+    await this.afterTransactionCreated(tx.id, tx, currentUser)
+    return this.findOne(tx.id, currentUser)
   }
 
   // ── Create ADMIN_TRANSFER ─────────────────────────────────────────────────
@@ -7617,24 +7724,21 @@ export class TransactionsService {
     // here; written as a real role check (not hardcoded `false`) so the
     // shared helper stays correct if a future HR-summary re-add calls it for
     // a cron-eligible role.
-    const mySalaryState = await getOwnSalaryStatus(this.db.db, selfId, salaryMonth, {
+    const salaryStates = await getOwnSalaryStates(this.db.db, selfId, salaryMonth, {
       hasMonthlySalary: Boolean(selfUser?.monthlySalary),
       isCronEligibleRole: CRON_ELIGIBLE_SALARY_ROLES.has(currentUser.role),
     })
+    const mySalaryState = salaryStates.legacy
+    const mySalaryAggregateState = salaryStates.aggregate
     // DEPRECATED field — see the module comment on `mySalaryStatusSchema` in
     // @crm/shared (security-review MED-3): derived from `mySalaryState` so
     // there is exactly ONE computation, not two that could drift.
     const mySalaryStatus: MySalaryStatusDto =
-      mySalaryState.state === 'EXISTS' &&
-      mySalaryState.amount !== null &&
-      mySalaryState.currency !== null
+      mySalaryState.state === 'EXISTS'
         ? {
             amount: mySalaryState.amount,
             currency: mySalaryState.currency,
-            // Old clients only know PENDING/PAID/LOCKED. A multipart month that
-            // is partly paid is still "not fully paid" in the legacy contract.
-            status:
-              mySalaryState.status === 'PARTIALLY_PAID' ? 'PENDING' : mySalaryState.status,
+            status: mySalaryState.status,
           }
         : null
 
@@ -7654,6 +7758,7 @@ export class TransactionsService {
       },
       mySalaryStatus,
       mySalaryState,
+      mySalaryAggregateState,
       // task-senior-stats-block — «Статистика заработка». No money "expected"
       // figure (USER): only the per-company arrival PROGRESS for this month.
       earningsStats: {
@@ -8558,6 +8663,11 @@ export class TransactionsService {
           .where(
             and(
               eq(transactions.id, id),
+              // Mixed-source race: ADMIN_PERSONAL does not take the company
+              // advisory lock. It can flip this same row after the in-lock
+              // SELECT above but before this UPDATE. Re-assert PENDING in the
+              // write itself so exactly one funding source can win.
+              eq(transactions.status, 'PENDING'),
               isNull(transactions.deletedAt),
               // MED-3: archival re-asserted in the write, not only pre-read.
               this.salaryReceiverNotArchivedFilter(),
@@ -8901,10 +9011,7 @@ export class TransactionsService {
             initializedBy: actorId,
           })
           .onConflictDoNothing({
-            target: [
-              salaryMonthInitializations.receiverId,
-              salaryMonthInitializations.salaryMonth,
-            ],
+            target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
           })
           .returning({ id: salaryMonthInitializations.id })
         if (!claimed[0]) return null
