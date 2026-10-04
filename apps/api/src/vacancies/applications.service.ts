@@ -22,15 +22,7 @@
  * name (that's the intended recipient-facing content, not a log).
  */
 import { randomUUID } from 'node:crypto'
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  Logger,
-  NotFoundException,
-  PayloadTooLargeException,
-  UnsupportedMediaTypeException,
-} from '@nestjs/common'
+import { HttpStatus, Injectable, Logger, UnsupportedMediaTypeException } from '@nestjs/common'
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import {
   applyVacancyFieldsSchema,
@@ -47,6 +39,7 @@ import {
   CompressionService,
   detectMimeFromBuffer,
 } from '../documents/compression.service'
+import { apiError } from '../common/api-error'
 import { S3Service } from '../documents/s3.service'
 import { DatabaseService } from '../database/database.service'
 import { documentAccessLog, users, vacancyApplications } from '../database/schema'
@@ -228,7 +221,7 @@ export class ApplicationsService {
     // ---- 3. Turnstile ----
     const turnstileOk = await this.turnstile.verify(fields.turnstileToken, remoteIp)
     if (!turnstileOk) {
-      throw new BadRequestException('Проверка Turnstile не пройдена')
+      throw apiError('APPLICATION_TURNSTILE_FAILED', HttpStatus.BAD_REQUEST)
     }
 
     // ---- Vacancy lookup (PUBLISHED only — 404 otherwise, mirrors GET detail) ----
@@ -236,23 +229,21 @@ export class ApplicationsService {
 
     // ---- 4. Size ----
     if (!file) {
-      throw new BadRequestException('Файл резюме обязателен')
+      throw apiError('APPLICATION_RESUME_REQUIRED', HttpStatus.BAD_REQUEST)
     }
     if (file.buffer.length > RESUME_MAX_BYTES) {
-      throw new PayloadTooLargeException(
-        `Файл резюме больше ${Math.floor(RESUME_MAX_BYTES / 1024 / 1024)} MB`,
-      )
+      throw apiError('APPLICATION_RESUME_TOO_LARGE', HttpStatus.PAYLOAD_TOO_LARGE, {
+        maxMb: Math.floor(RESUME_MAX_BYTES / 1024 / 1024),
+      })
     }
 
     // ---- 5. MIME + magic-bytes (PDF only) ----
     if (file.mimetype !== RESUME_MIME) {
-      throw new UnsupportedMediaTypeException('Резюме должно быть в формате PDF')
+      throw apiError('APPLICATION_RESUME_PDF_ONLY', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
     const detectedMime = detectMimeFromBuffer(file.buffer)
     if (detectedMime !== RESUME_MIME) {
-      throw new UnsupportedMediaTypeException(
-        'Содержимое файла не соответствует формату PDF (magic-byte не распознан)',
-      )
+      throw apiError('APPLICATION_RESUME_PDF_ONLY', HttpStatus.UNSUPPORTED_MEDIA_TYPE)
     }
 
     // ---- 6. Duplicate: same email + vacancy within 24h → UPDATE in place ----
@@ -580,7 +571,7 @@ export class ApplicationsService {
     applicationId: string,
   ): Promise<VacancyApplicationResumeUrl> {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
-      throw new NotFoundException('Отклик не найден')
+      throw apiError('APPLICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     return this.presignResume(actor, vacancyId, applicationId, 'attachment', 'PREVIEW')
   }
@@ -607,7 +598,7 @@ export class ApplicationsService {
     // history), only the resume file is gone. 404 is the natural status: the
     // resource this endpoint serves genuinely no longer exists.
     if (!row.resumeS3Key) {
-      throw new NotFoundException('Резюме удалено по истечении срока хранения')
+      throw apiError('APPLICATION_RESUME_EXPIRED', HttpStatus.NOT_FOUND)
     }
 
     // task-file-storage-hardening §7: best-effort access-log entry — "who
@@ -642,7 +633,7 @@ export class ApplicationsService {
 
   private assertAdminOrHr(actor: SessionUser): void {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
-      throw new ForbiddenException('Доступно только ADMIN и HR')
+      throw apiError('ADMIN_HR_ONLY', HttpStatus.FORBIDDEN)
     }
   }
 
@@ -656,7 +647,7 @@ export class ApplicationsService {
       where: eq(vacancyApplications.id, applicationId),
     })
     if (!row || row.vacancyId !== vacancyId) {
-      throw new NotFoundException('Отклик не найден')
+      throw apiError('APPLICATION_NOT_FOUND', HttpStatus.NOT_FOUND)
     }
     return row
   }

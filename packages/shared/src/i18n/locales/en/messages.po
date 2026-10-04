@@ -2146,6 +2146,11 @@ msgstr "Application deleted"
 msgid "Відгук кандидата {0} буде видалено. Завантажений файл резюме також буде видалено з сервера. Цю дію не можна скасувати."
 msgstr "The application from {0} will be deleted. The uploaded resume file will also be deleted from the server. This action cannot be undone."
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_NOT_FOUND"
+msgstr "Application not found"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -3168,6 +3173,11 @@ msgstr "Add a custom variable. The employee will fill in its value when signing.
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 msgid "Додайте нову співбесіду на дошку."
 msgstr "Add a new interview to the board."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_REQUIRED"
+msgstr "Attach a resume file"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 msgid "Додано"
@@ -7273,6 +7283,11 @@ msgid "Перевірка…"
 msgstr "Checking…"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_TURNSTILE_FAILED"
+msgstr "Turnstile check failed"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.VALIDATION_FAILED_FORM"
 msgstr "Check the fields you filled in"
@@ -8972,9 +8987,19 @@ msgstr "Resume deleted"
 msgid "Резюме видалено (минув термін зберігання)"
 msgstr "Resume deleted (retention period expired)"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_EXPIRED"
+msgstr "The resume was deleted after its retention period ended"
+
 #: apps/web/app/hooks/use-senior-resume.ts
 msgid "Резюме збережено"
 msgstr "Resume saved"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_PDF_ONLY"
+msgstr "The resume must be a PDF"
 
 #: apps/web/app/components/user-profile/resume/ResumeStatusPanel.tsx
 msgid "Резюме не розпізнано автоматично"
@@ -10716,6 +10741,11 @@ msgstr "No file was received — choose a file and try again"
 #: apps/web/app/components/user-profile/resume/ResumeIntake.tsx
 msgid "Файл резюме"
 msgstr "Resume file"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/applications.ts
+msgid "api-error.APPLICATION_RESUME_TOO_LARGE"
+msgstr "The resume file is too large: {maxMb} MB maximum"
 
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/TransactionDetailDialog.tsx
 msgid "Факт переказу"
