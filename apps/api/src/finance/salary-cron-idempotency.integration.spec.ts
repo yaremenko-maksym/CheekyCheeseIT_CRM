@@ -4,30 +4,29 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
-import { MAKSYM_ID } from '@crm/shared'
+import { MAKSYM_ID, type SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { InvoicesService } from '../invoices/invoices.service'
-import { transactions, users } from '../database/schema'
+import { salaryMonthInitializations, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
- * Audit 2026-06-27 (LOW #5) — salary-cron IDEMPOTENCY (real DB).
+ * Multipart salary + salary-cron idempotency (real DB).
  *
- * createMonthlySalaries previously did a find-then-insert ("skip if exists")
- * with a TOCTOU gap: a concurrent / re-run cron could insert a SECOND SALARY for
- * the same (receiver, month). The fix adds a partial unique index
- * `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND salary_month
- * IS NOT NULL) and switches the inserts to `ON CONFLICT DO NOTHING` — the DB is
- * the single source of truth for "already created".
+ * Multiple SALARY rows for one receiver/month are valid concrete payment parts.
+ * Cron idempotency therefore lives in salary_month_initializations instead of a
+ * uniqueness constraint on transactions.
  *
  * Asserts against REAL PostgreSQL (crm_qa scratch — NEVER crm_db):
- *   1. A single cron run creates exactly one PENDING salary per eligible employee.
- *   2. Re-running the cron for the SAME month creates NO duplicates (idempotent).
- *   3. Two concurrent cron runs for the same month → still exactly one row each.
+ *   1. Manual same-month salary parts can coexist.
+ *   2. Cron still creates exactly one automatic component per receiver/month.
+ *   3. Legacy NULL-origin rows are adopted without duplication.
+ *   4. Re-running / concurrent cron calls remain idempotent.
+ *   5. The durable marker prevents deleted automatic history from resurrecting.
  *
  * The cron proceeds when ANY ADMIN exists (audit 2026-06-28 #7 — it no longer
  * requires the canonical MAKSYM_ID; the resolved admin is only the `createdBy`
@@ -48,6 +47,16 @@ const ACCT_ID = 'fc600000-0000-4000-aa00-000000000003'
 // e.g. contract_templates.created_by) — we only UPSERT it, NEVER delete it.
 // MY_USER_IDS are this spec's own throwaway users, safe to delete.
 const MY_USER_IDS = [HR_EMP_ID, ACCT_ID]
+const ADMIN_ACTOR: SessionUser = {
+  id: MAKSYM_ID,
+  email: 'cron-maksym@test.spec',
+  displayName: 'Cron Maksym',
+  avatarUrl: null,
+  role: 'ADMIN',
+  seniorSharePercent: 0,
+  locale: 'uk',
+  legalFullName: null,
+}
 
 const stubInvoices = {
   autoCreateForSalary: () => Promise.resolve(),
@@ -99,7 +108,7 @@ class TestDatabaseModule {}
 class SalaryCronTestModule {}
 
 describe.skipIf(!hasDatabaseUrl())(
-  'salary cron — idempotency via partial unique index (LOW #5, real DB)',
+  'salary cron — multipart salary + durable cron idempotency (real DB)',
   () => {
     let svc: TransactionsService
     let dbSvc: DatabaseService
@@ -122,6 +131,9 @@ describe.skipIf(!hasDatabaseUrl())(
     // `createdBy = MAKSYM_ID` — the cron stamps EVERY salary with MAKSYM_ID as
     // author, so that filter would still be too broad across real months.
     async function cleanup() {
+      await dbSvc.db
+        .delete(salaryMonthInitializations)
+        .where(eq(salaryMonthInitializations.salaryMonth, MONTH))
       await dbSvc.db.delete(transactions).where(eq(transactions.salaryMonth, MONTH))
     }
 
@@ -139,17 +151,36 @@ describe.skipIf(!hasDatabaseUrl())(
       return parseInt(rows[0]?.c ?? '0', 10)
     }
 
+    async function countInitializations(receiverId: string): Promise<number> {
+      const rows = await dbSvc.db
+        .select({ c: sql<string>`COUNT(*)` })
+        .from(salaryMonthInitializations)
+        .where(
+          and(
+            eq(salaryMonthInitializations.receiverId, receiverId),
+            eq(salaryMonthInitializations.salaryMonth, MONTH),
+          ),
+        )
+      return parseInt(rows[0]?.c ?? '0', 10)
+    }
+
     beforeAll(async () => {
       try {
         const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
         await probe.query('SELECT 1')
-        const idx = await probe.query(
+        const markerTable = await probe.query(
+          `SELECT to_regclass('public.salary_month_initializations') AS table_name`,
+        )
+        const newIdx = await probe.query(
+          `SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='idx_transactions_salary_receiver_month' LIMIT 1`,
+        )
+        const oldIdx = await probe.query(
           `SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='uq_transactions_salary_receiver_month' LIMIT 1`,
         )
         await probe.end()
-        if (idx.rowCount === 0) {
+        if (!markerTable.rows[0]?.table_name || newIdx.rowCount === 0 || oldIdx.rowCount !== 0) {
           throw new Error(
-            '[salary-cron-idempotency] FAILED — uq_transactions_salary_receiver_month index missing (run db:push)',
+            '[salary-cron-idempotency] FAILED — multipart salary schema missing (run db:push on scratch DB)',
           )
         }
       } catch {
@@ -226,6 +257,81 @@ describe.skipIf(!hasDatabaseUrl())(
       await cleanup()
     })
 
+    it('manual createSalary allows multiple parts without claiming cron initialization', async () => {
+      await svc.createSalary(
+        { receiverId: HR_EMP_ID, amount: 500, currency: 'USD', salaryMonth: MONTH },
+        ADMIN_ACTOR,
+      )
+      await svc.createSalary(
+        { receiverId: HR_EMP_ID, amount: 500, currency: 'USD', salaryMonth: MONTH },
+        ADMIN_ACTOR,
+      )
+
+      expect(await countSalaries(HR_EMP_ID)).toBe(2)
+      expect(await countInitializations(HR_EMP_ID)).toBe(0)
+    }, 30_000)
+
+    it('manual part first, then cron keeps it and adds exactly one automatic part', async () => {
+      await svc.createSalary(
+        { receiverId: HR_EMP_ID, amount: 111, currency: 'EUR', salaryMonth: MONTH },
+        ADMIN_ACTOR,
+      )
+
+      await svc.createMonthlySalaries(MONTH)
+
+      const rows = await dbSvc.db.query.transactions.findMany({
+        where: and(
+          eq(transactions.type, 'SALARY'),
+          eq(transactions.receiverId, HR_EMP_ID),
+          eq(transactions.salaryMonth, MONTH),
+        ),
+      })
+      expect(rows).toHaveLength(2)
+      expect(
+        rows.some(
+          (row) =>
+            Number(row.amount) === 111 && row.currency === 'EUR' && row.salaryOrigin === 'MANUAL',
+        ),
+      ).toBe(true)
+      expect(
+        rows.some(
+          (row) =>
+            Number(row.amount) === 1500 && row.currency === 'USD' && row.salaryOrigin === 'CRON',
+        ),
+      ).toBe(true)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    it('legacy NULL-origin salary prevents a post-upgrade cron duplicate and seeds the marker', async () => {
+      await dbSvc.db.insert(transactions).values({
+        type: 'SALARY',
+        status: 'PAID',
+        amount: '1500',
+        currency: 'USD',
+        senderLabel: 'CheekyCheeseIT',
+        receiverId: HR_EMP_ID,
+        salaryMonth: MONTH,
+        salaryOrigin: null,
+        createdBy: MAKSYM_ID,
+      })
+
+      await svc.createMonthlySalaries(MONTH)
+
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    it('cron first, then a manual part keeps both rows', async () => {
+      await svc.createMonthlySalaries(MONTH)
+      await svc.createSalary(
+        { receiverId: HR_EMP_ID, amount: 333, currency: 'USD', salaryMonth: MONTH },
+        ADMIN_ACTOR,
+      )
+
+      expect(await countSalaries(HR_EMP_ID)).toBe(2)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
     it('single run → exactly one PENDING salary per eligible employee', async () => {
       await svc.createMonthlySalaries(MONTH)
       expect(await countSalaries(HR_EMP_ID)).toBe(1)
@@ -241,12 +347,47 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     it('two concurrent cron runs for the same month → still exactly one row each', async () => {
-      // Race two cron runs. With the find-then-insert TOCTOU both could insert; the
-      // ON CONFLICT DO NOTHING against the partial unique index guarantees at most
-      // one row per (receiver, month) regardless of interleaving.
+      // The unique marker claim and automatic row insertion share one DB
+      // transaction, so only one contender can create the cron-owned part.
       await Promise.all([svc.createMonthlySalaries(MONTH), svc.createMonthlySalaries(MONTH)])
       expect(await countSalaries(HR_EMP_ID)).toBe(1)
       expect(await countSalaries(ACCT_ID)).toBe(1)
+    }, 30_000)
+
+    it('manual part plus concurrent cron runs still creates exactly one automatic part', async () => {
+      await svc.createSalary(
+        { receiverId: HR_EMP_ID, amount: 222, currency: 'USD', salaryMonth: MONTH },
+        ADMIN_ACTOR,
+      )
+
+      await Promise.all([
+        svc.createMonthlySalaries(MONTH),
+        svc.createMonthlySalaries(MONTH),
+        svc.createMonthlySalaries(MONTH),
+      ])
+
+      expect(await countSalaries(HR_EMP_ID)).toBe(2)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
+    }, 30_000)
+
+    it('keeps initialization after salary deletion so cron does not resurrect history', async () => {
+      await svc.createMonthlySalaries(MONTH)
+      expect(await countSalaries(HR_EMP_ID)).toBe(1)
+
+      await dbSvc.db
+        .delete(transactions)
+        .where(
+          and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.receiverId, HR_EMP_ID),
+            eq(transactions.salaryMonth, MONTH),
+          ),
+        )
+      expect(await countSalaries(HR_EMP_ID)).toBe(0)
+
+      await svc.createMonthlySalaries(MONTH)
+      expect(await countSalaries(HR_EMP_ID)).toBe(0)
+      expect(await countInitializations(HR_EMP_ID)).toBe(1)
     }, 30_000)
   },
 )

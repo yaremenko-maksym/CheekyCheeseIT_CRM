@@ -45,7 +45,7 @@ interface StubData {
   selfUser?: AnyRow | undefined
   paidIncome?: AnyRow[]
   payoutRequests?: AnyRow[]
-  salaryRow?: AnyRow | undefined
+  salaryRows?: AnyRow[]
   teamMembers?: AnyRow[]
 }
 
@@ -68,7 +68,7 @@ function makeService(data: StubData = {}): TransactionsService {
       },
       // security-review PR #456 round 2: mySalaryStatus now comes from
       // getOwnSalaryStatus, which reads the `nonDeletedTransactions` VIEW via
-      // `.select().from(...).where(...).limit(1)` — not the relational-query
+      // `.select().from(...).where(...)` — not the relational-query
       // `transactions.findFirst` this stub used to provide.
       //
       // task-project-draft-status: `getSeniorSummary`'s own "active own
@@ -76,7 +76,7 @@ function makeService(data: StubData = {}): TransactionsService {
       // relational-query API — see that read's own comment for why) via
       // `.select().from(visibleProjects).where(...).orderBy(...)`. Routed by
       // TABLE IDENTITY (mirrors documents.service.spec.ts's own fix for the
-      // same class of change) so the salary-status chain (ends in `.limit()`)
+      // same class of change) so the salary-status chain
       // and the projects chain (ends in `.orderBy()`) don't collide.
       select: () => ({
         from: (table: unknown) => {
@@ -84,9 +84,7 @@ function makeService(data: StubData = {}): TransactionsService {
             return { where: () => ({ orderBy: () => Promise.resolve(data.projects ?? []) }) }
           }
           return {
-            where: () => ({
-              limit: () => Promise.resolve(data.salaryRow ? [data.salaryRow] : []),
-            }),
+            where: () => Promise.resolve(data.salaryRows ?? []),
           }
         },
       }),
@@ -398,7 +396,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
   it('maps a current-month SALARY row to EXISTS on mySalaryState, and the legacy shape on mySalaryStatus', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },
-      salaryRow: { amount: '1500', status: 'PENDING', currency: 'USD' },
+      salaryRows: [{ amount: '1500', status: 'PENDING', currency: 'USD' }],
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({
@@ -406,16 +404,66 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
       amount: 1500,
       status: 'PENDING',
       currency: 'USD',
+      transactionCount: 1,
+      totals: [
+        {
+          currency: 'USD',
+          amount: 1500,
+          paidAmount: 0,
+          pendingAmount: 1500,
+          lockedAmount: 0,
+        },
+      ],
     })
     // security-review MED-3: the DEPRECATED field is DERIVED from the SAME
     // EXISTS row, not a second independent computation.
     expect(r.mySalaryStatus).toEqual({ amount: 1500, status: 'PENDING', currency: 'USD' })
   })
 
+  it('maps multipart partial payment to PARTIALLY_PAID while keeping the deprecated enum compatible', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      salaryRows: [
+        { amount: '500', status: 'PAID', currency: 'USD' },
+        { amount: '500', status: 'PENDING', currency: 'USD' },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+
+    expect(r.mySalaryState).toMatchObject({
+      state: 'EXISTS',
+      amount: 1000,
+      currency: 'USD',
+      status: 'PARTIALLY_PAID',
+      transactionCount: 2,
+    })
+    expect(r.mySalaryStatus).toEqual({ amount: 1000, currency: 'USD', status: 'PENDING' })
+  })
+
+  it('keeps mixed-currency aggregates only on mySalaryState because the legacy field cannot represent them', async () => {
+    const svc = makeService({
+      selfUser: { seniorSharePercent: 26 },
+      salaryRows: [
+        { amount: '500', status: 'PAID', currency: 'USD' },
+        { amount: '450', status: 'PENDING', currency: 'EUR' },
+      ],
+    })
+    const r = await svc.getSeniorSummary(user('SENIOR'))
+
+    expect(r.mySalaryState).toMatchObject({
+      state: 'EXISTS',
+      amount: null,
+      currency: null,
+      status: 'PARTIALLY_PAID',
+      transactionCount: 2,
+    })
+    expect(r.mySalaryStatus).toBeNull()
+  })
+
   it('maps an invalid salary status to NOT_CONFIGURED when monthlySalary is unset (defensive)', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26 },
-      salaryRow: { amount: '1500', status: 'REJECTED' },
+      salaryRows: [{ amount: '1500', status: 'REJECTED', currency: 'USD' }],
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
@@ -433,7 +481,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
   it('maps "monthlySalary configured, no row yet" to NOT_CRON_ELIGIBLE for a SENIOR — the cron will never fill this in on its own', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26, monthlySalary: '2000' },
-      salaryRow: undefined,
+      salaryRows: [],
     })
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
@@ -447,7 +495,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
   // other fixture always supplies a `selfUser` object, so nothing exercised
   // the `undefined` branch the `?.` guards.
   it('does not throw when selfUser is undefined (users lookup miss) — resolves to NOT_CONFIGURED', async () => {
-    const svc = makeService({ selfUser: undefined, salaryRow: undefined })
+    const svc = makeService({ selfUser: undefined, salaryRows: [] })
     await expect(svc.getSeniorSummary(user('SENIOR'))).resolves.toBeDefined()
     const r = await svc.getSeniorSummary(user('SENIOR'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CONFIGURED' })
@@ -457,7 +505,7 @@ describe('getSeniorSummary — mySalaryState / mySalaryStatus mapping', () => {
   it('an ADMIN caller (debugging as themselves) is also never cron-eligible', async () => {
     const svc = makeService({
       selfUser: { seniorSharePercent: 26, monthlySalary: '5000' },
-      salaryRow: undefined,
+      salaryRows: [],
     })
     const r = await svc.getSeniorSummary(user('ADMIN'))
     expect(r.mySalaryState).toEqual({ state: 'NOT_CRON_ELIGIBLE' })

@@ -2,7 +2,7 @@
  * getOwnSalaryStatus — shared helper (DRY: replaces private duplicates in
  * TransactionsService and InterviewsService).
  *
- * Returns the caller's own SALARY transaction for `salaryMonth` (YYYY-MM) as
+ * Returns the caller's SALARY parts for `salaryMonth` (YYYY-MM) as
  * one of FOUR explicit states (task-salary-month-gap-and-status, E-6 — see
  * the module comment on `mySalaryStateSchema` in @crm/shared for the full
  * rationale): `NOT_CONFIGURED` (no `monthlySalary` set), `NOT_CRON_ELIGIBLE`
@@ -53,7 +53,7 @@ export async function getOwnSalaryStatus(
   salaryMonth: string,
   salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
 ): Promise<MySalaryStateDto> {
-  const [salaryRow] = await db
+  const salaryRows = await db
     .select()
     .from(nonDeletedTransactions)
     .where(
@@ -63,19 +63,65 @@ export async function getOwnSalaryStatus(
         eq(nonDeletedTransactions.salaryMonth, salaryMonth),
       ),
     )
-    .limit(1)
 
   const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
-  if (!salaryRow || !validStatuses.includes(salaryRow.status as SalaryStatus)) {
+  const validRows = salaryRows.filter((row) =>
+    validStatuses.includes(row.status as SalaryStatus),
+  )
+  if (validRows.length === 0) {
     if (!salaryConfig.hasMonthlySalary) return { state: 'NOT_CONFIGURED' }
     if (!salaryConfig.isCronEligibleRole) return { state: 'NOT_CRON_ELIGIBLE' }
     return { state: 'AWAITING_CREATION' }
   }
 
+  const byCurrency = new Map<
+    'USDT' | 'USD' | 'EUR' | 'UAH',
+    {
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      amount: number
+      paidAmount: number
+      pendingAmount: number
+      lockedAmount: number
+    }
+  >()
+  for (const row of validRows) {
+    const currency = row.currency
+    const current = byCurrency.get(currency) ?? {
+      currency,
+      amount: 0,
+      paidAmount: 0,
+      pendingAmount: 0,
+      lockedAmount: 0,
+    }
+    const amount = Number(row.amount)
+    current.amount += amount
+    if (row.status === 'PAID') current.paidAmount += amount
+    else if (row.status === 'LOCKED') current.lockedAmount += amount
+    else current.pendingAmount += amount
+    byCurrency.set(currency, current)
+  }
+  const totals = [...byCurrency.values()].sort((a, b) =>
+    a.currency.localeCompare(b.currency),
+  )
+
+  const paidCount = validRows.filter((row) => row.status === 'PAID').length
+  const allPaid = paidCount === validRows.length
+  const allLocked = validRows.every((row) => row.status === 'LOCKED')
+  const status: SalaryStatus = allPaid
+    ? 'PAID'
+    : paidCount > 0
+      ? 'PARTIALLY_PAID'
+      : allLocked
+        ? 'LOCKED'
+        : 'PENDING'
+  const singleCurrency = totals.length === 1 ? totals[0]! : null
+
   return {
     state: 'EXISTS',
-    amount: Number(salaryRow.amount),
-    currency: salaryRow.currency,
-    status: salaryRow.status as SalaryStatus,
+    amount: singleCurrency?.amount ?? null,
+    currency: singleCurrency?.currency ?? null,
+    status,
+    transactionCount: validRows.length,
+    totals,
   }
 }

@@ -49,7 +49,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
-import { transactions } from '../database/schema'
+import { salaryMonthInitializations, transactions } from '../database/schema'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -77,10 +77,8 @@ interface StubData {
   // matches the `.select({ receiverId: ... })` projection).
   existingSalaryReceiverIds?: string[]
   admin?: AnyRow | undefined
-  // security-review HIGH-1: receiver ids for whom the SALARY insert should
-  // simulate a REAL `ON CONFLICT DO NOTHING` no-op (RETURNING comes back
-  // empty) — the only way `createMonthlySalaries` can tell "already existed"
-  // from "just created", which gates whether `recordCreationAudit` fires.
+  // Receiver ids whose durable initialization marker already exists. Marker
+  // claim returns no row, so createMonthlySalaries performs no salary insert.
   conflictReceiverIds?: string[]
 }
 
@@ -96,48 +94,52 @@ function makeService(data: StubData = {}): {
   const insertedValues: Record<string, unknown>[] = []
   const auditValues: Record<string, unknown>[] = []
   let insertedRowCounter = 0
-  // `insert(table)` branches on WHICH table the caller is inserting into:
-  //   - `transactions` (the actual SALARY rows) — chainable
-  //     `.onConflictDoNothing().returning(...)`, matching production. Resolves
-  //     to a fake inserted row UNLESS `data.conflictReceiverIds` names this
-  //     receiver (simulating a real `ON CONFLICT DO NOTHING` no-op) — needed
-  //     to prove security-review HIGH-1's audit-only-on-REAL-insert guarantee.
-  //   - `transactionAuditLog` (recordCreationAudit) — plain `.values()` await,
-  //     no further chain, captured separately so it never pollutes
-  //     `insertedValues` (which several existing assertions count exactly).
-  const insert = vi.fn((table: unknown) => ({
-    values: vi.fn((values: Record<string, unknown>) => {
-      if (table === transactions) {
-        insertedValues.push(values)
-        const receiverId = values['receiverId'] as string | undefined
-        const conflicted = receiverId && (data.conflictReceiverIds ?? []).includes(receiverId)
-        return {
-          onConflictDoNothing: vi.fn(() => ({
-            // security-review round 3 (mutation gate): `.returning({id:
-            // transactions.id})` used to resolve a HARDCODED `{id:
-            // 'fake-tx-N'}` regardless of what projection it was actually
-            // called with — a mutated `.returning({})` (the real column
-            // projection gone) was invisible, since the stub never
-            // inspected its own argument. Made projection-AWARE instead:
-            // only synthesize an `id` when the requested projection
-            // actually asks for one — a real Postgres `RETURNING` with an
-            // empty column list would come back with rows that have no
-            // `id` field either, so `inserted[0].id` would genuinely be
-            // `undefined` and propagate into `recordCreationAudit`'s
-            // `targetId` — which the HIGH-1 tests now assert directly.
-            returning: vi.fn((projection: Record<string, unknown> | undefined) => {
-              if (conflicted) return Promise.resolve([])
+  const initializedReceiverIds = new Set(data.conflictReceiverIds ?? [])
+  const automaticReceiverIds = new Set(data.existingSalaryReceiverIds ?? [])
+  let claimedReceiverId: string | undefined
+
+  const dbtx = {
+    query: {
+      transactions: {
+        findFirst: () =>
+          Promise.resolve(
+            claimedReceiverId && automaticReceiverIds.has(claimedReceiverId)
+              ? { id: `existing-${claimedReceiverId}` }
+              : undefined,
+          ),
+      },
+    },
+    insert: (table: unknown) => ({
+      values: (values: Record<string, unknown>) => {
+        if (table === salaryMonthInitializations) {
+          const receiverId = values['receiverId'] as string
+          claimedReceiverId = receiverId
+          return {
+            onConflictDoNothing: () => ({
+              returning: async () => {
+                if (initializedReceiverIds.has(receiverId)) return []
+                initializedReceiverIds.add(receiverId)
+                return [{ id: `marker-${receiverId}` }]
+              },
+            }),
+          }
+        }
+        if (table === transactions) {
+          insertedValues.push(values)
+          const receiverId = values['receiverId'] as string
+          automaticReceiverIds.add(receiverId)
+          return {
+            returning: async (projection: Record<string, unknown> | undefined) => {
               const row: Record<string, unknown> = {}
               if (projection && 'id' in projection) row['id'] = `fake-tx-${++insertedRowCounter}`
-              return Promise.resolve([row])
-            }),
-          })),
+              return [row]
+            },
+          }
         }
-      }
-      auditValues.push(values)
-      return Promise.resolve([])
+        throw new Error('unexpected insert table in salary transaction')
+      },
     }),
-  }))
+  }
 
   let projectMembersArgs: { where: unknown; with: unknown } | undefined
   let selectColumns: Record<string, unknown> | undefined
@@ -160,19 +162,33 @@ function makeService(data: StubData = {}): {
       },
       select: (columns: Record<string, unknown>) => {
         selectCallCount += 1
-        selectColumns = columns
         return {
-          from: () => ({
+          from: (table: unknown) => ({
             where: (whereArg: unknown) => {
-              existingRowsWhere = whereArg
-              return Promise.resolve(
-                (data.existingSalaryReceiverIds ?? []).map((receiverId) => ({ receiverId })),
-              )
+              if (table === transactions) {
+                selectColumns = columns
+                existingRowsWhere = whereArg
+                return Promise.resolve(
+                  [...automaticReceiverIds].map((receiverId) => ({ receiverId })),
+                )
+              }
+              if (table === salaryMonthInitializations) {
+                return Promise.resolve(
+                  [...initializedReceiverIds].map((receiverId) => ({ receiverId })),
+                )
+              }
+              throw new Error('unexpected select table')
             },
           }),
         }
       },
-      insert,
+      insert: () => ({
+        values: (values: Record<string, unknown>) => {
+          auditValues.push(values)
+          return Promise.resolve([])
+        },
+      }),
+      transaction: (cb: (tx: typeof dbtx) => Promise<unknown>) => cb(dbtx),
     },
   }
   return {
@@ -623,22 +639,18 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
   })
 
   it('backfilling a month with nothing missing reports a clean post-backfill gap', async () => {
-    // `createMonthlySalaries` always ATTEMPTS the insert per eligible receiver
-    // — real de-duplication is the DB's `ON CONFLICT DO NOTHING` against the
-    // unique index, simulated here via `conflictReceiverIds` (RETURNING comes
-    // back empty, exactly like a real conflict). What this test proves at the
-    // unit level is the report's own read: with the row already existing, the
-    // POST-backfill `resolveSalaryMonthGap` reports nothing missing.
+    // The durable marker owns cron idempotency now. Simulate an already-claimed
+    // month via `conflictReceiverIds`: marker RETURNING is empty, so no salary
+    // write is even attempted and no creation audit is emitted.
     const { svc, insertedValues, auditValues } = makeService({
       hrAccountantEmployees: [hrEmployee()],
       existingSalaryReceiverIds: ['hr-1'],
       conflictReceiverIds: ['hr-1'],
     })
     const result = await svc.backfillSalaryMonth(user('ADMIN'), MONTH)
-    expect(insertedValues).toHaveLength(1) // the (harmless, ON CONFLICT DO NOTHING) attempt
+    expect(insertedValues).toHaveLength(0)
     expect(result.missing).toHaveLength(0)
-    // security-review HIGH-1: the attempt CONFLICTED (no row actually
-    // created) — must NOT be audited as a creation that never happened.
+    // No row actually created — must NOT be audited as a creation.
     expect(auditValues).toHaveLength(0)
   })
 

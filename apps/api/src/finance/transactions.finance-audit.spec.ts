@@ -24,7 +24,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
-import { pendingObligations } from '../database/schema'
+import { pendingObligations, salaryMonthInitializations, transactions } from '../database/schema'
 
 function admin(id = 'admin-1'): SessionUser {
   return {
@@ -151,6 +151,23 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
     const insertValues = vi.fn()
     let findManyCall = 0
     let findFirstWhereArg: unknown
+    const dbtx = {
+      query: { transactions: { findFirst: () => Promise.resolve(undefined) } },
+      insert: (table: unknown) => ({
+        values: (v: unknown) => {
+          if (table === salaryMonthInitializations) {
+            return {
+              onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'marker-1' }]) }),
+            }
+          }
+          if (table === transactions) {
+            insertValues(v)
+            return { returning: () => Promise.resolve([{ id: 'salary-1' }]) }
+          }
+          throw new Error('unexpected insert table')
+        },
+      }),
+    }
     const dbStub = {
       db: {
         query: {
@@ -174,16 +191,7 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
           projects: { findMany: () => Promise.resolve([]) },
           projectMembers: { findMany: () => Promise.resolve([]) },
         },
-        insert: () => ({
-          values: (v: unknown) => {
-            insertValues(v)
-            // task-salary-month-gap-and-status (HIGH-1): createMonthlySalaries
-            // now chains `.returning(...)` after `.onConflictDoNothing(...)`
-            // — no test in this block passes an `actor`, so the resolved
-            // value is inert; it just has to be chainable.
-            return { onConflictDoNothing: () => ({ returning: () => Promise.resolve([]) }) }
-          },
-        }),
+        transaction: (cb: (tx: typeof dbtx) => Promise<unknown>) => cb(dbtx),
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
