@@ -1232,8 +1232,18 @@ msgstr "Vacancies"
 msgid "Вакансію видалено"
 msgstr "Vacancy deleted"
 
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSED"
+msgstr "This vacancy is closed"
+
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 msgid "Вакансію не знайдено"
+msgstr "Vacancy not found"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_NOT_FOUND"
 msgstr "Vacancy not found"
 
 #: apps/web/app/hooks/use-vacancies.ts
@@ -1262,6 +1272,11 @@ msgstr "The vacancy “{0}” will be deleted permanently. This action cannot be
 #: packages/shared/src/schemas/notification-registry.ts
 msgid "notification.VACANCY_APPLICATION.detail"
 msgstr "Vacancy “{vacancyTitle}”"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SLUG_EXISTS"
+msgstr "A vacancy with slug {slug} already exists"
 
 #: apps/web/app/routes/_authenticated/routing/components/AccountantDashboard.tsx
 msgid "Валідація доходів"
@@ -2465,6 +2480,11 @@ msgid "Вкажіть вилку зарплати у формі редагува
 msgstr "Specify the salary range in the edit form before publishing"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_SALARY_RANGE_REQUIRED"
+msgstr "Set the salary range: min, max, currency and period"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/zod-errors.ts
 msgid "zod-error.SHARE_PERCENT_RANGE_0_100"
 msgstr "Enter a value from 0 to 100"
@@ -3418,6 +3438,11 @@ msgstr "Admin access only"
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/PayoutPaymentForm.tsx
 msgid "Доступно лише в dev-збірці. Оберіть «успіх» або «помилку», щоб розблокувати «Підтвердити оплату»."
 msgstr "Available in the dev build only. Choose “success” or “failure” to unlock “Confirm payment”."
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.ADMIN_HR_ONLY"
+msgstr "Only ADMIN and HR can do this"
 
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 msgid "Доступно через {cooldownSeconds}с"
@@ -6182,6 +6207,11 @@ msgid "Не можна архівувати себе"
 msgstr "Can't archive yourself"
 
 #. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_HAS_APPLICATIONS"
+msgstr "Can't delete a vacancy that has applications"
+
+#. js-lingui-explicit-id
 #: packages/shared/src/schemas/api-errors/auth-users-projects.ts
 msgid "api-error.CANNOT_ARCHIVE_ANOTHER_ADMIN"
 msgstr "You can't archive another admin"
@@ -6520,6 +6550,11 @@ msgstr "Required experience (months)"
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустиме значення"
 msgstr "Invalid value"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_INVALID_STATUS_TRANSITION"
+msgstr "Invalid vacancy status transition: {from} → {to}"
 
 #: apps/web/app/routes/_authenticated/vacancies/constants.ts
 msgid "Неприпустимий формат"
@@ -9631,6 +9666,11 @@ msgstr "Largest first"
 #: apps/web/app/components/user-profile/AvatarUploadDialog.tsx
 msgid "Спочатку виберіть область"
 msgstr "Select an area first"
+
+#. js-lingui-explicit-id
+#: packages/shared/src/schemas/api-errors/vacancies.ts
+msgid "api-error.VACANCY_CLOSE_BEFORE_DELETE"
+msgstr "Close the published vacancy first"
 
 #: apps/web/app/components/user-profile/contract/ContractPdfPreview.tsx
 msgid "Спочатку збережіть, щоб оновити перегляд"

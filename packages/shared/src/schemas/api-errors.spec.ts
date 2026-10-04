@@ -15,6 +15,7 @@ import { AUTH_USERS_PROJECTS_ERROR_CODES } from './api-errors/auth-users-project
 import { BASE_ERROR_CODES } from './api-errors/base'
 import { DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES } from './api-errors/documents-contracts-notifications'
 import { FINANCE_INVOICES_ERROR_CODES } from './api-errors/finance-invoices'
+import { VACANCIES_ERROR_CODES } from './api-errors/vacancies'
 
 // SR-M-1 (PR #694 round 1) — the `en` catalog string for each code, read
 // straight off disk rather than via `@crm/shared`'s compiled catalog
@@ -96,6 +97,7 @@ describe('api-errors', () => {
       ['auth-users-projects', AUTH_USERS_PROJECTS_ERROR_CODES],
       ['finance-invoices', FINANCE_INVOICES_ERROR_CODES],
       ['documents-contracts-notifications', DOCUMENTS_CONTRACTS_NOTIFICATIONS_ERROR_CODES],
+      ['vacancies', VACANCIES_ERROR_CODES],
     ] as const
     const seenIn = new Map<string, string>()
     for (const [moduleName, codes] of perModule) {
