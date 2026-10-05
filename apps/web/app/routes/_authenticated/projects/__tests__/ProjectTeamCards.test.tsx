@@ -235,6 +235,25 @@ describe('MemberRow', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
+  it('exit date is a UTC calendar date regardless of the reader timezone', () => {
+    // 23:30 UTC on the 15th is already the 16th in Auckland; the 'short' style pins UTC.
+    const prevTz = process.env['TZ']
+    process.env['TZ'] = 'Pacific/Auckland'
+    try {
+      wrap(
+        <MemberRow
+          member={member({ leftAt: '2026-03-15T23:30:00.000Z' })}
+          canManage={false}
+          onRemove={() => {}}
+        />,
+      )
+      expect(screen.getByText(/дата виходу/).textContent).toBe('дата виходу: 15.03.2026')
+    } finally {
+      if (prevTz === undefined) delete process.env['TZ']
+      else process.env['TZ'] = prevTz
+    }
+  })
+
   it('active member is not dimmed', () => {
     const { container } = wrap(
       <MemberRow member={member()} canManage={false} onRemove={() => {}} />,
