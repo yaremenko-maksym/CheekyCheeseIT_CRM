@@ -219,7 +219,10 @@ describe('transactions.service.ts — every PENDING-accrual site is accounted fo
     expect(sites.filter((s) => s.method === 'createMonthlySalaries')).toHaveLength(1)
 
     const source = readFileSync(SRC_FILE, 'utf8')
-    expect(source.match(/await createAutomaticSalary\(\{/g) ?? []).toHaveLength(2)
+    // Keep this structural assertion tolerant of Stryker instrumentation.
+    // Mutation testing can wrap the object argument between `(` and `{`, but
+    // the two call sites themselves must remain present.
+    expect(source.match(/createAutomaticSalary\s*\(/g) ?? []).toHaveLength(2)
   })
 
   it('the scan is not vacuous — it really finds createSeniorIncome', () => {

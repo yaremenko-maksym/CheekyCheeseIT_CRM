@@ -302,6 +302,15 @@ describe('TransactionRow — multipart salary action', () => {
     expect(screen.queryByTestId(addPartTestId)).not.toBeInTheDocument()
   })
 
+  it('privileged roles do not get the add-part action for non-salary rows', () => {
+    renderRow({
+      tx: makeTx({ type: 'EXPENSE', status: 'PAID' }),
+      role: 'ADMIN',
+      onAddSalaryPart: () => {},
+    })
+    expect(screen.queryByTestId(addPartTestId)).not.toBeInTheDocument()
+  })
+
   it('does not expose mutations on a soft-deleted salary row', () => {
     renderRow({
       tx: makeTx({

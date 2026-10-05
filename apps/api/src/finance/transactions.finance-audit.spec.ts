@@ -141,6 +141,208 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
   })
 })
 
+describe('adminUpdateTransaction — multipart salary marker migration', () => {
+  const automaticSalary = {
+    id: 'salary-cron-1',
+    type: 'SALARY',
+    status: 'PENDING',
+    fundingSource: null,
+    amount: '500',
+    currency: 'USD',
+    payoutRequestId: null,
+    receiverId: 'emp-1',
+    receiverLabel: null,
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    salaryMonth: '2026-01',
+    salaryOrigin: 'CRON',
+    notes: null,
+    deletedAt: null,
+    settledAmount: null,
+  }
+
+  function makeSalaryMoveSvc(
+    row: Record<string, unknown>,
+    opts: { targetClaimed?: boolean; oldAutomaticEvidence?: boolean } = {},
+  ) {
+    const markerInsertValues: Record<string, unknown>[] = []
+    const markerDeleteWhere: unknown[] = []
+    const oldEvidenceWhere: unknown[] = []
+    const reclassificationValues: Record<string, unknown>[] = []
+    let markerConflictArgs: Record<string, unknown> | undefined
+    let markerReturningProjection: Record<string, unknown> | undefined
+    let oldEvidenceSelectProjection: Record<string, unknown> | undefined
+    const findOne = vi.fn().mockResolvedValue({ id: row['id'] })
+
+    const dbtx = {
+      update: (table: unknown) => ({
+        set: (setArg: Record<string, unknown>) => ({
+          where: (whereArg: unknown) => {
+            if (table === transactions && setArg['salaryOrigin'] === 'MANUAL') {
+              reclassificationValues.push(setArg)
+              return Promise.resolve(undefined)
+            }
+            return {
+              returning: () => Promise.resolve([{ id: row['id'] }]),
+            }
+          },
+        }),
+      }),
+      insert: (table: unknown) => ({
+        values: (values: Record<string, unknown>) => {
+          if (table === salaryMonthInitializations) {
+            markerInsertValues.push(values)
+            return {
+              onConflictDoNothing: (args: Record<string, unknown>) => {
+                markerConflictArgs = args
+                return {
+                  returning: (projection: Record<string, unknown>) => {
+                    markerReturningProjection = projection
+                    return Promise.resolve(
+                      opts.targetClaimed === false ? [] : [{ id: 'new-marker' }],
+                    )
+                  },
+                }
+              },
+            }
+          }
+          return Promise.resolve(undefined)
+        },
+      }),
+      select: (projection: Record<string, unknown>) => {
+        oldEvidenceSelectProjection = projection
+        return {
+          from: (table: unknown) => {
+            if (table !== transactions) throw new Error('unexpected select table')
+            return {
+              where: (whereArg: unknown) => ({
+                limit: () => {
+                  oldEvidenceWhere.push(whereArg)
+                  return Promise.resolve(opts.oldAutomaticEvidence ? [{ id: 'old-auto' }] : [])
+                },
+              }),
+            }
+          },
+        }
+      },
+      delete: (table: unknown) => {
+        if (table !== salaryMonthInitializations) throw new Error('unexpected delete table')
+        return {
+          where: (whereArg: unknown) => {
+            markerDeleteWhere.push(whereArg)
+            return Promise.resolve(undefined)
+          },
+        }
+      },
+    }
+
+    const dbStub = {
+      db: {
+        query: {
+          transactions: { findFirst: () => Promise.resolve(row) },
+        },
+        transaction: (cb: (tx: typeof dbtx) => Promise<unknown>) => cb(dbtx),
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
+    return {
+      svc,
+      markerInsertValues,
+      markerDeleteWhere,
+      oldEvidenceWhere,
+      reclassificationValues,
+      getMarkerConflictArgs: () => markerConflictArgs,
+      getMarkerReturningProjection: () => markerReturningProjection,
+      getOldEvidenceSelectProjection: () => oldEvidenceSelectProjection,
+    }
+  }
+
+  it('moves cron-marker ownership when a legacy/CRON salary is corrected to another month', async () => {
+    const {
+      svc,
+      markerInsertValues,
+      markerDeleteWhere,
+      oldEvidenceWhere,
+      reclassificationValues,
+      getMarkerConflictArgs,
+      getMarkerReturningProjection,
+      getOldEvidenceSelectProjection,
+    } = makeSalaryMoveSvc(automaticSalary)
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerInsertValues).toEqual([
+      {
+        receiverId: 'emp-1',
+        salaryMonth: '2026-02',
+        initializedBy: 'real-admin',
+      },
+    ])
+    expect(getMarkerConflictArgs()?.['target']).toEqual([
+      salaryMonthInitializations.receiverId,
+      salaryMonthInitializations.salaryMonth,
+    ])
+    expect(getMarkerReturningProjection()).toEqual({ id: salaryMonthInitializations.id })
+    expect(reclassificationValues).toHaveLength(0)
+    expect(oldEvidenceWhere).toHaveLength(1)
+    expect(getOldEvidenceSelectProjection()).toEqual({ id: transactions.id })
+    expect(compileWhere(oldEvidenceWhere[0]).params).toEqual(
+      expect.arrayContaining(['SALARY', 'emp-1', '2026-01', 'CRON']),
+    )
+    expect(markerDeleteWhere).toHaveLength(1)
+    expect(compileWhere(markerDeleteWhere[0]).params).toEqual(['emp-1', '2026-01'])
+  })
+
+  it('moving a MANUAL salary part never changes cron initialization markers', async () => {
+    const { svc, markerInsertValues, markerDeleteWhere, oldEvidenceWhere, reclassificationValues } =
+      makeSalaryMoveSvc({ ...automaticSalary, salaryOrigin: 'MANUAL' })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerInsertValues).toHaveLength(0)
+    expect(markerDeleteWhere).toHaveLength(0)
+    expect(oldEvidenceWhere).toHaveLength(0)
+    expect(reclassificationValues).toHaveLength(0)
+  })
+
+  it('reclassifies the moved row as MANUAL when the destination month marker was already claimed', async () => {
+    const { svc, reclassificationValues } = makeSalaryMoveSvc(automaticSalary, {
+      targetClaimed: false,
+    })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(reclassificationValues).toEqual([{ salaryOrigin: 'MANUAL' }])
+  })
+
+  it('keeps the old marker when another legacy/CRON salary still proves that month was initialized', async () => {
+    const { svc, markerDeleteWhere } = makeSalaryMoveSvc(automaticSalary, {
+      oldAutomaticEvidence: true,
+    })
+
+    await svc.adminUpdateTransaction(
+      automaticSalary.id,
+      { salaryMonth: '2026-02' },
+      admin('real-admin'),
+    )
+
+    expect(markerDeleteWhere).toHaveLength(0)
+  })
+})
+
 // ── #7: createMonthlySalaries resolves ANY admin ──────────────────────────────
 describe('createMonthlySalaries — #7: resolve any admin as author', () => {
   function makeSvc(opts: {

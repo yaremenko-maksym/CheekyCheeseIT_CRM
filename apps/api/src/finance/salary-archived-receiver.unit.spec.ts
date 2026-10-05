@@ -328,6 +328,55 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     idempotencyKey: 'a1111111-1111-4111-8111-111111111111',
   }
 
+  function makeIdempotencySalaryService(opts: {
+    replayRows?: Array<{ id: string } | undefined>
+    insertError?: unknown
+    insertRow?: Record<string, unknown>
+  }) {
+    const replayRows = [...(opts.replayRows ?? [])]
+    const transactionsFindFirst = vi.fn(() => Promise.resolve(replayRows.shift()))
+    const usersFindFirst = vi.fn().mockResolvedValue(ACTIVE_HR)
+    const insertValues: Record<string, unknown>[] = []
+    const insert = vi.fn(() => ({
+      values: (values: Record<string, unknown>) => {
+        insertValues.push(values)
+        return {
+          returning: async () => {
+            if (opts.insertError) throw opts.insertError
+            return opts.insertRow ? [opts.insertRow] : []
+          },
+        }
+      },
+    }))
+    const db = {
+      db: {
+        query: {
+          transactions: { findFirst: transactionsFindFirst },
+          users: { findFirst: usersFindFirst },
+        },
+        insert,
+      },
+    } as never
+    const svc = makeTransactionsService({ db })
+    const findOne = vi.fn(async (id: string) => ({ id }))
+    const afterTransactionCreated = vi.fn().mockResolvedValue(undefined)
+    ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
+    ;(
+      svc as unknown as {
+        afterTransactionCreated: typeof afterTransactionCreated
+      }
+    ).afterTransactionCreated = afterTransactionCreated
+    return {
+      svc,
+      transactionsFindFirst,
+      usersFindFirst,
+      insert,
+      insertValues,
+      findOne,
+      afterTransactionCreated,
+    }
+  }
+
   it('rejects a direct service call without an idempotency key before any DB write', async () => {
     const svc = makeSalaryService(ACTIVE_HR)
     const { idempotencyKey: _omitted, ...withoutKey } = payload
@@ -335,6 +384,108 @@ describe('createSalary — AC2: an archived receiver is refused', () => {
     await expect(svc.createSalary(withoutKey as never, ADMIN_USER)).rejects.toThrow(
       'idempotencyKey is required for manual salary creation',
     )
+  })
+
+  it('replays an existing manual salary by the exact (SALARY, idempotencyKey) lookup before receiver validation', async () => {
+    const existing = { id: 'salary-existing' }
+    const { svc, transactionsFindFirst, usersFindFirst, insert, findOne } =
+      makeIdempotencySalaryService({ replayRows: [existing] })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).resolves.toEqual(existing)
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
+    const { sql, params } = compileWhere(transactionsFindFirst.mock.calls[0]![0].where)
+    expect(sql).toContain('\"type\" = $1')
+    expect(sql).toContain('\"idempotency_key\" = $2')
+    expect(params).toEqual(['SALARY', payload.idempotencyKey])
+    expect(usersFindFirst).not.toHaveBeenCalled()
+    expect(insert).not.toHaveBeenCalled()
+    expect(findOne).toHaveBeenCalledWith(existing.id, ADMIN_USER)
+  })
+
+  it('recovers a concurrent duplicate only for the salary idempotency unique index and re-reads the winner by the same key', async () => {
+    const uniqueError = {
+      code: '23505',
+      constraint: 'uq_transactions_salary_idempotency_key',
+    }
+    const winner = { id: 'salary-winner' }
+    const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined, winner],
+      insertError: uniqueError,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).resolves.toEqual(winner)
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    for (const [args] of transactionsFindFirst.mock.calls) {
+      const { params } = compileWhere(args.where)
+      expect(params).toEqual(['SALARY', payload.idempotencyKey])
+    }
+    expect(findOne).toHaveBeenCalledWith(winner.id, ADMIN_USER)
+  })
+
+  it('rethrows an unrelated unique violation instead of treating it as a salary idempotency replay', async () => {
+    const uniqueError = {
+      code: '23505',
+      constraint: 'uq_transactions_receipt_document_id',
+    }
+    const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined],
+      insertError: uniqueError,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toBe(uniqueError)
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(1)
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('rethrows the original idempotency unique violation when the committed winner still cannot be read', async () => {
+    const uniqueError = {
+      code: '23505',
+      constraint: 'uq_transactions_salary_idempotency_key',
+    }
+    const { svc, transactionsFindFirst, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined, undefined],
+      insertError: uniqueError,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).rejects.toBe(uniqueError)
+
+    expect(transactionsFindFirst).toHaveBeenCalledTimes(2)
+    expect(findOne).not.toHaveBeenCalled()
+  })
+
+  it('persists a new operator-created salary part with MANUAL origin and the intent key', async () => {
+    const created = { id: 'salary-new' }
+    const { svc, insertValues, afterTransactionCreated, findOne } = makeIdempotencySalaryService({
+      replayRows: [undefined],
+      insertRow: created,
+    })
+
+    await expect(
+      svc.createSalary({ ...payload, receiverId: ACTIVE_HR.id }, ADMIN_USER),
+    ).resolves.toEqual(created)
+
+    expect(insertValues).toHaveLength(1)
+    expect(insertValues[0]).toMatchObject({
+      type: 'SALARY',
+      status: 'PENDING',
+      receiverId: ACTIVE_HR.id,
+      salaryMonth: payload.salaryMonth,
+      salaryOrigin: 'MANUAL',
+      idempotencyKey: payload.idempotencyKey,
+    })
+    expect(afterTransactionCreated).toHaveBeenCalledWith(created.id, created, ADMIN_USER)
+    expect(findOne).toHaveBeenCalledWith(created.id, ADMIN_USER)
   })
 
   it('refuses with the archived-receiver message', async () => {

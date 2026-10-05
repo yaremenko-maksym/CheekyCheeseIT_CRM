@@ -16,7 +16,7 @@
  * mock auth/axios/router and stub TanStack hooks so the component mounts
  * without a network call.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
@@ -123,6 +123,32 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     expect(screen.getByTestId('create-transaction-receiver-trigger')).toBeInTheDocument()
   })
 
+  it('defaults a manual salary to the previous calendar month across a year boundary', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-01-15T12:00:00Z'))
+
+    try {
+      renderDialog()
+      clickTypeCard('create-transaction-type-salary')
+      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2025-12')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('zero-pads a single-digit previous salary month', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-03-15T12:00:00Z'))
+
+    try {
+      renderDialog()
+      clickTypeCard('create-transaction-type-salary')
+      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-02')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('prefills employee/month/currency when opened via add-part action', () => {
     render(
       <CreateTransactionDialog
@@ -140,6 +166,35 @@ describe('CreateTransactionDialog — SALARY no longer has a funding selector', 
     expect(screen.getByTestId('create-transaction-receiver-trigger')).toHaveTextContent(
       'Junior User',
     )
+  })
+
+  it('re-applies a changed add-part prefill and clears a stale typed amount', async () => {
+    const { rerender } = render(
+      <CreateTransactionDialog
+        open
+        onClose={() => {}}
+        salaryPrefill={{ receiverId: 'junior-1', salaryMonth: '2026-04', currency: 'USD' }}
+      />,
+      { wrapper: I18nTestProvider },
+    )
+
+    const amountInput = screen.getByTestId('amount-currency-amount-input')
+    expect(amountInput).toHaveValue('')
+    fireEvent.change(amountInput, { target: { value: '250' } })
+    expect(amountInput).toHaveValue('250')
+
+    rerender(
+      <CreateTransactionDialog
+        open
+        onClose={() => {}}
+        salaryPrefill={{ receiverId: 'admin-1', salaryMonth: '2026-05', currency: 'EUR' }}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-transaction-salary-month')).toHaveValue('2026-05')
+      expect(screen.getByTestId('amount-currency-amount-input')).toHaveValue('')
+    })
   })
 })
 

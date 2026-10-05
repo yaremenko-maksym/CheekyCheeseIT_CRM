@@ -171,6 +171,23 @@ describe('getOwnSalaryStatus', () => {
       expect(result.totals[0]?.lockedAmount).toBe(500)
     })
 
+    it('does not report LOCKED when only some valid parts are locked', async () => {
+      const { aggregate: result } = await getOwnSalaryStates(
+        makeDb([row('300', 'LOCKED'), row('200', 'PENDING')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toMatchObject({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'PENDING',
+        transactionCount: 2,
+      })
+    })
+
     it('does not collapse mixed currencies into a misleading amount', async () => {
       const { aggregate: result, legacy } = await getOwnSalaryStates(
         makeDb([row('500', 'PAID', 'USD'), row('450', 'PENDING', 'EUR')]),
