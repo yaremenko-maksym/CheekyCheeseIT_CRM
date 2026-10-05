@@ -29,10 +29,10 @@
     "@stryker-mutator/vitest-runner": "9.6.1",
     "eslint-plugin-lingui": "0.16.0",
     "husky": "^9.1.7",
-    "lint-staged": "^15.2.10",
-    "prettier": "^3.4.0",
-    "turbo": "^2.9.14",
-    "typescript": "^5.8.0",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.9.9",
+    "turbo": "^2.11.7",
+    "typescript": "^5.9.3",
     "vitest": "4.1.11"
   },
   "lint-staged": {
