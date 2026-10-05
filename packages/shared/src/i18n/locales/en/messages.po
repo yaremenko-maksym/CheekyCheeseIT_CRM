@@ -415,8 +415,8 @@ msgstr "<0>{0}</0> will no longer be on the project."
 msgid "<0>{0}</0> і її сеньйор <1>{1}</1> — пов’язана пара, прибрати по одному не можна. В архів підуть: профіль сеньйора, команда і всі його проєкти ({2, plural, one {# проєкт} few {# проєкти} many {# проєктів} other {# проєктів}}{projectNamesSuffix})."
 msgstr "<0>{0}</0> and its senior <1>{1}</1> are a linked pair — you cannot remove just one. Archiving covers: the senior's profile, the team and all its projects ({2, plural, one {# project} other {# projects}}{projectNamesSuffix})."
 
-#. placeholder {0}: project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#. placeholder {0}: currentDropDisplayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "<0>{0}</0>: доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці реквізити."
 msgstr "<0>{0}</0>: access to the project will be revoked. Project money will no longer go through these payout details."
 
@@ -1739,7 +1739,7 @@ msgstr "Select…"
 msgid "Вибір"
 msgstr "Selection"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Вибір дропа для проєкту"
 msgstr "Choose a drop for the project"
 
@@ -2125,7 +2125,7 @@ msgstr "Source file"
 msgid "Від"
 msgstr "From"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Відв’язати"
 msgstr "Detach"
 
@@ -2133,7 +2133,7 @@ msgstr "Detach"
 msgid "Відв’язати дропа від проєкту"
 msgstr "Detach the drop from the project"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Відв’язати дропа?"
 msgstr "Detach the drop?"
 
@@ -6381,7 +6381,7 @@ msgstr "No team members to show"
 msgid "Немає джуніора"
 msgstr "No junior"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Немає доступних дропів"
 msgstr "No drops available"
@@ -7705,7 +7705,7 @@ msgstr "Archive confirmation. Enter the name to confirm the action."
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Confirm removing the member from the project."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Підтвердження відв’язання дропа від проєкту"
 msgstr "Confirm detaching the drop from the project"
 
@@ -8324,7 +8324,7 @@ msgstr "Profit"
 msgid "Прибуток за останній місяць"
 msgstr "Net profit for the last month"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Прив’язати дропа"
 msgstr "Attach a drop"
@@ -8351,17 +8351,17 @@ msgstr "Join the call"
 msgid "Приєднатися до команди дропа"
 msgstr "Join a drop's team"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Призначаємо…"
 msgstr "Assigning…"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Призначити"
 msgstr "Assign"
 
 #. placeholder {0}: u.displayName
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 msgid "Призначити {0} дропом"
 msgstr "Assign {0} as the drop"
 
@@ -9454,9 +9454,9 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
