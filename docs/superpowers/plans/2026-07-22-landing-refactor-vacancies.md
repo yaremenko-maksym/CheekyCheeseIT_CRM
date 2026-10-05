@@ -1,58 +1,58 @@
 # Landing Refactor + Vacancies — Implementation Plan
 
-> **For agentic workers:** этот план исполняется через проектную агент-фабрику
-> (Master диспатчит Coder/AutoTest/DevOps per task, `Agent(isolation=worktree)`,
-> волны ≤ 3–4). Каждая задача ниже станет task-файлом `.claude/tasks/<slug>.md`
-> при диспатче. Чекбоксы — для трекинга.
+> **For agentic workers:** this plan is executed through the project agent factory
+> (Master dispatches Coder/AutoTest/DevOps per task, `Agent(isolation=worktree)`,
+> waves ≤ 3–4). Each task below becomes a task file `.claude/tasks/<slug>.md`
+> at dispatch. Checkboxes — for tracking.
 
-**Goal:** редизайн `apps/landing` до уровня топовых IT-студий + модуль вакансий
-в CRM (ADMIN/HR) + публичный приём резюме (PDF → R2) с ретеншном.
+**Goal:** redesign `apps/landing` to the level of top IT studios + a vacancies module
+in the CRM (ADMIN/HR) + public résumé intake (PDF → R2) with retention.
 
 **Spec:** `docs/superpowers/specs/2026-07-22-landing-refactor-design.md` (APPROVED).
 
-**Architecture:** новый NestJS-модуль `vacancies` (2 таблицы, admin CRUD +
-public read/apply), Zod-контракты в `@crm/shared`, лендинг читает same-origin
-`/api` через Router-loader'ы, CRM-экраны для ADMIN/HR, cron-ретеншн, Turnstile
-на публичной форме.
+**Architecture:** a new NestJS module `vacancies` (2 tables, admin CRUD +
+public read/apply), Zod contracts in `@crm/shared`, the landing reads same-origin
+`/api` via Router loaders, CRM screens for ADMIN/HR, a retention cron, Turnstile
+on the public form.
 
 **Tech Stack:** NestJS 11 + Fastify + Drizzle · Zod v4 · React + Vite SPA +
 TanStack Router · Tailwind v4 + shadcn/ui + Framer Motion · Playwright/Vitest.
 
-## Global Constraints (из спеки и правил — действуют на КАЖДУЮ задачу)
+## Global Constraints (from the spec and rules — apply to EVERY task)
 
 - Version pins: `rules/common/version-pins.md` (Vite ^6.4, TanStack pair EXACT, Zod v4, Node 20).
-- Лендинг — только английский; CRM-UI — консистентно с текущим языком сайдбара.
-- Зарплатных полей НЕТ нигде (схема/DTO/UI).
-- Отклики НЕ связаны с interviews-канбаном.
-- Все API DTO через Zod `.parse()`, типы из `@crm/shared`.
-- git-policy: explicit `git add`, `ac_verified:` в финальном коммите, `DATABASE_URL= git push`, никаких `--no-verify`.
-- E2E локально перед push кода; eslint MCP + typecheck перед commit.
-- Design-gate Tier 1: UI-задачи (C, D) НЕ стартуют без `docs/design/<slug>.md` + assets.
-- Responsive hard-гейт: 320/375/768/1024/1280/1440/1920; тач-таргеты ≥ 44px.
-- security-reviewer ОБЯЗАТЕЛЕН на PR задач A, B, C (public surface / RBAC / file upload).
-- Прод-DDL — только через миграционный шаг deploy.yml (SSH нет).
+- The landing — English only; CRM UI — consistent with the current sidebar language.
+- There are NO salary fields anywhere (schema/DTO/UI).
+- Applications are NOT linked to the interviews kanban.
+- All API DTOs via Zod `.parse()`, types from `@crm/shared`.
+- git-policy: explicit `git add`, `ac_verified:` in the final commit, `DATABASE_URL= git push`, no `--no-verify`.
+- E2E locally before pushing code; eslint MCP + typecheck before commit.
+- Design-gate Tier 1: UI tasks (C, D) do NOT start without `docs/design/<slug>.md` + assets.
+- Responsive hard gate: 320/375/768/1024/1280/1440/1920; touch targets ≥ 44px.
+- security-reviewer is MANDATORY on the PRs of tasks A, B, C (public surface / RBAC / file upload).
+- Prod DDL — only via the migration step of deploy.yml (no SSH).
 
 ---
 
-## Файловая карта (кто что создаёт — zone-of-write, задачи не пересекаются по файлам)
+## File map (who creates what — zone-of-write, tasks do not overlap by files)
 
-| Задача         | Создаёт / правит                                                                                                                                                                                                                                                                                                                       |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A (api-core)   | `packages/shared/src/schemas/vacancies.ts` (+`index.ts` экспорт), `apps/api/src/database/schema.ts` (+2 таблицы, 5 enum'ов), `apps/api/drizzle/migrations/00XX_vacancies.sql` (db:generate), `apps/api/src/vacancies/vacancies.module.ts` / `vacancies.service.ts` / `vacancies.controller.ts`, spec-файлы модуля                      |
-| B (api-public) | `apps/api/src/vacancies/public-vacancies.controller.ts`, `apps/api/src/vacancies/turnstile.service.ts`, `apps/api/src/vacancies/applications.service.ts`, `apps/api/src/vacancies/vacancies-retention.cron.ts`, `packages/shared/src/schemas/notifications.ts` (+1 enum-значение), env-схема api (+`TURNSTILE_SECRET_KEY`), spec-файлы |
-| C (landing)    | `apps/landing/app/routes/index.tsx` (редизайн), `apps/landing/app/routes/careers/index.tsx`, `apps/landing/app/routes/careers/$slug.tsx`, `apps/landing/app/components/**` (секции, форма), `apps/landing/app/lib/api.ts`, `apps/landing/vite.config.ts` (dev-proxy), `apps/landing/app/__tests__/**`                                  |
-| D (crm-ui)     | `apps/web/app/routes/vacancies/index.tsx`, `apps/web/app/routes/vacancies/$vacancyId.tsx`, `apps/web/app/components/vacancies/**`, сайдбар-конфиг (+пункт ADMIN/HR)                                                                                                                                                                    |
-| E (e2e)        | `apps/e2e/tests/vacancies.spec.ts`, фикстуры                                                                                                                                                                                                                                                                                           |
-| F (devops)     | `.github/workflows/deploy.yml` (migration-step), `apps/landing/Dockerfile` (+ARG `VITE_TURNSTILE_SITE_KEY`), `.env.example`, `docs/runbooks/deployment.md` (секреты)                                                                                                                                                                   |
+| Task           | Creates / edits                                                                                                                                                                                                                                                                                                                      |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A (api-core)   | `packages/shared/src/schemas/vacancies.ts` (+`index.ts` export), `apps/api/src/database/schema.ts` (+2 tables, 5 enums), `apps/api/drizzle/migrations/00XX_vacancies.sql` (db:generate), `apps/api/src/vacancies/vacancies.module.ts` / `vacancies.service.ts` / `vacancies.controller.ts`, module spec files                        |
+| B (api-public) | `apps/api/src/vacancies/public-vacancies.controller.ts`, `apps/api/src/vacancies/turnstile.service.ts`, `apps/api/src/vacancies/applications.service.ts`, `apps/api/src/vacancies/vacancies-retention.cron.ts`, `packages/shared/src/schemas/notifications.ts` (+1 enum value), api env schema (+`TURNSTILE_SECRET_KEY`), spec files |
+| C (landing)    | `apps/landing/app/routes/index.tsx` (redesign), `apps/landing/app/routes/careers/index.tsx`, `apps/landing/app/routes/careers/$slug.tsx`, `apps/landing/app/components/**` (sections, form), `apps/landing/app/lib/api.ts`, `apps/landing/vite.config.ts` (dev-proxy), `apps/landing/app/__tests__/**`                               |
+| D (crm-ui)     | `apps/web/app/routes/vacancies/index.tsx`, `apps/web/app/routes/vacancies/$vacancyId.tsx`, `apps/web/app/components/vacancies/**`, sidebar config (+ADMIN/HR item)                                                                                                                                                                   |
+| E (e2e)        | `apps/e2e/tests/vacancies.spec.ts`, fixtures                                                                                                                                                                                                                                                                                         |
+| F (devops)     | `.github/workflows/deploy.yml` (migration-step), `apps/landing/Dockerfile` (+ARG `VITE_TURNSTILE_SITE_KEY`), `.env.example`, `docs/runbooks/deployment.md` (secrets)                                                                                                                                                                 |
 
-Пересечение только B→A (тот же модуль) — поэтому A и B последовательны в одном
-Coder-pipeline (одна ветка, stacked-коммиты, один PR).
+The only overlap is B→A (the same module) — therefore A and B are sequential in one
+Coder pipeline (one branch, stacked commits, one PR).
 
 ---
 
-## Контракты (single source — копируются в task-файлы дословно)
+## Contracts (single source — copied into task files verbatim)
 
-### Zod (`packages/shared/src/schemas/vacancies.ts`) — ключевые схемы
+### Zod (`packages/shared/src/schemas/vacancies.ts`) — key schemas
 
 ```ts
 export const vacancyDomainSchema = z.enum(['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'])
@@ -77,7 +77,7 @@ export const publicVacancyDetailSchema = publicVacancySchema.extend({
 export const vacancySchema = publicVacancyDetailSchema.extend({
   id: z.uuid(),
   status: vacancyStatusSchema,
-  publishedAt: z.string().nullable(), // override: admin видит и DRAFT
+  publishedAt: z.string().nullable(), // override: admin sees DRAFT too
   closedAt: z.string().nullable(),
   applicationsCount: z.number().int(),
   createdAt: z.string(),
@@ -109,7 +109,7 @@ export const applyVacancyFieldsSchema = z.object({
   githubUrl: z.url().startsWith('https://').max(300).optional(),
   coverLetter: z.string().max(2000).optional(),
   turnstileToken: z.string().min(1),
-  website: z.string().max(0).optional(), // honeypot: непустое → silent drop
+  website: z.string().max(0).optional(), // honeypot: non-empty → silent drop
 })
 
 export const vacancyApplicationSchema = z.object({
@@ -127,145 +127,145 @@ export const vacancyApplicationSchema = z.object({
 })
 ```
 
-### Endpoints (метод → guard → вход → выход)
+### Endpoints (method → guard → input → output)
 
-| Endpoint                                                | Guard              | Вход                                                  | Выход                                             |
-| ------------------------------------------------------- | ------------------ | ----------------------------------------------------- | ------------------------------------------------- |
-| `GET /api/public/vacancies`                             | нет                | —                                                     | `publicVacancySchema[]`                           |
-| `GET /api/public/vacancies/:slug`                       | нет                | slug                                                  | `publicVacancyDetailSchema`; 404 для не-PUBLISHED |
-| `POST /api/public/vacancies/:slug/apply`                | нет (Turnstile+RL) | multipart: `applyVacancyFieldsSchema` + file `resume` | 201 `{ ok: true }`                                |
-| `GET /api/vacancies`                                    | ADMIN,HR           | —                                                     | `vacancySchema[]`                                 |
-| `POST /api/vacancies`                                   | ADMIN,HR           | `createVacancySchema`                                 | `vacancySchema`                                   |
-| `PATCH /api/vacancies/:id`                              | ADMIN,HR           | `updateVacancySchema`                                 | `vacancySchema`                                   |
-| `DELETE /api/vacancies/:id`                             | ADMIN,HR           | —                                                     | 204; 409 если не-DRAFT или есть отклики           |
-| `GET /api/vacancies/:id/applications`                   | ADMIN,HR           | —                                                     | `vacancyApplicationSchema[]`                      |
-| `PATCH /api/vacancies/:id/applications/:appId`          | ADMIN,HR           | `{ status }`                                          | `vacancyApplicationSchema`                        |
-| `DELETE /api/vacancies/:id/applications/:appId`         | ADMIN,HR           | —                                                     | 204 (строка + R2)                                 |
-| `GET /api/vacancies/:id/applications/:appId/resume-url` | ADMIN,HR           | —                                                     | `{ url, expiresAt }` (TTL 600с)                   |
+| Endpoint                                                | Guard               | Input                                                 | Output                                             |
+| ------------------------------------------------------- | ------------------- | ----------------------------------------------------- | -------------------------------------------------- |
+| `GET /api/public/vacancies`                             | none                | —                                                     | `publicVacancySchema[]`                            |
+| `GET /api/public/vacancies/:slug`                       | none                | slug                                                  | `publicVacancyDetailSchema`; 404 for non-PUBLISHED |
+| `POST /api/public/vacancies/:slug/apply`                | none (Turnstile+RL) | multipart: `applyVacancyFieldsSchema` + file `resume` | 201 `{ ok: true }`                                 |
+| `GET /api/vacancies`                                    | ADMIN,HR            | —                                                     | `vacancySchema[]`                                  |
+| `POST /api/vacancies`                                   | ADMIN,HR            | `createVacancySchema`                                 | `vacancySchema`                                    |
+| `PATCH /api/vacancies/:id`                              | ADMIN,HR            | `updateVacancySchema`                                 | `vacancySchema`                                    |
+| `DELETE /api/vacancies/:id`                             | ADMIN,HR            | —                                                     | 204; 409 if non-DRAFT or there are applications    |
+| `GET /api/vacancies/:id/applications`                   | ADMIN,HR            | —                                                     | `vacancyApplicationSchema[]`                       |
+| `PATCH /api/vacancies/:id/applications/:appId`          | ADMIN,HR            | `{ status }`                                          | `vacancyApplicationSchema`                         |
+| `DELETE /api/vacancies/:id/applications/:appId`         | ADMIN,HR            | —                                                     | 204 (row + R2)                                     |
+| `GET /api/vacancies/:id/applications/:appId/resume-url` | ADMIN,HR            | —                                                     | `{ url, expiresAt }` (TTL 600s)                    |
 
-### Статус-переходы вакансии (сервис энфорсит)
+### Vacancy status transitions (the service enforces)
 
-`DRAFT → PUBLISHED` (ставит publishedAt) · `PUBLISHED → CLOSED` (ставит closedAt) ·
-`CLOSED → PUBLISHED` (re-open: обнуляет closedAt) · всё остальное → 409.
+`DRAFT → PUBLISHED` (sets publishedAt) · `PUBLISHED → CLOSED` (sets closedAt) ·
+`CLOSED → PUBLISHED` (re-open: resets closedAt) · everything else → 409.
 
-### R2-ключ резюме
+### R2 résumé key
 
-`vacancy-applications/<vacancyId>/<applicationId>.pdf` (только ASCII — uuid'ы).
+`vacancy-applications/<vacancyId>/<applicationId>.pdf` (ASCII only — uuids).
 
 ---
 
-## Порядок исполнения (волны)
+## Execution order (waves)
 
 ```
-Phase 0 (владелец + оркестратор, БЛОКИРУЕТ C и D):
-  0.1 Claude Design сессия: landing (все секции, 320/768/1024/1440, состояния)
-  0.2 Claude Design: CRM-экраны вакансий (список + деталка с откликами)
-  0.3 Владелец: Turnstile site key + secret → GH secrets (блокирует only F/прод)
-  → артефакты docs/design/landing-redesign.md + docs/design/crm-vacancies.md + assets
+Phase 0 (owner + orchestrator, BLOCKS C and D):
+  0.1 Claude Design session: landing (all sections, 320/768/1024/1440, states)
+  0.2 Claude Design: CRM vacancy screens (list + detail with applications)
+  0.3 Owner: Turnstile site key + secret → GH secrets (blocks only F/prod)
+  → artifacts docs/design/landing-redesign.md + docs/design/crm-vacancies.md + assets
 
-Phase 1 (параллельно с Phase 0): Task A+B — один Coder, одна ветка feat/vacancies-api
-  → PR#1: code-review + security-review + integration-тесты
+Phase 1 (in parallel with Phase 0): Task A+B — one Coder, one branch feat/vacancies-api
+  → PR#1: code-review + security-review + integration tests
 
-Phase 2 (после Phase 0 и мержа PR#1; волна из 2):
-  Task C — Coder: лендинг (feat/landing-redesign)
-  Task D — Coder: CRM-экраны (feat/crm-vacancies-ui)
+Phase 2 (after Phase 0 and merge of PR#1; a wave of 2):
+  Task C — Coder: landing (feat/landing-redesign)
+  Task D — Coder: CRM screens (feat/crm-vacancies-ui)
   → PR#2, PR#3: code-review + security-review(C) + manual-qa + fidelity Mode B
 
-Phase 3 (после мержа PR#2/PR#3; волна из 2):
+Phase 3 (after merge of PR#2/PR#3; a wave of 2):
   Task E — AutoTest: E2E vacancies (test/vacancies-e2e)
   Task F — DevOps: deploy-wiring (infra/vacancies-deploy)
-  → PR#4, PR#5 → финальный User Testing → merge-сигналы → деплой → прод-smoke
+  → PR#4, PR#5 → final User Testing → merge signals → deploy → prod smoke
 ```
 
-Модель агентов: A+B — sonnet (Drizzle-миграция простая, но finance не трогаем;
-эскалация на opus по триггерам model-routing) · C, D — sonnet · E — sonnet ·
-F — sonnet. Reviewer'ы — по своим frontmatter-тирам.
+Agent model: A+B — sonnet (the Drizzle migration is simple, but we do not touch finance;
+escalation to opus by model-routing triggers) · C, D — sonnet · E — sonnet ·
+F — sonnet. Reviewers — by their frontmatter tiers.
 
 ---
 
 ### Task A: Vacancies core (schemas + DB + admin CRUD)
 
-**Files:** см. файловую карту. **Модель:** sonnet. **Design tier:** — (без UI).
+**Files:** see the file map. **Model:** sonnet. **Design tier:** — (no UI).
 
-**Produces (для B/C/D):** таблицы `vacancies`/`vacancy_applications`, все Zod-схемы
-выше, `VacanciesService` c методами `list/create/update/delete/transition`,
-admin-контроллер по таблице endpoints.
+**Produces (for B/C/D):** tables `vacancies`/`vacancy_applications`, all the Zod schemas
+above, `VacanciesService` with methods `list/create/update/delete/transition`,
+an admin controller per the endpoints table.
 
-- [ ] Zod-схемы (код выше) + экспорт из `packages/shared/src/schemas/index.ts`; unit-спеки схем (валидные/невалидные кейсы: slug-regex, honeypot max(0), лимиты длин).
-- [ ] Drizzle-схема: 2 таблицы + 5 pgEnum (`vacancy_domain`, `vacancy_seniority`, `vacancy_employment_type`, `vacancy_status`, `vacancy_application_status`) точно по спеке §3.1; `pnpm --filter @crm/api db:generate` → миграция.
-- [ ] `VacanciesService`: CRUD + slug-уникальность (409 на дубль) + статус-переходы (таблица выше) + `applicationsCount` подзапросом + delete-гард (только DRAFT без откликов, иначе 409).
-- [ ] `VacanciesController` (`@UseGuards(JwtGuard, RolesGuard)` + `@Roles('ADMIN','HR')` на классе) — все приватные endpoints.
-- [ ] Unit-спеки сервиса: переходы (валидные 3 + невалидные → 409), delete-гард, slug-дубль.
-- [ ] Integration-спека (реальная БД, паттерн существующих `*.integration.spec.ts`): RBAC-матрица — ADMIN 200, HR 200, SENIOR/JUNIOR/ACCOUNTANT/DROP 403 на каждый приватный endpoint.
-- [ ] `mcp eslint` + `pnpm typecheck` + полный Vitest-прогон; commit `feat(api): vacancies core module` c `ac_verified:`.
+- [ ] Zod schemas (code above) + export from `packages/shared/src/schemas/index.ts`; unit specs of the schemas (valid/invalid cases: slug-regex, honeypot max(0), length limits).
+- [ ] Drizzle schema: 2 tables + 5 pgEnum (`vacancy_domain`, `vacancy_seniority`, `vacancy_employment_type`, `vacancy_status`, `vacancy_application_status`) exactly per spec §3.1; `pnpm --filter @crm/api db:generate` → migration.
+- [ ] `VacanciesService`: CRUD + slug uniqueness (409 on duplicate) + status transitions (table above) + `applicationsCount` via a subquery + a delete guard (only DRAFT without applications, otherwise 409).
+- [ ] `VacanciesController` (`@UseGuards(JwtGuard, RolesGuard)` + `@Roles('ADMIN','HR')` on the class) — all private endpoints.
+- [ ] Unit specs of the service: transitions (3 valid + invalid → 409), delete guard, slug duplicate.
+- [ ] Integration spec (real DB, the pattern of the existing `*.integration.spec.ts`): RBAC matrix — ADMIN 200, HR 200, SENIOR/JUNIOR/ACCOUNTANT/DROP 403 on each private endpoint.
+- [ ] `mcp eslint` + `pnpm typecheck` + a full Vitest run; commit `feat(api): vacancies core module` with `ac_verified:`.
 
-### Task B: Public surface + apply pipeline + retention (тот же Coder, та же ветка)
+### Task B: Public surface + apply pipeline + retention (the same Coder, the same branch)
 
-**Consumes:** всё из A. **Produces (для C):** публичные endpoints по таблице.
+**Consumes:** everything from A. **Produces (for C):** the public endpoints per the table.
 
-- [ ] `TurnstileService.verify(token, ip): Promise<boolean>` — POST `https://challenges.cloudflare.com/turnstile/v0/siteverify`, secret из env `TURNSTILE_SECRET_KEY` (добавить в env-схему; в dev/test допустим CF dummy-secret `1x0000000000000000000000000000000AA`).
-- [ ] `PublicVacanciesController`: list/detail (404 на не-PUBLISHED — без раскрытия существования) + `apply`.
-- [ ] `ApplicationsService.apply` — конвейер строго по спеке §4 (порядок: RL → honeypot(201-мимикрия+лог) → Turnstile(400) → дубль email+vacancy 24ч(429) → размер ≤5MB(413) → magic-bytes PDF (`detectMimeFromBuffer`, 415) → `CompressionService.compressPdf` → DB-row-first + компенсация → R2 `vacancy-applications/<vacancyId>/<appId>.pdf` → нотификация всем ADMIN/HR).
-- [ ] Rate-limit: жёсткий бакет на apply (~5/час/IP; конкретный механизм — существующий throttler API, паттерн RelaxableThrottle для E2E-relax), мягкий на публичные GET.
-- [ ] `NotificationType` + `'VACANCY_APPLICATION'` в shared; emitter после успешного персиста (link на CRM-страницу вакансии).
-- [ ] `VacanciesRetentionCron` (ежесуточно, паттерн salary-cron): REJECTED > 90д и отклики вакансий с closedAt > 90д → delete строка + `S3Service.delete`; лог количества; ошибки R2 не прерывают батч.
-- [ ] `applications`-методы сервиса: list по вакансии, transition статуса, delete (строка+R2), resume-url (`S3Service.getPresignedDownloadUrl`, TTL 600с, `attachment`).
-- [ ] Unit-спеки: каждая ветка отказа apply (7 шт.) + идемпотентность cron + граничные даты (89/90/91 день).
-- [ ] Integration-спеки: публичный happy-path (реальная БД, файл-фикстура PDF), 404 DRAFT-slug, RBAC 403 на applications-endpoints, throttle-429.
-- [ ] eslint + typecheck + Vitest + локальный E2E-прогон; финальный commit c `ac_verified:`; `DATABASE_URL= git push`; PR#1 «feat(api): vacancies module + public apply».
+- [ ] `TurnstileService.verify(token, ip): Promise<boolean>` — POST `https://challenges.cloudflare.com/turnstile/v0/siteverify`, secret from env `TURNSTILE_SECRET_KEY` (add to the env schema; in dev/test the CF dummy secret `1x0000000000000000000000000000000AA` is allowed).
+- [ ] `PublicVacanciesController`: list/detail (404 for non-PUBLISHED — without revealing existence) + `apply`.
+- [ ] `ApplicationsService.apply` — a pipeline strictly per spec §4 (order: RL → honeypot(201 mimicry+log) → Turnstile(400) → duplicate email+vacancy 24h(429) → size ≤5MB(413) → magic-bytes PDF (`detectMimeFromBuffer`, 415) → `CompressionService.compressPdf` → DB-row-first + compensation → R2 `vacancy-applications/<vacancyId>/<appId>.pdf` → notification to all ADMIN/HR).
+- [ ] Rate-limit: a hard bucket on apply (~5/hour/IP; the specific mechanism — the existing API throttler, the RelaxableThrottle pattern for E2E relax), soft on public GETs.
+- [ ] `NotificationType` + `'VACANCY_APPLICATION'` in shared; an emitter after a successful persist (a link to the CRM vacancy page).
+- [ ] `VacanciesRetentionCron` (daily, the salary-cron pattern): REJECTED > 90d and applications of vacancies with closedAt > 90d → delete row + `S3Service.delete`; log the count; R2 errors do not interrupt the batch.
+- [ ] `applications` service methods: list by vacancy, status transition, delete (row+R2), resume-url (`S3Service.getPresignedDownloadUrl`, TTL 600s, `attachment`).
+- [ ] Unit specs: each apply rejection branch (7 of them) + cron idempotency + boundary dates (89/90/91 days).
+- [ ] Integration specs: the public happy-path (real DB, a PDF file fixture), 404 DRAFT-slug, RBAC 403 on applications endpoints, throttle-429.
+- [ ] eslint + typecheck + Vitest + a local E2E run; the final commit with `ac_verified:`; `DATABASE_URL= git push`; PR#1 "feat(api): vacancies module + public apply".
 
-### Task C: Landing redesign (после Phase 0 + PR#1)
+### Task C: Landing redesign (after Phase 0 + PR#1)
 
-**Consumes:** публичные endpoints B; артефакт `docs/design/landing-redesign.md` + `design.png` (320+1440 минимум). **Design tier:** 1.
+**Consumes:** the public endpoints of B; the artifact `docs/design/landing-redesign.md` + `design.png` (320+1440 minimum). **Design tier:** 1.
 
-- [ ] `apps/landing/app/lib/api.ts`: `fetchVacancies()`, `fetchVacancy(slug)`, `submitApplication(slug, FormData)` — типизировано схемами shared, `.parse()` ответов.
+- [ ] `apps/landing/app/lib/api.ts`: `fetchVacancies()`, `fetchVacancy(slug)`, `submitApplication(slug, FormData)` — typed with the shared schemas, `.parse()` of responses.
 - [ ] `vite.config.ts`: `server.proxy = { '/api': 'http://localhost:3001' }`.
-- [ ] Секции `/` по дизайн-артефакту (Hero/About/Cases/Services/HowWeWork/Stack/CareersTeaser/Footer) — компонент на секцию в `app/components/sections/`; careers-тизер: loader → до 3 PUBLISHED, при 0 — mailto-CTA.
-- [ ] Кейсы: контент-драфты (3–4, challenge→solution→metrics, EN) — в отдельном `app/content/case-studies.ts` для лёгкой правки владельцем.
-- [ ] `/careers` + `/careers/:slug` (loader'ы, markdown-рендер с санитизацией, 404-состояние).
-- [ ] Форма отклика: Zod-валидация на клиенте, Turnstile-виджет (site key из `import.meta.env.VITE_TURNSTILE_SITE_KEY`), honeypot-поле `website` (visually-hidden), success/error-состояния, disabled-submit во время отправки.
-- [ ] Анимации по дизайн-артефакту; `prefers-reduced-motion` отключает декоративные циклы.
+- [ ] The `/` sections per the design artifact (Hero/About/Cases/Services/HowWeWork/Stack/CareersTeaser/Footer) — a component per section in `app/components/sections/`; careers teaser: loader → up to 3 PUBLISHED, at 0 — a mailto CTA.
+- [ ] Cases: content drafts (3–4, challenge→solution→metrics, EN) — in a separate `app/content/case-studies.ts` for easy editing by the owner.
+- [ ] `/careers` + `/careers/:slug` (loaders, markdown render with sanitization, a 404 state).
+- [ ] Application form: Zod validation on the client, the Turnstile widget (site key from `import.meta.env.VITE_TURNSTILE_SITE_KEY`), the honeypot field `website` (visually-hidden), success/error states, a disabled submit during sending.
+- [ ] Animations per the design artifact; `prefers-reduced-motion` disables the decorative loops.
 - [ ] SEO: per-route title/OG.
-- [ ] Vitest-компонентные: форма (валид/невалид/успех/ошибка сети), careers-список (данные/пусто), тизер.
-- [ ] Playwright-скрин-прогон тест-ширин 320–1920: нет горизонтального overflow, тач-таргеты ≥ 44px (скриншоты в PR).
-- [ ] eslint + typecheck + тесты; PR#2 «feat(landing): redesign + careers + application form».
+- [ ] Vitest component tests: form (valid/invalid/success/network error), careers list (data/empty), teaser.
+- [ ] Playwright screenshot run across test widths 320–1920: no horizontal overflow, touch targets ≥ 44px (screenshots in the PR).
+- [ ] eslint + typecheck + tests; PR#2 "feat(landing): redesign + careers + application form".
 
-### Task D: CRM vacancies UI (после Phase 0 + PR#1; параллельно C)
+### Task D: CRM vacancies UI (after Phase 0 + PR#1; in parallel with C)
 
-**Consumes:** admin endpoints A/B; артефакт `docs/design/crm-vacancies.md`. **Design tier:** 1.
+**Consumes:** the admin endpoints of A/B; the artifact `docs/design/crm-vacancies.md`. **Design tier:** 1.
 
-- [ ] Сайдбар: пункт «Вакансии» (язык — консистентно с текущими пунктами), видимость ADMIN|HR (существующий RBAC-механизм навигации).
-- [ ] `/vacancies`: список (статус-бейджи, счётчик откликов, NEW-индикатор), создание (форма по `createVacancySchema`), publish/close/re-open действия с конфирмом.
-- [ ] `/vacancies/:id`: редактирование + markdown-редактор (существующий lazy CodeMirror) + таб «Отклики»: карточки (контакты, cover letter, дата), скачивание CV (presigned, `window.open`), смена статуса, удаление с конфирм-диалогом.
-- [ ] Роут-гард: не-ADMIN/HR → редирект на дашборд (паттерн существующих страниц).
-- [ ] Vitest-компонентные: формы, статус-действия, гард.
-- [ ] Playwright-прогон тест-ширин; eslint + typecheck + локальный E2E; PR#3 «feat(web): vacancies management screens».
+- [ ] Sidebar: a "Vacancies" item (language — consistent with the current items), visibility ADMIN|HR (the existing RBAC navigation mechanism).
+- [ ] `/vacancies`: a list (status badges, an application counter, a NEW indicator), creation (a form per `createVacancySchema`), publish/close/re-open actions with a confirm.
+- [ ] `/vacancies/:id`: editing + a markdown editor (the existing lazy CodeMirror) + an "Applications" tab: cards (contacts, cover letter, date), CV download (presigned, `window.open`), status change, deletion with a confirm dialog.
+- [ ] Route guard: non-ADMIN/HR → redirect to the dashboard (the pattern of the existing pages).
+- [ ] Vitest component tests: forms, status actions, the guard.
+- [ ] Playwright run across test widths; eslint + typecheck + local E2E; PR#3 "feat(web): vacancies management screens".
 
-### Task E: E2E (после мержа PR#2/PR#3)
+### Task E: E2E (after merge of PR#2/PR#3)
 
-- [ ] `apps/e2e/tests/vacancies.spec.ts`: ADMIN создаёт → publish → публичный apply через API-запрос (CF-тест-ключи always-pass) → HR видит отклик → VIEWED → REJECTED → delete; RBAC-смоук (SENIOR/DROP 403 на /api/vacancies); лендинг-флоу `/careers` (список → деталка → форма-валидация).
-- [ ] Шардинг: добавить спеку в подходящий E2E-шард CI (allow-list guard #274 — обновить).
-- [ ] 3× стабильный локальный прогон (zero-flaky policy); PR#4.
+- [ ] `apps/e2e/tests/vacancies.spec.ts`: ADMIN creates → publish → public apply via an API request (CF test keys always-pass) → HR sees the application → VIEWED → REJECTED → delete; RBAC smoke (SENIOR/DROP 403 on /api/vacancies); landing flow `/careers` (list → detail → form validation).
+- [ ] Sharding: add the spec to a suitable E2E CI shard (allow-list guard #274 — update).
+- [ ] 3× stable local run (zero-flaky policy); PR#4.
 
-### Task F: Deploy wiring (параллельно E)
+### Task F: Deploy wiring (in parallel with E)
 
-- [ ] `deploy.yml`: шаг применения новой миграции (паттерн Step 2b из #350 — идемпотентный DDL через `docker exec psql`; после применения — de-wire по нашему паттерну ИЛИ постоянный `drizzle-kit migrate`-шаг, решить по текущему состоянию deploy.yml).
-- [ ] `apps/landing/Dockerfile`: `ARG VITE_TURNSTILE_SITE_KEY` + прокидка в build; deploy.yml передаёт из GH secret.
-- [ ] api prod env: `TURNSTILE_SECRET_KEY`; `.env.example` — оба ключа + комментарий про CF dummy-ключи для dev.
-- [ ] `docs/runbooks/deployment.md`: раздел «Turnstile secrets».
-- [ ] PR#5; после мержа всех — прод-smoke: лендинг открывается, вакансии видны, тестовый отклик проходит и виден в CRM, файл скачивается.
+- [ ] `deploy.yml`: a step to apply the new migration (the Step 2b pattern from #350 — idempotent DDL via `docker exec psql`; after applying — de-wire per our pattern OR a permanent `drizzle-kit migrate` step, decide by the current state of deploy.yml).
+- [ ] `apps/landing/Dockerfile`: `ARG VITE_TURNSTILE_SITE_KEY` + passing it into the build; deploy.yml passes it from a GH secret.
+- [ ] api prod env: `TURNSTILE_SECRET_KEY`; `.env.example` — both keys + a comment about the CF dummy keys for dev.
+- [ ] `docs/runbooks/deployment.md`: a "Turnstile secrets" section.
+- [ ] PR#5; after all are merged — prod smoke: the landing opens, vacancies are visible, a test application goes through and is visible in the CRM, the file downloads.
 
 ---
 
-## Гейты качества (на каждый PR)
+## Quality gates (per PR)
 
-code-reviewer (все) · security-reviewer (PR#1, PR#2, PR#3) · manual-qa на живом
-стеке (PR#2, PR#3) · ui-ux-designer Mode B fidelity-diff на ВСЕХ тест-ширинах
-(PR#2, PR#3) · все находки H/M/L резолвятся · User Testing владельцем →
-явный merge-сигнал per PR → лейбл `merge-approved` при mss=CLEAN.
+code-reviewer (all) · security-reviewer (PR#1, PR#2, PR#3) · manual-qa on the live
+stack (PR#2, PR#3) · ui-ux-designer Mode B fidelity-diff on ALL test widths
+(PR#2, PR#3) · all H/M/L findings resolved · User Testing by the owner →
+an explicit merge signal per PR → the label `merge-approved` when mss=CLEAN.
 
-## Self-review плана
+## Plan self-review
 
-- Покрытие спеки: §2 → C; §3 → A+B; §4 → B; §5 → B(cron); §6 → D; §7 → тесты в A/B/C/D + E; §8 → F; §9 → структура волн. Гэпов нет.
-- Контракты согласованы: имена схем/endpoints/ключей единые во всех задачах (источник — раздел «Контракты»).
-- Owner-блокеры вынесены в Phase 0 и не блокируют Phase 1.
+- Spec coverage: §2 → C; §3 → A+B; §4 → B; §5 → B(cron); §6 → D; §7 → tests in A/B/C/D + E; §8 → F; §9 → wave structure. No gaps.
+- Contracts aligned: schema/endpoint/key names are unified across all tasks (source — the "Contracts" section).
+- Owner blockers are moved into Phase 0 and do not block Phase 1.

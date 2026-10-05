@@ -1,78 +1,78 @@
-# CRM i18n — этап 3, волна (c) «web-projects» — план реализации
+# CRM i18n — stage 3, wave (c) "web-projects" — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Перевести на `uk`/`en` всё, что в CRM касается проектов и найма: собеседования (канбан), вакансии и отклики, список проектов с фильтром статусов, легенду джуниора, согласование и реквизиты проекта, детальную страницу проекта, хаб джуна и админские шаблоны договоров. Четыре PR, продуктовые файлы не пересекаются, в мигрированных файлах не остаётся русского текста, а девять карт `*_LABELS` этого среза (стадии канбана, тип оплаты, фильтр статусов, статусы вакансии/отклика, тип занятости, период зарплаты, локальные `ROLE_LABELS`) переводятся в каталог или на канон `ROLE_LABEL_MESSAGES`, потому что после волны у русских литералов в них не остаётся места.
+**Goal:** Translate to `uk`/`en` everything in the CRM that concerns projects and hiring: interviews (kanban), vacancies and applications, the project list with a status filter, the junior legend, project approval and credentials, the project detail page, the junior hub and the admin contract templates. Four PRs, the product files do not overlap, no Russian text remains in the migrated files, and nine `*_LABELS` maps of this slice (kanban stages, payment type, status filter, vacancy/application statuses, employment type, salary period, local `ROLE_LABELS`) are moved to the catalog or to the `ROLE_LABEL_MESSAGES` canon, because after the wave there is no place left for Russian literals in them.
 
-**Architecture:** Тот же единственный каталог `packages/shared/src/i18n/locales/{uk,en}/messages.po` и те же шаблоны A–F, что в волнах (a)/(b). Нового в этой волне три вещи. Первое — **девять карт ярлыков в трёх `constants.ts`** (`interviews`, `projects`, `vacancies`): их правят до извлечения строк, а не после, иначе в два каталога уедут английские названия стадий, три написания «гиг-контракта» и рассогласованный род. Второе — **два места ручной плюрализации** (`VacancyCard` самописный `pluralizeOtklik`, `vacancies/constants.zodIssueRu`) и три склейки с падежом (`project-approval-caption`), которые переводятся не механической заменой, а перестройкой фразы. Третье — **таблица канона терминов волны (c)** (раздел ниже): роли берутся из уже смёрженного `ROLE_LABEL_MESSAGES`, а термины проектов/найма (состав, собеседование, отклик, тип оплаты, легенда) — из глоссария `CONTEXT.md`. PR1, PR2 и PR3 идут параллельно; PR4 ждёт PR3, потому что `$projectId.tsx` потребляет карту типа оплаты, которую PR3 переводит.
+**Architecture:** The same single catalog `packages/shared/src/i18n/locales/{uk,en}/messages.po` and the same templates A–F as in waves (a)/(b). Three things are new in this wave. First — **nine label maps in three `constants.ts`** (`interviews`, `projects`, `vacancies`): they are edited before string extraction, not after, otherwise English stage names, three spellings of "gig contract" and a mismatched gender would go into both catalogs. Second — **two places of manual pluralization** (`VacancyCard` self-written `pluralizeOtklik`, `vacancies/constants.zodIssueRu`) and three concatenations with a case (`project-approval-caption`), which are translated not by a mechanical replacement but by restructuring the phrase. Third — **the wave (c) term canon table** (the section below): roles are taken from the already-merged `ROLE_LABEL_MESSAGES`, and the project/hiring terms (composition, interview, application, payment type, legend) — from the `CONTEXT.md` glossary. PR1, PR2 and PR3 go in parallel; PR4 waits for PR3, because `$projectId.tsx` consumes the payment-type map that PR3 translates.
 
-**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), уже настроен этапом 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
+**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), already set up in stage 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
 
-**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (гейты), §7 (порядок волн), §8 (тесты). Аудит: `docs/architecture/2026-09-19-crm-i18n-audit.md`, срез `web-projects` (23 находки, `Findings:` в конце среза) и сквозные темы §1–§2. Образцы формата, качества и шаблонов: планы волн (a) `docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md` (шаблоны A–F) и (b) `docs/superpowers/plans/2026-09-24-crm-i18n-stage3b-web-people.md` (структура волны, уроки #700–#721).
+**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (gates), §7 (wave order), §8 (tests). Audit: `docs/architecture/2026-09-19-crm-i18n-audit.md`, the `web-projects` slice (23 findings, `Findings:` at the end of the slice) and the cross-cutting themes §1–§2. Samples of format, quality and templates: the wave plans (a) `docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md` (templates A–F) and (b) `docs/superpowers/plans/2026-09-24-crm-i18n-stage3b-web-people.md` (wave structure, lessons #700–#721).
 
-**Замер:** все числа ниже сняты командами на `origin/main` `0420499b` (#721) 2026-09-26. Перед стартом каждого PR исполнитель повторяет замер (шаг 0 каждой задачи): между планом и исполнением в `main` могут смёржиться другие ветки.
+**Measurement:** all the numbers below were taken by commands on `origin/main` `0420499b` (#721) 2026-09-26. Before starting each PR the implementer repeats the measurement (step 0 of each task): between the plan and execution other branches may have merged into `main`.
 
 ## Global Constraints
 
-Действуют на каждую задачу. Пункты с пометкой «урок» взяты из разборов PR #700–#721 (волны a/b) и уже однажды стоили отдельного раунда ревью.
+Apply to each task. Items marked "lesson" are taken from the reviews of PR #700–#721 (waves a/b) and already cost a separate review round once.
 
-**Версии и механика Lingui**
+**Lingui versions and mechanics**
 
-- `@lingui/*` — **5.9.5 EXACT**, одной версией (`version-pins.md`). Этот план ничего не апгрейдит.
-- Исходный текст в коде — **украинский** (`sourceLocale: 'uk'`). Английский пишет тот же кодер в том же PR как второй оригинал (скилл `copywriting` §5, решение владельца №7). Интерфейс по умолчанию `uk`, второй язык `en`.
-- На уровне модуля — только `msg`. `t`, `plural` и `select` на уровне модуля запрещены: строка замёрзнет при импорте. В компоненте `t`/`i18n` берутся из `useLingui()` (`@lingui/react/macro`).
-- **Урок (#700): макрос `plural()` несовместим со Stryker.** Под инструментированием `#` не подставляется. Для чисел в JSX — компонент `<Plural>`; вне JSX — `msg` с ICU-строкой и `i18n._(descriptor, { count })`. Вызов `t\`${plural(...)}\``не использовать. В этой волне это касается прежде всего`VacancyCard.pluralizeOtklik`и`vacancies/constants.zodIssueRu` (см. шаблон J).
-- **Урок (#707): `as const satisfies Record<…, MessageDescriptor>` на карте `msg`-шаблонов отключает Stryker для всего блока** (0 мутантов). Пишется `satisfies Record<…>` без `as const`. Если гейт показывает 0 мутантов в файле, где точно есть `msg`, причина в этом. В этой волне девять карт ярлыков переводятся в `Record<…, MessageDescriptor>` — все `satisfies` без `as const`.
-- `i18n._()` принимает только **выражение**: `i18n._(STAGE_LABEL_MESSAGES[stage])` или `i18n._(MAP[key])`. Объектный литерал со spread роняет `lingui extract`.
-- **Урок (#707): у записей с явным id (`api-error.*`, `zod-error.*`) `msgstr` правится руками в обоих `.po`.** `i18n:extract` существующий `msgstr` не перезаписывает. Эта волна тексты с явным id не меняет, только использует. Если такая правка понадобится — отдельная строка в «Допущениях» PR и ручная правка обоих `.po`.
+- `@lingui/*` — **5.9.5 EXACT**, a single version (`version-pins.md`). This plan upgrades nothing.
+- Source text in the code — **Ukrainian** (`sourceLocale: 'uk'`). English is written by the same coder in the same PR as a second original (skill `copywriting` §5, owner decision #7). The default interface is `uk`, the second language is `en`.
+- At the module level — only `msg`. `t`, `plural` and `select` at the module level are forbidden: the string freezes on import. In a component `t`/`i18n` are taken from `useLingui()` (`@lingui/react/macro`).
+- **Lesson (#700): the `plural()` macro is incompatible with Stryker.** Under instrumentation `#` is not substituted. For numbers in JSX — the `<Plural>` component; outside JSX — `msg` with an ICU string and `i18n._(descriptor, { count })`. Do not use the call `t\`${plural(...)}\``. In this wave this concerns primarily `VacancyCard.pluralizeOtklik`and`vacancies/constants.zodIssueRu` (see template J).
+- **Lesson (#707): `as const satisfies Record<…, MessageDescriptor>` on a map of `msg` templates disables Stryker for the whole block** (0 mutants). Write `satisfies Record<…>` without `as const`. If the gate shows 0 mutants in a file that definitely has `msg`, the cause is this. In this wave nine label maps are moved to `Record<…, MessageDescriptor>` — all `satisfies` without `as const`.
+- `i18n._()` accepts only an **expression**: `i18n._(STAGE_LABEL_MESSAGES[stage])` or `i18n._(MAP[key])`. An object literal with a spread breaks `lingui extract`.
+- **Lesson (#707): for records with an explicit id (`api-error.*`, `zod-error.*`) the `msgstr` is edited by hand in both `.po`.** `i18n:extract` does not overwrite an existing `msgstr`. This wave does not change texts with an explicit id, only uses them. If such an edit is needed — a separate line in the PR's "Assumptions" and a manual edit of both `.po`.
 
-**Тексты (`CONTEXT.md` → «Формы `uk`/`en`» + таблица канона ниже)**
+**Texts (`CONTEXT.md` → "`uk`/`en` forms" + the canon table below)**
 
-- Апостроф — `’` (U+2019), не `'` и не `ʼ`. Многоточие — `…` (U+2026), не `...` (аудит COPY-L-proj-19: в срезе 13 строк с `...` в 8 файлах против 11 с `…` в 5 — после извлечения это было бы 48 расхождений в двух каталогах вместо 24). Кавычки: в `uk` ёлочки `«…»`, в `en` типографские `“…”`.
-- Роли пишутся из канона `ROLE_LABEL_MESSAGES` (`@/components/ui/role-select`, 3a): `uk` — «адміністратор», «сеньйор», «джуніор», «HR», «бухгалтер», «дроп»; `en` — «admin», «senior», «junior», «HR», «accountant», «drop». Легаси `ROLE_LABELS` **уже удалён** из `role-select.tsx` и `users/constants.ts` (3b PR3), но три **локальные** карты ролей ещё живут в периметре этой волны (`$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`) — они удаляются (шаблон H).
-- **Урок (#702, п.13): сырой enum роли/статуса в видимом тексте — находка.** После замены литерала сканировать **весь** файл: `grep -nE '\b(ADMIN|SENIOR|JUNIOR|HR|ACCOUNTANT|DROP|DRAFT|PUBLISHED|CLOSED|NEW|VIEWED|REJECTED|ACTIVE|PENDING|ARCHIVED|HR_SCREEN|TECH_INTERVIEW|OFFER_RECEIVED|HIRED|FOP|GIG_CONTRACT|USDT)\b'` по JSX-тексту, `aria-label`, `title` и `placeholder`. На каждый экран с ролью/статусом/стадией — тест «в отрендеренном экране нет сырого enum». Исключение: `HR`, `USDT`, `AI`/`EdTech`/… (домены вакансий) и `Senior`/`Lead` (уровни) — это одновременно enum и канонический видимый текст (proper nouns / англицизмы, оставляемые как есть — см. таблицу канона).
-- **Урок (#702, п.9): подстановка в косвенный падеж ломает `uk`.** Роль/имя подставляется только в именительном. Если нужен другой падеж — `select` по значению enum с готовыми формами (набор веток совпадает со значениями, реально доходящими до места), плюс тест, что `other` недостижим. Именно этот дефект — суть COPY-H-proj-2 (`project-approval-caption`: `от ${имя}` в именительном) и COPY-H-proj-4 (склонение слова «состав»).
-- Тост и отказ — **одно предложение, без точки в конце**, с глаголом; там, где есть действие, сказано «что делать» (COPY-M-proj-13: тупики без следующего шага — находка). Телеграфный стиль запрещён. Одна ситуация — один текст: одинаковые пустые состояния берут текст из таблицы канона дословно (для «фильтр ничего не нашёл» — уже существующий ключ каталога «Нічого не знайдено — скиньте фільтри», волна b), тогда в каталоге один ключ.
-- Имена полей, `teamMode`, enum-значения, `senior+team`, «крипта», внутренние названия («карточка» про собеседование, «Drop-проект» латиницей) в тексте для человека запрещены (аудит COPY-H-proj-4/5, M-14, L-21).
-- **Урок (#701, п.5): русизмы проверять по юникоду, не байтовым `grep`.** Перед каждым push:
+- The apostrophe — `’` (U+2019), not `'` and not `ʼ`. The ellipsis — `…` (U+2026), not `...` (audit COPY-L-proj-19: in the slice 13 lines with `...` in 8 files against 11 with `…` in 5 — after extraction this would be 48 divergences in two catalogs instead of 24). Quotes: in `uk` guillemets `«…»`, in `en` typographic `“…”`.
+- Roles are written from the `ROLE_LABEL_MESSAGES` canon (`@/components/ui/role-select`, 3a): `uk` — «адміністратор», «сеньйор», «джуніор», «HR», «бухгалтер», «дроп»; `en` — «admin», «senior», «junior», «HR», «accountant», «drop». The legacy `ROLE_LABELS` **is already removed** from `role-select.tsx` and `users/constants.ts` (3b PR3), but three **local** role maps still live in this wave's perimeter (`$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`) — they are removed (template H).
+- **Lesson (#702, item 13): a raw role/status enum in visible text is a finding.** After replacing a literal, scan the **whole** file: `grep -nE '\b(ADMIN|SENIOR|JUNIOR|HR|ACCOUNTANT|DROP|DRAFT|PUBLISHED|CLOSED|NEW|VIEWED|REJECTED|ACTIVE|PENDING|ARCHIVED|HR_SCREEN|TECH_INTERVIEW|OFFER_RECEIVED|HIRED|FOP|GIG_CONTRACT|USDT)\b'` over JSX text, `aria-label`, `title` and `placeholder`. For each screen with a role/status/stage — a test "no raw enum in the rendered screen". Exception: `HR`, `USDT`, `AI`/`EdTech`/… (vacancy domains) and `Senior`/`Lead` (levels) — these are at once an enum and canonical visible text (proper nouns / anglicisms, left as is — see the canon table).
+- **Lesson (#702, item 9): substitution into an oblique case breaks `uk`.** A role/name is substituted only in the nominative. If another case is needed — `select` by the enum value with ready forms (the set of branches matches the values that actually reach the place), plus a test that `other` is unreachable. It is exactly this defect — the essence of COPY-H-proj-2 (`project-approval-caption`: `от ${имя}` in the nominative) and COPY-H-proj-4 (declension of the word "состав").
+- A toast and a refusal — **one sentence, no period at the end**, with a verb; where there is an action, it says "what to do" (COPY-M-proj-13: dead ends without a next step are a finding). Telegraphic style is forbidden. One situation — one text: identical empty states take the text from the canon table verbatim (for "a filter found nothing" — the already-existing catalog key «Нічого не знайдено — скиньте фільтри», wave b), then there is one key in the catalog.
+- Field names, `teamMode`, enum values, `senior+team`, «крипта», internal names («карточка» about an interview, «Drop-проект» in Latin) in human-facing text are forbidden (audit COPY-H-proj-4/5, M-14, L-21).
+- **Lesson (#701, item 5): check russisms by unicode, not a byte `grep`.** Before each push:
 
 ```bash
 python3 -c "import re,sys,subprocess;fs=subprocess.run(['git','diff','--name-only','origin/main','--','apps/web/app'],capture_output=True,text=True).stdout.split();[print(f,i,l.strip()) for f in fs if f.endswith(('.ts','.tsx')) for i,l in enumerate(open(f,encoding='utf8'),1) if re.search('[ыЫэЭъЪёЁ]',l) and not re.match(r'\s*(//|\*|\{/\*)',l)]"
 ```
 
-Строки из этого вывода в файлах **своего** PR — недоделка. Исключения — тестовые фикстуры с русскими данными (имена людей из сида) и комментарии. Отдельно: буквы `і ї є ґ` — это уже украинский, не русизм; guard целит ровно на `ы э ъ ё`.
+Strings from this output in files of **your** PR are an incomplete migration. Exceptions — test fixtures with Russian data (people's names from the seed) and comments. Separately: the letters `і ї є ґ` are already Ukrainian, not a russism; the guard targets exactly `ы э ъ ё`.
 
-**Тесты**
+**Tests**
 
-- Якоря — `data-testid` и роли. Текст в ассертах берётся из **каталога `uk`**, не литералом:
-  - Vitest — `loadCatalog(locale)` и `I18nTestProvider` из `apps/web/app/test/i18n.tsx` (уже в `main`);
-  - E2E — `loadMessages('uk')` и `assertInCatalog(uk, '<текст>')` из `apps/e2e/fixtures/catalog.ts` (уже в `main`).
-- **Урок (#700, п.2): E2E-свип по всему `apps/e2e`, а не по спекам из диффа.** Регрессия — любой литерал мигрированного компонента в любой спеке. Процедура и скрипт — «Общий шаг: E2E-свип» ниже. «Pre-existing» допустимо только если CI на `origin/main` красный на той же спеке.
-- **Урок (#700, п.3): мутационный гейт на полном диффе — обязательный AC**, `survived 0`. Если у `NoCoverage` нет integration-hint, его закрывает unit-тест (`mutation-gate-integration-specs.md`). Локальный SKIP по таймауту — не PASS: тогда `stryker run` напрямую с `dryRunTimeoutMinutes: 20` и тем же конфигом, что у гейта.
-- **Урок (#699, п.12): каждое подавление Stryker — с причиной на той же строке директивы**, не короче 12 символов (`// Stryker disable next-line <Mutator>: <причина>`). Перед push — `node scripts/devops/check-mutation-suppressions.mjs`: локальный `pnpm mutation:changed` его не вызывает, а CI с ним валит все Mutation Gate джобы ещё до старта.
-- Тесты правит тот же кодер в том же PR (зона AutoTest по природе файла, но правка ассертов внутри мигрируемого модуля — часть той же задачи, как в волнах a/b). Новых `*.spec.ts`-сценариев E2E волна не заводит; новые unit-кейсы (тест на роль/стадию без сырого enum, тест на плюрализацию) — внутри существующих тест-файлов.
+- Anchors — `data-testid` and roles. Text in assertions is taken from the **`uk` catalog**, not a literal:
+  - Vitest — `loadCatalog(locale)` and `I18nTestProvider` from `apps/web/app/test/i18n.tsx` (already in `main`);
+  - E2E — `loadMessages('uk')` and `assertInCatalog(uk, '<text>')` from `apps/e2e/fixtures/catalog.ts` (already in `main`).
+- **Lesson (#700, item 2): the E2E sweep is over the whole `apps/e2e`, not over the specs in the diff.** A regression — any literal of a migrated component in any spec. The procedure and script — "Common step: E2E sweep" below. "Pre-existing" is allowed only if CI on `origin/main` is red on the same spec.
+- **Lesson (#700, item 3): the mutation gate on the full diff is a mandatory AC**, `survived 0`. If a `NoCoverage` has no integration-hint, a unit test closes it (`mutation-gate-integration-specs.md`). A local SKIP on timeout is not a PASS: then `stryker run` directly with `dryRunTimeoutMinutes: 20` and the same config as the gate.
+- **Lesson (#699, item 12): each Stryker suppression — with a reason on the same directive line**, no shorter than 12 characters (`// Stryker disable next-line <Mutator>: <reason>`). Before push — `node scripts/devops/check-mutation-suppressions.mjs`: a local `pnpm mutation:changed` does not call it, and CI with it fails all Mutation Gate jobs before even starting.
+- Tests are edited by the same coder in the same PR (the AutoTest zone by the file's nature, but editing assertions inside the migrated module is part of the same task, as in waves a/b). The wave does not introduce new `*.spec.ts` E2E scenarios; new unit cases (a test for a role/stage without a raw enum, a test for pluralization) — inside the existing test files.
 
-**Процесс**
+**Process**
 
-- `git add` явным списком (в каждой задаче он есть). Push — `DATABASE_URL= git push`, без `--no-verify`. Каждый коммит несёт `ac_verified:` с номерами из раздела «Acceptance criteria» своей задачи.
-- **Урок (#700, п.6): каденс для 20+ файлов** — `wip:`-коммиты локально, в конце **один** push. Pre-push под нагрузкой флакает, каждый push занимает 5–12 минут. `$projectId.tsx` (165 строк, PR4) — по секциям, `wip:` после каждой.
-- **Урок (#700, п.5): скриншоты и живые проходы делаются скриптом `npx playwright` в своём scratchpad**, не через `mcp__playwright__*`: браузер MCP общий у всех параллельных агентов.
-- **Урок (#704/#707): конфликт `.po` при параллельных PR аддитивен.** Берутся обе стороны, затем `pnpm i18n:extract` дважды, второй прогон даёт пустой дифф. Проверка числами: число `msgid` равно `main` плюс новые записи PR, а fuzzy, `#-#-#` и пустых `msgstr` в `en` — 0. Merge `.po` не отдаётся haiku.
-- **Урок (#700, п.9): task-файл — единственный канал требований.** В промпт кодера оркестратор пишет: «все разделы "Дополнение оркестратора" в task-файле — часть задания».
-- После каждого Edit/Write `.ts`/`.tsx` — `mcp__eslint__lint-files`. На строках, которые волна трогает, новых warning `lingui/no-unlocalized-strings` быть не должно.
-- `pnpm i18n:extract` идемпотентен: второй прогон подряд не меняет `.po`. CI-гейт «i18n catalogs are in sync» это проверяет, перед push то же воспроизводится локально.
-- **Урок (#705): FM-5 guard-test gate.** Волна **не трогает** `apps/api`. Если исполнитель всё же решит править контроллер из списка `guard-test-gate.yml`, в том же PR нужен изменённый `apps/api/**/*.spec.ts` с ассертом 403 (или строка `guard-test-na: <причина>` в теле PR до push). Лучше такую правку вынести отдельным PR.
-- Каждый PR проходит design-gate **Tier 2** (правка существующих экранов: conformance-проверка ui-ux-designer, без генерации в Claude Design) и fidelity Mode B на всех классах устройств. Вердикт `copy-reviewer` — по `uk` и по `en` **отдельно**. `security-reviewer` **обязателен для PR3 и PR4**: они трогают согласование доли проекта, реквизиты проекта, легенду джуниора (маскировка), пароли проекта и админские шаблоны договоров (critical-path zones `pm.md`). PR1 (собеседования) и PR2 (вакансии) `security-reviewer` не требуют по правилу, но проходят copy+code+spec+design как все. Логика в PR3/PR4 не меняется — проверить это должен ревьюер, а не автор.
-- **Responsive AC для каждого PR:** экраны из задачи проверяются на 320 и 375 (мобайл), 768 (планшет), 1024 и 1280 (ноутбук), 1440 и 1920 (большой) на **обоих** языках. Нет горизонтального скролла (`document.scrollWidth <= clientWidth`), ни одна подпись не обрезана без `truncate` с `title`, тач-таргеты на мобайле не меньше 44×44. Скриншоты 320 и 1440 × `uk` и `en` прикладываются к PR. **Особый риск волны — табы фильтра статусов проектов** (`STATUS_FILTER_LABELS`/`STATUS_FILTER_LABELS_MOBILE`, PR3): их ширина настраивалась под русский текст шесть раундов с двумя падениями CI (см. комментарий в `projects/constants.ts` и COPY danger «Ширина подогнана под русский текст»). Украинский длиннее русского на 15–30 %, поэтому эту подгонку надо перемерить заново на 320/375/768/1024, а не доверять старым пиксельным значениям.
+- `git add` by an explicit list (each task has one). Push — `DATABASE_URL= git push`, without `--no-verify`. Each commit carries `ac_verified:` with the numbers from the "Acceptance criteria" section of its task.
+- **Lesson (#700, item 6): a cadence for 20+ files** — `wip:` commits locally, one push at the end. Pre-push under load flakes, each push takes 5–12 minutes. `$projectId.tsx` (165 lines, PR4) — by section, `wip:` after each.
+- **Lesson (#700, item 5): screenshots and live passes are done with the `npx playwright` script in your own scratchpad**, not via `mcp__playwright__*`: the MCP browser is shared across all parallel agents.
+- **Lesson (#704/#707): the `.po` conflict on parallel PRs is additive.** Take both sides, then `pnpm i18n:extract` twice, the second run gives an empty diff. Check by numbers: the number of `msgid` equals `main` plus the PR's new records, and fuzzy, `#-#-#` and empty `msgstr` in `en` — 0. The `.po` merge is not given to haiku.
+- **Lesson (#700, item 9): the task file is the only channel of requirements.** In the coder's prompt the orchestrator writes: "all the 'Orchestrator addendum' sections in the task file are part of the assignment".
+- After each Edit/Write of `.ts`/`.tsx` — `mcp__eslint__lint-files`. On the lines the wave touches there must be no new `lingui/no-unlocalized-strings` warnings.
+- `pnpm i18n:extract` is idempotent: a second consecutive run does not change `.po`. The CI gate "i18n catalogs are in sync" checks this, before push the same is reproduced locally.
+- **Lesson (#705): FM-5 guard-test gate.** The wave **does not touch** `apps/api`. If the implementer still decides to edit a controller from the `guard-test-gate.yml` list, the same PR needs a changed `apps/api/**/*.spec.ts` with a 403 assertion (or the line `guard-test-na: <reason>` in the PR body before push). It is better to carry out such an edit as a separate PR.
+- Each PR passes design-gate **Tier 2** (editing existing screens: a ui-ux-designer conformance check, without generation in Claude Design) and fidelity Mode B on all device classes. The `copy-reviewer` verdict — on `uk` and on `en` **separately**. `security-reviewer` is **mandatory for PR3 and PR4**: they touch project-share approval, project credentials, the junior legend (masking), project passwords and the admin contract templates (critical-path zones of `pm.md`). PR1 (interviews) and PR2 (vacancies) do not require `security-reviewer` by the rule, but pass copy+code+spec+design like all. The logic in PR3/PR4 does not change — the reviewer must verify this, not the author.
+- **Responsive AC for each PR:** the screens from the task are checked at 320 and 375 (mobile), 768 (tablet), 1024 and 1280 (laptop), 1440 and 1920 (large) in **both** languages. No horizontal scroll (`document.scrollWidth <= clientWidth`), no label is truncated without `truncate` with `title`, touch targets on mobile are no less than 44×44. Screenshots 320 and 1440 × `uk` and `en` are attached to the PR. **A special risk of the wave is the project status filter tabs** (`STATUS_FILTER_LABELS`/`STATUS_FILTER_LABELS_MOBILE`, PR3): their width was tuned to the Russian text over six rounds with two CI failures (see the comment in `projects/constants.ts` and the COPY danger "The width is tuned to the Russian text"). Ukrainian is 15–30% longer than Russian, so this tuning must be re-measured anew at 320/375/768/1024, not trusting the old pixel values.
 
 ---
 
-## Тестовый доступ к каталогу (хелперы уже в `main`)
+## Test access to the catalog (helpers already in `main`)
 
-Реализовано волной (a) и смёржено. Здесь — как пользоваться.
+Implemented by wave (a) and merged. Here — how to use it.
 
 ```tsx
-// Vitest (apps/web) — реальный каталог через тот же путь, что в продакшене
+// Vitest (apps/web) — the real catalog via the same path as in production
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 await loadCatalog('uk')
@@ -81,7 +81,7 @@ expect(screen.getByText('HR-скринінг')).toBeInTheDocument()
 ```
 
 ```ts
-// E2E (apps/e2e) — перед прогоном обязателен `pnpm i18n:compile`
+// E2E (apps/e2e) — `pnpm i18n:compile` is mandatory before a run
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const uk = await loadMessages('uk')
@@ -90,153 +90,153 @@ await expect(
 ).toBeVisible()
 ```
 
-`assertInCatalog` падает с понятной ошибкой, если текста нет в каталоге: так устаревший литерал не превращается в таймаут Playwright. Относительный путь импорта зависит от глубины спеки: `'../fixtures/catalog'` для `tests/*.spec.ts`, `'../../../fixtures/catalog'` для `tests/crm/<раздел>/*.spec.ts`.
+`assertInCatalog` fails with a clear error if the text is not in the catalog: so an outdated literal does not turn into a Playwright timeout. The relative import path depends on the spec's depth: `'../fixtures/catalog'` for `tests/*.spec.ts`, `'../../../fixtures/catalog'` for `tests/crm/<section>/*.spec.ts`.
 
 ---
 
-## Периметр волны (c) — как получен
+## Perimeter of wave (c) — how it was obtained
 
-Команда (границы среза аудита `web-projects` + добавления из задания):
+Command (the boundaries of the `web-projects` audit slice + the additions from the assignment):
 
 ```bash
-# срез web-projects
+# the web-projects slice
 find apps/web/app/components/{projects,interviews,pending-share} \
      apps/web/app/routes/_authenticated/{projects,interviews,vacancies} \
      apps/web/app/routes/_authenticated/{project,projects,legend}.tsx \
      -type f \( -name '*.ts' -o -name '*.tsx' \) ! -path '*__tests__*' ! -name '*.spec.*' ! -name '*.test.*'
-# каталога components/interviews нет — компоненты канбана лежат под routes/_authenticated/interviews/components/
-# добавления из задания (админ-шаблоны договоров + хук вакансий)
+# there is no components/interviews directory — the kanban components live under routes/_authenticated/interviews/components/
+# additions from the assignment (admin contract templates + vacancy hook)
 find apps/web/app/components/contracts -type f
 ls apps/web/app/routes/_authenticated/admin/contracts.index.tsx apps/web/app/routes/_authenticated/admin/contracts.\$role.tsx
 ls apps/web/app/hooks/use-vacancies.ts apps/web/app/hooks/use-contract-tokens.ts apps/web/app/lib/contract-variables.ts
 ```
 
-Результат на `0420499b`: в срезе `web-projects` — **30 продуктовых файлов с кириллицей** (678 строк вне комментариев из 889 с кириллицей всего; аудит насчитал 33 продуктовых файла и ≈676 строк — совпадает, разница в том, что `ProjectLogo.tsx` и ещё два файла кириллицы не содержат). Добавления из задания дают ещё **6 файлов** (~108 строк вне комментариев).
+Result on `0420499b`: in the `web-projects` slice — **30 product files with Cyrillic** (678 lines outside comments out of 889 with Cyrillic in total; the audit counted 33 product files and ≈676 lines — it matches, the difference is that `ProjectLogo.tsx` and two more files contain no Cyrillic). The additions from the assignment give another **6 files** (~108 lines outside comments).
 
-Дальше периметр корректируется. Каждое отклонение — строка в «Допущениях» ниже.
+Further the perimeter is adjusted. Each deviation — a line in "Assumptions" below.
 
-| Что                                                                                                                            | Решение            | Почему                                                                                                                                                                                    |
-| ------------------------------------------------------------------------------------------------------------------------------ | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `apps/web/app/routes/_authenticated/vacancies/**`, `hooks/use-vacancies.ts`                                                    | **включить** (PR2) | Аудит явно относит `vacancies` к границам среза `web-projects` (не к `web-finance`/`web-docs-notify`). Отдаём их этой волне                                                               |
-| `routes/_authenticated/admin/contracts.{index,$role}.tsx`, `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` | **включить** (PR4) | План волны (b) в «Находках вне периметра» прямо отдал админку контрактов волне (c). Локальные `ROLE_LABELS` (`HR-менеджер`) и склейка «Шаблон для роли … опубликован» ждут здесь          |
-| `components/user-profile/contract/**`, онбординг-контракт                                                                      | **исключить**      | Уже мигрированы в волне (b) (#717). В периметр не входят                                                                                                                                  |
-| `components/contracts/contractTokenHighlight.ts`, `hooks/use-contract-tokens.ts`, `lib/contract-variables.ts`                  | **не мигрировать** | Кириллицы 0 (проверено). Задание их перечислило как область админки, но текста в них нет — трогать нечего                                                                                 |
-| `components/projects/ProjectLogo.tsx`                                                                                          | **не трогать**     | Кириллицы 0                                                                                                                                                                               |
-| `routes/_authenticated/projects/constants.ts` → `PAYMENT_TYPE_LABELS`, `STATUS_FILTER_LABELS(_MOBILE)`                         | **PR3 владеет**    | Карту типа оплаты потребляют `projects/index.tsx` (PR3) и `$projectId.tsx` (PR4) — она переезжает в `PAYMENT_TYPE_MESSAGES` в PR3, PR4 потребляет новую форму. Отсюда зависимость PR4→PR3 |
-| `CONTEXT.md`                                                                                                                   | **добавить** (PR1) | Урок #700, п.1: формы терминов волны заводятся в глоссарий до миграции файлов. PR1 стартует первым из параллельной волны — он и заносит канон                                             |
-| Встроенные в `$projectId.tsx` финанс-компоненты (`TransactionRow`, `TransactionDetailDialog`) и `fmtUsd`/`ExchangeRates`       | **не трогать**     | Это срез `web-finance` (волна d), ещё не мигрирован. `$projectId` их только рендерит/зовёт; их русский текст доживает до волны (d) — строка в «Находках вне периметра» и в теле PR4       |
+| What                                                                                                                           | Decision           | Why                                                                                                                                                                                                            |
+| ------------------------------------------------------------------------------------------------------------------------------ | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/web/app/routes/_authenticated/vacancies/**`, `hooks/use-vacancies.ts`                                                    | **include** (PR2)  | The audit explicitly assigns `vacancies` to the boundaries of the `web-projects` slice (not to `web-finance`/`web-docs-notify`). We give them to this wave                                                     |
+| `routes/_authenticated/admin/contracts.{index,$role}.tsx`, `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` | **include** (PR4)  | The wave (b) plan in "Findings outside the perimeter" explicitly gave the contracts admin to wave (c). The local `ROLE_LABELS` (`HR-менеджер`) and the concatenation «Шаблон для роли … опубликован» wait here |
+| `components/user-profile/contract/**`, the onboarding contract                                                                 | **exclude**        | Already migrated in wave (b) (#717). Not in the perimeter                                                                                                                                                      |
+| `components/contracts/contractTokenHighlight.ts`, `hooks/use-contract-tokens.ts`, `lib/contract-variables.ts`                  | **do not migrate** | 0 Cyrillic (checked). The assignment listed them as the contracts admin area, but there is no text in them — nothing to touch                                                                                  |
+| `components/projects/ProjectLogo.tsx`                                                                                          | **do not touch**   | 0 Cyrillic                                                                                                                                                                                                     |
+| `routes/_authenticated/projects/constants.ts` → `PAYMENT_TYPE_LABELS`, `STATUS_FILTER_LABELS(_MOBILE)`                         | **PR3 owns**       | The payment-type map is consumed by `projects/index.tsx` (PR3) and `$projectId.tsx` (PR4) — it moves to `PAYMENT_TYPE_MESSAGES` in PR3, PR4 consumes the new form. Hence the PR4→PR3 dependency                |
+| `CONTEXT.md`                                                                                                                   | **add** (PR1)      | Lesson #700, item 1: the wave's term forms are entered into the glossary before migrating the files. PR1 starts first of the parallel wave — it enters the canon                                               |
+| Finance components embedded in `$projectId.tsx` (`TransactionRow`, `TransactionDetailDialog`) and `fmtUsd`/`ExchangeRates`     | **do not touch**   | This is the `web-finance` slice (wave d), not yet migrated. `$projectId` only renders/calls them; their Russian text lives until wave (d) — a line in "Findings outside the perimeter" and in the PR4 body     |
 
-Итог по PR:
+Summary by PR:
 
-| PR      | Что                                                                                                              | Продуктовых файлов | Строк кириллицы вне комментариев |
-| ------- | ---------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------- |
-| **PR1** | Собеседования (канбан): стадии, доски, диалоги карточки, детальный лист собеседования, архив                     | 8                  | 86                               |
-| **PR2** | Вакансии и отклики: карты статусов/типов, формы, карточки, кандидаты, пустые состояния, плюрализация откликов    | 12                 | 171                              |
-| **PR3** | Проекты: список + фильтр статусов, легенда джуниора, согласование, статус-бейдж, реквизиты/пароли, pending-share | 10                 | 242                              |
-| **PR4** | Детальная страница проекта (`$projectId`), хаб джуна (`project.tsx`), админ-шаблоны договоров                    | 6                  | 287                              |
+| PR      | What                                                                                                            | Product files | Cyrillic lines outside comments |
+| ------- | --------------------------------------------------------------------------------------------------------------- | ------------- | ------------------------------- |
+| **PR1** | Interviews (kanban): stages, boards, card dialogs, the interview detail sheet, archive                          | 8             | 86                              |
+| **PR2** | Vacancies and applications: status/type maps, forms, cards, candidates, empty states, application pluralization | 12            | 171                             |
+| **PR3** | Projects: list + status filter, junior legend, approval, status badge, credentials/passwords, pending-share     | 10            | 242                             |
+| **PR4** | The project detail page (`$projectId`), the junior hub (`project.tsx`), the admin contract templates            | 6             | 287                             |
 
-Сумма мигрируемых строк — 786. Три PR параллельны (PR1 ∥ PR2 ∥ PR3, файлы не пересекаются, общее только `.po` — конфликт аддитивный). PR4 ждёт PR3.
-
----
-
-## Дисциплина параллельности
-
-| Шаг | Что                 | Ждёт         | Почему                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| --- | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **PR1 ∥ PR2 ∥ PR3** | —            | Продуктовые файлы трёх PR не пересекаются: `interviews/**` (PR1), `vacancies/**`+`use-vacancies.ts` (PR2), `projects` (список/легенда/компоненты/pending-share) (PR3). Общее — только `.po` (аддитивно) и общие термины из таблицы канона (одинаковые пустые состояния берут один ключ дословно). Диспатчить волной ≤ 3–4 одновременно (`light-track.md` «Потолок concurrency»)                                                                                                                                                                |
-| 2   | **PR4**             | мерж **PR3** | (1) `$projectId.tsx` потребляет `PAYMENT_TYPE_MESSAGES` из `projects/constants.ts`, которую PR3 вводит (удалять/менять старый `PAYMENT_TYPE_LABELS` можно только после того, как оба потребителя переехали — потребитель `projects/index.tsx` в PR3, `$projectId.tsx` в PR4). (2) Общая E2E-спека `projects.spec.ts`/`project-status-filter-ui.spec.ts` затрагивается и PR3 (список, табы), и PR4 (детальная) — последовательно конфликтов нет. Админ-шаблоны договоров внутри PR4 от PR3 **не** зависят и при желании могут стартовать раньше |
-
-**Распределение E2E-спек** (чей текст ассертит строка, тот PR её и правит; ориентир — снять точный список скриптом свипа на шаге push каждого PR). E2E-спек вне периметра, ходящих на эти роуты и ищущих по кириллице — 14. Основные:
-
-| PR  | Спеки (ориентир, кириллических строк на `0420499b`)                                                                                                                                                                                                                                                                            |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| PR1 | `interviews.spec.ts` (48), плюс любые спеки, ассертящие стадии канбана и диалоги собеседования — по выводу свипа                                                                                                                                                                                                               |
-| PR2 | `vacancies.spec.ts` (47), плюс спеки на отклики/кандидатов — по свипу                                                                                                                                                                                                                                                          |
-| PR3 | `projects.spec.ts` (49), `project-status-filter-ui.spec.ts` (62), `projects-senior-share-override.spec.ts` (133), `project-credentials.spec.ts` (113), `legend.spec.ts` (16), `crm/projects/projects-archive.spec.ts` (16), `project-draft-status.spec.ts` (13) — по свипу                                                     |
-| PR4 | `junior-hub.spec.ts` (80), `drop-attach-project.spec.ts` (30), `project-payment-type-and-drop-share.spec.ts` (15), `drop-project-create.spec.ts` (10), `senior-project-distribution-regression.spec.ts` (4), `dashboard-russian-strings.spec.ts` (14 — проверить, не ассертит ли он специально русские строки хаба) — по свипу |
-
-`cache/anti-stale.spec.ts` (`/^Синьор/`) ассертит подпись роли в диалоге проекта — попадёт в свип того PR, который эту подпись мигрирует (PR4, `$projectId`).
+The sum of migrated lines — 786. Three PRs are parallel (PR1 ∥ PR2 ∥ PR3, the files do not overlap, the only shared thing is `.po` — an additive conflict). PR4 waits for PR3.
 
 ---
 
-## Канон терминов волны (c) — `uk`/`en`
+## Parallelism discipline
 
-PR1 переносит эту таблицу в `CONTEXT.md` (раздел «Формы `uk`/`en`», продолжение волн a/b) первым коммитом. PR2, PR3 и PR4 берут слова отсюда дословно. Колонка «Откуда» ссылается на находку аудита или глоссарий, который выбор предопределил.
+| Step | What                | Waits for        | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ---- | ------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1    | **PR1 ∥ PR2 ∥ PR3** | —                | The product files of the three PRs do not overlap: `interviews/**` (PR1), `vacancies/**`+`use-vacancies.ts` (PR2), `projects` (list/legend/components/pending-share) (PR3). The only shared thing — `.po` (additive) and common terms from the canon table (identical empty states take one key verbatim). Dispatch in a wave of ≤ 3–4 simultaneously (`light-track.md` "Concurrency ceiling")                                                                                                                                                                     |
+| 2    | **PR4**             | merge of **PR3** | (1) `$projectId.tsx` consumes `PAYMENT_TYPE_MESSAGES` from `projects/constants.ts`, which PR3 introduces (removing/changing the old `PAYMENT_TYPE_LABELS` is possible only after both consumers have migrated — the consumer `projects/index.tsx` in PR3, `$projectId.tsx` in PR4). (2) The shared E2E spec `projects.spec.ts`/`project-status-filter-ui.spec.ts` is affected by both PR3 (list, tabs) and PR4 (detail) — sequentially there are no conflicts. The admin contract templates inside PR4 do **not** depend on PR3 and may, if desired, start earlier |
 
-| Термин (рус., для справки)              | `uk`                                                     | `en`                                                         | `_Избегать_` в продукте (`uk`/`en`)                                                                                                                                               | Откуда                                             |
-| --------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| Собеседование (`interviews`)            | співбесіда                                               | interview                                                    | «інтерв’ю», «карточка», «candidate card»                                                                                                                                          | глоссарий **Собеседование**; COPY-M-proj-14        |
-| Стадия собеседования (`interviewStage`) | стадія                                                   | stage                                                        | «колонка» как термин; англ. названия стадий в видимом тексте                                                                                                                      | COPY-H-proj-1                                      |
-| Стадия `HR_SCREEN`                      | HR-скринінг                                              | HR screen                                                    | «HR Screen» латиницей в `uk`                                                                                                                                                      | COPY-H-proj-1                                      |
-| Стадия `ENGLISH_CHECK`                  | Англійська                                               | English                                                      | «English» в `uk`                                                                                                                                                                  | COPY-H-proj-1                                      |
-| Стадия `TECH_INTERVIEW`                 | Технічна                                                 | Technical                                                    | «Tech» как ярлык                                                                                                                                                                  | COPY-H-proj-1                                      |
-| Стадия `FINAL_INTERVIEW`                | Фінальна                                                 | Final                                                        | —                                                                                                                                                                                 | COPY-H-proj-1                                      |
-| Стадия `CLIENT_INTERVIEW`               | З клієнтом                                               | Client                                                       | —                                                                                                                                                                                 | COPY-H-proj-1                                      |
-| Стадия `OFFER_RECEIVED`                 | Оффер отримано                                           | Offer received                                               | «Offer» латиницей в `uk`; **флаг для copy-reviewer**: глоссарий «Вакансия» относит «оффер» к `_Избегать_` — если ревьюер настоит, `uk` «Пропозицію надіслано» / `en` «Offer sent» | COPY-H-proj-1 + глоссарий **Вакансия**             |
-| Стадия `HIRED`                          | Найнято                                                  | Hired                                                        | «Нанят» (рус.)                                                                                                                                                                    | COPY-H-proj-1                                      |
-| Стадия `REJECTED` (собес.)              | Відмова                                                  | Rejected                                                     | «Отказ» (рус.)                                                                                                                                                                    | COPY-H-proj-1                                      |
-| Стадия `ARCHIVED` (собес.)              | Архів                                                    | Archived                                                     | —                                                                                                                                                                                 | COPY-H-proj-1                                      |
-| Проект (`projects`)                     | проєкт                                                   | project                                                      | «проект» без «є»                                                                                                                                                                  | глоссарий (волна a)                                |
-| Состав проекта (`projectMembers`)       | склад                                                    | project members                                              | «команда проекту» (у `teams` своя сущность), «участники»                                                                                                                          | глоссарий **Состав**; COPY-H-proj-4                |
-| Добавить/убрать из состава              | додати до складу / прибрати зі складу                    | add to the project / remove from the project                 | «додати учасника», «додати в команду»                                                                                                                                             | COPY-H-proj-4                                      |
-| Тип оплаты (`projectPaymentType`)       | тип оплати                                               | payment type                                                 | —                                                                                                                                                                                 | глоссарий **Тип оплаты проекта**                   |
-| `PAYMENT_TYPE_LABELS.FOP`               | ФОП                                                      | FOP                                                          | —                                                                                                                                                                                 | —                                                  |
-| `PAYMENT_TYPE_LABELS.GIG_CONTRACT`      | гіг-контракт                                             | gig contract                                                 | «гиг», «гиг-контракт» (рус.), два регистра                                                                                                                                        | COPY-H-proj-5                                      |
-| `PAYMENT_TYPE_LABELS.USDT`              | USDT                                                     | USDT                                                         | «крипта» как синоним USDT                                                                                                                                                         | COPY-H-proj-5                                      |
-| Корпоративная техника (`corpTech`)      | корпоративна техніка                                     | corporate hardware                                           | «Корп. техника», «Корп. технологии» — три написания одного поля                                                                                                                   | COPY-H-proj-3                                      |
-| Пересмотр зарплаты (`salaryReview`)     | перегляд зарплати                                        | salary review                                                | «Пересмотр ЗП» / «Пересмотр зарплаты» вперемешку                                                                                                                                  | COPY-H-proj-3                                      |
-| Статус согласования проекта             | Очікує рішення                                           | Awaiting decision                                            | «Отклонено» (ср. род), «На подтверждении», «Черновик» как имена статусов проекта                                                                                                  | глоссарий **Статус согласования проекта**          |
-| Раздел «ждущих» проектов (`/pending`)   | Очікують рішення                                         | Awaiting decision                                            | —                                                                                                                                                                                 | глоссарий (множественное)                          |
-| Фильтр статуса `ACTIVE`                 | Активні / (кор.) Активні                                 | Active                                                       | —                                                                                                                                                                                 | COPY danger «ширина»                               |
-| Фильтр статуса `PENDING`                | Очікують рішення / (кор.) Чекають                        | Awaiting / (short) Waiting                                   | «Ждут решения» (рус.); «Откл.»                                                                                                                                                    | глоссарий; COPY danger «ширина»                    |
-| Фильтр статуса `REJECTED` (проект)      | Відхилені / (кор.) Відмова                               | Rejected                                                     | «Отклонённые» (рус.)                                                                                                                                                              | COPY-M-proj-8                                      |
-| Фильтр статуса `ARCHIVED` (проект)      | Архів                                                    | Archived                                                     | «Завершён» про архивацию                                                                                                                                                          | COPY-M-proj-8                                      |
-| В архиве (проект)                       | в архіві / в архіві з {дата}                             | archived / archived since {date}                             | «Завершён», «Завершено»                                                                                                                                                           | COPY-M-proj-8; каталог волны b                     |
-| Проект с дропом                         | проєкт з дропом                                          | project with a drop                                          | «Drop-проект» латиницей                                                                                                                                                           | COPY-L-proj-21                                     |
-| Вакансия (`vacancies`)                  | вакансія                                                 | vacancy                                                      | «позиція», «джоба», «оффер»                                                                                                                                                       | глоссарий **Вакансия**                             |
-| Отклик на вакансию                      | відгук                                                   | application                                                  | «заявка», «позиція»                                                                                                                                                               | глоссарий **Вакансия**; COPY-M-proj-10             |
-| Статус вакансии `DRAFT`                 | Чернетка                                                 | Draft                                                        | —                                                                                                                                                                                 | COPY-M-proj-7; каталог волны b («чернетка»)        |
-| Статус вакансии `PUBLISHED`             | Опублікована                                             | Published                                                    | «Опубликовано» (ср. род при «вакансия»)                                                                                                                                           | COPY-M-proj-7                                      |
-| Статус вакансии `CLOSED`                | Закрита                                                  | Closed                                                       | «Закрыто» (ср. род)                                                                                                                                                               | COPY-M-proj-7                                      |
-| Статус отклика `NEW`                    | Новий                                                    | New                                                          | —                                                                                                                                                                                 | COPY-M-proj-7                                      |
-| Статус отклика `VIEWED`                 | Переглянутий                                             | Viewed                                                       | «Просмотрено» (ср. род); «Просм.»                                                                                                                                                 | COPY-M-proj-7, M-11                                |
-| Статус отклика `REJECTED` (отклик)      | Відхилений                                               | Rejected                                                     | «Отклонено» (ср. род); «Откл.» (читается как «выключено»)                                                                                                                         | COPY-M-proj-7, M-11                                |
-| Тип занятости `FULL_TIME`               | Повна зайнятість                                         | Full-time                                                    | —                                                                                                                                                                                 | COPY-M-proj-7 (карта `EMPLOYMENT_TYPE_LABELS`)     |
-| Тип занятости `PART_TIME`               | Часткова зайнятість                                      | Part-time                                                    | —                                                                                                                                                                                 | —                                                  |
-| Тип занятости `CONTRACT`                | Проєктна робота                                          | Contract                                                     | «Контракт» (путается со статусом договора)                                                                                                                                        | —                                                  |
-| Период зарплаты (`SALARY_PERIOD`)       | година / день / тиждень / місяць / рік                   | hour / day / week / month / year                             | —                                                                                                                                                                                 | COPY-M-proj-7 (соседняя карта)                     |
-| Домены вакансий (`DOMAIN_LABELS`)       | AI, EdTech, E-Commerce, …                                | AI, EdTech, E-Commerce, …                                    | перевод собственных имён доменов                                                                                                                                                  | комментарий в `vacancies/constants.ts`             |
-| Уровни (`SENIORITY_LABELS`)             | Senior, Lead, …                                          | Senior, Lead, …                                              | перевод грейдов                                                                                                                                                                   | комментарий в `vacancies/constants.ts`             |
-| Легенда джуниора (`legends`)            | легенда                                                  | legend                                                       | —                                                                                                                                                                                 | глоссарий **Легенда**                              |
-| Кавер-стори (`cover story`)             | кавер-сторі                                              | cover story                                                  | «cover story» латиницей в `uk`, «Бэкстори» — три написания                                                                                                                        | COPY-M-proj-18                                     |
-| Должность для клиента                   | посада для клієнта                                       | role shown to the client                                     | «Позиция для клиента» (глоссарий «Вакансия»: _избегать_ «позиция»)                                                                                                                | COPY-L-proj-23                                     |
-| Пример легенды (адрес)                  | Київ, вул. Хрещатик, 1                                   | 1 Khreshchatyk St, Kyiv                                      | «Киев, ул. Крещатик 1» (рус. транслит), примеры с рос. реалиями (МГУ)                                                                                                             | COPY-M-proj-17                                     |
-| Фильтр ничего не нашёл                  | Нічого не знайдено — скиньте фільтри                     | No matches — clear the filters                               | «Нет данных», «Пусто» без пояснения                                                                                                                                               | каталог волны b (ключ уже есть — переиспользовать) |
-| Публичная страница вакансий             | розділ «Вакансії» на сайті                               | the “Vacancies” section on the site                          | «страница карьеры»/«careers page» (публично так не называется)                                                                                                                    | COPY-M-proj-10                                     |
-| Деньги по проекту (реквизиты)           | Гроші за проєктом більше не йтимуть через його реквізити | Project money will no longer go through their payout details | «Приходы больше не будут проходить через него»                                                                                                                                    | COPY-L-proj-22                                     |
-| Шаблон договора (админка)               | шаблон договору                                          | contract template                                            | —                                                                                                                                                                                 | глоссарий **Шаблон/подписанный договор**           |
-| Роль в шаблоне (`ContractTargetRole`)   | из `ROLE_LABEL_MESSAGES`                                 | из `ROLE_LABEL_MESSAGES`                                     | «HR-менеджер» (в `admin/contracts` роль HR названа иначе, чем на канон-карте)                                                                                                     | COPY-M-core-9                                      |
+**E2E spec distribution** (whichever's text a line asserts, that PR edits it; the guide — take the exact list with the sweep script at the push step of each PR). E2E specs outside the perimeter that hit these routes and search by Cyrillic — 14. The main ones:
 
-Апостроф, многоточие, кавычки, `en`-отказы «Could not …» — по общему разделу `CONTEXT.md` «Формы `uk`/`en`», не переписывается.
+| PR  | Specs (guide, Cyrillic lines on `0420499b`)                                                                                                                                                                                                                                                                                             |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR1 | `interviews.spec.ts` (48), plus any specs asserting the kanban stages and interview dialogs — per the sweep output                                                                                                                                                                                                                      |
+| PR2 | `vacancies.spec.ts` (47), plus specs on applications/candidates — per the sweep                                                                                                                                                                                                                                                         |
+| PR3 | `projects.spec.ts` (49), `project-status-filter-ui.spec.ts` (62), `projects-senior-share-override.spec.ts` (133), `project-credentials.spec.ts` (113), `legend.spec.ts` (16), `crm/projects/projects-archive.spec.ts` (16), `project-draft-status.spec.ts` (13) — per the sweep                                                         |
+| PR4 | `junior-hub.spec.ts` (80), `drop-attach-project.spec.ts` (30), `project-payment-type-and-drop-share.spec.ts` (15), `drop-project-create.spec.ts` (10), `senior-project-distribution-regression.spec.ts` (4), `dashboard-russian-strings.spec.ts` (14 — check whether it specifically asserts the hub's Russian strings) — per the sweep |
+
+`cache/anti-stale.spec.ts` (`/^Синьор/`) asserts the role caption in the project dialog — it lands in the sweep of the PR that migrates that caption (PR4, `$projectId`).
 
 ---
 
-## Шаблоны миграции
+## Wave (c) term canon — `uk`/`en`
 
-**A–F — те же, что в волнах (a)/(b)** (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, раздел «Шаблоны миграции»): A — модульная константа → `msg` + `i18n._()` в рендере; B — JSX-текст → `<Trans>`; C — атрибут или императивная строка → `t` из `useLingui()`; D — число → `<Plural>` (в этой волне **только компонент**, урок про Stryker); E — родовая/падежная форма по значению enum → `select`; F — дата, деньги, число → `@crm/shared` `format.ts`.
+PR1 moves this table into `CONTEXT.md` (the "`uk`/`en` forms" section, a continuation of waves a/b) in the first commit. PR2, PR3 and PR4 take the words from here verbatim. The "Source" column refers to the audit finding or the glossary that predetermined the choice.
 
-Новые/уточнённые в этой волне:
+| Term (rus., for reference)                   | `uk`                                                     | `en`                                                         | `_Избегать_` in the product (`uk`/`en`)                                                                                                                                                      | Source                                       |
+| -------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Interview (`interviews`)                     | співбесіда                                               | interview                                                    | «інтерв’ю», «карточка», «candidate card»                                                                                                                                                     | glossary **Interview**; COPY-M-proj-14       |
+| Interview stage (`interviewStage`)           | стадія                                                   | stage                                                        | «колонка» as a term; English stage names in visible text                                                                                                                                     | COPY-H-proj-1                                |
+| Stage `HR_SCREEN`                            | HR-скринінг                                              | HR screen                                                    | «HR Screen» in Latin inside `uk`                                                                                                                                                             | COPY-H-proj-1                                |
+| Stage `ENGLISH_CHECK`                        | Англійська                                               | English                                                      | «English» in `uk`                                                                                                                                                                            | COPY-H-proj-1                                |
+| Stage `TECH_INTERVIEW`                       | Технічна                                                 | Technical                                                    | «Tech» as a label                                                                                                                                                                            | COPY-H-proj-1                                |
+| Stage `FINAL_INTERVIEW`                      | Фінальна                                                 | Final                                                        | —                                                                                                                                                                                            | COPY-H-proj-1                                |
+| Stage `CLIENT_INTERVIEW`                     | З клієнтом                                               | Client                                                       | —                                                                                                                                                                                            | COPY-H-proj-1                                |
+| Stage `OFFER_RECEIVED`                       | Оффер отримано                                           | Offer received                                               | «Offer» in Latin inside `uk`; **a flag for copy-reviewer**: the glossary «Vacancy» puts «оффер» into `_Избегать_` — if the reviewer insists, `uk` «Пропозицію надіслано» / `en` «Offer sent» | COPY-H-proj-1 + glossary **Vacancy**         |
+| Stage `HIRED`                                | Найнято                                                  | Hired                                                        | «Нанят» (rus.)                                                                                                                                                                               | COPY-H-proj-1                                |
+| Stage `REJECTED` (interview)                 | Відмова                                                  | Rejected                                                     | «Отказ» (rus.)                                                                                                                                                                               | COPY-H-proj-1                                |
+| Stage `ARCHIVED` (interview)                 | Архів                                                    | Archived                                                     | —                                                                                                                                                                                            | COPY-H-proj-1                                |
+| Project (`projects`)                         | проєкт                                                   | project                                                      | «проект» without «є»                                                                                                                                                                         | glossary (wave a)                            |
+| Project composition (`projectMembers`)       | склад                                                    | project members                                              | «команда проекту» (`teams` is its own entity), «участники»                                                                                                                                   | glossary **Composition**; COPY-H-proj-4      |
+| Add to/remove from the composition           | додати до складу / прибрати зі складу                    | add to the project / remove from the project                 | «додати учасника», «додати в команду»                                                                                                                                                        | COPY-H-proj-4                                |
+| Payment type (`projectPaymentType`)          | тип оплати                                               | payment type                                                 | —                                                                                                                                                                                            | glossary **Project payment type**            |
+| `PAYMENT_TYPE_LABELS.FOP`                    | ФОП                                                      | FOP                                                          | —                                                                                                                                                                                            | —                                            |
+| `PAYMENT_TYPE_LABELS.GIG_CONTRACT`           | гіг-контракт                                             | gig contract                                                 | «гиг», «гиг-контракт» (rus.), two cases                                                                                                                                                      | COPY-H-proj-5                                |
+| `PAYMENT_TYPE_LABELS.USDT`                   | USDT                                                     | USDT                                                         | «крипта» as a synonym for USDT                                                                                                                                                               | COPY-H-proj-5                                |
+| Corporate hardware (`corpTech`)              | корпоративна техніка                                     | corporate hardware                                           | «Корп. техника», «Корп. технологии» — three spellings of one field                                                                                                                           | COPY-H-proj-3                                |
+| Salary review (`salaryReview`)               | перегляд зарплати                                        | salary review                                                | «Пересмотр ЗП» / «Пересмотр зарплаты» intermixed                                                                                                                                             | COPY-H-proj-3                                |
+| Project approval status                      | Очікує рішення                                           | Awaiting decision                                            | «Отклонено» (neuter), «На подтверждении», «Черновик» as project status names                                                                                                                 | glossary **Project approval status**         |
+| The "awaiting" projects section (`/pending`) | Очікують рішення                                         | Awaiting decision                                            | —                                                                                                                                                                                            | glossary (plural)                            |
+| Status filter `ACTIVE`                       | Активні / (short) Активні                                | Active                                                       | —                                                                                                                                                                                            | COPY danger "width"                          |
+| Status filter `PENDING`                      | Очікують рішення / (short) Чекають                       | Awaiting / (short) Waiting                                   | «Ждут решения» (rus.); «Откл.»                                                                                                                                                               | glossary; COPY danger "width"                |
+| Status filter `REJECTED` (project)           | Відхилені / (short) Відмова                              | Rejected                                                     | «Отклонённые» (rus.)                                                                                                                                                                         | COPY-M-proj-8                                |
+| Status filter `ARCHIVED` (project)           | Архів                                                    | Archived                                                     | «Завершён» about archival                                                                                                                                                                    | COPY-M-proj-8                                |
+| Archived (project)                           | в архіві / в архіві з {дата}                             | archived / archived since {date}                             | «Завершён», «Завершено»                                                                                                                                                                      | COPY-M-proj-8; wave b catalog                |
+| Project with a drop                          | проєкт з дропом                                          | project with a drop                                          | «Drop-проект» in Latin                                                                                                                                                                       | COPY-L-proj-21                               |
+| Vacancy (`vacancies`)                        | вакансія                                                 | vacancy                                                      | «позиція», «джоба», «оффер»                                                                                                                                                                  | glossary **Vacancy**                         |
+| Application to a vacancy                     | відгук                                                   | application                                                  | «заявка», «позиція»                                                                                                                                                                          | glossary **Vacancy**; COPY-M-proj-10         |
+| Vacancy status `DRAFT`                       | Чернетка                                                 | Draft                                                        | —                                                                                                                                                                                            | COPY-M-proj-7; wave b catalog («чернетка»)   |
+| Vacancy status `PUBLISHED`                   | Опублікована                                             | Published                                                    | «Опубликовано» (neuter with «вакансия»)                                                                                                                                                      | COPY-M-proj-7                                |
+| Vacancy status `CLOSED`                      | Закрита                                                  | Closed                                                       | «Закрыто» (neuter)                                                                                                                                                                           | COPY-M-proj-7                                |
+| Application status `NEW`                     | Новий                                                    | New                                                          | —                                                                                                                                                                                            | COPY-M-proj-7                                |
+| Application status `VIEWED`                  | Переглянутий                                             | Viewed                                                       | «Просмотрено» (neuter); «Просм.»                                                                                                                                                             | COPY-M-proj-7, M-11                          |
+| Application status `REJECTED` (application)  | Відхилений                                               | Rejected                                                     | «Отклонено» (neuter); «Откл.» (reads as "turned off")                                                                                                                                        | COPY-M-proj-7, M-11                          |
+| Employment type `FULL_TIME`                  | Повна зайнятість                                         | Full-time                                                    | —                                                                                                                                                                                            | COPY-M-proj-7 (map `EMPLOYMENT_TYPE_LABELS`) |
+| Employment type `PART_TIME`                  | Часткова зайнятість                                      | Part-time                                                    | —                                                                                                                                                                                            | —                                            |
+| Employment type `CONTRACT`                   | Проєктна робота                                          | Contract                                                     | «Контракт» (confused with the contract status)                                                                                                                                               | —                                            |
+| Salary period (`SALARY_PERIOD`)              | година / день / тиждень / місяць / рік                   | hour / day / week / month / year                             | —                                                                                                                                                                                            | COPY-M-proj-7 (the neighboring map)          |
+| Vacancy domains (`DOMAIN_LABELS`)            | AI, EdTech, E-Commerce, …                                | AI, EdTech, E-Commerce, …                                    | translating proper domain names                                                                                                                                                              | the comment in `vacancies/constants.ts`      |
+| Levels (`SENIORITY_LABELS`)                  | Senior, Lead, …                                          | Senior, Lead, …                                              | translating grades                                                                                                                                                                           | the comment in `vacancies/constants.ts`      |
+| Junior legend (`legends`)                    | легенда                                                  | legend                                                       | —                                                                                                                                                                                            | glossary **Legend**                          |
+| Cover story (`cover story`)                  | кавер-сторі                                              | cover story                                                  | «cover story» in Latin inside `uk`, «Бэкстори» — three spellings                                                                                                                             | COPY-M-proj-18                               |
+| Role shown to the client                     | посада для клієнта                                       | role shown to the client                                     | «Позиция для клиента» (glossary «Vacancy»: _avoid_ «позиция»)                                                                                                                                | COPY-L-proj-23                               |
+| Legend example (address)                     | Київ, вул. Хрещатик, 1                                   | 1 Khreshchatyk St, Kyiv                                      | «Киев, ул. Крещатик 1» (rus. translit), examples with Russian realia (МГУ)                                                                                                                   | COPY-M-proj-17                               |
+| A filter found nothing                       | Нічого не знайдено — скиньте фільтри                     | No matches — clear the filters                               | «Нет данных», «Пусто» without explanation                                                                                                                                                    | wave b catalog (key exists — reuse)          |
+| The public vacancies page                    | розділ «Вакансії» на сайті                               | the “Vacancies” section on the site                          | «страница карьеры»/«careers page» (not called that publicly)                                                                                                                                 | COPY-M-proj-10                               |
+| Project money (credentials)                  | Гроші за проєктом більше не йтимуть через його реквізити | Project money will no longer go through their payout details | «Приходы больше не будут проходить через него»                                                                                                                                               | COPY-L-proj-22                               |
+| Contract template (admin)                    | шаблон договору                                          | contract template                                            | —                                                                                                                                                                                            | glossary **Template/signed contract**        |
+| Role in a template (`ContractTargetRole`)    | from `ROLE_LABEL_MESSAGES`                               | from `ROLE_LABEL_MESSAGES`                                   | «HR-менеджер» (in `admin/contracts` the HR role is named differently from the canon map)                                                                                                     | COPY-M-core-9                                |
 
-**G. Карта ярлыков enum → `Record<…, MessageDescriptor>` (шаблон A на карте).** Девять карт (`STAGE_LABELS`, `PAYMENT_TYPE_LABELS`, `STATUS_FILTER_LABELS`, `STATUS_FILTER_LABELS_MOBILE`, `VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS`, `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS` и локальные `ROLE_LABELS`). Служебные карты рядом (`STAGE_COLORS`, `VACANCY_STATUS_BADGE`, `DOMAIN_DOT_COLOR`) — **не текст, не трогать.**
+The apostrophe, ellipsis, quotes, `en` refusals "Could not …" — per the common `CONTEXT.md` section "`uk`/`en` forms", not rewritten here.
+
+---
+
+## Migration templates
+
+**A–F — the same as in waves (a)/(b)** (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, the "Migration templates" section): A — module constant → `msg` + `i18n._()` in the render; B — JSX text → `<Trans>`; C — attribute or imperative string → `t` from `useLingui()`; D — number → `<Plural>` (in this wave **component only**, the Stryker lesson); E — gender/case form by the enum value → `select`; F — date, money, number → `@crm/shared` `format.ts`.
+
+New/refined in this wave:
+
+**G. Enum label map → `Record<…, MessageDescriptor>` (template A on a map).** Nine maps (`STAGE_LABELS`, `PAYMENT_TYPE_LABELS`, `STATUS_FILTER_LABELS`, `STATUS_FILTER_LABELS_MOBILE`, `VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS`, `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS` and the local `ROLE_LABELS`). The service maps next to them (`STAGE_COLORS`, `VACANCY_STATUS_BADGE`, `DOMAIN_DOT_COLOR`) — **not text, do not touch.**
 
 ```ts
-// было (interviews/constants.ts)
+// was (interviews/constants.ts)
 export const STAGE_LABELS: Record<InterviewStage, string> = {
   HR_SCREEN: 'HR Screen',
   ENGLISH_CHECK: 'English',
   /* … */ HIRED: 'Нанят',
 }
-// стало — satisfies без `as const` (иначе Stryker видит 0 мутантов, урок #707)
+// became — satisfies without `as const` (otherwise Stryker sees 0 mutants, lesson #707)
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 export const STAGE_LABEL_MESSAGES = {
@@ -247,48 +247,46 @@ export const STAGE_LABEL_MESSAGES = {
 } satisfies Record<InterviewStage, MessageDescriptor>
 ```
 
-Потребитель — `i18n._(STAGE_LABEL_MESSAGES[stage])` (одно значение) или один `useLingui()` на компонент и `i18n._()` внутри `.map()` (хук в `.map()` вызывать нельзя). Старую строковую карту удалить, когда у неё не осталось потребителей внутри PR; проверка — `git grep -n STAGE_LABELS -- apps/web` внутри своего PR.
+The consumer — `i18n._(STAGE_LABEL_MESSAGES[stage])` (one value) or one `useLingui()` per component and `i18n._()` inside `.map()` (a hook cannot be called in `.map()`). Remove the old string map when it has no consumers left inside the PR; the check — `git grep -n STAGE_LABELS -- apps/web` inside your PR.
 
-**H. Локальная карта ролей → канон `ROLE_LABEL_MESSAGES`/`useRoleLabel`.** Три места: `$projectId.tsx` (`Record<string, string>` с фоллбэком `?? role`, печатает enum — COPY-H-proj-4/urok #702), `admin/contracts.index.tsx` и `admin/contracts.$role.tsx` (`Record<ContractTargetRole, string>` с `HR: 'HR-менеджер'` — COPY-M-core-9). `ContractTargetRole` ⊂ `Role`, поэтому `ROLE_LABEL_MESSAGES[role]` типизируется.
+**H. Local role map → the `ROLE_LABEL_MESSAGES`/`useRoleLabel` canon.** Three places: `$projectId.tsx` (`Record<string, string>` with a `?? role` fallback, prints the enum — COPY-H-proj-4/lesson #702), `admin/contracts.index.tsx` and `admin/contracts.$role.tsx` (`Record<ContractTargetRole, string>` with `HR: 'HR-менеджер'` — COPY-M-core-9). `ContractTargetRole` ⊂ `Role`, so `ROLE_LABEL_MESSAGES[role]` is typed.
 
 ```tsx
-// было ($projectId.tsx)
-const ROLE_LABELS: Record<string, string> = {
-  /* … */
-}
+// was ($projectId.tsx)
+const ROLE_LABELS: Record<string, string> = {/* … */}
 {
   ROLE_LABELS[member.role] ?? member.role
 }
-// стало — фоллбэк `?? member.role` удаляется: карта покрывает все роли
+// became — the `?? member.role` fallback is removed: the map covers all roles
 import { useRoleLabel } from '@/components/ui/role-select'
-const memberRoleLabel = useRoleLabel(member.role as Role) // в .map — через ROLE_LABEL_MESSAGES + один useLingui()
+const memberRoleLabel = useRoleLabel(member.role as Role) // in .map — via ROLE_LABEL_MESSAGES + one useLingui()
 ```
 
-Замена в `admin/contracts` меняет «HR-менеджер» → «HR» (канон): это осознанная консолидация COPY-M-core-9 (одна карта ролей на приложение), отметить строкой в теле PR4 для `copy-reviewer`.
+The replacement in `admin/contracts` changes «HR-менеджер» → «HR» (canon): this is a conscious consolidation COPY-M-core-9 (one role map per application), noted with a line in the PR4 body for `copy-reviewer`.
 
-**I. E2E-ассерт по мигрированному тексту → `assertInCatalog`.**
+**I. E2E assert on migrated text → `assertInCatalog`.**
 
 ```ts
-// было
+// was
 await expect(page.getByText('гіг-контракт')).toBeVisible()
-// стало
+// became
 const uk = await loadMessages('uk')
 await expect(page.getByText(assertInCatalog(uk, 'гіг-контракт'))).toBeVisible()
 ```
 
-Если у элемента есть `data-testid` и текст не является предметом проверки — якорь по testid без текста.
+If the element has a `data-testid` and the text is not the subject of the check — anchor by testid without text.
 
-**J. Ручная плюрализация → `<Plural>` (в JSX) или `i18n._(msg, { count })` (вне JSX).** Два места: `VacancyCard.pluralizeOtklik` (самописный ru-плюрализатор) и `vacancies/constants.zodIssueRu` (`«Минимум ${n} символов»` без ветвления). Самописную функцию удалить целиком.
+**J. Manual pluralization → `<Plural>` (in JSX) or `i18n._(msg, { count })` (outside JSX).** Two places: `VacancyCard.pluralizeOtklik` (a self-written ru pluralizer) and `vacancies/constants.zodIssueRu` (`«Минимум ${n} символов»` without branching). Remove the self-written function entirely.
 
 ```tsx
-// было (VacancyCard.tsx)
+// was (VacancyCard.tsx)
 {
   vacancy.applicationsCount
 }
 {
   pluralizeOtklik(vacancy.applicationsCount)
 }
-// стало — компонент, не макрос plural() (Stryker, урок #700)
+// became — a component, not the plural() macro (Stryker, lesson #700)
 import { Plural } from '@lingui/react/macro'
 ;<Plural
   value={vacancy.applicationsCount}
@@ -297,44 +295,44 @@ import { Plural } from '@lingui/react/macro'
   many="# відгуків"
   other="# відгуку"
 />
-// en (второй оригинал): one="# application" other="# applications"
+// en (the second original): one="# application" other="# applications"
 ```
 
 ```ts
-// было (vacancies/constants.ts zodIssueRu, вне компонента)
+// was (vacancies/constants.ts zodIssueRu, outside a component)
 ;`Минимум ${issue.minimum} символов`
-// стало — вне JSX: msg с ICU + i18n._ в месте показа (функции передаётся i18n)
+// became — outside JSX: msg with ICU + i18n._ at the display place (the function is passed i18n)
 import { msg } from '@lingui/core/macro'
 const MIN_CHARS = msg`{n, plural, one {Мінімум # символ} few {Мінімум # символи} many {Мінімум # символів} other {Мінімум # символа}}`
-// в компоненте, где известен i18n:  i18n._(MIN_CHARS, { n: issue.minimum })
+// in the component where i18n is known:  i18n._(MIN_CHARS, { n: issue.minimum })
 ```
 
-`zodIssueRu` из чистой функции превращается либо в набор `msg`-дескрипторов, которые резолвит вызывающий компонент, либо (предпочтительно) переезжает на реестр кодов `translateZodCode`/`translateZodMessage` (`@/lib/axios-utils`, этап 4), если для этих схем уже есть коды. Проверка: `git grep -n "min(1)\|min(2)\|min(3)" -- apps/web/app/routes/_authenticated/vacancies` и сверка с `packages/shared/src/schemas/zod-errors.ts`. Нового кода в реестре волна не заводит без явной строки в «Допущениях» и ручной правки обоих `.po`.
+`zodIssueRu` turns from a pure function either into a set of `msg` descriptors resolved by the calling component, or (preferably) moves to the `translateZodCode`/`translateZodMessage` code registry (`@/lib/axios-utils`, stage 4), if there are already codes for these schemas. The check: `git grep -n "min(1)\|min(2)\|min(3)" -- apps/web/app/routes/_authenticated/vacancies` and comparison with `packages/shared/src/schemas/zod-errors.ts`. The wave does not introduce a new code into the registry without an explicit line in "Assumptions" and a manual edit of both `.po`.
 
-**K. Склейка фразы с падежом/родом → `<Trans>` со слотами или `select`.** `project-approval-caption.ts` (`от ${имя}` в именительном при требуемом родительном — COPY-H-proj-2) и склейки в JSX через `{' '}` (COPY danger «фраза из частей»). Функция `resolveProjectApprovalCaption` возвращает строку — переносится либо в компонент как `<Trans>` со слотами имён, либо в набор `msg`-дескрипторов, которые компонент резолвит. Конструкция выбирается **не требующая падежа** (соседний файл `cancel-pending-share.tsx` уже переписан так на COPY-M-17): «Підтверджують: {дроп}, {сеньйор}» вместо «від {імені}». `en` падежа не имеет, поэтому одна структура ложится на оба языка. Тест — что в выводе нет ни сырого enum статуса, ни литерала «null» (COPY-M-4: `seniorName` бывает `null`).
+**K. Phrase concatenation with a case/gender → `<Trans>` with slots or `select`.** `project-approval-caption.ts` (`от ${имя}` in the nominative where the genitive is required — COPY-H-proj-2) and concatenations in JSX via `{' '}` (the COPY danger "a phrase from parts"). The function `resolveProjectApprovalCaption` returns a string — it moves either into a component as `<Trans>` with name slots, or into a set of `msg` descriptors the component resolves. The construction is chosen **to not require a case** (the neighboring file `cancel-pending-share.tsx` is already rewritten this way on COPY-M-17): «Підтверджують: {дроп}, {сеньйор}» instead of «від {імені}». `en` has no case, so one structure fits both languages. The test — that the output has neither a raw status enum nor the literal «null» (COPY-M-4: `seniorName` is sometimes `null`).
 
-**L. Дата/деньги с фиксированной локалью → `format.ts`.** В срезе 15 вызовов `toLocale*` с тремя локалями (`ru-RU`, `uk-UA`, без локали) плюс два `date-fns/locale/ru`.
+**L. Date/money with a fixed locale → `format.ts`.** In the slice 15 `toLocale*` calls with three locales (`ru-RU`, `uk-UA`, no locale) plus two `date-fns/locale/ru`.
 
 ```ts
-// даты: было  new Date(iso).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
-//       стало  formatDate(iso, locale, 'monthYear')            // locale = useLocale()
+// dates: was  new Date(iso).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })
+//        became  formatDate(iso, locale, 'monthYear')            // locale = useLocale()
 // interviews/constants.ts formatDate('uk-UA', {day,month}) → formatDate(iso, locale, 'short')
-// date-fns: было  formatDistanceToNow(d, { locale: ru })  →  formatRelativeTime(d, locale)   // CandidateCard
-//           было  format(d, 'dd.MM.yyyy', { locale: ru })  →  formatDate(d, locale, 'short')  // $vacancyId
-// деньги (bare number): было  project.rate.toLocaleString()  →  formatNumber(project.rate, locale)
-// деньги (сумма+код):    formatMoney(amount, currency, locale)
+// date-fns: was  formatDistanceToNow(d, { locale: ru })  →  formatRelativeTime(d, locale)   // CandidateCard
+//           was  format(d, 'dd.MM.yyyy', { locale: ru })  →  formatDate(d, locale, 'short')  // $vacancyId
+// money (bare number): was  project.rate.toLocaleString()  →  formatNumber(project.rate, locale)
+// money (amount+code):    formatMoney(amount, currency, locale)
 ```
 
-`salaryMonth` («2026-04», COPY-H-proj-6) в `project.tsx` форматируется той же функцией, что и фоллбэк: строка `"2026-04"` парсится в дату (`new Date(\`${salaryMonth}-01\`)`) и идёт в `formatDate(…, locale, 'monthYear')`, тогда оба варианта в одном списке уходят в локаль вместе. `fmtUsd`/`ExchangeRates`из`finance/constants` **не трогать** — это волна (d) (см. «Опасность: кросс-срезовый finance»).
+`salaryMonth` («2026-04», COPY-H-proj-6) in `project.tsx` is formatted by the same function as the fallback: the string `"2026-04"` is parsed into a date (`new Date(\`${salaryMonth}-01\`)`) and goes into `formatDate(…, locale, 'monthYear')`, then both variants in one list go into the locale together. `fmtUsd`/`ExchangeRates`from`finance/constants` **do not touch** — this is wave (d) (see "Danger: cross-slice finance").
 
 ---
 
-## Общий шаг: E2E-свип (выполняется в каждом PR перед push)
+## Common step: E2E sweep (performed in each PR before push)
 
-Скрипт собирает русские фрагменты, которые **удалил этот PR**, и ищет их во всём `apps/e2e`. Каждая находка — строка, которую надо проверить. Если фрагмент остался в другом, ещё не мигрированном компоненте и спека ассертит именно его, строку не трогают. Если спека ассертит мигрированный экран, строку переводят на шаблон I.
+The script collects the Russian fragments that **this PR removed** and searches for them across the whole `apps/e2e`. Each hit — a line to check. If the fragment remained in another not-yet-migrated component and a spec asserts exactly it, do not touch the line. If the spec asserts a migrated screen, move the line to template I.
 
 ```bash
-SCRATCH="${TMPDIR:-/tmp}/wave-c-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # свой каталог: имя из своей ветки, не общий путь
+SCRATCH="${TMPDIR:-/tmp}/wave-c-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # own directory: name from your branch, not a shared path
 mkdir -p "$SCRATCH"
 git diff origin/main -- apps/web/app > "$SCRATCH/wave-c.diff"
 ```
@@ -363,78 +361,78 @@ for spec in sorted(pathlib.Path('apps/e2e').rglob('*.ts')):
 
 ```bash
 python3 "$SCRATCH/e2e_sweep.py" "$SCRATCH/wave-c.diff" > "$SCRATCH/sweep.txt"
-cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # список для git add
+cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # list for git add
 ```
 
-Вывод целиком идёт в тело PR (раздел «E2E-свип») с отметкой по каждой строке: «переведена на каталог», «testid» или «не наш текст — <какой компонент вне волны его рендерит>». Строка без отметки — незакрытая. В коммит спеки попадают через `git add $(cat "$SCRATCH/sweep-specs.txt")`: для файлов без изменений это пустая операция.
+The whole output goes into the PR body (the "E2E sweep" section) with a mark on each line: "moved to the catalog", "testid" or "not our text — <which component outside the wave renders it>". A line without a mark is unclosed. The specs enter the commit via `git add $(cat "$SCRATCH/sweep-specs.txt")`: for files without changes this is a no-op.
 
 ---
 
-## Task 1 (PR1): собеседования (канбан)
+## Task 1 (PR1): interviews (kanban)
 
 **Files:**
 
-Продуктовые (`apps/web/app/routes/_authenticated/interviews/`, кириллица вне комментариев на `0420499b`):
+Product (`apps/web/app/routes/_authenticated/interviews/`, Cyrillic outside comments on `0420499b`):
 
-| Файл                                          | Кир. строк (вне комм.) | Паттерн(ы) | Находки аудита / примечание                                                                                                              |
-| --------------------------------------------- | ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/InterviewDetailSheet.tsx`         | 41                     | B, C, G, H | COPY-H-proj-3 (`Корпоративная техника`, `Пересмотр зарплаты` — канон), H-5 (плейсхолдер `ФОП / гиг-контракт / крипта`, `через 3 місяці`) |
-| `components/CreateProjectFromHiredDialog.tsx` | 17                     | B, C       | Тексты создания проекта из нанятого; статусы/роли — канон                                                                                |
-| `components/CreateInterviewDialog.tsx`        | 10                     | B, C       | COPY-M-proj-14 («Новая карточка» → «Нове собеседование»)                                                                                 |
-| `index.tsx`                                   | 8                      | B, C       | COPY-M-proj-13 («Нет доступа к разделу» → состояние+причина+шаг; соседнее правильное состояние рядом — образец)                          |
-| `components/KanbanColumn.tsx`                 | 5                      | B, C, G    | Заголовок колонки = `STAGE_LABEL_MESSAGES[stage]`                                                                                        |
-| `constants.ts`                                | 3                      | G, L       | COPY-H-proj-1 (`STAGE_LABELS`: 6 англ. + 3 рус. → канон); локальная `formatDate('uk-UA')` → `format.ts`                                  |
-| `components/ArchiveSection.tsx`               | 2                      | B          | COPY-M-proj-13 («Пусто» → «Сюди потрапляють завершені співбесіди»)                                                                       |
-| `use-board-seniors.ts`                        | 0                      | —          | Кириллицы нет — не мигрировать (в списке для полноты)                                                                                    |
+| File                                          | Cyr. lines (outside comm.) | Pattern(s) | Audit findings / note                                                                                                                        |
+| --------------------------------------------- | -------------------------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/InterviewDetailSheet.tsx`         | 41                         | B, C, G, H | COPY-H-proj-3 (`Корпоративная техника`, `Пересмотр зарплаты` — canon), H-5 (the placeholder `ФОП / гиг-контракт / крипта`, `через 3 місяці`) |
+| `components/CreateProjectFromHiredDialog.tsx` | 17                         | B, C       | Texts for creating a project from a hired candidate; statuses/roles — canon                                                                  |
+| `components/CreateInterviewDialog.tsx`        | 10                         | B, C       | COPY-M-proj-14 («Новая карточка» → «Нове собеседование»)                                                                                     |
+| `index.tsx`                                   | 8                          | B, C       | COPY-M-proj-13 («Нет доступа к разделу» → state+reason+step; the neighboring correct state is a model)                                       |
+| `components/KanbanColumn.tsx`                 | 5                          | B, C, G    | The column header = `STAGE_LABEL_MESSAGES[stage]`                                                                                            |
+| `constants.ts`                                | 3                          | G, L       | COPY-H-proj-1 (`STAGE_LABELS`: 6 Eng + 3 rus → canon); the local `formatDate('uk-UA')` → `format.ts`                                         |
+| `components/ArchiveSection.tsx`               | 2                          | B          | COPY-M-proj-13 («Пусто» → «Сюди потрапляють завершені співбесіди»)                                                                           |
+| `use-board-seniors.ts`                        | 0                          | —          | No Cyrillic — do not migrate (in the list for completeness)                                                                                  |
 
-Вне `apps/web/app/routes/_authenticated/interviews`:
+Outside `apps/web/app/routes/_authenticated/interviews`:
 
-- `CONTEXT.md` — раздел канона волны (c) (Step 1).
+- `CONTEXT.md` — the wave (c) canon section (Step 1).
 - `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты (обновить ассерты на каталог): `interviews/__tests__/index.test.tsx` (5), `interviews/use-board-seniors.spec.ts` (1). Новые кейсы — внутри существующих файлов.
+Tests (update the assertions to the catalog): `interviews/__tests__/index.test.tsx` (5), `interviews/use-board-seniors.spec.ts` (1). New cases — inside the existing files.
 
-E2E: см. «Распределение E2E-спек», строка PR1, плюс вывод свипа.
+E2E: see "E2E spec distribution", the PR1 row, plus the sweep output.
 
 **Interfaces:**
 
-- Consumes: `formatDate(value, locale, style)` (`@crm/shared`), `useLocale()` (`@/lib/i18n`), `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`), `getApiErrorMessage` (`@/lib/axios-utils`), тестовые хелперы каталога.
-- Produces: `STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor>` в `interviews/constants.ts` (потребители — только внутри `interviews/**`, поэтому целиком внутри PR1). Раздел канона волны (c) в `CONTEXT.md` — его читают PR2, PR3, PR4. Служебная `formatDate` из `interviews/constants.ts` удаляется в пользу `@crm/shared`.
+- Consumes: `formatDate(value, locale, style)` (`@crm/shared`), `useLocale()` (`@/lib/i18n`), `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`), `getApiErrorMessage` (`@/lib/axios-utils`), the catalog test helpers.
+- Produces: `STAGE_LABEL_MESSAGES: Record<InterviewStage, MessageDescriptor>` in `interviews/constants.ts` (the consumers — only inside `interviews/**`, so entirely within PR1). The wave (c) canon section in `CONTEXT.md` — read by PR2, PR3, PR4. The service `formatDate` from `interviews/constants.ts` is removed in favor of `@crm/shared`.
 
-### Опасность: `STAGE_LABELS` — единственный источник, служебные карты рядом не трогать
+### Danger: `STAGE_LABELS` — the single source, do not touch the service maps next to it
 
-`interviews/constants.ts` несёт **семь** карт по `InterviewStage`: `STAGE_LABELS` (текст) и шесть цветовых (`STAGE_COLORS`, `STAGE_BADGE_COLORS`, `COLUMN_BORDER`, `COLUMN_HEADER_BG`, `COLUMN_BG`) плюс `STAGE_ORDER`/`ACTIVE_STAGES`/`TERMINAL_STAGES`. Мигрируется **только** `STAGE_LABELS` → `STAGE_LABEL_MESSAGES`. Цветовые карты — CSS-классы, не текст; трогать их = вносить риск в вёрстку канбана без причины.
+`interviews/constants.ts` carries **seven** maps over `InterviewStage`: `STAGE_LABELS` (text) and six color ones (`STAGE_COLORS`, `STAGE_BADGE_COLORS`, `COLUMN_BORDER`, `COLUMN_HEADER_BG`, `COLUMN_BG`) plus `STAGE_ORDER`/`ACTIVE_STAGES`/`TERMINAL_STAGES`. Migrate **only** `STAGE_LABELS` → `STAGE_LABEL_MESSAGES`. The color maps — CSS classes, not text; touching them = introducing risk into the kanban layout for no reason.
 
 ### Acceptance criteria (PR1)
 
-1. В `CONTEXT.md` есть подраздел «Волна c — `web-projects`» с формами из таблицы канона.
-2. `STAGE_LABELS` → `STAGE_LABEL_MESSAGES` (`satisfies` без `as const`); все девять стадий на языке интерфейса на `uk` и `en`; тест «в отрендеренной колонке нет сырого enum и нет латиницы стадии» зелёный; закрыт COPY-H-proj-1.
-3. `InterviewDetailSheet` на `uk`/`en`: `corpTech`/`salaryReview` названы одним словом из канона; плейсхолдер типа оплаты — набором из Select (`ФОП / гіг-контракт / USDT`), без «крипта»; пример срока на языке интерфейса; закрыты COPY-H-proj-3, H-5 (в файлах PR1).
-4. Диалоги и раздел на `uk`/`en`: «карточка» → «співбесіда» (COPY-M-proj-14); тупики «Пусто»/«Нет доступа к разделу» получили причину и шаг (COPY-M-proj-13, в файлах PR1).
-5. В файлах PR1 нет `toLocale*String` и `date-fns`; даты через `format.ts`; служебная `formatDate` из `constants.ts` удалена.
-6. Проверка Step: ни одной строки `[ыэъё]` вне комментариев; строки с сырым enum разобраны.
-7. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR1 зелёные.
-8. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-10. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`.
+1. In `CONTEXT.md` there is a subsection "Wave c — `web-projects`" with the forms from the canon table.
+2. `STAGE_LABELS` → `STAGE_LABEL_MESSAGES` (`satisfies` without `as const`); all nine stages in the interface language in `uk` and `en`; the test "no raw enum and no stage Latin in the rendered column" is green; COPY-H-proj-1 closed.
+3. `InterviewDetailSheet` in `uk`/`en`: `corpTech`/`salaryReview` named with one word from the canon; the payment-type placeholder — a set from the Select (`ФОП / гіг-контракт / USDT`), without «крипта»; the term example in the interface language; COPY-H-proj-3, H-5 closed (in the PR1 files).
+4. Dialogs and the section in `uk`/`en`: «карточка» → «співбесіда» (COPY-M-proj-14); the dead ends «Пусто»/«Нет доступа к разделу» got a reason and a step (COPY-M-proj-13, in the PR1 files).
+5. In the PR1 files there is no `toLocale*String` and no `date-fns`; dates via `format.ts`; the service `formatDate` from `constants.ts` removed.
+6. Step check: not a single line of `[ыэъё]` outside comments; lines with a raw enum parsed.
+7. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR1 E2E specs are green.
+8. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+10. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`.
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
-git rev-parse --show-toplevel                       # == выданный worktree
+git rev-parse --show-toplevel                       # == the assigned worktree
 git fetch origin main && git log --oneline -1 origin/main
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/routes/_authenticated/interviews
 ```
 
-Если числа отличаются от таблицы больше чем на 10 %, обновить таблицу в task-файле до начала работы.
+If the numbers differ from the table by more than 10%, update the table in the task file before starting.
 
-- [ ] **Step 1: Канон терминов → `CONTEXT.md`**
+- [ ] **Step 1: Term canon → `CONTEXT.md`**
 
-Добавить в `CONTEXT.md` после подраздела «Волна b — `web-people`» подраздел «Волна c — `web-projects` (добавлено PR <ветка>)» со строками из таблицы «Канон терминов волны (c)» (колонки «Термин», `uk`, `en`, «_Избегать_» дословно; «Откуда» в глоссарий не переносится). Отдельный коммит `docs(context): wave c uk/en term forms`, `ac_verified: 1`.
+Add to `CONTEXT.md` after the subsection "Wave b — `web-people`" a subsection "Wave c — `web-projects` (added by PR <branch>)" with the rows from the "Wave (c) term canon" table (the columns "Term", `uk`, `en`, "_Избегать_" verbatim; "Source" is not carried into the glossary). A separate commit `docs(context): wave c uk/en term forms`, `ac_verified: 1`.
 
-- [ ] **Step 2: Тест на стадии канбана (падает)**
+- [ ] **Step 2: Test for the kanban stages (fails)**
 
-В `interviews/__tests__/index.test.tsx` (или новый кейс в `KanbanColumn`-тесте, если он есть) добавить `it.each` по локалям, что заголовок колонки читается из канона и не содержит сырого enum/латиницы стадии:
+In `interviews/__tests__/index.test.tsx` (or a new case in the `KanbanColumn` test, if there is one) add `it.each` by locale that the column header is read from the canon and does not contain a raw enum/stage Latin:
 
 ```tsx
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -453,17 +451,17 @@ it.each([
 })
 ```
 
-Run: `pnpm --filter @crm/web test -- interviews` → FAIL (сейчас `English`/`Нанят` из легаси).
+Run: `pnpm --filter @crm/web test -- interviews` → FAIL (currently `English`/`Нанят` from the legacy).
 
-- [ ] **Step 3: `STAGE_LABELS` → `STAGE_LABEL_MESSAGES` + потребители → PASS** (шаблоны G, L)
+- [ ] **Step 3: `STAGE_LABELS` → `STAGE_LABEL_MESSAGES` + consumers → PASS** (templates G, L)
 
-`constants.ts`: карта по шаблону G; служебная `formatDate` заменяется на `@crm/shared` `formatDate(iso, locale, 'short')` в местах вызова (потребители получают `locale`). Потребители заголовков (`KanbanColumn`, колонки в `index.tsx`) — `i18n._(STAGE_LABEL_MESSAGES[stage])`. Run: `pnpm --filter @crm/web test -- interviews` → PASS.
+`constants.ts`: a map per template G; the service `formatDate` is replaced with `@crm/shared` `formatDate(iso, locale, 'short')` at the call sites (the consumers get a `locale`). The header consumers (`KanbanColumn`, the columns in `index.tsx`) — `i18n._(STAGE_LABEL_MESSAGES[stage])`. Run: `pnpm --filter @crm/web test -- interviews` → PASS.
 
-- [ ] **Step 4: `InterviewDetailSheet.tsx`** (COPY-H-proj-3, H-5) — шаблоны B, C, H. Поля `corpTech`/`salaryReview` — канон; плейсхолдер типа оплаты `ФОП / гіг-контракт / USDT`; роли — `useRoleLabel`.
+- [ ] **Step 4: `InterviewDetailSheet.tsx`** (COPY-H-proj-3, H-5) — templates B, C, H. The fields `corpTech`/`salaryReview` — canon; the payment-type placeholder `ФОП / гіг-контракт / USDT`; roles — `useRoleLabel`.
 
-- [ ] **Step 5: Диалоги и раздел** — `CreateInterviewDialog`, `CreateProjectFromHiredDialog`, `ArchiveSection`, `index.tsx` (COPY-M-proj-13, M-14): «карточка» → «співбесіда»; тупики — состояние+причина+шаг.
+- [ ] **Step 5: Dialogs and the section** — `CreateInterviewDialog`, `CreateProjectFromHiredDialog`, `ArchiveSection`, `index.tsx` (COPY-M-proj-13, M-14): «карточка» → «співбесіда»; the dead ends — state+reason+step.
 
-- [ ] **Step 6: Проверка, тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 6: Check, tests, E2E sweep, gates, commit**
 
 ```bash
 python3 - <<'EOF'
@@ -501,88 +499,88 @@ EOF
 )"
 ```
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: доска канбана (все девять колонок), детальный лист собеседования, диалог создания, архив, состояние «нет доступа». Fidelity Mode B — все ширины. `copy-reviewer` — по `uk` и `en` отдельно (особое внимание — форма стадии `OFFER_RECEIVED`, флаг в таблице канона).
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: the kanban board (all nine columns), the interview detail sheet, the create dialog, archive, the "no access" state. Fidelity Mode B — all widths. `copy-reviewer` — on `uk` and `en` separately (special attention — the form of stage `OFFER_RECEIVED`, the flag in the canon table).
 
 ---
 
-## Task 2 (PR2): вакансии и отклики
+## Task 2 (PR2): vacancies and applications
 
 **Files:**
 
-| Файл                                      | Кир. строк (вне комм.) | Паттерн(ы) | Находки аудита / примечание                                                                                                                                                                      |
-| ----------------------------------------- | ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `components/VacancyCard.tsx`              | 34                     | B, C, G, J | Самописный `pluralizeOtklik` → `<Plural>` (danger «ручные множ. формы»); `VACANCY_STATUS_LABELS`/`EMPLOYMENT_TYPE_LABELS` — канон                                                                |
-| `$vacancyId.tsx`                          | 31                     | B, C, G, L | COPY-M-proj-10 (пустое состояние откликов), M-11 (`Откл.`/`Просм.` → «Відмова»/«Перегляд»), L-20 (счётчики); `date-fns/ru` → `formatDate`                                                        |
-| `constants.ts`                            | 25                     | G, J       | COPY-M-proj-7 (`VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS`, `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS` — род), M-9 (`zodIssueRu`); домены и уровни — не переводить (proper nouns) |
-| `index.tsx`                               | 17                     | B, C, G    | COPY-M-proj-10 (пустое состояние «страница карьеры»/«заявка»), L-20 (формат счётчиков `Все 12`)                                                                                                  |
-| `components/CandidateCard.tsx`            | 11                     | B, C, G, L | `APPLICATION_STATUS_LABELS` — канон; `formatDistanceToNow(..., {locale: ru})` → `formatRelativeTime`                                                                                             |
-| `components/VacancySeoFields.tsx`         | 9                      | B, C       | Подписи SEO-полей                                                                                                                                                                                |
-| `components/VacancyFormFields.tsx`        | 8                      | B, C, G    | `EMPLOYMENT_TYPE_LABELS` — канон                                                                                                                                                                 |
-| `components/VacancySalaryFields.tsx`      | 8                      | B, C, G    | `SALARY_PERIOD_LABELS` — канон                                                                                                                                                                   |
-| `components/VacancyTranslationFields.tsx` | 8                      | B, C       | COPY-M-proj-16 («оригинал английский» — утверждение неверно; текст без утверждения о языке)                                                                                                      |
-| `components/VacancySheet.tsx`             | 6                      | B, C       | Оболочка формы вакансии                                                                                                                                                                          |
-| `components/ResumePreviewDialog.tsx`      | 5                      | B, C       | Диалог просмотра резюме кандидата                                                                                                                                                                |
-| `hooks/use-vacancies.ts`                  | 9                      | C          | Тексты тостов мутаций вакансий → `getApiErrorMessage(err, t\`…\`)`                                                                                                                               |
+| File                                      | Cyr. lines (outside comm.) | Pattern(s) | Audit findings / note                                                                                                                                                                                     |
+| ----------------------------------------- | -------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/VacancyCard.tsx`              | 34                         | B, C, G, J | A self-written `pluralizeOtklik` → `<Plural>` (danger "manual plural forms"); `VACANCY_STATUS_LABELS`/`EMPLOYMENT_TYPE_LABELS` — canon                                                                    |
+| `$vacancyId.tsx`                          | 31                         | B, C, G, L | COPY-M-proj-10 (the applications empty state), M-11 (`Откл.`/`Просм.` → «Відмова»/«Перегляд»), L-20 (counters); `date-fns/ru` → `formatDate`                                                              |
+| `constants.ts`                            | 25                         | G, J       | COPY-M-proj-7 (`VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS`, `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS` — gender), M-9 (`zodIssueRu`); domains and levels — do not translate (proper nouns) |
+| `index.tsx`                               | 17                         | B, C, G    | COPY-M-proj-10 (the empty state «страница карьеры»/«заявка»), L-20 (the format of the counters `Все 12`)                                                                                                  |
+| `components/CandidateCard.tsx`            | 11                         | B, C, G, L | `APPLICATION_STATUS_LABELS` — canon; `formatDistanceToNow(..., {locale: ru})` → `formatRelativeTime`                                                                                                      |
+| `components/VacancySeoFields.tsx`         | 9                          | B, C       | SEO field captions                                                                                                                                                                                        |
+| `components/VacancyFormFields.tsx`        | 8                          | B, C, G    | `EMPLOYMENT_TYPE_LABELS` — canon                                                                                                                                                                          |
+| `components/VacancySalaryFields.tsx`      | 8                          | B, C, G    | `SALARY_PERIOD_LABELS` — canon                                                                                                                                                                            |
+| `components/VacancyTranslationFields.tsx` | 8                          | B, C       | COPY-M-proj-16 («оригинал английский» — the claim is false; text without a claim about the language)                                                                                                      |
+| `components/VacancySheet.tsx`             | 6                          | B, C       | The vacancy form shell                                                                                                                                                                                    |
+| `components/ResumePreviewDialog.tsx`      | 5                          | B, C       | The candidate résumé preview dialog                                                                                                                                                                       |
+| `hooks/use-vacancies.ts`                  | 9                          | C          | Vacancy mutation toast texts → `getApiErrorMessage(err, t\`…\`)`                                                                                                                                          |
 
-Вне продуктовых: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
+Outside the product: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты: `vacancies/__tests__/{CandidateCard.test.tsx (23), VacancySheet.test.tsx (17), VacancyCard.test.tsx (7), ResumePreviewDialog.test.tsx (7), constants.test.ts (6)}`. Новые кейсы (плюрализация откликов на 1/2/5, статусы без сырого enum) — внутри существующих файлов.
+Tests: `vacancies/__tests__/{CandidateCard.test.tsx (23), VacancySheet.test.tsx (17), VacancyCard.test.tsx (7), ResumePreviewDialog.test.tsx (7), constants.test.ts (6)}`. New cases (application pluralization at 1/2/5, statuses without a raw enum) — inside the existing files.
 
-E2E: см. «Распределение E2E-спек», строка PR2, плюс вывод свипа.
+E2E: see "E2E spec distribution", the PR2 row, plus the sweep output.
 
 **Interfaces:**
 
-- Consumes: `formatDate`, `formatRelativeTime`, `formatNumber`, `formatMoney` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); тестовые хелперы каталога.
-- Produces: `VACANCY_STATUS_LABEL_MESSAGES`, `APPLICATION_STATUS_LABEL_MESSAGES`, `EMPLOYMENT_TYPE_LABEL_MESSAGES`, `SALARY_PERIOD_LABEL_MESSAGES` в `vacancies/constants.ts` (потребители только внутри `vacancies/**`, целиком в PR2). `DOMAIN_LABELS`/`SENIORITY_LABELS` **остаются строковыми картами** (proper nouns/грейды) — не мигрируются, комментарий у них дополняется пометкой «не переводить». `zodIssueRu` заменяется на `<Plural>`/реестр кодов.
+- Consumes: `formatDate`, `formatRelativeTime`, `formatNumber`, `formatMoney` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); the catalog test helpers.
+- Produces: `VACANCY_STATUS_LABEL_MESSAGES`, `APPLICATION_STATUS_LABEL_MESSAGES`, `EMPLOYMENT_TYPE_LABEL_MESSAGES`, `SALARY_PERIOD_LABEL_MESSAGES` in `vacancies/constants.ts` (the consumers only inside `vacancies/**`, entirely within PR2). `DOMAIN_LABELS`/`SENIORITY_LABELS` **remain string maps** (proper nouns/grades) — not migrated, their comment is supplemented with a note "do not translate". `zodIssueRu` is replaced with `<Plural>`/the code registry.
 
-### Опасность: `DOMAIN_LABELS` и `SENIORITY_LABELS` — не текст интерфейса, а имена
+### Danger: `DOMAIN_LABELS` and `SENIORITY_LABELS` — not interface text, but names
 
-Комментарий в `vacancies/constants.ts` уже отмечает, что `DOMAIN_LABELS` (AI, EdTech, E-Commerce, …) и `SENIORITY_LABELS` (Senior, Lead, …) — собственные имена доменов и грейды, которые пишутся одинаково на любом языке (как эндонимы `Українська`/`English` в волне b). Их **не** переводить и **не** переводить в `Record<…, MessageDescriptor>` — оставить строковыми. Русскими они не являются, guard на `[ыэъё]` их не тронет. Переводятся только `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS`, `VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS` — обычные русские слова.
+The comment in `vacancies/constants.ts` already notes that `DOMAIN_LABELS` (AI, EdTech, E-Commerce, …) and `SENIORITY_LABELS` (Senior, Lead, …) — proper domain names and grades written the same in any language (like the endonyms `Українська`/`English` in wave b). Do **not** translate them and do **not** move them to `Record<…, MessageDescriptor>` — leave them as strings. They are not Russian, the `[ыэъё]` guard will not touch them. Only `EMPLOYMENT_TYPE_LABELS`, `SALARY_PERIOD_LABELS`, `VACANCY_STATUS_LABELS`, `APPLICATION_STATUS_LABELS` — ordinary Russian words — are translated.
 
-### Опасность: ширина фильтра откликов (`$vacancyId.tsx`, `CandidateCard.tsx`)
+### Danger: the width of the applications filter (`$vacancyId.tsx`, `CandidateCard.tsx`)
 
-Как и у табов статусов проектов, у фильтра откликов есть полный и короткий набор ярлыков, подогнанный под русскую ширину (`Все 12`/`Новые 3` vs `Отклики · 3`, COPY-L-proj-20; `Откл.`/`Просм.`, COPY-M-proj-11). Украинский длиннее — короткие формы («Відмова», «Перегляд») перемерить на 320/375/768. Формат счётчика свести к одному: канон «Все (12)» (скобки переносятся в любой язык).
+As with the project status tabs, the applications filter has a full and a short label set, tuned to the Russian width (`Все 12`/`Новые 3` vs `Отклики · 3`, COPY-L-proj-20; `Откл.`/`Просм.`, COPY-M-proj-11). Ukrainian is longer — re-measure the short forms («Відмова», «Перегляд») at 320/375/768. Reduce the counter format to one: canon «Все (12)» (parentheses carry over to any language).
 
 ### Acceptance criteria (PR2)
 
-1. Четыре карты ярлыков (`VACANCY_STATUS`, `APPLICATION_STATUS`, `EMPLOYMENT_TYPE`, `SALARY_PERIOD`) → `Record<…, MessageDescriptor>` (`satisfies` без `as const`); род согласован с подлежащим на `uk` (COPY-M-proj-7); `DOMAIN_LABELS`/`SENIORITY_LABELS` оставлены как есть с пометкой.
-2. Счётчик откликов — `<Plural>` на `uk` (1 відгук / 2 відгуки / 5 відгуків) и `en`; самописный `pluralizeOtklik` удалён; тест на 1/2/5/11/21 зелёный (COPY-M-proj-9, danger «ручные множ. формы»).
-3. `zodIssueRu` не собирает форму конкатенацией: либо `<Plural>`/`i18n._(msg,{n})`, либо реестр кодов; «Минимум N символов» плюрализуется числом.
-4. Пустые состояния вакансий/откликов на `uk`/`en` по канону: «розділ «Вакансії» на сайті», «відгук» (не «заявка»/«страница карьеры»); закрыты COPY-M-proj-10, M-16.
-5. Короткие ярлыки фильтра — «Відмова»/«Перегляд» (не «Откл.»/«Просм.»); формат счётчиков единый «Все (N)»; закрыты COPY-M-proj-11, L-20; ширины перемерены на 320/375/768.
-6. В файлах PR2 нет `date-fns` и `toLocale*`; даты/относительное время/деньги через `format.ts`.
-7. В файлах PR2 0 строк `[ыэъё]` вне комментариев (проверка в Step).
-8. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR2 зелёные.
-9. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-11. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`.
+1. Four label maps (`VACANCY_STATUS`, `APPLICATION_STATUS`, `EMPLOYMENT_TYPE`, `SALARY_PERIOD`) → `Record<…, MessageDescriptor>` (`satisfies` without `as const`); the gender is agreed with the subject in `uk` (COPY-M-proj-7); `DOMAIN_LABELS`/`SENIORITY_LABELS` left as is with a note.
+2. The applications counter — `<Plural>` in `uk` (1 відгук / 2 відгуки / 5 відгуків) and `en`; the self-written `pluralizeOtklik` removed; the test at 1/2/5/11/21 green (COPY-M-proj-9, danger "manual plural forms").
+3. `zodIssueRu` does not assemble the form by concatenation: either `<Plural>`/`i18n._(msg,{n})`, or the code registry; «Минимум N символов» is pluralized by the number.
+4. Vacancy/application empty states in `uk`/`en` per the canon: «розділ «Вакансії» на сайті», «відгук» (not «заявка»/«страница карьеры»); COPY-M-proj-10, M-16 closed.
+5. The short filter labels — «Відмова»/«Перегляд» (not «Откл.»/«Просм.»); the counter format unified «Все (N)»; COPY-M-proj-11, L-20 closed; the widths re-measured at 320/375/768.
+6. In the PR2 files there is no `date-fns` and no `toLocale*`; dates/relative time/money via `format.ts`.
+7. In the PR2 files 0 lines of `[ыэъё]` outside comments (checked in the Step).
+8. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR2 E2E specs are green.
+9. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+11. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`.
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
 git rev-parse --show-toplevel
 git fetch origin main && git log --oneline -1 origin/main
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/routes/_authenticated/vacancies apps/web/app/hooks/use-vacancies.ts
-git grep -n "min(1)\|min(2)\|min(3)" origin/main -- apps/web/app/routes/_authenticated/vacancies   # сверить zodIssueRu с кодами реестра
+git grep -n "min(1)\|min(2)\|min(3)" origin/main -- apps/web/app/routes/_authenticated/vacancies   # compare zodIssueRu with the registry codes
 ```
 
-Канон терминов — из этого плана (PR1 заносит его в `CONTEXT.md` параллельно; если PR1 смёржен — читать `CONTEXT.md`).
+The term canon — from this plan (PR1 enters it into `CONTEXT.md` in parallel; if PR1 is merged — read `CONTEXT.md`).
 
-- [ ] **Step 1: Тест — статусы вакансии/отклика из канона, плюрализация откликов (падает)**
+- [ ] **Step 1: Test — vacancy/application statuses from the canon, application pluralization (fails)**
 
-`it.each` по локалям: `VACANCY_STATUS_LABEL_MESSAGES.PUBLISHED` = «Опублікована»/«Published», нет сырого enum; счётчик откликов на 1/2/5/11/21 даёт правильную форму. Run: `pnpm --filter @crm/web test -- vacancies` → FAIL.
+`it.each` by locale: `VACANCY_STATUS_LABEL_MESSAGES.PUBLISHED` = «Опублікована»/«Published», no raw enum; the applications counter at 1/2/5/11/21 gives the correct form. Run: `pnpm --filter @crm/web test -- vacancies` → FAIL.
 
-- [ ] **Step 2: Карты ярлыков → `Record<…, MessageDescriptor>` + `zodIssueRu` (шаблоны G, J) → PASS**
+- [ ] **Step 2: Label maps → `Record<…, MessageDescriptor>` + `zodIssueRu` (templates G, J) → PASS**
 
-Четыре карты — по шаблону G; `zodIssueRu` — по шаблону J. `DOMAIN_LABELS`/`SENIORITY_LABELS` не трогать (дополнить комментарий пометкой «proper nouns — не переводить»). Run: `pnpm --filter @crm/web test -- vacancies` → PASS для карт.
+Four maps — per template G; `zodIssueRu` — per template J. Do not touch `DOMAIN_LABELS`/`SENIORITY_LABELS` (supplement the comment with the note "proper nouns — do not translate"). Run: `pnpm --filter @crm/web test -- vacancies` → PASS for the maps.
 
-- [ ] **Step 3: `VacancyCard.tsx` — плюрализация откликов (шаблон J)** — удалить `pluralizeOtklik`, счётчик → `<Plural>`; статусы/типы — потребление карт.
+- [ ] **Step 3: `VacancyCard.tsx` — application pluralization (template J)** — remove `pluralizeOtklik`, the counter → `<Plural>`; statuses/types — consuming the maps.
 
-- [ ] **Step 4: `$vacancyId.tsx`, `index.tsx`, `CandidateCard.tsx`** — пустые состояния (COPY-M-proj-10), короткие ярлыки и счётчики (M-11, L-20), даты (`date-fns/ru` → `format.ts`, шаблон L).
+- [ ] **Step 4: `$vacancyId.tsx`, `index.tsx`, `CandidateCard.tsx`** — empty states (COPY-M-proj-10), short labels and counters (M-11, L-20), dates (`date-fns/ru` → `format.ts`, template L).
 
-- [ ] **Step 5: Формы и оболочки** — `VacancyFormFields`, `VacancySalaryFields`, `VacancySeoFields`, `VacancyTranslationFields` (COPY-M-proj-16), `VacancySheet`, `ResumePreviewDialog`, `use-vacancies.ts` (тосты → `getApiErrorMessage`).
+- [ ] **Step 5: Forms and shells** — `VacancyFormFields`, `VacancySalaryFields`, `VacancySeoFields`, `VacancyTranslationFields` (COPY-M-proj-16), `VacancySheet`, `ResumePreviewDialog`, `use-vacancies.ts` (toasts → `getApiErrorMessage`).
 
-- [ ] **Step 6: Проверка, тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 6: Check, tests, E2E sweep, gates, commit**
 
 ```bash
 python3 - <<'EOF'
@@ -631,94 +629,94 @@ EOF
 )"
 ```
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: список вакансий (полный и короткий набор фильтра), страница вакансии с откликами, карточка кандидата, формы (основные/зарплата/SEO/перевод), пустые состояния. Fidelity Mode B — все ширины (риск — ширина фильтра откликов на 320). `copy-reviewer` — по `uk` и `en` отдельно.
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: the vacancy list (the full and short filter set), the vacancy page with applications, the candidate card, the forms (main/salary/SEO/translation), the empty states. Fidelity Mode B — all widths (risk — the applications filter width at 320). `copy-reviewer` — on `uk` and `en` separately.
 
 ---
 
-## Task 3 (PR3): проекты — список, легенда, согласование, реквизиты
+## Task 3 (PR3): projects — list, legend, approval, credentials
 
 **Files:**
 
-| Файл                                                | Кир. строк (вне комм.) | Паттерн(ы)    | Находки аудита / примечание                                                                                                                           |
-| --------------------------------------------------- | ---------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `routes/_authenticated/legend.tsx`                  | 45                     | B, C, K       | COPY-M-proj-17 (плейсхолдеры Киев/МГУ → Київ/нейтральный), M-18 (`aria-label` cover story ≠ видимая подпись), L-23 («Позиция для клиента» → «посада») |
-| `routes/_authenticated/projects/index.tsx`          | 55                     | A, B, C, G, F | COPY-H-proj-5 (`PAYMENT_TYPE_LABELS` потребитель), M-8 (фильтр статусов), M-13 (пустые состояния); табы `STATUS_FILTER_LABELS(_MOBILE)` — ширина      |
-| `components/projects/ProjectLegendSection.tsx`      | 34                     | B, C          | COPY-M-proj-17, L-23; ~80% текста совпадает с `legend.tsx` — общие ключи каталога, не переводить дважды                                               |
-| `components/projects/ProjectCredentialsSection.tsx` | 28                     | B, C          | COPY-M-proj-13 («Нет доступа к этому паролю» → причина+шаг)                                                                                           |
-| `components/projects/ProjectApprovalActions.tsx`    | 21                     | B, C          | Уже прошёл копи-ревью (COPY-H-1, #646) — нужна в основном экстракция; логику согласования не менять                                                   |
-| `components/projects/ProjectRow.tsx`                | 20                     | B, C, F, K    | COPY-M-proj-15 (`rate.toLocaleString()` → `formatNumber`); `aria-label` «Открыть проект …»; caption согласования → шаблон K                           |
-| `components/pending-share/cancel-pending-share.tsx` | 17                     | B, C          | Уже прошёл копи-ревью (COPY-M-17, #648) — экстракция; склейка «Підтверджує {імя}» уже переписана                                                      |
-| `routes/_authenticated/projects/constants.ts`       | 10                     | G             | COPY-H-proj-5 (`PAYMENT_TYPE_LABELS` → `PAYMENT_TYPE_MESSAGES`), M-8 (`STATUS_FILTER_LABELS(_MOBILE)` → канон, `PENDING`/`REJECTED`/`ARCHIVED`)       |
-| `components/projects/ProjectStatusBadge.tsx`        | 6                      | B, G          | COPY-M-proj-8 («В архиве», убрать «Завершён»); статус согласования — канон «Очікує рішення»                                                           |
-| `components/projects/project-approval-caption.ts`   | 6                      | K             | COPY-H-proj-2 (падеж `от ${имя}`) — перестройка фразы, конструкция без падежа                                                                         |
+| File                                                | Cyr. lines (outside comm.) | Pattern(s)    | Audit findings / note                                                                                                                                 |
+| --------------------------------------------------- | -------------------------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes/_authenticated/legend.tsx`                  | 45                         | B, C, K       | COPY-M-proj-17 (placeholders Kyiv/MSU → Київ/neutral), M-18 (`aria-label` cover story ≠ the visible caption), L-23 («Позиция для клиента» → «посада») |
+| `routes/_authenticated/projects/index.tsx`          | 55                         | A, B, C, G, F | COPY-H-proj-5 (`PAYMENT_TYPE_LABELS` consumer), M-8 (the status filter), M-13 (empty states); the tabs `STATUS_FILTER_LABELS(_MOBILE)` — width        |
+| `components/projects/ProjectLegendSection.tsx`      | 34                         | B, C          | COPY-M-proj-17, L-23; ~80% of the text matches `legend.tsx` — shared catalog keys, do not translate twice                                             |
+| `components/projects/ProjectCredentialsSection.tsx` | 28                         | B, C          | COPY-M-proj-13 («Нет доступа к этому паролю» → reason+step)                                                                                           |
+| `components/projects/ProjectApprovalActions.tsx`    | 21                         | B, C          | Already passed copy-review (COPY-H-1, #646) — mostly extraction is needed; do not change the approval logic                                           |
+| `components/projects/ProjectRow.tsx`                | 20                         | B, C, F, K    | COPY-M-proj-15 (`rate.toLocaleString()` → `formatNumber`); `aria-label` «Открыть проект …»; the approval caption → template K                         |
+| `components/pending-share/cancel-pending-share.tsx` | 17                         | B, C          | Already passed copy-review (COPY-M-17, #648) — extraction; the concatenation «Підтверджує {імя}» already rewritten                                    |
+| `routes/_authenticated/projects/constants.ts`       | 10                         | G             | COPY-H-proj-5 (`PAYMENT_TYPE_LABELS` → `PAYMENT_TYPE_MESSAGES`), M-8 (`STATUS_FILTER_LABELS(_MOBILE)` → canon, `PENDING`/`REJECTED`/`ARCHIVED`)       |
+| `components/projects/ProjectStatusBadge.tsx`        | 6                          | B, G          | COPY-M-proj-8 («В архиве», remove «Завершён»); the approval status — canon «Очікує рішення»                                                           |
+| `components/projects/project-approval-caption.ts`   | 6                          | K             | COPY-H-proj-2 (the case `от ${имя}`) — restructure the phrase, a construction without a case                                                          |
 
-`routes/_authenticated/projects.tsx` — **не мигрировать** (0 кириллицы, проверено; route-обёртка без текста). В периметр PR3 не входит.
+`routes/_authenticated/projects.tsx` — **do not migrate** (0 Cyrillic, checked; a route wrapper without text). Not in the PR3 perimeter.
 
-Вне продуктовых: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
+Outside the product: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты: `components/projects/__tests__/{ProjectApprovalActions.test.tsx (60), ProjectRow.test.tsx (46), ProjectStatusBadge.test.tsx (24), project-approval-caption.test.ts (25)}`, `components/pending-share/__tests__/cancel-pending-share.test.tsx (40)`, `routes/_authenticated/projects/__tests__/{ProjectEditFields.test.tsx (29) — только если ProjectEditFields в PR3, иначе PR4; PendingShareApprovalBanner.copy.test.tsx (27), ProjectHeaderApprovalNote.test.tsx (11), constants.test.ts (10), InfoRow.structure.test.tsx (3)}`. **Внимание:** `ProjectEditFields` живёт внутри `$projectId.tsx` (PR4), но его тест `ProjectEditFields.test.tsx` ищет `getByText('гіг-контракт')` из `PAYMENT_TYPE_LABELS` — после того как PR3 переведёт карту, этот тест краснеет. Решение: тест `ProjectEditFields.test.tsx` правит **PR4** (владелец `$projectId`), а не PR3; PR3 в своём E2E/unit-свипе отмечает его как «правит PR4 (потребитель карты)». Аналогично `constants.test.ts` (карты) правит PR3.
+Tests: `components/projects/__tests__/{ProjectApprovalActions.test.tsx (60), ProjectRow.test.tsx (46), ProjectStatusBadge.test.tsx (24), project-approval-caption.test.ts (25)}`, `components/pending-share/__tests__/cancel-pending-share.test.tsx (40)`, `routes/_authenticated/projects/__tests__/{ProjectEditFields.test.tsx (29) — only if ProjectEditFields is in PR3, otherwise PR4; PendingShareApprovalBanner.copy.test.tsx (27), ProjectHeaderApprovalNote.test.tsx (11), constants.test.ts (10), InfoRow.structure.test.tsx (3)}`. **Note:** `ProjectEditFields` lives inside `$projectId.tsx` (PR4), but its test `ProjectEditFields.test.tsx` searches for `getByText('гіг-контракт')` from `PAYMENT_TYPE_LABELS` — after PR3 translates the map, this test goes red. Solution: the test `ProjectEditFields.test.tsx` is edited by **PR4** (the owner of `$projectId`), not PR3; in its E2E/unit sweep PR3 marks it as "edited by PR4 (the map consumer)". Similarly `constants.test.ts` (the maps) is edited by PR3.
 
-E2E: см. «Распределение E2E-спек», строка PR3, плюс вывод свипа. **Особое внимание** — `project-status-filter-ui.spec.ts`: он ассертит высоту строки табов на 320/375/768/1024; после смены языка ширины могут сломаться (шесть раундов подгонки в истории). Перемерить.
+E2E: see "E2E spec distribution", the PR3 row, plus the sweep output. **Special attention** — `project-status-filter-ui.spec.ts`: it asserts the tab row height at 320/375/768/1024; after the language change the widths may break (six rounds of tuning in the history). Re-measure.
 
 **Interfaces:**
 
-- Consumes: `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`); `formatDate`, `formatNumber`, `formatMoney`, `compareNames` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); тестовые хелперы каталога.
-- Produces: `PAYMENT_TYPE_MESSAGES: Record<ProjectPaymentType, MessageDescriptor>`, `STATUS_FILTER_LABEL_MESSAGES` и `STATUS_FILTER_LABEL_MESSAGES_MOBILE: Record<ProjectStatusFilter, MessageDescriptor>` в `projects/constants.ts` — **их потребляет PR4** (`$projectId.tsx` читает `PAYMENT_TYPE_MESSAGES`). Это предусловие PR4. `project-approval-caption` перестаёт возвращать русскую строку (шаблон K).
+- Consumes: `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`); `formatDate`, `formatNumber`, `formatMoney`, `compareNames` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); the catalog test helpers.
+- Produces: `PAYMENT_TYPE_MESSAGES: Record<ProjectPaymentType, MessageDescriptor>`, `STATUS_FILTER_LABEL_MESSAGES` and `STATUS_FILTER_LABEL_MESSAGES_MOBILE: Record<ProjectStatusFilter, MessageDescriptor>` in `projects/constants.ts` — **consumed by PR4** (`$projectId.tsx` reads `PAYMENT_TYPE_MESSAGES`). This is a PR4 precondition. `project-approval-caption` stops returning a Russian string (template K).
 
-### Опасность: табы фильтра статусов — ширина настроена под русский, язык под ней меняется
+### Danger: the status filter tabs — the width is tuned to Russian, the language under it changes
 
-`projects/constants.ts` несёт `STATUS_FILTER_LABELS` (полный) и `STATUS_FILTER_LABELS_MOBILE` (короткий), и комментарий над ними описывает **шесть** раундов подгонки под измеренные пиксели (`154px → 113.5px`, «требование 701.9px → 538px», два падения CI на 768px и 810px). Порог показа короткого набора стоит на `lg:` (1024px). При переводе:
+`projects/constants.ts` carries `STATUS_FILTER_LABELS` (full) and `STATUS_FILTER_LABELS_MOBILE` (short), and the comment above them describes **six** rounds of tuning to measured pixels (`154px → 113.5px`, "requirement 701.9px → 538px", two CI failures at 768px and 810px). The short-set show threshold is at `lg:` (1024px). On translation:
 
-- перевести обе карты в `Record<…, MessageDescriptor>`, канон из таблицы (`PENDING` → «Очікують рішення», короткий «Чекають»; `REJECTED` → «Відхилені»/«Відмова»; `ARCHIVED` → «Архів»);
-- **перемерить ширину заново** на 320/375/768/1024 живым прогоном (украинский длиннее русского), потому что старые пиксельные значения относятся к русскому тексту. Не доверять комментарию как истине про новые строки;
-- `project-status-filter-ui.spec.ts` ассертит высоту строки таба (перенос = 2 строки) — прогнать на всех ширинах, а не только на 320/768.
+- move both maps to `Record<…, MessageDescriptor>`, the canon from the table (`PENDING` → «Очікують рішення», short «Чекають»; `REJECTED` → «Відхилені»/«Відмова»; `ARCHIVED` → «Архів»);
+- **re-measure the width anew** at 320/375/768/1024 with a live run (Ukrainian is longer than Russian), because the old pixel values refer to the Russian text. Do not trust the comment as truth about the new strings;
+- `project-status-filter-ui.spec.ts` asserts the tab row height (wrap = 2 lines) — run it at all widths, not only at 320/768.
 
-Строка в теле PR для `copy-reviewer` и `ui-ux-designer`: «ширина табов фильтра перемерена под `uk`, значения такие-то».
+A line in the PR body for `copy-reviewer` and `ui-ux-designer`: "the filter tab width re-measured for `uk`, the values are such-and-such".
 
-### Опасность: маскировка легенды джуниора (`legend.tsx`, `ProjectLegendSection.tsx`)
+### Danger: junior legend masking (`legend.tsx`, `ProjectLegendSection.tsx`)
 
-Легенда — то, что джуниор показывает клиенту (глоссарий **Легенда**: маскировка построена как список разрешённого). Плейсхолдеры-примеры в ней (COPY-M-proj-17) — часть маскировки: они подсказывают сотруднику, что говорить. Перевести их наравне с текстом (Київ вместо Киева, нейтральный пример вместо МГУ), а **не** оставить «как есть» и не сделать текст, раскрывающий, что это маскировка. `legend.tsx` и `ProjectLegendSection.tsx` дублируют ~80% текста — свести к общим ключам каталога (один `msg`/`<Trans>` на общую строку), а не переводить дважды. Строка в теле PR для `security-reviewer`.
+The legend is what the junior shows the client (glossary **Legend**: the masking is built as an allow-list). The placeholder examples in it (COPY-M-proj-17) are part of the masking: they prompt the employee what to say. Translate them on par with the text (Київ instead of Kyiv-in-Russian, a neutral example instead of MSU), and do **not** leave them "as is" and do not make text that reveals that this is masking. `legend.tsx` and `ProjectLegendSection.tsx` duplicate ~80% of the text — reduce to shared catalog keys (one `msg`/`<Trans>` per shared string), do not translate twice. A line in the PR body for `security-reviewer`.
 
-### Опасность: `project-approval-caption` — падеж, `null`-имя, RBAC-маскировка
+### Danger: `project-approval-caption` — case, `null`-name, RBAC masking
 
-`resolveProjectApprovalCaption` (COPY-H-proj-2) собирает «от {имя}» в именительном при требуемом родительном. Переписать по шаблону K на конструкцию без падежа. Сохранить: (1) фоллбэк `seniorName || 'синьора'` → на `uk` безопасный «сеньйора» (COPY-M-4: `seniorName` бывает `null`, иначе на экране «null»); (2) отсутствие роль-ветки — `rejectionReason` уже замаскирован сервером для всех, кроме ADMIN (SR-M-5), функция роль не проверяет. Тест — нет литерала «null», нет сырого enum статуса, порядок «дроп, потом сеньйор» сохранён.
+`resolveProjectApprovalCaption` (COPY-H-proj-2) assembles «от {имя}» in the nominative where the genitive is required. Rewrite it per template K into a construction without a case. Keep: (1) the fallback `seniorName || 'синьора'` → the safe `uk` «сеньйора» (COPY-M-4: `seniorName` is sometimes `null`, otherwise «null» on the screen); (2) the absence of a role branch — `rejectionReason` is already masked by the server for everyone except ADMIN (SR-M-5), the function does not check the role. The test — there is no literal «null», no raw status enum, the order "drop, then senior" is preserved.
 
 ### Acceptance criteria (PR3)
 
-1. `PAYMENT_TYPE_LABELS` → `PAYMENT_TYPE_MESSAGES`, `STATUS_FILTER_LABELS(_MOBILE)` → message-карты (`satisfies` без `as const`); потребитель `projects/index.tsx` переехал; закрыты COPY-H-proj-5 (карта + список), M-8 (статусы/архив, «Завершён» убран).
-2. `project-approval-caption` не собирает фразу с падежом и не печатает «null»/сырой enum (COPY-H-proj-2); тест на `DRAFT`/`REJECTED`/оба-pending/viewer-acted зелёный на `uk` и `en`.
-3. Легенда и `ProjectLegendSection` на `uk`/`en` по канону: плейсхолдеры переведены (Київ, нейтральный пример), `aria-label` cover story совпадает с видимой подписью «кавер-сторі», «Позиция для клиента» → «посада для клієнта»; общий текст сведён к общим ключам; инвариант маскировки сохранён; закрыты COPY-M-proj-17, M-18, L-23.
-4. Пустые состояния и пароли (COPY-M-proj-13): состояние+причина+шаг; «Нет доступа к паролю» — по канону.
-5. `ProjectRow`/`ProjectStatusBadge` на `uk`/`en`: статус согласования — «Очікує рішення», деньги через `format.ts` (COPY-M-proj-15 в файлах PR3), «В архіві» вместо «Завершён».
-6. Табы фильтра статусов перемерены под `uk` на 320/375/768/1024; `project-status-filter-ui.spec.ts` зелёный на всех ширинах; строка о перемере — в теле PR.
-7. В файлах PR3 0 строк `[ыэъё]` вне комментариев (проверка в Step).
-8. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR3 зелёные.
-9. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-11. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`; `security-reviewer` APPROVE (согласование доли, легенда, пароли).
+1. `PAYMENT_TYPE_LABELS` → `PAYMENT_TYPE_MESSAGES`, `STATUS_FILTER_LABELS(_MOBILE)` → message maps (`satisfies` without `as const`); the consumer `projects/index.tsx` migrated; COPY-H-proj-5 (map + list), M-8 (statuses/archive, «Завершён» removed) closed.
+2. `project-approval-caption` does not assemble the phrase with a case and does not print «null»/a raw enum (COPY-H-proj-2); the test for `DRAFT`/`REJECTED`/both-pending/viewer-acted is green in `uk` and `en`.
+3. The legend and `ProjectLegendSection` in `uk`/`en` per the canon: the placeholders translated (Київ, a neutral example), the cover story `aria-label` matches the visible caption «кавер-сторі», «Позиция для клиента» → «посада для клієнта»; the shared text reduced to shared keys; the masking invariant preserved; COPY-M-proj-17, M-18, L-23 closed.
+4. Empty states and passwords (COPY-M-proj-13): state+reason+step; «Нет доступа к паролю» — per the canon.
+5. `ProjectRow`/`ProjectStatusBadge` in `uk`/`en`: the approval status — «Очікує рішення», money via `format.ts` (COPY-M-proj-15 in the PR3 files), «В архіві» instead of «Завершён».
+6. The status filter tabs re-measured for `uk` at 320/375/768/1024; `project-status-filter-ui.spec.ts` green at all widths; a line about the re-measurement — in the PR body.
+7. In the PR3 files 0 lines of `[ыэъё]` outside comments (checked in the Step).
+8. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR3 E2E specs are green.
+9. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+11. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`; `security-reviewer` APPROVE (share approval, legend, passwords).
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
 git rev-parse --show-toplevel
 git fetch origin main && git log --oneline -1 origin/main
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/components/projects apps/web/app/components/pending-share apps/web/app/routes/_authenticated/projects apps/web/app/routes/_authenticated/legend.tsx apps/web/app/routes/_authenticated/projects.tsx
-git grep -nP '\bROLE_LABELS\b' origin/main -- apps/web/app/routes/_authenticated/projects   # локальные карты (для PR4)
+git grep -nP '\bROLE_LABELS\b' origin/main -- apps/web/app/routes/_authenticated/projects   # local maps (for PR4)
 ```
 
-- [ ] **Step 1: Тесты (падают)** — статус согласования из канона без сырого enum; `project-approval-caption` без падежа/«null»; табы фильтра из канона. Run: `pnpm --filter @crm/web test -- ProjectStatusBadge project-approval-caption ProjectRow projects/__tests__/constants` → FAIL.
+- [ ] **Step 1: Tests (fail)** — the approval status from the canon without a raw enum; `project-approval-caption` without a case/«null»; the filter tabs from the canon. Run: `pnpm --filter @crm/web test -- ProjectStatusBadge project-approval-caption ProjectRow projects/__tests__/constants` → FAIL.
 
-- [ ] **Step 2: `projects/constants.ts` — карты (шаблон G) → PASS частично** — `PAYMENT_TYPE_MESSAGES`, `STATUS_FILTER_LABEL_MESSAGES(_MOBILE)` по канону; `constants.test.ts` на каталог.
+- [ ] **Step 2: `projects/constants.ts` — maps (template G) → PASS partially** — `PAYMENT_TYPE_MESSAGES`, `STATUS_FILTER_LABEL_MESSAGES(_MOBILE)` per the canon; `constants.test.ts` to the catalog.
 
-- [ ] **Step 3: `project-approval-caption.ts` + `ProjectStatusBadge` + `ProjectRow` (шаблоны K, F)** — фраза без падежа; статус «Очікує рішення»; деньги `formatNumber`; caption потребитель. Run: `pnpm --filter @crm/web test -- ProjectStatusBadge project-approval-caption ProjectRow` → PASS.
+- [ ] **Step 3: `project-approval-caption.ts` + `ProjectStatusBadge` + `ProjectRow` (templates K, F)** — the phrase without a case; the status «Очікує рішення»; money `formatNumber`; caption consumer. Run: `pnpm --filter @crm/web test -- ProjectStatusBadge project-approval-caption ProjectRow` → PASS.
 
-- [ ] **Step 4: `projects/index.tsx`** — потребитель `PAYMENT_TYPE_MESSAGES` и табов; пустые состояния (канон «Нічого не знайдено — скиньте фільтри»); **перемер ширины табов** (живой прогон 320/375/768/1024, скрипт в scratchpad).
+- [ ] **Step 4: `projects/index.tsx`** — the consumer of `PAYMENT_TYPE_MESSAGES` and the tabs; empty states (canon «Нічого не знайдено — скиньте фільтри»); **re-measure the tab width** (a live run 320/375/768/1024, a script in the scratchpad).
 
-- [ ] **Step 5: Легенда — `legend.tsx`, `ProjectLegendSection.tsx`** (COPY-M-proj-17, M-18, L-23) — общие ключи, плейсхолдеры по канону, `aria-label` = видимая подпись, инвариант маскировки.
+- [ ] **Step 5: Legend — `legend.tsx`, `ProjectLegendSection.tsx`** (COPY-M-proj-17, M-18, L-23) — shared keys, placeholders per the canon, `aria-label` = the visible caption, the masking invariant.
 
-- [ ] **Step 6: `ProjectCredentialsSection`, `ProjectApprovalActions`, `cancel-pending-share`, `projects.tsx`** — экстракция (два уже копи-ревьюены); пустые состояния/пароли — причина+шаг.
+- [ ] **Step 6: `ProjectCredentialsSection`, `ProjectApprovalActions`, `cancel-pending-share`, `projects.tsx`** — extraction (two are already copy-reviewed); empty states/passwords — reason+step.
 
-- [ ] **Step 7: Проверка, тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 7: Check, tests, E2E sweep, gates, commit**
 
 ```bash
 python3 - <<'EOF'
@@ -770,92 +768,92 @@ EOF
 )"
 ```
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: список проектов (все четыре таба фильтра — полный и короткий набор), легенда (просмотр и редактирование), строка проекта с caption согласования, статус-бейджи, реквизиты/пароли, отмена pending-share. Fidelity Mode B — все ширины (главный риск — табы фильтра на 320/768). `copy-reviewer` — по `uk` и `en` отдельно. `security-reviewer` — обязателен.
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: the project list (all four filter tabs — the full and short set), the legend (view and edit), the project row with the approval caption, the status badges, credentials/passwords, canceling a pending-share. Fidelity Mode B — all widths (the main risk — the filter tabs at 320/768). `copy-reviewer` — on `uk` and `en` separately. `security-reviewer` — mandatory.
 
 ---
 
-## Task 4 (PR4): детальная страница проекта, хаб джуна, админ-шаблоны договоров
+## Task 4 (PR4): the project detail page, the junior hub, the admin contract templates
 
 **Files:**
 
-| Файл                                               | Кир. строк (вне комм.) | Паттерн(ы)          | Находки аудита / примечание                                                                                                                                                                                                                                                                                                   |
-| -------------------------------------------------- | ---------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `routes/_authenticated/projects/$projectId.tsx`    | 165                    | A, B, C, F, G, H, K | Самый большой файл волны (257 фрагментов). COPY-H-proj-3 (`corpTech`/`salaryReview`), H-4 (состав), M-8 (архив), M-12 («...» → «Додаємо…»), M-15 (деньги), L-21 (Drop-проект), L-22 (Приходы); локальная `labels: Record` внутри `ProjectEditFields` (статический экстрактор её не видит — вынести); `ROLE_LABELS` → шаблон H |
-| `routes/_authenticated/project.tsx`                | 23                     | B, F                | COPY-H-proj-6 (`salaryMonth` «2026-04» → `formatDate 'monthYear'`), M-8 (`isActive ? 'Активный' : 'Завершён'`), M-15 (`.toLocaleString('ru-RU')`)                                                                                                                                                                             |
-| `routes/_authenticated/admin/contracts.$role.tsx`  | 25                     | B, C, H, K          | COPY-M-core-9 (`ROLE_LABELS` `HR-менеджер` → канон); склейка «Шаблон для роли ${…} опубликован» → `<Trans>` со слотом роли; статусы/тексты редактора шаблона                                                                                                                                                                  |
-| `routes/_authenticated/admin/contracts.index.tsx`  | 9                      | B, H                | COPY-M-core-9 (`ROLE_LABELS` → канон); заголовки карточек ролей                                                                                                                                                                                                                                                               |
-| `components/contracts/VariablesPanel.tsx`          | 45                     | B, C                | Панель переменных шаблона; есть тест `VariablesPanel.i18n.test.tsx` — обновить ассерты                                                                                                                                                                                                                                        |
-| `components/contracts/AddCustomVariableDialog.tsx` | 20                     | B, C                | Диалог добавления кастомной переменной                                                                                                                                                                                                                                                                                        |
+| File                                               | Cyr. lines (outside comm.) | Pattern(s)          | Audit findings / note                                                                                                                                                                                                                                                                                                                          |
+| -------------------------------------------------- | -------------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes/_authenticated/projects/$projectId.tsx`    | 165                        | A, B, C, F, G, H, K | The largest file of the wave (257 fragments). COPY-H-proj-3 (`corpTech`/`salaryReview`), H-4 (composition), M-8 (archive), M-12 («...» → «Додаємо…»), M-15 (money), L-21 (Drop-project), L-22 (Income); the local `labels: Record` inside `ProjectEditFields` (the static extractor does not see it — move it out); `ROLE_LABELS` → template H |
+| `routes/_authenticated/project.tsx`                | 23                         | B, F                | COPY-H-proj-6 (`salaryMonth` «2026-04» → `formatDate 'monthYear'`), M-8 (`isActive ? 'Активный' : 'Завершён'`), M-15 (`.toLocaleString('ru-RU')`)                                                                                                                                                                                              |
+| `routes/_authenticated/admin/contracts.$role.tsx`  | 25                         | B, C, H, K          | COPY-M-core-9 (`ROLE_LABELS` `HR-менеджер` → canon); the concatenation «Шаблон для роли ${…} опубликован» → `<Trans>` with a role slot; the template editor statuses/texts                                                                                                                                                                     |
+| `routes/_authenticated/admin/contracts.index.tsx`  | 9                          | B, H                | COPY-M-core-9 (`ROLE_LABELS` → canon); the role card headers                                                                                                                                                                                                                                                                                   |
+| `components/contracts/VariablesPanel.tsx`          | 45                         | B, C                | The template variables panel; there is a test `VariablesPanel.i18n.test.tsx` — update the assertions                                                                                                                                                                                                                                           |
+| `components/contracts/AddCustomVariableDialog.tsx` | 20                         | B, C                | The dialog for adding a custom variable                                                                                                                                                                                                                                                                                                        |
 
-Не мигрировать (проверено, 0 кириллицы): `components/contracts/contractTokenHighlight.ts`, `hooks/use-contract-tokens.ts`, `lib/contract-variables.ts`.
+Do not migrate (checked, 0 Cyrillic): `components/contracts/contractTokenHighlight.ts`, `hooks/use-contract-tokens.ts`, `lib/contract-variables.ts`.
 
-Вне продуктовых: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
+Outside the product: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты: `routes/_authenticated/projects/__tests__/ProjectEditFields.test.tsx` (29 — ассертит `гіг-контракт`, переезжает на каталог **здесь**), `routes/_authenticated/admin/__tests__/contracts-editor-layout.test.tsx` (35), `components/contracts/__tests__/VariablesPanel.i18n.test.tsx` (1). Тесты `admin/__tests__/{route.test.tsx, login-as.spec.tsx, tos.index.test.tsx}` **не трогать** — это web-people (login-as) и web-docs-notify (tos), уже мигрированы или чужой срез.
+Tests: `routes/_authenticated/projects/__tests__/ProjectEditFields.test.tsx` (29 — asserts `гіг-контракт`, moves to the catalog **here**), `routes/_authenticated/admin/__tests__/contracts-editor-layout.test.tsx` (35), `components/contracts/__tests__/VariablesPanel.i18n.test.tsx` (1). The tests `admin/__tests__/{route.test.tsx, login-as.spec.tsx, tos.index.test.tsx}` **do not touch** — these are web-people (login-as) and web-docs-notify (tos), already migrated or another slice.
 
-E2E: см. «Распределение E2E-спек», строка PR4, плюс вывод свипа. `cache/anti-stale.spec.ts` (`/^Синьор/`) ассертит подпись роли в диалоге проекта — попадёт в свип здесь.
+E2E: see "E2E spec distribution", the PR4 row, plus the sweep output. `cache/anti-stale.spec.ts` (`/^Синьор/`) asserts the role caption in the project dialog — it lands in the sweep here.
 
 **Interfaces:**
 
-- Consumes: `PAYMENT_TYPE_MESSAGES` (`projects/constants.ts`, **из PR3** — предусловие), `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`), `formatDate`, `formatNumber`, `formatMoney` (`@crm/shared`), `useLocale()`, `getApiErrorMessage`, `translateZodCode` (`@/lib/axios-utils`), тестовые хелперы каталога.
-- Не трогает: `fmtUsd`, `type ExchangeRates`, `financeApi`, `TransactionRow`, `TransactionDetailDialog` (импорты из `finance/**` — волна d).
-- Produces: удаляются три локальные `ROLE_LABELS` (`$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`). После PR4 `git grep -nP '\bROLE_LABELS\b' apps/web/app/routes/_authenticated/{projects,admin}` — пусто.
+- Consumes: `PAYMENT_TYPE_MESSAGES` (`projects/constants.ts`, **from PR3** — a precondition), `ROLE_LABEL_MESSAGES`/`useRoleLabel` (`@/components/ui/role-select`), `formatDate`, `formatNumber`, `formatMoney` (`@crm/shared`), `useLocale()`, `getApiErrorMessage`, `translateZodCode` (`@/lib/axios-utils`), the catalog test helpers.
+- Does not touch: `fmtUsd`, `type ExchangeRates`, `financeApi`, `TransactionRow`, `TransactionDetailDialog` (imports from `finance/**` — wave d).
+- Produces: the three local `ROLE_LABELS` are removed (`$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`). After PR4 `git grep -nP '\bROLE_LABELS\b' apps/web/app/routes/_authenticated/{projects,admin}` — empty.
 
-### Опасность: кросс-срезовый finance в `$projectId.tsx` — не тащить в эту волну
+### Danger: cross-slice finance in `$projectId.tsx` — do not drag it into this wave
 
-`$projectId.tsx` импортирует из `finance/**` пять символов: `financeApi`, `TransactionDetailDialog`, `TransactionRow` (компоненты с русским текстом), `fmtUsd`, `type ExchangeRates` (форматтер и тип). Всё это — срез `web-finance` (волна d), **ещё не мигрирован**. Решение (проверено `git grep` — в периметре нет ни одного импорта `TYPE_LABELS`/`STATUS_LABELS` из finance, только эти пять символов):
+`$projectId.tsx` imports five symbols from `finance/**`: `financeApi`, `TransactionDetailDialog`, `TransactionRow` (components with Russian text), `fmtUsd`, `type ExchangeRates` (a formatter and a type). All of this — the `web-finance` slice (wave d), **not yet migrated**. Decision (checked `git grep` — there is no import of `TYPE_LABELS`/`STATUS_LABELS` from finance in the perimeter, only these five symbols):
 
-- **финанс-компоненты не трогать**: `$projectId` их рендерит, их русский текст доживёт до волны (d). Строка в «Находках вне периметра» и в теле PR4.
-- **`fmtUsd` не заменять на `formatMoney`**: это общий форматтер finance, и волна (d) сведёт форматирование денег к одному источнику. Заменять сейчас = лезть в зону finance ради одного места и создавать конфликт с волной (d). Мигрировать только те деньги, что форматируются **внутри** файлов этой волны: `project.rate.toLocaleString()` → `formatNumber(project.rate, locale)`, `.toLocaleString('ru-RU')` в `project.tsx` → `format.ts`.
-- **Рекомендация** (спорное решение, A1): брать канон finance сейчас **не надо** — ждать 3d. Обоснование: (1) зона finance не в периметре этой волны и не в зоне кодера PR4; (2) `fmtUsd`/`TYPE_LABELS`/`STATUS_LABELS` при переводе в 3d станут message-картами, и любой их «предварительный» перевод здесь всё равно переписался бы; (3) число — не текст, guard на `[ыэъё]` его не ловит, поэтому «недоделка» тут только визуальная (разные форматы чисел), а её COPY-M-proj-15 просит свести «хотя бы к одному явному значению» — это выполнимо и без finance, форматтером `format.ts` для локальных вызовов. Финанс-транзакции внутри `$projectId` остаются русскими до 3d — это **известное** ограничение, отмеченное в теле PR, а не пропуск.
+- **do not touch the finance components**: `$projectId` renders them, their Russian text lives until wave (d). A line in "Findings outside the perimeter" and in the PR4 body.
+- **do not replace `fmtUsd` with `formatMoney`**: this is the shared finance formatter, and wave (d) will reduce money formatting to one source. Replacing now = reaching into the finance zone for one place and creating a conflict with wave (d). Migrate only the money formatted **inside** this wave's files: `project.rate.toLocaleString()` → `formatNumber(project.rate, locale)`, `.toLocaleString('ru-RU')` in `project.tsx` → `format.ts`.
+- **Recommendation** (contested decision, A1): do **not** take the finance canon now — wait for 3d. Rationale: (1) the finance zone is not in this wave's perimeter and not in the PR4 coder's zone; (2) `fmtUsd`/`TYPE_LABELS`/`STATUS_LABELS` on translation in 3d will become message maps, and any "preliminary" translation of them here would be rewritten anyway; (3) a number is not text, the `[ыэъё]` guard does not catch it, so an "incomplete migration" here is only visual (different number formats), and COPY-M-proj-15 asks to reduce it "at least to one explicit value" — this is feasible without finance, via the `format.ts` formatter for the local calls. Finance transactions inside `$projectId` stay Russian until 3d — this is a **known** limitation, noted in the PR body, not an omission.
 
-### Опасность: локальная `labels: Record<string,string>` внутри `ProjectEditFields` — статический экстрактор её не видит
+### Danger: the local `labels: Record<string,string>` inside `ProjectEditFields` — the static extractor does not see it
 
-Аудит (danger «Текст в константах/Record») отмечает, что `$projectId.tsx` держит `const labels: Record<string, string>` **внутри** рендера `ProjectEditFields`. Такую карту `lingui extract` не увидит, если оставить её строковой и обернуть только вызов. Вынести карту из рендера на уровень модуля как `Record<…, MessageDescriptor>` (шаблон G) и резолвить через `i18n._()`, иначе строки не попадут в каталог, а guard этапа 6 упадёт на них позже. Тест `ProjectEditFields.test.tsx` (ассертит `гіг-контракт`) переезжает на каталог здесь.
+The audit (danger "Text in constants/Record") notes that `$projectId.tsx` holds `const labels: Record<string, string>` **inside** the render of `ProjectEditFields`. `lingui extract` will not see such a map if it is left as a string and only the call is wrapped. Move the map out of the render to the module level as `Record<…, MessageDescriptor>` (template G) and resolve via `i18n._()`, otherwise the strings will not get into the catalog, and the stage 6 guard will fail on them later. The test `ProjectEditFields.test.tsx` (asserts `гіг-контракт`) moves to the catalog here.
 
-### Опасность: удаление локальных `ROLE_LABELS` — «HR-менеджер» становится «HR»
+### Danger: removing the local `ROLE_LABELS` — «HR-менеджер» becomes «HR»
 
-`admin/contracts.{index,$role}.tsx` объявляют `ROLE_LABELS: Record<ContractTargetRole, string>` с `HR: 'HR-менеджер'`, а `$projectId.tsx` — `Record<string, string>` с фоллбэком `?? role`. Все три → `ROLE_LABEL_MESSAGES`/`useRoleLabel` (шаблон H), фоллбэк удаляется (карта покрывает `Role`). Это меняет «HR-менеджер» → «HR» (канон COPY-M-core-9: одна карта ролей на приложение). Строка в теле PR4 для `copy-reviewer`. Склейка «Шаблон для роли ${ROLE_LABELS[role]} опубликован» → `<Trans>Шаблон договору для ролі «{roleLabel}» опубліковано</Trans>` (роль в именительном внутри кавычек, урок #702 п.9).
+`admin/contracts.{index,$role}.tsx` declare `ROLE_LABELS: Record<ContractTargetRole, string>` with `HR: 'HR-менеджер'`, and `$projectId.tsx` — `Record<string, string>` with a `?? role` fallback. All three → `ROLE_LABEL_MESSAGES`/`useRoleLabel` (template H), the fallback removed (the map covers `Role`). This changes «HR-менеджер» → «HR» (canon COPY-M-core-9: one role map per application). A line in the PR4 body for `copy-reviewer`. The concatenation «Шаблон для роли ${ROLE_LABELS[role]} опубликован» → `<Trans>Шаблон договору для ролі «{roleLabel}» опубліковано</Trans>` (the role in the nominative inside quotes, lesson #702 item 9).
 
 ### Acceptance criteria (PR4)
 
-1. `$projectId.tsx` на `uk`/`en`: `corpTech`/`salaryReview` — одно слово из канона (COPY-H-proj-3); состав — «склад»/«додати до складу»/«прибрати зі складу», не «команда»/«участники» (COPY-H-proj-4); архив — «в архіві»/«в архіві з {дата}», без «Завершён» (COPY-M-proj-8); кнопка запроса — «Додаємо…», не «...» (COPY-M-proj-12); «Drop-проект» → «проєкт з дропом» (L-21); «Приходы…» → канон (L-22); локальная `labels`-карта вынесена и попала в каталог; деньги внутри файла — через `format.ts` (M-15).
-2. `project.tsx` на `uk`/`en`: `salaryMonth` форматируется той же функцией, что фоллбэк (`formatDate 'monthYear'`, COPY-H-proj-6); «Активный»/«Завершён» → «Активний»/«в архіві» (M-8); `.toLocaleString('ru-RU')` → `format.ts` (M-15).
-3. Три локальные `ROLE_LABELS` удалены; роли — из `ROLE_LABEL_MESSAGES`; «HR-менеджер» → «HR» (COPY-M-core-9); склейка «Шаблон для роли …» — `<Trans>` со слотом роли без падежа; `git grep -nP '\bROLE_LABELS\b' apps/web/app/routes/_authenticated/{projects,admin}` пуст.
-4. `admin/contracts.{index,$role}.tsx` и `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` на `uk`/`en`; тест `VariablesPanel.i18n.test.tsx` и `contracts-editor-layout.test.tsx` зелёные на каталоге.
-5. Финанс-компоненты и `fmtUsd` **не тронуты**; строка «финанс-транзакции в `$projectId` — до волны d» в теле PR.
-6. В файлах PR4 0 строк `[ыэъё]` вне комментариев (финальная сверка Step); строки с сырым enum/статусом разобраны.
-7. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR4 зелёные.
-8. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-10. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`; `security-reviewer` APPROVE (доля проекта, состав, реквизиты, шаблоны договоров).
+1. `$projectId.tsx` in `uk`/`en`: `corpTech`/`salaryReview` — one word from the canon (COPY-H-proj-3); composition — «склад»/«додати до складу»/«прибрати зі складу», not «команда»/«участники» (COPY-H-proj-4); archive — «в архіві»/«в архіві з {дата}», without «Завершён» (COPY-M-proj-8); the request button — «Додаємо…», not «...» (COPY-M-proj-12); «Drop-проект» → «проєкт з дропом» (L-21); «Приходы…» → canon (L-22); the local `labels` map moved out and landed in the catalog; the money inside the file — via `format.ts` (M-15).
+2. `project.tsx` in `uk`/`en`: `salaryMonth` is formatted by the same function as the fallback (`formatDate 'monthYear'`, COPY-H-proj-6); «Активный»/«Завершён» → «Активний»/«в архіві» (M-8); `.toLocaleString('ru-RU')` → `format.ts` (M-15).
+3. The three local `ROLE_LABELS` removed; roles — from `ROLE_LABEL_MESSAGES`; «HR-менеджер» → «HR» (COPY-M-core-9); the concatenation «Шаблон для роли …» — `<Trans>` with a role slot without a case; `git grep -nP '\bROLE_LABELS\b' apps/web/app/routes/_authenticated/{projects,admin}` empty.
+4. `admin/contracts.{index,$role}.tsx` and `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` in `uk`/`en`; the test `VariablesPanel.i18n.test.tsx` and `contracts-editor-layout.test.tsx` green on the catalog.
+5. The finance components and `fmtUsd` are **not touched**; a line "finance transactions in `$projectId` — until wave d" in the PR body.
+6. In the PR4 files 0 lines of `[ыэъё]` outside comments (the final Step check); lines with a raw enum/status parsed.
+7. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR4 E2E specs are green.
+8. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+10. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`; `security-reviewer` APPROVE (project share, composition, credentials, contract templates).
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
 git rev-parse --show-toplevel
 git fetch origin main
-gh pr view <PR3> --json state -q .state      # MERGED, иначе стоп: PAYMENT_TYPE_MESSAGES ещё нет
-git grep -n "PAYMENT_TYPE_MESSAGES" origin/main -- apps/web/app/routes/_authenticated/projects/constants.ts   # есть => PR3 смёржен
+gh pr view <PR3> --json state -q .state      # MERGED, otherwise stop: PAYMENT_TYPE_MESSAGES does not exist yet
+git grep -n "PAYMENT_TYPE_MESSAGES" origin/main -- apps/web/app/routes/_authenticated/projects/constants.ts   # present => PR3 merged
 git grep -nP '\bROLE_LABELS\b' origin/main -- apps/web/app/routes/_authenticated/projects/\$projectId.tsx apps/web/app/routes/_authenticated/admin
 ```
 
-Если `PAYMENT_TYPE_MESSAGES` в `main` нет — PR3 не смёржен: стоп, `.blocked.md`. Админ-шаблоны договоров (`admin/contracts`, `components/contracts`) от PR3 не зависят и при необходимости мигрируются первыми.
+If `PAYMENT_TYPE_MESSAGES` is not in `main` — PR3 is not merged: stop, `.blocked.md`. The admin contract templates (`admin/contracts`, `components/contracts`) do not depend on PR3 and may, if needed, be migrated first.
 
-- [ ] **Step 1: Тесты (падают)** — роли в `$projectId`/`admin/contracts` из канона без сырого enum; `salaryMonth` форматируется через локаль; `ProjectEditFields` читает тип оплаты из каталога. Run: `pnpm --filter @crm/web test -- ProjectEditFields contracts-editor-layout VariablesPanel` → FAIL.
+- [ ] **Step 1: Tests (fail)** — the roles in `$projectId`/`admin/contracts` from the canon without a raw enum; `salaryMonth` formatted via the locale; `ProjectEditFields` reads the payment type from the catalog. Run: `pnpm --filter @crm/web test -- ProjectEditFields contracts-editor-layout VariablesPanel` → FAIL.
 
-- [ ] **Step 2: `$projectId.tsx` — по секциям (`wip:` после каждой)** — шапка/статус/архив → состав → редактирование полей (`ProjectEditFields`, вынести `labels`-карту, шаблон G) → тип оплаты (`PAYMENT_TYPE_MESSAGES` из PR3) → реквизиты/дроп (L-21, L-22) → роли (шаблон H) → диалоги «додати/прибрати» (COPY-H-proj-4) → тосты/деньги (`format.ts`, M-12, M-15). Финанс-компоненты не трогать.
+- [ ] **Step 2: `$projectId.tsx` — by section (`wip:` after each)** — header/status/archive → composition → field editing (`ProjectEditFields`, move out the `labels` map, template G) → payment type (`PAYMENT_TYPE_MESSAGES` from PR3) → credentials/drop (L-21, L-22) → roles (template H) → the «додати/прибрати» dialogs (COPY-H-proj-4) → toasts/money (`format.ts`, M-12, M-15). Do not touch the finance components.
 
-- [ ] **Step 3: `project.tsx`** (COPY-H-proj-6, M-8, M-15) — `salaryMonth` → `formatDate 'monthYear'`, «Активний»/«в архіві», `format.ts` для чисел.
+- [ ] **Step 3: `project.tsx`** (COPY-H-proj-6, M-8, M-15) — `salaryMonth` → `formatDate 'monthYear'`, «Активний»/«в архіві», `format.ts` for numbers.
 
-- [ ] **Step 4: Админ-шаблоны договоров** — `admin/contracts.{index,$role}.tsx` (шаблон H, склейка «Шаблон…» → `<Trans>`), `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` (B/C).
+- [ ] **Step 4: The admin contract templates** — `admin/contracts.{index,$role}.tsx` (template H, the concatenation «Шаблон…» → `<Trans>`), `components/contracts/{VariablesPanel,AddCustomVariableDialog}.tsx` (B/C).
 
-- [ ] **Step 5: Финальная сверка волны (c), тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 5: The final wave (c) check, tests, E2E sweep, gates, commit**
 
-Финальная сверка волны (c) — выполняется в PR4 и вставляется в тело PR:
+The final wave (c) check — performed in PR4 and inserted into the PR body:
 
 ```bash
-# 1. русских букв в мигрированных файлах волны нет
+# 1. there are no Russian letters in the wave's migrated files
 python3 - <<'EOF'
 import re, pathlib, subprocess
 out = subprocess.run(['git','ls-files',
@@ -874,13 +872,13 @@ for f in out:
             print(f,n,l.strip()); bad+=1
 print('violations:', bad)
 EOF
-# 2. локальных карт ролей в периметре нет
+# 2. there are no local role maps in the perimeter
 git grep -nP '\bROLE_LABELS\b' -- apps/web/app/routes/_authenticated/projects apps/web/app/routes/_authenticated/admin apps/web/app/components/projects apps/web/app/components/contracts
-# 3. ветвлений по тексту ошибки сервера нет
+# 3. there is no branching by the server error text
 git grep -nE "message\)?\.(toLowerCase\(\)\.)?includes\('" -- apps/web/app/routes/_authenticated/projects apps/web/app/routes/_authenticated/vacancies apps/web/app/routes/_authenticated/interviews
 ```
 
-Ожидается: 1 — `violations: 0`; 2 — пусто; 3 — пусто.
+Expected: 1 — `violations: 0`; 2 — empty; 3 — empty.
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | grep '^v22' | tail -1)/bin:$PATH"
@@ -911,100 +909,100 @@ EOF
 )"
 ```
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: детальная страница проекта (шапка, состав, редактирование, тип оплаты, реквизиты дропа, диалоги добавления/удаления из состава, статус согласования), хаб джуна (карточки зарплаты с `salaryMonth`), админ-редактор шаблона договора (панель переменных, добавление кастомной переменной, публикация). Главный риск на 320 — длинные украинские подписи полей в двухколоночных `InfoRow`. `copy-reviewer` — по `uk` и `en` отдельно. `security-reviewer` — обязателен.
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: the project detail page (header, composition, editing, payment type, drop credentials, add/remove-from-composition dialogs, the approval status), the junior hub (salary cards with `salaryMonth`), the admin contract template editor (the variables panel, adding a custom variable, publishing). The main risk at 320 — long Ukrainian field captions in the two-column `InfoRow`. `copy-reviewer` — on `uk` and `en` separately. `security-reviewer` — mandatory.
 
 ---
 
-## Трассировка находок аудита `web-projects`
+## Trace of the `web-projects` audit findings
 
-`Findings:` среза — 23. Каждый идентификатор ниже.
+The slice's `Findings:` — 23. Each identifier below.
 
-| Находка        | Статус на `0420499b`                         | Где закрывается                                                                                                                                       |
-| -------------- | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| COPY-H-proj-1  | открыта (6 англ. + 3 рус. стадии)            | PR1 Step 3                                                                                                                                            |
-| COPY-H-proj-2  | открыта (падеж `от {имя}`)                   | PR3 Step 3 (шаблон K)                                                                                                                                 |
-| COPY-H-proj-3  | открыта (три имени одного поля)              | PR1 Step 4 (`InterviewDetailSheet`), PR4 Step 2 (`$projectId`)                                                                                        |
-| COPY-H-proj-4  | открыта (состав — 4 слова)                   | PR4 Step 2                                                                                                                                            |
-| COPY-H-proj-5  | открыта (гіг/гиг/крипта)                     | PR3 Step 2 (`PAYMENT_TYPE_MESSAGES`), PR1 Step 4 (плейсхолдер), PR4 Step 2 (потребитель)                                                              |
-| COPY-H-proj-6  | открыта (`salaryMonth` «2026-04»)            | PR4 Step 3                                                                                                                                            |
-| COPY-M-proj-7  | открыта (род в картах вакансий)              | PR2 Step 2                                                                                                                                            |
-| COPY-M-proj-8  | открыта («Завершён» про архив)               | PR3 Step 2–3 (`ProjectStatusBadge`, фильтр), PR4 Step 2–3 (`$projectId`, `project.tsx`)                                                               |
-| COPY-M-proj-9  | открыта (`zodIssueRu` без ветвления)         | PR2 Step 2 (шаблон J)                                                                                                                                 |
-| COPY-M-proj-10 | открыта («страница карьеры»/«заявка»)        | PR2 Step 4                                                                                                                                            |
-| COPY-M-proj-11 | открыта («Откл.»/«Просм.»)                   | PR2 Step 4                                                                                                                                            |
-| COPY-M-proj-12 | открыта (кнопка «...»)                       | PR4 Step 2                                                                                                                                            |
-| COPY-M-proj-13 | открыта (шесть тупиков)                      | PR1 Step 5 (`ArchiveSection`, `interviews/index`), PR3 Step 4–6 (`legend`, `ProjectCredentialsSection`), PR4 Step 2 (`$projectId` «Некого добавлять») |
-| COPY-M-proj-14 | открыта («карточка» ≠ собеседование)         | PR1 Step 5                                                                                                                                            |
-| COPY-M-proj-15 | открыта (три форматтера чисел)               | PR3 Step 3 (`ProjectRow`), PR4 Step 2–3 (`$projectId`, `project.tsx`); finance `fmtUsd` — волна d («Опасность»)                                       |
-| COPY-M-proj-16 | открыта («оригинал английский»)              | PR2 Step 5                                                                                                                                            |
-| COPY-M-proj-17 | открыта (плейсхолдеры Киев/МГУ)              | PR3 Step 5                                                                                                                                            |
-| COPY-M-proj-18 | открыта (`aria-label` cover story ≠ подпись) | PR3 Step 5                                                                                                                                            |
-| COPY-L-proj-19 | открыта (`...` vs `…`)                       | Global Constraints (`…`), все четыре PR                                                                                                               |
-| COPY-L-proj-20 | открыта (формат счётчиков)                   | PR2 Step 4                                                                                                                                            |
-| COPY-L-proj-21 | открыта («Drop-проект» латиницей)            | PR4 Step 2                                                                                                                                            |
-| COPY-L-proj-22 | открыта («Приходы…»)                         | PR4 Step 2                                                                                                                                            |
-| COPY-L-proj-23 | открыта («Позиция для клиента»)              | PR3 Step 5                                                                                                                                            |
+| Finding        | Status on `0420499b`                      | Where it is closed                                                                                                                                    |
+| -------------- | ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| COPY-H-proj-1  | open (6 Eng + 3 rus stages)               | PR1 Step 3                                                                                                                                            |
+| COPY-H-proj-2  | open (case `от {имя}`)                    | PR3 Step 3 (template K)                                                                                                                               |
+| COPY-H-proj-3  | open (three names of one field)           | PR1 Step 4 (`InterviewDetailSheet`), PR4 Step 2 (`$projectId`)                                                                                        |
+| COPY-H-proj-4  | open (composition — 4 words)              | PR4 Step 2                                                                                                                                            |
+| COPY-H-proj-5  | open (гіг/гиг/крипта)                     | PR3 Step 2 (`PAYMENT_TYPE_MESSAGES`), PR1 Step 4 (placeholder), PR4 Step 2 (consumer)                                                                 |
+| COPY-H-proj-6  | open (`salaryMonth` «2026-04»)            | PR4 Step 3                                                                                                                                            |
+| COPY-M-proj-7  | open (gender in the vacancy maps)         | PR2 Step 2                                                                                                                                            |
+| COPY-M-proj-8  | open («Завершён» about archive)           | PR3 Step 2–3 (`ProjectStatusBadge`, filter), PR4 Step 2–3 (`$projectId`, `project.tsx`)                                                               |
+| COPY-M-proj-9  | open (`zodIssueRu` without branching)     | PR2 Step 2 (template J)                                                                                                                               |
+| COPY-M-proj-10 | open («страница карьеры»/«заявка»)        | PR2 Step 4                                                                                                                                            |
+| COPY-M-proj-11 | open («Откл.»/«Просм.»)                   | PR2 Step 4                                                                                                                                            |
+| COPY-M-proj-12 | open (the «...» button)                   | PR4 Step 2                                                                                                                                            |
+| COPY-M-proj-13 | open (six dead ends)                      | PR1 Step 5 (`ArchiveSection`, `interviews/index`), PR3 Step 4–6 (`legend`, `ProjectCredentialsSection`), PR4 Step 2 (`$projectId` «Некого добавлять») |
+| COPY-M-proj-14 | open («карточка» ≠ interview)             | PR1 Step 5                                                                                                                                            |
+| COPY-M-proj-15 | open (three number formatters)            | PR3 Step 3 (`ProjectRow`), PR4 Step 2–3 (`$projectId`, `project.tsx`); finance `fmtUsd` — wave d ("Danger")                                           |
+| COPY-M-proj-16 | open («оригинал английский»)              | PR2 Step 5                                                                                                                                            |
+| COPY-M-proj-17 | open (placeholders Kyiv/MSU)              | PR3 Step 5                                                                                                                                            |
+| COPY-M-proj-18 | open (`aria-label` cover story ≠ caption) | PR3 Step 5                                                                                                                                            |
+| COPY-L-proj-19 | open (`...` vs `…`)                       | Global Constraints (`…`), all four PRs                                                                                                                |
+| COPY-L-proj-20 | open (the counter format)                 | PR2 Step 4                                                                                                                                            |
+| COPY-L-proj-21 | open («Drop-проект» in Latin)             | PR4 Step 2                                                                                                                                            |
+| COPY-L-proj-22 | open («Приходы…»)                         | PR4 Step 2                                                                                                                                            |
+| COPY-L-proj-23 | open («Позиция для клиента»)              | PR3 Step 5                                                                                                                                            |
 
-Findings: COPY-H-proj-1 … COPY-H-proj-6, COPY-M-proj-7 … COPY-M-proj-18, COPY-L-proj-19 … COPY-L-proj-23 (23) — строк в таблице 23.
+Findings: COPY-H-proj-1 … COPY-H-proj-6, COPY-M-proj-7 … COPY-M-proj-18, COPY-L-proj-19 … COPY-L-proj-23 (23) — 23 rows in the table.
 
-**Админ-шаблоны договоров (вне 23 находок среза `web-projects`).** Эти файлы задание добавило в волну сверх среза; их находки живут в других срезах/планах:
+**Admin contract templates (outside the 23 findings of the `web-projects` slice).** The assignment added these files to the wave beyond the slice; their findings live in other slices/plans:
 
-| Находка                                 | Источник                                                             | Где закрывается |
-| --------------------------------------- | -------------------------------------------------------------------- | --------------- |
-| COPY-M-core-9                           | срез `web-core` (одна карта ролей; «HR-менеджер» ≠ «HR»)             | PR4 Step 4      |
-| Склейка «Шаблон для роли … опубликован» | план волны b, «Находки вне периметра» (админка контрактов → волна c) | PR4 Step 4      |
-
----
-
-## Находки вне периметра (не расширяем, записываем)
-
-| Что                                                                                                                                                                               | Чья волна / куда                                                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| Финанс-компоненты, встроенные в `$projectId.tsx` (`TransactionRow`, `TransactionDetailDialog`, `financeApi`) и `fmtUsd`/`ExchangeRates` — русский текст и `en-US`-форматтер денег | (d) `web-finance`. `$projectId` их только рендерит; после 3d их текст станет `uk`/`en` |
-| `finance/constants.ts` → `TYPE_LABELS`/`STATUS_LABELS` (потребитель `user-profile/tabs/FinanceTab.tsx`)                                                                           | (d) — это web-people-файл, не в периметре этой волны; отмечено планом b                |
-| `routes/_authenticated/stats.tsx` (`ROLE_LABEL`), `routes/invoice.v.$transactionId.tsx` (`ROLE_LABEL`)                                                                            | (d) `web-finance`/счета. Шаблон H из этого плана                                       |
-| `components/admin-actions/AdminActionsMenu.tsx` — файл нигде не импортируется (мёртвый код с русскими строками)                                                                   | Кандидат на удаление отдельным light-track PR (как отмечено планом b)                  |
+| Finding                                           | Source                                                                       | Where it is closed |
+| ------------------------------------------------- | ---------------------------------------------------------------------------- | ------------------ |
+| COPY-M-core-9                                     | the `web-core` slice (one role map; «HR-менеджер» ≠ «HR»)                    | PR4 Step 4         |
+| The concatenation «Шаблон для роли … опубликован» | the wave b plan, "Findings outside the perimeter" (contracts admin → wave c) | PR4 Step 4         |
 
 ---
 
-## Что НЕ входит
+## Findings outside the perimeter (we do not expand, we record)
 
-- **`apps/api`** — волна его не трогает (FM-5 не применяется; если понадобится — Global Constraints).
-- **Волны (d)–(e)**: финансы, статистика, счета, документы, уведомления, `/pending`. Их файлы не редактируются, даже когда в них найдены дубли (см. «Находки вне периметра»). Финанс-транзакции внутри `$projectId` остаются русскими до волны (d).
-- **Этап 6**: ESLint `lingui/no-unlocalized-strings` в режиме error, guard на русские буквы, `extract --clean` как хард-гейт.
-- Тексты с явным id (`api-error.*`, `zod-error.*`) волна не меняет, а только использует.
-- `DOMAIN_LABELS`/`SENIORITY_LABELS` (вакансии) — собственные имена/грейды, не переводятся (остаются строковыми картами).
-
----
-
-## Допущения (A1 — обратимые, записаны)
-
-1. **Периметр = срез аудита `web-projects` + вакансии (аудит их отдал этому срезу) + админ-шаблоны договоров (план волны b отдал их волне c).** Исключены: уже мигрированные онбординг-контракт и `user-profile/contract` (волна b), файлы без кириллицы (`ProjectLogo`, `contractTokenHighlight`, `use-contract-tokens`, `contract-variables`, `use-board-seniors`). Каждое отклонение — строка в таблице «Периметр».
-2. **4 PR, а не 3.** Срез крупнее (786 строк против 880 у волны b, но с одним файлом-гигантом `$projectId.tsx` на 165 строк). Четыре PR дают ≤ ~240 строк на ревью и три параллельных периметра; три PR посадили бы `$projectId` в один PR с половиной списка проектов, и ревью диффа стало бы нечитаемым (то, чего аудит явно велит избегать: «один файл — один PR»).
-3. **Админ-шаблоны договоров — в PR4 с детальной страницей проекта, а не отдельным PR.** Обоснование: держит волну в пределах 4 PR; админ-шаблоны от PR3 не зависят (могут стартовать первыми внутри PR4) и файлово не пересекаются ни с чем; связка «крупные экраны редактирования» тематически терпима. Если команда предпочтёт 5 PR — админ-шаблоны выделяются в отдельный параллельный PR без изменения остального плана.
-4. **Кросс-срезовый finance в `$projectId` не трогаем: канон finance берём в 3d, не сейчас.** Обоснование в «Опасность: кросс-срезовый finance». Финанс-транзакции в детальной странице остаются русскими до 3d — известное ограничение, отмеченное в теле PR4, а не пропуск. Локальные вызовы `toLocaleString` в файлах волны при этом переводятся на `format.ts` (COPY-M-proj-15 выполним и без finance).
-5. **`OFFER_RECEIVED` — черновик «Оффер отримано» / «Offer received».** Глоссарий относит «оффер» к `_Избегать_` (термин «Вакансия»), но рекомендация самого аудита COPY-H-proj-1 пишет «Оффер получен». Финальную форму («Оффер отримано» либо «Пропозицію надіслано») утверждает `copy-reviewer`; расхождение с черновиком плана — не нарушение плана.
-6. **«HR-менеджер» → «HR» при миграции `admin/contracts`** (COPY-M-core-9): одна карта ролей на приложение. `copy-reviewer` может пересмотреть — тогда правка одной строки канона (`ROLE_LABEL_MESSAGES.HR`), но это меняло бы роль во всём приложении, а не только в админке.
-7. **Табы фильтра статусов проектов перемеряются под `uk` заново** (не доверяем пиксельным значениям из комментария `projects/constants.ts` — они относятся к русскому тексту). Живой прогон 320/375/768/1024, значения — в тело PR3. Находка не из аудита как таковая, а следствие danger «Ширина подогнана под русский текст».
-8. **`legend.tsx` и `ProjectLegendSection.tsx` сводятся к общим ключам каталога** (~80% текста дублируется). Инвариант маскировки легенды (глоссарий **Легенда**) сохраняется дословно — плейсхолдеры переводятся как примеры, не как раскрытие маскировки.
-9. **Черновики `uk`/`en` в шагах** — ориентир, а не окончательный текст. Окончательный текст утверждает `copy-reviewer` по рубрике «два оригинала»; расхождение с черновиком плана в PR — не нарушение плана.
-10. **`zodIssueRu` предпочтительно переводится на реестр кодов `translateZodCode`** (этап 4), если для схем вакансий уже есть коды; если нет — `<Plural>`/`i18n._(msg,{n})` без нового кода в реестре. Заведение нового кода — отдельная строка «Допущений» PR2 и ручная правка обоих `.po`.
-
-## Вопросы владельцу (A2)
-
-Открытых блокирующих вопросов волна не создаёт: периметр выведен из аудита и плана волны b, спорные решения (finance, число PR, `OFFER_RECEIVED`, «HR-менеджер») решены как A1 под запись выше и/или переданы `copy-reviewer` в его штатной рубрике. Вопрос владельцу про модуль `job-sourcing` уже поднят в плане волны b (A2) — этой волны он не касается.
+| What                                                                                                                                                                                    | Whose wave / where to                                                                    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Finance components embedded in `$projectId.tsx` (`TransactionRow`, `TransactionDetailDialog`, `financeApi`) and `fmtUsd`/`ExchangeRates` — Russian text and the `en-US` money formatter | (d) `web-finance`. `$projectId` only renders them; after 3d their text becomes `uk`/`en` |
+| `finance/constants.ts` → `TYPE_LABELS`/`STATUS_LABELS` (the consumer `user-profile/tabs/FinanceTab.tsx`)                                                                                | (d) — this is a web-people file, not in this wave's perimeter; noted by plan b           |
+| `routes/_authenticated/stats.tsx` (`ROLE_LABEL`), `routes/invoice.v.$transactionId.tsx` (`ROLE_LABEL`)                                                                                  | (d) `web-finance`/invoices. Template H from this plan                                    |
+| `components/admin-actions/AdminActionsMenu.tsx` — the file is not imported anywhere (dead code with Russian strings)                                                                    | A candidate for removal as a separate light-track PR (as noted by plan b)                |
 
 ---
 
-## Проверка готовности волны (c)
+## What is NOT included
 
-- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — зелёные после каждого PR.
-- `DATABASE_URL= pnpm --filter @crm/e2e test` на спеках из «Распределения» и вывода свипа — зелёные; CI на всех шардах зелёный. `project-status-filter-ui.spec.ts` — зелёный на всех ширинах после перемера табов.
-- `pnpm i18n:extract` дважды подряд — второй прогон не меняет `.po`; в `en` 0 пустых `msgstr`.
-- `pnpm mutation:changed` — `survived 0`; `NoCoverage` без integration-hint закрыт unit-тестом; `node scripts/devops/check-mutation-suppressions.mjs` — зелёный.
-- Финальная сверка PR4: 0 строк с `[ыэъё]` вне комментариев в периметре; 0 локальных `ROLE_LABELS` в периметре; 0 ветвлений по тексту ошибки сервера.
-- В `CONTEXT.md` есть подраздел «Волна c — `web-projects`».
-- `copy-reviewer`: `PASS` на `uk` и на `en` для каждого из 4 PR.
-- `security-reviewer`: `APPROVE` для PR3 и PR4 (согласование доли, легенда, пароли, шаблоны договоров).
-- Скриншоты 320/1440 × `uk`/`en` для каждого мигрированного экрана — в теле каждого PR; fidelity Mode B — все ширины.
-- Трассировка: 23 идентификатора аудита `web-projects` + 2 находки админ-шаблонов — у каждого строка в теле того PR, который его закрывает (`review-findings-transfer.md`).
+- **`apps/api`** — the wave does not touch it (FM-5 does not apply; if needed — Global Constraints).
+- **Waves (d)–(e)**: finance, statistics, invoices, documents, notifications, `/pending`. Their files are not edited, even when duplicates are found in them (see "Findings outside the perimeter"). Finance transactions inside `$projectId` stay Russian until wave (d).
+- **Stage 6**: ESLint `lingui/no-unlocalized-strings` in error mode, the guard for Russian letters, `extract --clean` as a hard gate.
+- Texts with an explicit id (`api-error.*`, `zod-error.*`) the wave does not change, only uses.
+- `DOMAIN_LABELS`/`SENIORITY_LABELS` (vacancies) — proper names/grades, not translated (remain string maps).
+
+---
+
+## Assumptions (A1 — reversible, recorded)
+
+1. **Perimeter = the `web-projects` audit slice + vacancies (the audit assigned them to this slice) + the admin contract templates (the wave b plan assigned them to wave c).** Excluded: the already-migrated onboarding contract and `user-profile/contract` (wave b), files without Cyrillic (`ProjectLogo`, `contractTokenHighlight`, `use-contract-tokens`, `contract-variables`, `use-board-seniors`). Each deviation — a line in the "Perimeter" table.
+2. **4 PRs, not 3.** The slice is larger (786 lines against 880 of wave b, but with one giant file `$projectId.tsx` at 165 lines). Four PRs give ≤ ~240 lines per review and three parallel perimeters; three PRs would put `$projectId` into one PR with half the project list, and the diff review would become unreadable (which the audit explicitly says to avoid: "one file — one PR").
+3. **The admin contract templates — in PR4 with the project detail page, not a separate PR.** Rationale: keeps the wave within 4 PRs; the admin templates do not depend on PR3 (may start first inside PR4) and do not overlap with anything file-wise; the "large editing screens" pairing is thematically tolerable. If the team prefers 5 PRs — the admin templates are split into a separate parallel PR without changing the rest of the plan.
+4. **We do not touch the cross-slice finance in `$projectId`: we take the finance canon in 3d, not now.** The rationale is in "Danger: cross-slice finance". Finance transactions in the detail page stay Russian until 3d — a known limitation, noted in the PR4 body, not an omission. The local `toLocaleString` calls in the wave's files are nevertheless moved to `format.ts` (COPY-M-proj-15 is feasible without finance).
+5. **`OFFER_RECEIVED` — the draft «Оффер отримано» / «Offer received».** The glossary puts «оффер» into `_Избегать_` (the «Vacancy» term), but the audit's own COPY-H-proj-1 recommendation writes «Оффер получен». The final form («Оффер отримано» or «Пропозицію надіслано») is approved by `copy-reviewer`; a divergence from the plan's draft is not a plan violation.
+6. **«HR-менеджер» → «HR» on migrating `admin/contracts`** (COPY-M-core-9): one role map per application. `copy-reviewer` may reconsider — then an edit of one canon line (`ROLE_LABEL_MESSAGES.HR`), but this would change the role across the whole application, not only in the admin.
+7. **The project status filter tabs are re-measured for `uk` anew** (we do not trust the pixel values from the `projects/constants.ts` comment — they refer to the Russian text). A live run 320/375/768/1024, the values — into the PR3 body. The finding is not from the audit as such, but a consequence of the danger "The width is tuned to the Russian text".
+8. **`legend.tsx` and `ProjectLegendSection.tsx` are reduced to shared catalog keys** (~80% of the text is duplicated). The legend masking invariant (glossary **Legend**) is preserved verbatim — the placeholders are translated as examples, not as a revelation of the masking.
+9. **The `uk`/`en` drafts in the steps** — a guide, not the final text. The final text is approved by `copy-reviewer` per the "two originals" rubric; a divergence from the plan's draft in the PR is not a plan violation.
+10. **`zodIssueRu` is preferably moved to the `translateZodCode` code registry** (stage 4), if there are already codes for the vacancy schemas; if not — `<Plural>`/`i18n._(msg,{n})` without a new code in the registry. Introducing a new code — a separate "Assumptions" line of PR2 and a manual edit of both `.po`.
+
+## Questions for the owner (A2)
+
+The wave creates no open blocking questions: the perimeter is derived from the audit and the wave b plan, the contested decisions (finance, the number of PRs, `OFFER_RECEIVED`, «HR-менеджер») are resolved as A1 on the record above and/or handed to `copy-reviewer` in his regular rubric. The owner question about the `job-sourcing` module is already raised in the wave b plan (A2) — this wave does not concern it.
+
+---
+
+## Wave (c) readiness check
+
+- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — green after each PR.
+- `DATABASE_URL= pnpm --filter @crm/e2e test` on the specs from the "Distribution" and the sweep output — green; CI on all shards green. `project-status-filter-ui.spec.ts` — green at all widths after the tab re-measurement.
+- `pnpm i18n:extract` twice in a row — the second run does not change `.po`; in `en` 0 empty `msgstr`.
+- `pnpm mutation:changed` — `survived 0`; a `NoCoverage` without an integration-hint closed by a unit test; `node scripts/devops/check-mutation-suppressions.mjs` — green.
+- PR4 final check: 0 lines with `[ыэъё]` outside comments in the perimeter; 0 local `ROLE_LABELS` in the perimeter; 0 branchings by the server error text.
+- In `CONTEXT.md` there is a subsection "Wave c — `web-projects`".
+- `copy-reviewer`: `PASS` on `uk` and on `en` for each of the 4 PRs.
+- `security-reviewer`: `APPROVE` for PR3 and PR4 (share approval, legend, passwords, contract templates).
+- Screenshots 320/1440 × `uk`/`en` for each migrated screen — in each PR's body; fidelity Mode B — all widths.
+- Trace: 23 `web-projects` audit identifiers + 2 admin-template findings — each with a line in the body of the PR that closes it (`review-findings-transfer.md`).

@@ -2,49 +2,50 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Добавить PM-агента как центрального оркестратора, параллельный диспетч задач через `docs/specs/tasks/`, явный E2E gate (`e2e.yml`), User Testing stage, убрать QA и упростить эскалационную цепочку.
+**Goal:** Add a PM agent as the central orchestrator, parallel task dispatch via `docs/specs/tasks/`, an explicit E2E gate (`e2e.yml`), a User Testing stage, remove QA and simplify the escalation chain.
 
-**Architecture:** PM живёт локально, запускает GHA-агентов параллельно через `gh workflow run`, мониторит через ScheduleWakeup + pm-state.json. Reviewer после APPROVE добавляет label `awaiting-pm-review` — PM просыпается, анализирует, запускает User Testing, затем e2e.yml.
+**Architecture:** The PM lives locally, launches GHA agents in parallel via `gh workflow run`, monitors via ScheduleWakeup + pm-state.json. After APPROVE the Reviewer adds the label `awaiting-pm-review` — the PM wakes up, analyzes, runs User Testing, then e2e.yml.
 
-**Tech Stack:** GitHub Actions, claude-code-action@beta, bash (gh CLI), pnpm, Playwright (e2e.yml), Zod-промпты в YAML direct_prompt.
+**Tech Stack:** GitHub Actions, claude-code-action@beta, bash (gh CLI), pnpm, Playwright (e2e.yml), Zod prompts in the YAML direct_prompt.
 
 ---
 
-## Файлы — полный список изменений
+## Files — the full list of changes
 
-| Действие | Файл |
-|----------|------|
-| CREATE | `docs/specs/tasks/.gitkeep` |
-| CREATE | `docs/specs/tasks/archive/.gitkeep` |
-| CREATE | `.github/workflows/e2e.yml` |
-| CREATE | `docs/agents/pm.md` |
-| CREATE | `docs/agents/CLAUDE-pm.md` |
-| MODIFY | `.github/workflows/coder.yml` |
-| MODIFY | `.github/workflows/devops.yml` |
-| MODIFY | `.github/workflows/autotest.yml` |
-| MODIFY | `.github/workflows/ai-review.yml` |
-| MODIFY | `docs/agents/ba.md` |
-| MODIFY | `docs/agents/CLAUDE-ba.md` |
-| MODIFY | `docs/agents/coder.md` |
-| MODIFY | `docs/agents/autotest.md` |
-| MODIFY | `docs/agents/reviewer.md` |
-| MODIFY | `docs/agents/devops.md` |
-| MODIFY | `CLAUDE.md` |
-| ARCHIVE | `docs/agents/qa.md` → `docs/agents/archive/qa.md` |
+| Action  | File                                                            |
+| ------- | --------------------------------------------------------------- |
+| CREATE  | `docs/specs/tasks/.gitkeep`                                     |
+| CREATE  | `docs/specs/tasks/archive/.gitkeep`                             |
+| CREATE  | `.github/workflows/e2e.yml`                                     |
+| CREATE  | `docs/agents/pm.md`                                             |
+| CREATE  | `docs/agents/CLAUDE-pm.md`                                      |
+| MODIFY  | `.github/workflows/coder.yml`                                   |
+| MODIFY  | `.github/workflows/devops.yml`                                  |
+| MODIFY  | `.github/workflows/autotest.yml`                                |
+| MODIFY  | `.github/workflows/ai-review.yml`                               |
+| MODIFY  | `docs/agents/ba.md`                                             |
+| MODIFY  | `docs/agents/CLAUDE-ba.md`                                      |
+| MODIFY  | `docs/agents/coder.md`                                          |
+| MODIFY  | `docs/agents/autotest.md`                                       |
+| MODIFY  | `docs/agents/reviewer.md`                                       |
+| MODIFY  | `docs/agents/devops.md`                                         |
+| MODIFY  | `CLAUDE.md`                                                     |
+| ARCHIVE | `docs/agents/qa.md` → `docs/agents/archive/qa.md`               |
 | ARCHIVE | `docs/agents/CLAUDE-qa.md` → `docs/agents/archive/CLAUDE-qa.md` |
-| ARCHIVE | `docs/specs/active-task.md` → `docs/specs/archive/` |
-| ARCHIVE | `docs/specs/active-devops-task.md` → `docs/specs/archive/` |
-| DELETE | `.github/workflows/ba-escalation.yml` |
+| ARCHIVE | `docs/specs/active-task.md` → `docs/specs/archive/`             |
+| ARCHIVE | `docs/specs/active-devops-task.md` → `docs/specs/archive/`      |
+| DELETE  | `.github/workflows/ba-escalation.yml`                           |
 
 ---
 
-## Task 1: Инициализация директории задач и GitHub label
+## Task 1: Initialize the tasks directory and the GitHub label
 
 **Files:**
+
 - Create: `docs/specs/tasks/.gitkeep`
 - Create: `docs/specs/tasks/archive/.gitkeep`
 
-- [ ] **Шаг 1: Создать директории**
+- [ ] **Step 1: Create the directories**
 
 ```bash
 mkdir -p docs/specs/tasks/archive
@@ -52,7 +53,7 @@ touch docs/specs/tasks/.gitkeep
 touch docs/specs/tasks/archive/.gitkeep
 ```
 
-- [ ] **Шаг 2: Добавить label `awaiting-pm-review` в репо**
+- [ ] **Step 2: Add the label `awaiting-pm-review` to the repo**
 
 ```bash
 gh label create "awaiting-pm-review" \
@@ -61,7 +62,7 @@ gh label create "awaiting-pm-review" \
   --description "PM needs to analyze review before E2E"
 ```
 
-- [ ] **Шаг 3: Добавить label `pm-blocker` в репо**
+- [ ] **Step 3: Add the label `pm-blocker` to the repo**
 
 ```bash
 gh label create "pm-blocker" \
@@ -70,7 +71,7 @@ gh label create "pm-blocker" \
   --description "Agent blocked, PM needs to resolve"
 ```
 
-- [ ] **Шаг 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add docs/specs/tasks/.gitkeep docs/specs/tasks/archive/.gitkeep
@@ -79,12 +80,13 @@ git commit -m "chore: initialize tasks/ directory for PM parallel dispatch"
 
 ---
 
-## Task 2: Новый `e2e.yml` workflow
+## Task 2: The new `e2e.yml` workflow
 
 **Files:**
+
 - Create: `.github/workflows/e2e.yml`
 
-- [ ] **Шаг 1: Создать `.github/workflows/e2e.yml`**
+- [ ] **Step 1: Create `.github/workflows/e2e.yml`**
 
 ```yaml
 name: E2E Tests
@@ -263,7 +265,7 @@ jobs:
             --delete-branch
 ```
 
-- [ ] **Шаг 2: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git add .github/workflows/e2e.yml
@@ -272,36 +274,37 @@ git commit -m "feat(ci): add standalone e2e.yml triggered by PM after user testi
 
 ---
 
-## Task 3: Обновить `coder.yml` — параметр `task_file`
+## Task 3: Update `coder.yml` — the `task_file` parameter
 
 **Files:**
+
 - Modify: `.github/workflows/coder.yml`
 
-- [ ] **Шаг 1: Добавить `task_file` input и обновить concurrency**
+- [ ] **Step 1: Add the `task_file` input and update concurrency**
 
-Найти блок `on:` → `workflow_dispatch:` → `inputs:` и заменить:
+Find the block `on:` → `workflow_dispatch:` → `inputs:` and replace:
 
 ```yaml
 # БЫЛО:
-    inputs:
-      task_hint:
-        description: 'Optional: short hint for branch name (e.g. "fix-finance-rbac")'
-        required: false
-        type: string
+inputs:
+  task_hint:
+    description: 'Optional: short hint for branch name (e.g. "fix-finance-rbac")'
+    required: false
+    type: string
 
 # СТАЛО:
-    inputs:
-      task_file:
-        description: 'Path to task file (e.g. docs/specs/tasks/task-auth-api.md)'
-        required: true
-        type: string
-      task_hint:
-        description: 'Short hint for branch name (e.g. "auth-api")'
-        required: false
-        type: string
+inputs:
+  task_file:
+    description: 'Path to task file (e.g. docs/specs/tasks/task-auth-api.md)'
+    required: true
+    type: string
+  task_hint:
+    description: 'Short hint for branch name (e.g. "auth-api")'
+    required: false
+    type: string
 ```
 
-- [ ] **Шаг 2: Обновить concurrency key**
+- [ ] **Step 2: Update the concurrency key**
 
 ```yaml
 # БЫЛО:
@@ -315,43 +318,46 @@ concurrency:
   cancel-in-progress: false
 ```
 
-- [ ] **Шаг 3: Обновить `direct_prompt` — читать из `task_file`**
+- [ ] **Step 3: Update `direct_prompt` — read from `task_file`**
 
-Найти строку в `direct_prompt`:
+Find the line in `direct_prompt`:
+
 ```
 Прочитай docs/specs/active-task.md — это твоя текущая задача.
 ```
-Заменить на:
+
+Replace with:
+
 ```
 Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 ```
 
-- [ ] **Шаг 4: Добавить все MCP в `allowed_tools`**
+- [ ] **Step 4: Add all the MCP to `allowed_tools`**
 
 ```yaml
-          allowed_tools: |
-            Read
-            Write
-            Edit
-            Bash
-            mcp__ast-grep__find_code
-            mcp__ast-grep__find_code_by_rule
-            mcp__ast-grep__dump_syntax_tree
-            mcp__context7__resolve-library-id
-            mcp__context7__query-docs
-            mcp__eslint__lint-files
-            mcp__postgres__query
-            mcp__playwright__browser_navigate
-            mcp__playwright__browser_take_screenshot
-            mcp__playwright__browser_snapshot
-            mcp__github__create_pull_request
-            mcp__github__create_branch
-            mcp__github__get_pull_request
-            mcp__github__get_pull_request_files
-            mcp__github__add_issue_comment
+allowed_tools: |
+  Read
+  Write
+  Edit
+  Bash
+  mcp__ast-grep__find_code
+  mcp__ast-grep__find_code_by_rule
+  mcp__ast-grep__dump_syntax_tree
+  mcp__context7__resolve-library-id
+  mcp__context7__query-docs
+  mcp__eslint__lint-files
+  mcp__postgres__query
+  mcp__playwright__browser_navigate
+  mcp__playwright__browser_take_screenshot
+  mcp__playwright__browser_snapshot
+  mcp__github__create_pull_request
+  mcp__github__create_branch
+  mcp__github__get_pull_request
+  mcp__github__get_pull_request_files
+  mcp__github__add_issue_comment
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/coder.yml
@@ -360,34 +366,35 @@ git commit -m "feat(ci): coder.yml accepts task_file param for parallel dispatch
 
 ---
 
-## Task 4: Обновить `devops.yml` — параметр `task_file`
+## Task 4: Update `devops.yml` — the `task_file` parameter
 
 **Files:**
+
 - Modify: `.github/workflows/devops.yml`
 
-- [ ] **Шаг 1: Добавить `task_file` input**
+- [ ] **Step 1: Add the `task_file` input**
 
 ```yaml
 # БЫЛО:
-    inputs:
-      task_hint:
-        description: 'Optional: short hint for branch name (e.g. "add-devops-agent")'
-        required: false
-        type: string
+inputs:
+  task_hint:
+    description: 'Optional: short hint for branch name (e.g. "add-devops-agent")'
+    required: false
+    type: string
 
 # СТАЛО:
-    inputs:
-      task_file:
-        description: 'Path to task file (e.g. docs/specs/tasks/task-infra-redis.md)'
-        required: true
-        type: string
-      task_hint:
-        description: 'Short hint for branch name'
-        required: false
-        type: string
+inputs:
+  task_file:
+    description: 'Path to task file (e.g. docs/specs/tasks/task-infra-redis.md)'
+    required: true
+    type: string
+  task_hint:
+    description: 'Short hint for branch name'
+    required: false
+    type: string
 ```
 
-- [ ] **Шаг 2: Обновить concurrency key**
+- [ ] **Step 2: Update the concurrency key**
 
 ```yaml
 # БЫЛО:
@@ -401,36 +408,39 @@ concurrency:
   cancel-in-progress: false
 ```
 
-- [ ] **Шаг 3: Обновить `direct_prompt`**
+- [ ] **Step 3: Update `direct_prompt`**
 
-Найти:
+Find:
+
 ```
 Прочитай docs/specs/active-devops-task.md — это твоя текущая задача.
 ```
-Заменить на:
+
+Replace with:
+
 ```
 Прочитай ${{ inputs.task_file }} — это твоя текущая задача.
 ```
 
-- [ ] **Шаг 4: Добавить все MCP в `allowed_tools`**
+- [ ] **Step 4: Add all the MCP to `allowed_tools`**
 
 ```yaml
-          allowed_tools: |
-            Read
-            Write
-            Edit
-            Bash
-            mcp__ast-grep__find_code
-            mcp__ast-grep__find_code_by_rule
-            mcp__context7__resolve-library-id
-            mcp__context7__query-docs
-            mcp__github__create_pull_request
-            mcp__github__create_branch
-            mcp__github__get_pull_request
-            mcp__github__add_issue_comment
+allowed_tools: |
+  Read
+  Write
+  Edit
+  Bash
+  mcp__ast-grep__find_code
+  mcp__ast-grep__find_code_by_rule
+  mcp__context7__resolve-library-id
+  mcp__context7__query-docs
+  mcp__github__create_pull_request
+  mcp__github__create_branch
+  mcp__github__get_pull_request
+  mcp__github__add_issue_comment
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/devops.yml
@@ -439,34 +449,35 @@ git commit -m "feat(ci): devops.yml accepts task_file param for parallel dispatc
 
 ---
 
-## Task 5: Обновить `autotest.yml` — параметр `task_file`
+## Task 5: Update `autotest.yml` — the `task_file` parameter
 
 **Files:**
+
 - Modify: `.github/workflows/autotest.yml`
 
-- [ ] **Шаг 1: Добавить опциональный `task_file` input**
+- [ ] **Step 1: Add the optional `task_file` input**
 
 ```yaml
 # БЫЛО:
-    inputs:
-      module:
-        description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
-        required: false
-        type: string
+inputs:
+  module:
+    description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
+    required: false
+    type: string
 
 # СТАЛО:
-    inputs:
-      task_file:
-        description: 'Path to task file from PM (e.g. docs/specs/tasks/task-e2e-auth.md) — optional'
-        required: false
-        type: string
-      module:
-        description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
-        required: false
-        type: string
+inputs:
+  task_file:
+    description: 'Path to task file from PM (e.g. docs/specs/tasks/task-e2e-auth.md) — optional'
+    required: false
+    type: string
+  module:
+    description: 'Module to update tests for (e.g. finance, team, interviews) — empty = full scan'
+    required: false
+    type: string
 ```
 
-- [ ] **Шаг 2: Обновить concurrency key**
+- [ ] **Step 2: Update the concurrency key**
 
 ```yaml
 # БЫЛО:
@@ -478,67 +489,67 @@ concurrency:
   group: autotest-${{ inputs.task_file || inputs.module || github.ref }}
 ```
 
-- [ ] **Шаг 3: Обновить `direct_prompt`**
+- [ ] **Step 3: Update `direct_prompt`**
 
-В секции `direct_prompt` добавить в начало:
-
-```yaml
-          direct_prompt: |
-            Ты — AutoTest-агент для CRM Cheeky Cheese IT.
-
-            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
-            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
-
-            {% if inputs.task_file %}
-            Работай в РЕЖИМЕ 3: PM task-driven.
-            Прочитай ${{ inputs.task_file }} — задача от PM.
-            Напиши или обнови E2E тесты для описанного функционала.
-            {% else %}
-            Работай в РЕЖИМЕ 2: docs/business/** Push.
-            {% endif %}
-```
-
-Поскольку GitHub Actions не поддерживает Jinja-условия в строках, вместо этого добавить в `direct_prompt`:
+In the `direct_prompt` section add at the beginning:
 
 ```yaml
-          direct_prompt: |
-            Ты — AutoTest-агент для CRM Cheeky Cheese IT.
+direct_prompt: |
+  Ты — AutoTest-агент для CRM Cheeky Cheese IT.
 
-            Прочитай docs/agents/autotest.md — это твой полный системный промпт.
-            Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
+  Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+  Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
 
-            TASK_FILE: "${{ inputs.task_file }}"
-            MODULE: "${{ inputs.module }}"
-
-            Если TASK_FILE не пустой — прочитай его и работай по описанной задаче (Режим 3).
-            Если TASK_FILE пустой — работай в Режиме 2: docs/business/** Push.
-
-            Изменились следующие бизнес-документы (для Режима 2):
-            ${{ steps.changed.outputs.files }}
-            hint для ветки: ${{ steps.changed.outputs.hint }}
-            Repo: ${{ github.repository }}
+  {% if inputs.task_file %}
+  Работай в РЕЖИМЕ 3: PM task-driven.
+  Прочитай ${{ inputs.task_file }} — задача от PM.
+  Напиши или обнови E2E тесты для описанного функционала.
+  {% else %}
+  Работай в РЕЖИМЕ 2: docs/business/** Push.
+  {% endif %}
 ```
 
-- [ ] **Шаг 4: Добавить все MCP в `allowed_tools`**
+Since GitHub Actions does not support Jinja conditions in strings, instead add to `direct_prompt`:
 
 ```yaml
-          allowed_tools: |
-            Read
-            Write
-            Edit
-            Bash
-            mcp__ast-grep__find_code
-            mcp__ast-grep__find_code_by_rule
-            mcp__playwright__browser_navigate
-            mcp__playwright__browser_snapshot
-            mcp__playwright__browser_take_screenshot
-            mcp__github__create_pull_request
-            mcp__github__create_branch
-            mcp__github__get_pull_request
-            mcp__github__add_issue_comment
+direct_prompt: |
+  Ты — AutoTest-агент для CRM Cheeky Cheese IT.
+
+  Прочитай docs/agents/autotest.md — это твой полный системный промпт.
+  Прочитай docs/agents/CLAUDE-autotest.md — структура тестов, паттерны, seed.
+
+  TASK_FILE: "${{ inputs.task_file }}"
+  MODULE: "${{ inputs.module }}"
+
+  Если TASK_FILE не пустой — прочитай его и работай по описанной задаче (Режим 3).
+  Если TASK_FILE пустой — работай в Режиме 2: docs/business/** Push.
+
+  Изменились следующие бизнес-документы (для Режима 2):
+  ${{ steps.changed.outputs.files }}
+  hint для ветки: ${{ steps.changed.outputs.hint }}
+  Repo: ${{ github.repository }}
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 4: Add all the MCP to `allowed_tools`**
+
+```yaml
+allowed_tools: |
+  Read
+  Write
+  Edit
+  Bash
+  mcp__ast-grep__find_code
+  mcp__ast-grep__find_code_by_rule
+  mcp__playwright__browser_navigate
+  mcp__playwright__browser_snapshot
+  mcp__playwright__browser_take_screenshot
+  mcp__github__create_pull_request
+  mcp__github__create_branch
+  mcp__github__get_pull_request
+  mcp__github__add_issue_comment
+```
+
+- [ ] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/autotest.yml
@@ -547,33 +558,34 @@ git commit -m "feat(ci): autotest.yml accepts optional task_file from PM"
 
 ---
 
-## Task 6: Обновить `ai-review.yml` — убрать merge, добавить awaiting-pm-review
+## Task 6: Update `ai-review.yml` — remove merge, add awaiting-pm-review
 
 **Files:**
+
 - Modify: `.github/workflows/ai-review.yml`
 
-Это самое важное изменение. Три конкретных правки:
+This is the most important change. Three specific edits:
 
-### 6.A — Добавить label после APPROVE (в job `reviewer`)
+### 6.A — Add the label after APPROVE (in the job `reviewer`)
 
-- [ ] **Шаг 1: Найти шаг `check_approved` в job `reviewer` и добавить после него новый шаг**
+- [ ] **Step 1: Find the step `check_approved` in the job `reviewer` and add a new step after it**
 
-После шага `Check reviewer decision` добавить:
+After the step `Check reviewer decision` add:
 
 ```yaml
-      - name: Add awaiting-pm-review label on APPROVE
-        if: steps.check_approved.outputs.approved == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ github.event.pull_request.number || inputs.pr_number }}"
-          gh pr edit "$PR" --repo ${{ github.repository }} \
-            --add-label "awaiting-pm-review"
+- name: Add awaiting-pm-review label on APPROVE
+  if: steps.check_approved.outputs.approved == 'true'
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    PR="${{ github.event.pull_request.number || inputs.pr_number }}"
+    gh pr edit "$PR" --repo ${{ github.repository }} \
+      --add-label "awaiting-pm-review"
 ```
 
-### 6.B — Обновить pipeline status comment (в job `reviewer`)
+### 6.B — Update the pipeline status comment (in the job `reviewer`)
 
-- [ ] **Шаг 2: Найти шаг `Update pipeline status — Code Review result` и заменить статус merge**
+- [ ] **Step 2: Find the step `Update pipeline status — Code Review result` and replace the merge status**
 
 ```bash
 # БЫЛО (в строке MG):
@@ -595,11 +607,12 @@ else
 fi
 ```
 
-### 6.C — Удалить job `merge` полностью
+### 6.C — Remove the job `merge` entirely
 
-- [ ] **Шаг 3: Удалить весь блок job `merge`** (строки от `merge:` до конца этого job, примерно строки 365–440 в текущем файле)
+- [ ] **Step 3: Remove the whole block of the job `merge`** (the lines from `merge:` to the end of this job, roughly lines 365–440 in the current file)
 
-Удалить блок:
+Remove the block:
+
 ```yaml
   # ─────────────────────────────────────────────
   # Job 3: Merge PR
@@ -611,67 +624,67 @@ fi
       ...
 ```
 
-### 6.D — Обновить job `trigger_coder` — передавать `task_file`
+### 6.D — Update the job `trigger_coder` — pass `task_file`
 
-- [ ] **Шаг 4: В job `trigger_coder` заменить шаг `Write and commit active-task.md`**
-
-```yaml
-      - name: Write and commit fix-task file
-        if: steps.review.outputs.has_review == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ steps.review.outputs.pr }}"
-          BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
-          git fetch origin "${BRANCH}"
-          git checkout "${BRANCH}"
-
-          TASK_FILE="docs/specs/tasks/task-fix-pr-${PR}.md"
-
-          cat > "${TASK_FILE}" << TASK_EOF
-          # Fix PR #${PR} — Review REQUEST_CHANGES
-
-          ## Агент: coder
-          ## Приоритет: high
-          ## Ветка: ${BRANCH}
-          ## НЕ створювати нову гілку — пушити в існуючу: \`${BRANCH}\`
-
-          ## Findings від Reviewer
-
-          ${{ steps.review.outputs.body }}
-
-          ## Алгоритм
-          1. git fetch origin ${BRANCH} && git checkout ${BRANCH}
-          2. Виправити всі знайдені проблеми
-          3. pnpm typecheck && pnpm lint && pnpm test
-          4. git add <конкретні файли> && git commit -m "fix: ..."
-          5. git push origin ${BRANCH}
-          TASK_EOF
-
-          git add "${TASK_FILE}"
-          git commit -m "task: fix PR #${PR} — reviewer changes requested"
-          git push origin "${BRANCH}"
-          echo "task_file=${TASK_FILE}" >> $GITHUB_OUTPUT
-        id: write_task
-```
-
-- [ ] **Шаг 5: Обновить шаг `Trigger Coder` — передавать `task_file`**
+- [ ] **Step 4: In the job `trigger_coder` replace the step `Write and commit active-task.md`**
 
 ```yaml
-      - name: Trigger Coder
-        if: steps.review.outputs.has_review == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          PR="${{ steps.review.outputs.pr }}"
-          TASK_FILE="${{ steps.write_task.outputs.task_file }}"
-          gh workflow run coder.yml \
-            --repo ${{ github.repository }} \
-            -f task_file="${TASK_FILE}" \
-            -f task_hint="fix-pr-${PR}"
+- name: Write and commit fix-task file
+  if: steps.review.outputs.has_review == 'true'
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    PR="${{ steps.review.outputs.pr }}"
+    BRANCH=$(gh pr view "$PR" --repo ${{ github.repository }} --json headRefName --jq '.headRefName')
+    git fetch origin "${BRANCH}"
+    git checkout "${BRANCH}"
+
+    TASK_FILE="docs/specs/tasks/task-fix-pr-${PR}.md"
+
+    cat > "${TASK_FILE}" << TASK_EOF
+    # Fix PR #${PR} — Review REQUEST_CHANGES
+
+    ## Агент: coder
+    ## Приоритет: high
+    ## Ветка: ${BRANCH}
+    ## НЕ створювати нову гілку — пушити в існуючу: \`${BRANCH}\`
+
+    ## Findings від Reviewer
+
+    ${{ steps.review.outputs.body }}
+
+    ## Алгоритм
+    1. git fetch origin ${BRANCH} && git checkout ${BRANCH}
+    2. Виправити всі знайдені проблеми
+    3. pnpm typecheck && pnpm lint && pnpm test
+    4. git add <конкретні файли> && git commit -m "fix: ..."
+    5. git push origin ${BRANCH}
+    TASK_EOF
+
+    git add "${TASK_FILE}"
+    git commit -m "task: fix PR #${PR} — reviewer changes requested"
+    git push origin "${BRANCH}"
+    echo "task_file=${TASK_FILE}" >> $GITHUB_OUTPUT
+  id: write_task
 ```
 
-- [ ] **Шаг 6: Commit**
+- [ ] **Step 5: Update the step `Trigger Coder` — pass `task_file`**
+
+```yaml
+- name: Trigger Coder
+  if: steps.review.outputs.has_review == 'true'
+  env:
+    GH_TOKEN: ${{ github.token }}
+  run: |
+    PR="${{ steps.review.outputs.pr }}"
+    TASK_FILE="${{ steps.write_task.outputs.task_file }}"
+    gh workflow run coder.yml \
+      --repo ${{ github.repository }} \
+      -f task_file="${TASK_FILE}" \
+      -f task_hint="fix-pr-${PR}"
+```
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add .github/workflows/ai-review.yml
@@ -680,14 +693,15 @@ git commit -m "feat(ci): ai-review stops at PM gate after APPROVE, removes auto-
 
 ---
 
-## Task 7: Создать `docs/agents/pm.md`
+## Task 7: Create `docs/agents/pm.md`
 
 **Files:**
+
 - Create: `docs/agents/pm.md`
 
-- [ ] **Шаг 1: Создать файл**
+- [ ] **Step 1: Create the file**
 
-```markdown
+````markdown
 # PM-агент (Project Manager)
 
 ## Роль
@@ -709,7 +723,7 @@ git commit -m "feat(ci): ai-review stops at PM gate after APPROVE, removes auto-
 
 ## Режим 1 — Старт новой фичи
 
-*Запускается когда BA написал новый `docs/specs/pm-brief.md`*
+_Запускается когда BA написал новый `docs/specs/pm-brief.md`_
 
 ### Шаг 1: Анализ
 
@@ -717,6 +731,7 @@ git commit -m "feat(ci): ai-review stops at PM gate after APPROVE, removes auto-
 cat docs/specs/pm-brief.md
 # Если pm-state.json существует — прочитать его
 ```
+````
 
 Если найдена незавершённая работа в `pm-state.json` → перейти в **Режим 2**.
 
@@ -724,6 +739,7 @@ cat docs/specs/pm-brief.md
 
 Вызвать skill `superpowers:writing-plans` для декомпозиции фичи.
 Для каждой задачи определить:
+
 - Агент: `coder` | `autotest` | `devops`
 - Зависимости (какие задачи нужно завершить первыми)
 - Ожидаемая длительность (см. CLAUDE-pm.md)
@@ -799,6 +815,7 @@ ls docs/specs/tasks/*.blocked.md 2>/dev/null
 ### Шаг 2: Обновить статусы задач в pm-state.json
 
 Для каждой задачи со статусом `running`:
+
 ```bash
 gh run view <run_id> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -806,13 +823,14 @@ gh run view <run_id> \
   --jq '{status, conclusion}'
 ```
 
-| conclusion | Действие |
-|-----------|---------|
-| (in_progress) | Ждать — ScheduleWakeup |
-| success | → статус `pr_open`, найти PR через `gh pr list` по branch |
-| failure | → статус `failed`, читать лог, создать fix-задачу |
+| conclusion    | Действие                                                  |
+| ------------- | --------------------------------------------------------- |
+| (in_progress) | Ждать — ScheduleWakeup                                    |
+| success       | → статус `pr_open`, найти PR через `gh pr list` по branch |
+| failure       | → статус `failed`, читать лог, создать fix-задачу         |
 
 Найти PR по ветке:
+
 ```bash
 gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --head "feature/<slug>" --json number --jq '.[0].number'
@@ -821,6 +839,7 @@ gh pr list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 ### Шаг 3: Обработать PR-статусы
 
 Для задач со статусом `pr_open`:
+
 ```bash
 gh pr view <pr_number> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -832,6 +851,7 @@ gh pr view <pr_number> \
 ### Шаг 4: E2E статусы
 
 Для задач со статусом `e2e_running`:
+
 ```bash
 gh run view <e2e_run_id> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -860,6 +880,7 @@ cat docs/specs/tasks/<name>.blocked.md
 4. Если нужно → обновить `docs/business/`
 5. Удалить `.blocked.md`
 6. Перезапустить агента:
+
 ```bash
 gh workflow run <workflow.yml> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -872,6 +893,7 @@ gh workflow run <workflow.yml> \
 ### Режим 2.B — Post-Review анализ
 
 Читать review-комментарии:
+
 ```bash
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<pr>/reviews \
   --jq '.[] | {state, body, submitted_at}' | head -50
@@ -880,6 +902,7 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<pr>/reviews \
 Если комментарии касаются бизнес-логики → обновить `docs/business/`.
 
 Убрать label:
+
 ```bash
 gh pr edit <pr_number> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -893,6 +916,7 @@ gh pr edit <pr_number> \
 ### Режим 2.C — E2E fail
 
 1. Читать лог:
+
 ```bash
 gh run view <run_id> \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -904,6 +928,7 @@ gh run view <run_id> \
    - Баг в тесте → `docs/specs/tasks/task-fix-test-<slug>.md` для AutoTest
 
 3. Запустить fix-агента (пушит в ту же ветку PR — указать в task-файле):
+
 ```bash
 gh workflow run coder.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -912,6 +937,7 @@ gh workflow run coder.yml \
 ```
 
 4. После фикса — перезапустить ai-review:
+
 ```bash
 gh workflow run ai-review.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -961,6 +987,7 @@ pnpm dev
 ### Шаг 3: Реакция
 
 **АПРУВ:**
+
 ```bash
 gh workflow run e2e.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -970,6 +997,7 @@ gh workflow run e2e.yml \
 gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --workflow=e2e.yml --limit=1 --json databaseId --jq '.[0].databaseId'
 ```
+
 Записать `e2e_run_id` в pm-state.json → статус `e2e_running` → `ScheduleWakeup(delay=900)`
 
 **ПРАВКИ:** → Режим 4.A
@@ -980,15 +1008,16 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
 
 Для каждой правки от пользователя определить тип:
 
-| Правка | Агент | Skill |
-|--------|-------|-------|
-| UI/визуал/отступы | Coder | `frontend-design` |
-| Бизнес-логика неверная | Coder + обновить `docs/business/` | `systematic-debugging` |
-| Новая фича в scope | Coder | `writing-plans` |
-| Новая фича вне scope | Уточнить у пользователя | — |
-| E2E тест не покрывает | AutoTest | `test-driven-development` |
+| Правка                 | Агент                             | Skill                     |
+| ---------------------- | --------------------------------- | ------------------------- |
+| UI/визуал/отступы      | Coder                             | `frontend-design`         |
+| Бизнес-логика неверная | Coder + обновить `docs/business/` | `systematic-debugging`    |
+| Новая фича в scope     | Coder                             | `writing-plans`           |
+| Новая фича вне scope   | Уточнить у пользователя           | —                         |
+| E2E тест не покрывает  | AutoTest                          | `test-driven-development` |
 
 Создать task-файлы → запустить агентов (пушат в ту же ветку PR):
+
 ```bash
 gh workflow run coder.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
@@ -997,11 +1026,13 @@ gh workflow run coder.yml \
 ```
 
 После push → перезапустить ai-review:
+
 ```bash
 gh workflow run ai-review.yml \
   --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   -f pr_number=<N>
 ```
+
 → Мониторинг → APPROVE → User Testing снова.
 
 ---
@@ -1018,14 +1049,14 @@ gh workflow run ai-review.yml \
 
 ## MCP серверы
 
-| Задача | MCP |
-|--------|-----|
-| Читать review | `mcp__github__get_pull_request_reviews` |
-| Читать комментарии | `mcp__github__get_pull_request_comments` |
-| Управление labels | `gh pr edit --add-label / --remove-label` (Bash) |
-| Проверить схему БД | `mcp__postgres__query` |
-| Найти паттерны в коде | `mcp__ast-grep__find_code` |
-| Документация | `mcp__context7__resolve-library-id` + `query-docs` |
+| Задача                | MCP                                                |
+| --------------------- | -------------------------------------------------- |
+| Читать review         | `mcp__github__get_pull_request_reviews`            |
+| Читать комментарии    | `mcp__github__get_pull_request_comments`           |
+| Управление labels     | `gh pr edit --add-label / --remove-label` (Bash)   |
+| Проверить схему БД    | `mcp__postgres__query`                             |
+| Найти паттерны в коде | `mcp__ast-grep__find_code`                         |
+| Документация          | `mcp__context7__resolve-library-id` + `query-docs` |
 
 ---
 
@@ -1035,59 +1066,72 @@ gh workflow run ai-review.yml \
 # task-<slug>
 
 ## Агент: coder | autotest | devops
+
 ## Приоритет: high | medium | low
+
 ## Зависит от: (опционально, id другой задачи)
+
 ## Ветка: feature/<slug>
+
 ## (Для фиксов в существующей ветке — указать её имя)
 
 ## Контекст
+
 <зачем эта задача, какую проблему решает>
 
 ## Конкретные изменения
+
 1. `packages/shared/src/schemas/<module>.ts` — <что добавить/изменить>
 2. `apps/api/src/<module>/<file>.ts` — <что реализовать>
 3. `apps/web/app/routes/crm/<module>/` — <UI изменения>
 
 ## API endpoints (если новые)
+
 - `GET /api/...` — описание, RBAC: ADMIN/SENIOR видят
 
 ## DB schema (если новые таблицы)
+
 \`\`\`sql
 -- таблица / колонки
 \`\`\`
 
 ## RBAC
-| Роль | Доступ |
-|------|--------|
-| ADMIN | |
-| SENIOR | |
+
+| Роль   | Доступ |
+| ------ | ------ |
+| ADMIN  |        |
+| SENIOR |        |
 
 ## Acceptance criteria
+
 - [ ] <проверяемый критерий>
 - [ ] <второй критерий>
 
 ## Запрещено трогать
+
 - `<файлы не входящие в задачу>`
 ```
-```
 
-- [ ] **Шаг 2: Commit**
+````
+
+- [ ] **Step 2: Commit**
 
 ```bash
 git add docs/agents/pm.md
 git commit -m "feat(agents): add PM agent system prompt with 4 operating modes"
-```
+````
 
 ---
 
-## Task 8: Создать `docs/agents/CLAUDE-pm.md`
+## Task 8: Create `docs/agents/CLAUDE-pm.md`
 
 **Files:**
+
 - Create: `docs/agents/CLAUDE-pm.md`
 
-- [ ] **Шаг 1: Создать файл**
+- [ ] **Step 1: Create the file**
 
-```markdown
+````markdown
 # PM — Agent Notes
 
 ## Репо
@@ -1098,21 +1142,21 @@ Main branch: `main`
 
 ## GHA Secrets
 
-| Secret | Для чого |
-|--------|----------|
+| Secret                    | Для чого                             |
+| ------------------------- | ------------------------------------ |
 | `CLAUDE_CODE_OAUTH_TOKEN` | claude-code-action auth (всі агенти) |
-| `JWT_SECRET` | E2E тести (auth через cookie) |
+| `JWT_SECRET`              | E2E тести (auth через cookie)        |
 
 ## Типові тривалості (expected_duration_min)
 
-| Тип задачі | Хв |
-|-----------|----|
-| Coder: 1-2 файли | 8-12 |
+| Тип задачі                 | Хв    |
+| -------------------------- | ----- |
+| Coder: 1-2 файли           | 8-12  |
 | Coder: модуль (3-6 файлів) | 15-25 |
 | Coder: великий модуль (7+) | 25-40 |
-| AutoTest: оновлення тестів | 8-15 |
-| DevOps: workflow зміни | 5-10 |
-| E2E workflow (e2e.yml) | 10-20 |
+| AutoTest: оновлення тестів | 8-15  |
+| DevOps: workflow зміни     | 5-10  |
+| E2E workflow (e2e.yml)     | 10-20 |
 
 ## Іменування гілок
 
@@ -1163,6 +1207,7 @@ gh run list --repo yaremenko-maksym/CheekyCheeseIT_CRM \
   --workflow=<name>.yml --limit=1 \
   --json databaseId --jq '.[0].databaseId'
 ```
+````
 
 ## Структура docs/specs/tasks/
 
@@ -1181,25 +1226,27 @@ docs/specs/tasks/
 - Фікс E2E: `task-fix-e2e-<slug>.md`
 - Фікс тесту: `task-fix-test-<slug>.md`
 - Фікс від user testing: `task-fix-<short-description>.md`
-```
 
-- [ ] **Шаг 2: Commit**
+````
+
+- [ ] **Step 2: Commit**
 
 ```bash
 git add docs/agents/CLAUDE-pm.md
 git commit -m "feat(agents): add CLAUDE-pm.md context notes for PM agent"
-```
+````
 
 ---
 
-## Task 9: Обновить `docs/agents/ba.md`
+## Task 9: Update `docs/agents/ba.md`
 
 **Files:**
+
 - Modify: `docs/agents/ba.md`
 
-Три ключевых изменения:
+Three key changes:
 
-- [ ] **Шаг 1: Заменить "Шаг 3 — Делегировать Coder-агенту" на "Шаг 3 — Передать бриф PM"**
+- [ ] **Step 1: Replace "Шаг 3 — Делегировать Coder-агенту" with "Шаг 3 — Передать бриф PM"**
 
 ```markdown
 ### Шаг 3 — Написать бриф для PM и передать задачу
@@ -1207,33 +1254,40 @@ git commit -m "feat(agents): add CLAUDE-pm.md context notes for PM agent"
 Создать `docs/specs/pm-brief.md` по шаблону:
 
 \`\`\`markdown
+
 # Бриф: <название фичи>
 
 ## Бизнес-контекст
+
 <зачем это нужно, какую бизнес-проблему решает>
 
 ## Бизнес-правила
+
 - <правило 1>
 - <правило 2>
 
 ## RBAC
-| Роль | Доступ |
-|------|--------|
-| ADMIN | ... |
-| SENIOR | ... |
-| JUNIOR | ... |
-| HR | ... |
-| ACCOUNTANT | ... |
+
+| Роль       | Доступ |
+| ---------- | ------ |
+| ADMIN      | ...    |
+| SENIOR     | ...    |
+| JUNIOR     | ...    |
+| HR         | ...    |
+| ACCOUNTANT | ...    |
 
 ## Известные коллизии
+
 - <если найдены конфликты с существующей логикой>
 
 ## Acceptance criteria (высокий уровень)
+
 - [ ] <критерий 1>
 
 ## Что НЕ входит в scope
+
 - <ограничения>
-\`\`\`
+  \`\`\`
 
 Закоммитить бриф:
 \`\`\`bash
@@ -1249,9 +1303,9 @@ git push origin main
 \`\`\`
 ```
 
-- [ ] **Шаг 2: Удалить "Шаг 4 — Дождаться и запустить AI Review" и "Шаг 5 — Приёмка"**
+- [ ] **Step 2: Remove "Шаг 4 — Дождаться и запустить AI Review" and "Шаг 5 — Приёмка"**
 
-Эти шаги теперь выполняет PM. Заменить их одним абзацем:
+These steps are now done by the PM. Replace them with a single paragraph:
 
 ```markdown
 ### Шаг 4 — Дальнейший процесс (PM)
@@ -1263,7 +1317,7 @@ BA не участвует в этом процессе. При необходи
 пользователю напрямую.
 ```
 
-- [ ] **Шаг 3: Обновить "Сценарий 3: Эскалация от QA"**
+- [ ] **Step 3: Update "Сценарий 3: Эскалация от QA"**
 
 ```markdown
 ## Сценарий 3 — Эскалация (упразднён)
@@ -1274,16 +1328,18 @@ QA-агент упразднён. Эскалации теперь идут от 
 BA не получает эскалации и не участвует в процессе разработки.
 ```
 
-- [ ] **Шаг 4: Обновить "Границы роли"**
+- [ ] **Step 4: Update "Границы роли"**
 
 ```markdown
 ## Границы роли
 
 BA **изменяет только:**
+
 - `docs/business/` — бизнес-документация
 - `docs/specs/pm-brief.md` — бриф для PM
 
 BA **никогда не трогает:**
+
 - `docs/specs/active-task.md` — упразднён, PM использует `docs/specs/tasks/`
 - `.github/workflows/` → DevOps-агент
 - `apps/`, `packages/` → Coder-агент
@@ -1297,7 +1353,7 @@ mcp__playwright__browser_take_screenshot → убедиться как выгл�
 Это помогает точнее описать что нужно изменить.
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add docs/agents/ba.md
@@ -1306,14 +1362,15 @@ git commit -m "feat(agents): update BA role — upstream consultant, outputs pm-
 
 ---
 
-## Task 10: Обновить `docs/agents/CLAUDE-ba.md`
+## Task 10: Update `docs/agents/CLAUDE-ba.md`
 
 **Files:**
+
 - Modify: `docs/agents/CLAUDE-ba.md`
 
-- [ ] **Шаг 1: Обновить описание эскалационных путей**
+- [ ] **Step 1: Update the description of the escalation paths**
 
-Найти любое упоминание "эскалация от QA" и заменить:
+Find any mention of "эскалация от QA" and replace:
 
 ```markdown
 ## Эскалации
@@ -1328,9 +1385,9 @@ BA подключается только если пользователь ре�
 по бизнес-логике — это его инициатива, не автоматическая эскалация.
 ```
 
-- [ ] **Шаг 2: Обновить шаблон задачи**
+- [ ] **Step 2: Update the task template**
 
-Заменить любое упоминание `active-task.md` на `pm-brief.md`:
+Replace any mention of `active-task.md` with `pm-brief.md`:
 
 ```markdown
 ## Выход BA
@@ -1339,7 +1396,7 @@ BA пишет только `docs/specs/pm-brief.md` — высокоуровне
 Детализацию до конкретных задач делает PM.
 ```
 
-- [ ] **Шаг 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add docs/agents/CLAUDE-ba.md
@@ -1348,12 +1405,13 @@ git commit -m "docs(agents): update CLAUDE-ba — remove escalation paths, updat
 
 ---
 
-## Task 11: Обновить `docs/agents/coder.md`
+## Task 11: Update `docs/agents/coder.md`
 
 **Files:**
+
 - Modify: `docs/agents/coder.md`
 
-- [ ] **Шаг 1: Обновить "Обязательное чтение"**
+- [ ] **Step 1: Update "Обязательное чтение"**
 
 ```markdown
 ## Обязательное чтение перед началом работы
@@ -1365,22 +1423,22 @@ git commit -m "docs(agents): update CLAUDE-ba — remove escalation paths, updat
 5. `docs/business/user-flows.md` — user flows
 ```
 
-- [ ] **Шаг 2: Добавить секцию skills перед "Workflow разработки"**
+- [ ] **Step 2: Add a skills section before "Workflow разработки"**
 
 ```markdown
 ## Superpowers Skills (использовать активно)
 
-| Когда | Skill |
-|-------|-------|
-| Перед реализацией любой задачи | `superpowers:test-driven-development` |
-| При любом баге или неожиданном поведении | `superpowers:systematic-debugging` |
-| Перед созданием PR | `superpowers:verification-before-completion` |
-| Для новых страниц / сложных UI компонентов | `frontend-design:frontend-design` |
-| После написания кода | `simplify` |
-| Перед PR с auth/finance/transactions | `security-review` |
+| Когда                                      | Skill                                        |
+| ------------------------------------------ | -------------------------------------------- |
+| Перед реализацией любой задачи             | `superpowers:test-driven-development`        |
+| При любом баге или неожиданном поведении   | `superpowers:systematic-debugging`           |
+| Перед созданием PR                         | `superpowers:verification-before-completion` |
+| Для новых страниц / сложных UI компонентов | `frontend-design:frontend-design`            |
+| После написания кода                       | `simplify`                                   |
+| Перед PR с auth/finance/transactions       | `security-review`                            |
 ```
 
-- [ ] **Шаг 3: Добавить механизм `.blocked.md` после "Workflow разработки"**
+- [ ] **Step 3: Add the `.blocked.md` mechanism after "Workflow разработки"**
 
 ```markdown
 ## Блокер — неописанная бизнес-логика
@@ -1392,52 +1450,59 @@ git commit -m "docs(agents): update CLAUDE-ba — remove escalation paths, updat
 2. Создать файл `docs/specs/tasks/<имя_твоей_задачи>.blocked.md`:
 
 \`\`\`markdown
+
 # BLOCKER: <имя задачи>
 
 ## Агент: coder
+
 ## Задача: docs/specs/tasks/<имя_задачи>.md
+
 ## GHA Run ID: <текущий run id если знаешь>
 
 ## Проблема
+
 <точное описание что неясно>
 
 ## Затронутый код
+
 `<файл>:<строка>` — <что именно требует решения>
 
 ## Вопрос к PM / пользователю
+
 <конкретный вопрос с вариантами ответа если возможно>
 
 ## Что сделано до блокера
+
 - <список файлов с изменениями>
-\`\`\`
+  \`\`\`
 
 3. Закоммитить `.blocked.md` в ветку:
-\`\`\`bash
-git add docs/specs/tasks/<name>.blocked.md
-git commit -m "chore: block task — undocumented business logic found"
-git push origin <branch>
-\`\`\`
+   \`\`\`bash
+   git add docs/specs/tasks/<name>.blocked.md
+   git commit -m "chore: block task — undocumented business logic found"
+   git push origin <branch>
+   \`\`\`
 
 4. Завершить работу — PM прочитает блокер на следующем пробуждении.
 ```
 
-- [ ] **Шаг 4: Обновить секцию MCP**
+- [ ] **Step 4: Update the MCP section**
 
 ```markdown
 ## MCP серверы (все доступны, использовать активно)
 
-| Задача | MCP |
-|--------|-----|
-| Найти функцию / класс / импорт | `mcp__ast-grep__find_code` |
-| Рефакторинг — все вхождения | `mcp__ast-grep__find_code_by_rule` |
-| Документация NestJS/TanStack/Zod | `mcp__context7__resolve-library-id` → `query-docs` |
-| Проверить схему БД | `mcp__postgres__query` |
-| Проверить ESLint до пуша | `mcp__eslint__lint-files` |
-| Проверить UI после изменений | `mcp__playwright__browser_navigate` + `browser_snapshot` |
-| PR / issues | `mcp__github__create_pull_request`, `mcp__github__add_issue_comment` |
+| Задача                           | MCP                                                                  |
+| -------------------------------- | -------------------------------------------------------------------- |
+| Найти функцию / класс / импорт   | `mcp__ast-grep__find_code`                                           |
+| Рефакторинг — все вхождения      | `mcp__ast-grep__find_code_by_rule`                                   |
+| Документация NestJS/TanStack/Zod | `mcp__context7__resolve-library-id` → `query-docs`                   |
+| Проверить схему БД               | `mcp__postgres__query`                                               |
+| Проверить ESLint до пуша         | `mcp__eslint__lint-files`                                            |
+| Проверить UI после изменений     | `mcp__playwright__browser_navigate` + `browser_snapshot`             |
+| PR / issues                      | `mcp__github__create_pull_request`, `mcp__github__add_issue_comment` |
 ```
 
-- [ ] **Шаг 5: Обновить "Проверка качества" — убрать E2E из pre-commit**
+- [ ] **Step 5: Update "Проверка качества" — remove E2E from pre-commit**
 
 ```markdown
 ### 2.8. Проверка качества перед коммитом
@@ -1450,7 +1515,7 @@ pnpm typecheck && pnpm lint && pnpm test
 его после User Testing. Не нужно запускать E2E локально перед коммитом.
 ```
 
-- [ ] **Шаг 6: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add docs/agents/coder.md
@@ -1459,24 +1524,25 @@ git commit -m "feat(agents): coder.md — add skills, blocker mechanism, all MCP
 
 ---
 
-## Task 12: Обновить `docs/agents/autotest.md`
+## Task 12: Update `docs/agents/autotest.md`
 
 **Files:**
+
 - Modify: `docs/agents/autotest.md`
 
-- [ ] **Шаг 1: Добавить секцию skills**
+- [ ] **Step 1: Add a skills section**
 
 ```markdown
 ## Superpowers Skills
 
-| Когда | Skill |
-|-------|-------|
-| Перед написанием тестов | `superpowers:test-driven-development` |
-| Тест падает неожиданно | `superpowers:systematic-debugging` |
-| Перед пушем тестов | `superpowers:verification-before-completion` |
+| Когда                   | Skill                                        |
+| ----------------------- | -------------------------------------------- |
+| Перед написанием тестов | `superpowers:test-driven-development`        |
+| Тест падает неожиданно  | `superpowers:systematic-debugging`           |
+| Перед пушем тестов      | `superpowers:verification-before-completion` |
 ```
 
-- [ ] **Шаг 2: Добавить Режим 3 — PM task-driven**
+- [ ] **Step 2: Add Mode 3 — PM task-driven**
 
 ```markdown
 ## Режим 3 — PM Task-Driven
@@ -1488,7 +1554,7 @@ git commit -m "feat(agents): coder.md — add skills, blocker mechanism, all MCP
 закоммитить и запушить → создать PR с label `ai-review-ready`.
 ```
 
-- [ ] **Шаг 3: Добавить `.blocked.md` механизм**
+- [ ] **Step 3: Add the `.blocked.md` mechanism**
 
 ```markdown
 ## Блокер
@@ -1496,16 +1562,23 @@ git commit -m "feat(agents): coder.md — add skills, blocker mechanism, all MCP
 Если тест не может быть написан из-за неописанной бизнес-логики:
 
 \`\`\`bash
+
 # Создать блокер рядом с задачей
+
 cat > docs/specs/tasks/<task_name>.blocked.md << 'EOF'
+
 # BLOCKER: <task_name>
+
 ## Агент: autotest
+
 ## Задача: docs/specs/tasks/<task_name>.md
 
 ## Проблема
+
 <что неясно для написания тестов>
 
 ## Вопрос к PM / пользователю
+
 <конкретный вопрос>
 EOF
 
@@ -1515,7 +1588,7 @@ git push origin <branch>
 \`\`\`
 ```
 
-- [ ] **Шаг 4: Обновить секцию MCP**
+- [ ] **Step 4: Update the MCP section**
 
 ```markdown
 ## MCP серверы
@@ -1526,7 +1599,7 @@ git push origin <branch>
 - `mcp__github__create_pull_request_review` — оставить review при логической ошибке
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add docs/agents/autotest.md
@@ -1535,26 +1608,27 @@ git commit -m "feat(agents): autotest.md — add skills, mode 3, blocker mechani
 
 ---
 
-## Task 13: Обновить `docs/agents/reviewer.md`
+## Task 13: Update `docs/agents/reviewer.md`
 
 **Files:**
+
 - Modify: `docs/agents/reviewer.md`
 
-- [ ] **Шаг 1: Добавить секцию skills**
+- [ ] **Step 1: Add a skills section**
 
 ```markdown
 ## Superpowers Skills
 
-| Когда | Skill |
-|-------|-------|
-| Начало каждого review | `code-review:code-review` |
+| Когда                                         | Skill                               |
+| --------------------------------------------- | ----------------------------------- |
+| Начало каждого review                         | `code-review:code-review`           |
 | При получении review feedback (для понимания) | `superpowers:receiving-code-review` |
-| PR трогает auth/finance/wallets/transactions | `security-review` |
+| PR трогает auth/finance/wallets/transactions  | `security-review`                   |
 ```
 
-- [ ] **Шаг 2: Обновить инструкцию после APPROVE — добавить label**
+- [ ] **Step 2: Update the instruction after APPROVE — add the label**
 
-Найти секцию где описан APPROVE и добавить:
+Find the section where APPROVE is described and add:
 
 ```markdown
 ### После APPROVE
@@ -1569,7 +1643,7 @@ PM проснётся, прочитает твои комментарии (да�
 улучшения в бизнес-логике или архитектуре. PM их прочитает.
 ```
 
-- [ ] **Шаг 3: Обновить секцию MCP**
+- [ ] **Step 3: Update the MCP section**
 
 ```markdown
 ## MCP серверы (все доступны)
@@ -1582,7 +1656,7 @@ PM проснётся, прочитает твои комментарии (да�
 - `mcp__github__add_issue_comment` — добавить комментарий
 ```
 
-- [ ] **Шаг 4: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add docs/agents/reviewer.md
@@ -1591,12 +1665,13 @@ git commit -m "feat(agents): reviewer.md — add skills, PM gate explanation, al
 
 ---
 
-## Task 14: Обновить `docs/agents/devops.md`
+## Task 14: Update `docs/agents/devops.md`
 
 **Files:**
+
 - Modify: `docs/agents/devops.md`
 
-- [ ] **Шаг 1: Обновить "Обязательное чтение"**
+- [ ] **Step 1: Update "Обязательное чтение"**
 
 ```markdown
 ## Обязательное чтение перед работой
@@ -1607,19 +1682,19 @@ git commit -m "feat(agents): reviewer.md — add skills, PM gate explanation, al
 4. `.github/workflows/` — существующие CI workflows
 ```
 
-- [ ] **Шаг 2: Добавить секцию skills**
+- [ ] **Step 2: Add a skills section**
 
 ```markdown
 ## Superpowers Skills
 
-| Когда | Skill |
-|-------|-------|
-| Перед сложной задачей (новый workflow) | `superpowers:writing-plans` |
-| Перед созданием PR | `superpowers:verification-before-completion` |
-| Неожиданное поведение CI | `superpowers:systematic-debugging` |
+| Когда                                  | Skill                                        |
+| -------------------------------------- | -------------------------------------------- |
+| Перед сложной задачей (новый workflow) | `superpowers:writing-plans`                  |
+| Перед созданием PR                     | `superpowers:verification-before-completion` |
+| Неожиданное поведение CI               | `superpowers:systematic-debugging`           |
 ```
 
-- [ ] **Шаг 3: Добавить `.blocked.md` механизм**
+- [ ] **Step 3: Add the `.blocked.md` mechanism**
 
 ```markdown
 ## Блокер
@@ -1628,14 +1703,19 @@ git commit -m "feat(agents): reviewer.md — add skills, PM gate explanation, al
 
 \`\`\`bash
 cat > docs/specs/tasks/<task_name>.blocked.md << 'EOF'
+
 # BLOCKER: <task_name>
+
 ## Агент: devops
+
 ## Задача: docs/specs/tasks/<task_name>.md
 
 ## Проблема
+
 <что неясно для реализации инфраструктурной задачи>
 
 ## Вопрос к PM / пользователю
+
 <конкретный вопрос>
 EOF
 
@@ -1645,7 +1725,7 @@ git push origin <branch>
 \`\`\`
 ```
 
-- [ ] **Шаг 4: Обновить секцию MCP**
+- [ ] **Step 4: Update the MCP section**
 
 ```markdown
 ## MCP серверы
@@ -1655,7 +1735,7 @@ git push origin <branch>
 - `mcp__github__create_pull_request` + `mcp__github__add_issue_comment`
 ```
 
-- [ ] **Шаг 5: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add docs/agents/devops.md
@@ -1664,47 +1744,52 @@ git commit -m "feat(agents): devops.md — task_file, skills, blocker mechanism,
 
 ---
 
-## Task 15: Обновить `CLAUDE.md`
+## Task 15: Update `CLAUDE.md`
 
 **Files:**
+
 - Modify: `CLAUDE.md`
 
-- [ ] **Шаг 1: Добавить PM в раздел "Архитектура" или "Технологический стек"**
+- [ ] **Step 1: Add the PM to the "Архитектура" or "Технологический стек" section**
 
-Найти раздел `## Архитектура` и добавить:
+Find the `## Архитектура` section and add:
 
 ```markdown
 ## Multi-Agent команда
 
-| Агент | Роль | Где живёт |
-|-------|------|-----------|
-| **Master (Claude Code)** | Настройка инфраструктуры агентов | Локально |
-| **BA** | Бизнес-консультант, пишет `pm-brief.md` | Локально |
-| **PM** | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально |
-| **Coder** | Fullstack разработчик | GHA (coder.yml) |
-| **AutoTest** | E2E тест-разработчик | GHA (autotest.yml) |
-| **DevOps** | Инфраструктура CI/CD | GHA (devops.yml) |
-| **Reviewer** | Code review | GHA (ai-review.yml) |
+| Агент                    | Роль                                                            | Где живёт           |
+| ------------------------ | --------------------------------------------------------------- | ------------------- |
+| **Master (Claude Code)** | Настройка инфраструктуры агентов                                | Локально            |
+| **BA**                   | Бизнес-консультант, пишет `pm-brief.md`                         | Локально            |
+| **PM**                   | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing | Локально            |
+| **Coder**                | Fullstack разработчик                                           | GHA (coder.yml)     |
+| **AutoTest**             | E2E тест-разработчик                                            | GHA (autotest.yml)  |
+| **DevOps**               | Инфраструктура CI/CD                                            | GHA (devops.yml)    |
+| **Reviewer**             | Code review                                                     | GHA (ai-review.yml) |
 
 **Pipeline:**
 ```
+
 BA → pm-brief.md → PM → task-*.md → [параллельные GHA workflows] →
 PR → ai-review.yml (AutoTest + Reviewer) → awaiting-pm-review →
 PM (User Testing) → e2e.yml → squash merge
-```
+
 ```
 
-- [ ] **Шаг 2: Обновить "Активный контекст"**
+```
+
+- [ ] **Step 2: Update "Активный контекст"**
 
 ```markdown
 ## Активный контекст
+
 - PHASE 1–5 полностью реализованы и работают
 - PHASE 7 (partial): Профили работают
 - Multi-agent архитектура: PM-агент добавлен, параллельный диспетч через docs/specs/tasks/
 - Следующий шаг: PHASE 6 — База знаний + Документы
 ```
 
-- [ ] **Шаг 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md
@@ -1713,13 +1798,14 @@ git commit -m "docs: update CLAUDE.md with PM agent and new multi-agent architec
 
 ---
 
-## Task 16: Архивировать QA и старые spec файлы
+## Task 16: Archive QA and the old spec files
 
 **Files:**
+
 - Archive: `docs/agents/qa.md`, `docs/agents/CLAUDE-qa.md`
 - Archive: `docs/specs/active-task.md`, `docs/specs/active-devops-task.md`
 
-- [ ] **Шаг 1: Создать архивную директорию и переместить QA**
+- [ ] **Step 1: Create the archive directory and move QA**
 
 ```bash
 mkdir -p docs/agents/archive
@@ -1728,7 +1814,7 @@ cp docs/agents/CLAUDE-qa.md docs/agents/archive/CLAUDE-qa.md
 git rm docs/agents/qa.md docs/agents/CLAUDE-qa.md
 ```
 
-- [ ] **Шаг 2: Архивировать старые spec файлы**
+- [ ] **Step 2: Archive the old spec files**
 
 ```bash
 DATE=$(date +%Y-%m-%d)
@@ -1747,7 +1833,7 @@ if [ -f docs/specs/active-devops-task.md ]; then
 fi
 ```
 
-- [ ] **Шаг 3: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add docs/agents/archive/ docs/specs/archive/
@@ -1756,18 +1842,19 @@ git commit -m "chore: archive QA agent and legacy active-task.md specs"
 
 ---
 
-## Task 17: Удалить `ba-escalation.yml`
+## Task 17: Remove `ba-escalation.yml`
 
 **Files:**
+
 - Delete: `.github/workflows/ba-escalation.yml`
 
-- [ ] **Шаг 1: Удалить файл**
+- [ ] **Step 1: Remove the file**
 
 ```bash
 git rm .github/workflows/ba-escalation.yml
 ```
 
-- [ ] **Шаг 2: Commit**
+- [ ] **Step 2: Commit**
 
 ```bash
 git commit -m "chore(ci): remove ba-escalation.yml — escalations now go PM → user directly"
@@ -1775,23 +1862,24 @@ git commit -m "chore(ci): remove ba-escalation.yml — escalations now go PM →
 
 ---
 
-## Task 18: Smoke test — проверить всю цепочку
+## Task 18: Smoke test — verify the whole chain
 
-- [ ] **Шаг 1: Проверить что все лейблы существуют**
+- [ ] **Step 1: Verify that all the labels exist**
 
 ```bash
 gh label list --repo yaremenko-maksym/CheekyCheeseIT_CRM | grep -E "awaiting-pm-review|pm-blocker|ai-review-ready"
 ```
 
-Ожидаемый вывод: все три лейбла найдены.
+Expected output: all three labels found.
 
-- [ ] **Шаг 2: Проверить что workflows существуют и валидны**
+- [ ] **Step 2: Verify that the workflows exist and are valid**
 
 ```bash
 gh workflow list --repo yaremenko-maksym/CheekyCheeseIT_CRM
 ```
 
-Ожидаемый вывод — присутствуют workflows:
+Expected output — the workflows present:
+
 ```
 AI Review        active  ai-review.yml
 AutoTest         active  autotest.yml
@@ -1800,25 +1888,25 @@ DevOps           active  devops.yml
 E2E Tests        active  e2e.yml
 ```
 
-`ba-escalation.yml` — отсутствует.
+`ba-escalation.yml` — absent.
 
-- [ ] **Шаг 3: Проверить структуру docs/specs/tasks/**
+- [ ] **Step 3: Verify the structure of docs/specs/tasks/**
 
 ```bash
 ls docs/specs/tasks/
 ls docs/specs/tasks/archive/
 ```
 
-Ожидаемый вывод: `.gitkeep` в каждой директории.
+Expected output: `.gitkeep` in each directory.
 
-- [ ] **Шаг 4: Проверить что pm.md и CLAUDE-pm.md созданы**
+- [ ] **Step 4: Verify that pm.md and CLAUDE-pm.md are created**
 
 ```bash
 ls docs/agents/pm.md docs/agents/CLAUDE-pm.md
 ls docs/agents/archive/qa.md docs/agents/archive/CLAUDE-qa.md
 ```
 
-- [ ] **Шаг 5: Dry run coder.yml с task_file параметром**
+- [ ] **Step 5: Dry run coder.yml with the task_file parameter**
 
 ```bash
 # Создать тестовый task файл
@@ -1831,14 +1919,14 @@ echo "# test-task
 gh workflow view coder.yml --repo yaremenko-maksym/CheekyCheeseIT_CRM
 ```
 
-Ожидаемый вывод: workflow отображается с inputs `task_file` и `task_hint`.
+Expected output: the workflow is shown with the inputs `task_file` and `task_hint`.
 
 ```bash
 # Удалить тестовый файл
 rm docs/specs/tasks/task-smoke-test.md
 ```
 
-- [ ] **Шаг 6: Финальный commit**
+- [ ] **Step 6: Final commit**
 
 ```bash
 git status  # убедиться что нет незакоммиченных изменений
@@ -1850,24 +1938,26 @@ git log --oneline -20  # просмотреть все коммиты этой �
 ## Self-Review
 
 **Spec coverage:**
-- ✅ PM-агент: Tasks 7-8 (pm.md + CLAUDE-pm.md)
-- ✅ Параллельный диспетч: Tasks 3-4 (task_file param + concurrency)
+
+- ✅ PM agent: Tasks 7-8 (pm.md + CLAUDE-pm.md)
+- ✅ Parallel dispatch: Tasks 3-4 (task_file param + concurrency)
 - ✅ E2E gate: Task 2 (e2e.yml)
-- ✅ User Testing stage: Task 7 (Режим 4 в pm.md)
-- ✅ Blocker механизм: Tasks 11-14 (все агенты)
-- ✅ BA упрощение: Tasks 9-10
-- ✅ ai-review без merge: Task 6
+- ✅ User Testing stage: Task 7 (Mode 4 in pm.md)
+- ✅ Blocker mechanism: Tasks 11-14 (all agents)
+- ✅ BA simplification: Tasks 9-10
+- ✅ ai-review without merge: Task 6
 - ✅ awaiting-pm-review label: Tasks 1 + 6
-- ✅ QA архив: Task 16
-- ✅ ba-escalation удалён: Task 17
-- ✅ Все MCP: Tasks 3,4,5,11,12,13,14
+- ✅ QA archive: Task 16
+- ✅ ba-escalation removed: Task 17
+- ✅ All the MCP: Tasks 3,4,5,11,12,13,14
 - ✅ Superpowers skills: Tasks 11,12,13,14
-- ✅ CLAUDE.md обновлён: Task 15
+- ✅ CLAUDE.md updated: Task 15
 
-**Нет placeholder'ов, нет TBD, нет "implement later".**
+**No placeholders, no TBD, no "implement later".**
 
-**Консистентность типов:**
-- `task_file` параметр используется одинаково в coder.yml, devops.yml, autotest.yml (Tasks 3,4,5)
-- concurrency key: `coder-${{ inputs.task_file }}` / `devops-${{ inputs.task_file }}` — одинаковый паттерн
-- `.blocked.md` формат — одинаковый во всех агентских промптах (Tasks 11,12,14)
-- label `awaiting-pm-review` — создаётся в Task 1, используется в Task 6, читается PM в Task 7
+**Type consistency:**
+
+- the `task_file` parameter is used the same way in coder.yml, devops.yml, autotest.yml (Tasks 3,4,5)
+- concurrency key: `coder-${{ inputs.task_file }}` / `devops-${{ inputs.task_file }}` — the same pattern
+- the `.blocked.md` format — the same across all agent prompts (Tasks 11,12,14)
+- label `awaiting-pm-review` — created in Task 1, used in Task 6, read by the PM in Task 7

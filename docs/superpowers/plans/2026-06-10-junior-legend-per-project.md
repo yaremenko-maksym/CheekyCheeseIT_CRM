@@ -4,7 +4,7 @@
 
 **Goal:** Move the legend from per-user (`legends.userId` UNIQUE, viewed on the user profile) to **one-per-project** (`legends.projectId` UNIQUE, viewed in the project context), add a journal (`legend_entries`) the junior appends to, and enforce the reversed RBAC (subject excluded; ADMIN/HR-of-team/active-junior view **and** edit).
 
-**Architecture:** A project's legend is the single client-facing persona presented on that project. Behind it stands the drop (on drop-projects) or the senior (otherwise) — but that subject is a backend detail derived from `projects.dropId ?? projects.seniorId`; the junior always sees it labelled «синьор», and the drop is never named. Both `seniorId` and `dropId` users are **excluded** from viewing. The `legends` table is **empty in production** (verified `SELECT count(*) FROM legends = 0`), so the migration is a clean DDL change with **no data transform**.
+**Architecture:** A project's legend is the single client-facing persona presented on that project. Behind it stands the drop (on drop-projects) or the senior (otherwise) — but that subject is a backend detail derived from `projects.dropId ?? projects.seniorId`; the junior always sees it labelled "senior", and the drop is never named. Both `seniorId` and `dropId` users are **excluded** from viewing. The `legends` table is **empty in production** (verified `SELECT count(*) FROM legends = 0`), so the migration is a clean DDL change with **no data transform**.
 
 **Tech Stack:** NestJS 11 + Fastify, Drizzle ORM (PostgreSQL), Zod v4 (`@crm/shared`), React + Vite + TanStack Query/Router. Vitest for backend unit/integration.
 
@@ -51,7 +51,7 @@
 
 - Modify `apps/web/app/hooks/use-legend.ts` — `useLegend(projectId)`, `useUpsertLegend(projectId)`, `useAddLegendEntry(projectId)`.
 - Modify `apps/web/app/components/user-profile/LegendSection.tsx` → move to `apps/web/app/components/projects/ProjectLegendSection.tsx` (persona + journal + add-entry form; props `{ projectId }`).
-- Modify the project detail route (`apps/web/app/routes/crm/projects/$projectId.tsx` or equivalent) — render `<ProjectLegendSection>` for viewers who can see it; handle 403/404 (hide / "легенда не заполнена").
+- Modify the project detail route (`apps/web/app/routes/crm/projects/$projectId.tsx` or equivalent) — render `<ProjectLegendSection>` for viewers who can see it; handle 403/404 (hide / "legend not filled in").
 - Remove the old per-user `<LegendSection>` usage from the user-profile route.
 
 ---
@@ -75,16 +75,16 @@ export const legends = pgTable('legends', {
   fullName: text('full_name').notNull(),
   dateOfBirth: text('date_of_birth'),
   address: text('address'),
-  presentedRole: text('presented_role'), // «должность» которую презентуем
-  presentedStack: text('presented_stack'), // стек/технологии персоны
-  backstory: text('backstory'), // легенда-нарратив
+  presentedRole: text('presented_role'), // the "position" we present
+  presentedStack: text('presented_stack'), // the persona's stack/technologies
+  backstory: text('backstory'), // legend narrative
   hobbies: text('hobbies'),
   notes: text('notes'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 })
 
-// Journal — junior appends новую информацию, узнанную на проекте.
+// Journal — junior appends new information learned on the project.
 export const legendEntries = pgTable('legend_entries', {
   id: uuid('id').primaryKey().defaultRandom(),
   legendId: uuid('legend_id')
@@ -162,7 +162,7 @@ export const legendSchema = z.object({
 export type Legend = z.infer<typeof legendSchema>
 
 export const upsertLegendSchema = z.object({
-  fullName: z.string().min(1, 'Имя обязательно'),
+  fullName: z.string().min(1, 'Name is required'),
   dateOfBirth: z.string().nullish(),
   address: z.string().nullish(),
   presentedRole: z.string().nullish(),
@@ -174,7 +174,7 @@ export const upsertLegendSchema = z.object({
 export type UpsertLegendDto = z.infer<typeof upsertLegendSchema>
 
 export const addLegendEntrySchema = z.object({
-  text: z.string().min(1, 'Текст обязателен').max(5000),
+  text: z.string().min(1, 'Text is required').max(5000),
 })
 export type AddLegendEntryDto = z.infer<typeof addLegendEntrySchema>
 ```
@@ -205,7 +205,7 @@ async addEntry(viewer: SessionUser, projectId: string, dto: AddLegendEntryDto): 
 private async canAccess(viewer, project): Promise<boolean>   // implements the RBAC contract table
 ```
 
-- Load the project first (`{ id, seniorId, dropId }`) → 404 `Проект не найден` if missing.
+- Load the project first (`{ id, seniorId, dropId }`) → 404 `Project not found` if missing.
 - `canAccess` implements the contract table above. Reuse the team-share query shape from the old `hrCanViewLegend` (HR shares an active `team_members` row with `project.seniorId`).
 - `getLegend` returns the legend joined with `entries` (ordered `createdAt ASC`) + each entry's `authorName` (join `users.displayName`). 404 if no legend row.
 - `upsertLegend` — atomic upsert on `legends.projectId` (`onConflictDoUpdate`), mirroring the old race-safe pattern.
@@ -287,9 +287,9 @@ export function useUpsertLegend(projectId: string) // PUT …/legend, invalidate
 export function useAddLegendEntry(projectId: string) // POST …/legend/entries, invalidates ['legend', projectId]
 ```
 
-Query key `['legend', projectId]`. On 403/404 surface a typed empty state, not an error toast (the section simply shows "легенда ещё не заполнена" with an edit affordance for those who can edit, or hides for those who can't).
+Query key `['legend', projectId]`. On 403/404 surface a typed empty state, not an error toast (the section simply shows "legend not filled in yet" with an edit affordance for those who can edit, or hides for those who can't).
 
-**`ProjectLegendSection`** renders: persona block (fullName, presentedRole, presentedStack, dateOfBirth, address, backstory, hobbies, notes) + journal (entries list, author + date) + "добавить запись" form (`useAddLegendEntry`) + an edit dialog (`useUpsertLegend`). All viewers who receive 200 can edit (view==edit). Russian UI throughout. **Never render the words "дроп"/"drop"** — the subject is always «синьор».
+**`ProjectLegendSection`** renders: persona block (fullName, presentedRole, presentedStack, dateOfBirth, address, backstory, hobbies, notes) + journal (entries list, author + date) + "add entry" form (`useAddLegendEntry`) + an edit dialog (`useUpsertLegend`). All viewers who receive 200 can edit (view==edit). Russian UI throughout. **Never render the word "drop" in any language** — the subject is always "senior".
 
 **Placement:** render `<ProjectLegendSection projectId={projectId} />` in the project detail page. The API gates visibility (403 → hide); no separate client role-gate needed beyond hiding on error.
 
@@ -324,12 +324,12 @@ Query key `['legend', projectId]`. On 403/404 surface a typed empty state, not a
 - One-legend-per-project (key `projectId`) → Task 1/2. ✓
 - Subject (senior+drop) excluded; ADMIN/HR/junior view==edit → RBAC contract + Task 4. ✓
 - Junior appends to a journal → `legend_entries` + `addEntry` + Task 6 form. ✓
-- "Дроп не упоминается / всегда синьор" → Task 6 UI rule (no drop wording). ✓
+- "Drop is not mentioned / always senior" → Task 6 UI rule (no drop wording). ✓
 - Endpoints project-scoped; old per-user removed → Task 5. ✓
 - No data migration (empty table) → Task 2 verified. ✓
 - Backend tests per RBAC branch (not mocked E2E) → Task 4/5/7. ✓
 
-**Out of scope (explicit):** finance masking (rate/currency), senior↔senior invisibility → sibling plan. Junior hub/UX polish → Phase 2. The "drop hidden, shown as синьор" is enforced here only as a UI-wording rule + the subject-derivation (`dropId ?? seniorId`); deeper drop-invisibility across other surfaces is the sibling plan.
+**Out of scope (explicit):** finance masking (rate/currency), senior↔senior invisibility → sibling plan. Junior hub/UX polish → Phase 2. The "drop hidden, shown as senior" is enforced here only as a UI-wording rule + the subject-derivation (`dropId ?? seniorId`); deeper drop-invisibility across other surfaces is the sibling plan.
 
 **Type consistency:** `Legend`/`LegendEntry`/`UpsertLegendDto`/`AddLegendEntryDto` defined in Task 3, consumed identically in Tasks 4–6. Service methods `getLegend`/`upsertLegend`/`addEntry` named identically in Tasks 4 and 5.
 

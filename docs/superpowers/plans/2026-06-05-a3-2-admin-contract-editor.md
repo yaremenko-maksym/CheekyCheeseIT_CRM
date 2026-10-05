@@ -92,8 +92,8 @@
 - [ ] **Step 2 — run, expect FAIL.**
 - [ ] **Step 3 — implement:**
   - `ContractEditor` — lazy CodeMirror (reuse loader from `routes/crm/admin/templates/contracts.$role.tsx`), `readOnly` when `!editable`, variables hint via `CONTRACT_VARIABLE_DESCRIPTIONS_BRACED`.
-  - `ContractPdfPreview` — reuse the A2a PDF viewer component (locate under `apps/web/app/components/**`); «Обновить превью» button disabled while dirty with hint «Сначала сохраните».
-  - `ContractActionBar` — status-aware buttons wired to the Task 5 mutations; SIGNED-revert behind a confirm dialog «Сбросит подписанный контракт и онбординг участника. Продолжить?».
+  - `ContractPdfPreview` — reuse the A2a PDF viewer component (locate under `apps/web/app/components/**`); "Refresh preview" button disabled while dirty with hint "Save first".
+  - `ContractActionBar` — status-aware buttons wired to the Task 5 mutations; SIGNED-revert behind a confirm dialog "This resets the signed contract and the participant's onboarding. Continue?".
   - Use `frontend-design` skill for polish; follow shadcn/Tailwind tokens; Russian text.
 - [ ] **Step 4 — run, expect PASS** + `mcp__eslint__lint-files` on new files.
 - [ ] **Step 5 — commit** `feat(web): contract editor, PDF preview, status-aware action bar`.
@@ -122,7 +122,7 @@
 
 **Files:** Create `apps/e2e/tests/contract-editor.spec.ts`.
 
-- [ ] **Step 1 — write E2E (real stack):** ADMIN logs in → opens a SENIOR user's profile → `contract` tab → edits body → Save → Mark Ready (editor locks, Save hidden) → Revert (editor unlocks) → «Обновить превью» shows a PDF. Assert non-ADMIN never sees the tab. Use `data-testid`s; follow `playwright-patterns` skill; seeded `dmytro.marchenko@cheekycheese.dev`.
+- [ ] **Step 1 — write E2E (real stack):** ADMIN logs in → opens a SENIOR user's profile → `contract` tab → edits body → Save → Mark Ready (editor locks, Save hidden) → Revert (editor unlocks) → "Refresh preview" shows a PDF. Assert non-ADMIN never sees the tab. Use `data-testid`s; follow `playwright-patterns` skill; seeded `dmytro.marchenko@cheekycheese.dev`.
 - [ ] **Step 2 — run locally against a real booted stack** (`pnpm --filter @crm/e2e exec playwright test contract-editor`), zero-flaky.
 - [ ] **Step 3 — full verification:** `pnpm typecheck` + `pnpm --filter @crm/api test` + `pnpm --filter @crm/web test` all green; real API boots (`node dist/main` + `/api/health`).
 - [ ] **Step 4 — commit** `test(e2e): ADMIN contract editor happy path` with `ac_verified:` covering all ACs.

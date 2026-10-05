@@ -1,281 +1,281 @@
 # Landing Refactor + Vacancies — Design Spec
 
-**Дата:** 2026-07-22
-**Статус:** APPROVED (владелец, чат-сессия 2026-07-22)
-**Скоуп:** редизайн `apps/landing` до уровня топовых IT-студий + модуль вакансий в CRM (ADMIN/HR) + публичный приём резюме.
+**Date:** 2026-07-22
+**Status:** APPROVED (owner, chat session 2026-07-22)
+**Scope:** redesign of `apps/landing` to the level of top IT studios + a vacancies module in the CRM (ADMIN/HR) + public résumé intake.
 
 ---
 
-## 1. Цель и контекст
+## 1. Goal and context
 
-Лендинг (`cheekycheese.tech`) сейчас — сырой одностраничник. Нужен профессиональный
-лендинг уровня Linear/Vercel: блоки «о нас» и «наши проекты», страницы вакансий,
-публичная форма отклика с CV. Вакансии управляются из CRM ролями **ADMIN и HR**.
+The landing (`cheekycheese.tech`) is currently a raw single-pager. We need a professional
+landing at the level of Linear/Vercel: "about us" and "our projects" blocks, vacancy pages,
+a public application form with a CV. Vacancies are managed from the CRM by the **ADMIN and HR** roles.
 
-**Ключевой продуктовый факт:** вакансии — канал найма **новых SENIOR'ов**. Отклики
-живут внутри раздела вакансий CRM и **НЕ связаны** с канбаном собеседований
-(interviews) — тот обслуживает другой процесс.
+**Key product fact:** vacancies are the hiring channel for **new SENIORs**. Applications
+live inside the CRM vacancies section and are **NOT linked** to the interview kanban
+(interviews) — that serves a different process.
 
-**Решения владельца (зафиксированы):**
+**Owner decisions (fixed):**
 
-| Вопрос                 | Решение                                                                                 |
-| ---------------------- | --------------------------------------------------------------------------------------- |
-| Язык лендинга          | Только английский                                                                       |
-| Структура              | Одностраничник `/` + `/careers` + `/careers/:slug`                                      |
-| Блок «проекты»         | 3–4 анонимных кейса (драфтует ассистент, владелец правит фактуру)                       |
-| Отклики → CRM          | Раздел внутри вакансии; удаляемы; БЕЗ интеграции с interviews-канбаном                  |
-| CV                     | PDF ≤ 5MB (файл) + опциональные LinkedIn/GitHub ссылки                                  |
-| Спам-защита            | Cloudflare Turnstile + rate-limit + honeypot                                            |
-| Ретеншн                | Ручное удаление + авто-пурж: REJECTED > 90д; отклики вакансий, закрытых > 90д назад     |
-| Дизайн-процесс         | Claude Design Tier 1 с участием владельца (все 4 класса устройств)                      |
-| Визуальное направление | Эволюция бренда: дарк + фирменный жёлтый + dev-мотивы (терминал), уровень Linear/Vercel |
-| Анимации               | Премиум-сдержанные (Framer Motion; без WebGL/3D)                                        |
-| «О нас»                | Без персоналий (миссия, подход, цифры, ценности)                                        |
-| Зарплатная вилка       | НЕ показывается и НЕ хранится (полей нет — YAGNI)                                       |
+| Question           | Decision                                                                                 |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| Landing language   | English only                                                                             |
+| Structure          | Single-pager `/` + `/careers` + `/careers/:slug`                                         |
+| "Projects" block   | 3–4 anonymous cases (the assistant drafts, the owner edits the facts)                    |
+| Applications → CRM | A section inside the vacancy; deletable; WITHOUT integration with the interviews kanban  |
+| CV                 | PDF ≤ 5MB (file) + optional LinkedIn/GitHub links                                        |
+| Spam protection    | Cloudflare Turnstile + rate-limit + honeypot                                             |
+| Retention          | Manual deletion + auto-purge: REJECTED > 90d; applications of vacancies closed > 90d ago |
+| Design process     | Claude Design Tier 1 with the owner's participation (all 4 device classes)               |
+| Visual direction   | Brand evolution: dark + brand yellow + dev motifs (terminal), Linear/Vercel level        |
+| Animations         | Premium-restrained (Framer Motion; no WebGL/3D)                                          |
+| "About us"         | Without people (mission, approach, numbers, values)                                      |
+| Salary range       | NOT shown and NOT stored (no fields — YAGNI)                                             |
 
-**Отклонённые альтернативы:** внешний ATS/форма (нет CRM-управления, данные у третьей
-стороны); статические вакансии в репо (нет управления из CRM).
+**Rejected alternatives:** an external ATS/form (no CRM management, data at a third
+party); static vacancies in the repo (no management from the CRM).
 
 ---
 
-## 2. Лендинг (`apps/landing`)
+## 2. Landing (`apps/landing`)
 
-### 2.1. Роуты и секции
+### 2.1. Routes and sections
 
-- **`/`** (редизайн текущей страницы):
-  1. **Hero** — эволюция анимированного терминала (крупнее, живее), заголовок, CTA.
-  2. **About us** — миссия, подход, цифры (обновлённые stats), ценности. Без фото/имён.
-  3. **Case studies** — 3–4 анонимных кейса по доменам (AI / EdTech / E-Commerce):
-     формат challenge → solution → metrics. Контент — драфт ассистента, правит владелец.
-  4. **Services** — существующие 3 домена, углублённые.
-  5. **How we work** — процесс-таймлайн (discovery → build → ship → support). Новая секция.
-  6. **Tech stack** — существующие чипы, полировка.
-  7. **Careers-тизер** — до 3 живых PUBLISHED вакансий из API + ссылка на `/careers`.
-     При 0 вакансий секция показывает CTA «write to hr@cheekycheese.tech» (mailto), не скрывается.
+- **`/`** (redesign of the current page):
+  1. **Hero** — evolution of the animated terminal (bigger, livelier), heading, CTA.
+  2. **About us** — mission, approach, numbers (updated stats), values. No photos/names.
+  3. **Case studies** — 3–4 anonymous cases by domain (AI / EdTech / E-Commerce):
+     format challenge → solution → metrics. Content — an assistant draft, edited by the owner.
+  4. **Services** — the existing 3 domains, deepened.
+  5. **How we work** — a process timeline (discovery → build → ship → support). A new section.
+  6. **Tech stack** — existing chips, polished.
+  7. **Careers teaser** — up to 3 live PUBLISHED vacancies from the API + a link to `/careers`.
+     With 0 vacancies the section shows a CTA "write to hr@cheekycheese.tech" (mailto), it is not hidden.
   8. **Contact / Footer**.
-- **`/careers`** — список PUBLISHED вакансий (title, domain, seniority, location),
-  **без фильтров/табов** (решение владельца 2026-07-23: показываем весь список как есть).
-  Empty state: «no open roles» + mailto.
-- **Контактный имейл везде** (nav CTA, contact, footer, careers empty state):
-  `hr@cheekycheese.tech` — других имейлов на лендинге не остаётся.
-- **`/careers/:slug`** — деталка вакансии (markdown-описание, отрендеренный HTML) +
-  форма отклика + success-состояние после отправки.
+- **`/careers`** — a list of PUBLISHED vacancies (title, domain, seniority, location),
+  **without filters/tabs** (owner decision 2026-07-23: we show the whole list as is).
+  Empty state: "no open roles" + mailto.
+- **The contact email everywhere** (nav CTA, contact, footer, careers empty state):
+  `hr@cheekycheese.tech` — no other emails remain on the landing.
+- **`/careers/:slug`** — a vacancy detail (markdown description, rendered HTML) +
+  an application form + a success state after submission.
 
-### 2.2. Форма отклика (поля)
+### 2.2. Application form (fields)
 
-| Поле            | Обязательность                   | Валидация                    |
-| --------------- | -------------------------------- | ---------------------------- |
-| Full name       | required                         | 2–120 chars                  |
-| Email           | required                         | email                        |
-| Telegram        | optional                         | @handle / t.me ссылка        |
-| LinkedIn URL    | optional                         | https URL                    |
-| GitHub URL      | optional                         | https URL                    |
-| Cover letter    | optional                         | ≤ 2000 chars                 |
-| CV (PDF)        | required                         | PDF, ≤ 5MB (клиент + сервер) |
-| Turnstile token | required (invisible widget)      | server-side siteverify       |
-| Honeypot        | скрытое поле, должно быть пустым | заполнено → silent reject    |
+| Field           | Required                    | Validation                   |
+| --------------- | --------------------------- | ---------------------------- |
+| Full name       | required                    | 2–120 chars                  |
+| Email           | required                    | email                        |
+| Telegram        | optional                    | @handle / t.me link          |
+| LinkedIn URL    | optional                    | https URL                    |
+| GitHub URL      | optional                    | https URL                    |
+| Cover letter    | optional                    | ≤ 2000 chars                 |
+| CV (PDF)        | required                    | PDF, ≤ 5MB (client + server) |
+| Turnstile token | required (invisible widget) | server-side siteverify       |
+| Honeypot        | hidden field, must be empty | filled → silent reject       |
 
-Email-подтверждение кандидату — **out of scope v1** (email-инфры в проекте нет).
-Кандидат видит success-экран. Дубль-защита: тот же email + та же вакансия в течение
-24ч → 429 с понятным сообщением.
+A confirmation email to the candidate — **out of scope v1** (there is no email infra in the project).
+The candidate sees a success screen. Duplicate protection: the same email + the same vacancy within
+24h → 429 with a clear message.
 
-### 2.3. Технические решения лендинга
+### 2.3. Landing technical decisions
 
-- Данные — **loader'ы TanStack Router + `fetch`** на same-origin `/api`
-  (nginx уже проксирует `cheekycheese.tech/api → api:3001`; конфиг менять не нужно).
-  React-query на лендинг НЕ добавляем.
-- Dev: в `apps/landing/vite.config.ts` добавить `server.proxy` `/api → localhost:3001`.
-- Форма — контролируемая + Zod-схема из `@crm/shared` (лендинг уже билдит shared
-  в Dockerfile). TanStack Form не добавляем.
-- Анимации: Framer Motion (уже в deps) — scroll-reveal, gradient glow,
-  micro-interactions, magnetic-кнопки, живой терминал. `prefers-reduced-motion`
-  уважается (штатные механизмы Framer Motion + отключение декоративных циклов).
-- SEO: per-route `<title>` + meta/OG-теги (документ-хед апдейтится в роуте; SSR нет
-  и не планируется).
-- Turnstile site key попадает в билд через `VITE_TURNSTILE_SITE_KEY`
-  (build ARG в `apps/landing/Dockerfile` + GHA secret; dev — `.env`).
-- Responsive — hard-гейт: 320/375/768/1024/1280/1440/1920, mobile-first,
-  без горизонтального overflow, тач-таргеты ≥ 44px (`rules/common/responsive-design.md`).
+- Data — **TanStack Router loaders + `fetch`** to same-origin `/api`
+  (nginx already proxies `cheekycheese.tech/api → api:3001`; no config change needed).
+  We do NOT add react-query to the landing.
+- Dev: in `apps/landing/vite.config.ts` add `server.proxy` `/api → localhost:3001`.
+- The form — controlled + a Zod schema from `@crm/shared` (the landing already builds shared
+  in the Dockerfile). We do not add TanStack Form.
+- Animations: Framer Motion (already in deps) — scroll-reveal, gradient glow,
+  micro-interactions, magnetic buttons, a live terminal. `prefers-reduced-motion`
+  is respected (Framer Motion's built-in mechanisms + disabling decorative loops).
+- SEO: per-route `<title>` + meta/OG tags (the document head is updated in the route; no SSR,
+  none planned).
+- The Turnstile site key reaches the build via `VITE_TURNSTILE_SITE_KEY`
+  (build ARG in `apps/landing/Dockerfile` + GHA secret; dev — `.env`).
+- Responsive — a hard gate: 320/375/768/1024/1280/1440/1920, mobile-first,
+  no horizontal overflow, touch targets ≥ 44px (`rules/common/responsive-design.md`).
 
 ---
 
-## 3. БД и API (`apps/api`, новый модуль `vacancies`)
+## 3. DB and API (`apps/api`, new `vacancies` module)
 
-### 3.1. Таблицы (Drizzle-миграция; прод-DDL — только через deploy.yml)
+### 3.1. Tables (Drizzle migration; prod DDL — only via deploy.yml)
 
 **`vacancies`**
 
-| Колонка                  | Тип                                       | Примечание                                             |
+| Column                   | Type                                      | Note                                                   |
 | ------------------------ | ----------------------------------------- | ------------------------------------------------------ |
 | id                       | uuid PK                                   |                                                        |
-| slug                     | text UNIQUE                               | генерируется из title, редактируем до publish          |
+| slug                     | text UNIQUE                               | generated from the title, editable until publish       |
 | title                    | text                                      |                                                        |
 | description_md           | text                                      | markdown                                               |
 | domain                   | enum `AI \| EDTECH \| ECOMMERCE \| OTHER` |                                                        |
-| seniority                | enum `SENIOR \| LEAD`                     | канал найма синьоров; расширяемо                       |
+| seniority                | enum `SENIOR \| LEAD`                     | the senior hiring channel; extensible                  |
 | employment_type          | enum `FULL_TIME \| PART_TIME \| CONTRACT` |                                                        |
-| location                 | text                                      | напр. «Remote (Europe)»                                |
-| status                   | enum `DRAFT \| PUBLISHED \| CLOSED`       | DRAFT → PUBLISHED → CLOSED; из CLOSED можно re-publish |
+| location                 | text                                      | e.g. "Remote (Europe)"                                 |
+| status                   | enum `DRAFT \| PUBLISHED \| CLOSED`       | DRAFT → PUBLISHED → CLOSED; from CLOSED can re-publish |
 | published_at / closed_at | timestamp nullable                        |                                                        |
 | created_by               | uuid FK users                             |                                                        |
 | created_at / updated_at  | timestamp                                 |                                                        |
 
 **`vacancy_applications`**
 
-| Колонка                              | Тип                                 | Примечание                                             |
-| ------------------------------------ | ----------------------------------- | ------------------------------------------------------ |
-| id                                   | uuid PK                             |                                                        |
-| vacancy_id                           | uuid FK vacancies ON DELETE CASCADE |                                                        |
-| full_name                            | text                                |                                                        |
-| email                                | text                                |                                                        |
-| telegram / linkedin_url / github_url | text nullable                       |                                                        |
-| cover_letter                         | text nullable                       | ≤ 2000                                                 |
-| resume_s3_key                        | text                                | префикс `vacancy-applications/<vacancyId>/<appId>.pdf` |
-| resume_size_bytes                    | integer                             | после сжатия                                           |
-| status                               | enum `NEW \| VIEWED \| REJECTED`    |                                                        |
-| created_at                           | timestamp                           |                                                        |
+| Column                               | Type                                | Note                                                  |
+| ------------------------------------ | ----------------------------------- | ----------------------------------------------------- |
+| id                                   | uuid PK                             |                                                       |
+| vacancy_id                           | uuid FK vacancies ON DELETE CASCADE |                                                       |
+| full_name                            | text                                |                                                       |
+| email                                | text                                |                                                       |
+| telegram / linkedin_url / github_url | text nullable                       |                                                       |
+| cover_letter                         | text nullable                       | ≤ 2000                                                |
+| resume_s3_key                        | text                                | prefix `vacancy-applications/<vacancyId>/<appId>.pdf` |
+| resume_size_bytes                    | integer                             | after compression                                     |
+| status                               | enum `NEW \| VIEWED \| REJECTED`    |                                                       |
+| created_at                           | timestamp                           |                                                       |
 
-**Почему НЕ таблица `documents`:** она привязана к `users` (ownerId/uploadedBy),
-а кандидаты — не юзеры. Прямой R2-ключ на строке отклика проще, дешевле и
-изолирован от user-документов. Переиспользуем `S3Service` + `CompressionService`
-как сервисы, не таблицу.
+**Why NOT the `documents` table:** it is tied to `users` (ownerId/uploadedBy),
+and candidates are not users. A direct R2 key on the application row is simpler, cheaper and
+isolated from user documents. We reuse `S3Service` + `CompressionService`
+as services, not the table.
 
 ### 3.2. Endpoints
 
-**Публичные (без auth, отдельный контроллер `public-vacancies.controller.ts`):**
+**Public (no auth, a separate controller `public-vacancies.controller.ts`):**
 
-- `GET /api/public/vacancies` — только PUBLISHED; поля: slug, title, domain,
-  seniority, employmentType, location, publishedAt. Без счётчиков откликов.
-- `GET /api/public/vacancies/:slug` — то же + descriptionMd. 404 для
-  DRAFT/CLOSED/несуществующих (не раскрываем существование).
-- `POST /api/public/vacancies/:slug/apply` — multipart (поля + PDF).
-  Пайплайн защиты — §4. Ответ 201 `{ ok: true }` без id (не раскрываем внутренние id).
+- `GET /api/public/vacancies` — PUBLISHED only; fields: slug, title, domain,
+  seniority, employmentType, location, publishedAt. No application counters.
+- `GET /api/public/vacancies/:slug` — the same + descriptionMd. 404 for
+  DRAFT/CLOSED/nonexistent (we do not reveal existence).
+- `POST /api/public/vacancies/:slug/apply` — multipart (fields + PDF).
+  The protection pipeline — §4. Response 201 `{ ok: true }` without an id (we do not reveal internal ids).
 
-**Приватные (JwtGuard + RolesGuard `@Roles(ADMIN, HR)`):**
+**Private (JwtGuard + RolesGuard `@Roles(ADMIN, HR)`):**
 
-- `GET /api/vacancies` (все статусы, + счётчик откликов) · `POST /api/vacancies` ·
-  `PATCH /api/vacancies/:id` (правки + смена статуса) · `DELETE /api/vacancies/:id`
-  (только DRAFT без откликов; иначе — закрывать).
+- `GET /api/vacancies` (all statuses, + an application counter) · `POST /api/vacancies` ·
+  `PATCH /api/vacancies/:id` (edits + status change) · `DELETE /api/vacancies/:id`
+  (only DRAFT without applications; otherwise — close).
 - `GET /api/vacancies/:id/applications` · `PATCH …/applications/:appId`
-  (status NEW→VIEWED→REJECTED) · `DELETE …/applications/:appId` (строка + R2-объект) ·
-  `GET …/applications/:appId/resume-url` (presigned GET, TTL 10 мин,
+  (status NEW→VIEWED→REJECTED) · `DELETE …/applications/:appId` (row + R2 object) ·
+  `GET …/applications/:appId/resume-url` (presigned GET, TTL 10 min,
   `S3Service.getPresignedDownloadUrl`).
 
-Zod-схемы всех DTO — `packages/shared/src/schemas/vacancies.ts`, экспорт из index.
+Zod schemas of all DTOs — `packages/shared/src/schemas/vacancies.ts`, exported from the index.
 
-### 3.3. RBAC: кто смотрит → что видит
+### 3.3. RBAC: who views → what they see
 
-| Роль                                | Вакансии                      | Отклики / CV                           |
-| ----------------------------------- | ----------------------------- | -------------------------------------- |
-| Аноним (лендинг)                    | только PUBLISHED (public DTO) | ничего (403/404)                       |
-| ADMIN, HR                           | все статусы, CRUD             | полный доступ, скачивание CV, удаление |
-| SENIOR / JUNIOR / ACCOUNTANT / DROP | 403 на приватные endpoints    | 403                                    |
+| Role                                | Vacancies                   | Applications / CV                  |
+| ----------------------------------- | --------------------------- | ---------------------------------- |
+| Anonymous (landing)                 | PUBLISHED only (public DTO) | nothing (403/404)                  |
+| ADMIN, HR                           | all statuses, CRUD          | full access, CV download, deletion |
+| SENIOR / JUNIOR / ACCOUNTANT / DROP | 403 on private endpoints    | 403                                |
 
-Сайдбар CRM: пункт «Вакансии» виден только ADMIN/HR (надпись — консистентно
-с текущим языком сайдбара).
+CRM sidebar: the "Vacancies" item is visible only to ADMIN/HR (the wording — consistent
+with the current sidebar language).
 
 ---
 
-## 4. Защита публичного `apply` (security-критично)
+## 4. Protection of the public `apply` (security-critical)
 
-Порядок проверок (fail-fast, дешёвые раньше дорогих):
+Check order (fail-fast, cheap before expensive):
 
-1. **Rate-limit** по IP — отдельный жёсткий бакет существующего throttler'а
-   (порядок: ~5 попыток/час на IP на apply; списки вакансий — мягче).
-2. **Honeypot** — заполнено → 201-мимикрия (silent drop, лог).
-3. **Turnstile** — server-side POST на CF siteverify с `TURNSTILE_SECRET_KEY`;
-   невалидный токен → 400.
-4. **Дубль** — email+vacancy за 24ч → 429.
-5. **Размер** ≤ 5MB (multipart limit на Fastify-уровне + проверка буфера).
-6. **MIME + magic-bytes** — только `application/pdf`, паттерн
-   `detectMimeFromBuffer` из documents-модуля; несовпадение → 415.
-7. **Сжатие + strip метаданных** — `CompressionService.compressPdf`.
-8. **Персист** — DB-row-first, затем R2 upload, компенсация (delete row) при
-   падении R2 — паттерн `DocumentsService.upload`.
-9. **Нотификация** — `NotificationsService.create` каждому ADMIN/HR:
-   новый `NotificationType` `VACANCY_APPLICATION`, link на CRM-страницу вакансии.
+1. **Rate-limit** by IP — a separate hard bucket of the existing throttler
+   (order: ~5 attempts/hour per IP on apply; vacancy lists — softer).
+2. **Honeypot** — filled → 201 mimicry (silent drop, log).
+3. **Turnstile** — a server-side POST to CF siteverify with `TURNSTILE_SECRET_KEY`;
+   an invalid token → 400.
+4. **Duplicate** — email+vacancy within 24h → 429.
+5. **Size** ≤ 5MB (multipart limit at the Fastify level + a buffer check).
+6. **MIME + magic-bytes** — only `application/pdf`, the pattern
+   `detectMimeFromBuffer` from the documents module; a mismatch → 415.
+7. **Compression + metadata strip** — `CompressionService.compressPdf`.
+8. **Persist** — DB-row-first, then R2 upload, compensation (delete row) on an
+   R2 failure — the `DocumentsService.upload` pattern.
+9. **Notification** — `NotificationsService.create` to every ADMIN/HR:
+   a new `NotificationType` `VACANCY_APPLICATION`, a link to the CRM vacancy page.
 
-Инпуты санитизируются Zod-схемой; markdown вакансий рендерится на лендинге
-безопасным рендерером (санитизация HTML). PII кандидатов (email/telegram) не
-попадает в логи. **security-reviewer обязателен на PR** (public endpoint +
+Inputs are sanitized by the Zod schema; vacancy markdown is rendered on the landing with a
+safe renderer (HTML sanitization). Candidate PII (email/telegram) does not
+get into logs. **security-reviewer is mandatory on the PR** (public endpoint +
 file upload + RBAC + PII).
 
 ---
 
-## 5. Ретеншн (оптимизация хранения)
+## 5. Retention (storage optimization)
 
-- **Ручное**: DELETE отклика в CRM удаляет строку + R2-объект
-  (`S3Service.delete` идемпотентен).
-- **Cron** (паттерн salary-cron, ежесуточно):
-  - отклики `status=REJECTED` c `created_at` старше 90 дней → удалить (строка + R2);
-  - отклики вакансий с `closed_at` старше 90 дней → удалить (строка + R2).
-    Fail-loud логирование количества удалённого; ошибки R2 не прерывают батч
-    (объект догоняется следующим прогоном).
-
----
-
-## 6. CRM-экраны (`apps/web`)
-
-- **`/vacancies`** — таблица/карточки вакансий: статус-бейджи, счётчик откликов,
-  создание (диалог/форма), publish/close-действия.
-- **`/vacancies/:id`** — редактирование полей + markdown-редактор описания
-  (переиспользуем существующий lazy CodeMirror) + **таб «Отклики»**: карточки
-  кандидатов (имя, контакты, cover letter, дата), скачивание CV (presigned),
-  смена статуса, удаление с конфирм-диалогом. Индикатор NEW.
-- Дизайн — синканная система `CheekyCheeseIT CRM` (Claude Design), responsive
-  по общим правилам.
+- **Manual**: DELETE of an application in the CRM removes the row + the R2 object
+  (`S3Service.delete` is idempotent).
+- **Cron** (the salary-cron pattern, daily):
+  - applications with `status=REJECTED` and `created_at` older than 90 days → delete (row + R2);
+  - applications of vacancies with `closed_at` older than 90 days → delete (row + R2).
+    Fail-loud logging of the deleted count; R2 errors do not interrupt the batch
+    (the object is caught up on the next run).
 
 ---
 
-## 7. Тесты (AC-каркас; детальные AC — в task-файлах плана)
+## 6. CRM screens (`apps/web`)
 
-- **Unit (Vitest, api):** vacancies.service (CRUD, статус-переходы, slug),
-  apply-пайплайн (все ветки отказа §4), retention-cron (граничные даты).
-- **Integration (реальная БД):** RBAC-гарды — 403 для SENIOR/JUNIOR/ACCOUNTANT/DROP
-  на приватных endpoints; публичный флоу end-to-end; 404 на DRAFT-slug; rate-limit.
-- **E2E (Playwright, apps/e2e):** CRM — создать вакансию → publish → отклик через
-  публичный API → увидеть в CRM → сменить статус → удалить. Turnstile в тестах —
-  официальные CF-тест-ключи (always-pass).
-- **Лендинг:** vitest-компонентные (форма, валидация, состояния) + Playwright-прогон
-  по тест-ширинам 320–1920 (нет горизонтального overflow, тач-таргеты ≥ 44px).
-- **Fidelity-гейт:** ui-ux-designer Mode B — diff макет ↔ localhost на всех классах
-  устройств для лендинга И CRM-экранов (`design-fidelity-review.md`).
+- **`/vacancies`** — a table/cards of vacancies: status badges, an application counter,
+  creation (dialog/form), publish/close actions.
+- **`/vacancies/:id`** — editing the fields + a markdown editor for the description
+  (reuse the existing lazy CodeMirror) + an **"Applications" tab**: candidate cards
+  (name, contacts, cover letter, date), CV download (presigned),
+  status change, deletion with a confirm dialog. A NEW indicator.
+- Design — the synced `CheekyCheeseIT CRM` system (Claude Design), responsive
+  per the common rules.
 
 ---
 
-## 8. Деплой и конфигурация
+## 7. Tests (AC skeleton; detailed AC — in the plan's task files)
 
-- nginx: без изменений (proxy `/api` уже есть на обоих доменах).
-- Новые env: `TURNSTILE_SECRET_KEY` (api, prod env + `.env.example`);
-  `VITE_TURNSTILE_SITE_KEY` (landing build ARG в Dockerfile + GHA secret + dev `.env`).
-- Прод-DDL (2 таблицы + enums) — через миграционный шаг deploy.yml (SSH нет).
-- R2: тот же bucket, префикс `vacancy-applications/`.
-
-**Owner-TODO (блокеры на своих этапах):**
-
-1. Создать Cloudflare Turnstile site (домены `cheekycheese.tech`, localhost для dev) →
-   site key + secret → GH secrets + prod env (нужно к этапу реализации apply).
-2. Claude Design сессии — генерация макетов (нужно до вёрстки).
-3. Финальная правка фактуры кейсов и текстов вакансий (можно после вёрстки драфтов).
+- **Unit (Vitest, api):** vacancies.service (CRUD, status transitions, slug),
+  the apply pipeline (all rejection branches §4), the retention cron (boundary dates).
+- **Integration (real DB):** RBAC guards — 403 for SENIOR/JUNIOR/ACCOUNTANT/DROP
+  on private endpoints; the public flow end-to-end; 404 on a DRAFT slug; rate-limit.
+- **E2E (Playwright, apps/e2e):** CRM — create a vacancy → publish → apply via
+  the public API → see it in the CRM → change status → delete. Turnstile in tests —
+  the official CF test keys (always-pass).
+- **Landing:** vitest component tests (form, validation, states) + a Playwright run
+  across test widths 320–1920 (no horizontal overflow, touch targets ≥ 44px).
+- **Fidelity gate:** ui-ux-designer Mode B — diff mockup ↔ localhost on all device
+  classes for the landing AND the CRM screens (`design-fidelity-review.md`).
 
 ---
 
-## 9. Процесс реализации (после аппрува спеки)
+## 8. Deploy and configuration
 
-1. `superpowers:writing-plans` → implementation plan с фазами и task-файлами.
-2. Claude Design (Tier 1, с владельцем): макеты лендинга (все секции, 4 класса
-   устройств, состояния) + CRM-экраны вакансий → артефакты `docs/design/<slug>.md` +
+- nginx: no changes (the `/api` proxy already exists on both domains).
+- New env: `TURNSTILE_SECRET_KEY` (api, prod env + `.env.example`);
+  `VITE_TURNSTILE_SITE_KEY` (landing build ARG in the Dockerfile + GHA secret + dev `.env`).
+- Prod DDL (2 tables + enums) — via the migration step of deploy.yml (no SSH).
+- R2: the same bucket, prefix `vacancy-applications/`.
+
+**Owner-TODO (blockers at their stages):**
+
+1. Create a Cloudflare Turnstile site (domains `cheekycheese.tech`, localhost for dev) →
+   site key + secret → GH secrets + prod env (needed by the apply implementation stage).
+2. Claude Design sessions — mockup generation (needed before markup).
+3. Final edit of the case facts and vacancy texts (can be after the draft markup).
+
+---
+
+## 9. Implementation process (after the spec is approved)
+
+1. `superpowers:writing-plans` → an implementation plan with phases and task files.
+2. Claude Design (Tier 1, with the owner): landing mockups (all sections, 4 device
+   classes, states) + CRM vacancy screens → artifacts `docs/design/<slug>.md` +
    `docs/design/assets/<slug>/`.
-3. PM-декомпозиция → волны агентов ≤ 3–4 (`orchestration-routing.md` Решение 1:
-   API-модуль / лендинг / CRM-экраны — почти disjoint по файлам; E2E — после).
-4. Полный ревью-пайплайн: code-reviewer + **security-reviewer** (обязателен) +
-   manual-qa (живой стек) + fidelity-аудит Mode B → User Testing → merge-сигнал
-   владельца → деплой → прод-smoke.
+3. PM decomposition → agent waves ≤ 3–4 (`orchestration-routing.md` Decision 1:
+   API module / landing / CRM screens — almost disjoint by files; E2E — after).
+4. Full review pipeline: code-reviewer + **security-reviewer** (mandatory) +
+   manual-qa (live stack) + Mode B fidelity audit → User Testing → the owner's merge
+   signal → deploy → prod smoke.
 
 ## 10. Out of scope v1
 
-- Email-уведомления кандидату (нет email-инфры).
-- Связь откликов с interviews-канбаном (решение владельца).
-- Мультиязычность лендинга (только EN).
-- Зарплатные поля/вилки.
-- Подписка на вакансии, RSS, job-агрегаторы.
+- Email notifications to the candidate (no email infra).
+- Linking applications to the interviews kanban (owner decision).
+- Landing multilingualism (EN only).
+- Salary fields/ranges.
+- Vacancy subscriptions, RSS, job aggregators.

@@ -54,12 +54,12 @@
 **Files:** verify `apps/web` resubmit UI (e.g. `EditSeniorIncomeDialog`) still works (likely no change — it already calls `updateSeniorIncome`; the delete is backend). E2E in `apps/e2e/tests/crm/finance*` or a new spec.
 
 - [ ] **Step 1 — frontend check:** confirm the rejected-transaction re-upload flow calls the same endpoint; adjust only if the 1:1/replace changes the contract. Add a web unit only if frontend logic changed.
-- [ ] **Step 2 — E2E (route-mocked + real-ish):** SENIOR resubmits a rejected receipt → new receipt shown, status back to «требует подтверждения» (PENDING badge from PR-2); ACCOUNTANT validates → «подтверждено».
+- [ ] **Step 2 — E2E (route-mocked + real-ish):** SENIOR resubmits a rejected receipt → new receipt shown, status back to "requires confirmation" (PENDING badge from PR-2); ACCOUNTANT validates → "confirmed".
 - [ ] **Step 3 — RUN E2E locally 2× (start web :3000; kill stragglers).**
 - [ ] **Step 4 — full gate:** `pnpm typecheck` (4/4); `pnpm --filter @crm/api --filter @crm/web --filter @crm/shared test` green; integration green (DB-skip-guard); `mcp__eslint__lint-files`; **prettier --check on ALL branch-changed files**.
 - [ ] **Step 5 — commit** `test(e2e): receipt resubmit + validate lifecycle` with `ac_verified:`; push; open PR (base main); label `ai-review-ready`.
 
-> After push: PM dispatches code-reviewer + **security-reviewer** (финансовый путь + удаление файла: атомарность, no-orphan, RBAC на resubmit, S3-delete failure handling) + **manual-qa live**. This PR touches finance + file deletion — security-review is REQUIRED.
+> After push: PM dispatches code-reviewer + **security-reviewer** (finance path + file deletion: atomicity, no-orphan, RBAC on resubmit, S3-delete failure handling) + **manual-qa live**. This PR touches finance + file deletion — security-review is REQUIRED.
 
 ---
 
@@ -75,4 +75,4 @@
 
 - Spec §5 coverage: 1:1→Task 3; replace-with-delete→Task 1-2; confirmation→already PR-2 (noted); endpoint→reuse `updateSeniorIncome` (not a new `/receipt` route — the resubmit path already exists; documented deviation from spec's suggested endpoint, cleaner).
 - Risk: atomicity ordering (DB delete in-tx, S3 delete post-commit best-effort) — the one subtle correctness point; security-review must scrutinize. Verify no existing dup `receipt_document_id` links before any unique-index migration.
-- Финансовый/файловый путь → security-review обязателен.
+- Finance/file path → security-review required.

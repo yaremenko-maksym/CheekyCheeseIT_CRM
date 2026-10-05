@@ -6,9 +6,9 @@
 
 ---
 
-## Архитектура
+## Architecture
 
-### Слои кеширования
+### Caching layers
 
 ```
 Browser request
@@ -18,111 +18,111 @@ Browser request
   │
   ├─ S3 media (images, thumbnails)
   │    └─ SW CacheFirst "media-cache"
-  │         key = origin+pathname (presigned query срезается)
-  │         max 200 entries, 30 дней
+  │         key = origin+pathname (presigned query stripped)
+  │         max 200 entries, 30 days
   │
   ├─ API GET /api/*
   │    └─ SW NetworkFirst "api-cache"
-  │         timeout 4s → network, фолбэк → кеш (offline)
-  │         max 200 entries, 24 часа
+  │         timeout 4s → network, fallback → cache (offline)
+  │         max 200 entries, 24 hours
   │
   └─ TanStack Query (in-memory + IndexedDB persist)
        persister: idb-keyval key="crm-query-cache"
-       maxAge 12 часов, buster = VITE_APP_VERSION
+       maxAge 12 hours, buster = VITE_APP_VERSION
 ```
 
-### Компоненты
+### Components
 
 **C1 — SW runtimeCaching** (`vite.config.ts`)
 
-- `media-cache`: `CacheFirst` для cross-origin images (S3 presigned URLs).
-  Ключ нормализуется — срезаются X-Amz-\* query-параметры. S3-объекты
-  иммутабельны, контент по одному pathname всегда одинаков.
-- `api-cache`: `NetworkFirst` для `/api/*` GET-запросов. Онлайн = свежие
-  данные с сети; оффлайн = кеш как фолбэк. `networkTimeoutSeconds: 4`.
+- `media-cache`: `CacheFirst` for cross-origin images (S3 presigned URLs).
+  The key is normalized — the X-Amz-\* query parameters are stripped. S3 objects
+  are immutable, the content for a single pathname is always the same.
+- `api-cache`: `NetworkFirst` for `/api/*` GET requests. Online = fresh
+  data from the network; offline = cache as a fallback. `networkTimeoutSeconds: 4`.
 
 **C2 — persistQueryClient** (`__root.tsx` + `lib/persister.ts`)
 
-- `PersistQueryClientProvider` вместо `QueryClientProvider`.
-- Persister на `idb-keyval` (IndexedDB, zero-deps).
-- `maxAge: 12h` — кеш валиден 12 часов после записи.
-- `buster: VITE_APP_VERSION` — при деплое старый кеш автоматически
-  инвалидируется (разные строки buster = разные ключи IDB).
+- `PersistQueryClientProvider` instead of `QueryClientProvider`.
+- Persister on `idb-keyval` (IndexedDB, zero-deps).
+- `maxAge: 12h` — the cache is valid for 12 hours after write.
+- `buster: VITE_APP_VERSION` — on deploy the old cache is automatically
+  invalidated (different buster strings = different IDB keys).
 
 **C3 — logout-clear** (`routes/crm/route.tsx`)
 
-- `queryClient.clear()` — сброс in-memory кеша TanStack Query.
-- `idbClear()` — удаление persist-стора из IndexedDB.
-- `caches.delete(k)` для `api-cache` и `media-cache` — SW runtime кеши.
-- Precache-стор (`workbox-precache-*`) не трогается — статика не содержит
-  данных пользователя.
+- `queryClient.clear()` — reset the in-memory TanStack Query cache.
+- `idbClear()` — delete the persist store from IndexedDB.
+- `caches.delete(k)` for `api-cache` and `media-cache` — the SW runtime caches.
+- The precache store (`workbox-precache-*`) is not touched — static assets contain no
+  user data.
 
-**C4 — mutation audit** (4 файла)
+**C4 — mutation audit** (4 files)
 
-Заполнены пробелы в `invalidateQueries` (см. таблицу ниже).
-
----
-
-## Анти-stale стратегия
-
-| Уровень        | Механизм                                                 | Результат                            |
-| -------------- | -------------------------------------------------------- | ------------------------------------ |
-| SW             | `NetworkFirst` для `/api/*`                              | Онлайн всегда получает свежие данные |
-| TanStack Query | `invalidateQueries` в каждой мутации                     | После записи — немедленный рефетч    |
-| Persist        | `buster=VITE_APP_VERSION`                                | Деплой сбрасывает старый IDB-кеш     |
-| Logout         | `queryClient.clear()` + `idbClear()` + `caches.delete()` | Смена пользователя = чистый старт    |
+Gaps in `invalidateQueries` were filled (see the table below).
 
 ---
 
-## Таблица аудита мутаций (C4)
+## Anti-stale strategy
 
-| Мутация                                         | Файл                                                     | Ключи: было                                       | Ключи: добавлено                            |
+| Level          | Mechanism                                                | Result                            |
+| -------------- | -------------------------------------------------------- | --------------------------------- |
+| SW             | `NetworkFirst` for `/api/*`                              | Online always gets fresh data     |
+| TanStack Query | `invalidateQueries` in every mutation                    | After a write — immediate refetch |
+| Persist        | `buster=VITE_APP_VERSION`                                | Deploy resets the old IDB cache   |
+| Logout         | `queryClient.clear()` + `idbClear()` + `caches.delete()` | User switch = clean start         |
+
+---
+
+## Mutation audit table (C4)
+
+| Mutation                                        | File                                                     | Keys: before                                      | Keys: added                                 |
 | ----------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------- |
 | `useAdminUpdateUser`                            | `hooks/use-user-profile.ts`                              | `['user-profile', userId]`                        | `['users']`, `['users-admin']`              |
 | `useAdminChangeRole`                            | `hooks/use-user-profile.ts`                              | `['user-profile', userId]`                        | `['users']`, `['users-admin']`, `['teams']` |
 | `useAdminChangeSalary`                          | `hooks/use-user-profile.ts`                              | `['user-profile', userId]`                        | `['users-admin']`                           |
 | `useAdminChangeRequisites`                      | `hooks/use-user-profile.ts`                              | `['user-profile', userId]`                        | `['users-admin']`                           |
-| `createMutation` (CreateProjectFromHiredDialog) | `interviews/components/CreateProjectFromHiredDialog.tsx` | — (onSuccess отсутствовал)                        | `['projects']`                              |
+| `createMutation` (CreateProjectFromHiredDialog) | `interviews/components/CreateProjectFromHiredDialog.tsx` | — (onSuccess was absent)                          | `['projects']`                              |
 | `confirm` (CryptoChannelCard)                   | `payments/initiate.$incomeId.tsx`                        | `['transaction', id]`, `['profile-transactions']` | `['transactions']`, `['finance-summary']`   |
 | `removeMemberMutation`                          | `routes/crm/team/$teamId.tsx`                            | `['team', teamId]`                                | `['teams']`                                 |
 
-### Мутации без пробелов (проверены, оставлены как есть)
+### Mutations without gaps (checked, left as is)
 
-Остальные 44 из 51 `useMutation` имеют полные `invalidateQueries` для
-всех затронутых ключей. Ключевые примеры:
+The remaining 44 of 51 `useMutation` have full `invalidateQueries` for
+all affected keys. Key examples:
 
-- `use-archive.ts` — cascade invalidation для user/team/project.
+- `use-archive.ts` — cascade invalidation for user/team/project.
 - Finance dialogs (LogCash, Validate, Payout, PayoutDetail, PaySalary,
   DeleteTx, AdminEditTx, PendingSettlement, ConfirmPayout, EditSeniorIncome,
-  CreateTransaction) — инвалидируют `transactions` + `finance-summary` + специфичные ключи.
-- Interviews (Create, Move, Update, Delete) — инвалидируют `['interviews']`.
-- Team (rotateSenior, updateTeam, addMember) — инвалидируют `teams` + `users`.
-- UserDialog (createUser, createDrop, updateUser, contractReady, editUser) — полные наборы.
+  CreateTransaction) — invalidate `transactions` + `finance-summary` + specific keys.
+- Interviews (Create, Move, Update, Delete) — invalidate `['interviews']`.
+- Team (rotateSenior, updateTeam, addMember) — invalidate `teams` + `users`.
+- UserDialog (createUser, createDrop, updateUser, contractReady, editUser) — full sets.
 - Contract hooks (update, ready, revert, reset) — `contractKeys.detail(userId)`.
 - ToS / ContractTemplate — `tos-*` / `contract-template-*`.
-- RejoinTeamDialog — 7 ключей включая `auth`, `me`.
+- RejoinTeamDialog — 7 keys including `auth`, `me`.
 - `projects/$projectId.tsx` — update/removeMember/addMember.
-- `payments/initiate.$incomeId.tsx` — дополнено в C4.
+- `payments/initiate.$incomeId.tsx` — supplemented in C4.
 
 ---
 
-## Что НЕ кешируется
+## What is NOT cached
 
-- `POST/PATCH/DELETE` запросы — SW не перехватывает мутации.
-- PDF (контракты, инвойсы) — отдаются с `Cache-Control: no-store, private`.
-- Auth endpoints (`/api/auth/*`) — SW не кешируется по pathname, но
-  `NetworkFirst` их покрывает (online-first всегда).
-- Presigned URL как URL — кешируется только по `origin+pathname` без query.
+- `POST/PATCH/DELETE` requests — the SW does not intercept mutations.
+- PDF (contracts, invoices) — served with `Cache-Control: no-store, private`.
+- Auth endpoints (`/api/auth/*`) — the SW is not cached by pathname, but
+  `NetworkFirst` covers them (online-first always).
+- Presigned URL as a URL — cached only by `origin+pathname` without the query.
 
 ---
 
-## Manual QA (на PM)
+## Manual QA (on PM)
 
-- [ ] Оффлайн-режим: зайти в CRM, отключить сеть, перезагрузить — должно
-      работать из кеша (API данные из `api-cache`, медиа из `media-cache`).
-- [ ] Анти-stale: изменить данные через мутацию — список должен обновиться
-      без ручного рефреша.
-- [ ] Logout-clear: выйти → войти под другим пользователем — старые данные
-      первого пользователя не должны мелькать.
-- [ ] Деплой buster: при смене `VITE_APP_VERSION` старый IDB-кеш должен
-      сброситься (проверить через DevTools → Application → IndexedDB).
+- [ ] Offline mode: open the CRM, disable the network, reload — it should
+      work from the cache (API data from `api-cache`, media from `media-cache`).
+- [ ] Anti-stale: change data via a mutation — the list should update
+      without a manual refresh.
+- [ ] Logout-clear: log out → log in as another user — the first user's old data
+      must not flash.
+- [ ] Deploy buster: on a `VITE_APP_VERSION` change the old IDB cache should
+      reset (check via DevTools → Application → IndexedDB).

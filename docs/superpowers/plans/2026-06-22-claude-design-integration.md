@@ -120,7 +120,7 @@ Content (concrete, mirrors spec §4.7 + §4.8):
 - **Artifact contract:** `docs/design/<slug>.md` (coder-ready spec) + `docs/design/assets/<slug>/` (design.html + screenshots). This is the only interface the headless coder sees.
 - **Enforcement:** PM-dispatch gate (no UI coder without artifact/conformance), code-reviewer BLOCK if an `apps/web` PR lacks the design artifact + fidelity audit. `merge-approved` stays PM/owner-only (link [[feedback_reviewer_self_merge_incident]]).
 - **Fallback (degraded):** if Claude Design unavailable/over-limit → ui-ux-designer Mode A textual spec; PR body notes `design-gate: degraded`.
-- **Связанные правила:** link `zone-of-write.md`, `light-track.md`, `skills-invocation.md`.
+- **Related rules:** link `zone-of-write.md`, `light-track.md`, `skills-invocation.md`.
 
 - [x] **Step 2: Lint-check the markdown & commit**
 
@@ -137,9 +137,9 @@ Expected: prettier pre-commit passes (md formatted).
 
 **Files:**
 
-- Modify: `.claude/agents/ui-ux-designer.md` (Workflow по режимам section; Mandatory skill table)
+- Modify: `.claude/agents/ui-ux-designer.md` (Workflow-by-modes section; Mandatory skill table)
 
-- [x] **Step 1: Add Mode E to the "Workflow по режимам" section**
+- [x] **Step 1: Add Mode E to the "Workflow-by-modes" section**
 
 Insert a `### Mode E — Reconciliation (Claude Design → coder spec)` block:
 
@@ -237,7 +237,7 @@ In §2 add a row: «CLI upgraded 2.1.143 → 2.1.185 (2026-06-22) → native `/d
 
 - [x] **Step 2: Update CLAUDE.md pointer map**
 
-Add a row to the «Карта указателей» table: `| Claude Design UI-гейт + workflow | .claude/rules/common/design-gate.md + .claude/skills/claude-design-workflow/ |`. Add `design-gate` to the «Сессионный минимум» rules reminder line.
+Add a row to the "Pointer map" table: `| Claude Design UI gate + workflow | .claude/rules/common/design-gate.md + .claude/skills/claude-design-workflow/ |`. Add `design-gate` to the "Session minimum" rules reminder line.
 
 - [x] **Step 3: Commit**
 
@@ -258,7 +258,7 @@ Run: `git add docs/architecture/2026-06-22-claude-design-integration.md CLAUDE.m
 - [ ] **Step 3: Reconcile** — dispatch ui-ux-designer Mode E → `docs/design/<slug>.md`.
 - [ ] **Step 4: Implement** — dispatch coder (worktree) → build in `apps/web` with our components; E2E unaffected (presentational).
 - [ ] **Step 5: Audit** — ui-ux-designer Mode B: Playwright live screenshot vs `design.png` → PASS/BLOCK.
-- [ ] **Step 6: Review + UT** — code-reviewer (design-gate satisfied) → owner User Testing → merge gate (PM sets `merge-approved` only on owner «мерджим»).
+- [ ] **Step 6: Review + UT** — code-reviewer (design-gate satisfied) → owner User Testing → merge gate (PM sets `merge-approved` only on owner "merge it").
 
 **Acceptance:** A merged (or UT-approved) PR whose UI was generated in Claude Design, reconciled, implemented, and fidelity-audited — the loop demonstrably works.
 

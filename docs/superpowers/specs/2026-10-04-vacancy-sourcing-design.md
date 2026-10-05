@@ -1,176 +1,176 @@
-# Авто-сорсинг вакансий — дизайн v1
+# Vacancy auto-sourcing — design v1
 
-**Дата:** 2026-10-04 · **Статус:** на ревью владельца · **Автор:** Master-сессия (прожарка grill me)
-**Источник каталога:** `scratchpad/job-sources-research.md` (fable-ресёрч, ~95 источников, HTTP-пробинг)
+**Date:** 2026-10-04 · **Status:** under owner review · **Author:** Master session (grill-me grilling)
+**Catalog source:** `scratchpad/job-sources-research.md` (fable research, ~95 sources, HTTP probing)
 
-> **Scope этой спеки — ТОЛЬКО сорсинг вакансий + очередь релевантности для HR.**
-> Матчинг под конкретного сеньора, AI-подгонка резюме и авто-подача — **отдельные будущие фазы**, здесь не проектируются.
+> **The scope of this spec is ONLY vacancy sourcing + a relevance queue for HR.**
+> Matching to a specific senior, AI résumé tailoring and auto-apply are **separate future phases**, not designed here.
 
 ---
 
-## 1. Цель
+## 1. Goal
 
-Аутстафф-студия размещает своих **senior-инженеров** в международные компании. Система раз в сутки
-собирает ВНЕШНИЕ вакансии из всех доступных источников, фильтрует до релевантных нашей скамейке,
-дедуплицирует и кладёт в **приоритизированную очередь**, где HR одной кнопкой открывает вакансию и
-работает дальше. Downstream (подобрать сеньора → подогнать резюме → подать) — следующие фазы.
+An outstaff studio places its **senior engineers** into international companies. Once a day the system
+collects EXTERNAL vacancies from all available sources, filters down to those relevant to our bench,
+deduplicates, and puts them into a **prioritized queue** where HR, with one button, opens a vacancy and
+works further. Downstream (pick a senior → tailor the résumé → apply) — the next phases.
 
-## 2. Границы v1
+## 2. v1 boundaries
 
-**В scope:** ингест из API/RSS/кооперативного HTML; слоёный фильтр релевантности; дедуп; очередь с
-ранжированием; HR-UI списка/карточки; per-source бюджет/каденция.
+**In scope:** ingest from API/RSS/cooperative HTML; a layered relevance filter; dedup; a ranked
+queue; HR list/card UI; per-source budget/cadence.
 
-**НЕ в scope (отложено):**
+**NOT in scope (deferred):**
 
-- Защищённые гиганты (LinkedIn/Indeed/Glassdoor/Work.ua/robota.ua — за Cloudflare/DataDome, подтверждено
-  пробингом). Доступ к ним — позже, через платный мост (JSearch/TheirStack) или офиц. API.
-- Матчинг под конкретного сеньора (профиль↔вакансия точно), AI-подгонка резюме, авто-подача заявки.
-- Фидбек-луп «вес платформы по истории валидности» — **v1 стартует проще** (равный вес + лог сигналов),
-  луп включаем вторым шагом, когда накопится история.
-- HR-фильтры на этапе подачи (чёрный список компаний и пр.) — следующая фаза.
+- Protected giants (LinkedIn/Indeed/Glassdoor/Work.ua/robota.ua — behind Cloudflare/DataDome, confirmed
+  by probing). Access to them — later, via a paid bridge (JSearch/TheirStack) or an official API.
+- Matching to a specific senior (profile↔vacancy precisely), AI résumé tailoring, auto-apply.
+- The "platform weight by validity history" feedback loop — **v1 starts simpler** (equal weight + signal log),
+  the loop is turned on as a second step once history accumulates.
+- HR filters at the apply stage (company blacklist, etc.) — the next phase.
 
-## 3. Источники (из ресёрча)
+## 3. Sources (from the research)
 
-**Стартуем со ВСЕГО in-reach набора (~55), не только топ-10.** Три класса адаптеров:
+**We start with the WHOLE in-reach set (~55), not just the top 10.** Three classes of adapters:
 
-- **API/JSON (просто, данные структурны, AI не нужен):** RemoteOK, Remotive, Himalayas, Jobicy,
-  Arbeitnow, Working Nomads, Jobgether, HN «Who is hiring» (Algolia), + **ATS-эндпоинты компаний**
-  (Greenhouse/Lever/Ashby/Workable/SmartRecruiters/Recruitee/Personio — по сид-списку целевых продуктовых
-  компаний). Квота-API на урезанной каденции: Jooble (500/lifetime → раз в неделю), JSearch (200/мес),
-  TheirStack (200/мес), Muse, Reed.
-- **RSS (просто):** Djinni, DOU, We Work Remotely (нужен браузерный UA), EU Remote Jobs.
-- **Кооперативный HTML через Firecrawl + Claude (меньшинство):** JustJoin.it, NoFluffJobs, Landing.jobs,
-  NextLevelJobs.eu, Dice, The Hub, Djinni-деталка (JSON-LD), WTTJ (Algolia, серая зона — пробуем, забанят так забанят).
+- **API/JSON (simple, data structured, AI not needed):** RemoteOK, Remotive, Himalayas, Jobicy,
+  Arbeitnow, Working Nomads, Jobgether, HN "Who is hiring" (Algolia), + **company ATS endpoints**
+  (Greenhouse/Lever/Ashby/Workable/SmartRecruiters/Recruitee/Personio — per a seed list of target product
+  companies). Quota APIs on a reduced cadence: Jooble (500/lifetime → once a week), JSearch (200/mo),
+  TheirStack (200/mo), Muse, Reed.
+- **RSS (simple):** Djinni, DOU, We Work Remotely (needs a browser UA), EU Remote Jobs.
+- **Cooperative HTML via Firecrawl + Claude (a minority):** JustJoin.it, NoFluffJobs, Landing.jobs,
+  NextLevelJobs.eu, Dice, The Hub, Djinni detail (JSON-LD), WTTJ (Algolia, a gray area — we try it, banned so banned).
 
-**Исключено:** Adzuna (после 14 дней — платная коммерч. лицензия).
-**Отложено (анти-бот):** LinkedIn, Indeed, Glassdoor, ZipRecruiter, Monster, Wellfound, Work.ua, robota.ua, Upwork, Toptal и др.
+**Excluded:** Adzuna (after 14 days — a paid commercial license).
+**Deferred (anti-bot):** LinkedIn, Indeed, Glassdoor, ZipRecruiter, Monster, Wellfound, Work.ua, robota.ua, Upwork, Toptal, etc.
 
-## 4. Поток данных (высокий уровень)
+## 4. Data flow (high level)
 
 ```
-cron (per-source каденция)
+cron (per-source cadence)
   └─ Collector → JobSourceProvider.collect(config) → NormalizedPosting[]
-        ├─ API/RSS провайдер: HTTP → уже структурно
-        └─ HTML провайдер: self-hosted Firecrawl (fetch→markdown) → Claude структурирует → поля
-  → Слой 1 фильтр (remote/fulltime/сеньорити/свежесть)  [бесплатно]
-  → Слой 2 фильтр (tech ∩ union(seniors.tech_stack))     [бесплатно, keyword]
-  → Дедуп (fingerprint) → upsert в job_postings, слияние источников-копий
-  → Пересчёт ранга → очередь релевантности
-  → HR UI (список по рангу + карточка с мульти-ссылками)
+        ├─ API/RSS provider: HTTP → already structured
+        └─ HTML provider: self-hosted Firecrawl (fetch→markdown) → Claude structures → fields
+  → Layer 1 filter (remote/fulltime/seniority/freshness)  [free]
+  → Layer 2 filter (tech ∩ union(seniors.tech_stack))     [free, keyword]
+  → Dedup (fingerprint) → upsert into job_postings, merge copy-sources
+  → Rank recompute → relevance queue
+  → HR UI (list by rank + card with multi-links)
 ```
 
-## 5. Провайдер-абстракция (переиспользуем старый шов)
+## 5. Provider abstraction (reuse the old seam)
 
-Старый модуль `apps/api/src/job-sourcing/` уже даёт `JobSourceProvider.collect(config) → NormalizedPosting[]`
+The old module `apps/api/src/job-sourcing/` already gives `JobSourceProvider.collect(config) → NormalizedPosting[]`
 
-- `job_sources`/`job_postings`/бюджеты (DAY/MONTH) в схеме. Расширяем:
+- `job_sources`/`job_postings`/budgets (DAY/MONTH) in the schema. We extend:
 
-* `JobSourceType` enum: добавить членов на каждый источник (сейчас только `DOU_RSS`).
-* Три базовых класса-помощника: `ApiJsonProvider`, `RssProvider`, `FirecrawlHtmlProvider` — каждый
-  конкретный источник = тонкий наследник (endpoint + маппинг полей). Наружу — один интерфейс.
-* **Строго:** провайдер НЕ бросает на одной кривой записи (скип), МОЖЕТ бросить если источник недоступен
-  (collector ловит, лог как failed run). Контент из провайдера — UNTRUSTED (как помечено в схеме).
+* `JobSourceType` enum: add members for each source (currently only `DOU_RSS`).
+* Three base helper classes: `ApiJsonProvider`, `RssProvider`, `FirecrawlHtmlProvider` — each
+  concrete source = a thin subclass (endpoint + field mapping). Outward — a single interface.
+* **Strictly:** the provider does NOT throw on a single malformed record (skip), MAY throw if the source is unavailable
+  (the collector catches it, logs as a failed run). Content from the provider is UNTRUSTED (as marked in the schema).
 
-## 6. Движок: два пути
+## 6. Engine: two paths
 
-### 6.1 API/RSS (большинство) — чистый NestJS-cron
+### 6.1 API/RSS (the majority) — pure NestJS cron
 
-HTTP-запрос по расписанию, маппинг в `NormalizedPosting`. Без AI, без браузера, без анти-бот-риска.
-Это ~80% охвата. Дёшево, надёжно, тестируемо.
+A scheduled HTTP request, mapping into `NormalizedPosting`. No AI, no browser, no anti-bot risk.
+That's ~80% of coverage. Cheap, reliable, testable.
 
-### 6.2 HTML-меньшинство — self-hosted Firecrawl + Claude
+### 6.2 HTML minority — self-hosted Firecrawl + Claude
 
-Firecrawl OSS (Docker: api+worker+playwright+redis, ≥1–2 ГБ RAM) fetch→markdown; Claude структурирует
-markdown→поля вакансии. **AGPL-3.0:** модификации сетевого сервиса надо публиковать — для нас это значит
-НЕ форкать Firecrawl (использовать как есть, через их API-контракт), либо держать форк публичным.
+Firecrawl OSS (Docker: api+worker+playwright+redis, ≥1–2 GB RAM) fetch→markdown; Claude structures the
+markdown→vacancy fields. **AGPL-3.0:** modifications of a network service must be published — for us this means
+NOT forking Firecrawl (use it as is, via their API contract), or keeping the fork public.
 
-**РЕШЕНИЕ A (структурирование HTML) — на подписке владельца.**
-Claude через **подписку владельца** (scheduled headless Claude / Agent SDK). Объём мал (HTML —
-меньшинство источников), нагрузка на квоту ограниченная. РИСК (принят): общий лимит с дев-работой —
-ловили недельный лимит в этой сессии. Митигация: обрабатывать HTML-пакет небольшими порциями, вне пиков
-дев-активности; Claude API остаётся задокументированным fallback'ом, если лимит начнёт бить по проду.
+**DECISION A (HTML structuring) — on the owner's subscription.**
+Claude via the **owner's subscription** (scheduled headless Claude / Agent SDK). The volume is small (HTML —
+a minority of sources), the quota load is limited. RISK (accepted): a shared limit with dev work —
+we hit the weekly limit in this session. Mitigation: process the HTML batch in small portions, outside peaks
+of dev activity; the Claude API remains a documented fallback if the limit starts to hit prod.
 
-**РЕШЕНИЕ B (где Firecrawl + egress) — основной прод-VPS.**
-Firecrawl OSS и скрап-egress — на основном VPS (дёшево, без лишнего box). РИСК (принят): скрап-бан
-может задеть IP прод-CRM. Митигация: вежливый rate-limit к кооперативным сайтам, уважение robots.txt,
-консервативная каденция; если IP прод-CRM начнёт флагаться — пересмотреть (отдельный egress-прокси, фаза 2).
+**DECISION B (where Firecrawl + egress go) — the main prod VPS.**
+Firecrawl OSS and the scrape egress — on the main VPS (cheap, no extra box). RISK (accepted): a scrape ban
+could hit the prod-CRM IP. Mitigation: a polite rate-limit to cooperative sites, respecting robots.txt,
+a conservative cadence; if the prod-CRM IP starts getting flagged — reconsider (a separate egress proxy, phase 2).
 
-## 7. Слоёный фильтр релевантности (AI вне ингеста)
+## 7. Layered relevance filter (AI outside ingest)
 
-1. **Слой 1 (бесплатно, структурные/keyword):** remote-only · fulltime (не фриланс) · сеньорити
-   ∈ {Middle, Middle+, Senior, Techlead} (по ключевым словам тайтл/описание) · новое с прошлого прогона.
-2. **Слой 2 (бесплатно, keyword):** стек вакансии ∩ `union(все users.tech_stack)` ≥ 1 совпадение.
-   `users.tech_stack` — структурный массив (chip-input), AI для стороны сеньора НЕ нужен.
-   Для HTML-источников текст уже получен через Firecrawl+Claude; для API/RSS — прямой keyword-матч по описанию.
-3. **AI только** на шаге 6.2 (структурирование HTML), не на фильтре.
-4. **Точный матч под конкретного сеньора — НЕ здесь** (будущая фаза подгонки).
+1. **Layer 1 (free, structural/keyword):** remote-only · fulltime (not freelance) · seniority
+   ∈ {Middle, Middle+, Senior, Techlead} (by keywords in title/description) · new since the last run.
+2. **Layer 2 (free, keyword):** the vacancy's stack ∩ `union(all users.tech_stack)` ≥ 1 match.
+   `users.tech_stack` — a structural array (chip-input), AI for the senior side is NOT needed.
+   For HTML sources the text is already obtained via Firecrawl+Claude; for API/RSS — a direct keyword match on the description.
+3. **AI only** at step 6.2 (HTML structuring), not on the filter.
+4. **A precise match to a specific senior — NOT here** (a future tailoring phase).
 
-Сеньорити/стек, не распознанные keyword-ом (редко) → conservative: пропускаем в очередь с низким рангом, не теряем.
+Seniority/stack not recognized by keyword (rare) → conservative: let it into the queue with a low rank, do not lose it.
 
-## 8. Дедуп + модель данных
+## 8. Dedup + data model
 
-- **Fingerprint** (как в старом `computePostingFingerprint`): `normalizeCompanyName(company)` + нормализованный
-  title + (опц.) локация. Одинаковый fingerprint с разных источников = ОДНА запись.
-- Канон-копия = с платформы с бОльшим весом; остальные источники храним как список
-  `also_seen_on: [{source, url}]` (JSONB) → в карточке HR «также открыто на: [ссылки]».
-- Таблицы: расширяем `job_postings` (external_id, url, title, company, company_normalized, location,
+- **Fingerprint** (as in the old `computePostingFingerprint`): `normalizeCompanyName(company)` + the normalized
+  title + (opt.) location. The same fingerprint from different sources = ONE record.
+- The canonical copy = from the platform with the greater weight; the other sources are kept as a list
+  `also_seen_on: [{source, url}]` (JSONB) → in the HR card "also open on: [links]".
+- Tables: we extend `job_postings` (external_id, url, title, company, company_normalized, location,
   description_md, published_at, fingerprint, source_type, also_seen_on JSONB, matched_senior_ids[],
-  rank_score, status, first_seen_at, last_seen_at). `job_sources` — конфиг источника + вес + бюджет.
-- Весь контент `job_postings` — UNTRUSTED (валидация на чтение, без raw HTML — markdown).
+  rank_score, status, first_seen_at, last_seen_at). `job_sources` — source config + weight + budget.
+- All `job_postings` content is UNTRUSTED (validation on read, no raw HTML — markdown).
 
-## 9. Очередь релевантности + ранг (v1 простой)
+## 9. Relevance queue + rank (v1 simple)
 
-`rank_score` = f(свежесть, число матчей, вес платформы):
+`rank_score` = f(freshness, number of matches, platform weight):
 
-- **Свежесть:** новее выше, экспоненциальное затухание по дням с `published_at`/`first_seen_at`.
-- **Число матчей:** сколько наших сеньоров подходит по стеку (больше — выше).
-- **Вес платформы v1:** РАВНЫЙ для всех (простой старт). Сигналы валидности (HR открыл/подал / дохлая
-  ссылка / спам) **логируем** с v1, но в формулу вес пока входит константой. Фидбек-луп (вес по истории) — фаза 2.
-- Пересчёт ранга на каждом прогоне + при изменении состава сеньоров (меняется union tech_stack → меняются матчи).
+- **Freshness:** newer is higher, exponential decay by days since `published_at`/`first_seen_at`.
+- **Number of matches:** how many of our seniors fit by stack (more — higher).
+- **Platform weight v1:** EQUAL for all (a simple start). Validity signals (HR opened/applied / dead
+  link / spam) are **logged** from v1, but for now the weight enters the formula as a constant. The feedback loop (weight by history) — phase 2.
+- Rank recompute on every run + when the senior roster changes (the union tech_stack changes → matches change).
 
-## 10. Per-source бюджет/каденция
+## 10. Per-source budget/cadence
 
-Переиспользуем `job_source_budgets` (DAY/MONTH окна). Каждому источнику — своя каденция:
+We reuse `job_source_budgets` (DAY/MONTH windows). Each source — its own cadence:
 
-- Free-unlimited JSON/RSS: ежедневно.
-- Квота-API: растянуть (Jooble раз в неделю; JSearch/TheirStack — бюджет/мес, равномерно).
-- HTML/Firecrawl: с учётом нагрузки стека + вежливый rate-limit (не дразнить анти-бот кооперативных сайтов).
-- Бюджет-гвард (из старого модуля) не даёт превысить квоту источника.
+- Free-unlimited JSON/RSS: daily.
+- Quota APIs: stretch out (Jooble once a week; JSearch/TheirStack — budget/mo, evenly).
+- HTML/Firecrawl: accounting for the stack load + a polite rate-limit (do not tease the anti-bot of cooperative sites).
+- The budget guard (from the old module) prevents exceeding the source's quota.
 
 ## 11. HR UI
 
-- Список-очередь по `rank_score` (новые/релевантные сверху).
-- Карточка вакансии: тайтл, компания, стек (подсвечены совпадения с нашими сеньорами), локация=remote,
-  сеньорити, описание (markdown), `published_at`, **«также открыто на: [ссылки]»**, число/список матч-сеньоров.
-- **Одна кнопка «Открыть/Взять в работу»** → переход к downstream (будущая фаза) + смена статуса записи.
-- RBAC: доступ HR (+ ADMIN). Дизайн-гейт: экран новый → Tier 1 (Claude Design + ui-ux-designer).
+- A list-queue by `rank_score` (new/relevant on top).
+- A vacancy card: title, company, stack (matches with our seniors highlighted), location=remote,
+  seniority, description (markdown), `published_at`, **"also open on: [links]"**, the number/list of match-seniors.
+- **A single "Open / Take into work" button** → transition to downstream (a future phase) + a record status change.
+- RBAC: HR access (+ ADMIN). Design gate: the screen is new → Tier 1 (Claude Design + ui-ux-designer).
 
-## 12. Решения владельца (2026-10-04) — закрыты
+## 12. Owner decisions (2026-10-04) — closed
 
-- **A** — HTML-структурирование: **подписка владельца** (Claude API — fallback). ✓
-- **B** — Firecrawl/egress: **основной прод-VPS** (с митигацией rate-limit/robots; отдельный egress — фаза 2 при флаге IP). ✓
-- **Сид-список ATS-компаний:** берём **из ресёрча**; доп-ресёрч на fable (параллельная задача) конкретизирует
-  список целевых продуктовых компаний + их ATS-борды (Greenhouse/Lever/Ashby/…) и уточняет условия API.
-  Для v1 стартовый сид — захардкоженный из ресёрча; UI-управление списком — следующая фаза.
-- **scope v1** (только сорсинг + очередь, downstream отложен) — одобрен.
+- **A** — HTML structuring: **owner's subscription** (Claude API — fallback). ✓
+- **B** — Firecrawl/egress: **the main prod VPS** (with the rate-limit/robots mitigation; a separate egress — phase 2 if the IP is flagged). ✓
+- **ATS company seed list:** we take it **from the research**; additional research on fable (a parallel task) concretizes
+  the list of target product companies + their ATS boards (Greenhouse/Lever/Ashby/…) and clarifies API terms.
+  For v1 the starting seed is hardcoded from the research; UI management of the list — the next phase.
+- **v1 scope** (only sourcing + queue, downstream deferred) — approved.
 
-## 13. Юр / риски
+## 13. Legal / risks
 
-- **AGPL-3.0 Firecrawl:** использовать как есть, не форкать (или держать форк публичным).
-- **Серые зоны (WTTJ Algolia и пр.):** пробуем, при бане — отключаем источник, не эскалируем обход.
-- **robots.txt / вежливость:** уважаем на кооперативных сайтах (rate-limit, User-Agent).
-- **IP-бан:** изоляция egress скрапинга (под-развилка B).
-- UNTRUSTED-контент вакансий: строгая валидация, markdown без raw HTML (XSS в HR UI).
+- **AGPL-3.0 Firecrawl:** use as is, do not fork (or keep the fork public).
+- **Gray areas (WTTJ Algolia, etc.):** we try; on a ban — disable the source, do not escalate circumvention.
+- **robots.txt / politeness:** respected on cooperative sites (rate-limit, User-Agent).
+- **IP ban:** isolate the scraping egress (sub-fork B).
+- UNTRUSTED vacancy content: strict validation, markdown without raw HTML (XSS in the HR UI).
 
-## 14. Отложено → отдельные задачи
+## 14. Deferred → separate tasks
 
-- **fable доп-ресёрч** (отдельная задача по решению владельца): дошлифовать каталог источников
-  (сид-список ATS-компаний, уточнение API-условий, молодые борды), обновить `job-sources-research.md`.
-- Будущие фазы: матчинг-под-сеньора → AI-подгонка резюме под вакансию → авто-подача (самая сложная:
-  у каждого сайта своя форма/флоу) → HR-фильтры подачи (чёрный список) → доступ к гигантам через платный мост.
-- Фаза 2: фидбек-луп веса платформы по истории валидности.
+- **fable additional research** (a separate task per the owner's decision): polish the source catalog
+  (the ATS company seed list, clarification of API terms, young boards), update `job-sources-research.md`.
+- Future phases: match-to-senior → AI résumé tailoring to the vacancy → auto-apply (the hardest:
+  each site has its own form/flow) → HR apply filters (blacklist) → access to the giants via a paid bridge.
+- Phase 2: the platform-weight feedback loop by validity history.
 
-## 15. Срок годности
+## 15. Shelf life
 
-Каталог источников/анти-бот — пересмотр к 2027-01-15 или по триггерам (403/429 на источнике набора).
-Дизайн — ревизия при переходе к downstream-фазам.
+The source/anti-bot catalog — review by 2027-01-15 or on triggers (403/429 on a source in the set).
+The design — a revision when moving to the downstream phases.
