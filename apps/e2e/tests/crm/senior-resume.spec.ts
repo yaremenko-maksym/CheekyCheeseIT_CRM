@@ -137,21 +137,28 @@ async function mockResumeEndpoints(
   page: Page,
   responses: Array<ReturnType<typeof resumeResponse>>,
   savedResponse?: ReturnType<typeof resumeResponse>,
+  afterTextPost?: ReturnType<typeof resumeResponse>,
 ) {
   let call = 0
+  let textPosted = false
   await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume$`), async (route) => {
     if (route.request().method() === 'PUT') {
       const last = responses[responses.length - 1]
       await route.fulfill(json(savedResponse ?? last))
       return
     }
-    const body = responses[Math.min(call, responses.length - 1)]
+    // State-based, not call-count-based: the profile page may legitimately
+    // refetch the resume (staleTime 0) before the user acts, and a counter
+    // would then serve the post-submit snapshot too early.
+    const body =
+      textPosted && afterTextPost ? afterTextPost : responses[Math.min(call, responses.length - 1)]
     call += 1
     await route.fulfill(json(body))
   })
-  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/text$`), (route) =>
-    route.fulfill(json(resumeResponse({ status: 'QUEUED' }), 201)),
-  )
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/text$`), (route) => {
+    textPosted = true
+    return route.fulfill(json(resumeResponse({ status: 'QUEUED' }), 201))
+  })
   /**
    * The presigned-source query fires as soon as the tab knows a file exists
    * (`hasSourceFile: true`), so it MUST be mocked here rather than per-test.
@@ -223,12 +230,13 @@ async function openSeniorResumeAsAdmin(
   page: Page,
   responses: Array<ReturnType<typeof resumeResponse>>,
   savedResponse?: ReturnType<typeof resumeResponse>,
+  afterTextPost?: ReturnType<typeof resumeResponse>,
 ) {
   await mockAuthAs(page, USERS.admin)
   await page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
     r.fulfill(json(buildAdminViewingUser(USERS.senior))),
   )
-  await mockResumeEndpoints(page, responses, savedResponse)
+  await mockResumeEndpoints(page, responses, savedResponse, afterTextPost)
   await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
 }
 
@@ -282,10 +290,12 @@ test.describe('Резюме — пустое состояние', () => {
     const posted = page.waitForRequest(
       (r) => r.url().includes('/resume/text') && r.method() === 'POST',
     )
-    await openSeniorResumeAsAdmin(page, [
-      resumeResponse(null),
+    await openSeniorResumeAsAdmin(
+      page,
+      [resumeResponse(null)],
+      undefined,
       resumeResponse({ status: 'QUEUED' }),
-    ])
+    )
 
     await page.getByTestId('resume-paste-toggle').click()
     await page
