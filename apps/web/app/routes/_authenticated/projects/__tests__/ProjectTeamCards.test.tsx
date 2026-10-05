@@ -24,6 +24,15 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { ROLE_VARIANT } from '../constants'
 import { MemberRow, ProjectDropDistribution, ProjectEffectiveTeamCard } from '../ProjectTeamCards'
 
+// Radix <AvatarImage> only mounts its <img> after a successful load, which jsdom never
+// performs — stub it so "an image is rendered iff avatarUrl is set" is observable.
+vi.mock('@/components/ui/avatar', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/components/ui/avatar')>()),
+  AvatarImage: ({ src, alt }: { src: string; alt: string }) => (
+    <img data-testid="avatar-img" src={src} alt={alt} />
+  ),
+}))
+
 vi.mock('@tanstack/react-router', () => ({
   Link: ({
     to,
@@ -48,7 +57,7 @@ beforeEach(async () => {
 function wrap(ui: ReactNode) {
   return render(
     <I18nTestProvider>
-      <TooltipProvider>{ui}</TooltipProvider>
+      <TooltipProvider delayDuration={0}>{ui}</TooltipProvider>
     </I18nTestProvider>,
   )
 }
@@ -106,6 +115,17 @@ describe('ProjectDropDistribution', () => {
     expect(screen.getByTestId('dist-senior-share')).toHaveTextContent('$260')
     expect(screen.getByTestId('dist-drop-share')).toHaveTextContent('$50')
     expect(screen.getByTestId('dist-partner-share')).toHaveTextContent('$345 / $345')
+  })
+
+  it('amounts are rounded to at most two decimals', () => {
+    // senior 12.3456% -> 123.456 -> $123.46; remainder 876.544 / 2 = 438.272 -> $438.27
+    wrap(
+      <ProjectDropDistribution
+        project={project({ seniorSharePercentOverride: 12.3456, effectiveDropSharePercent: 0 })}
+      />,
+    )
+    expect(screen.getByTestId('dist-senior-share').textContent).toBe('$123.46')
+    expect(screen.getByTestId('dist-partner-share').textContent).toBe('$438.27 / $438.27')
   })
 
   it('an explicit 0% override is honoured (not treated as missing)', () => {
@@ -173,16 +193,33 @@ describe('MemberRow', () => {
     expect(screen.getByText(label)).toHaveClass(cls)
   })
 
-  it('renders the avatar image when avatarUrl is set', () => {
-    wrap(
+  it('renders the avatar image (src + alt) only when avatarUrl is set', () => {
+    const { unmount } = wrap(
       <MemberRow
         member={member({ avatarUrl: 'https://example.com/a.png' })}
         canManage={false}
         onRemove={() => {}}
       />,
     )
-    // Radix Avatar only mounts <img> after load; the fallback initials stay until then.
-    expect(screen.getByText('IP')).toBeInTheDocument()
+    const img = screen.getByTestId('avatar-img')
+    expect(img).toHaveAttribute('src', 'https://example.com/a.png')
+    expect(img).toHaveAttribute('alt', 'Ivan Petrenko')
+    unmount()
+    wrap(<MemberRow member={member()} canManage={false} onRemove={() => {}} />)
+    expect(screen.queryByTestId('avatar-img')).not.toBeInTheDocument()
+  })
+
+  it('row layout classes and the exit date text are pinned', () => {
+    wrap(
+      <MemberRow
+        member={member({ leftAt: '2026-03-15T00:00:00.000Z' })}
+        canManage={false}
+        onRemove={() => {}}
+      />,
+    )
+    const row = screen.getByRole('link').parentElement!
+    expect(row).toHaveClass('flex', 'items-center', 'gap-2', 'opacity-50')
+    expect(screen.getByText(/дата виходу/).textContent).toBe('дата виходу: 15.03.2026')
   })
 
   it('left member: dimmed, shows exit date, no remove button even for managers', () => {
@@ -322,6 +359,7 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(screen.queryAllByRole('link')).toHaveLength(0)
     const senior = screen.getByTestId('effective-team-senior')
     expect(senior.tagName).toBe('DIV')
+    expect(screen.getByText('Senior Sidorenko')).toHaveClass('text-primary')
     expect(screen.getByText('Senior Sidorenko')).not.toHaveClass('hover:underline')
   })
 
@@ -378,6 +416,9 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(screen.getByText('Active Junior')).toBeInTheDocument()
     expect(screen.queryByText('Left Junior')).not.toBeInTheDocument()
     expect(screen.queryByText('A Senior')).not.toBeInTheDocument()
+    // no HR / accountant rows on the fallback path
+    expect(screen.queryByTestId('effective-team-hrs')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('effective-team-accountants')).not.toBeInTheDocument()
     // senior is null on the fallback path
     expect(screen.getByTestId('effective-team-senior')).toHaveTextContent('Сеньйор не призначений')
   })
@@ -387,6 +428,74 @@ describe('ProjectEffectiveTeamCard', () => {
     expect(screen.getByText('SS')).toBeInTheDocument()
     expect(screen.getByText('DD')).toBeInTheDocument()
   })
+
+  it('a senior without an explicit profileNavigable flag is navigable (default true)', () => {
+    const { profileNavigable: _omit, ...bare } = SENIOR
+    wrap(
+      <ProjectEffectiveTeamCard
+        project={project({
+          effectiveTeam: { senior: bare, hrs: [], accountants: [], juniors: [] },
+        })}
+        viewerRole="ADMIN"
+      />,
+    )
+    expect(screen.getByTestId('effective-team-senior').tagName).toBe('A')
+  })
+
+  it('avatar image is rendered per row only when that person has an avatarUrl', () => {
+    wrap(
+      <ProjectEffectiveTeamCard
+        project={project({
+          effectiveTeam: {
+            senior: { ...SENIOR, avatarUrl: 'https://example.com/s.png' },
+            hrs: [HR],
+            accountants: [],
+            juniors: [],
+          },
+        })}
+        viewerRole="ADMIN"
+      />,
+    )
+    const imgs = screen.getAllByTestId('avatar-img')
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0]).toHaveAttribute('src', 'https://example.com/s.png')
+    expect(imgs[0]).toHaveAttribute('alt', 'Senior Sidorenko')
+  })
+
+  // React keys are invisible in the DOM; node identity across a re-render that changes
+  // the person is how a wrong/empty key shows up (same key -> node reused, new key -> remount).
+  it.each([
+    ['senior', 'effective-team-senior'],
+    ['drop', 'effective-team-drop'],
+    ['hr', 'effective-team-hrs'],
+    ['accountant', 'effective-team-accountants'],
+    ['junior', 'effective-team-juniors'],
+  ] as const)(
+    'row key is tied to the %s identity (changing person remounts the row)',
+    (kind, testId) => {
+      const team = (suffix: number) => ({
+        senior: { ...SENIOR, id: ID(1000 + (kind === 'senior' ? suffix : 0)) },
+        drop: { ...DROP, id: ID(2000 + (kind === 'drop' ? suffix : 0)) },
+        hrs: [{ ...HR, id: ID(3000 + (kind === 'hr' ? suffix : 0)) }],
+        accountants: [{ ...ACC, id: ID(4000 + (kind === 'accountant' ? suffix : 0)) }],
+        juniors: [{ ...JUN, id: ID(5000 + (kind === 'junior' ? suffix : 0)) }],
+      })
+      const ui = (suffix: number) => (
+        <I18nTestProvider>
+          <TooltipProvider>
+            <ProjectEffectiveTeamCard
+              project={project({ effectiveTeam: team(suffix) })}
+              viewerRole="ADMIN"
+            />
+          </TooltipProvider>
+        </I18nTestProvider>
+      )
+      const { rerender } = render(ui(1))
+      const before = screen.getByTestId(testId)
+      rerender(ui(2))
+      expect(screen.getByTestId(testId)).not.toBe(before)
+    },
+  )
 
   describe('attach / detach drop controls', () => {
     it('attach button: shown only with canManageDrop and no dropId; enabled with candidates; fires', async () => {
@@ -425,6 +534,22 @@ describe('ProjectEffectiveTeamCard', () => {
       expect(await screen.findAllByText('Немає доступних дропів')).not.toHaveLength(0)
     })
 
+    it('no «no drops» hint when candidates exist', async () => {
+      wrap(
+        <ProjectEffectiveTeamCard
+          project={project({
+            effectiveTeam: { senior: SENIOR, hrs: [], accountants: [], juniors: [] },
+          })}
+          viewerRole="ADMIN"
+          canManageDrop
+          dropCandidates={[{ id: ID(50), displayName: 'Cand' }]}
+        />,
+      )
+      await userEvent.hover(screen.getByTestId('attach-drop-btn'))
+      await new Promise((r) => setTimeout(r, 100))
+      expect(screen.queryByText('Немає доступних дропів')).not.toBeInTheDocument()
+    })
+
     it('no attach button without canManageDrop, nor when a drop is already attached', () => {
       const { unmount } = wrap(
         <ProjectEffectiveTeamCard project={fullProject()} viewerRole="ADMIN" />,
@@ -456,6 +581,21 @@ describe('ProjectEffectiveTeamCard', () => {
       await userEvent.click(btn)
       expect(onDetachDrop).toHaveBeenCalledTimes(1)
       expect(screen.getAllByTestId('detach-drop-btn')).toHaveLength(1)
+    })
+
+    it('detach click without an onDetachDrop handler is a safe no-op', async () => {
+      const onError = vi.fn()
+      window.addEventListener('error', onError)
+      wrap(
+        <ProjectEffectiveTeamCard
+          project={fullProject({ dropId: ID(11) })}
+          viewerRole="ADMIN"
+          canManageDrop
+        />,
+      )
+      await userEvent.click(screen.getByTestId('detach-drop-btn'))
+      window.removeEventListener('error', onError)
+      expect(onError).not.toHaveBeenCalled()
     })
 
     it('no detach button without canManageDrop', () => {

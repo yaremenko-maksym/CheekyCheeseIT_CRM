@@ -200,7 +200,7 @@ export function ProjectEffectiveTeamCard({
       role: 'SENIOR',
       sectionTestId: 'effective-team-senior',
       // false when admin-senior and viewer lacks profile access (backend sets profileNavigable=false)
-      profileNavigable: effective?.senior?.profileNavigable ?? true,
+      profileNavigable: senior.profileNavigable !== false,
     })
   }
   // Drop role - phase 2. Insert drop directly after senior to keep the
