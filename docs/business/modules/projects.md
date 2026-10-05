@@ -1,33 +1,33 @@
-# Модуль: Проекты (Projects)
+# Module: Projects
 
-## Статус: ✅ Реализован (PHASE 3)
+## Status: ✅ Implemented (PHASE 3)
 
-## Бизнес-логика
+## Business logic
 
-### Что такое проект
+### What a project is
 
-Контракт CHEEKY CHEESE IT с компанией-клиентом. Содержит: компанию, домен, SENIOR, JUNIOR(ов), ставку, валюту, статус (ACTIVE/CLOSED).
+A CHEEKY CHEESE IT contract with a client company. Contains: company, domain, SENIOR, JUNIOR(s), rate, currency, status (ACTIVE/CLOSED).
 
-**Критичное правило:** максимум 1 активный JUNIOR на проект — hard constraint, enforced на backend И в UI.
+**Critical rule:** at most 1 active JUNIOR per project — a hard constraint, enforced on the backend AND in the UI.
 
-### Жизненный цикл
+### Lifecycle
 
 ```
-ADMIN/HR создают проект (статус ACTIVE) → добавляют JUNIOR
-→ SENIOR работает → транзакции → финансовый поток
-→ Проект закрывается: статус CLOSED + endDate (soft close)
+ADMIN/HR create a project (status ACTIVE) → add a JUNIOR
+→ SENIOR works → transactions → financial flow
+→ The project is closed: status CLOSED + endDate (soft close)
 ```
 
-### RBAC — видимость
+### RBAC — visibility
 
-| Роль | Видит |
-|------|-------|
-| ADMIN, ACCOUNTANT | Все проекты |
-| SENIOR | Свои проекты (seniorId = user.id) |
-| HR | Проекты синьоров из своих команд |
-| JUNIOR | Проекты где активный member (leftAt IS NULL) |
+| Role              | Sees                                                      |
+| ----------------- | --------------------------------------------------------- |
+| ADMIN, ACCOUNTANT | All projects                                              |
+| SENIOR            | Their own projects (seniorId = user.id)                   |
+| HR                | Projects of the seniors from their teams                  |
+| JUNIOR            | Projects where they are an active member (leftAt IS NULL) |
 
-## Таблицы БД
+## DB tables
 
 ```sql
 projects: id, name, companyName, domain, startDate, endDate, seniorId,
@@ -38,10 +38,10 @@ project_members: id, projectId, userId, role, joinedAt, leftAt
 ## Endpoints
 
 ```
-GET    /api/projects                         → список (RBAC filtered)
-POST   /api/projects                         → создать (ADMIN, HR)
-PATCH  /api/projects/:id                     → редактировать (ADMIN, HR)
-DELETE /api/projects/:id                     → удалить (ADMIN only)
-POST   /api/projects/:id/members             → добавить JUNIOR
-DELETE /api/projects/:id/members/:userId     → убрать JUNIOR (leftAt = now)
+GET    /api/projects                         → list (RBAC filtered)
+POST   /api/projects                         → create (ADMIN, HR)
+PATCH  /api/projects/:id                     → edit (ADMIN, HR)
+DELETE /api/projects/:id                     → delete (ADMIN only)
+POST   /api/projects/:id/members             → add a JUNIOR
+DELETE /api/projects/:id/members/:userId     → remove a JUNIOR (leftAt = now)
 ```

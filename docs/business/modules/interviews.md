@@ -1,17 +1,17 @@
-# Модуль: Собеседования Kanban (Interviews)
+# Module: Interviews Kanban (Interviews)
 
-## Статус: ✅ Реализован (PHASE 4)
+## Status: ✅ Implemented (PHASE 4)
 
-## Бизнес-логика
+## Business logic
 
-HR ведёт переговоры с рекрутерами **от имени SENIOR**. Каждый SENIOR — персональная канбан-доска.
+HR negotiates with recruiters **on behalf of a SENIOR**. Each SENIOR has a personal kanban board.
 
-### Доступ к доскам
+### Board access
 
-- **ADMIN/HR**: видят доски всех/своих SENIOR, переключают через `?seniorId=uuid`
-- **SENIOR**: видит только свою доску
+- **ADMIN/HR**: see the boards of all/their SENIORs, switch via `?seniorId=uuid`
+- **SENIOR**: sees only their own board
 
-### Стейджи
+### Stages
 
 ```
 HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW → FINAL_INTERVIEW → CLIENT_INTERVIEW → OFFER_RECEIVED
@@ -19,21 +19,21 @@ HR_SCREEN → ENGLISH_CHECK → TECH_INTERVIEW → FINAL_INTERVIEW → CLIENT_IN
                                                                              HIRED | REJECTED | ARCHIVED
 ```
 
-Терминальные стейджи — архив, не удаление.
+Terminal stages are an archive, not deletion.
 
-### Перемещение карточек
+### Moving cards
 
-1. Drag-and-drop через dnd-kit (`closestCenter` — обязательно для cross-column drag)
-2. Кнопки "← / →" в диалоге редактирования
+1. Drag-and-drop via dnd-kit (`closestCenter` — mandatory for cross-column drag)
+2. The "← / →" buttons in the edit dialog
 
-`position` ренормализуется при каждом move в обоих стейджах.
+`position` is renormalized on every move in both stages.
 
-### Данные карточки
+### Card data
 
-- HR вводит: компания, ссылка на вакансию, ссылка на звонок
-- SENIOR вносит заметки: домен, технологии, техника, команда, бенефиты, пересмотр ЗП, тип оплаты, заметки
+- HR enters: company, vacancy link, call link
+- SENIOR adds notes: domain, technologies, technique, team, benefits, salary revision, payment type, notes
 
-## Таблицы БД
+## DB tables
 
 ```sql
 interviews: id, seniorId, hrId, companyName, vacancyUrl, callUrl,
@@ -45,15 +45,15 @@ stage enum: `HR_SCREEN | ENGLISH_CHECK | TECH_INTERVIEW | FINAL_INTERVIEW | CLIE
 ## Endpoints
 
 ```
-GET    /api/interviews?seniorId=<uuid>   → доска (RBAC filtered)
-POST   /api/interviews                   → создать (HR, ADMIN)
-PATCH  /api/interviews/:id               → обновить данные
-PATCH  /api/interviews/:id/move          → переместить { stage, position }
-DELETE /api/interviews/:id               → удалить (ADMIN only)
+GET    /api/interviews?seniorId=<uuid>   → board (RBAC filtered)
+POST   /api/interviews                   → create (HR, ADMIN)
+PATCH  /api/interviews/:id               → update data
+PATCH  /api/interviews/:id/move          → move { stage, position }
+DELETE /api/interviews/:id               → delete (ADMIN only)
 ```
 
-## Frontend особенности
+## Frontend specifics
 
-- `validateSearch` в TanStack Router для `?seniorId=`
-- Каждый `KanbanColumn` — `useDroppable({ id: stage })`
-- Архивная секция (ARCHIVED/REJECTED/HIRED) — отдельный блок внизу страницы
+- `validateSearch` in TanStack Router for `?seniorId=`
+- Each `KanbanColumn` is `useDroppable({ id: stage })`
+- The archive section (ARCHIVED/REJECTED/HIRED) is a separate block at the bottom of the page
