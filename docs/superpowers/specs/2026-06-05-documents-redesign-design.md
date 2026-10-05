@@ -30,7 +30,7 @@ _Frontend:_
 - Profile tab route: `apps/web/app/routes/crm/profile/audit.tsx`.
 - Profile tab component: `apps/web/app/components/user-profile/tabs/AuditLogTab.tsx`.
 - Test: `apps/web/app/__tests__/audit-accordion.test.tsx`.
-- Nav entry: the «Аудит-журнал» → `/crm/audit-log` item in `apps/web/app/components/crm/nav-sidebar.tsx` (~ln 93-98).
+- Nav entry: the "Audit log" → `/crm/audit-log` item in `apps/web/app/components/crm/nav-sidebar.tsx` (~ln 93-98).
 - `audit` from the profile tab enum in `crm/profile/$userId.tsx` + `crm/profile/index.tsx`; remove `AuditLogTab` wiring from `UserProfileShell`.
 - routeTree.gen regenerated (audit routes gone).
 
@@ -43,7 +43,7 @@ _Backend:_
 - `apps/api/src/common/interceptors/audit.interceptor.ts` (the structured audit-LOG interceptor) and its usages in `transactions.service.ts`, `users.controller.ts`/`users.module.ts`. This is distinct from the removed journal and is the target for #15/#21.
 - `tos_acceptances` table (source for the ToS marker).
 
-**ToS marker (profile):** on `/crm/profile/$userId`, ADMIN-visible (self may see own): «Пользовательское соглашение принято: <дата>, v<версия>» (or «не принято»). Place in the **overview** tab/header. Data: latest `tos_acceptances` row for the user, added to the user-profile endpoint (`tosAcceptedAt`, `tosVersion`).
+**ToS marker (profile):** on `/crm/profile/$userId`, ADMIN-visible (self may see own): "User agreement accepted: <date>, v<version>" (or "not accepted"). Place in the **overview** tab/header. Data: latest `tos_acceptances` row for the user, added to the user-profile endpoint (`tosAcceptedAt`, `tosVersion`).
 
 **View toggle:** list/grid switch on `/crm/documents`. **Default = list.** Persist via `?view=` search param (fallback localStorage). Grid = existing `DocumentCard`; list = new compact `DocumentRow` (icon + name + type + badge + date + actions). Existing filters/search unchanged.
 
@@ -55,12 +55,13 @@ _Backend:_
 2. **employee_contracts** as virtual entries (the canonical "contracts") — distinct from uploaded CONTRACT-category files. Open → contract editor (ADMIN) / PDF.
 
 **Badges:**
-| Type | Source | States |
-|---|---|---|
-| Contract | `employee_contracts.status` | Драфт (DRAFT) · Готово к подписи (READY_TO_SIGN) · Подписано (SIGNED); CANCELLED → hidden |
-| Invoice | invoice doc + signatures (via `transactions.invoice_document_id`) | Готово к подписи (counterparty sig missing) · Подписано (both sigs) |
-| Receipt | receipt doc + linked `transactions.status` | Требует подтверждения (PENDING) · Подтверждено (VALIDATED) |
-| Uploaded file | — | (no status badge) |
+
+| Type          | Source                                                            | States                                                                              |
+| ------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Contract      | `employee_contracts.status`                                       | Draft (DRAFT) · Ready to sign (READY_TO_SIGN) · Signed (SIGNED); CANCELLED → hidden |
+| Invoice       | invoice doc + signatures (via `transactions.invoice_document_id`) | Ready to sign (counterparty sig missing) · Signed (both sigs)                       |
+| Receipt       | receipt doc + linked `transactions.status`                        | Requires confirmation (PENDING) · Confirmed (VALIDATED)                             |
+| Uploaded file | —                                                                 | (no status badge)                                                                   |
 
 Type filter (contract/invoice/receipt/resume/scan) + existing search apply to the unified list. No double-counting: employee_contracts vs uploaded CONTRACT files are separate entries with distinct affordances.
 
@@ -68,14 +69,14 @@ Type filter (contract/invoice/receipt/resume/scan) + existing search apply to th
 
 - **Invariant:** one income transaction ↔ exactly one receipt document (`transactions.receipt_document_id`, 1:1).
 - **Replace-with-delete:** when a SENIOR re-submits a receipt (after rejection), the OLD receipt document is **hard-deleted (S3 file + DB row)** as the new one is attached; transaction status resets to PENDING. Wrap delete-old + attach-new + status-reset in one DB transaction; handle S3-delete failure (no orphan / no inconsistent state). Adjust the current "RECEIPT soft-delete forbidden" rule to permit this controlled replace-delete.
-- **Confirmation:** receipt is "confirmed" when ADMIN/ACCOUNTANT validates the income transaction (`PATCH /transactions/:id/validate` → VALIDATED). The receipt badge derives from the linked transaction status (PENDING → требует подтверждения; VALIDATED → подтверждено; REJECTED → требует подтверждения again — the 2-state decision).
+- **Confirmation:** receipt is "confirmed" when ADMIN/ACCOUNTANT validates the income transaction (`PATCH /transactions/:id/validate` → VALIDATED). The receipt badge derives from the linked transaction status (PENDING → requires confirmation; VALIDATED → confirmed; REJECTED → requires confirmation again — the 2-state decision).
 - **Endpoint:** receipt-replace operation on the transaction (e.g., `PATCH /transactions/:id/receipt`) enforcing 1:1 + delete-old.
 
 ## 6. Edge cases & error handling
 
 - Receipt replace: S3 delete failure must not orphan or leave inconsistent DB; transactional + compensation.
 - Aggregation RBAC: preserve per-role visibility (who sees contracts/invoices/receipts/uploads).
-- ToS marker: «не принято» when no acceptance row.
+- ToS marker: "not accepted" when no acceptance row.
 - Audit removal: existing links/bookmarks to `/crm/audit-log` → 404/redirect cleanly; no dangling imports; routeTree regenerated.
 - Empty states per type (existing pattern).
 

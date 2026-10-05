@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Implement task-by-task with TDD (write test → run red → implement → run green → commit). Steps use checkbox (`- [ ]`). Spec: `docs/superpowers/specs/2026-06-05-a3-4-onboarding-contract-design.md`.
 
-**Goal:** Make the onboarding contract step operate on the user's personal `employee_contract` — preview via the self endpoint, sign READY_TO_SIGN → SIGNED, and show a "Контракт готовится" wait screen when no READY_TO_SIGN contract exists.
+**Goal:** Make the onboarding contract step operate on the user's personal `employee_contract` — preview via the self endpoint, sign READY_TO_SIGN → SIGNED, and show a "Contract is being prepared" wait screen when no READY_TO_SIGN contract exists.
 
 **Architecture:** Backend redefines `OnboardingService.requiresContract` off the personal contract's SIGNED state (the already-correct `sign()` path is untouched). Frontend points the existing preview at `/api/onboarding/contract/pdf` and renders Wait vs Sign by `contractReady`. No shared-schema field added.
 
@@ -25,7 +25,7 @@
 - `apps/api/src/onboarding/onboarding-contract.integration.spec.ts` (new) — real-backend status + sign + guard.
 - `packages/shared/src/schemas/onboarding.ts` — update `requiresContract` doc comment only (no shape change).
 - `apps/web/app/components/onboarding/SignContractStep.tsx` — PDF URL → `/onboarding/contract/pdf`; copy.
-- `apps/web/app/components/onboarding/ContractWaitScreen.tsx` (new) — "Контракт готовится".
+- `apps/web/app/components/onboarding/ContractWaitScreen.tsx` (new) — "Contract is being prepared".
 - `apps/web/app/routes/crm/onboarding/index.tsx` — contract branch Wait vs Sign + status poll while waiting.
 - `apps/web/app/components/onboarding/__tests__/*.test.tsx` — web units (in `__tests__/`, NOT under routes/).
 - `apps/e2e/tests/onboarding-flow.spec.ts`, `onboarding-regression-pr110.spec.ts` — real endpoints + wait path.
@@ -104,7 +104,7 @@ Keep `activeTemplate` fetch + `contractTemplate` population as-is (still used by
 
 - [ ] **Step 1 — failing test:** SignContractStep fetches the preview from `/onboarding/contract/pdf` (assert the axios GET url), renders the sign form, sign posts `/contracts/sign`; `legalFullName`-missing disables the sign button + shows alert.
 - [ ] **Step 2 — run, expect FAIL** (`pnpm --filter @crm/web test -- SignContractStep`).
-- [ ] **Step 3 — implement:** change the preview fetch URL from the removed `'/contracts/preview-pdf'` to `'/onboarding/contract/pdf'` (responseType blob, unchanged otherwise). Replace "MSA-контракт"/"MSA" copy with "персональный контракт" (heading, iframe titles, checkbox label, sr-note). Keep confirm-checkbox, signature block, `legalFullName` guard, success toast with `contractNumber`.
+- [ ] **Step 3 — implement:** change the preview fetch URL from the removed `'/contracts/preview-pdf'` to `'/onboarding/contract/pdf'` (responseType blob, unchanged otherwise). Replace "MSA contract"/"MSA" copy with "personal contract" (heading, iframe titles, checkbox label, sr-note). Keep confirm-checkbox, signature block, `legalFullName` guard, success toast with `contractNumber`.
 - [ ] **Step 4 — run, expect PASS** + eslint.
 - [ ] **Step 5 — commit** `fix(web): onboarding sign step previews personal contract (/onboarding/contract/pdf)`.
 
@@ -112,10 +112,10 @@ Keep `activeTemplate` fetch + `contractTemplate` population as-is (still used by
 
 **Files:** Create `apps/web/app/components/onboarding/ContractWaitScreen.tsx`; Modify `apps/web/app/routes/crm/onboarding/index.tsx`; Test `apps/web/app/components/onboarding/__tests__/ContractWaitScreen.test.tsx` + extend onboarding index test if present.
 
-- [ ] **Step 1 — failing test:** `ContractWaitScreen` renders heading «Контракт готовится» + explanation + `data-testid="contract-wait"`, and NO sign button. Index test: when `requiresContract && !contractReady` → renders `contract-wait`; when `requiresContract && contractReady` → renders `sign-contract-form`; when `!requiresContract && requiresTos` → ToS step.
+- [ ] **Step 1 — failing test:** `ContractWaitScreen` renders heading "Contract is being prepared" + explanation + `data-testid="contract-wait"`, and NO sign button. Index test: when `requiresContract && !contractReady` → renders `contract-wait`; when `requiresContract && contractReady` → renders `sign-contract-form`; when `!requiresContract && requiresTos` → ToS step.
 - [ ] **Step 2 — run, expect FAIL.**
 - [ ] **Step 3 — implement:**
-  - `ContractWaitScreen.tsx` — centered icon (e.g. `Clock`/`FileClock`) + «Контракт готовится» + «Администратор готовит ваш персональный контракт. Эта страница обновится автоматически, когда контракт будет готов к подписи.» (Russian), `data-testid="contract-wait"`. Include a `<DialogDescription>`-equivalent only if inside a dialog (it is a full-page step, so plain semantic markup).
+  - `ContractWaitScreen.tsx` — centered icon (e.g. `Clock`/`FileClock`) + "Contract is being prepared" + "The administrator is preparing your personal contract. This page will refresh automatically once the contract is ready to sign." (Russian UI copy), `data-testid="contract-wait"`. Include a `<DialogDescription>`-equivalent only if inside a dialog (it is a full-page step, so plain semantic markup).
   - `index.tsx` — in the `contract` branch render `status.contractReady ? <SignContractStep onSuccess=…/> : <ContractWaitScreen/>`. Add `refetchInterval` to the `onboarding-status` query so the wait screen auto-advances:
 
 ```ts
@@ -132,9 +132,9 @@ const { data: status } = useQuery<OnboardingStatusDto>({
 })
 ```
 
-- Keep the existing step state machine; the contract step now has two visual modes. Progress-indicator label can stay "Подписать контракт".
+- Keep the existing step state machine; the contract step now has two visual modes. Progress-indicator label can stay "Sign contract".
 - [ ] **Step 4 — run, expect PASS** + eslint.
-- [ ] **Step 5 — commit** `feat(web): onboarding "Контракт готовится" wait state + auto-advance poll`.
+- [ ] **Step 5 — commit** `feat(web): onboarding "Contract is being prepared" wait state + auto-advance poll`.
 
 ## Task 6 — E2E: real endpoints + wait path
 
@@ -159,7 +159,7 @@ const { data: status } = useQuery<OnboardingStatusDto>({
 1. `OnboardingService.requiresContract` is derived from the personal contract's SIGNED state (not the role template); ADMIN bypass intact; backward-compatible for already-SIGNED users.
 2. `EmployeeContractsService.hasSignedContract` exists + unit-tested.
 3. Onboarding sign step previews the personal contract via `/api/onboarding/contract/pdf` (the removed `/contracts/preview-pdf` call is gone).
-4. Three states render correctly: wait («Контракт готовится», no sign button) / sign (preview + sign) / done (→ ToS); wait auto-advances via status poll.
+4. Three states render correctly: wait ("Contract is being prepared", no sign button) / sign (preview + sign) / done (→ ToS); wait auto-advances via status poll.
 5. Copy references the personal contract (no "MSA"); success toast shows the contract number.
 6. Real-backend integration spec covers status + sign + the OnboardingGuard 403; E2E updated to real endpoints incl. wait path, run locally 2× green.
 7. typecheck + unit (api/web/shared) + E2E green; manual-QA passed live.

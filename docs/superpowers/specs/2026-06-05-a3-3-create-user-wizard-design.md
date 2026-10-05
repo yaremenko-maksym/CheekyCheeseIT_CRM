@@ -9,7 +9,7 @@
 
 ## 1. Goal
 
-Turn the single-screen create-user form into a guided 3-step wizard that produces a user **and** their contract in one flow: **Данные → Контракт → Подтверждение**. Make `legalFullName` required at creation for contract-eligible users (absorbs old task A2c). Reuse the A3-2 contract editor as-is.
+Turn the single-screen create-user form into a guided 3-step wizard that produces a user **and** their contract in one flow: **Data → Contract → Confirmation**. Make `legalFullName` required at creation for contract-eligible users (absorbs old task A2c). Reuse the A3-2 contract editor as-is.
 
 ## 2. Approach (decided: create-on-step-1)
 
@@ -19,26 +19,26 @@ Scope: refactor **create-mode** of `UserDialog` into the wizard. **Edit-mode is 
 
 ## 3. Steps
 
-### Step 1 — «Данные»
+### Step 1 — "Data"
 
 - The existing create-user form (identity / contacts / tech stack / finance / payment requisites / team assignment), unchanged in content.
 - **`legalFullName` becomes required** for contract-eligible non-ADMIN roles (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP) via Zod `superRefine` on `createUserSchema` (absorbs A2c). Field already exists in the dialog (ADMIN-visible for non-ADMIN targets).
-- «Далее» → validate → `POST /api/users` → on success store the returned user `id`, advance to step 2. On validation/server error: stay on step 1, show the error (do not advance).
+- "Next" → validate → `POST /api/users` → on success store the returned user `id`, advance to step 2. On validation/server error: stay on step 1, show the error (do not advance).
 
-### Step 2 — «Контракт»
+### Step 2 — "Contract"
 
 - Reuse A3-2 `ContractEditor` + `ContractActionBar` + `useEmployeeContract` on the new user `id`.
 - `GET /api/users/:id/contract` lazy-creates the DRAFT; editing auto-saves via PATCH (DRAFT only).
-- **No active template for the role** → render the existing no-template empty state («Нет активного шаблона; контракт можно создать позже»); step 2 becomes **skippable** (Далее → step 3 without a contract).
-- «Назад» → step 1 in **edit mode** (the user now exists → PATCH `/api/users/:id` for any data fixes). «Далее» → step 3.
+- **No active template for the role** → render the existing no-template empty state ("No active template; the contract can be created later"); step 2 becomes **skippable** (Next → step 3 without a contract).
+- "Back" → step 1 in **edit mode** (the user now exists → PATCH `/api/users/:id` for any data fixes). "Next" → step 3.
 
-### Step 3 — «Подтверждение»
+### Step 3 — "Confirmation"
 
 - Summary: which user was created + current contract status (DRAFT / no contract).
 - Buttons:
-  - **«Сохранить как черновик»** → finish: contract stays DRAFT (already saved), close dialog + success toast + refresh users list.
-  - **«Сохранить и отметить готовым к подписи»** → `POST /api/users/:id/contract/ready` (DRAFT → READY_TO_SIGN; participant can then sign), close + toast + refresh. Disabled when there is no contract (no-template case).
-- «Назад» → step 2.
+  - **"Save as draft"** → finish: contract stays DRAFT (already saved), close dialog + success toast + refresh users list.
+  - **"Save and mark ready to sign"** → `POST /api/users/:id/contract/ready` (DRAFT → READY_TO_SIGN; participant can then sign), close + toast + refresh. Disabled when there is no contract (no-template case).
+- "Back" → step 2.
 
 ## 4. Components
 
@@ -50,10 +50,10 @@ Scope: refactor **create-mode** of `UserDialog` into the wizard. **Edit-mode is 
 
 | Action              | Call                                                           | Result                              |
 | ------------------- | -------------------------------------------------------------- | ----------------------------------- |
-| Step 1 «Далее»      | `POST /api/users` (`createUserSchema`, legalFullName required) | store new `id` → step 2             |
+| Step 1 "Next"       | `POST /api/users` (`createUserSchema`, legalFullName required) | store new `id` → step 2             |
 | Step 2 open         | `GET /api/users/:id/contract`                                  | lazy-create DRAFT; load into editor |
 | Step 2 edit         | `PATCH /api/users/:id/contract`                                | auto-save DRAFT                     |
-| Step 1 «Назад»-edit | `PATCH /api/users/:id`                                         | update created user                 |
+| Step 1 "Back"-edit  | `PATCH /api/users/:id`                                         | update created user                 |
 | Step 3 draft finish | (none — already saved)                                         | close + refresh                     |
 | Step 3 mark ready   | `POST /api/users/:id/contract/ready`                           | READY_TO_SIGN → close + refresh     |
 
@@ -61,7 +61,7 @@ Scope: refactor **create-mode** of `UserDialog` into the wizard. **Edit-mode is 
 
 - Step-1 create failure (validation/server) → stay, show error, no advance.
 - No active template for role → step 2 skippable; step-3 «Mark Ready» disabled.
-- Abandon after step 1 → user persists with DRAFT contract (documented behavior; finishable from profile). Consider a small confirm on close-after-create («Пользователь уже создан; контракт останется черновиком»).
+- Abandon after step 1 → user persists with DRAFT contract (documented behavior; finishable from profile). Consider a small confirm on close-after-create ("The user is already created; the contract will remain a draft").
 - Back-navigation after creation uses PATCH (no duplicate POST).
 - legalFullName missing for contract role → Zod error on step 1 (blocks creation).
 
