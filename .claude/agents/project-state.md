@@ -7,11 +7,11 @@ Single source of truth для **factual state of the project**: фазы, миг
 
 | Информация               | Update owner | Когда                                  |
 | ------------------------ | ------------ | -------------------------------------- |
-| Phase status             | PM/BA        | После каждого merge                    |
-| Drizzle migrations       | PM/BA        | После `db:generate`                    |
-| RBAC матрица             | BA           | При изменении логики                   |
+| Phase status             | Master       | После каждого merge                    |
+| Drizzle migrations       | Master       | После `db:generate`                    |
+| RBAC матрица             | Master       | При изменении логики                   |
 | Канонические версии      | DevOps       | При upgrade (тогда же — `RULES.md` §7) |
-| Shared schemas inventory | Coder/BA     | При добавлении нового модуля           |
+| Shared schemas inventory | Coder/Master | При добавлении нового модуля           |
 | Tech gotchas             | Coder        | При discovery                          |
 
 ---
@@ -237,7 +237,7 @@ Single Source of Truth для всех типов. Frontend и backend импо�
 | `e2e-watchdog.yml`        | scheduled / events                   | Контроль E2E                                      |
 | `labels-sync.yml`         | scheduled                            | Sync labels                                       |
 
-PM диспетчит Coder/Reviewer/AutoTest/DevOps **локально** через `Agent(isolation="worktree")`. Любые упоминания «PM запускает `gh workflow run coder.yml`» в старых docs — устарело.
+Master диспетчит Coder/Reviewer/AutoTest/DevOps **локально** через `Agent(isolation="worktree")`. Любые упоминания «PM запускает `gh workflow run coder.yml`» в старых docs — устарело.
 
 ---
 

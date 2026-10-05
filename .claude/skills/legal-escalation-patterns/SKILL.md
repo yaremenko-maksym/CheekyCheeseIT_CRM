@@ -1,7 +1,7 @@
 ---
 name: legal-escalation-patterns
-description: When Legal-agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) или PM encounters user iterating evasion variants после baseline-acceptance. Cross-cutting between Legal internal discipline + PM-side handling. Использовать в Mode A (consultation), Mode D (strategic) + PM-side при variant N iterations.
-when_to_use: "Use when Legal hits a hard-refuse zone, or PM sees the user iterating evasion variants after a baseline legal verdict. Examples: 'юзер просит схему обхода после отказа', 'variant 2 той же схемы', 'multi-issuer scheme', 'cash channel', 'когда привлекать внешнего юриста', 'hard refuse boundary'."
+description: When Legal-agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) или Master encounters user iterating evasion variants после baseline-acceptance. Cross-cutting between Legal internal discipline + Master-side handling. Использовать в Mode A (consultation), Mode D (strategic) + Master-side при variant N iterations.
+when_to_use: "Use when Legal hits a hard-refuse zone, or Master sees the user iterating evasion variants after a baseline legal verdict. Examples: 'юзер просит схему обхода после отказа', 'variant 2 той же схемы', 'multi-issuer scheme', 'cash channel', 'когда привлекать внешнего юриста', 'hard refuse boundary'."
 allowed-tools:
   - Read
   - Grep
@@ -10,18 +10,18 @@ allowed-tools:
 
 # Legal Escalation Patterns
 
-Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` PM lessons.
+Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` Master lessons.
 
 ## When to invoke
 
 - Legal: перед відповіддю на user message що пахне evasion variant
 - Legal: при detection hard refuse zones (multi-issuer, cash channel, selective declaration)
-- PM: при user iterates evasion variants після baseline-acceptance
+- Master: при user iterates evasion variants після baseline-acceptance
 - Legal: при final answer formulation з боундари "lawyer-vs-AI scope"
 
 ## Patterns
 
-### 1. Evasion variants — recognition + PM behavior
+### 1. Evasion variants — recognition + Master behavior
 
 **Контекст:** After hard-refuse на evasion scheme + acceptance legitimate path, User може iterate evasion variants з cosmetic різницями:
 
@@ -32,7 +32,7 @@ Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engage
 
 **Правило:** Усі функціонально ідентичні — **same scheme, different wrapping**.
 
-**PM-behavior (5 steps):**
+**Master-behavior (5 steps):**
 
 1. **НЕ re-dispatch Legal** — verdict не зміниться, токени марно.
 2. **НЕ re-litigate full risk analysis** — point at existing consultation.
@@ -140,15 +140,15 @@ practitioner (юриспруденція UA / inter-jurisdictional law).
 
 ## Anti-patterns
 
-| ❌ Don't                                                 | ✅ Do                                                                   |
-| -------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Re-dispatch Legal для cosmetic-variant evasion question  | PM identifies "variant N of scheme already analyzed" + restate boundary |
-| Lecture / moralize при detection evasion variant         | Identify pattern + add NEW technical insight + offer 3 forks            |
-| Analyze multi-issuer schemes deeper                      | Hard refuse — ст. 212 ККУ + escalate to criminal defense lawyer         |
-| AI generates ready-to-sign contract draft                | Analysis / structured skeleton / lawyer-engagement prep pack only       |
-| Full re-litigation на structural follow-up consultations | Focused side-by-side delta-comparison (~500 рядків)                     |
-| Skip disclaimer в Legal output                           | Standard disclaimer language з kожним output'om                         |
-| AI engages specialist lawyer directly                    | AI suggests specialist + boundary, final engagement — User              |
+| ❌ Don't                                                 | ✅ Do                                                                       |
+| -------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Re-dispatch Legal для cosmetic-variant evasion question  | Master identifies "variant N of scheme already analyzed" + restate boundary |
+| Lecture / moralize при detection evasion variant         | Identify pattern + add NEW technical insight + offer 3 forks                |
+| Analyze multi-issuer schemes deeper                      | Hard refuse — ст. 212 ККУ + escalate to criminal defense lawyer             |
+| AI generates ready-to-sign contract draft                | Analysis / structured skeleton / lawyer-engagement prep pack only           |
+| Full re-litigation на structural follow-up consultations | Focused side-by-side delta-comparison (~500 рядків)                         |
+| Skip disclaimer в Legal output                           | Standard disclaimer language з kожним output'om                             |
+| AI engages specialist lawyer directly                    | AI suggests specialist + boundary, final engagement — User                  |
 
 ## References
 
@@ -160,7 +160,7 @@ practitioner (юриспруденція UA / inter-jurisdictional law).
   - GDPR / EU regulation 2016/679
 - Related agent docs:
   - `.claude/agents/legal.md` Mode A / Mode D
-  - `.claude/agents/pm.md` (escalation handling Mode 2)
+  - `.claude/agents/contracts.md` §6 (out-of-band escalation)
 - Related skills:
   - `ua-tax-compliance` (legitimate path alternatives)
   - `ua-crypto-compliance` (crypto hard refuse zones)

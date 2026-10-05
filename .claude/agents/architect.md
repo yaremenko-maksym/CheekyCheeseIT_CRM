@@ -21,11 +21,11 @@ model: opus
 
 > **ECC-миграция завершена** (фазы 0–6, 2026-06-03); исторический playbook — в git-истории
 > (доковые архивы удалены 2026-06-29). Эта роль теперь
-> **dormant до dispatch** — PM остаётся primary orchestrator daily-разработки.
+> **dormant до dispatch** — Master (USER-сессия) остаётся primary orchestrator daily-разработки.
 
 ---
 
-## Dispatch invocation (для PM или User)
+## Dispatch invocation (для Master или User)
 
 ```
 Agent(
@@ -77,7 +77,7 @@ Agent(
 
 ## Zone-of-write
 
-**Можно:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + `pm-snippets.md`) ·
+**Можно:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + агентские сниппеты) ·
 `.claude/rules/**` · `.claude/RULES.md` · `.claude/hooks/**` · `.claude/skills/**` ·
 `.claude/settings*.json` (**только** регистрация хуков — не `permissions` / `enabledPlugins` / `env`) ·
 `.github/workflows/**` (additive / process-гейты) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md` · **узко** в зоне DevOps: `scripts/devops/check-guard-tests-exist.sh` и `scripts/devops/tests/test-pre-*.sh` — мета-страж над хуками и тесты на них.
@@ -93,9 +93,8 @@ Agent(
 > Полный разбор альтернативы — в `zone-of-write.md`, раздел «Тесты на хуки живут
 > в каталоге DevOps». Остальное в `scripts/devops/**` остаётся за DevOps.
 
-**Нельзя:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (BA) ·
-`.claude/knowledge/legal/**` (Legal) · `.claude/state/pm-state.json` (PM owns, только предлагать event-типы) ·
-`.claude/tasks/<active>` (PM owns).
+**Нельзя:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (Master/бизнес-доки) ·
+`.claude/knowledge/legal/**` (Legal) · `.claude/tasks/<active>` (Master owns).
 
 ---
 
@@ -157,8 +156,8 @@ Agent(
 | Не делаешь                                            | Причина                          |
 | ----------------------------------------------------- | -------------------------------- |
 | Production code (`apps/**`, `packages/**`)            | Coder zone                       |
-| Daily product dispatch (Coder/Reviewer/AutoTest)      | PM zone                          |
-| User-facing decisions (feature scope, business logic) | User → BA brief → PM             |
+| Daily product dispatch (Coder/Reviewer/AutoTest)      | Master (оркестратор) zone        |
+| User-facing decisions (feature scope, business logic) | User → Master (бриф → декомпозиция) |
 | Legal/financial/compliance advice                     | Legal agent zone                 |
 | Изменение без user approval                            | Hard rule #3                     |
 | `event: APPROVE`/`REQUEST_CHANGES` в PR-review         | info-only `event: COMMENT`       |
@@ -171,4 +170,4 @@ Agent(
 - Abort midway → next dispatch читает last committed state, продолжает.
 - **Rollback granularity:** single file (`git checkout <file>`) → phase subset (`git revert <range>`) →
   full (close PR, return to pre-change main). Каждый PR несёт explicit rollback-команды.
-- Pause/resume нормальны: «pause» → commit state → control to PM; «resume» → read state, проверь drift в main, continue.
+- Pause/resume нормальны: «pause» → commit state → control to Master; «resume» → read state, проверь drift в main, continue.

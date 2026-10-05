@@ -1,7 +1,7 @@
 ---
 name: claude-design-workflow
-description: 'When оркестратор (Master / PM) или ui-ux-designer драйвит Claude Design (claude.ai/design) для UI-задачи: синхронизация дизайн-системы, генерация экрана, экспорт артефакта-моста для headless-кодера, handoff. Cookbook поверх нативных команд /design-* (CLI ≥ 2.1.185) + Chrome MCP драйв + fallback на владельца.'
-when_to_use: "Use when the orchestrator (Master/PM) or ui-ux-designer needs to drive Claude Design for a UI task or produce the handoff artifact (design-gate Tier 1/2). Examples: 'сгенерь дизайн экрана в Claude Design', 'засинкай дизайн-систему', 'экспортируй артефакт для кодера', 'погнали дизайн HR-дашборда', 'нужен design.html + design.png для PR', 'как драйвить claude.ai/design через Chrome MCP'."
+description: 'When оркестратор (Master) или ui-ux-designer драйвит Claude Design (claude.ai/design) для UI-задачи: синхронизация дизайн-системы, генерация экрана, экспорт артефакта-моста для headless-кодера, handoff. Cookbook поверх нативных команд /design-* (CLI ≥ 2.1.185) + Chrome MCP драйв + fallback на владельца.'
+when_to_use: "Use when the orchestrator (Master) or ui-ux-designer needs to drive Claude Design for a UI task or produce the handoff artifact (design-gate Tier 1/2). Examples: 'сгенерь дизайн экрана в Claude Design', 'засинкай дизайн-систему', 'экспортируй артефакт для кодера', 'погнали дизайн HR-дашборда', 'нужен design.html + design.png для PR', 'как драйвить claude.ai/design через Chrome MCP'."
 allowed-tools:
   - Read
   - Write
@@ -107,10 +107,10 @@ design systems»). Все `/design`-генерации идут под неё �
 1. Диспатч **ui-ux-designer Mode E** (`Agent subagent_type=ui-ux-designer`): вход = `docs/design/assets/<slug>/`,
    выход = coder-ready `docs/design/<slug>.md` (маппинг на наши shadcn/ui + token-map + a11y/responsive/
    edge-cases). См. `ui-ux-designer.md` Mode E. **Кодер строит по spec, НЕ копирует сырой `design.html`.**
-2. PM диспатчит coder с путём к артефакту (см. `pm-snippets.md` design-gate dispatch).
+2. Master диспатчит coder с путём к артефакту (см. `design-gate.md` энфорсмент).
 3. После реализации — ui-ux-designer **Mode B** fidelity-аудит (live Playwright vs `design.png`), затем
    code-reviewer (проверяет наличие артефакта), затем User Testing → merge-гейт (`merge-approved` —
-   только PM/owner).
+   только Master/owner).
 
 ---
 
@@ -139,5 +139,5 @@ design systems»). Все `/design`-генерации идут под неё �
 
 - `.claude/rules/common/design-gate.md` — 3-tier гейт + контракт артефакта + энфорсмент.
 - `.claude/agents/ui-ux-designer.md` — Mode E (reconciliation) + Mode B (fidelity-аудит).
-- `.claude/agents/pm-snippets.md` — design-gate dispatch (PM не диспатчит UI-кодера без артефакта).
+- `.claude/rules/common/design-gate.md` — энфорсмент (Master не диспатчит UI-кодера без артефакта).
 - ADR: `docs/architecture/2026-06-22-claude-design-integration.md`.

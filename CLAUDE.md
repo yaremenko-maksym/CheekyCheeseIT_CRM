@@ -35,7 +35,7 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 | Cross-agent state machine                                                                   | `.claude/agents/contracts.md`                                                      |
 | Активные task-файлы                                                                         | `.claude/tasks/`                                                                   |
 | ADR, deliverables, RCA                                                                      | `docs/architecture/`                                                               |
-| Бизнес-доки (BA)                                                                            | `docs/business/`                                                                   |
+| Бизнес-доки                                                                                 | `docs/business/`                                                                   |
 | Юр. драфты контрактов                                                                       | `docs/legal/`                                                                      |
 | Уроки агентов                                                                               | `.claude/agents/memory/<agent>/lessons.md`                                         |
 
@@ -69,23 +69,26 @@ docker-compose up -d                           # Postgres + Redis локальн
 
 ## Multi-agent команда
 
-Все агенты запускаются **локально** через `Agent` tool (PM — `isolation=worktree`).
+**Master (USER-сессия) — оркестратор.** Он напрямую диспатчит агентов **локально** через
+`Agent` tool (`isolation=worktree` для пишущих) и сам исполняет оркестрацию: декомпозиция в
+task-файлы (`.claude/tasks/`), запуск волнами, мониторинг, агрегатный вердикт, label-гейтинг,
+User Testing. Отдельного PM-агента нет (удалён 2026-10-05; детали — `contracts.md`).
 GHA-воркфлоу агентов в `.github/workflows/archive/` — устарели, не использовать.
 
-| Агент                                          | Роль                                                            |
-| ---------------------------------------------- | --------------------------------------------------------------- |
-| Master (user-сессия)                           | Инфраструктура агентов, мета-работа, лёгкий трек                |
-| BA                                             | Бизнес-анализ → `.claude/briefs/pm-brief-<slug>.md`             |
-| PM                                             | Декомпозиция → параллельный диспетч → мониторинг → User Testing |
-| Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write   |
-| spec-reviewer                                  | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep)  |
-| code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC      |
-| manual-qa / ui-ux-designer / legal / architect | Visual QA на реальном стеке / дизайн / юр. / ADR                |
+| Агент                                          | Роль                                                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Master (USER-сессия)                           | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing; инфраструктура агентов; лёгкий трек |
+| Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write                                        |
+| spec-reviewer                                  | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep)                                       |
+| code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC                                           |
+| copy-reviewer                                  | Ревью клиентского/кандидатского текста (мультиязычно)                                                |
+| manual-qa / ui-ux-designer / legal / architect | Visual QA на реальном стеке / дизайн / юр. / ADR (ad-hoc)                                            |
 
-**Полный pipeline:** BA → pm-brief → PM → task-файлы (`.claude/tasks/`) → параллельные агенты →
-PR → review (все находки H/M/L резолвятся) → User Testing → явное «мерджим» от USER →
-label `merge-approved` → CI squash-merge.
-**Лёгкий трек** (мелкие правки без PM-церемонии): `.claude/rules/common/light-track.md`.
+**Поток разработки:** Master декомпозирует задачу → task-файлы (`.claude/tasks/`) →
+диспатч агентов (волнами) → PR → review-агенты (все находки H/M/L резолвятся) →
+ad-hoc manual-qa User Testing → явное «мерджим» от USER →
+label `merge-approved` (ставит только Master/owner) → CI squash-merge.
+**Лёгкий трек** (мелкие правки без церемонии): `.claude/rules/common/light-track.md`.
 
 ## Статус
 

@@ -1,7 +1,7 @@
 ---
 name: decision-frontier
 description: 'Автономная версия grilling-сессии: агент сам строит дерево решений задачи, гасит каждую ветку фактами из репозитория, и только неснимаемый остаток классифицирует по уровням автономии A1/A2/A3. Обратимое решает сам под запись, необратимое копит в decision brief. Заменяет интервью с владельцем там, где владелец недоступен.'
-when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: PM Mode 1 decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'непонятно, какой из двух вариантов делать', 'задание не описывает edge-case', 'хочу спросить владельца', 'собрать вопросы в одну пачку', 'какие решения тут вообще есть', 'нужно ли это блокировать'."
+when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: Master task decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'непонятно, какой из двух вариантов делать', 'задание не описывает edge-case', 'хочу спросить владельца', 'собрать вопросы в одну пачку', 'какие решения тут вообще есть', 'нужно ли это блокировать'."
 allowed-tools:
   - Read
   - Grep
