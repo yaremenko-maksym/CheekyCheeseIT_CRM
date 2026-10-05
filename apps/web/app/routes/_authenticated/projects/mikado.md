@@ -23,7 +23,7 @@
 - [done] `PendingShareApprovalBanner`, `ProjectHeaderApprovalNote` -> `ProjectApprovalBanners.tsx`
 - [done] `ProjectEffectiveTeamCard`, `MemberRow`, `ProjectDropDistribution` -> `ProjectTeamCards.tsx`
   (предпосылка `ROLE_VARIANT` вынесена в `constants.ts` — общая для `MemberRow` и страницы)
-- [todo] `ProjectTransactions`
+- [done] `ProjectTransactions` -> `ProjectTransactions.tsx` (лист 6; characterization: `__tests__/ProjectTransactions.test.tsx`)
 - [done] `ProjectUnarchiveHeaderButton`, `ProjectCascadeUnarchiveModal` -> `ProjectUnarchive.tsx`
 - [done] `EDIT_FIELD_LABEL_MESSAGES` -> `constants.ts` (общая для страницы и `ProjectEditFields`);
   `AnyField`/`AnyForm` переехали в `ProjectEditFields.tsx` (нужны только ему); `coerceDomain` остаётся в странице
