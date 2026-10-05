@@ -1,240 +1,239 @@
-# Реестр «только человек» и правило конвертации
+# The "human only" registry and the conversion rule
 
-**Кому:** любому агенту, упёршемуся в шаг, который он не может выполнить. Владельцу — как список
-того, что от него всё ещё требуется.
-**Источник:** `docs/architecture/2026-08-22-afk-pipeline-migration.md` пункт 18 (инвертированный
-`wizard` из `mattpocock/skills`).
-
----
-
-## Правило конвертации
-
-Оригинальный приём источника — сгенерировать интерактивный bash-визард, который ведёт человека по
-шагам. Нам он не подходит буквально: владелец удалённо и часто с телефона, терминальный визард
-там бесполезен.
-
-Поэтому приём инвертирован. Наткнулся на шаг «только человек» — **сначала попытайся его убить**:
-
-1. **Автоматизировать в репозитории.** Идемпотентно и самопроверяемо, с громким отказом при
-   несовпадении ожиданий. Эталон — прод-DDL: SSH у агентов нет, поэтому SQL едет шагом
-   `deploy.yml`, применяется идемпотентно, а после применения шаг **снимается** (de-wire), чтобы
-   не висел мёртвым. Шаги, забытые в снятом состоянии, мы потом вычищали отдельным PR — снятие
-   часть приёма, а не необязательное продолжение.
-2. **Если автоматизировать нельзя** — сократить человеческую часть до **одной строки действия**,
-   читаемой с телефона: что открыть, что нажать, что прислать назад. Не инструкция на экран, а
-   одна строка. Всё, что можно подготовить заранее (значения, ссылки, готовый текст для вставки),
-   агент готовит сам.
-3. **Записать сюда** — с датой, причиной, и что именно уже автоматизировано.
-
-**Наблюдаемость:** реестр должен **сокращаться**. Пункт, простоявший два месяца без единой
-попытки автоматизации, — долг, а не природа вещей.
+**For:** any agent that hits a step it cannot perform. For the owner — as a list of
+what is still required from them.
+**Source:** `docs/architecture/2026-08-22-afk-pipeline-migration.md` item 18 (the inverted
+`wizard` from `mattpocock/skills`).
 
 ---
 
-## Реестр
+## The conversion rule
 
-### 1. Применение DDL на проде
+The source's original trick is to generate an interactive bash wizard that walks a human through
+the steps. It does not fit us literally: the owner is remote and often on a phone, and a terminal wizard
+is useless there.
 
-**Почему человек:** прямого SSH к VPS у агентов нет.
-**Автоматизировано:** да, полностью. SQL кладётся в `apps/api/drizzle/manual/<дата>_<что>.sql` и
-подключается шагом в `.github/workflows/deploy.yml`; применяется при деплое идемпотентно.
-**Остаток человека:** одно решение — «выкатываем». Дальше — мерж, всё остальное само.
-**Обязательный хвост:** после применения шаг снимается из `deploy.yml` отдельным PR.
+So the trick is inverted. You hit a "human only" step — **first try to kill it**:
 
-### 2. Диапазоны IP Cloudflare в файрволе Hetzner
+1. **Automate it in the repository.** Idempotent and self-verifying, with a loud failure on a
+   mismatch of expectations. The reference is prod DDL: agents have no SSH, so the SQL goes as a
+   `deploy.yml` step, is applied idempotently, and after being applied the step is **removed** (de-wired), so it does
+   not hang around dead. Steps forgotten in the removed state we later cleaned up with a separate PR — removal is
+   part of the trick, not an optional continuation.
+2. **If it cannot be automated** — reduce the human part to **one action line**,
+   readable from a phone: what to open, what to click, what to send back. Not a screenful of instructions, but
+   one line. Everything that can be prepared in advance (values, links, ready text to paste), the
+   agent prepares itself.
+3. **Record it here** — with a date, a reason, and what exactly is already automated.
 
-**Почему человек:** у агентов нет доступа к Hetzner Cloud API; правило файрвола правится в панели.
-**Автоматизировано:** наблюдение — `.github/workflows/cloudflare-ips-watch.yml` следит за
-изменением опубликованного списка.
-**Остаток человека:** применить изменившийся список в правиле файрвола.
-**Цена промедления выросла:** после включения периметра (2026-08-17) устаревший список **роняет
-сайт**, а не просто шумит. Это A3 по `rules/common/autonomy-levels.md` — спрашивать немедленно.
-**Куда двигать:** токен Hetzner API в секретах + шаг применения — тогда человеческого шага не
-останется вовсе.
+**Observability:** the registry must **shrink**. An item that has stood for two months without a single
+attempt at automation is debt, not the nature of things.
 
-### 3. Секреты и токены CI
+---
 
-**Почему человек:** ввод учётных данных агентам запрещён политикой, и это не будет
-автоматизировано никогда.
-**Автоматизировано:** подготовка — агент называет точное имя секрета, его назначение и где он
-берётся; проверка — CI падает громко, если секрет отсутствует.
-**Остаток человека:** вставить значение в настройках репозитория.
-**Формат просьбы:** одна строка — «Settings → Secrets → New: `<ИМЯ>`, значение берётся `<где>`».
+## The registry
 
-### 4. Переключение CSP из report-only в enforcing
+### 1. Applying DDL in prod
 
-**Почему человек:** нужен живой проход по роутам, которые никто не открывал, — телеметрия по ним
-пуста, и «0 нарушений» означает «никто не заходил», а не «директивы работают».
-**Автоматизировано:** сбор нарушений и дайджест.
-**Остаток человека:** пройтись по неохваченным роутам на report-only проде, чтобы данные
-появились.
-**Куда двигать:** синтетический проход Playwright по списку роутов вместо человека — тогда пункт
-закрывается целиком.
+**Why a human:** agents have no direct SSH to the VPS.
+**Automated:** yes, fully. The SQL is placed in `apps/api/drizzle/manual/<date>_<what>.sql` and
+wired in as a step in `.github/workflows/deploy.yml`; it is applied idempotently on deploy.
+**Human remainder:** one decision — "we ship". After that — the merge, everything else by itself.
+**Mandatory tail:** after it is applied, the step is removed from `deploy.yml` in a separate PR.
 
-### 5. Мерж PR
+### 2. Cloudflare IP ranges in the Hetzner firewall
 
-**Почему человек:** намеренный гейт, а не пробел автоматизации. Не подлежит конвертации ни при
-каких условиях.
-**Остаток человека:** слово «мерджим» в чате. Дальше label `merge-approved` и CI.
+**Why a human:** agents have no access to the Hetzner Cloud API; the firewall rule is edited in the panel.
+**Automated:** observation — `.github/workflows/cloudflare-ips-watch.yml` watches for a
+change in the published list.
+**Human remainder:** apply the changed list in the firewall rule.
+**The cost of delay has grown:** after the perimeter was turned on (2026-08-17), a stale list **takes down
+the site**, not just makes noise. This is A3 per `rules/common/autonomy-levels.md` — ask immediately.
+**Where to move:** a Hetzner API token in the secrets + an apply step — then no human step
+remains at all.
 
-### 6. Генерация в Claude Design (design-gate Tier 1)
+### 3. CI secrets and tokens
 
-**Почему человек:** headless-API нет, сессия интерактивна.
-**Автоматизировано:** мост через артефакт в репозитории (`docs/design/<slug>.md` + `design.png`),
-поэтому кодер работает без доступа к дизайн-сессии.
-**Остаток человека:** сама генерация, когда оркестратор не может её отдрайвить.
-**Деградация:** текстовая спека `ui-ux-designer` Mode A, в теле PR помечается
-`design-gate: degraded` с причиной.
+**Why a human:** entering credentials is forbidden for agents by policy, and this will never
+be automated.
+**Automated:** preparation — the agent names the exact secret name, its purpose, and where it is
+obtained; verification — CI fails loudly if the secret is absent.
+**Human remainder:** paste the value in the repository settings.
+**Request format:** one line — "Settings → Secrets → New: `<NAME>`, the value is taken from `<where>`".
 
-### 7. DNS-записи SPF и DMARC на корневом домене
+### 4. Switching the CSP from report-only to enforcing
 
-**Почему человек:** записи живут в DNS (Cloudflare), а не в коде; токена Cloudflare API у агентов
-нет. Спека говорит об этом прямо (§12): «Обе записи живут в DNS, а не в коде — подготовить может
-исполнитель, применить только владелец».
+**Why a human:** a live pass over the routes that nobody has opened is needed — telemetry for them
+is empty, and "0 violations" means "nobody visited", not "the directives work".
+**Automated:** collection of violations and the digest.
+**Human remainder:** walk over the uncovered routes on report-only prod so that the data
+appears.
+**Where to move:** a synthetic Playwright pass over the list of routes instead of a human — then the item
+closes entirely.
 
-**Что измерено (2026-09-01, спека §12).** DKIM на корне есть. SPF есть на поддомене отправки, но
-адрес отправителя (`CONTACT_FROM_EMAIL` = `site@cheekycheese.tech`) лежит на **корне**, где SPF
-**отсутствует**. DMARC отсутствует полностью. Подпись частично компенсирует расхождение, но
-выравнивание хрупкое — и позиция 7a начинает слать этим отправителем письма, которые человек
-ОБЯЗАН увидеть (запрос на подтверждение, запрос на подпись).
+### 5. Merging a PR
 
-**Автоматизировано:** подготовка — обе записи готовы к вставке дословно, ниже.
+**Why a human:** an intentional gate, not an automation gap. Not subject to conversion under any
+conditions.
+**Human remainder:** the word "we merge" in the chat. After that the label `merge-approved` and CI.
 
-**Остаток человека:** две строки в Cloudflare → DNS для зоны `cheekycheese.tech`.
+### 6. Generation in Claude Design (design-gate Tier 1)
+
+**Why a human:** there is no headless API, the session is interactive.
+**Automated:** a bridge via an artifact in the repository (`docs/design/<slug>.md` + `design.png`),
+so the coder works without access to the design session.
+**Human remainder:** the generation itself, when the orchestrator cannot drive it.
+**Degradation:** a text spec from `ui-ux-designer` Mode A, marked in the PR body as
+`design-gate: degraded` with a reason.
+
+### 7. SPF and DMARC DNS records on the root domain
+
+**Why a human:** the records live in DNS (Cloudflare), not in code; agents have no Cloudflare API
+token. The spec says so directly (§12): "Both records live in DNS, not in code — the executor can prepare them,
+only the owner can apply them".
+
+**What was measured (2026-09-01, spec §12).** DKIM on the root is present. SPF is present on the sending
+subdomain, but the sender address (`CONTACT_FROM_EMAIL` = `site@cheekycheese.tech`) lives on the **root**, where SPF
+is **absent**. DMARC is absent entirely. The signature partially compensates for the mismatch, but
+the alignment is fragile — and item 7a starts sending, with this sender, emails that a human
+MUST see (a confirmation request, a signature request).
+
+**Automated:** preparation — both records are ready to paste verbatim, below.
+
+**Human remainder:** two lines in Cloudflare → DNS for the zone `cheekycheese.tech`.
 
 ```
-Тип: TXT   Имя: @               Значение: v=spf1 include:amazonses.com ~all
-Тип: TXT   Имя: _dmarc          Значение: v=DMARC1; p=none; rua=mailto:<адрес>; fo=1; adkim=r; aspf=r
+Type: TXT   Name: @               Value: v=spf1 include:amazonses.com ~all
+Type: TXT   Name: _dmarc          Value: v=DMARC1; p=none; rua=mailto:<address>; fo=1; adkim=r; aspf=r
 ```
 
-**Шаг 0, обязательный до вставки — сверить `include` со страницей Resend.** Открыть в Resend
-`Domains → cheekycheese.tech → DNS records` и взять механизм `include:` ОТТУДА, а не из строки выше.
-Это не перестраховка: `include:amazonses.com` разворачивается в ОБЩИЙ исходящий пул Amazon SES,
-которым пользуются все его клиенты, то есть SPF для нашего домена пройдёт не только наш отправитель
-(SR-M-4). Значение выше — то, что публиковал Resend на 2026-09-01; провайдер меняет пул, и SPF,
-указывающий не туда, хуже отсутствующего — он authoritative-но разрешает чужим и запрещает нашим.
-Не совпало — вставлять то, что на странице, а строку в этом файле поправить.
+**Step 0, mandatory before pasting — check the `include` against the Resend page.** Open in Resend
+`Domains → cheekycheese.tech → DNS records` and take the `include:` mechanism FROM THERE, not from the line above.
+This is not over-caution: `include:amazonses.com` expands into the SHARED outbound Amazon SES pool,
+used by all its customers, meaning SPF for our domain will pass not only our sender
+(SR-M-4). The value above is what Resend was publishing as of 2026-09-01; the provider changes the pool, and an SPF
+pointing to the wrong place is worse than an absent one — it authoritatively allows strangers and forbids ours.
+If it does not match — paste what is on the page, and fix the line in this file.
 
-**Вариант для владельца (решать ему, не исполнителю).** Вместо расширения корня можно перенести
-отправителя (`CONTACT_FROM_EMAIL`) на поддомен отправки — например `noreply@send.cheekycheese.tech`
-— и держать узкий SPF там, оставив корень без SPF вовсе. Тогда чужой клиент SES не сможет пройти
-проверку от имени корневого домена, с которого мы пишем. Цена: правка константы в `deploy.yml`,
-новая DKIM-запись на поддомен в Resend и то, что письма пойдут с другого адреса (у части получателей
-это сбросит накопленную репутацию отправителя). Решение необратимо в пределах репутации — поэтому
-оно здесь, а не в коде.
+**An option for the owner (their decision, not the executor's).** Instead of extending the root, the
+sender (`CONTACT_FROM_EMAIL`) can be moved to the sending subdomain — for example `noreply@send.cheekycheese.tech`
+— and a narrow SPF kept there, leaving the root without SPF at all. Then a stranger SES customer could not pass
+the check in the name of the root domain from which we write. The cost: editing a constant in `deploy.yml`,
+a new DKIM record for the subdomain in Resend, and that emails will go from a different address (for some recipients
+this will reset the sender's accumulated reputation). The decision is irreversible within the reputation — that is why
+it is here, not in code.
 
-**Почему именно так:**
+**Why exactly this:**
 
-- `include:` — механизм, который публикует Resend для своего исходящего пула (см. шаг 0).
-- `~all` (softfail), не `-all`: жёсткий отказ на корне отвергнет почту любого другого отправителя
-  с этого домена, о котором мы сейчас не знаем. Ужесточать — после того, как DMARC-отчёты покажут,
-  кто ещё шлёт от нашего имени.
-- `p=none` — наблюдение. Политика `quarantine`/`reject` ставится **после** того, как отчёты
-  подтвердят, что легитимная почта проходит; поставленная сразу, она молча уронит то, что мы ещё
-  не выровняли. **Срок и условие ужесточения — пункт 7.1 ниже**, у него есть дата: без неё «пока
-  наблюдаем» становится навсегда (как report-only CSP в #467).
-- `adkim=r; aspf=r` — нестрогое выравнивание: поддомен отправки и корень считаются одной семьёй.
-  Именно расхождение «отправитель на корне, SPF на поддомене» и делает строгий режим опасным здесь.
-- `fo=1` — отчёт о КАЖДОМ провале любой из двух проверок, а не только о провале обеих.
+- `include:` — the mechanism that Resend publishes for its outbound pool (see step 0).
+- `~all` (softfail), not `-all`: a hard refusal on the root would reject mail from any other sender
+  of this domain that we currently do not know about. Tighten it — after the DMARC reports show
+  who else sends in our name.
+- `p=none` — observation. The `quarantine`/`reject` policy is set **after** the reports
+  confirm that legitimate mail passes; set immediately, it would silently drop what we have not yet
+  aligned. **The deadline and condition for tightening are item 7.1 below**, and it has a date: without it "still
+  observing" becomes forever (like the report-only CSP in #467).
+- `adkim=r; aspf=r` — non-strict alignment: the sending subdomain and the root are treated as one family.
+  It is exactly the "sender on the root, SPF on the subdomain" mismatch that makes strict mode dangerous here.
+- `fo=1` — a report on EVERY failure of either of the two checks, not only on the failure of both.
 
-**Решение за владельцем (A2 по `rules/common/autonomy-levels.md`):** адрес `rua=`. Рекомендация —
-завести отдельный ящик (например `dmarc@cheekycheese.tech`) и не слать отчёты на рабочую почту:
-они приходят ежедневно, машинным XML, и в общем ящике их перестают открывать через неделю. Пока
-адрес не назван, запись вставлять нельзя — `rua` без адреса невалиден, а DMARC без `rua` не
-сообщает ничего и существует зря.
+**The owner's decision (A2 per `rules/common/autonomy-levels.md`):** the `rua=` address. The recommendation is
+to set up a separate mailbox (for example `dmarc@cheekycheese.tech`) and not send the reports to the work email:
+they arrive daily, as machine XML, and in a shared mailbox people stop opening them after a week. Until
+the address is named, the record cannot be pasted — `rua` without an address is invalid, and DMARC without `rua`
+reports nothing and exists for no reason.
 
-**Проверка после вставки (агент может сам, доступа не требует):**
+**Verification after pasting (the agent can do it itself, needs no access):**
 
 ```bash
 dig +short TXT cheekycheese.tech    | grep spf1
 dig +short TXT _dmarc.cheekycheese.tech
 ```
 
-**Куда двигать:** токен Cloudflare API в секретах + шаг сверки записей в CI — тогда останется
-только первая вставка, а расхождение начнёт ловиться само (тот же приём, что
-`cloudflare-ips-watch.yml` в пункте 2).
+**Where to move:** a Cloudflare API token in the secrets + a record-check step in CI — then only
+the first paste remains, and the mismatch starts being caught by itself (the same trick as
+`cloudflare-ips-watch.yml` in item 2).
 
 ---
 
-### 7.1. Ужесточить DMARC до `p=quarantine` — со сроком, а не «когда-нибудь»
+### 7.1. Tighten DMARC to `p=quarantine` — with a deadline, not "someday"
 
-**Почему отдельным пунктом.** `p=none` не отвергает ничего: на этой политике ни SPF, ни DMARC
-подделку от нашего домена не останавливают, защищает только подпись DKIM. Наблюдение — состояние
-временное по определению, но ровно в этом месте временное превращается в постоянное: report-only CSP
-прожил так месяцы и снят не был (#467). Поэтому у шага есть дата, а не условие «когда будет время».
+**Why a separate item.** `p=none` rejects nothing: on this policy neither SPF nor DMARC
+stops a spoof from our domain, only the DKIM signature protects. Observation is a temporary state
+by definition, but it is exactly here that the temporary turns into the permanent: the report-only CSP
+lived like that for months and was never switched off (#467). That is why the step has a date, not a condition "when there is time".
 
-**Дата.** `дата вставки записи из пункта 7` + 30 дней. Вписать фактическую при вставке:
-`вставлено ______ → ужесточить не позднее ______`. Тридцать дней — не круглое число: агрегированные
-отчёты приходят раз в сутки, и месяца хватает, чтобы увидеть в них и редкие отправители (рассылка
-раз в неделю), и месячные (счёт от подрядчика).
+**Date.** `the date of pasting the record from item 7` + 30 days. Fill in the actual one at pasting:
+`pasted ______ → tighten no later than ______`. Thirty days is not a round number: aggregated
+reports arrive once a day, and a month is enough to see in them both rare senders (a mailing
+once a week) and monthly ones (an invoice from a contractor).
 
-**Условие, которое проверяется перед сменой** (одно, и оно измеримо): в отчётах за последние
-14 дней НЕТ ни одного источника, который (а) шлёт от нашего домена, (б) проваливает и SPF, и DKIM,
-и (в) при этом наш. Есть такой — сначала выровнять его, потом ужесточать: `quarantine` уводит его
-письма в спам молча.
+**The condition checked before the change** (one, and it is measurable): in the reports for the last
+14 days there is NOT a single source that (a) sends from our domain, (b) fails both SPF and DKIM,
+and (c) is at the same time ours. If there is such a one — first align it, then tighten: `quarantine` moves its
+mail to spam silently.
 
-**Что менять:** в записи `_dmarc.cheekycheese.tech` заменить `p=none` на `p=quarantine`; `rua`,
-`fo`, `adkim`, `aspf` — без изменений. Следующий шаг (`p=reject`) — тем же приёмом и не раньше чем
-через 30 дней после `quarantine`, отдельной записью в этом файле.
+**What to change:** in the record `_dmarc.cheekycheese.tech` replace `p=none` with `p=quarantine`; `rua`,
+`fo`, `adkim`, `aspf` — unchanged. The next step (`p=reject`) — by the same trick and no sooner than
+30 days after `quarantine`, as a separate record in this file.
 
 ---
 
-### 7.2. Тестовое письмо владельцу после деплоя позиции 7a
+### 7.2. A test email to the owner after deploying item 7a
 
-**Почему человек:** настоящее письмо уходит только с прод-ключом `RESEND_API_KEY`, а он есть лишь на
-проде (на деве отправщик намеренно не делает ни одной попытки — строки копятся `QUEUED` с одним
-`warn` на бут). Проверить, что письмо действительно доходит до личного ящика, может только тот, у
-кого этот ящик есть.
+**Why a human:** a real email goes out only with the prod key `RESEND_API_KEY`, and it exists only on
+prod (on dev the sender intentionally makes no attempts at all — rows accumulate as `QUEUED` with one
+`warn` at boot). Only someone who has the personal mailbox can verify that the email actually reaches it.
 
-**Когда:** сразу после первого деплоя с очередью писем (`notification_emails` + отправщик), ДО того
-как класть на неё что-либо ещё.
+**When:** right after the first deploy with the email queue (`notification_emails` + the sender), BEFORE
+putting anything else on it.
 
-**Как (пять минут, ничего не ломает):**
+**How (five minutes, breaks nothing):**
 
-1. Убедиться, что у своей учётной записи в CRM есть личный адрес: профиль → адреса, вид «личный».
-   Нет — добавить (подтверждение НЕ требуется: письма на него идут и без него).
-2. Вызвать любое событие, которое шлёт письмо ЛИЧНО вам. Самое дешёвое и обратимое — попросить
-   второго админа предложить вам смену доли по умолчанию (тип `SHARE_CONFIRM_REQUIRED`, письмо
-   «Запрос на смену доли по умолчанию»). Отзывать предложение — **только после того, как письмо
-   пришло**: отправщик просыпается раз в 15 секунд, и предложение, отозванное до его тика,
-   письмом не уходит вовсе (`SKIPPED`, `skip_reason = STALE` — см. таблицу ниже). Письмо получено
-   — предложение можно отзывать, на проверку это уже не влияет.
-3. Через 15–30 секунд проверить личный ящик, включая «Спам» и «Промоакции». Тема — та же, что в
-   эталоне (`notification-email-copy.spec.ts`), в письме ОДНА кнопка, и она ведёт на `/pending`.
-4. Проверить след в базе: строка этого уведомления в `notification_emails` обязана быть `SENT`
-   с непустым `sent_at` и `sent_to_email` = личный адрес.
+1. Make sure your account in the CRM has a personal address: profile → addresses, type "personal".
+   None — add one (confirmation is NOT required: emails go to it even without confirmation).
+2. Trigger any event that sends an email TO YOU personally. The cheapest and most reversible — ask
+   the second admin to propose a default-share change to you (type `SHARE_CONFIRM_REQUIRED`, the email
+   "Default-share change request"). Withdraw the proposal — **only after the email
+   has arrived**: the sender wakes up once every 15 seconds, and a proposal withdrawn before its tick
+   does not go out as an email at all (`SKIPPED`, `skip_reason = STALE` — see the table below). The email received
+   — the proposal can be withdrawn, it no longer affects the verification.
+3. After 15–30 seconds, check the personal mailbox, including "Spam" and "Promotions". The subject — the same as in
+   the reference (`notification-email-copy.spec.ts`), the email has ONE button, and it leads to `/pending`.
+4. Check the trace in the database: the row of this notification in `notification_emails` must be `SENT`
+   with a non-empty `sent_at` and `sent_to_email` = the personal address.
 
 ```sql
--- только чтение; персональные данные не печатаются, кроме собственного адреса
+-- read-only; personal data is not printed, except your own address
 SELECT status, skip_reason, attempts, sent_at IS NOT NULL AS stamped, last_error
   FROM notification_emails
  ORDER BY created_at DESC
  LIMIT 5;
 ```
 
-**Как читать результат:**
+**How to read the result:**
 
-| Что видно                | Что это значит                                                                                                                                                                                                                                                                                                                                                                                     |
-| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SENT`, письмо в ящике   | канал работает целиком — готово                                                                                                                                                                                                                                                                                                                                                                    |
-| `SENT`, письма нет       | доставляемость, не код: смотреть пункт 7 (SPF/DMARC) и «Спам»                                                                                                                                                                                                                                                                                                                                      |
-| `QUEUED`, `attempts = 0` | ключ `RESEND_API_KEY` не доехал до контейнера — проверить `.env.production`                                                                                                                                                                                                                                                                                                                        |
-| `FAILED`                 | письмо уже не уйдёт, повторов не будет. `Resend API HTTP <код>` — отказ провайдера, разбирать по коду (адреса в `last_error` нет намеренно); одно слово вроде `TypeError` — сеть или провайдер недоступен, повторить проверку позже; повторилось тем же словом — не сеть, нести текст разработчику; фраза, начинающаяся с `decideDelivery:` — сбой в нашем коде, нести текст разработчику как есть |
-| `SKIPPED`, `skip_reason` | письма и не должно было быть: `NO_ADDRESS` — шаг 1 пропущен, `CHANNEL_OFF` — тип выключен в настройках, `USER_ARCHIVED` — учётная запись архивирована, `STALE` — отвечать уже не на что: согласование отозвали, пересоздали или решили, контракт подписали                                                                                                                                         |
+| What is seen             | What it means                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SENT`, email in mailbox | the channel works end to end — done                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `SENT`, no email         | deliverability, not code: look at item 7 (SPF/DMARC) and "Spam"                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `QUEUED`, `attempts = 0` | the `RESEND_API_KEY` key did not reach the container — check `.env.production`                                                                                                                                                                                                                                                                                                                                                                                              |
+| `FAILED`                 | the email will no longer go out, there will be no retries. `Resend API HTTP <code>` — a provider refusal, investigate by code (the address is not in `last_error`, intentionally); a single word like `TypeError` — the network or the provider is unreachable, repeat the check later; repeated with the same word — not the network, bring the text to a developer; a phrase starting with `decideDelivery:` — a failure in our code, bring the text to a developer as is |
+| `SKIPPED`, `skip_reason` | there should not have been an email: `NO_ADDRESS` — step 1 was skipped, `CHANNEL_OFF` — the type is turned off in settings, `USER_ARCHIVED` — the account is archived, `STALE` — there is nothing left to respond to: the approval was withdrawn, recreated, or decided, the contract was signed                                                                                                                                                                            |
 
-**Куда двигать:** ничего. Это проверка «один раз после включения канала», автоматизировать её значило
-бы слать настоящие письма из CI.
+**Where to move:** nowhere. This is a "once after enabling the channel" check, and automating it would
+mean sending real emails from CI.
 
 ---
 
-## Что сюда НЕ пишется
+## What is NOT written here
 
-- Шаги, которые агент **может** сделать, но поленился. Реестр не место для делегирования наверх.
-- Решения владельца — они идут в decision brief (`rules/common/autonomy-levels.md`), а не сюда.
-  Здесь только **действия**, требующие доступа, которого у агента нет.
+- Steps that the agent **can** do but was too lazy to. The registry is not a place for delegating upward.
+- The owner's decisions — they go to the decision brief (`rules/common/autonomy-levels.md`), not here.
+  Here only **actions** that require access the agent does not have.
 
-## Связанное
+## Related
 
-- `.claude/rules/common/autonomy-levels.md` — решения владельца (не действия).
-- `docs/runbooks/deployment.md` — как устроен деплой.
-- `docs/runbooks/origin-mtls-and-firewall.md` — периметр и файрвол.
+- `.claude/rules/common/autonomy-levels.md` — the owner's decisions (not actions).
+- `docs/runbooks/deployment.md` — how the deploy works.
+- `docs/runbooks/origin-mtls-and-firewall.md` — the perimeter and the firewall.

@@ -1,131 +1,130 @@
-# Codebase Gardener — еженедельный проход «уборка + оптимизация»
+# Codebase Gardener — weekly "cleanup + optimization" pass
 
-**Статус:** согласовано с владельцем (прожарка 2026-10-04) · трал пройден 2026-10-05 (доказал ROI) ·
-оформлено еженедельной scheduled-задачей.
+**Status:** agreed with the owner (grilling 2026-10-04) · trawl done 2026-10-05 (proved ROI) ·
+set up as a weekly scheduled task.
 
-Цель: чище база → быстрее тесты/CI → **дешевле и точнее агенты, меньше токенов и шума**. Процесс
-сходящийся: первые прогоны большие (гасят накопленный долг), дальше — лёгкая недельная гигиена.
+Goal: cleaner base → faster tests/CI → **cheaper and more precise agents, fewer tokens and less noise**. The process
+is convergent: the first runs are large (they pay down accumulated debt), then it is light weekly hygiene.
 
-Этот файл — single source of truth для гардинера. Еженедельная задача его читает и исполняет.
+This file is the single source of truth for the gardener. The weekly task reads and executes it.
 
 ---
 
-## Как запускается
+## How it is triggered
 
-- **Еженедельно** через `mcp__scheduled-tasks` (cron). Задача будит свежую сессию-оркестратор с
-  коротким промптом «прочитай этот файл и выполни недельный прогон».
-- **Режим — полный авто** (решение владельца): CI зелёный + чистые автоматические ревьюеры
-  (security-reviewer на чувствительном, code-reviewer, mutation-gate) → **авто-мёрж → авто-деплой**.
-  Человеческого гейта нет; качество держат проверки, не ручное одобрение.
-- За прогон — **все категории** (не ротация). Внутри: аудит → план фиксов → loop по плану.
-- **Каждый фикс = отдельный PR по категории.** Независимый CI+ревью+мёрж: упал один — остальные едут.
+- **Weekly** via `mcp__scheduled-tasks` (cron). The task wakes a fresh orchestrator session with
+  a short prompt "read this file and perform the weekly run".
+- **Mode — full auto** (owner decision): green CI + clean automatic reviewers
+  (security-reviewer on sensitive changes, code-reviewer, mutation-gate) → **auto-merge → auto-deploy**.
+  There is no human gate; quality is held by the checks, not by manual approval.
+- Per run — **all categories** (not rotation). Within: audit → fix plan → loop over the plan.
+- **Each fix = a separate PR per category.** Independent CI+review+merge: one fails — the rest go on.
 
-## Фаза 1 — Аудит (read-only, breadth-first)
+## Phase 1 — Audit (read-only, breadth-first)
 
-Пройтись по категориям, собрать находки, выдать план фиксов, отранжированный по ROI/риску
-(safe+high-ROI первыми). Замерить базовые цифры ДО (строки/файлы, мёртвые экспорты, время CI,
-бандл, число `any`, размер агенто-файлов).
+Go through the categories, collect findings, produce a fix plan ranked by ROI/risk
+(safe+high-ROI first). Measure the baseline numbers BEFORE (lines/files, dead exports, CI time,
+bundle, number of `any`, size of agent files).
 
-> **Урок трала 2026-10-05: оценки аудита завышены, проверяй фактом.** На трале «~1 МБ ECC-мусора»
-> оказался несуществующим (плагин-кэш вне репо), «~51 prod-`any`» оказался одной строкой. НЕ
-> диспатчь агента против непроверенной цели — сперва `grep`/`du`/`ts-prune` подтверди, что работа
-> реально есть.
+> **Lesson from the 2026-10-05 trawl: audit estimates are overstated, verify with facts.** On the trawl, the "~1 MB of ECC garbage"
+> turned out to be nonexistent (plugin cache outside the repo), the "~51 prod `any`" turned out to be one line. Do NOT
+> dispatch an agent against an unverified target — first confirm with `grep`/`du`/`ts-prune` that there is
+> actually work to do.
 
-## Фаза 2 — Loop (исполнение)
+## Phase 2 — Loop (execution)
 
-Пишущих агентов диспатчи изолированно (`isolation="worktree"`), читающих — обычно. Потолок
-параллелизма ≈3–4. Находки ревью переноси по идентификаторам (`CR-`/`SR-`…) и отчитывайся по
-каждой (ничего не теряй).
+Dispatch writing agents in isolation (`isolation="worktree"`), reading agents normally. The parallelism
+ceiling is ≈3–4. Transfer review findings by identifiers (`CR-`/`SR-`…) and report on
+each one (lose nothing).
 
-## Категории (что делает за прогон)
+## Categories (what it does per run)
 
-1. **Мёртвый код:** неимпортируемые экспорты, недостижимое, закомментированное, неиспользуемые
-   deps/роуты/env/флаги, забытые файлы/ассеты. Удалять ТОЛЬКО с доказательством нуля ссылок
-   (`grep`/`ts-prune`/`knip`) + зелёный typecheck/тесты. Сомнение → оставить.
-2. **Дедуп:** повторяющиеся утилиты/хелперы → одно место. Сливать ТОЛЬКО поведенчески идентичные
-   копии (сверить тела + edge-cases); разошедшиеся — оставить, доложить.
-3. **Рефактор/файловая архитектура:** расщепление гигантов (>800 строк), границы модулей.
-   **Гиганты (`transactions.service.ts` ~9k строк, `schema.ts`, `users.service`, крупные роуты) —
-   human-planned, НЕ слепой авто-PR.**
-4. **Консистентность паттернов:** единый error-handling/DTO/хуки/нейминг; термины `CONTEXT.md`.
-5. **Тесты:** ускорение + шардирование (мерить wall-clock CI), де-флейк, дыры покрытия на
-   критичных путях (сигнал — выжившие мутанты).
-6. **Типизация/quality:** убрать `any` (→ `unknown`+сужение, не `any`), ужесточить типы, lint;
-   храповик строгости.
-7. **Зависимости/софт:** patch/minor — авто, **СТРОГО в рамках `version-pins.md`** (Node 22, Vite 6
-   не 7, TanStack Router пара EXACT, Lingui 5.9.5, Fastify-override, Zod v4, Drizzle ^0.45). Мажоры
-   запиненного — по правилам того файла, не вслепую. Плохой бамп → CI красный → не мёржится.
-8. **Безопасность:** `pnpm audit`/CVE, утечки секретов, устаревшие auth/crypto, лицензии деп.
-9. **Производительность:** eager-бандл, lazy-load, мёртвый CSS, ассеты (webp/avif), **N+1**,
-   лишние/недостающие DB-индексы, и **алгоритмическая сложность (strict, решение владельца
-   2026-10-05):** super-linear `O(n²)+` (вложенные циклы, `.find`/`.includes` в цикле → `Map`/`Set`),
-   повторные сканы, load-all-then-filter-in-JS (→ SQL), React-рендер без `useMemo`. Флагать всегда;
-   severity по росту данных (растущие таблицы `transactions`/`users`/`job_postings` = блокер,
-   ограниченные = заметка «текущий→достижимый класс»). Рубрика — `.claude/agents/code-reviewer.md`
-   Шаг-3 «Эффективность».
-10. **CI/build:** кэш, дублирующие/лишние шаги, параллельные jobs, turbo-тюнинг.
-11. **Конфиги/ассеты/нейминг:** гигиена.
-12. **Документация + комментарии** — см. философию ниже.
-13. **⭐ МЕТА — агенто-поверхность** (`.claude/rules`, `.claude/agents/*`, скиллы, `CLAUDE.md`,
-    `CONTEXT.md`): держать **точными и тонкими**. Скоупить правила по путям (`paths:` frontmatter —
-    honored для `rules/common`, проверено на трале); удалять мёртвые доки; резать статус-снэпшоты.
-    **Самый высокий ROI — делать первым** (на трале дало ~30k токенов/сессию).
-14. **TODO/FIXME-триаж:** разрулить или в бэклог.
+1. **Dead code:** unimported exports, unreachable code, commented-out code, unused
+   deps/routes/env/flags, forgotten files/assets. Delete ONLY with proof of zero references
+   (`grep`/`ts-prune`/`knip`) + green typecheck/tests. Doubt → keep.
+2. **Dedup:** repeated utilities/helpers → one place. Merge ONLY behaviorally identical
+   copies (compare bodies + edge-cases); diverged ones — keep, report.
+3. **Refactor/file architecture:** splitting giants (>800 lines), module boundaries.
+   **Giants (`transactions.service.ts` ~9k lines, `schema.ts`, `users.service`, large routes) are
+   human-planned, NOT a blind auto-PR.**
+4. **Pattern consistency:** unified error-handling/DTO/hooks/naming; `CONTEXT.md` terms.
+5. **Tests:** speedup + sharding (measure CI wall-clock), de-flake, coverage gaps on
+   critical paths (the signal is surviving mutants).
+6. **Typing/quality:** remove `any` (→ `unknown`+narrowing, not `any`), tighten types, lint;
+   strictness ratchet.
+7. **Dependencies/software:** patch/minor — auto, **STRICTLY within `version-pins.md`** (Node 22, Vite 6
+   not 7, the TanStack Router EXACT pair, Lingui 5.9.5, the Fastify override, Zod v4, Drizzle ^0.45). Majors
+   of pinned ones — per the rules of that file, not blindly. A bad bump → red CI → does not merge.
+8. **Security:** `pnpm audit`/CVE, secret leaks, outdated auth/crypto, dep licenses.
+9. **Performance:** eager bundle, lazy-load, dead CSS, assets (webp/avif), **N+1**,
+   extra/missing DB indexes, and **algorithmic complexity (strict, owner decision
+   2026-10-05):** super-linear `O(n²)+` (nested loops, `.find`/`.includes` in a loop → `Map`/`Set`),
+   repeated scans, load-all-then-filter-in-JS (→ SQL), React render without `useMemo`. Always flag;
+   severity by data growth (growing tables `transactions`/`users`/`job_postings` = blocker,
+   bounded ones = a note "current→reachable class"). The rubric is `.claude/agents/code-reviewer.md`
+   Step-3 "Efficiency".
+10. **CI/build:** cache, duplicate/extra steps, parallel jobs, turbo tuning.
+11. **Configs/assets/naming:** hygiene.
+12. **Documentation + comments** — see the philosophy below.
+13. **⭐ META — agent surface** (`.claude/rules`, `.claude/agents/*`, skills, `CLAUDE.md`,
+    `CONTEXT.md`): keep **precise and thin**. Scope rules by paths (`paths:` frontmatter —
+    honored for `rules/common`, verified on the trawl); remove dead docs; cut status snapshots.
+    **Highest ROI — do it first** (on the trawl it gave ~30k tokens/session).
+14. **TODO/FIXME triage:** resolve or move to the backlog.
 
-## Философия комментариев (решение владельца)
+## Comment philosophy (owner decision)
 
-**Код читает АГЕНТ, не человек → комментарии оптимизируем под агента; людям — `docs/`.**
+**The code is read by an AGENT, not a human → we optimize comments for the agent; for people — `docs/`.**
 
-- Убрать: человеко-прозу, очевидные пересказы (`// увеличиваем i`), устаревшее, дубль docs,
-  **стале-ссылки на удалённые файлы** (частая находка после dead-code/dedup).
-- Оставить/добавить: «почему» (не «что»), инварианты, маркеры «намеренно, НЕ чини», gotcha/инцидент,
-  blast-radius, подсказки покрытия («ловит тест X»). Длина не грех — **шум грех**. Ценные длинные
-  агенто-заметки НЕ удалять.
+- Remove: human prose, obvious restatements (`// increment i`), stale content, duplicated docs,
+  **stale references to removed files** (a frequent finding after dead-code/dedup).
+- Keep/add: the "why" (not the "what"), invariants, "intentional, do NOT fix" markers, gotcha/incident,
+  blast-radius, coverage hints ("caught by test X"). Length is not a sin — **noise is a sin**. Valuable long
+  agent notes are NOT to be removed.
 
-## Безопасность (машинные страховки, НЕ человеческие гейты)
+## Safety (machine safeguards, NOT human gates)
 
-- **Разрушающие/консолидирующие миграции** — только **expand-contract / parallel-change**:
-  Деплой-1 создать новое + перелить + верифицировать (обратимо, старое на месте); Деплой-2 (после
-  верификации в проде) снести старое отдельным шагом.
-- **Снапшот БД перед любым `DROP`/разрушающей DDL.**
-- Прод-DDL только через `deploy.yml`. Volume-данные (Postgres) не трогать деструктивно вне миграций.
-- Чувствительное (finance/RBAC/auth/крипто/миграции) → security-reviewer ОБЯЗАТЕЛЕН до мёржа.
+- **Destructive/consolidating migrations** — only **expand-contract / parallel-change**:
+  Deploy-1 create the new + backfill + verify (reversible, the old one stays in place); Deploy-2 (after
+  verification in prod) drop the old one as a separate step.
+- **DB snapshot before any `DROP`/destructive DDL.**
+- Prod DDL only through `deploy.yml`. Volume data (Postgres) must not be touched destructively outside migrations.
+- Sensitive changes (finance/RBAC/auth/crypto/migrations) → security-reviewer is MANDATORY before merge.
 
-## Гейты и ловушки CI (уроки трала 2026-10-05)
+## Gates and CI pitfalls (lessons from the 2026-10-05 trawl)
 
-- **Required-контексты branch protection — не переименовывать.** Ровно: `Typecheck · Lint · Unit
-Tests`, `E2E Tests`, `Integration Tests (Postgres)`, `Mutation Gate`. Переименование НЕ даёт
-  красный CI — оно молча вешает мёрж у всех. Дробишь job → оставь агрегатор с точным required-именем
-  (`needs:` + `if: always()`), как сделано для `quality`/`mutation_summary`/`e2e_summary`.
-- **Guard-test gate (FM-5):** правка security-контроллера (`apps/api/src/**/*.controller.ts`) требует
-  backend-тест 403 ИЛИ строку `guard-test-na: <причина>` в теле PR. **Гейт читает тело на событии
-  `pull_request` [opened/synchronize/reopened], НЕ на `edited`** — поэтому добавить `guard-test-na`
-  правкой тела мало, нужен новый event: **close+reopen PR** (или новый commit).
-- **`gh run rerun` играет СТАРЫЙ event payload** (старое тело PR) — для чтения нового тела нужен
-  свежий прогон, не rerun.
-- **E2E misc/projects шарды флачат** под нагрузкой — `gh run rerun <id> --failed`; но **два фейла
-  подряд = не флак**, разбирать.
-- **Свежий worktree:** `pnpm install --frozen-lockfile` (иначе husky pre-commit падает ENOENT); для
-  web-typecheck сгенерить gitignored `routeTree.gen.ts` через `pnpm --filter @crm/web build`.
-- **Push feature-веток:** `DATABASE_URL= git push` (integration-спеки graceful-skip, не бьют live БД).
-- **Мёрж PR, трогающего `.github/workflows/**`:** `GITHUB_TOKEN`без scope`workflows`→ авто-мёрж по
-label не сработает, мёржить вручную`gh pr merge --squash`.
-- **На merge-гейтах проверять CI проактивно** (`gh pr checks`/mss), не ждать уведомление пассивно.
+- **Branch-protection required contexts — do not rename.** Exactly: `Typecheck · Lint · Unit
+Tests`, `E2E Tests`, `Integration Tests (Postgres)`, `Mutation Gate`. A rename does NOT give
+  a red CI — it silently hangs the merge for everyone. Split a job → keep an aggregator with the exact required name
+  (`needs:` + `if: always()`), as done for `quality`/`mutation_summary`/`e2e_summary`.
+- **Guard-test gate (FM-5):** a change to a security controller (`apps/api/src/**/*.controller.ts`) requires
+  a backend 403 test OR the line `guard-test-na: <reason>` in the PR body. **The gate reads the body on the event
+  `pull_request` [opened/synchronize/reopened], NOT on `edited`** — so adding `guard-test-na`
+  by editing the body is not enough, a new event is needed: **close+reopen the PR** (or a new commit).
+- **`gh run rerun` replays the OLD event payload** (the old PR body) — to read the new body you need a
+  fresh run, not a rerun.
+- **E2E misc/projects shards flake** under load — `gh run rerun <id> --failed`; but **two failures
+  in a row = not a flake**, investigate.
+- **Fresh worktree:** `pnpm install --frozen-lockfile` (otherwise the husky pre-commit fails with ENOENT); for
+  web-typecheck, generate the gitignored `routeTree.gen.ts` via `pnpm --filter @crm/web build`.
+- **Pushing feature branches:** `DATABASE_URL= git push` (integration specs graceful-skip, do not hit the live DB).
+- **Merging a PR that touches `.github/workflows/**`:** a `GITHUB_TOKEN`without the`workflows`scope → the label-based auto-merge will not fire, merge manually with`gh pr merge --squash`.
+- **On merge gates, check CI proactively** (`gh pr checks`/mss), do not wait for a notification passively.
 
-## Измерение (трал → weekly)
+## Measurement (trawl → weekly)
 
-Замерять ДО/ПОСЛЕ: размер базы, мёртвые экспорты/дубли, время CI/тестов, бандл, `any`/lint-warnings,
-размер агенто-файлов. Трал 2026-10-05 показал устойчивый выигрыш (−30k токенов/сессию от скоупинга
-правил + снос PM-поверхности −2560 строк + CI −220с) → оформлено weekly.
+Measure BEFORE/AFTER: base size, dead exports/dupes, CI/test time, bundle, `any`/lint-warnings,
+agent-file size. The 2026-10-05 trawl showed a steady win (−30k tokens/session from scoping
+rules + removal of the PM surface −2560 lines + CI −220s) → set up as weekly.
 
-## Не конфликтовать с активными фичами
+## Do not conflict with active features
 
-Знать открытые PR/ветки; их зоны обходить либо ребейзиться. На трале активная зона — vacancy-sourcing
+Know the open PRs/branches; avoid their zones or rebase. On the trawl the active zone was vacancy-sourcing
 (`apps/{api,web}/**/{vacancies,job-sourcing}`, `packages/shared/**/{vacancies,job-sourcing}.ts`).
 
-## Связанное
+## Related
 
-- `.claude/rules/common/version-pins.md` — пины (категория #7).
-- `.claude/rules/common/live-db-access.md` — доступ к БД (чтение можно, запись нельзя).
-- `.claude/agents/code-reviewer.md` Шаг-3 — efficiency/сложность (strict).
-- `.claude/rules/common/light-track.md` · `orchestration-routing.md` — трек/параллелизм.
+- `.claude/rules/common/version-pins.md` — pins (category #7).
+- `.claude/rules/common/live-db-access.md` — DB access (read allowed, write not).
+- `.claude/agents/code-reviewer.md` Step-3 — efficiency/complexity (strict).
+- `.claude/rules/common/light-track.md` · `orchestration-routing.md` — track/parallelism.

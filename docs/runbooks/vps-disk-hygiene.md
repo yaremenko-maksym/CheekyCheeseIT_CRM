@@ -1,60 +1,60 @@
-# Гигиена диска прод-VPS
+# Prod VPS disk hygiene
 
-**Кому:** владельцу / DevOps, когда на VPS (`ssh crm-vps`) заканчивается место.
-**Источник:** инцидент 2026-10-04 — 696 Docker-образов заняли ~60 ГБ, диск дошёл до 93%; ручная чистка освободила ~50.9 ГБ.
+**For:** the owner / DevOps, when the VPS (`ssh crm-vps`) runs out of space.
+**Source:** 2026-10-04 incident — 696 Docker images took up ~60 GB, the disk reached 93%; a manual cleanup freed ~50.9 GB.
 
-## Причина
+## Cause
 
-Каждый деплой тянет свежие образы `api` и `nginx` с тегом по git SHA. Старые никто не удалял, а
-`docker image prune -f` убирает только dangling (без тега) образы — SHA-теги к ним не относятся.
+Every deploy pulls fresh `api` and `nginx` images tagged by git SHA. Nobody removed the old ones, and
+`docker image prune -f` only removes dangling (untagged) images — SHA-tagged images are not dangling.
 
-## Что теперь автоматически
+## What is now automatic
 
-- **Деплой** (`.github/workflows/deploy.yml`, последний шаг SSH-скрипта, только после всех
-  успешных проверок): `docker image prune -af --filter "until=168h"` — удаляет неиспользуемые
-  образы старше 7 дней. Образы последней недели остаются для быстрого отката. Активные образы и
-  volumes не затрагиваются. Фильтр `until` считает по времени **создания** образа.
-- **Логи контейнеров:** `docker-compose.prod.yml` (postgres, redis, api, nginx) и
+- **Deploy** (`.github/workflows/deploy.yml`, the last step of the SSH script, only after all
+  checks have passed): `docker image prune -af --filter "until=168h"` — removes unused images
+  older than 7 days. The last week's images stay around for a fast rollback. Active images and
+  volumes are not touched. The `until` filter counts by image **creation** time.
+- **Container logs:** `docker-compose.prod.yml` (postgres, redis, api, nginx) and
   `services/signal-plus/docker-compose.yml` — `json-file`, `max-size: 10m`, `max-file: 5`
-  (до 50 МБ на сервис). Применяется при пересоздании контейнера на деплое, без рестарта демона.
-  `redis` и `postgres` получили лимит 2026-10-04, остальные — раньше.
+  (up to 50 MB per service). Applied when a container is recreated on deploy, without restarting the daemon.
+  `redis` and `postgres` got the limit on 2026-10-04, the rest earlier.
 
-## Симптом
+## Symptom
 
-Диск > 85% (`df -h /`), либо деплой падает на pull/распаковке образа с `no space left on device`.
+Disk > 85% (`df -h /`), or a deploy fails on image pull/unpack with `no space left on device`.
 
-## Диагностика
+## Diagnostics
 
 ```bash
 df -h /
-docker system df            # образы / контейнеры / volumes / build cache
-docker images | wc -l       # сотни образов = автоочистка не отрабатывает
+docker system df            # images / containers / volumes / build cache
+docker images | wc -l       # hundreds of images = auto-cleanup is not working
 du -xhd1 /var 2>/dev/null | sort -h | tail
 du -xhd1 /var/lib/docker 2>/dev/null | sort -h | tail
 ```
 
-## Ручная чистка
+## Manual cleanup
 
 ```bash
-docker image prune -af --filter until=48h   # неиспользуемые образы старше 2 суток
-docker builder prune -af --filter until=48h # build cache, если он большой (на VPS обычно пуст)
-journalctl --vacuum-size=200M               # если разрастился системный журнал
+docker image prune -af --filter until=48h   # unused images older than 2 days
+docker builder prune -af --filter until=48h # build cache, if it is large (usually empty on the VPS)
+journalctl --vacuum-size=200M               # if the system journal has grown
 ```
 
-Проверить результат: `df -h /` и `docker system df`.
+Check the result: `df -h /` and `docker system df`.
 
-## Что НЕ трогать
+## What NOT to touch
 
-- **Volumes.** `postgres_data` — это данные Postgres, `redis_data`, `signal_data` — состояние
-  Redis и привязка signal-cli. Не запускать `docker volume prune`, `docker system prune --volumes`,
+- **Volumes.** `postgres_data` is Postgres data, `redis_data`, `signal_data` are the state
+  of Redis and the signal-cli binding. Do not run `docker volume prune`, `docker system prune --volumes`,
   `docker compose down -v`.
-- **Образы работающих контейнеров** (crm-nginx, crm-api, crm-postgres, crm-redis, signal-plus) —
-  Docker их и так не удалит, но не форсировать `docker rmi -f`.
-- **`/etc/docker/daemon.json`.** Любое изменение требует рестарта демона = даунтайм
-  всего стека. Лимиты логов заданы в compose, а не в демоне — намеренно.
-- `docker system prune -a` без `--filter` — снесёт всё неиспользуемое, включая образы для отката.
+- **Images of running containers** (crm-nginx, crm-api, crm-postgres, crm-redis, signal-plus) —
+  Docker will not remove them anyway, but do not force `docker rmi -f`.
+- **`/etc/docker/daemon.json`.** Any change requires restarting the daemon = downtime
+  for the whole stack. Log limits are set in compose, not in the daemon — intentionally.
+- `docker system prune -a` without `--filter` — would wipe everything unused, including rollback images.
 
-## Откат на образ старше 7 дней
+## Rollback to an image older than 7 days
 
-Образ мог быть удалён очисткой. Это не препятствие: откат — `workflow_dispatch` деплоя с
-`image_tag`, образ заново скачивается из GHCR (см. `docs/runbooks/deployment.md` §9).
+The image may have been removed by cleanup. That is not a blocker: a rollback is a `workflow_dispatch`
+deploy with `image_tag`, and the image is downloaded again from GHCR (see `docs/runbooks/deployment.md` §9).

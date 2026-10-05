@@ -1,185 +1,215 @@
 # User Testing Tunnel — Pre-flight Checklist
 
-Запускаем `bash scripts/pm/prep-user-testing.sh <pr_branch>` чтобы поднять User Testing demo с публичным URL для тестирования с телефона. Этот runbook — checklist всех точек отказа на основе реального опыта.
+We run `bash scripts/pm/prep-user-testing.sh <pr_branch>` to bring up the User Testing demo with a public URL for testing from a phone. This runbook is a checklist of all failure points based on real experience.
 
-## Конфигурация которая работает (по состоянию на 2026-05-23)
+## The configuration that works (as of 2026-05-23)
 
-| Слой | Решение | Почему |
-|---|---|---|
-| **Tunnel provider** | `serveo.net` (SSH reverse forward) | LocalTunnel — 503 на demand. Cloudflare quick tunnel — заблокирован в нашей сети. ngrok free — требует регистрацию + конфликт с rate limits. Serveo — стабильный, anonymous, через SSH. |
-| **URL формат** | `https://<hash>-<ip-dashed>.serveousercontent.com` | Anonymous mode (без SSH key auth). |
-| **Build mode** | Production build + Vite preview (НЕ dev) | Dev через tunnel = HMR-сокет flaky + сотни unbundled запросов. Preview = минифицированный bundle. |
-| **API access** | `vite preview` проксирует `/api → localhost:3001` | Чтобы из mobile-браузера запросы шли через tunnel-origin, а не на localhost телефона. |
-| **OAuth login** | **Dev Login** (`POST /api/auth/dev-login {email}`) | Google OAuth не работает через tunnel — `redirect_uri_mismatch` (Google требует whitelist redirect URI, tunnel-URL динамический). Dev Login — bypass для тестирования. |
-| **Dev Login UI** | `VITE_DEV_LOGIN=true` в build (всегда) | `login.tsx` рендерит Dev Login кнопку только если `import.meta.env.DEV` или `VITE_DEV_LOGIN === 'true'`. В production build `DEV === false` → флаг обязателен. Скрипт устанавливает его сам. |
-| **Ports** | `API_PORT=3001 PORT=3001` (явный export) | Перебивает любое унаследованное окружение от предыдущих запусков. |
+| Layer               | Decision                                           | Why                                                                                                                                                                                             |
+| ------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tunnel provider** | `serveo.net` (SSH reverse forward)                 | LocalTunnel — 503 on demand. Cloudflare quick tunnel — blocked in our network. ngrok free — requires registration + conflicts with rate limits. Serveo — stable, anonymous, over SSH.           |
+| **URL format**      | `https://<hash>-<ip-dashed>.serveousercontent.com` | Anonymous mode (no SSH key auth).                                                                                                                                                               |
+| **Build mode**      | Production build + Vite preview (NOT dev)          | Dev over a tunnel = flaky HMR socket + hundreds of unbundled requests. Preview = a minified bundle.                                                                                             |
+| **API access**      | `vite preview` proxies `/api → localhost:3001`     | So that from the mobile browser requests go through the tunnel origin, not to the phone's localhost.                                                                                            |
+| **OAuth login**     | **Dev Login** (`POST /api/auth/dev-login {email}`) | Google OAuth does not work over a tunnel — `redirect_uri_mismatch` (Google requires a whitelisted redirect URI, and the tunnel URL is dynamic). Dev Login is a bypass for testing.              |
+| **Dev Login UI**    | `VITE_DEV_LOGIN=true` in the build (always)        | `login.tsx` renders the Dev Login button only if `import.meta.env.DEV` or `VITE_DEV_LOGIN === 'true'`. In a production build `DEV === false` → the flag is required. The script sets it itself. |
+| **Ports**           | `API_PORT=3001 PORT=3001` (explicit export)        | Overrides any environment inherited from previous runs.                                                                                                                                         |
 
-## Pre-flight checklist (что должно быть выполнено ДО запуска)
+## Pre-flight checklist (what must be done BEFORE launch)
 
-### 1. SSH доступен
+### 1. SSH is available
+
 ```bash
 command -v ssh && echo OK
 ```
-Скрипт проверит автоматически. Если нет — `xcode-select --install` (macOS) или `apt install openssh-client` (Linux).
 
-### 2. Vite allowedHosts включает `.serveousercontent.com`
-Проверить `apps/web/vite.config.ts`:
+The script checks this automatically. If not — `xcode-select --install` (macOS) or `apt install openssh-client` (Linux).
+
+### 2. Vite allowedHosts includes `.serveousercontent.com`
+
+Check `apps/web/vite.config.ts`:
+
 ```ts
 server: { allowedHosts: ['.serveousercontent.com', '.serveo.net'], ... }
 preview: { allowedHosts: ['.serveousercontent.com', '.serveo.net'], ... }
 ```
 
-Без этого Vite вернёт `Blocked request. This host is not allowed.` на любой не-localhost Host header.
+Without this, Vite returns `Blocked request. This host is not allowed.` on any non-localhost Host header.
 
-### 3. Preview прокси для /api настроен
-В `vite.config.ts → preview`:
+### 3. The preview proxy for /api is configured
+
+In `vite.config.ts → preview`:
+
 ```ts
 proxy: {
   '/api': { target: 'http://localhost:3001', changeOrigin: true }
 }
 ```
 
-Без этого браузер на телефоне попытается `GET http://localhost:3001/api/...` — это localhost САМОГО телефона, API недоступен.
+Without this, the browser on the phone will try `GET http://localhost:3001/api/...` — that is the PHONE's own localhost, and the API is unreachable.
 
-### 4. Build с правильными env vars
-`scripts/pm/prep-user-testing.sh` собирает с:
-- `VITE_API_URL=/api` — относительные API URL (иначе захардкоженный localhost ломает tunnel)
-- `VITE_DEV_LOGIN=true` — показывает Dev Login кнопку в production build
+### 4. Build with the right env vars
 
-Если переопределяешь окружение — НЕ задавать `VITE_API_URL=http://localhost:3001/api` (это сломает tunnel). `VITE_DEV_LOGIN` лучше оставить на дефолте — скрипт сам выставит.
+`scripts/pm/prep-user-testing.sh` builds with:
 
-### 5. Постгрес запущен и tracking есть
-Скрипт проверит автоматически (drizzle pre-flight). Если красное — `docker-compose up -d` и подождать.
+- `VITE_API_URL=/api` — relative API URLs (otherwise a hardcoded localhost breaks the tunnel)
+- `VITE_DEV_LOGIN=true` — shows the Dev Login button in a production build
 
-### 6. Dev Login доступен на бэкенде
-`apps/api/.env`: `ENABLE_DEV_LOGIN=true` (или эквивалент). Без бэка-флага кнопка в UI есть, но `POST /api/auth/dev-login` вернёт 403. На фронте — серверная ошибка.
+If you override the environment — do NOT set `VITE_API_URL=http://localhost:3001/api` (that will break the tunnel). It is better to leave `VITE_DEV_LOGIN` at its default — the script sets it itself.
 
-### 7. Порты 3000 и 3001 свободны
-Скрипт убивает свои предыдущие процессы (по портам через `lsof -ti`, не по имени — не трогает сторонние Vite/Node), но если 3000 занят посторонним dev-сервером (например, VSCode держит его) — выдаст диагностику с PID/command и предложит закрыть вручную.
+### 5. Postgres is running and tracking is present
+
+The script checks this automatically (drizzle pre-flight). If it is red — `docker-compose up -d` and wait.
+
+### 6. Dev Login is available on the backend
+
+`apps/api/.env`: `ENABLE_DEV_LOGIN=true` (or equivalent). Without the backend flag the button is in the UI, but `POST /api/auth/dev-login` returns 403. On the frontend — a server error.
+
+### 7. Ports 3000 and 3001 are free
+
+The script kills its own previous processes (by ports via `lsof -ti`, not by name — it does not touch third-party Vite/Node), but if 3000 is occupied by an unrelated dev server (for example, VSCode holding it) — it prints diagnostics with PID/command and suggests closing it manually.
 
 ## Environment variables
 
-| Var | Default | Описание |
-|---|---|---|
-| `SKIP_TUNNEL` | `0` | `1` — не поднимать Serveo, только локально на `localhost:3000`. Полезно если tunnel не нужен / не работает. |
-| `SKIP_UNIT_TESTS` | `0` | `1` — пропустить шаг 4 (unit-tests). **Используй только при флейках**, понимая риск показать сломанный bundle. |
-| `POSTGRES_HOST` | `localhost` | Хост Postgres. |
-| `POSTGRES_PORT` | `5432` | Порт Postgres. |
-| `POSTGRES_DB` | `crm_db` | DB name. |
-| `POSTGRES_USER` | `crm_user` | DB user. |
-| `POSTGRES_PASSWORD` | `password` | DB password. |
-| `API_PORT` / `PORT` | `3001` (force) | Скрипт явно экспортирует `3001`, перебивая любое унаследованное значение. |
+| Var                 | Default        | Description                                                                                                       |
+| ------------------- | -------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `SKIP_TUNNEL`       | `0`            | `1` — do not bring up Serveo, only locally on `localhost:3000`. Useful if the tunnel is not needed / not working. |
+| `SKIP_UNIT_TESTS`   | `0`            | `1` — skip step 4 (unit tests). **Use only on flakes**, understanding the risk of showing a broken bundle.        |
+| `POSTGRES_HOST`     | `localhost`    | Postgres host.                                                                                                    |
+| `POSTGRES_PORT`     | `5432`         | Postgres port.                                                                                                    |
+| `POSTGRES_DB`       | `crm_db`       | DB name.                                                                                                          |
+| `POSTGRES_USER`     | `crm_user`     | DB user.                                                                                                          |
+| `POSTGRES_PASSWORD` | `password`     | DB password.                                                                                                      |
+| `API_PORT` / `PORT` | `3001` (force) | The script explicitly exports `3001`, overriding any inherited value.                                             |
 
-## Запуск
+## Launch
 
 ```bash
 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-С обходом флейков:
+With a flake bypass:
+
 ```bash
 SKIP_UNIT_TESTS=1 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-Только локально (без tunnel):
+Locally only (no tunnel):
+
 ```bash
 SKIP_TUNNEL=1 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-Ожидай:
-- ~30-40 сек build (api + web)
-- ~10 сек старт серверов
-- ~5-30 сек handshake с serveo.net + парсинг URL
-- Итого: ~60-90 сек до видимости рамки с URL
+Expect:
 
-## Если упало — диагностика
+- ~30-40 sec build (api + web)
+- ~10 sec server startup
+- ~5-30 sec handshake with serveo.net + URL parsing
+- Total: ~60-90 sec until the frame with the URL is visible
 
-### `command not found: timeout` (или ничего не падает, но висит)
-Это macOS без brew coreutils. Скрипт сам fallback'ает на `gtimeout` → `perl alarm`. Если ты видишь эту ошибку — у тебя старая версия скрипта без shim. Обнови до текущего main.
+## If it failed — diagnostics
+
+### `command not found: timeout` (or nothing fails, but it hangs)
+
+This is macOS without brew coreutils. The script falls back on its own to `gtimeout` → `perl alarm`. If you see this error — you have an old version of the script without the shim. Update to the current main.
 
 ### `fatal: 'X' is already checked out at '/path/to/worktree'`
-Ветка уже checked out в другом git worktree (`.claude/worktrees/<name>`). Скрипт должен это сам обнаружить через `git worktree list --porcelain` и `cd` в нужный worktree вместо checkout. Если падает — у тебя старая версия скрипта.
 
-Manual workaround: `cd /path/to/worktree && bash scripts/pm/prep-user-testing.sh <branch>` оттуда.
+The branch is already checked out in another git worktree (`.claude/worktrees/<name>`). The script should detect this itself via `git worktree list --porcelain` and `cd` into the right worktree instead of checking out. If it fails — you have an old version of the script.
 
-### `Порт 3000 (Vite preview) занят после kill`
-Скрипт не смог освободить порт даже после kill -KILL. Это значит порт держит процесс который не находится через `lsof -ti :3000` (например, root-процесс или Docker контейнер на host network).
+Manual workaround: `cd /path/to/worktree && bash scripts/pm/prep-user-testing.sh <branch>` from there.
 
-Диагностика выводится с PID и командой. Типичные источники:
-- VSCode dev server (закрыть терминал в VSCode)
-- Забытая сессия `pnpm dev` (`pkill -f 'vite|nest'` или `ps aux | grep -E 'vite|nest'`)
-- Другой запуск `prep-user-testing.sh` (`ps aux | grep prep-user-testing`)
-- Docker container с `--network host` (`docker ps`)
+### `Port 3000 (Vite preview) occupied after kill`
 
-### `Serveo SSH tunnel упал`
-Лог tunnel в `/tmp/pm-serveo-<PID>-<random>.log` (печатается в stderr скрипта). Типичные ошибки:
+The script could not free the port even after kill -KILL. This means the port is held by a process that is not found via `lsof -ti :3000` (for example, a root process or a Docker container on the host network).
 
-| Ошибка в SSH-логе | Причина | Что делать |
-|---|---|---|
-| `port 80 is already in use` | Кто-то ещё держит tunnel на serveo | Подождать 30 сек и повторить (anonymous tunnels освобождают порт быстро) |
-| `Connection refused` | SSH на 22 заблокирован firewall'ом | Использовать tunnel через 443 (Serveo: `-p 443 serveo.net`) или сменить сеть |
-| `Host key verification failed` | Старый key в `/tmp/pm-serveo-known-hosts` | `rm /tmp/pm-serveo-known-hosts && повторить` |
-| `Permission denied (publickey)` | Только если в OpenSSH config глобально стоит требование key | `ssh -o PreferredAuthentications=password serveo.net` (но обычно для anonymous SSH key не требуется) |
+The diagnostics are printed with PID and command. Typical sources:
 
-### `/api/health через preview (3000) недоступен`
-Это sanity-check в скрипте (после wait-for-services). Значит `preview.proxy` не настроен в vite.config.ts. См. чек 3 выше.
+- VSCode dev server (close the terminal in VSCode)
+- A forgotten `pnpm dev` session (`pkill -f 'vite|nest'` or `ps aux | grep -E 'vite|nest'`)
+- Another run of `prep-user-testing.sh` (`ps aux | grep prep-user-testing`)
+- A Docker container with `--network host` (`docker ps`)
 
-### `localhost:3000 не отвечает после wait-for-services`
-Build упал или preview server не стартовал. Логи:
-- `/tmp/pm-api.log` — лог NestJS
-- `/tmp/pm-web.log` — лог Vite preview
+### `Serveo SSH tunnel went down`
 
-### Tunnel поднялся, URL виден, но страница не открывается с телефона
-1. Открой URL в desktop-браузере — если работает там, проблема в мобильной сети (firewall на public DNS, например)
-2. Попробуй другой Wi-Fi на телефоне или mobile data
-3. Используй `curl https://<tunnel-url>/api/health` с десктопа — если 200, tunnel работает, проблема UI-level
+The tunnel log is in `/tmp/pm-serveo-<PID>-<random>.log` (printed to the script's stderr). Typical errors:
 
-### Кнопка Dev Login не появляется на login странице (тестируешь через tunnel)
-Признак: открываешь tunnel URL с телефона → `/crm/login` показывает только Google SSO кнопку.
+| Error in the SSH log            | Cause                                              | What to do                                                                                                  |
+| ------------------------------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `port 80 is already in use`     | Someone else is holding a tunnel on serveo         | Wait 30 sec and retry (anonymous tunnels free the port quickly)                                             |
+| `Connection refused`            | SSH on 22 is blocked by a firewall                 | Use a tunnel over 443 (Serveo: `-p 443 serveo.net`) or change networks                                      |
+| `Host key verification failed`  | An old key in `/tmp/pm-serveo-known-hosts`         | `rm /tmp/pm-serveo-known-hosts && retry`                                                                    |
+| `Permission denied (publickey)` | Only if the OpenSSH config globally requires a key | `ssh -o PreferredAuthentications=password serveo.net` (but usually a key is not required for anonymous SSH) |
 
-Причина: build собран без `VITE_DEV_LOGIN=true`. В production-бандле `import.meta.env.DEV === false`, и условие `DEV || VITE_DEV_LOGIN === 'true'` отдаёт `false` → кнопка скрыта.
+### `/api/health via preview (3000) is unreachable`
 
-Решение: пересобрать через `scripts/pm/prep-user-testing.sh` — он сам выставляет флаг. Если запускаешь build вручную: `VITE_API_URL=/api VITE_DEV_LOGIN=true pnpm --filter @crm/web build`.
+This is a sanity check in the script (after wait-for-services). It means `preview.proxy` is not configured in vite.config.ts. See check 3 above.
 
-### OAuth: `redirect_uri_mismatch` на телефоне
-Это ожидаемо — Google OAuth требует фиксированного redirect_uri в Console. Tunnel URL динамический. **Решение: использовать Dev Login** (`POST /api/auth/dev-login {email}`) через login-страницу, не Google.
+### `localhost:3000 does not respond after wait-for-services`
 
-### Unit-тесты упали и блокируют User Testing
-Если знаешь что это флейк (не реальная регрессия) и хочешь быстро показать UI пользователю:
+The build failed or the preview server did not start. Logs:
+
+- `/tmp/pm-api.log` — the NestJS log
+- `/tmp/pm-web.log` — the Vite preview log
+
+### The tunnel came up, the URL is visible, but the page does not open from the phone
+
+1. Open the URL in a desktop browser — if it works there, the problem is in the mobile network (a firewall on public DNS, for example)
+2. Try another Wi-Fi on the phone or mobile data
+3. Use `curl https://<tunnel-url>/api/health` from the desktop — if 200, the tunnel works and the problem is UI-level
+
+### The Dev Login button does not appear on the login page (you are testing via the tunnel)
+
+Symptom: you open the tunnel URL from the phone → `/crm/login` shows only the Google SSO button.
+
+Cause: the build was made without `VITE_DEV_LOGIN=true`. In the production bundle `import.meta.env.DEV === false`, and the condition `DEV || VITE_DEV_LOGIN === 'true'` returns `false` → the button is hidden.
+
+Fix: rebuild via `scripts/pm/prep-user-testing.sh` — it sets the flag itself. If you run the build manually: `VITE_API_URL=/api VITE_DEV_LOGIN=true pnpm --filter @crm/web build`.
+
+### OAuth: `redirect_uri_mismatch` on the phone
+
+This is expected — Google OAuth requires a fixed redirect_uri in the Console. The tunnel URL is dynamic. **Fix: use Dev Login** (`POST /api/auth/dev-login {email}`) via the login page, not Google.
+
+### Unit tests failed and are blocking User Testing
+
+If you know it is a flake (not a real regression) and want to quickly show the UI to the user:
+
 ```bash
 SKIP_UNIT_TESTS=1 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
-**Риск:** пользователь увидит bundle с потенциально сломанной логикой. Используй только когда уверен что причина — flaky test infra (race в snapshot, timeout под нагрузкой), а не реальная регрессия. Параллельно открой task на стабилизацию теста.
 
-## Полный fallback: SKIP_TUNNEL
+**Risk:** the user will see a bundle with potentially broken logic. Use only when you are sure the cause is flaky test infra (a race in a snapshot, a timeout under load), not a real regression. In parallel, open a task to stabilize the test.
 
-Если ничего не работает / не нужен phone testing — отключить tunnel:
+## Full fallback: SKIP_TUNNEL
+
+If nothing works / phone testing is not needed — disable the tunnel:
+
 ```bash
 SKIP_TUNNEL=1 bash scripts/pm/prep-user-testing.sh <pr_branch>
 ```
 
-Скрипт поднимет API + preview локально, без tunnel. Можно тестировать на десктопе через `http://localhost:3000`.
+The script will bring up the API + preview locally, without a tunnel. You can test on the desktop via `http://localhost:3000`.
 
-## Что НЕ работает (известные ограничения)
+## What does NOT work (known limitations)
 
-- **Hot reload через tunnel** — preview-режим не отдаёт HMR. Любая правка кода → перезапуск скрипта.
-- **Persistent subdomain** — anonymous Serveo генерирует случайный hash. Чтобы получить стабильный URL — настроить SSH key в `~/.ssh/serveo` + использовать `ssh -i ... user@serveo.net` (см. https://serveo.net).
-- **WebSocket** — preview сервер прокидывает HTTP, но не WebSocket. Если бекенд использует WS для чего-то — не пройдёт через tunnel. (CRM пока WS не использует.)
-- **Google OAuth** — см. выше. Permanent fix потребует whitelist tunnel-domain в Google Console (нельзя для динамических hash'ей).
+- **Hot reload over the tunnel** — preview mode does not serve HMR. Any code change → restart the script.
+- **Persistent subdomain** — anonymous Serveo generates a random hash. To get a stable URL — configure an SSH key in `~/.ssh/serveo` + use `ssh -i ... user@serveo.net` (see https://serveo.net).
+- **WebSocket** — the preview server forwards HTTP, but not WebSocket. If the backend uses WS for something — it will not pass through the tunnel. (The CRM does not use WS yet.)
+- **Google OAuth** — see above. A permanent fix would require whitelisting the tunnel domain in the Google Console (impossible for dynamic hashes).
 
-## История попыток (для понимания почему именно serveo.net)
+## History of attempts (to understand why serveo.net specifically)
 
-1. **LocalTunnel** — 503 Service Unavailable. Известная проблема при высокой нагрузке на free tier.
-2. **Cloudflare quick tunnel** — `trycloudflare.com` заблокирован в нашей сети (corporate firewall или ISP-level).
-3. **ngrok free** — требует регистрацию + rate-limit очень строгий, hash меняется при каждом старте.
-4. **serveo.net** — работает. SSH reverse forward, anonymous, бесплатно.
+1. **LocalTunnel** — 503 Service Unavailable. A known problem under high load on the free tier.
+2. **Cloudflare quick tunnel** — `trycloudflare.com` is blocked in our network (corporate firewall or ISP-level).
+3. **ngrok free** — requires registration + a very strict rate limit, the hash changes on every start.
+4. **serveo.net** — works. SSH reverse forward, anonymous, free.
 
-При смене провайдера: обновить `allowedHosts` в `vite.config.ts` И URL regex в `prep-user-testing.sh`.
+When changing providers: update `allowedHosts` in `vite.config.ts` AND the URL regex in `prep-user-testing.sh`.
 
-## Macos-совместимость скрипта (для DevOps)
+## macOS compatibility of the script (for DevOps)
 
-Скрипт активно поддерживает macOS без brew coreutils — все используемые утилиты обёрнуты в shim'ы:
-- `timeout` → fallback на `gtimeout` → fallback на `perl alarm`
-- `mktemp` шаблон → явное имя `/tmp/pm-serveo-$$-${RANDOM}.log`
-- `pkill -f vite` → `lsof -ti :3000 | xargs kill` (по порту, не по имени — не убивает сторонние процессы)
-- `git checkout` → детектит worktree через `git worktree list --porcelain`, `cd` если ветка в другом worktree
+The script actively supports macOS without brew coreutils — all the utilities used are wrapped in shims:
+
+- `timeout` → fallback to `gtimeout` → fallback to `perl alarm`
+- `mktemp` template → an explicit name `/tmp/pm-serveo-$$-${RANDOM}.log`
+- `pkill -f vite` → `lsof -ti :3000 | xargs kill` (by port, not by name — it does not kill third-party processes)
+- `git checkout` → detects the worktree via `git worktree list --porcelain`, `cd` if the branch is in another worktree
