@@ -1,3 +1,9 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/landing/**'
+---
+
 # Rule: Design-fidelity review — макет ↔ localhost diff на ВСЕХ экранах (mandatory gate)
 
 **Status:** Always-on (hard-гейт; reviewer-enforced + Master-aggregate)
