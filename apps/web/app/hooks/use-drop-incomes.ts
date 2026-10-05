@@ -10,13 +10,6 @@ import {
 } from '@crm/shared'
 import { api } from '@/lib/axios'
 
-/**
- * Query-key convention for all DROP data hooks below (inline `['drop', ...]` keys).
- *
- * ALL keys start with `'drop'` — which is NOT in PERSISTED_KEY_PREFIXES
- * in __root.tsx, so none of this financial data is ever written to
- * IndexedDB. Do NOT add `'drop'` to the allow-list.
- */
 export interface DropIncomesFilters {
   status?: DropIncomeStatus
   from?: string
@@ -25,6 +18,13 @@ export interface DropIncomesFilters {
   limit?: number
 }
 
+/**
+ * Query-key convention for all DROP data hooks below (inline `['drop', ...]` keys).
+ *
+ * ALL keys start with `'drop'` — which is NOT in PERSISTED_KEY_PREFIXES
+ * in __root.tsx, so none of this financial data is ever written to
+ * IndexedDB. Do NOT add `'drop'` to the allow-list.
+ */
 /**
  * DROP-only hook: paginated list of the drop's income rows.
  * GET /api/finance/drop/me/incomes?status=&from=&to=&page=&limit=
