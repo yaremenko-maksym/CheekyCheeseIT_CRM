@@ -1,7 +1,7 @@
 ---
 name: writing-for-agents
-description: 'Как писать документы, которые читают агенты: правила, промпты агентов, скиллы, CLAUDE.md, доки за указателем. Рычаги — формулировка указателя, информационная иерархия и прогрессивное раскрытие, критерии завершения (чёткость и требовательность), ведущие слова, запрет как антипаттерн. Плюс дисциплина прополки: тесты на no-op, кэш окружения и релевантность.'
-when_to_use: "Use when creating or editing anything an agent reads: a rule in rules/common, an agent system prompt, a SKILL.md, CLAUDE.md, a task template. Also when a rule is not being followed and the wording may be the cause. Examples: 'напиши новое правило', 'правило не соблюдают', 'почистить правила', 'этот док разросся', 'агент игнорирует инструкцию', 'сократить контекст агента'."
+description: 'How to write documents that agents read: rules, agent prompts, skills, CLAUDE.md, docs behind a pointer. The levers — the wording of the pointer, information hierarchy and progressive disclosure, completion criteria (clarity and demandingness), leading words, negation as an anti-pattern. Plus the discipline of weeding: tests for no-op, the environment cache, and relevance.'
+when_to_use: "Use when creating or editing anything an agent reads: a rule in rules/common, an agent system prompt, a SKILL.md, CLAUDE.md, a task template. Also when a rule is not being followed and the wording may be the cause. Examples: 'write a new rule', 'the rule is not followed', 'clean up the rules', 'this doc has grown', 'the agent ignores the instruction', 'reduce the agent's context'."
 allowed-tools:
   - Read
   - Edit
@@ -11,137 +11,138 @@ allowed-tools:
   - Bash
 ---
 
-# Как писать для агентов
+# How to write for agents
 
-Справочник для любого документа, который потребляет агент: правило в `rules/common/`, системный
-промпт агента, `SKILL.md`, `CLAUDE.md`, шаблон задачи. Упаковка разная, письмо одно: одни и те же
-рычаги делают каждый предсказуемым — агент повторяет **процесс**, а не выдаёт одинаковый результат.
+A reference for any document an agent consumes: a rule in `rules/common/`, an agent system
+prompt, a `SKILL.md`, `CLAUDE.md`, a task template. The packaging differs, the writing is one: the same
+levers make each one predictable — the agent repeats the **process**, not produces an identical result.
 
-Повод для существования: 1600 строк правил и 5600 строк агентских промптов написаны без такой
-дисциплины, и симптомы мы находили сами — рассинхрон `zone-of-write.md` и `architect.md`,
-«пятнадцать исключений», оказавшихся нормой, невыполнимый триггер скилла, проживший месяцы.
+The reason for existing: 1600 lines of rules and 5600 lines of agent prompts are written without this
+discipline, and we found the symptoms ourselves — the desync of `zone-of-write.md` and
+`architect.md`, the "fifteen exceptions" that turned out to be the norm, an unfeasible skill trigger
+that lived for months.
 
-## Указатель — это и есть срабатывание
+## The pointer is itself the firing
 
-**Указатель** — ссылка, живущая в контексте агента, которая называет материал вне контекста и
-кодирует условие, при котором до него надо дойти. `description` скилла — указатель. Строка в
-`CLAUDE.md`, называющая правило, — тот же объект.
+A **pointer** is a link that lives in the agent's context, names material outside the context, and encodes
+the condition under which it must be reached. A skill's `description` is a pointer. A line in
+`CLAUDE.md` naming a rule is the same object.
 
-**Решает формулировка указателя, а не его цель.** Обязательный материал за слабо сформулированным
-указателем — это баг вариативности: агент доходит до него через раз. Чинится **заточкой
-формулировки**, и только если не помогло — инлайном материала.
+**What decides is the wording of the pointer, not its target.** Mandatory material behind a weakly worded
+pointer is a variance bug: the agent reaches it hit-or-miss. It is fixed by **sharpening
+the wording**, and only if that did not help — by inlining the material.
 
-Указатель делает две вещи: говорит, что это за материал, и перечисляет **ветки**, при которых до
-него идут.
+A pointer does two things: it says what this material is, and it lists the **branches** on which it
+is reached.
 
-- **Выноси триггерное слово вперёд** — указатель работает началом.
-- **Одна ветка — один триггер.** Синонимы, называющие одну ветку, это одна ветка, написанная
-  дважды: схлопнуть.
-- **Убирай идентичность, которую и так несёт тело.**
+- **Put the trigger word up front** — a pointer works by its beginning.
+- **One branch — one trigger.** Synonyms naming one branch are one branch written
+  twice: collapse them.
+- **Remove identity that the body already carries.**
 
-## Две нагрузки
+## Two loads
 
-- **Контекстная** — цена всегда загруженного: строка в `CLAUDE.md`, `description` скилла. Тратится
-  каждый ход, сработает указатель или нет.
-- **Когнитивная** — цена на человеке: какие документы существуют и когда за каким идти.
+- **Contextual** — the cost of what is always loaded: a line in `CLAUDE.md`, a skill's `description`. Spent
+  every turn, whether the pointer fires or not.
+- **Cognitive** — the cost on the human: which documents exist and when to go to which.
 
-**У нас перекос намеренный.** Владелец работает удалённо, поэтому всё, что может понадобиться
-агенту, должно быть достижимо **агентом**, а не памятью человека. Экономим не на достижимости, а
-на точности формулировок. (Приём источника — прятать скилл от модели ради экономии контекста — у
-нас неприменим: спрятанный скилл в AFK не вызывается никогда.)
+**Our skew is deliberate.** The owner works remotely, so everything an agent might need
+must be reachable by the **agent**, not by the human's memory. We save not on reachability but
+on the precision of wording. (The source's technique — hiding a skill from the model to save context — is
+inapplicable to us: a hidden skill is never invoked in AFK.)
 
-## Информационная иерархия
+## Information hierarchy
 
-Документ состоит из **шагов** (упорядоченные действия) и **справки** (определения, правила, факты
-по требованию). Смешивать можно свободно. Решение — на какой ступени лежит каждый кусок:
+A document consists of **steps** (ordered actions) and **reference** (definitions, rules, facts
+on demand). Mixing is free. The decision is on which rung each piece lies:
 
-1. **Шаг в файле** — что агент делает, по порядку.
-2. **Справка в файле** — читается по требованию. Плоский набор равноправных правил на одной
-   ступени — нормальная конструкция, а не запах.
-3. **Раскрываемая справка** — вынесена в отдельный файл за указателем, грузится при срабатывании.
+1. **A step in the file** — what the agent does, in order.
+2. **Reference in the file** — read on demand. A flat set of equal-weight rules on one
+   rung is a normal construction, not a smell.
+3. **Disclosable reference** — moved to a separate file behind a pointer, loaded on firing.
 
-**Прогрессивное раскрытие** — движение вниз по лестнице, чтобы верх оставался читаемым. Это не
-столько экономия токенов, сколько защита иерархии. Тест на вынос — **ветвление**: инлайнить то,
-что нужно каждой ветке; выносить то, до чего доходят только некоторые.
+**Progressive disclosure** — moving down the ladder so the top stays readable. It is not
+so much saving tokens as protecting the hierarchy. The test for extraction is **branching**: inline what
+every branch needs; extract what only some reach.
 
-**Расползание** — отдельный отказ: документ просто слишком длинный, даже если каждая строка живая.
-Внимание размазывается, и каждая лишняя строка — ещё одна, которую надо поддерживать актуальной.
+**Sprawl** — a separate failure: the document is simply too long, even if every line is alive.
+Attention is smeared, and each extra line is one more that has to be kept current.
 
-## Критерии завершения
+## Completion criteria
 
-Каждый шаг кончается условием, по которому агент понимает, что закончил. Два свойства делают его
-рычагом:
+Each step ends with a condition by which the agent understands that it finished. Two properties make it
+a lever:
 
-- **Чёткость** — отличит ли агент «сделано» от «не сделано»? Размытая граница («достигнуто
-  понимание») приглашает **преждевременное завершение**. Видимые впереди шаги тянут закончить
-  быстрее; чёткость критерия — сопротивление. Чинить в порядке: сначала заточить границу; и
-  только если она неустранимо размыта **и** спешка наблюдается — разделить последовательность.
-- **Требовательность** — сколько критерий требует. «Каждая изменённая модель учтена» заставляет
-  копать; «составь список изменений» — нет. Работает и на плоской справке: «применено каждое
-  правило» задаёт планку исчерпывающей проверки без единого шага.
+- **Clarity** — will the agent tell "done" from "not done"? A blurry boundary ("understanding
+  achieved") invites **premature completion**. Steps visible ahead pull toward finishing
+  faster; the clarity of the criterion is the resistance. Fix in this order: first sharpen the boundary; and
+  only if it is irreducibly blurry **and** haste is observed — split the sequence.
+- **Demandingness** — how much the criterion requires. "Every changed model accounted for" makes you
+  dig; "compile a list of changes" does not. It works on flat reference too: "every
+  rule applied" sets the bar of an exhaustive check without a single step.
 
-Сильный критерий одновременно **проверяем** и **исчерпывающ**.
+A strong criterion is simultaneously **checkable** and **exhaustive**.
 
-## Ведущие слова
+## Leading words
 
-**Ведущее слово** — компактное понятие, уже живущее в претрейне, которым агент думает по ходу
-документа: _tight_-петля, _красная_ команда, _фронтир_, _шов_, _страж_. Повторяемое как **токен**,
-а не как предложение, оно накапливает распределённое определение и якорит целую область поведения
-минимумом токенов, потому что подтягивает уже имеющиеся приоры.
+A **leading word** is a compact concept already living in pretraining, which the agent thinks with along
+the document: a _tight_ loop, a _red_ command, the _frontier_, a _seam_, a _guard_. Repeated as a **token**,
+not as a sentence, it accumulates a distributed definition and anchors a whole area of behavior
+with a minimum of tokens, because it pulls in already-present priors.
 
-Своё слово тоже работает, если чётко определено, но выдуманное не подтягивает ничего: платишь
-токенами определения за то, что готовое даёт бесплатно. Сначала ищи существующее.
+Your own word works too, if clearly defined, but an invented one pulls in nothing: you pay
+tokens for the definition for what the ready-made one gives for free. First look for an existing one.
 
-Ищи, что схлопнуть: триада, расписанная в трёх местах; указатель, тратящий предложение на одну
-идею. «Быстрая, детерминированная, дешёвая» → _tight_. «Петля, которой веришь» → _красная_,
-превращающая размытый гейт в двоичное наблюдаемое состояние.
+Look for what to collapse: a triad spelled out in three places; a pointer spending a sentence on one
+idea. "Fast, deterministic, cheap" → _tight_. "A loop you trust" → _red_,
+turning a blurry gate into a binary observable state.
 
-**Отрицание — отказ рядом с этим рычагом.** Управление через запрет затаскивает запрещённое
-поведение в контекст и делает его **доступнее**: отрицание — слабый модификатор, сильно
-активированный концепт его перебивает. Формулируй **положительно**: назови целевое поведение,
-тогда запрещённое вообще не произносится. Запрет оправдан только как жёсткий guardrail, который
-иначе не сформулировать, — и даже тогда в паре с положительной целью. Как это выглядит на
-практике, см. `git-policy.md` §Zero-tolerance.
+**Negation is a failure next to this lever.** Governing through a ban drags the banned
+behavior into context and makes it **more accessible**: negation is a weak modifier, a strongly
+activated concept overrides it. Formulate **positively**: name the target behavior, then
+the banned one is not uttered at all. A ban is justified only as a hard guardrail that
+cannot be formulated otherwise — and even then paired with a positive goal. How this looks
+in practice, see `git-policy.md` §Zero-tolerance.
 
-## Прополка
+## Weeding
 
-Три теста, каждый — основание удалить, а не подрезать.
+Three tests, each a ground to delete, not to trim.
 
-**No-op.** Меняет ли предложение поведение против дефолта модели? Инструкция, которую модель и так
-выполняет, платит контекстом за ничего. Тест **модель-относительный**, не читатель-относительный:
-двое, спорящие о no-op, спорят о дефолте, и решается это **прогоном документа**, а не дискуссией.
-Провалило — удаляется **предложение целиком**. Тест применим и к ведущим словам: слово, слабее
-дефолта («будь внимателен», когда агент и так внимателен), — no-op, и чинится **более сильным
-словом**, а не другой техникой.
+**No-op.** Does the sentence change behavior against the model's default? An instruction the model already
+performs pays context for nothing. The test is **model-relative**, not reader-relative:
+two people arguing about a no-op are arguing about the default, and it is decided by a **run of the
+document**, not by discussion. Failed — the **whole sentence** is deleted. The test applies to leading words too:
+a word weaker than the default ("be attentive" when the agent is already attentive) — is a no-op, and is fixed by a
+**stronger word**, not by another technique.
 
-**Кэш окружения.** Окружение — тоже источник истины: `package.json`, конфиги, раскладка
-каталогов, вывод `--help`. Документ, который его пересказывает, — **кэш**, оправданный только
-когда сам lookup дорог. Кэшируй то, чего не найти взглядом: неписаную конвенцию, причину выбора,
-грабли, о которых конфиг молчит. Однофайловые однокомандные справки оставляй окружению, где они
-не протухнут.
+**Environment cache.** The environment is also a source of truth: `package.json`, configs, the layout
+of directories, `--help` output. A document that retells it is a **cache**, justified only
+when the lookup itself is expensive. Cache what cannot be found by a glance: an unwritten convention, the reason
+for a choice, the gotchas the config is silent about. One-file one-command references leave to
+the environment, where they will not go stale.
 
-**Релевантность.** Строка теряет её двумя способами: никогда не касалась задачи (экспозиция или
-ветка, которую надо было вынести) либо протухла вместе с миром, который описывает. Без дисциплины
-прополки дефолтная судьба — **осадок**: слои оседают, потому что добавлять безопасно, а удалять
-страшно, и потом приходится бурить сквозь них до живого.
+**Relevance.** A line loses it in two ways: it never touched the task (exposition or a branch
+that should have been extracted) or it went stale together with the world it describes. Without the discipline
+of weeding the default fate is **sediment**: layers settle because adding is safe
+and deleting is scary, and then you have to drill through them to the living.
 
-**Единственный источник истины.** Один смысл — одно место. Дублирование стоит поддержки, стоит
-токенов и раздувает мнимую важность смысла выше его настоящего ранга. (Ведущее слово — обратный
-случай: повторяется **токен**, никогда не смысл.) Если одно и то же описано в двух файлах, пометь
-оба явной строкой «правишь одно — правь второе» — или, лучше, оставь одно.
+**A single source of truth.** One meaning — one place. Duplication costs maintenance, costs
+tokens and inflates the apparent importance of a meaning above its real rank. (A leading word is the inverse
+case: the **token** is repeated, never the meaning.) If the same thing is described in two files, mark
+both with an explicit line "edit one — edit the second" — or, better, leave one.
 
-## Что проверить перед тем, как считать документ готовым
+## What to check before considering a document done
 
-- Указатель ведёт триггерным словом и перечисляет только настоящие ветки.
-- Каждая ветка, до которой доходят не все, вынесена за указатель.
-- У каждого шага есть проверяемый критерий завершения.
-- Каждый запрет стоит в паре с положительной целью, и цель идёт первой.
-- Ни одно предложение не проваливает тест на no-op.
-- Ни один факт не пересказывает окружение без причины.
-- Каждый смысл живёт в одном месте.
+- The pointer leads with a trigger word and lists only real branches.
+- Every branch not reached by all is extracted behind a pointer.
+- Each step has a checkable completion criterion.
+- Each ban stands paired with a positive goal, and the goal goes first.
+- No sentence fails the no-op test.
+- No fact retells the environment without a reason.
+- Each meaning lives in one place.
 
-## Связанное
+## Related
 
-- `.claude/rules/common/skills-invocation.md` — как триггер скилла попадает в каталог.
-- `.claude/rules/common/doc-durability.md` — что писать в записи, живущие месяцами.
-- `.claude/agents/README.md` — бюджет чтения агента при старте.
+- `.claude/rules/common/skills-invocation.md` — how a skill's trigger gets into the catalog.
+- `.claude/rules/common/doc-durability.md` — what to write in records that live for months.
+- `.claude/agents/README.md` — the agent's reading budget at startup.

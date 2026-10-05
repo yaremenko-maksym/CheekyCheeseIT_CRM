@@ -1,7 +1,7 @@
 ---
 name: legal-escalation-patterns
-description: When Legal-agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) или Master encounters user iterating evasion variants после baseline-acceptance. Cross-cutting between Legal internal discipline + Master-side handling. Использовать в Mode A (consultation), Mode D (strategic) + Master-side при variant N iterations.
-when_to_use: "Use when Legal hits a hard-refuse zone, or Master sees the user iterating evasion variants after a baseline legal verdict. Examples: 'юзер просит схему обхода после отказа', 'variant 2 той же схемы', 'multi-issuer scheme', 'cash channel', 'когда привлекать внешнего юриста', 'hard refuse boundary'."
+description: When the Legal agent encounters hard refuse zones (multi-issuer schemes, cash channel, evasion variants) or Master encounters a user iterating evasion variants after baseline acceptance. Cross-cutting between Legal internal discipline + Master-side handling. Use in Mode A (consultation), Mode D (strategic) + Master-side on variant N iterations.
+when_to_use: "Use when Legal hits a hard-refuse zone, or Master sees the user iterating evasion variants after a baseline legal verdict. Examples: 'the user asks for a workaround scheme after a refusal', 'variant 2 of the same scheme', 'multi-issuer scheme', 'cash channel', 'when to engage an external lawyer', 'hard refuse boundary'."
 allowed-tools:
   - Read
   - Grep
@@ -10,83 +10,83 @@ allowed-tools:
 
 # Legal Escalation Patterns
 
-Cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` Master lessons.
+A cross-cutting skill: handling evasion variants, hard refuse zones, lawyer engagement boundaries. Lifted from `.claude/agents/memory/legal/lessons.md` (#escalation items, 2026-05-31) + `pm-side` Master lessons.
 
 ## When to invoke
 
-- Legal: перед відповіддю на user message що пахне evasion variant
-- Legal: при detection hard refuse zones (multi-issuer, cash channel, selective declaration)
-- Master: при user iterates evasion variants після baseline-acceptance
-- Legal: при final answer formulation з боундари "lawyer-vs-AI scope"
+- Legal: before responding to a user message that smells like an evasion variant
+- Legal: on detection of hard refuse zones (multi-issuer, cash channel, selective declaration)
+- Master: when the user iterates evasion variants after baseline acceptance
+- Legal: on final answer formulation with the "lawyer-vs-AI scope" boundary
 
 ## Patterns
 
 ### 1. Evasion variants — recognition + Master behavior
 
-**Контекст:** After hard-refuse на evasion scheme + acceptance legitimate path, User може iterate evasion variants з cosmetic різницями:
+**Context:** After a hard-refuse on an evasion scheme + acceptance of the legitimate path, the User may iterate evasion variants with cosmetic differences:
 
-- «Контракт від ТОВ + не декларувати»
-- «Контракт від ФОП + декларувати частку + ховати решту»
-- «Selective declaration»
-- «Cover entity»
+- "Contract from a TOV + do not declare"
+- "Contract from an FOP + declare the share + hide the rest"
+- "Selective declaration"
+- "Cover entity"
 
-**Правило:** Усі функціонально ідентичні — **same scheme, different wrapping**.
+**Rule:** All are functionally identical — **same scheme, different wrapping**.
 
 **Master-behavior (5 steps):**
 
-1. **НЕ re-dispatch Legal** — verdict не зміниться, токени марно.
-2. **НЕ re-litigate full risk analysis** — point at existing consultation.
-3. **Identify pattern explicitly** — «this is variant N of scheme already analyzed».
-4. **Add value через specific NEW technical insight** (e.g. «selective declaration ACTUALLY increases detection signal через mathematical CRS mismatch»).
-5. **Restate boundary firmly**, offer 3 forks:
+1. **Do NOT re-dispatch Legal** — the verdict will not change, tokens wasted.
+2. **Do NOT re-litigate the full risk analysis** — point at the existing consultation.
+3. **Identify the pattern explicitly** — "this is variant N of a scheme already analyzed".
+4. **Add value through a specific NEW technical insight** (e.g. "selective declaration ACTUALLY increases the detection signal through a mathematical CRS mismatch").
+5. **Restate the boundary firmly**, offer 3 forks:
    - Legitimate path
    - Pause
    - Criminal defense lawyer engagement
 
-**НЕ:** moralizing, lecturing, repeat lecture.
+**Do NOT:** moralize, lecture, repeat the lecture.
 
 ### 2. Hard refuse zone — multi-issuer schemes
 
-**Правило:** Multi-issuer схема (cash/crypto оплачується на entity ≠ основна компанія) = **pattern податкового уклонення**, ст. 212 ККУ при порозі **₴4.99M** (легко перевищується при наших оборотах).
+**Rule:** A multi-issuer scheme (cash/crypto paid to an entity ≠ the main company) = a **pattern of tax evasion**, Art. 212 of the Criminal Code of Ukraine at the threshold of **₴4.99M** (easily exceeded at our turnover).
 
 **Hard refuse zone (§ 1 escalation-zones).**
 
-**Decision rule:** Never recommend. При user assumption такого формату — явно відказувати + escalate to criminal defense lawyer.
+**Decision rule:** Never recommend. On a user assumption of such a format — refuse explicitly + escalate to a criminal defense lawyer.
 
 **Output template:**
 
 ```
-Це варіант multi-issuer схеми. Це hard refuse zone — ст. 212 ККУ
-кваліфікує податкове уклонення на порозі ₴4.99M. Я не можу
-аналізувати implementation deeper.
+This is a variant of a multi-issuer scheme. This is a hard refuse zone — Art. 212 of the
+Criminal Code of Ukraine qualifies tax evasion at the threshold of ₴4.99M. I cannot
+analyze the implementation deeper.
 
 Forks:
 - Legitimate path: <alternative>
-- Pause: stop і подумати з командою / co-founder
-- Engage criminal defense lawyer if вже частково реалізовано
+- Pause: stop and think with the team / co-founder
+- Engage a criminal defense lawyer if it is already partially implemented
 ```
 
 ### 3. AI Legal — deliverables boundary
 
-**Правило:** AI Legal-agent **НЕ генерує** ready-to-sign юридичні шаблони (recharacterization risk, missing clauses).
+**Rule:** The AI Legal agent **does NOT generate** ready-to-sign legal templates (recharacterization risk, missing clauses).
 
 **Acceptable deliverables:**
 
-| Тип                                                                                           | Скоп                                                      |
+| Type                                                                                          | Scope                                                     |
 | --------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| **Analysis** existing drafts                                                                  | Gaps + risks + recommendations                            |
-| **Structured skeleton** + checklists для missing templates                                    | Sectioned outline + decision points + клаузи placeholders |
+| **Analysis** of existing drafts                                                               | Gaps + risks + recommendations                            |
+| **Structured skeleton** + checklists for missing templates                                    | Sectioned outline + decision points + clause placeholders |
 | **Lawyer-engagement prep pack** (decisions checklist + questions + deliverables expectations) | 15-item checklist + structured questions                  |
 
-**Final text** — виключно IT-corporate lawyer. Це economy ~50% lawyer fees + не replace lawyer signature.
+**Final text** — exclusively an IT-corporate lawyer. This is an economy of ~50% lawyer fees + does not replace the lawyer's signature.
 
-**Decision rule:** Якщо user просить "write me a contract" / "give me draft I can sign" — politely refuse + offer one of 3 acceptable deliverables above.
+**Decision rule:** If the user asks "write me a contract" / "give me a draft I can sign" — politely refuse + offer one of the 3 acceptable deliverables above.
 
-### 4. Structural vs cosmetic follow-up — focused delta
+### 4. Structural vs cosmetic follow-up — a focused delta
 
-**Правило:** При structural follow-up consultations після baseline-acceptance — **focused side-by-side delta-comparison** (~500 рядків) краще ніж full re-litigation з 1000+ рядками.
+**Rule:** On structural follow-up consultations after baseline acceptance — a **focused side-by-side delta-comparison** (~500 lines) is better than a full re-litigation with 1000+ lines.
 
-**Decision rule:** User вже має context з попередніх консультацій, потребує clarity на конкретний альтернативний варіант, не full theory recap.
+**Decision rule:** The User already has context from previous consultations, needs clarity on a specific alternative variant, not a full theory recap.
 
 **Output pattern:**
 
@@ -100,63 +100,63 @@ Net assessment: <viable / not viable + reason>
 
 ### 5. Reference-prior-consultation pattern
 
-**Правило:** Коли user повертається з модифікацією попереднього питання — Legal **first references prior consultation** by date + title, ТОЛЬКО потом дає delta.
+**Rule:** When the user returns with a modification of a previous question — Legal **first references the prior consultation** by date + title, ONLY then gives the delta.
 
 **Implementation:**
 
-- Прочитати `.claude/knowledge/legal/consultations/<date>-<topic>.md` (якщо існує).
-- Reference: «Базою — ваша консультація 2026-05-31 про top-pattern».
+- Read `.claude/knowledge/legal/consultations/<date>-<topic>.md` (if it exists).
+- Reference: "As a base — your consultation 2026-05-31 about the top-pattern".
 - Delta-focused answer (§4).
 
-**Anti-pattern:** Full re-explanation з самого початку — це wastes tokens + дратує user.
+**Anti-pattern:** A full re-explanation from the very beginning — this wastes tokens + annoys the user.
 
 ### 6. Disclaimer language standards
 
-**Правило:** Кожен Legal-output має stronger disclaimer. Standard language:
+**Rule:** Every Legal output has a stronger disclaimer. Standard language:
 
 ```
-Дисклеймер: цей текст — research material для consultation з
-IT-corporate lawyer'ом. Не binding legal advice. Final
-implementation decisions потребують sign-off від licensed
-practitioner (юриспруденція UA / inter-jurisdictional law).
+Disclaimer: this text is research material for a consultation with
+an IT-corporate lawyer. Not binding legal advice. Final
+implementation decisions require sign-off from a licensed
+practitioner (UA jurisprudence / inter-jurisdictional law).
 ```
 
-**Decision rule:** Без disclaimer'а — output incomplete.
+**Decision rule:** Without a disclaimer — the output is incomplete.
 
 ### 7. Cross-jurisdictional escalation triggers
 
-**Trigger zones для escalation до specialist lawyer:**
+**Trigger zones for escalation to a specialist lawyer:**
 
 | Domain                                            | Specialist                                           |
 | ------------------------------------------------- | ---------------------------------------------------- |
-| UA tax / Дія Сіті registration / ФОП              | IT-corporate UA lawyer (Juscutum / EQUITY / Avellum) |
+| UA tax / Diia City registration / FOP             | IT-corporate UA lawyer (Juscutum / EQUITY / Avellum) |
 | Crypto / smart contracts / wallet KYC             | Crypto compliance lawyer + AML specialist            |
 | Multi-jurisdictional / offshore / CFC             | International tax lawyer + UA tax specialist         |
 | Hard refuse zones (multi-issuer / cash / evasion) | Criminal defense lawyer                              |
 | GDPR / personal data flows                        | UA data protection lawyer + EU DPO advisor           |
 | Employment law / recharacterization               | UA employment lawyer                                 |
 
-**Decision rule:** AI Legal **suggests** specialist + acceptable deliverables boundary. Final engagement — User responsibility.
+**Decision rule:** AI Legal **suggests** a specialist + the acceptable deliverables boundary. Final engagement — User responsibility.
 
 ## Anti-patterns
 
-| ❌ Don't                                                 | ✅ Do                                                                       |
-| -------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Re-dispatch Legal для cosmetic-variant evasion question  | Master identifies "variant N of scheme already analyzed" + restate boundary |
-| Lecture / moralize при detection evasion variant         | Identify pattern + add NEW technical insight + offer 3 forks                |
-| Analyze multi-issuer schemes deeper                      | Hard refuse — ст. 212 ККУ + escalate to criminal defense lawyer             |
-| AI generates ready-to-sign contract draft                | Analysis / structured skeleton / lawyer-engagement prep pack only           |
-| Full re-litigation на structural follow-up consultations | Focused side-by-side delta-comparison (~500 рядків)                         |
-| Skip disclaimer в Legal output                           | Standard disclaimer language з kожним output'om                             |
-| AI engages specialist lawyer directly                    | AI suggests specialist + boundary, final engagement — User                  |
+| ❌ Don't                                                  | ✅ Do                                                                                          |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Re-dispatch Legal for a cosmetic-variant evasion question | Master identifies "variant N of a scheme already analyzed" + restate the boundary              |
+| Lecture / moralize on detection of an evasion variant     | Identify the pattern + add a NEW technical insight + offer 3 forks                             |
+| Analyze multi-issuer schemes deeper                       | Hard refuse — Art. 212 of the Criminal Code of Ukraine + escalate to a criminal defense lawyer |
+| AI generates a ready-to-sign contract draft               | Analysis / structured skeleton / lawyer-engagement prep pack only                              |
+| Full re-litigation on structural follow-up consultations  | Focused side-by-side delta-comparison (~500 lines)                                             |
+| Skip the disclaimer in Legal output                       | Standard disclaimer language with every output                                                 |
+| AI engages a specialist lawyer directly                   | AI suggests a specialist + the boundary, final engagement — User                               |
 
 ## References
 
 - Source lessons (lifted 2026-06-03):
   - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 4 substantive items #escalation)
-  - `.claude/agents/memory/pm/lessons.md` (`pm-side` items про evasion variant handling)
+  - `.claude/agents/memory/pm/lessons.md` (`pm-side` items on evasion variant handling)
 - Citations within patterns:
-  - ст. 212 ККУ (податкове уклонення поріг ₴4.99M)
+  - Art. 212 of the Criminal Code of Ukraine (tax evasion threshold ₴4.99M)
   - GDPR / EU regulation 2016/679
 - Related agent docs:
   - `.claude/agents/legal.md` Mode A / Mode D

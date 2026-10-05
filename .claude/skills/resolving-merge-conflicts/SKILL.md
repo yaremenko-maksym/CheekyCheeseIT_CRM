@@ -1,7 +1,7 @@
 ---
 name: resolving-merge-conflicts
-description: 'Разрешение конфликтов идущего merge/rebase по НАМЕРЕНИЮ каждой стороны, прослеженному до первоисточника (коммит, PR, задача), а не выбором строк. Ханк за ханком, сохраняя оба намерения где возможно; несовместимые — в пользу заявленной цели слияния с записью компромисса. Никогда --abort: операция всегда доводится до конца.'
-when_to_use: "Use when a merge or rebase is already in conflict, or a stacked PR needs rebasing onto a squashed base. Examples: 'конфликт при rebase', 'CONFLICT (content)', 'база схлопнулась сквошем, стек отвалился', 'какую сторону взять', 'git status показывает unmerged paths'."
+description: 'Resolving conflicts of an in-progress merge/rebase by the INTENT of each side, traced to the primary source (commit, PR, task), not by picking lines. Hunk by hunk, preserving both intents where possible; incompatible ones — in favor of the stated goal of the merge, with the compromise recorded. Never --abort: the operation is always carried to the end.'
+when_to_use: "Use when a merge or rebase is already in conflict, or a stacked PR needs rebasing onto a squashed base. Examples: 'conflict during rebase', 'CONFLICT (content)', 'the base collapsed into a squash, the stack fell off', 'which side to take', 'git status shows unmerged paths'."
 allowed-tools:
   - Read
   - Grep
@@ -12,104 +12,104 @@ allowed-tools:
   - mcp__ast-grep__find_code
 ---
 
-# Конфликты слияния — по намерению, не по строкам
+# Merge conflicts — by intent, not by lines
 
-Конфликт — типичная точка, где агент без правила зовёт человека. С правилом не зовёт: выбор
-стороны почти всегда выводится из первоисточников, а не из вкуса.
+A conflict is a typical point where an agent without a rule calls a human. With a rule it does not call: the choice
+of side is almost always derived from primary sources, not from taste.
 
-**Никогда `--abort`.** Прерывание выбрасывает уже сделанную работу по разрешению и возвращает в
-то же состояние через десять минут. Операция доводится до конца.
+**Never `--abort`.** Aborting throws away the resolution work already done and returns you to
+the same state ten minutes later. The operation is carried to the end.
 
-## 1. Пойми, где ты
+## 1. Understand where you are
 
 ```bash
-git status                       # merge или rebase, какие пути unmerged
+git status                       # merge or rebase, which paths are unmerged
 git log --oneline --graph -15
 git diff --name-only --diff-filter=U
 ```
 
-Для rebase дополнительно: какой коммит применяется сейчас (`git rebase --show-current-patch
---stat`) и сколько осталось. Разрешение rebase — это разрешение **серии**, и одно и то же место
-может конфликтовать несколько раз.
+For rebase additionally: which commit is being applied now (`git rebase --show-current-patch
+--stat`) and how many remain. Resolving a rebase is resolving a **series**, and the same place
+can conflict several times.
 
-**Стековые PR.** Если база схлопнулась сквошем, «наши» коммиты выглядят как чужие. Не разрешать
-руками — переставить: `git rebase --onto origin/main <старая-база> <ветка>`. Половина конфликтов
-исчезает, потому что их и не было.
+**Stacked PRs.** If the base collapsed into a squash, "our" commits look like someone else's. Do not resolve
+by hand — reapply: `git rebase --onto origin/main <old-base> <branch>`. Half the conflicts
+disappear because they never existed.
 
-## 2. Найди первоисточник каждой стороны
+## 2. Find the primary source of each side
 
-**Это шаг, ради которого скилл существует.** Разрешать, глядя только на две версии текста, —
-угадывание.
+**This is the step the skill exists for.** Resolving by looking only at the two versions of the text is
+guessing.
 
-По каждому конфликтующему ханку:
+For each conflicting hunk:
 
 ```bash
-git log -L <start>,<end>:<file> <side>      # история именно этих строк
+git log -L <start>,<end>:<file> <side>      # the history of exactly these lines
 git log --format='%h %s' <base>..<side> -- <file>
 ```
 
-Дальше — вверх по цепочке до **намерения**: сообщение коммита → PR (`gh pr list --search <sha>`,
-тело и находки ревью) → task-файл или issue, на который PR ссылается. Ищешь ответ на вопрос
-**«зачем эту строку написали»**, а не «что она делает».
+Then — up the chain to the **intent**: the commit message → the PR (`gh pr list --search <sha>`,
+the body and the review findings) → the task file or the issue the PR references. You are seeking the answer to the question
+**"why this line was written"**, not "what it does".
 
-Намерение не находится ни в коммите, ни в PR, ни в задании → это A2-вопрос владельцу
-(`autonomy-levels.md`), но **сначала** разреши все ханки, где намерение нашлось.
+The intent is found neither in the commit, nor in the PR, nor in the task → this is an A2 question to the owner
+(`autonomy-levels.md`), but **first** resolve all the hunks where the intent was found.
 
-## 3. Разреши ханк
+## 3. Resolve the hunk
 
-По порядку:
+In order:
 
-1. **Оба намерения совместимы** — сохрани оба. Чаще всего это так, и текстовый конфликт
-   случаен: две стороны правили соседние строки по разным причинам.
-2. **Несовместимы** — побеждает то, что отвечает **заявленной цели слияния** (что вливаем и
-   зачем). Проигравшее намерение записывается компромиссом в сообщение коммита слияния.
-3. **Никогда не изобретай третье поведение.** Разрешение конфликта — не место для рефакторинга и
-   не место для «а давайте заодно». Новое поведение = scope creep, и `spec-reviewer` его заведёт.
+1. **Both intents are compatible** — preserve both. Most often this is the case, and the textual conflict
+   is accidental: two sides edited adjacent lines for different reasons.
+2. **Incompatible** — the one that serves the **stated goal of the merge** wins (what we are merging and
+   why). The losing intent is recorded as a compromise in the merge commit message.
+3. **Never invent a third behavior.** Resolving a conflict is not a place for refactoring and
+   not a place for "while we're at it". New behavior = scope creep, and `spec-reviewer` will flag it.
 
-Особые случаи нашего репозитория:
+Special cases of our repository:
 
-- **`routeTree.gen.ts`** — генерируемый и в gitignore. Конфликта быть не должно; если он есть,
-  файл кто-то закоммитил — не разрешать, а убирать из индекса.
-- **Миграции Drizzle** — две новые миграции с одинаковым номером конфликтуют семантически, а не
-  текстово. Перенумеровать более позднюю, проверить, что она применима поверх первой.
-- **`pnpm-lock.yaml`** — не разрешать руками. Взять сторону базы и перегенерировать
-  `pnpm install --frozen-lockfile=false`, затем сверить, что версии из `version-pins.md` не уехали.
+- **`routeTree.gen.ts`** — generated and in gitignore. There should be no conflict; if there is,
+  someone committed the file — do not resolve, remove it from the index.
+- **Drizzle migrations** — two new migrations with the same number conflict semantically, not
+  textually. Renumber the later one, verify that it applies on top of the first.
+- **`pnpm-lock.yaml`** — do not resolve by hand. Take the base side and regenerate
+  `pnpm install --frozen-lockfile=false`, then check that the versions from `version-pins.md` have not moved.
 
-## 4. Прогони проверки проекта
+## 4. Run the project checks
 
-После разрешения всех ханков, до завершения операции:
+After resolving all hunks, before completing the operation:
 
 ```bash
 pnpm typecheck
-pnpm --filter @crm/api test    # и/или затронутые пакеты
-node_modules/.bin/prettier --check <изменённые файлы>
+pnpm --filter @crm/api test    # and/or the affected packages
+node_modules/.bin/prettier --check <changed files>
 ```
 
-Слияние ломает вещи, которые не конфликтовали текстово: сигнатура, переименованная на одной
-стороне, и новый вызов, добавленный на другой. Типы это ловят, диффы — нет.
+A merge breaks things that did not conflict textually: a signature renamed on one
+side, and a new call added on the other. Types catch this, diffs do not.
 
-## 5. Заверши операцию
+## 5. Complete the operation
 
 ```bash
-git add <явный список файлов>     # никогда git add . (git-policy)
-git merge --continue              # либо git rebase --continue до конца серии
+git add <explicit list of files>  # never git add . (git-policy)
+git merge --continue              # or git rebase --continue to the end of the series
 ```
 
-В сообщении коммита слияния — **строка о том, чьё намерение победило и почему**:
+In the merge commit message — **a line about whose intent won and why**:
 
 ```
-merge: <ветка> into <ветка>
+merge: <branch> into <branch>
 
-Conflict in <файл>: обе стороны меняли <что>. Взято намерение <стороны>
-(<первоисточник: PR #N / task-<slug>>), потому что <цель слияния>.
-Намерение <другой стороны> сохранено как <как именно> / отложено в <куда>.
+Conflict in <file>: both sides changed <what>. Took the intent of <side>
+(<primary source: PR #N / task-<slug>>), because <goal of the merge>.
+The intent of <the other side> preserved as <how exactly> / deferred to <where>.
 ```
 
-Это и есть наблюдаемость правила: коммит слияния без такой строки — разрешение по строкам, а не
-по намерению.
+This is the observability of the rule: a merge commit without such a line is a resolution by lines, not
+by intent.
 
-## Связанное
+## Related
 
-- `.claude/rules/common/git-policy.md` — явный `git add`, запрет `--no-verify`, force-with-lease.
-- `.claude/rules/common/version-pins.md` — что проверять после перегенерации лок-файла.
-- `.claude/rules/common/autonomy-levels.md` — ненайденное намерение как A2-вопрос.
+- `.claude/rules/common/git-policy.md` — explicit `git add`, ban on `--no-verify`, force-with-lease.
+- `.claude/rules/common/version-pins.md` — what to check after regenerating the lock file.
+- `.claude/rules/common/autonomy-levels.md` — an unfound intent as an A2 question.

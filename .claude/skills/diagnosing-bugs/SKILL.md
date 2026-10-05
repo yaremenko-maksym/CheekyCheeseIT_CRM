@@ -1,7 +1,7 @@
 ---
 name: diagnosing-bugs
-description: 'Дисциплина диагностики трудных багов и флаков: фазовый цикл с гейтом «нет красной команды — нет гипотез». Сначала строится tight-петля обратной связи (одна быстрая детерминированная команда, краснеющая ИМЕННО на этом баге), потом минимизация репро, потом ранжированные фальсифицируемые гипотезы, точечное инструментирование, фикс с регрессионным тестом и чистка.'
-when_to_use: "Use when a bug resists a first look, an E2E goes flaky, a regression crept in between two good states, or something is slow. Examples: 'тест флакает в CI', 'баг не воспроизводится локально', 'что-то сломалось между релизами', 'страница тормозит', 'нашли root cause?', 'падает только иногда'."
+description: 'The discipline of diagnosing hard bugs and flakes: a phased cycle with the gate "no red command — no hypotheses". First a tight feedback loop is built (one fast deterministic command that goes red on EXACTLY this bug), then minimization of the repro, then ranked falsifiable hypotheses, targeted instrumentation, a fix with a regression test, and cleanup.'
+when_to_use: "Use when a bug resists a first look, an E2E goes flaky, a regression crept in between two good states, or something is slow. Examples: 'the test is flaky in CI', 'the bug does not reproduce locally', 'something broke between releases', 'the page is slow', 'did we find the root cause?', 'it fails only sometimes'."
 allowed-tools:
   - Read
   - Grep
@@ -14,141 +14,141 @@ allowed-tools:
   - mcp__playwright__browser_console_messages
 ---
 
-# Диагностика багов — сначала петля, потом теории
+# Diagnosing bugs — the loop first, theories after
 
-`contracts.md` §5.3 требует «найден root cause (НЕ повышение таймаутов, НЕ retry-маскировка)», но
-не говорит **как**. Этот скилл — недостающая механика. Фазы пропускаются только с явным
-обоснованием.
+`contracts.md` §5.3 requires "the root cause found (NOT raising timeouts, NOT retry masking)", but
+does not say **how**. This skill is the missing mechanics. Phases are skipped only with explicit
+justification.
 
-## Редактирование секретов
+## Redacting secrets
 
-Скилл заставляет показывать команды, вывод и захваченные артефакты. **Секреты вычищаются первым
-делом**: на их место `<REDACTED>`; петли строить против переменных окружения, чтобы credential
-оставался в окружении, а не в показанном. Захваченный трафик несёт auth-заголовки — цитируй только
-строки, несущие сигнал. Если после вычистки диагностировать нечем — скажи это и спроси владельца
-(это A3 по `autonomy-levels.md`).
+The skill forces you to show commands, output and captured artifacts. **Secrets are scrubbed first
+thing**: in their place `<REDACTED>`; build loops against environment variables, so the credential
+stays in the environment and not in what is shown. Captured traffic carries auth headers — quote only
+the lines that carry signal. If after scrubbing there is nothing left to diagnose with — say so and ask the owner
+(this is A3 per `autonomy-levels.md`).
 
-## Фаза 1. Построй петлю обратной связи
+## Phase 1. Build the feedback loop
 
-**Это и есть скилл, остальное механика.** Есть **tight** pass/fail сигнал, краснеющий на _этом_
-баге — причину найдёшь; бисекция, проверка гипотез и инструментирование просто его потребляют.
-Нет сигнала — сколько ни смотри в код, не поможет.
+**This is the skill, the rest is mechanics.** There is a **tight** pass/fail signal that goes red on _this_
+bug — you will find the cause; bisection, hypothesis checking and instrumentation merely consume it.
+No signal — however long you stare at the code, it will not help.
 
-Способы, примерно в этом порядке:
+Ways, roughly in this order:
 
-1. **Падающий тест** на любом достижимом шве: unit, integration, E2E.
-2. **HTTP-скрипт** против поднятого dev-сервера (`curl`, `.http`).
-3. **CLI-вызов** с фикстурой, дифф stdout против известного-хорошего.
-4. **Playwright-скрипт**, который водит UI и ассертит на DOM / console / network.
-5. **Реплей захвата**: сохранить реальный запрос / payload / лог событий и прогнать через код
-   в изоляции.
-6. **Одноразовый харнесс**: минимальный кусок системы (один сервис, замоканные зависимости),
-   который дёргает багованный путь одним вызовом.
-7. **Property / fuzz-петля**, если баг «иногда неверный результат»: тысяча случайных входов.
-8. **Бисекция**, если баг появился между двумя известными состояниями: автоматизировать
-   «встать на состояние X, проверить, повторить» под `git bisect run`.
-9. **Дифференциальная петля**: тот же вход через старую и новую версию, дифф выводов.
+1. **A failing test** at any reachable seam: unit, integration, E2E.
+2. **An HTTP script** against a running dev server (`curl`, `.http`).
+3. **A CLI call** with a fixture, diff stdout against a known-good.
+4. **A Playwright script** that drives the UI and asserts on DOM / console / network.
+5. **A capture replay**: save a real request / payload / event log and run it through the code
+   in isolation.
+6. **A throwaway harness**: a minimal slice of the system (one service, mocked dependencies)
+   that pokes the buggy path with one call.
+7. **A property / fuzz loop**, if the bug is "sometimes a wrong result": a thousand random inputs.
+8. **Bisection**, if the bug appeared between two known states: automate
+   "go to state X, check, repeat" under `git bisect run`.
+9. **A differential loop**: the same input through the old and the new version, diff the outputs.
 
-Построил правильную петлю — баг починен на 90%.
+Built the right loop — the bug is 90% fixed.
 
-### Ужми петлю
+### Tighten the loop
 
-Петля — это продукт. Получил _какую-то_ — **ужимай**: быстрее (кэшировать сетап, срезать лишнюю
-инициализацию, сузить скоуп), резче сигнал (ассертить на конкретный симптом, не на «не упало»),
-детерминированнее (зафиксировать время, засеять RNG, изолировать ФС и сеть).
+The loop is the product. Got _some_ loop — **tighten it**: faster (cache the setup, cut extra
+initialization, narrow the scope), a sharper signal (assert on the specific symptom, not on "it did not fail"),
+more deterministic (fix the time, seed the RNG, isolate the FS and the network).
 
-Флакающая тридцатисекундная петля почти бесполезна; двухсекундная детерминированная — суперсила.
+A flaky thirty-second loop is almost useless; a two-second deterministic one is a superpower.
 
-### Недетерминированные баги: цель не репро, а частота
+### Non-deterministic bugs: the goal is not a repro but the frequency
 
-Не «чистое воспроизведение», а **повышение частоты**. Гонять триггер 100×, параллелить, добавлять
-нагрузку, сужать временные окна, вставлять `sleep`. Баг с 50% флака отлаживаем, с 1% — нет:
-поднимай частоту, пока не станет отлаживаемым.
+Not "a clean reproduction", but **raising the frequency**. Run the trigger 100×, parallelize, add
+load, narrow the time windows, insert `sleep`. A bug with 50% flake is debuggable, with 1% is not:
+raise the frequency until it becomes debuggable.
 
-### Гейт фазы 1
+### The phase 1 gate
 
-Фаза закрыта, когда ты можешь назвать **одну команду**, **уже запущенную хотя бы раз** (показать
-вызов и вывод, вычищенные), и она:
+The phase is closed when you can name **one command**, **already run at least once** (show the
+call and the output, scrubbed), and it:
 
-- [ ] **краснеет** — дёргает реальный путь бага и ассертит **точный симптом**, описанный
-      репортером, а не «отработало без ошибки»;
-- [ ] **детерминирована** — тот же вердикт каждый прогон (для флаков — закреплённая высокая частота);
-- [ ] **быстрая** — секунды, не минуты;
-- [ ] **запускается агентом** без человека в петле.
+- [ ] **goes red** — pokes the real path of the bug and asserts the **exact symptom** described by the
+      reporter, not "ran without error";
+- [ ] **is deterministic** — the same verdict every run (for flakes — a fixed high frequency);
+- [ ] **is fast** — seconds, not minutes;
+- [ ] **is run by the agent** without a human in the loop.
 
-Поймал себя на чтении кода ради теории до того, как эта команда существует — **стоп**. Прыжок к
-гипотезе и есть тот провал, который скилл предотвращает.
+If you catch yourself reading code for a theory before this command exists — **stop**. The jump to
+a hypothesis is exactly the failure the skill prevents.
 
-**В отчёте о фиксе строка с вызовом красной команды и её выводом обязательна.** Нет строки — фаза
-не пройдена, гипотезы недействительны.
+**In the fix report, a line with the call of the red command and its output is mandatory.** No line — the phase
+is not passed, the hypotheses are invalid.
 
-## Фаза 2. Воспроизведи и минимизируй
+## Phase 2. Reproduce and minimize
 
-Прогони петлю, посмотри, как она краснеет. Подтверди: это **тот** симптом, что у репортера, а не
-похожий рядом; воспроизводится многократно; точный симптом зафиксирован для проверки фикса.
+Run the loop, watch how it goes red. Confirm: this is **the** symptom the reporter had, not
+a similar one nearby; it reproduces repeatedly; the exact symptom is fixed for checking the fix.
 
-Затем **минимизируй**: режь входы, вызывающих, конфиг, данные и шаги **по одному**, прогоняя
-петлю после каждого среза. Готово, когда **каждый оставшийся элемент несущий** — удаление любого
-делает петлю зелёной.
+Then **minimize**: cut inputs, callers, config, data and steps **one at a time**, running the
+loop after each cut. Done when **every remaining element is load-bearing** — removing any
+makes the loop green.
 
-Зачем: минимальное репро сжимает пространство гипотез в фазе 3 и становится чистым регрессионным
-тестом в фазе 5.
+Why: the minimal repro shrinks the hypothesis space in phase 3 and becomes a clean regression
+test in phase 5.
 
-## Фаза 3. Гипотезы
+## Phase 3. Hypotheses
 
-**3–5 ранжированных гипотез до проверки любой из них.** Одна гипотеза якорит на первой правдоподобной.
+**3–5 ranked hypotheses before checking any of them.** A single hypothesis anchors on the first plausible one.
 
-Каждая **фальсифицируема** — назови предсказание: «если причина X, то изменение Y уберёт баг /
-изменение Z усилит его». Не можешь назвать предсказание — это не гипотеза, а ощущение: заточи
-или выброси.
+Each is **falsifiable** — name a prediction: "if the cause is X, then change Y removes the bug /
+change Z amplifies it". If you cannot name a prediction, it is not a hypothesis but a feeling: sharpen
+it or discard it.
 
-Ранжированный список — в отчёт до проверки. Владелец часто переранжирует мгновенно («мы как раз
-выкатили изменение в #3»). Не блокируйся на этом: это A2, продолжай по своему порядку.
+The ranked list — into the report before checking. The owner often re-ranks instantly ("we just
+shipped a change in #3"). Do not block on this: it is A2, continue in your own order.
 
-## Фаза 4. Инструментируй
+## Phase 4. Instrument
 
-Каждая проба соответствует конкретному предсказанию фазы 3. **Меняй по одной переменной.**
+Each probe corresponds to a specific prediction from phase 3. **Change one variable at a time.**
 
-Приоритет: отладчик / REPL, если среда позволяет (одна точка останова лучше десяти логов) →
-точечные логи на границах, различающих гипотезы. Никогда «залогировать всё и грепать».
+Priority: a debugger / REPL if the environment allows (one breakpoint is better than ten logs) →
+targeted logs at the boundaries that distinguish the hypotheses. Never "log everything and grep".
 
-**Каждый отладочный лог помечай уникальным префиксом** — `[DEBUG-a4f2]`. Чистка в конце
-становится одним грепом: непомеченные логи выживают, помеченные умирают.
+**Tag every debug log with a unique prefix** — `[DEBUG-a4f2]`. Cleanup at the end
+becomes one grep: untagged logs survive, tagged ones die.
 
-**Ветка производительности.** Для регрессий скорости логи обычно бесполезны: сначала базовый
-замер (таймер, `performance.now()`, профайлер, план запроса), потом бисекция. Сначала измеряй,
-потом чини.
+**The performance branch.** For speed regressions logs are usually useless: first a baseline
+measurement (a timer, `performance.now()`, a profiler, the query plan), then bisection. Measure first,
+fix second.
 
-## Фаза 5. Фикс и регрессионный тест
+## Phase 5. Fix and regression test
 
-Регрессионный тест пишется **до** фикса — но только если есть **правильный шов**.
+The regression test is written **before** the fix — but only if there is a **right seam**.
 
-Правильный шов — тот, где тест дёргает **реальный паттерн бага так, как он случается на вызове**.
-Если доступен только слишком мелкий шов (unit там, где багу нужны несколько вызывающих; тест, не
-воспроизводящий цепочку) — тест на нём даёт ложную уверенность.
+The right seam is the one where the test pokes the **real pattern of the bug the way it happens at the call site**.
+If only a too-small seam is available (a unit where the bug needs several callers; a test that does not
+reproduce the chain) — a test on it gives false confidence.
 
-**Нет правильного шва — это само по себе находка.** Зафиксируй: архитектура мешает закрепить баг.
-Это вход в `codebase-design` (углубление модуля), а не повод писать тест «куда получилось».
+**No right seam — this is itself a finding.** Record it: the architecture hinders pinning the bug.
+This is the entry into `codebase-design` (deepening the module), not a reason to write a test "wherever it fit".
 
-Есть шов: минимальное репро → падающий тест → смотри, как падает → фикс → смотри, как проходит →
-прогони петлю фазы 1 против исходного (неминимизированного) сценария.
+There is a seam: minimal repro → failing test → watch it fail → fix → watch it pass →
+run the phase 1 loop against the original (non-minimized) scenario.
 
-**Мутационный гейт.** Тест, который позеленел, но не убивает мутанта, — тавтологический
-(`coder.md` §2.6). Гейт это ловит механически; знай заранее.
+**The mutation gate.** A test that went green but does not kill a mutant is tautological
+(`coder.md` §2.6). The gate catches this mechanically; know it in advance.
 
-## Фаза 6. Чистка
+## Phase 6. Cleanup
 
-Обязательно перед «готово»:
+Mandatory before "done":
 
-- [ ] Исходное репро больше не воспроизводится (прогнать петлю фазы 1)
-- [ ] Регрессионный тест проходит (или отсутствие шва задокументировано)
-- [ ] Вся инструментовка `[DEBUG-...]` удалена (грепом по префиксу)
-- [ ] Одноразовые харнессы удалены
-- [ ] Верная гипотеза названа в сообщении коммита / теле PR — чтобы следующий отладчик научился
+- [ ] The original repro no longer reproduces (run the phase 1 loop)
+- [ ] The regression test passes (or the absence of a seam is documented)
+- [ ] All `[DEBUG-...]` instrumentation removed (by a grep on the prefix)
+- [ ] Throwaway harnesses removed
+- [ ] The correct hypothesis named in the commit message / PR body — so the next debugger learns
 
-## Связанное
+## Related
 
-- `.claude/agents/contracts.md` §5.3 — Flaky E2E SLA (что считается фиксом).
-- `.claude/skills/playwright-patterns/SKILL.md` — CRM-специфика E2E-флаков.
-- `.claude/skills/codebase-design/SKILL.md` — когда находка «нет правильного шва».
-- `.claude/rules/common/live-db-access.md` — читать живую БД можно, писать нельзя.
+- `.claude/agents/contracts.md` §5.3 — Flaky E2E SLA (what counts as a fix).
+- `.claude/skills/playwright-patterns/SKILL.md` — CRM specifics of E2E flakes.
+- `.claude/skills/codebase-design/SKILL.md` — when the finding is "no right seam".
+- `.claude/rules/common/live-db-access.md` — reading the live DB is allowed, writing is not.

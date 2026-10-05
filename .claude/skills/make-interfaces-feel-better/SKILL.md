@@ -2,7 +2,7 @@
 name: make-interfaces-feel-better
 description: Apply concrete design-engineering details that make interfaces feel polished. Use when reviewing or improving UI spacing, typography, borders, shadows, motion, hit areas, icons, text wrapping, and interaction states.
 origin: community
-when_to_use: "Use when UI/UX Designer (Mode D) or Coder does a polish pass on existing UI — concentric radius, tabular-nums, motion, hit areas, text wrapping, interaction states. Examples: 'отполируй эту страницу', 'числа прыгают (tabular-nums)', 'скругления не совпадают', 'добавь micro-motion', 'hit area слишком маленькая', 'cosmetic polish pass'."
+when_to_use: "Use when UI/UX Designer (Mode D) or Coder does a polish pass on existing UI — concentric radius, tabular-nums, motion, hit areas, text wrapping, interaction states. Examples: 'polish this page', 'the numbers jump (tabular-nums)', 'the corner radii do not match', 'add micro-motion', 'the hit area is too small', 'cosmetic polish pass'."
 allowed-tools:
   - Read
   - Edit
