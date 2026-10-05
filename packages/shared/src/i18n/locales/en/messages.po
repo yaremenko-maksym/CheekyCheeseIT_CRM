@@ -1079,7 +1079,7 @@ msgid "Бекстори"
 msgstr "Backstory"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
@@ -1128,7 +1128,7 @@ msgstr "a share will be created "
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 msgstr "A senior account will be created and a team formed with you as HR."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням — {defaultSharePercent}%: те саме значення знімає індивідуальну частку по проєкту."
 msgstr "Any change takes effect once the senior confirms it. The default is {defaultSharePercent}% — setting the same value clears the project-level override."
 
@@ -1511,8 +1511,8 @@ msgstr "Enter the amount as a number — e.g. 1000.50"
 msgid "zod-error.LEGEND_TEXT_REQUIRED"
 msgstr "Enter the text"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Введіть ціле число від 0 до 100"
 msgstr "Enter a whole number from 0 to 100"
 
@@ -1716,8 +1716,8 @@ msgstr "Choose a senior"
 msgid "Виберіть співробітника"
 msgstr "Select an employee"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Виберіть тип оплати"
 msgstr "Choose a payment type"
 
@@ -3397,8 +3397,8 @@ msgstr "Only a senior can be added to a drop team"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 msgid "Домен"
 msgstr "Domain"
@@ -3740,7 +3740,7 @@ msgstr "By start date"
 msgid "за замовчуванням"
 msgstr "default"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає індивідуальну частку дропа по проєкту."
 msgstr "The default is {defaultDropSharePercent}%. Setting the same value clears the project-level drop share override."
 
@@ -3922,7 +3922,7 @@ msgstr "Total income"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Загальні нотатки"
 msgstr "General notes"
 
@@ -4518,9 +4518,9 @@ msgstr "Variable {{{key}}} deleted"
 msgid "Змінювати може тільки адмін або бухгалтер."
 msgstr "Only an admin or an accountant can change this."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Змінювати можуть лише {adminLabel} або {accountantLabel}."
 msgstr "Only {adminLabel} or {accountantLabel} can change this."
 
@@ -4908,8 +4908,8 @@ msgstr "company"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Компанія"
 msgstr "Company"
@@ -5138,7 +5138,7 @@ msgid "Корп. техніка"
 msgstr "Corporate hardware"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Корпоративна техніка"
 msgstr "Corporate hardware"
 
@@ -5266,8 +5266,8 @@ msgid "zod-error.LOGO_SOURCE_XOR"
 msgstr "The logo is either an uploaded file or a link, not both"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Логотип компанії"
 msgstr "Company logo"
 
@@ -5595,8 +5595,8 @@ msgid "назва проєкту"
 msgstr "project name"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Назва проєкту"
 msgstr "Project name"
 
@@ -7327,7 +7327,7 @@ msgid "Перегляд архівної версії v{0}"
 msgstr "Viewing archived version v{0}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Перегляд зарплати"
 msgstr "Salary review"
 
@@ -9525,7 +9525,7 @@ msgstr "How much the drop keeps from each payout"
 msgid "Склад"
 msgstr "Members"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Склад команди"
 msgstr "Team composition"
@@ -9729,8 +9729,8 @@ msgstr "Try again"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Ставка"
 msgstr "Rate"
 
@@ -10216,7 +10216,7 @@ msgstr "Technical"
 msgid "Технології"
 msgstr "Tech stack"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Технологічний стек"
 msgstr "Tech stack"
 
@@ -10253,7 +10253,7 @@ msgid "Тип операції"
 msgstr "Operation type"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Тип оплати"
@@ -11098,7 +11098,7 @@ msgid "Частка дропа ({dropPct}%)"
 msgstr "Drop’s share ({dropPct}%)"
 
 #: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Частка дропа (%)"
 msgstr "Drop's share (%)"
 
@@ -11176,7 +11176,7 @@ msgid "Частка сеньйора ({seniorPct}%)"
 msgstr "Senior’s share ({seniorPct}%)"
 
 #: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Частка сеньйора (%)"
 msgstr "Senior's share (%)"

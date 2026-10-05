@@ -24,7 +24,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useForm } from '@tanstack/react-form'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { ProjectEditFields } from '../$projectId'
+import { ProjectEditFields } from '../ProjectEditFields'
 
 // task-i18n-stage3a (Task 1) blast-radius: `ProjectEditFields` renders
 // `ImageUploadField` (`components/ui/`), which now calls `useLingui()` —
