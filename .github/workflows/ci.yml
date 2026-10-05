@@ -27,18 +27,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  quality:
-    name: Typecheck · Lint · Unit Tests
+  # ── Required-context contract (audit #5/#6, 2026-10) ──────────────────────
+  # Branch protection requires the context `Typecheck · Lint · Unit Tests`.
+  # That name now belongs to the thin AGGREGATOR job `quality` (below), which
+  # `needs:` the two parallel legs `quality_core` (typecheck/lint/unit/build)
+  # and `guard_tests`. Same shape as `mutation` -> `mutation_summary` and
+  # `e2e` -> `e2e_summary`. The legs have their own, NON-required names; never
+  # rename the aggregator's `name:` — a vanished required context does not go
+  # red, it hangs every PR in "waiting" forever.
+  quality_core:
+    name: Typecheck · Lint · Unit Tests (core)
     runs-on: ubuntu-latest
-    # Дефолтные права токена в этом репо = `read` (настройка репозитория), а
-    # job-level `permissions:` их не дополняет, а ЗАМЕНЯЕТ. Без этого блока шаги
-    # `gh label create` / `gh pr edit --add-label "ci-failed"` ниже получали 403
-    # и метка не ставилась никогда (найдено security-review PR #441; тот же
-    # 403 независимо всплыл на PR #438 — грант из #441 уже закрывает и его).
-    # Это ровно про тему задачи — не терять сигнал о красном CI.
+    # Лейблинг `ci-failed` переехал в агрегатор `quality` — этому job'у
+    # `pull-requests: write` больше не нужен.
     permissions:
       contents: read
-      pull-requests: write
     # DB-free: unit tests use dbAvailable-guard and skip integration specs when
     # DATABASE_URL is absent. Integration specs run in the dedicated `integration`
     # job below, which has a Postgres service and full seed+fixture setup.
@@ -359,36 +362,9 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
 
-      # Guards for the guards (task-guards-teeth, 2026-08-07). The four steps
-      # above — plus six more check-* scripts that run on the VPS during deploy —
-      # stood between this repo and production with ZERO tests. That is not a
-      # theoretical worry: check-prod-ddl-wiring.py, created in response to a real
-      # prod outage (#422), turned out to be satisfiable by a COMMENT mentioning
-      # the migration filename, so it would have stayed green through the very
-      # incident it was written for. This step runs every guard against both a
-      # correct input AND a deliberately-broken one, and fails if any guard cannot
-      # be made to go red. It also runs the meta-guard, which fails when a NEW
-      # check-* script arrives without a test, or with a test that only ever
-      # asserts green.
-      #
-      # WHY A STEP HERE AND NOT ITS OWN JOB: this job's name is one of the two
-      # contexts branch protection actually requires ("Typecheck · Lint · Unit
-      # Tests" — verified against the API on 2026-08-07, see guard-test-gate.yml's
-      # corrected header). A standalone job would be visible but not required, i.e.
-      # ignorable — which is the same "looks like a check, isn't one" failure this
-      # task is about.
-      #
-      # Cost: seconds, not minutes, and no install/build dependency — the step
-      # needs only bash/python3/node/curl. A wall-clock figure is deliberately not
-      # quoted here: the first version of this comment said "~10s", which was
-      # already wrong when written and drifted further as cases were added. The
-      # run's own timing in the Actions UI is the authoritative number, and unlike
-      # a comment it cannot go stale.
-      - name: Guard tests (every check-* script, both directions)
-        if: steps.scope.outputs.code == 'true'
-        env:
-          GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
-        run: bash scripts/devops/tests/run-guard-tests.sh
+      # Guard tests (run-guard-tests.sh) moved to the parallel `guard_tests` job
+      # and the ci-failed labelling moved to the `quality` aggregator below
+      # (audit #5/#6, 2026-10): this job is now only the "core" leg.
 
       # Mutation gate moved out of this job into its own parallel job
       # (task-infra-split-mutation-gate, 2026-09-03) — see the `mutation` job
@@ -400,6 +376,119 @@ jobs:
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
+
+  # Guard tests, split out of the critical path (audit #5/#6, 2026-10).
+  # They were the LAST step of `quality` (~218s measured) and gated nothing
+  # that the steps before them depend on, so they run in parallel instead.
+  # They are still a hard gate: the `quality` aggregator below `needs:` this
+  # job, so a red guard test turns the required context red exactly as before.
+  # Setup is deliberately lighter than quality_core: install only (the
+  # check-no-russian-letters guard test needs `typescript` from node_modules),
+  # NO build, NO Typst, NO turbo cache.
+  guard_tests:
+    name: Guard Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 2
+
+      # Same scope detection as quality_core (see its comments for why
+      # predicate-quantifier: every and why push/dispatch is always `true`).
+      - name: Detect non-docs changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          predicate-quantifier: 'every'
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+              - '!.github/CODEOWNERS'
+
+      - name: Detect hook corpus changes
+        id: filter_hooks
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            hooks:
+              - '.claude/hooks/**'
+              - 'scripts/devops/tests/**'
+
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+          PR_HOOKS: ${{ steps.filter_hooks.outputs.hooks }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "pull_request" ]; then HOOKS="$PR_HOOKS"; else HOOKS=true; fi
+          echo "hooks=$HOOKS" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE hooks=$HOOKS"
+
+      - uses: pnpm/action-setup@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        if: steps.scope.outputs.code == 'true'
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - if: steps.scope.outputs.code == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # Guards for the guards (task-guards-teeth, 2026-08-07): runs every
+      # check-* script against a correct AND a deliberately-broken input, plus
+      # the meta-guard that fails when a new check-* script has no test.
+      - name: Guard tests (every check-* script, both directions)
+        if: steps.scope.outputs.code == 'true'
+        env:
+          GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
+        run: bash scripts/devops/tests/run-guard-tests.sh
+
+      - name: Docs-only short-circuit
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only PR — skipping guard tests, satisfying required status."
+
+  # REQUIRED CONTEXT: `Typecheck · Lint · Unit Tests`. Aggregator over the two
+  # parallel legs; green <=> both legs green. `if: always()` so it still
+  # reports (red) when a leg fails instead of being skipped — a skipped
+  # required check counts as passing for merge purposes in some configs, and
+  # a never-reported one hangs the PR. Owns the `ci-failed` label, which used
+  # to be the tail steps of the single job.
+  quality:
+    name: Typecheck · Lint · Unit Tests
+    runs-on: ubuntu-latest
+    needs: [quality_core, guard_tests]
+    if: always()
+    permissions:
+      contents: read
+      # Дефолтные права токена = `read`, job-level `permissions:` их ЗАМЕНЯЕТ;
+      # без `pull-requests: write` `gh pr edit --add-label` получает 403
+      # (security-review PR #441).
+      pull-requests: write
+    steps:
+      - name: Aggregate leg results
+        env:
+          CORE_RESULT: ${{ needs.quality_core.result }}
+          GUARD_RESULT: ${{ needs.guard_tests.result }}
+        run: |
+          echo "quality_core=$CORE_RESULT guard_tests=$GUARD_RESULT"
+          if [ "$CORE_RESULT" != "success" ] || [ "$GUARD_RESULT" != "success" ]; then
+            echo "::error::quality leg(s) not green (quality_core=$CORE_RESULT, guard_tests=$GUARD_RESULT). See the individual job logs."
+            exit 1
+          fi
+          echo "Both legs passed ✓"
 
       - name: Remove ci-failed label on success
         if: success() && github.event_name == 'pull_request'
