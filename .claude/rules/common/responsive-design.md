@@ -1,3 +1,9 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/landing/**'
+---
+
 # Rule: Responsive design — CRM usable on any device (mandatory)
 
 **Status:** Always-on

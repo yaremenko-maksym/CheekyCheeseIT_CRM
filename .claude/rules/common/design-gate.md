@@ -1,3 +1,9 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/landing/**'
+---
+
 # Rule: Design-gate — обязательный дизайнер-в-контуре для любого UI
 
 **Status:** Always-on

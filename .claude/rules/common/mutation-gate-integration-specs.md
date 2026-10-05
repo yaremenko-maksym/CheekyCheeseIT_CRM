@@ -1,3 +1,9 @@
+---
+paths:
+  - '**/*.spec.ts'
+  - '**/*.spec.tsx'
+---
+
 # Rule: Mutation gate cannot see integration specs — unit doubles are required, not duplication
 
 **Status:** Always-on
