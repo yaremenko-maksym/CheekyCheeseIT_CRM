@@ -1,164 +1,164 @@
-# Рунбук: закрыть origin по-настоящему — файрвол + Authenticated Origin Pulls
+# Runbook: close the origin for real — firewall + Authenticated Origin Pulls
 
-**Кому:** владельцу (шаги требуют панели Cloudflare, консоли Hetzner и доступа к хосту —
-у ассистента их нет).
-**Зачем:** фильтр по источнику (`nginx/snippets/origin-gate.conf`) в своей же шапке
-честно говорит, что он **не** контроль доступа: он проверяет, пришёл ли запрос из
-публичных диапазонов Cloudflare, а не из **нашей** зоны. Его проходят пользователи
-Cloudflare WARP, Cloudflare Workers и трафик любого другого клиента Cloudflare —
-в любом режиме, включая блокирующий.
+**For:** the owner (the steps require the Cloudflare panel, the Hetzner console, and host access —
+the assistant has none of these).
+**Why:** the source filter (`nginx/snippets/origin-gate.conf`) in its own header
+honestly states that it is **not** access control: it checks whether the request came from the
+public Cloudflare ranges, not from **our** zone. It is passed by Cloudflare WARP users,
+Cloudflare Workers, and the traffic of any other Cloudflare customer —
+in any mode, including the blocking one.
 
-**Что реально закрывается этими двумя шагами:**
+**What these two steps actually close:**
 
-| Угроза                                                          | Файрвол | AOP (зона) | AOP (по хосту) |
-| --------------------------------------------------------------- | ------- | ---------- | -------------- |
-| Сканеры и боты стучат прямо по IP сервера мимо Cloudflare       | ✅ да   | ✅ да      | ✅ да          |
-| Обход WAF и ограничителей Cloudflare прямым обращением к origin | ✅ да   | ✅ да      | ✅ да          |
-| Подделка `CF-Connecting-IP` **другим клиентом Cloudflare**      | ❌ нет  | ❌ нет     | ✅ да          |
+| Threat                                                                      | Firewall | AOP (zone) | AOP (per host) |
+| --------------------------------------------------------------------------- | -------- | ---------- | -------------- |
+| Scanners and bots hit the server IP directly, bypassing Cloudflare          | ✅ yes   | ✅ yes     | ✅ yes         |
+| Bypassing Cloudflare's WAF and rate limiters by hitting the origin directly | ✅ yes   | ✅ yes     | ✅ yes         |
+| Spoofing `CF-Connecting-IP` **by another Cloudflare customer**              | ❌ no    | ❌ no      | ✅ yes         |
 
-Третья строка — та, что касается данных: этот заголовок питает IP на подписи контракта
-и согласия с условиями (мы храним его как юридическое доказательство) и ключ
-ограничителя частоты запросов.
+The third row is the one that concerns the data: this header feeds the IP on the contract signature
+and the terms-of-service consent (we store it as legal evidence) and the key
+of the request rate limiter.
 
-**Порядок важен.** Шаг 1 (файрвол) даёт больше всего и не может уронить посетителей.
-Шаг 2 (mTLS) при неверном порядке действий роняет сайт целиком — поэтому там
-наблюдательная фаза.
+**Order matters.** Step 1 (firewall) gives the most and cannot take down visitors.
+Step 2 (mTLS) in the wrong order takes down the whole site — that is why there is
+an observation phase there.
 
 ---
 
-## Шаг 1 — Файрвол Hetzner Cloud (сеть, а не хост)
+## Step 1 — Hetzner Cloud firewall (network, not host)
 
-### Почему не `ufw`
+### Why not `ufw`
 
-Docker публикует 80/443 своими правилами в цепочках `nat`/`DOCKER`, которые
-отрабатывают **раньше** цепочки `INPUT`. Поэтому `ufw deny 443` на таком хосте
-не блокирует ничего — порт остаётся открытым, а в панели `ufw status` при этом
-написано «deny». Это классическая ловушка, и у нас именно эта конфигурация
+Docker publishes 80/443 with its own rules in the `nat`/`DOCKER` chains, which
+run **before** the `INPUT` chain. So `ufw deny 443` on such a host
+blocks nothing — the port stays open, while `ufw status` in the panel
+says "deny". This is a classic trap, and we have exactly this configuration
 (`docker-compose.prod.yml`: `ports: - '80:80'`, `- '443:443'`).
 
-Файрвол Hetzner Cloud фильтрует **до** попадания пакета на машину, поэтому правила
-Docker его обойти не могут.
+The Hetzner Cloud firewall filters **before** the packet reaches the machine, so Docker's
+rules cannot bypass it.
 
-### Что сделать
+### What to do
 
-1. Возьми актуальные диапазоны Cloudflare — **из первоисточника**, не из нашего файла:
+1. Take the current Cloudflare ranges — **from the first source**, not from our file:
    - https://www.cloudflare.com/ips-v4
    - https://www.cloudflare.com/ips-v6
 
-   Их около 15 (IPv4) и 7 (IPv6).
+   There are about 15 (IPv4) and 7 (IPv6) of them.
 
-2. Консоль Hetzner Cloud → **Firewalls** → **Create Firewall**.
+2. Hetzner Cloud console → **Firewalls** → **Create Firewall**.
 
-3. Входящие правила — ровно три:
+3. Inbound rules — exactly three:
 
-   | Протокол | Порт | Источник                       |
-   | -------- | ---- | ------------------------------ |
-   | TCP      | 80   | все диапазоны Cloudflare v4+v6 |
-   | TCP      | 443  | все диапазоны Cloudflare v4+v6 |
-   | TCP      | 22   | **Any IPv4 + Any IPv6**        |
+   | Protocol | Port | Source                      |
+   | -------- | ---- | --------------------------- |
+   | TCP      | 80   | all Cloudflare ranges v4+v6 |
+   | TCP      | 443  | all Cloudflare ranges v4+v6 |
+   | TCP      | 22   | **Any IPv4 + Any IPv6**     |
 
-   **Порт 22 оставить открытым.** Выкатка ходит на VPS по SSH из GitHub Actions
-   (`.github/workflows/deploy.yml`, `appleboy/ssh-action`), а адреса раннеров
-   динамические. Ограничение 22 сломает деплой. Защита там — ключи, не адрес.
+   **Keep port 22 open.** The deploy reaches the VPS over SSH from GitHub Actions
+   (`.github/workflows/deploy.yml`, `appleboy/ssh-action`), and the runner addresses
+   are dynamic. Restricting 22 will break the deploy. The protection there is the keys, not the address.
 
-   Исходящие правила не задавать (Hetzner при пустом списке исходящих разрешает всё;
-   если задать — сломается вытягивание образов из GHCR и обращения к НБУ/Etherscan).
+   Do not set outbound rules (Hetzner allows everything with an empty outbound list;
+   if you set them — pulling images from GHCR and calls to NBU/Etherscan will break).
 
-4. Применить файрвол к серверу (Apply to → выбрать VPS).
+4. Apply the firewall to the server (Apply to → select the VPS).
 
-5. **Проверить парой команд** — обе обязательны, одна без другой ничего не доказывает:
+5. **Verify with a pair of commands** — both are mandatory, one without the other proves nothing:
 
    ```bash
-   # через Cloudflare — должно работать
+   # through Cloudflare — should work
    curl -sS -o /dev/null -w '%{http_code}\n' https://cheekycheese.tech/
 
-   # напрямую по IP сервера, мимо Cloudflare — должно ВИСНУТЬ и упасть по таймауту
-   curl -sS --max-time 10 --resolve cheekycheese.tech:443:<IP_СЕРВЕРА> \
+   # directly by the server IP, bypassing Cloudflare — should HANG and fail on timeout
+   curl -sS --max-time 10 --resolve cheekycheese.tech:443:<SERVER_IP> \
         -o /dev/null -w '%{http_code}\n' https://cheekycheese.tech/
    ```
 
-   Первая даёт `200`. Вторая — `curl: (28) Connection timed out`. Если вторая
-   вернула код ответа, файрвол не применился.
+   The first gives `200`. The second — `curl: (28) Connection timed out`. If the second
+   returned a response code, the firewall was not applied.
 
-6. Прогнать выкатку один раз (любой merge в `main` либо `workflow_dispatch` для
-   `deploy.yml`) и убедиться, что она зелёная. Это проверка, что SSH не задет.
+6. Run the deploy once (any merge into `main` or `workflow_dispatch` for
+   `deploy.yml`) and make sure it is green. This is the check that SSH is not affected.
 
-### Цена этого шага, о которой надо знать заранее
+### The cost of this step, which you need to know in advance
 
-После включения файрвола **устаревание диапазонов Cloudflare начинает ронять сайт**,
-а не просто шуметь в логах: если Cloudflare добавит диапазон, а в файрволе его нет,
-часть посетителей получит таймаут. Раньше такое устаревание было безобидным.
+After turning on the firewall, **a staleness of the Cloudflare ranges starts taking down the site**,
+not just making noise in the logs: if Cloudflare adds a range and it is not in the firewall,
+some visitors will get a timeout. Before, such staleness was harmless.
 
-Поэтому: при каждом изменении списка Cloudflare правило в Hetzner обновляется вместе
-с `nginx/cloudflare-ips.txt`. Проверка свежести уже есть —
-`scripts/devops/check-cloudflare-ips-freshness.sh`. После этого шага она перестаёт
-быть необязательной.
+Therefore: on every change of the Cloudflare list, the Hetzner rule is updated together
+with `nginx/cloudflare-ips.txt`. A freshness check already exists —
+`scripts/devops/check-cloudflare-ips-freshness.sh`. After this step it stops
+being optional.
 
-**Дальше эта проверка не осталась «вспомнить и запустить руками».**
-`.github/workflows/cloudflare-ips-watch.yml` гоняет её дважды в сутки и при
-расхождении сам заводит:
+**Beyond that, this check did not remain "remember and run by hand".**
+`.github/workflows/cloudflare-ips-watch.yml` runs it twice a day and on a
+mismatch opens, by itself:
 
-- **PR**, обновляющий `nginx/cloudflare-ips.txt` — правит только nginx
-  (`set_real_ip_from` и origin-gate), автомерж на него не ставится, смотрит
-  человек.
-- **Issue**, назначенную на владельца (почта приходит штатным GitHub-каналом
-  «assigned», без SMTP-секретов) — с готовыми списками диапазонов для вставки
-  и шагами для консоли Hetzner (Firewalls → правила на 80 и 443 → добавить/
-  убрать, **оба** порта, IPv6 не пропускать).
+- a **PR** updating `nginx/cloudflare-ips.txt` — it edits only nginx
+  (`set_real_ip_from` and origin-gate), auto-merge is not set on it, a
+  human reviews it.
+- an **Issue** assigned to the owner (the email arrives through the standard GitHub
+  channel "assigned", without SMTP secrets) — with ready range lists to paste
+  and steps for the Hetzner console (Firewalls → rules on 80 and 443 → add/
+  remove, **both** ports, do not skip IPv6).
 
-Если диапазон **добавился** — заголовок issue отмечен как срочный (визитёры
-с этого диапазона уже таймаутят); если только **пропал** — как уборка
-(лишнее разрешение, доступа не даёт). Если сам источник (`cloudflare.com/
-ips-v4|v6`) недоступен, workflow падает громко (красный прогон), а не молчит.
-Подробности контракта — в header-комментарии `scripts/devops/
+If a range was **added** — the issue title is marked as urgent (visitors
+from this range are already timing out); if one only **disappeared** — as cleanup
+(a redundant allowance, grants no access). If the source itself (`cloudflare.com/
+ips-v4|v6`) is unreachable, the workflow fails loudly (a red run), rather than staying silent.
+The details of the contract are in the header comment of `scripts/devops/
 cloudflare-ips-watch.sh`.
 
-**Красный прогон без issue/PR — не всегда «сторож сломан» (размен, о котором
-надо помнить заранее, security review PR #557, 2026-08-18).** Проверка
-свежести отказывается доверять «диапазон пропал» без допуска: живой count по
-семейству (v4/v6) не может быть НИЖЕ того, что уже доверяет `nginx/
-cloudflare-ips.txt`, — ни на процент, ни «на всякий случай», а вообще без
-толерантности. Причина: обрезанный на одну строку ответ (сеть моргнула,
-прокси вернул неполное тело) и **настоящий** отзыв Cloudflare одного
-диапазона дают ОДИНАКОВУЮ картину — список короче на один валидный CIDR,
-и по содержимому эти два случая неразличимы. Размен выбран сознательно:
-дешевле лишний красный прогон (одно письмо от GitHub о упавшем scheduled
-workflow), чем совет удалить из файрвола диапазон, которым Cloudflare всё
-ещё пользуется, — а обратной стороной именно этого размена является то, что
-**настоящий** отзыв диапазона теперь ТОЖЕ выглядит как «сторож сломан»:
-issue и PR не заводятся, потому что автоматика сама себе не доверяет в этой
-ситуации.
+**A red run without an issue/PR is not always "the guard is broken" (a trade-off you need to
+remember in advance, security review PR #557, 2026-08-18).** The freshness
+check refuses to trust "a range disappeared" without a tolerance: the live count by
+family (v4/v6) cannot be LOWER than what `nginx/cloudflare-ips.txt` already
+trusts — not by a percent, not "just in case", but without any
+tolerance at all. The reason: a response truncated by one line (the network blinked,
+a proxy returned an incomplete body) and a **real** revocation by Cloudflare of one
+range give the SAME picture — the list is shorter by one valid CIDR,
+and by content these two cases are indistinguishable. The trade-off was chosen deliberately:
+an extra red run is cheaper (one email from GitHub about a failed scheduled
+workflow) than advising to remove from the firewall a range that Cloudflare still
+uses — and the flip side of exactly this trade-off is that
+a **real** range revocation now ALSO looks like "the guard is broken":
+the issue and PR are not opened, because the automation does not trust itself in this
+situation.
 
-Что это значит в день, когда Cloudflare действительно уберёт диапазон:
-никакого PR/issue не будет — будет только красный scheduled-прогон
-(`::error::` в логе, письмо от GitHub «your scheduled workflow failed»).
-**Не читать это как «автоматика сломалась» и не чинить workflow вслепую.**
-Сначала сверить `nginx/cloudflare-ips.txt` ГЛАЗАМИ с
-https://www.cloudflare.com/ips-v4 и https://www.cloudflare.com/ips-v6:
+What this means on the day Cloudflare actually removes a range:
+there will be no PR/issue — there will only be a red scheduled run
+(`::error::` in the log, an email from GitHub "your scheduled workflow failed").
+**Do not read this as "the automation broke" and do not fix the workflow blindly.**
+First check `nginx/cloudflare-ips.txt` BY EYE against
+https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6:
 
-- если каждый диапазон из файла всё ещё есть в обоих списках Cloudflare —
-  источник действительно был недоступен или вернул мусор, это настоящая
-  поломка, разбираться с фетчем;
-- если какого-то диапазона из файла в списках Cloudflare уже нет — это
-  настоящая (редкая) уборка: обновить `nginx/cloudflare-ips.txt` руками и
-  открыть PR самому. Автоматика в этом случае работает как задумано, а не
-  ломается — молчание про PR/issue здесь и есть её сознательное поведение,
-  не баг.
+- if every range from the file is still in both Cloudflare lists —
+  the source really was unreachable or returned garbage, this is a real
+  breakage, deal with the fetch;
+- if some range from the file is no longer in the Cloudflare lists — this is a
+  real (rare) cleanup: update `nginx/cloudflare-ips.txt` by hand and
+  open a PR yourself. The automation in this case works as intended, not
+  broken — its silence about the PR/issue here is its deliberate behavior,
+  not a bug.
 
 ---
 
-## Шаг 2 — Authenticated Origin Pulls (mTLS)
+## Step 2 — Authenticated Origin Pulls (mTLS)
 
-Cloudflare предъявляет нашему nginx клиентский сертификат, nginx его проверяет.
-Прямое соединение без этого сертификата отвергается на уровне TLS.
+Cloudflare presents a client certificate to our nginx, nginx verifies it.
+A direct connection without this certificate is rejected at the TLS level.
 
-### 2а. Зонный AOP (быстро, закрывает прямой доступ)
+### 2a. Zone AOP (fast, closes direct access)
 
-**Порядок строго такой — обратный роняет сайт.**
+**The order is strictly this — the reverse takes down the site.**
 
-1. Положи публикуемый Cloudflare CA на хост, рядом с нашими сертификатами
-   (каталог уже смонтирован в контейнер как `/etc/nginx/certs`, пересборка образа
-   не нужна):
+1. Place Cloudflare's published CA on the host, next to our certificates
+   (the directory is already mounted into the container as `/etc/nginx/certs`, a rebuild of the image
+   is not needed):
 
    ```bash
    sudo curl -fsS -o /etc/nginx/certs/cloudflare-origin-pull-ca.pem \
@@ -166,50 +166,50 @@ Cloudflare предъявляет нашему nginx клиентский сер
    sudo openssl x509 -in /etc/nginx/certs/cloudflare-origin-pull-ca.pem -noout -subject -dates
    ```
 
-   Вторая команда обязательна: она доказывает, что скачался сертификат, а не
-   HTML-страница ошибки. Ожидаемо увидеть subject с `CloudFlare` и срок действия.
+   The second command is mandatory: it proves that a certificate was downloaded, not an
+   HTML error page. Expect to see a subject with `CloudFlare` and a validity period.
 
-2. Панель Cloudflare → зона `cheekycheese.tech` → **SSL/TLS** → **Origin Server** →
-   включить **Authenticated Origin Pulls** (зонный переключатель).
-   **На этом шаге для нас не меняется ничего** — nginx пока не проверяет сертификат,
-   уронить сайт этим нельзя. То же самое для зоны `app.cheekycheese.tech`, если она
-   отдельная зона, а не запись внутри той же.
+2. Cloudflare panel → zone `cheekycheese.tech` → **SSL/TLS** → **Origin Server** →
+   turn on **Authenticated Origin Pulls** (the zone toggle).
+   **At this step nothing changes for us** — nginx does not verify the certificate yet,
+   and the site cannot be taken down by this. The same for the zone `app.cheekycheese.tech`, if it is
+   a separate zone, not a record inside the same one.
 
-3. Скажи мне — я делаю PR, добавляющий в блоки `listen 443 ssl` (`crm.conf`,
+3. Tell me — I make a PR adding to the `listen 443 ssl` blocks (`crm.conf`,
    `landing.conf`, `default-server.conf`):
 
    ```nginx
    ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull-ca.pem;
-   ssl_verify_client optional;     # НАБЛЮДЕНИЕ: отсутствие/валидный сертификат — не отвергает
+   ssl_verify_client optional;     # OBSERVATION: absence/valid certificate — does not reject
    ```
 
-   плюс `$ssl_client_verify` в формат лога. Это ровно тот же приём наблюдательной
-   фазы, что у нас уже применён к фильтру по источнику и к CSP.
+   plus `$ssl_client_verify` in the log format. This is exactly the same observation-phase trick
+   that we already apply to the source filter and to the CSP.
 
-   **Точность формулировки «не отвергает» (сделано в PR #555, security review):**
-   `optional` не отвергает ровно ДВА случая, которые и имеют значение на практике —
-   отсутствие сертификата (`NONE`) и валидный сертификат (`SUCCESS`), оба получают
-   обычный ответ (проверено живыми прогонами). Предъявленный, но НЕ верифицируемый
-   сертификат — исключение: nginx отвечает автоматическим `400` ещё до попадания
-   запроса в любой `location` — это собственное поведение nginx для
-   `ssl_verify_client optional`, не баг конфига. За файрволом (шаг 1) и зонным AOP
-   этот случай не ожидается на реальном трафике (край всегда предъявляет свой
-   валидный сертификат) — полный разбор и живые прогоны см. в комментарии над
-   `log_format main` в `nginx/nginx.conf`.
+   **Precision of the wording "does not reject" (done in PR #555, security review):**
+   `optional` does not reject exactly TWO cases, which are the ones that matter in practice —
+   absence of a certificate (`NONE`) and a valid certificate (`SUCCESS`), both get
+   a normal response (verified by live runs). A certificate that is presented but NOT verifiable —
+   is the exception: nginx answers with an automatic `400` before the request reaches
+   any `location` — this is nginx's own behavior for
+   `ssl_verify_client optional`, not a config bug. Behind the firewall (step 1) and the zone AOP
+   this case is not expected on real traffic (the edge always presents its
+   valid certificate) — for the full analysis and live runs, see the comment above
+   `log_format main` in `nginx/nginx.conf`.
 
-4. Сутки читаем лог: у **всего** реального трафика должно стоять `SUCCESS`.
-   Ни одного `NONE`/`FAILED` от живых посетителей.
+4. For a day we read the log: **all** real traffic should have `SUCCESS`.
+   Not a single `NONE`/`FAILED` from live visitors.
 
-   **Команда (добавлено в PR #555, security review AOP-5 — проверена на живом
-   контейнере, не выдумана).** Наивная `docker compose logs | grep client_verify=
-| ... | sort | uniq -c` считает верно, но вводит в заблуждение тремя
-   способами: не показывает, ЧТО конкретно было `NONE` (главный вопрос при
-   решении о флипе); `docker compose logs` видит только ТЕКУЩИЙ контейнер, то
-   есть любая выкатка молча обнуляет окно наблюдения; ротация json-file
-   (`max-size: 10m` × `max-file: 5`, `docker-compose.prod.yml`) может усечь
-   сутки без предупреждения. Команда ниже честно проверяет покрытие ДО того
-   как выводит распределение, и печатает примеры строк `NONE`, а не только
-   счётчик:
+   **The command (added in PR #555, security review AOP-5 — verified on a live
+   container, not made up).** The naive `docker compose logs | grep client_verify=
+| ... | sort | uniq -c` counts correctly, but misleads in three
+   ways: it does not show WHAT exactly was `NONE` (the main question when
+   deciding on the flip); `docker compose logs` sees only the CURRENT container, that
+   is, any deploy silently zeroes the observation window; json-file rotation
+   (`max-size: 10m` × `max-file: 5`, `docker-compose.prod.yml`) can truncate
+   a day without warning. The command below honestly checks coverage BEFORE
+   it prints the distribution, and prints example `NONE` lines, not just the
+   counter:
 
    ```bash
    cd /opt/crm
@@ -265,11 +265,11 @@ Cloudflare предъявляет нашему nginx клиентский сер
    ```
 
    (LOW-1, security review round 2, PR #555: `grep ... | head -5 || echo
-   "(none)"` looks like it prints a fallback on zero matches, but does not —
+"(none)"` looks like it prints a fallback on zero matches, but does not —
    `$?` after a pipe is `head`'s exit code, and `head` exits `0` even after
    reading nothing from an empty/exhausted pipe. Verified: the old form
    silently prints NOTHING on zero matches, not `(none)` — the `if
-   MATCHES=$(...)` form above branches on `grep`'s own exit code, which IS
+MATCHES=$(...)` form above branches on `grep`'s own exit code, which IS
    `1` on zero matches, and was verified against both an empty-match and a
    matching case.)
 
@@ -282,82 +282,82 @@ available` plus zero `FAILED`/`NONE` samples from real visitor traffic
    (health-checks and internal probes are expected `-`/occasional `NONE` and
    are not "real traffic") is the precondition for step 5 below.
 
-5. По чистому окну я делаю однострочный PR `optional` → `on`. С этого момента
-   прямое соединение без сертификата Cloudflare получает `400` на уровне TLS.
+5. On a clean window I make a one-line PR `optional` → `on`. From this moment,
+   a direct connection without a Cloudflare certificate gets `400` at the TLS level.
 
-   **Чего этот флип НЕ даёт (см. §2б ниже для полного разбора):** зонный AOP
-   использует общий сертификат Cloudflare — один и тот же у всех клиентов
-   Cloudflare, не привязанный к нашей зоне. `on` доказывает «пришло из сети
-   Cloudflare», а не «от края, реально обслуживающего `cheekycheese.tech`» —
-   подделка `CF-Connecting-IP` ДРУГИМ клиентом Cloudflare этим шагом не
-   закрывается. Закрывает её только §2б (свой сертификат, привязанный к
-   хосту).
+   **What this flip does NOT give (see §2b below for the full analysis):** the zone AOP
+   uses a shared Cloudflare certificate — the same one for all Cloudflare
+   customers, not bound to our zone. `on` proves "came from the Cloudflare
+   network", not "from the edge actually serving `cheekycheese.tech`" —
+   spoofing `CF-Connecting-IP` by ANOTHER Cloudflare customer is not
+   closed by this step. Only §2b closes it (our own certificate, bound to the
+   host).
 
-### Откат — два независимых режима (лекарства разные)
+### Rollback — two independent modes (the cures are different)
 
-Добавлено в PR #555 (security review, AOP-4) — до этого рунбук не описывал откат
-вообще. Симптом решает, какой режим:
+Added in PR #555 (security review, AOP-4) — before that the runbook did not describe rollback
+at all. The symptom decides which mode:
 
-**Режим А — трафик получает `400`.** Клиент предъявляет сертификат, который не
-верифицируется против `cloudflare-origin-pull-ca.pem` (см. разбор в шаге 3 выше
-и в `nginx/nginx.conf`'s комментарии над `log_format main`) — это встроенное
-поведение `ssl_verify_client optional`, не отказ старта nginx: сам nginx жив и
-исправно обслуживает всё остальное. **Лекарство — выключить Global Authenticated
-Origin Pulls в панели Cloudflare** (`SSL/TLS` → `Origin Server`): край перестаёт
-предъявлять сертификат вообще, `optional` резолвит запрос в `NONE`, ответ —
-обычный `200`. Ни повторной выкатки, ни отката PR не нужно — чисто зонный
-переключатель на стороне Cloudflare, эффект мгновенный.
+**Mode A — traffic gets `400`.** The client presents a certificate that does not
+verify against `cloudflare-origin-pull-ca.pem` (see the analysis in step 3 above
+and in `nginx/nginx.conf`'s comment above `log_format main`) — this is the built-in
+behavior of `ssl_verify_client optional`, not a failure of nginx startup: nginx itself is alive and
+serves everything else correctly. **The cure — turn off Global Authenticated
+Origin Pulls in the Cloudflare panel** (`SSL/TLS` → `Origin Server`): the edge stops
+presenting a certificate at all, `optional` resolves the request to `NONE`, the response —
+a normal `200`. Neither a redeploy nor a rollback of the PR is needed — purely a zone
+toggle on the Cloudflare side, the effect is instant.
 
-**Режим Б — nginx не стартовал.** Причина: файл `cloudflare-origin-pull-ca.pem`
-отсутствует или повреждён НА ХОСТЕ — `ssl_client_certificate` не может его
-прочитать, nginx падает при загрузке конфига, контейнер не поднимается вообще
-(это уже другой класс отказа, чем Режим А — до TLS-рукопожатия дело не доходит).
-Панель Cloudflare здесь не поможет вовсе — проблема на нашей стороне. Два пути:
+**Mode B — nginx did not start.** The reason: the file `cloudflare-origin-pull-ca.pem`
+is absent or corrupted ON THE HOST — `ssl_client_certificate` cannot
+read it, nginx fails while loading the config, the container does not come up at all
+(this is already a different class of failure than Mode A — it does not reach the TLS handshake).
+The Cloudflare panel will not help here at all — the problem is on our side. Two paths:
 
-1. **Ремонт файла на хосте** — переприменить шаг 1 выше (`sudo curl ... -o
-/etc/nginx/certs/cloudflare-origin-pull-ca.pem` + проверочный `openssl x509
-... -subject -dates`), затем `docker compose -f docker-compose.prod.yml -f
-docker-compose.ghcr.yml --env-file .env.production up -d nginx` на VPS.
-   Быстрее, но требует ручного входа владельца на хост.
-2. **`workflow_dispatch` `deploy.yml` с прежним рабочим `image_tag`** —
-   пересобирает и передеплоивает известно-рабочий образ целиком. У ассистента
-   нет интерактивного SSH к VPS (`appleboy/ssh-action` работает только внутри
-   самого workflow-прогона), поэтому на практике это единственный путь,
-   доступный без ручного входа владельца на VPS.
+1. **Repair the file on the host** — reapply step 1 above (`sudo curl ... -o
+/etc/nginx/certs/cloudflare-origin-pull-ca.pem` + the verifying `openssl x509
+... -subject -dates`), then `docker compose -f docker-compose.prod.yml -f
+docker-compose.ghcr.yml --env-file .env.production up -d nginx` on the VPS.
+   Faster, but requires the owner's manual login to the host.
+2. **`workflow_dispatch` `deploy.yml` with the previous working `image_tag`** —
+   rebuilds and redeploys the known-working image entirely. The assistant
+   has no interactive SSH to the VPS (`appleboy/ssh-action` works only inside
+   the workflow run itself), so in practice this is the only path
+   available without the owner's manual login to the VPS.
 
-С PR #555 `deploy.yml` также получил preflight-шаг (прямо перед container-swap'ом,
-Step 3): новый деплой падает ДО сноса текущего работающего контейнера, если
-`cloudflare-origin-pull-ca.pem` отсутствует на хосте — это ловит Режим Б РАНЬШЕ
-для будущих деплоев, но НЕ защищает от файла, удалённого/повреждённого на хосте
-ПОСЛЕ последнего успешного деплоя (уже работающий контейнер продолжит падать при
-рестарте) — тот случай всё ещё Режим Б выше, ремонт файла обязателен.
+With PR #555 `deploy.yml` also got a preflight step (right before the container swap,
+Step 3): a new deploy fails BEFORE tearing down the current working container, if
+`cloudflare-origin-pull-ca.pem` is absent on the host — this catches Mode B EARLIER
+for future deploys, but does NOT protect against a file removed/corrupted on the host
+AFTER the last successful deploy (the already-running container will keep failing on
+restart) — that case is still Mode B above, repairing the file is mandatory.
 
-### 2б. AOP по хосту, со своим сертификатом (полностью закрывает третью строку таблицы)
+### 2b. Per-host AOP, with our own certificate (fully closes the third row of the table)
 
-Зонный AOP использует **общий** сертификат Cloudflare — один и тот же у всех клиентов
-Cloudflare. Он доказывает «пришло от края Cloudflare», но не «от края, обслуживающего
-нашу зону». Чтобы закрыть подделку `CF-Connecting-IP` другим клиентом Cloudflare,
-нужен **свой** клиентский сертификат, загруженный в Cloudflare и привязанный к хосту;
-nginx проверяет его против нашего же CA.
+The zone AOP uses a **shared** Cloudflare certificate — the same for all Cloudflare
+customers. It proves "came from a Cloudflare edge", but not "from the edge serving
+our zone". To close spoofing of `CF-Connecting-IP` by another Cloudflare customer,
+you need **our own** client certificate, uploaded to Cloudflare and bound to the host;
+nginx verifies it against our own CA.
 
-Это делается только через API Cloudflare (в панели такого переключателя нет) и требует
-токена с правами на зону. **Токен никуда не вставляй в переписку** — команды запускаешь
-сам, у себя.
+This is done only through the Cloudflare API (there is no such toggle in the panel) and requires
+a token with rights to the zone. **Do not paste the token anywhere in the correspondence** — you run the
+commands yourself, on your own machine.
 
-Если решишь идти до конца — скажи, я подготовлю точную последовательность: генерация
-пары, загрузка сертификата в зону, привязка к двум хостам, замена CA в nginx и та же
-наблюдательная фаза. Это отдельная задача на полдня, и делать её осмысленно **после**
-того как шаги 1 и 2а отработали.
+If you decide to go all the way — tell me, I will prepare the exact sequence: generating
+the pair, uploading the certificate to the zone, binding it to the two hosts, replacing the CA in nginx, and the same
+observation phase. This is a separate half-day task, and it makes sense to do it **after**
+steps 1 and 2a have worked.
 
 ---
 
-## Что это меняет в бэклоге
+## What this changes in the backlog
 
-- Пункты **A/B/C** остаются как договорено: чиню находки, режим фильтра не переключаю.
-  После шага 1 ценность самого переключения падает почти до нуля — файрвол отсекает
-  тот же трафик раньше и надёжнее. Фильтр остаётся вторым рубежом.
-- Появляется новое требование к операциям: свежесть диапазонов Cloudflare становится
-  способной уронить прод (см. цену шага 1).
-- Утверждение «origin закрыт» станет правдой только после шага 2а. До него так писать
-  в документации нельзя — сейчас в шапке `origin-gate.conf` про это сказано честно,
-  и эту честность надо сохранить.
+- Items **A/B/C** remain as agreed: I fix the findings, I do not switch the filter mode.
+  After step 1 the value of the switch itself drops almost to zero — the firewall cuts off
+  the same traffic earlier and more reliably. The filter remains a second line of defense.
+- A new operational requirement appears: the freshness of the Cloudflare ranges becomes
+  capable of taking down prod (see the cost of step 1).
+- The statement "the origin is closed" will become true only after step 2a. Before it, writing so
+  in the documentation is not allowed — right now the header of `origin-gate.conf` says so honestly,
+  and this honesty must be preserved.

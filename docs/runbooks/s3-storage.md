@@ -1,71 +1,71 @@
-# S3-совместимое хранилище — Documents
+# S3-compatible storage — Documents
 
-Хранилище документов для CRM. **Dev/CI: RustFS** (docker-compose, S3-совместимый), **Prod: Cloudflare R2** (S3-совместимый API).
-Код работает через `@aws-sdk/client-s3` против обоих (отличие — только env: endpoint / creds / `S3_USE_SSE`).
+Document storage for the CRM. **Dev/CI: RustFS** (docker-compose, S3-compatible), **Prod: Cloudflare R2** (S3-compatible API).
+The code works through `@aws-sdk/client-s3` against both (the only difference is env: endpoint / creds / `S3_USE_SSE`).
 
-## Обзор
+## Overview
 
-| Среда | Backend                           | Endpoint                                        | Region                    | Bucket               |
-| ----- | --------------------------------- | ----------------------------------------------- | ------------------------- | -------------------- |
-| Dev   | RustFS (Docker)                   | `http://localhost:9000`                         | `us-east-1` (dev default) | `crm-documents`      |
-| Prod  | **Cloudflare R2** (S3-совместимо) | `https://<account_id>.r2.cloudflarestorage.com` | `auto`                    | `crm-documents-prod` |
+| Environment | Backend                           | Endpoint                                        | Region                    | Bucket               |
+| ----------- | --------------------------------- | ----------------------------------------------- | ------------------------- | -------------------- |
+| Dev         | RustFS (Docker)                   | `http://localhost:9000`                         | `us-east-1` (dev default) | `crm-documents`      |
+| Prod        | **Cloudflare R2** (S3-compatible) | `https://<account_id>.r2.cloudflarestorage.com` | `auto`                    | `crm-documents-prod` |
 
-**Шифрование:** R2 шифрует все данные at-rest **по умолчанию** — заголовок SSE-S3 (`ServerSideEncryption: AES256`) НЕ нужен и R2 его **отвергает** (не реализует SSE-S3 протокол). Поэтому `S3_USE_SSE=false` и в dev (RustFS), и в prod (R2). Прод-значение **захардкожено** в `deploy.yml` (см. ниже) — менять на `true` только при миграции на настоящий AWS S3.
+**Encryption:** R2 encrypts all data at-rest **by default** — the SSE-S3 header (`ServerSideEncryption: AES256`) is NOT needed and R2 **rejects** it (it does not implement the SSE-S3 protocol). That is why `S3_USE_SSE=false` both in dev (RustFS) and in prod (R2). The prod value is **hardcoded** in `deploy.yml` (see below) — change it to `true` only when migrating to real AWS S3.
 
-## Локальная разработка
+## Local development
 
 ```bash
-# Поднять RustFS рядом с postgres/redis
+# Bring up RustFS alongside postgres/redis
 docker-compose up -d s3
 
-# Bucket `crm-documents` создаётся автоматически one-shot init контейнером `s3-bootstrap`
+# The `crm-documents` bucket is created automatically by the one-shot init container `s3-bootstrap`
 docker-compose logs s3-bootstrap
 
 # Web console
 open http://localhost:9001
-# Логин: crmdevaccesskey / crmdevsecretkey
+# Login: crmdevaccesskey / crmdevsecretkey
 ```
 
-Чек, что всё работает:
+Check that everything works:
 
 ```bash
 curl -f http://localhost:9000/health   # → 200
 ```
 
-API использует RustFS через стандартный AWS SDK с `S3_ENDPOINT=http://localhost:9000` и `S3_FORCE_PATH_STYLE=true` (path-style URLs, не virtual-hosted).
+The API uses RustFS through the standard AWS SDK with `S3_ENDPOINT=http://localhost:9000` and `S3_FORCE_PATH_STYLE=true` (path-style URLs, not virtual-hosted).
 
 ## Production setup (Cloudflare R2)
 
-R2 — это S3-совместимое объектное хранилище Cloudflare. Главные отличия от AWS S3: **нет egress-платы**, доступ через **R2 API tokens** (не IAM), шифрование at-rest **встроено** (нет шага SSE), бакеты **приватные по умолчанию**.
+R2 is Cloudflare's S3-compatible object storage. The main differences from AWS S3: **no egress fee**, access via **R2 API tokens** (not IAM), at-rest encryption is **built in** (no SSE step), buckets are **private by default**.
 
-### 1. Создать bucket
+### 1. Create the bucket
 
-Через дашборд (Cloudflare → R2 → Create bucket, имя `crm-documents-prod`, location-hint EU) **или** Wrangler:
+Via the dashboard (Cloudflare → R2 → Create bucket, name `crm-documents-prod`, location-hint EU) **or** Wrangler:
 
 ```bash
 npx wrangler r2 bucket create crm-documents-prod
 ```
 
-> Account ID — в Cloudflare dashboard (R2 → правый сайдбар «Account details»). Он же в S3-endpoint: `https://<account_id>.r2.cloudflarestorage.com`.
+> The Account ID is in the Cloudflare dashboard (R2 → right sidebar "Account details"). It is also in the S3 endpoint: `https://<account_id>.r2.cloudflarestorage.com`.
 
-### 2. Создать R2 API token (S3-совместимые creds)
+### 2. Create an R2 API token (S3-compatible creds)
 
 Cloudflare → R2 → **Manage R2 API Tokens** → Create API token:
 
-- **Permission:** Object Read & Write (можно ограничить конкретным бакетом `crm-documents-prod`).
-- На выходе — **Access Key ID** + **Secret Access Key** (это и есть S3-creds; кладём в `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` секреты, см. ниже — имена env унаследованы от AWS SDK, но указывают на R2-токен).
+- **Permission:** Object Read & Write (can be restricted to the specific bucket `crm-documents-prod`).
+- The output is an **Access Key ID** + **Secret Access Key** (these are the S3 creds; put them into the `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` secrets, see below — the env names are inherited from the AWS SDK, but point to the R2 token).
 
-### 3. Шифрование — ничего не делать
+### 3. Encryption — do nothing
 
-R2 шифрует данные at-rest автоматически (AES-256, managed Cloudflare). Шага `put-bucket-encryption` нет; заголовок SSE-S3 не отправляется (`S3_USE_SSE=false`).
+R2 encrypts data at-rest automatically (AES-256, managed by Cloudflare). There is no `put-bucket-encryption` step; the SSE-S3 header is not sent (`S3_USE_SSE=false`).
 
-### 4. Публичный доступ — оставить закрытым
+### 4. Public access — keep it closed
 
-R2-бакеты приватны по умолчанию (нет публичного `r2.dev`/custom-domain — и не включаем). Скачивание у клиента — только через **pre-signed URL** (TTL 24h / 30 мин для sensitive, генерируется API).
+R2 buckets are private by default (no public `r2.dev`/custom-domain — and we do not enable it). Client-side download is only via a **pre-signed URL** (TTL 24h / 30 min for sensitive, generated by the API).
 
-### 5. CORS для presigned URL downloads
+### 5. CORS for presigned URL downloads
 
-Браузер качает файлы по presigned URL → нужен CORS на бакете. Через дашборд (R2 → bucket → Settings → CORS policy) **или** S3 API:
+The browser downloads files via a presigned URL → CORS is needed on the bucket. Via the dashboard (R2 → bucket → Settings → CORS policy) **or** the S3 API:
 
 ```bash
 aws s3api put-bucket-cors \
@@ -84,89 +84,89 @@ aws s3api put-bucket-cors \
 
 ## GHA Secrets
 
-Добавить в `Settings → Secrets and variables → Actions` (Repository secrets). Деплой (`deploy.yml`) маппит их в `/opt/crm/.env.production`:
+Add to `Settings → Secrets and variables → Actions` (Repository secrets). The deploy (`deploy.yml`) maps them into `/opt/crm/.env.production`:
 
-| Secret                  | Значение (R2)                                   |
+| Secret                  | Value (R2)                                      |
 | ----------------------- | ----------------------------------------------- |
 | `S3_ENDPOINT`           | `https://<account_id>.r2.cloudflarestorage.com` |
 | `S3_REGION`             | `auto`                                          |
-| `S3_FORCE_PATH_STYLE`   | `false` (R2 поддерживает virtual-hosted style)  |
+| `S3_FORCE_PATH_STYLE`   | `false` (R2 supports virtual-hosted style)      |
 | `S3_BUCKET`             | `crm-documents-prod`                            |
 | `AWS_ACCESS_KEY_ID`     | R2 API token **Access Key ID**                  |
 | `AWS_SECRET_ACCESS_KEY` | R2 API token **Secret Access Key**              |
 
-> `S3_USE_SSE` в секретах **не нужен** — `deploy.yml` хардкодит `S3_USE_SSE=false` (R2 не принимает SSE-S3 заголовок). **Dev secrets НЕ нужны** — в CI прописаны dummy creds (`crmdevaccesskey`/`crmdevsecretkey`) с RustFS-сервисом рядом с postgres/redis.
+> `S3_USE_SSE` is **not needed** in the secrets — `deploy.yml` hardcodes `S3_USE_SSE=false` (R2 does not accept the SSE-S3 header). **Dev secrets are NOT needed** — CI has dummy creds (`crmdevaccesskey`/`crmdevsecretkey`) with the RustFS service alongside postgres/redis.
 
 ## ⚠️ Production env vars (CRITICAL)
 
-Dev/CI defaults в `apps/api/src/config/env.ts`:
+Dev/CI defaults in `apps/api/src/config/env.ts`:
 
 - `AWS_ACCESS_KEY_ID=crmdevaccesskey`
 - `AWS_SECRET_ACCESS_KEY=crmdevsecretkey`
 
-Эти defaults удобны локально, но в production **ОБЯЗАТЕЛЬНО** переопределить настоящими R2-token creds (через GHA secrets выше). Иначе API падает при старте с явной ошибкой:
+These defaults are convenient locally, but in production you **MUST** override them with real R2-token creds (via the GHA secrets above). Otherwise the API fails at startup with an explicit error:
 
 ```
 AWS_ACCESS_KEY_ID must be overridden in production (the crmdevaccesskey value is the dev/CI default)
 ```
 
-Защиту даёт `refine()` в `envSchema`: при `NODE_ENV=production` значения `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` не должны равняться текущему dev/CI-дефолту — иначе fail-fast. Тот же guard дополнительно ловит устаревшее значение `minioadmin` (осталось от эпохи до RustFS, до PR #709) — на случай, если где-то ещё жив старый `.env`.
+The protection comes from `refine()` in `envSchema`: when `NODE_ENV=production`, the values of `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` must not equal the current dev/CI default — otherwise fail-fast. The same guard additionally catches the stale `minioadmin` value (left over from the pre-RustFS era, before PR #709) — in case an old `.env` is still alive somewhere.
 
-`deploy.yml` пишет в `/opt/crm/.env.production` (фрагмент):
+`deploy.yml` writes to `/opt/crm/.env.production` (fragment):
 
 ```bash
-S3_ENDPOINT=<из secrets>
-S3_FORCE_PATH_STYLE=<из secrets, false для R2>
-S3_REGION=<из secrets, auto>
-S3_BUCKET=<из secrets, crm-documents-prod>
-S3_USE_SSE=false        # хардкод — R2 отвергает SSE-S3 заголовок
-AWS_ACCESS_KEY_ID=<из secrets, R2 token>
-AWS_SECRET_ACCESS_KEY=<из secrets, R2 token>
+S3_ENDPOINT=<from secrets>
+S3_FORCE_PATH_STYLE=<from secrets, false for R2>
+S3_REGION=<from secrets, auto>
+S3_BUCKET=<from secrets, crm-documents-prod>
+S3_USE_SSE=false        # hardcoded — R2 rejects the SSE-S3 header
+AWS_ACCESS_KEY_ID=<from secrets, R2 token>
+AWS_SECRET_ACCESS_KEY=<from secrets, R2 token>
 ```
 
 ## Storage classes / lifecycle (FUTURE)
 
-R2 поддерживает Standard + Infrequent Access classes и lifecycle-правила (дашборд → bucket → Settings → Object lifecycle rules) для авто-перевода старых объектов в IA. Сейчас НЕ настраиваем (объём мал). У R2 **нет Glacier** и **нет egress-платы**, так что cost-pressure минимальный — включать IA только когда storage реально вырастет (например RECEIPT/SCAN старше года). AVATAR/LOGO — всегда Standard (instant access).
+R2 supports Standard + Infrequent Access classes and lifecycle rules (dashboard → bucket → Settings → Object lifecycle rules) for auto-moving old objects to IA. We do NOT configure this now (the volume is small). R2 has **no Glacier** and **no egress fee**, so cost-pressure is minimal — enable IA only when storage actually grows (for example RECEIPT/SCAN older than a year). AVATAR/LOGO — always Standard (instant access).
 
 ## Cost monitoring
 
 ### R2 free tier / pricing
 
-- **10 GB-month** storage бесплатно, далее ~$0.015/GB-month.
-- **Class A** (write/list) 1M operations/month бесплатно, далее $4.50/M.
-- **Class B** (read) 10M operations/month бесплатно, далее $0.36/M.
-- **Egress: $0** (главное преимущество R2 vs S3 — нет платы за исходящий трафик).
+- **10 GB-month** storage free, then ~$0.015/GB-month.
+- **Class A** (write/list) 1M operations/month free, then $4.50/M.
+- **Class B** (read) 10M operations/month free, then $0.36/M.
+- **Egress: $0** (the main advantage of R2 vs S3 — no charge for outbound traffic).
 
-Текущий проект (~11 users × ~50 docs/day через presigned URL + immutable Cache-Control) укладывается в free tier с огромным запасом (~16 500 read-ops/month ≪ 10M).
+The current project (~11 users × ~50 docs/day via presigned URL + immutable Cache-Control) fits into the free tier with a huge margin (~16,500 read-ops/month ≪ 10M).
 
 ### Billing alert
 
-Cloudflare → Billing → **Notifications** → создать budget-alert на R2 spend (например $5/month). У R2 нет AWS-Budgets-CLI; настраивается в дашборде.
+Cloudflare → Billing → **Notifications** → create a budget alert on R2 spend (for example $5/month). R2 has no AWS-Budgets-CLI; it is configured in the dashboard.
 
 ## Troubleshooting
 
 ### `NoSuchBucket: The specified bucket does not exist`
 
-**Dev:** `docker-compose logs s3-bootstrap` — bootstrap не отработал. Решение: `docker-compose down -v && docker-compose up -d` (rebuild volume).
-**Prod:** проверить `S3_BUCKET` совпадает с реальным именем бакета в R2 (`npx wrangler r2 bucket list`); `S3_ENDPOINT` содержит правильный account_id.
+**Dev:** `docker-compose logs s3-bootstrap` — the bootstrap did not run. Fix: `docker-compose down -v && docker-compose up -d` (rebuild volume).
+**Prod:** check that `S3_BUCKET` matches the real bucket name in R2 (`npx wrangler r2 bucket list`); that `S3_ENDPOINT` contains the correct account_id.
 
 ### `AccessDenied` / `Access Denied`
 
-- R2 API token не покрывает action (нужен Object Read & Write) или ограничен другим бакетом → пересоздать токен с нужными правами.
-- Wrong creds в env (особенно `AWS_SECRET_ACCESS_KEY` с лишним пробелом из copy-paste).
+- The R2 API token does not cover the action (needs Object Read & Write) or is restricted to another bucket → recreate the token with the needed rights.
+- Wrong creds in env (especially `AWS_SECRET_ACCESS_KEY` with an extra space from copy-paste).
 
-### `CORS error` при download через presigned URL
+### `CORS error` on download via presigned URL
 
-Браузер блокирует cross-origin GET. Проверить CORS-политику бакета (R2 dashboard → bucket → Settings → CORS, или `aws s3api get-bucket-cors --endpoint-url <r2-endpoint> --bucket crm-documents-prod`). `AllowedOrigins` должен содержать домен фронтенда (`https://app.cheekycheese.tech`). На dev RustFS CORS открыт под `http://localhost:3000` (см. `RUSTFS_CORS_ALLOWED_ORIGINS` в `docker-compose.yml`).
+The browser blocks the cross-origin GET. Check the bucket's CORS policy (R2 dashboard → bucket → Settings → CORS, or `aws s3api get-bucket-cors --endpoint-url <r2-endpoint> --bucket crm-documents-prod`). `AllowedOrigins` must contain the frontend domain (`https://app.cheekycheese.tech`). On dev RustFS, CORS is open for `http://localhost:3000` (see `RUSTFS_CORS_ALLOWED_ORIGINS` in `docker-compose.yml`).
 
-### `NotImplemented` на PutObject (SSE)
+### `NotImplemented` on PutObject (SSE)
 
-R2 отвергает `ServerSideEncryption: AES256`. Убедиться, что `S3_USE_SSE=false` в проде (захардкожено в `deploy.yml`; в `apps/api/src/documents/s3.service.ts` заголовок отправляется только при `useSse=true`).
+R2 rejects `ServerSideEncryption: AES256`. Make sure `S3_USE_SSE=false` in prod (hardcoded in `deploy.yml`; in `apps/api/src/documents/s3.service.ts` the header is sent only when `useSse=true`).
 
 ### `SignatureDoesNotMatch` / clock skew
 
-Часы сервера разошлись > 15 мин. Dev (Docker): сверить `date` в контейнере vs хост. Prod (VPS): убедиться, что `chrony`/`systemd-timesyncd` работает (NTP-синхронизация).
+The server clock drifted > 15 min. Dev (Docker): compare `date` in the container vs the host. Prod (VPS): make sure `chrony`/`systemd-timesyncd` is running (NTP sync).
 
-### Web console (http://localhost:9001) не открывается
+### Web console (http://localhost:9001) does not open
 
-`docker-compose ps s3` → не `healthy`. Проверить `docker-compose logs s3` — обычно volume permissions issue на macOS (Docker Desktop ↔ APFS). Решение: `docker-compose down -v && docker-compose up -d s3`.
+`docker-compose ps s3` → not `healthy`. Check `docker-compose logs s3` — usually a volume permissions issue on macOS (Docker Desktop ↔ APFS). Fix: `docker-compose down -v && docker-compose up -d s3`.
