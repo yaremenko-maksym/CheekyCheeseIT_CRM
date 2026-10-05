@@ -1,195 +1,195 @@
-# ADR 2026-07-14 — In-place transition обязательства «Ожидаемая выплата дропу/синьору» PENDING_PAYMENT → PAID
+# ADR 2026-07-14 — In-place transition of the "Expected payout to drop/senior" obligation PENDING_PAYMENT → PAID
 
 ## Status
 
-**Proposed** (реализация — ПОСЛЕ merge PR #374; см. §Конфликт-окно). Требует user-approval перед стартом.
+**Proposed** (implementation — AFTER the merge of PR #374; see §Conflict window). Requires user approval before start.
 
 ---
 
 ## Context
 
-### Симптом (репорт владельца с прода)
+### Symptom (owner's report from prod)
 
-Закрытие обязательства «Ожидаемая выплата дропу» / «Доля синьора» (кнопка «Выплатить» на
-`SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` строке) **создаёт вторую транзакцию** вместо смены
-статуса первой. Исходная IOU-строка при этом **навсегда висит** в статусе `PENDING_PAYMENT`
-(«Ожидает выплаты»), а рядом появляется отдельная `SENIOR_INCOME` / `PAYOUT_DROP` (PAID).
+Closing the "Expected payout to the drop" / "Senior's share" obligation (the "Pay out" button on a
+`SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` row) **creates a second transaction** instead of changing the
+status of the first. The original IOU-row meanwhile **hangs forever** in the status `PENDING_PAYMENT`
+("Awaiting payout"), and a separate `SENIOR_INCOME` / `PAYOUT_DROP` (PAID) appears next to it.
 
-Требование владельца: обязательство **не должно пропадать** и **не должно порождать вторую
-транзакцию** — оно должно менять статус `PENDING_PAYMENT → PAID` **в месте (in-place)**.
+The owner's requirement: the obligation **must not disappear** and **must not spawn a second
+transaction** — it should change the status `PENDING_PAYMENT → PAID` **in place (in-place)**.
 
-### Как устроено сейчас (проверено по коду)
+### How it works now (verified by the code)
 
-**Booking обязательства** — `TransactionsService.bookCompanyObligations`
-(`apps/api/src/finance/transactions.service.ts:2702`). Вызывается из ДВУХ мест:
+**Booking of the obligation** — `TransactionsService.bookCompanyObligations`
+(`apps/api/src/finance/transactions.service.ts:2702`). Called from TWO places:
 
-1. `declareUsdtProjectIncome` (`:1199`) — ADMIN декларирует USDT-приход → `ADMIN_INCOME`(PAID) +
-   senior IOU (`SENIOR_PENDING_PAYOUT`) + drop IOU (`DROP_PENDING_PAYOUT`).
-2. `applyPayoutPaidCascade`, drop-ветка (`:3115`) — оплата drop-payout → прямой `PAYOUT_DROP`
-   (доля дропа) + senior IOU (`SENIOR_PENDING_PAYOUT`); drop-IOU здесь НЕ создаётся (`drop:null`).
+1. `declareUsdtProjectIncome` (`:1199`) — ADMIN declares a USDT income → `ADMIN_INCOME`(PAID) +
+   a senior IOU (`SENIOR_PENDING_PAYOUT`) + a drop IOU (`DROP_PENDING_PAYOUT`).
+2. `applyPayoutPaidCascade`, the drop branch (`:3115`) — a drop-payout payment → a direct `PAYOUT_DROP`
+   (the drop's share) + a senior IOU (`SENIOR_PENDING_PAYOUT`); a drop IOU is NOT created here (`drop:null`).
 
-Каждый IOU: `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}`, `status=PENDING_PAYMENT`,
-`currency=USDT`, `senderLabel='COMPANY'`, `receiverId=creditor`, `fundingSource=null`, плюс строка
-`pending_obligations` (`debtorType='COMPANY'`, `sourceTransactionId → IOU tx`, `status='PENDING'`).
+Each IOU: `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}`, `status=PENDING_PAYMENT`,
+`currency=USDT`, `senderLabel='COMPANY'`, `receiverId=creditor`, `fundingSource=null`, plus a row
+`pending_obligations` (`debtorType='COMPANY'`, `sourceTransactionId → the IOU tx`, `status='PENDING'`).
 
 **Settle** — `PendingSettlementService.settleByCompany`
 (`apps/api/src/finance/pending-settlement.service.ts:246`):
 
-1. **Conditional UPDATE** `pending_obligations` `PENDING → PAID` `WHERE status='PENDING'` `.returning()`
-   — атомарный TOCTOU-guard от двойного клика (единственный источник истины против гонки; резерва
-   в виде unique-index на этом переходе нет). **← инвариант, ломать нельзя.**
-2. Если company-funded + COMPANY-долг: `pg_advisory_xact_lock` + re-read баланса + отказ уводить счёт
-   в минус. **← инвариант.**
-3. **INSERT новой транзакции**: `type = isDropObligation ? 'PAYOUT_DROP' : 'SENIOR_INCOME'`,
-   `status=PAID`, `fundingSource = COMPANY_ACCOUNT`-маркер (если company-funded), sender/currency по
-   выбору funding. **← это и есть «вторая строка».**
-4. Backfill `pending_obligations.closingTransactionId → <id новой строки>`.
-5. Post-commit (вне транзакции): `autoCreateForSeniorPayout(<SENIOR_INCOME id>)`.
+1. A **conditional UPDATE** `pending_obligations` `PENDING → PAID` `WHERE status='PENDING'` `.returning()`
+   — an atomic TOCTOU guard against a double click (the single source of truth against the race; there is no
+   reserve in the form of a unique index on this transition). **← an invariant, must not break.**
+2. If company-funded + a COMPANY debt: `pg_advisory_xact_lock` + a re-read of the balance + a refusal to drive the account
+   negative. **← an invariant.**
+3. **An INSERT of a new transaction**: `type = isDropObligation ? 'PAYOUT_DROP' : 'SENIOR_INCOME'`,
+   `status=PAID`, `fundingSource = COMPANY_ACCOUNT` marker (if company-funded), sender/currency by
+   the funding choice. **← this is the "second row".**
+4. Backfill `pending_obligations.closingTransactionId → <the id of the new row>`.
+5. Post-commit (outside the transaction): `autoCreateForSeniorPayout(<SENIOR_INCOME id>)`.
 
-Исходная `*_PENDING_PAYOUT` строка **не трогается** → фантом «Ожидает выплаты».
+The original `*_PENDING_PAYOUT` row is **not touched** → the "Awaiting payout" phantom.
 
-### Silo-потребители созданной строки (что именно надо не сломать)
+### Silo consumers of the created row (what exactly must not be broken)
 
-| #   | Потребитель                       | Файл                                                                | На что завязан сегодня                                                                                                                                                                                                                                    |
-| --- | --------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Леджер счёта компании             | `company-account-balance.ts:117`                                    | debit-термы `SENIOR_INCOME(PAID, fundingSource=COMPANY_ACCOUNT, USDT)` и `PAYOUT_DROP(PAID, COMPANY_ACCOUNT, USDT)`                                                                                                                                       |
-| 2   | Баланс дропа                      | `computeDropAggregate` (`transactions.service.ts:561`)              | `received = Σ PAYOUT_DROP(PAID, receiverId=drop)`; `sent = Σ PAYOUT_DROP(PAID, senderId=drop)`. C6: senderId≠drop → не double-count                                                                                                                       |
-| 3   | Инвойс синьору                    | `autoCreateForSeniorPayout` (`invoices.service.ts:142`)             | гейт `tx.type === 'SENIOR_INCOME'`                                                                                                                                                                                                                        |
-| 4   | C4 totalIncome                    | `getSummary` (`transactions.service.ts:3315-3342`, monthly `:3463`) | `settlementTxIds = Set(pending_obligations.closingTransactionId)`; `SENIOR_INCOME` учитывается в доход **только если** `!settlementTxIds.has(id)`                                                                                                         |
-| 5   | ADMIN_PERSONAL vs COMPANY_ACCOUNT | settle §3                                                           | COMPANY: `senderId=null`, `senderLabel='COMPANY'`, `currency=USDT`, marker=`COMPANY_ACCOUNT`. ADMIN_PERSONAL: `senderId=admin`, `senderLabel=admin.displayName`, `currency∈{USD,USDT}`, marker=`null` (списание ловится `adminBalances.sent` по senderId) |
+| #   | Consumer                          | File                                                                | What it depends on today                                                                                                                                                                                                                                        |
+| --- | --------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | The company-account ledger        | `company-account-balance.ts:117`                                    | debit terms `SENIOR_INCOME(PAID, fundingSource=COMPANY_ACCOUNT, USDT)` and `PAYOUT_DROP(PAID, COMPANY_ACCOUNT, USDT)`                                                                                                                                           |
+| 2   | The drop's balance                | `computeDropAggregate` (`transactions.service.ts:561`)              | `received = Σ PAYOUT_DROP(PAID, receiverId=drop)`; `sent = Σ PAYOUT_DROP(PAID, senderId=drop)`. C6: senderId≠drop → no double-count                                                                                                                             |
+| 3   | The invoice to the senior         | `autoCreateForSeniorPayout` (`invoices.service.ts:142`)             | the gate `tx.type === 'SENIOR_INCOME'`                                                                                                                                                                                                                          |
+| 4   | C4 totalIncome                    | `getSummary` (`transactions.service.ts:3315-3342`, monthly `:3463`) | `settlementTxIds = Set(pending_obligations.closingTransactionId)`; `SENIOR_INCOME` is counted in income **only if** `!settlementTxIds.has(id)`                                                                                                                  |
+| 5   | ADMIN_PERSONAL vs COMPANY_ACCOUNT | settle §3                                                           | COMPANY: `senderId=null`, `senderLabel='COMPANY'`, `currency=USDT`, marker=`COMPANY_ACCOUNT`. ADMIN_PERSONAL: `senderId=admin`, `senderLabel=admin.displayName`, `currency∈{USD,USDT}`, marker=`null` (the debit is caught by `adminBalances.sent` by senderId) |
 
-**Ключевое наблюдение.** Все пять потребителей ключуются на **финальную форму** строки —
-`(type=SENIOR_INCOME/PAYOUT_DROP) AND (status=PAID) AND (funding-маркеры)`. IOU-тип
-(`*_PENDING_PAYOUT`) не участвует ни в одном money-терме: ни в леджере, ни в drop-агрегате, ни в
-income-фильтре C4. Поэтому если **переименовать сам IOU-row в финальный тип при флипе**, вся
-цепочка потребителей продолжает работать без единой правки.
+**Key observation.** All five consumers key on the **final form** of the row —
+`(type=SENIOR_INCOME/PAYOUT_DROP) AND (status=PAID) AND (funding markers)`. The IOU type
+(`*_PENDING_PAYOUT`) does not participate in any money term: not in the ledger, not in the drop aggregate, not in the
+income filter C4. Therefore if we **rename the IOU-row itself to the final type on the flip**, the entire
+chain of consumers keeps working without a single edit.
 
-### Схема / инварианты БД (проверено)
+### DB schema / invariants (verified)
 
 - `pending_obligations.sourceTransactionId` → `transactions.id`, **`onDelete: 'restrict'`**
-  (нельзя удалить IOU-строку, пока на неё ссылается obligation).
+  (cannot delete the IOU-row while an obligation references it).
 - `pending_obligations.closingTransactionId` → `transactions.id`, `onDelete: 'set null'`.
-- `uq_pending_obligations_source_pending` — partial-unique на `sourceTransactionId` `WHERE status='PENDING'`
-  (одно PENDING-обязательство на исходную транзакцию; PAID/CANCELLED не затрагиваются).
-- `transaction_type` — pgEnum без CHECK-ограничений на переходы: `UPDATE ... SET type=...` разрешён.
+- `uq_pending_obligations_source_pending` — a partial-unique on `sourceTransactionId` `WHERE status='PENDING'`
+  (one PENDING obligation per source transaction; PAID/CANCELLED are not affected).
+- `transaction_type` — a pgEnum without CHECK constraints on transitions: `UPDATE ... SET type=...` is allowed.
 
 ---
 
 ## Decision
 
-### Рекомендуемая модель: **сменить `type` при флипе** (Option A), НЕ «type ∈ pending-set AND status=PAID» (Option B)
+### Recommended model: **change `type` on the flip** (Option A), NOT "type ∈ pending-set AND status=PAID" (Option B)
 
-`settleByCompany` вместо `INSERT` новой строки делает **`UPDATE` той же IOU-транзакции**
+`settleByCompany` instead of an `INSERT` of a new row does an **`UPDATE` of the same IOU transaction**
 (`sourceTransactionId`):
 
 - `SENIOR_PENDING_PAYOUT → type='SENIOR_INCOME'`, `DROP_PENDING_PAYOUT → type='PAYOUT_DROP'`;
 - `status: PENDING_PAYMENT → PAID`;
-- стемпит funding-поля ровно как сегодня штампует «вторую строку»: `fundingSource` (маркер или null),
-  `senderId`, `senderLabel`, `currency`, для senior — `validatedBy/validatedAt`;
-- `closingTransactionId := sourceTransactionId` (self-reference — та же строка и есть «закрывающая»);
-- **`payoutRequestId := null`** (сброс — см. ниже, критично);
-- сохраняем существующий порядок: `resolveSource(...)` (чтение `sourceType`-дискриминатора) —
-  ДО транзакции; TOCTOU-claim на `pending_obligations` — первым в транзакции; флип IOU-строки — после
-  выигрыша claim.
+- stamps the funding fields exactly as it stamps the "second row" today: `fundingSource` (marker or null),
+  `senderId`, `senderLabel`, `currency`, for the senior — `validatedBy/validatedAt`;
+- `closingTransactionId := sourceTransactionId` (self-reference — the same row is the "closing" one);
+- **`payoutRequestId := null`** (reset — see below, critical);
+- we preserve the existing order: `resolveSource(...)` (reading the `sourceType` discriminator) —
+  BEFORE the transaction; the TOCTOU claim on `pending_obligations` — first in the transaction; the flip of the IOU-row — after
+  winning the claim.
 
-**Confidence: HIGH.** Флипнутая строка становится **байт-в-байт эквивалентна** сегодняшней «второй
-строке» (тот же `type` + `status` + funding-маркеры), отличаясь лишь тем, что переиспользует id
-исходного IOU, а не аллоцирует новый. Поэтому §1-§5 потребителей не требуют правок.
+**Confidence: HIGH.** The flipped row becomes **byte-for-byte equivalent** to today's "second
+row" (the same `type` + `status` + funding markers), differing only in that it reuses the id
+of the original IOU rather than allocating a new one. Therefore consumers §1-§5 do not require edits.
 
-#### Почему НЕ Option B (оставить `*_PENDING_PAYOUT`, завязать всё на `type ∈ pending-set AND status=PAID`)
+#### Why NOT Option B (keep `*_PENDING_PAYOUT`, tie everything to `type ∈ pending-set AND status=PAID`)
 
-| Критерий                                        | Option A (сменить type)                     | Option B (оставить type + дуальный предикат)                          |
-| ----------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------------- |
-| Правки в леджере (`company-account-balance.ts`) | **0** (термы уже совпадают)                 | +2 новых терма `*_PENDING_PAYOUT(PAID,COMPANY_ACCOUNT)`               |
-| Правки в `computeDropAggregate`                 | **0**                                       | +credit-терм `DROP_PENDING_PAYOUT(PAID,receiverId=drop)`              |
-| Правки в `autoCreateForSeniorPayout`            | **0**                                       | расширить гейт на `SENIOR_PENDING_PAYOUT AND PAID`                    |
-| Blast-radius (finance money-surface)            | 1 метод                                     | 3+ файла, новый инвариант «дуальный предикат везде консистентен»      |
-| Рендер строки в UI                              | `Приход синьора / Оплачено` (= как сегодня) | `Ожидаемая выплата синьору / Оплачено` (странная пара, нужен relabel) |
-| Риск ledger-drift от забытого потребителя       | низкий                                      | высокий (легко пропустить один silo → расхождение денег)              |
+| Criterion                                          | Option A (change the type)          | Option B (keep the type + a dual predicate)                              |
+| -------------------------------------------------- | ----------------------------------- | ------------------------------------------------------------------------ |
+| Edits in the ledger (`company-account-balance.ts`) | **0** (the terms already match)     | +2 new terms `*_PENDING_PAYOUT(PAID,COMPANY_ACCOUNT)`                    |
+| Edits in `computeDropAggregate`                    | **0**                               | +a credit term `DROP_PENDING_PAYOUT(PAID,receiverId=drop)`               |
+| Edits in `autoCreateForSeniorPayout`               | **0**                               | extend the gate to `SENIOR_PENDING_PAYOUT AND PAID`                      |
+| Blast-radius (finance money-surface)               | 1 method                            | 3+ files, a new invariant "the dual predicate is consistent everywhere"  |
+| Render of the row in the UI                        | `Senior income / Paid` (= as today) | `Expected payout to senior / Paid` (a strange pair, a relabel is needed) |
+| Risk of a ledger-drift from a forgotten consumer   | low                                 | high (easy to miss one silo → a money discrepancy)                       |
 
-Option A побеждает по всем осям: минимальный blast-radius на финансовой поверхности, ноль нового
-дублирующего инварианта, флипнутая строка визуально и семантически совпадает с сегодняшней
-settle-строкой. Battle-tested инварианты (леджер-термы, C6, invoice-гейт, C4-дискриминатор)
-остаются нетронутыми. **Рекомендация: Option A.**
+Option A wins on all axes: the minimal blast-radius on the financial surface, zero new
+duplicating invariant, the flipped row visually and semantically matches today's
+settle-row. The battle-tested invariants (ledger terms, C6, the invoice gate, the C4 discriminator)
+remain untouched. **Recommendation: Option A.**
 
-#### Критично: сброс `payoutRequestId := null` при флипе (Confidence: HIGH)
+#### Critical: reset `payoutRequestId := null` on the flip (Confidence: HIGH)
 
-IOU из cascade-ветки (`:3115`) несёт `payoutRequestId = requestId`. Если не сбросить, флипнутая
-`SENIOR_INCOME` останется с этим `payoutRequestId` и:
+The IOU from the cascade branch (`:3115`) carries `payoutRequestId = requestId`. If not reset, the flipped
+`SENIOR_INCOME` will keep this `payoutRequestId` and:
 
-- попадёт в выборку `autoCreateForPayout` (агрегация `SENIOR_INCOME/DROP_INCOME` по `payoutRequestId`);
-- будет матчиться `findOne`-enrichment (`transactions.service.ts:938` — `SENIOR_INCOME AND payoutRequestId=X`
-  для проброса `seniorSharePercent` в карточку PAYOUT).
+- will get into the `autoCreateForPayout` selection (aggregation of `SENIOR_INCOME/DROP_INCOME` by `payoutRequestId`);
+- will match the `findOne` enrichment (`transactions.service.ts:938` — `SENIOR_INCOME AND payoutRequestId=X`
+  for passing `seniorSharePercent` into the PAYOUT card).
 
-Сегодняшняя settle-`SENIOR_INCOME` имеет `payoutRequestId=null` (settleByCompany его не ставит).
-Сброс сохраняет байт-идентичность и исключает bleed в income-агрегацию/enrichment. Audit-связь не
-теряется: `pending_obligations.sourceTransactionId`/`closingTransactionId` + `notes` («Выплата
-senior IOU (obligation X)») + `projectId` остаются.
+Today's settle `SENIOR_INCOME` has `payoutRequestId=null` (settleByCompany does not set it).
+The reset preserves the byte-identity and excludes a bleed into the income aggregation/enrichment. The audit link is not
+lost: `pending_obligations.sourceTransactionId`/`closingTransactionId` + `notes` ("Payout of the
+senior IOU (obligation X)") + `projectId` remain.
 
-#### Осознанная косметическая дельта (не money)
+#### A deliberate cosmetic delta (not money)
 
-Флипнутая строка **сохраняет** `seniorSharePercent`/`dropSharePercent`(+`...Source`) с IOU (сегодняшняя
-settle-строка их не несёт). Money-потребителей у этих снапшотов на settle-строке нет
-(`computeDropDistribution` читает долю с `DROP_INCOME`, не с settle-строки; enrichment отсечён сбросом
-`payoutRequestId`). Эффект — только бейдж «Доля: X%». Рекомендация: **сохранить** (данные корректны);
-задокументировать как намеренную дельту. Допустимо и обнулить — на выбор Coder'а, обосновать в PR.
+The flipped row **preserves** `seniorSharePercent`/`dropSharePercent`(+`...Source`) from the IOU (today's
+settle-row does not carry them). There are no money consumers of these snapshots on the settle-row
+(`computeDropDistribution` reads the share from `DROP_INCOME`, not from the settle-row; the enrichment is cut off by the reset of
+`payoutRequestId`). The effect — only a "Share: X%" badge. Recommendation: **preserve** (the data is correct);
+document it as an intentional delta. Zeroing it is also acceptable — the Coder's choice, justify in the PR.
 
-### Ответы по каждому потребителю (Option A)
+### Answers per consumer (Option A)
 
-| #   | Потребитель                              | Как меняется при Option A                                                                                                                                                                                                                                                                                                                                        |
-| --- | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Леджер**                               | **Без изменений.** Флипнутая строка — `SENIOR_INCOME`/`PAYOUT_DROP` с `fundingSource=COMPANY_ACCOUNT`,`currency=USDT` → её ловят СУЩЕСТВУЮЩИЕ термы `companySeniorPayouts`/`companyDropPayouts`. Credit-сторона (income `ADMIN_INCOME`/`PAYOUT` COMPANY_ACCOUNT) не трогается → netting идентичен. Новый терм НЕ нужен.                                          |
-| 2   | **Баланс дропа**                         | **Без изменений.** Флип `DROP_PENDING_PAYOUT → PAYOUT_DROP` (receiverId=drop) → кредитуется `received`. C6 цел: COMPANY-funded `senderId=null`; ADMIN_PERSONAL `senderId=admin` — оба ≠ drop → не считаются `sent`. До флипа `DROP_PENDING_PAYOUT` невидим агрегату (все термы требуют `PAYOUT_DROP`) → нет double-count.                                        |
-| 3   | **Инвойс синьору**                       | **Без изменений в invoice-сервисе.** Флипнутая строка имеет `type='SENIOR_INCOME'` → `autoCreateForSeniorPayout(<её id>)` проходит гейт. Триггерим по id флипнутой строки (= sourceTransactionId). Drop-флип (`PAYOUT_DROP`) инвойс не триггерит (Q6, как сегодня).                                                                                              |
-| 4   | **C4 totalIncome**                       | **Без изменений в getSummary.** `closingTransactionId := sourceTransactionId` → id флипнутой `SENIOR_INCOME` ∈ `settlementTxIds` → исключён из `totalIncome` и месячной серии (её gross уже учтён как `DROP_INCOME`/`ADMIN_INCOME`). `PAYOUT_DROP` в income-фильтр не входит вовсе.                                                                              |
-| 5   | **ADMIN_PERSONAL vs COMPANY_ACCOUNT**    | Флип штампует те же funding-поля, что сегодня «вторая строка». COMPANY_ACCOUNT → списание через леджер-терм. ADMIN_PERSONAL → `senderId=admin`, marker=null → списание ловится `adminBalances.sent` (senderId=admin) в getSummary — **как сегодня, байт-в-байт**. Валютный guard ADMIN_PERSONAL (только USD/USDT, BIZ-03) сохраняется.                           |
-| 6   | **Тип vs статус**                        | Рекомендация — **сменить `type`** (обоснование выше).                                                                                                                                                                                                                                                                                                            |
-| 7   | **closingTransactionId + оба источника** | `closingTransactionId := sourceTransactionId` (self). Фикс живёт в `settleByCompany`, а его вызывают ОБА источника IOU (declareUsdtProjectIncome `:1199` и applyPayoutPaidCascade `:3115`) через ту же `pending_obligations`-строку и тот же `settleByCompanySourceTransaction` → **автоматически покрыты оба**. `bookCompanyObligations` (booking) не меняется. |
-| 8   | **Миграция прод-данных**                 | Нужна (UX-cleanup существующих «завешенных» пар), НЕ money-critical (леджер уже корректен). См. §Data-fix.                                                                                                                                                                                                                                                       |
+| #   | Consumer                                | How it changes under Option A                                                                                                                                                                                                                                                                                                                                                        |
+| --- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1   | **The ledger**                          | **Unchanged.** The flipped row — `SENIOR_INCOME`/`PAYOUT_DROP` with `fundingSource=COMPANY_ACCOUNT`,`currency=USDT` → it is caught by the EXISTING terms `companySeniorPayouts`/`companyDropPayouts`. The credit side (income `ADMIN_INCOME`/`PAYOUT` COMPANY_ACCOUNT) is not touched → the netting is identical. A new term is NOT needed.                                          |
+| 2   | **The drop's balance**                  | **Unchanged.** The flip `DROP_PENDING_PAYOUT → PAYOUT_DROP` (receiverId=drop) → `received` is credited. C6 is intact: COMPANY-funded `senderId=null`; ADMIN_PERSONAL `senderId=admin` — both ≠ drop → not counted as `sent`. Before the flip `DROP_PENDING_PAYOUT` is invisible to the aggregate (all terms require `PAYOUT_DROP`) → no double-count.                                |
+| 3   | **The invoice to the senior**           | **Unchanged in the invoice service.** The flipped row has `type='SENIOR_INCOME'` → `autoCreateForSeniorPayout(<its id>)` passes the gate. We trigger by the id of the flipped row (= sourceTransactionId). The drop flip (`PAYOUT_DROP`) does not trigger an invoice (Q6, as today).                                                                                                 |
+| 4   | **C4 totalIncome**                      | **Unchanged in getSummary.** `closingTransactionId := sourceTransactionId` → the id of the flipped `SENIOR_INCOME` ∈ `settlementTxIds` → excluded from `totalIncome` and the monthly series (its gross is already counted as `DROP_INCOME`/`ADMIN_INCOME`). `PAYOUT_DROP` is not in the income filter at all.                                                                        |
+| 5   | **ADMIN_PERSONAL vs COMPANY_ACCOUNT**   | The flip stamps the same funding fields as the "second row" today. COMPANY_ACCOUNT → a debit via the ledger term. ADMIN_PERSONAL → `senderId=admin`, marker=null → the debit is caught by `adminBalances.sent` (senderId=admin) in getSummary — **as today, byte-for-byte**. The ADMIN_PERSONAL currency guard (only USD/USDT, BIZ-03) is preserved.                                 |
+| 6   | **Type vs status**                      | Recommendation — **change `type`** (rationale above).                                                                                                                                                                                                                                                                                                                                |
+| 7   | **closingTransactionId + both sources** | `closingTransactionId := sourceTransactionId` (self). The fix lives in `settleByCompany`, which is called by BOTH IOU sources (declareUsdtProjectIncome `:1199` and applyPayoutPaidCascade `:3115`) via the same `pending_obligations` row and the same `settleByCompanySourceTransaction` → **both are automatically covered**. `bookCompanyObligations` (booking) does not change. |
+| 8   | **Prod-data migration**                 | Needed (UX-cleanup of the existing "hung" pairs), NOT money-critical (the ledger is already correct). See §Data-fix.                                                                                                                                                                                                                                                                 |
 
-### TOCTOU / идемпотентность (не ломаем)
+### TOCTOU / idempotency (we do not break)
 
-- Единственный гейт гонки — conditional UPDATE `pending_obligations` `PENDING → PAID .returning()`.
-  Остаётся первым в транзакции; проигравший получает 0 строк → `throw` → rollback (флип IOU не
-  происходит). Двойной клик безопасен.
-- Флип IOU-строки идёт ПОСЛЕ выигрыша claim → выполняется ровно один раз. Defense-in-depth (опц.):
+- The only race gate — the conditional UPDATE `pending_obligations` `PENDING → PAID .returning()`.
+  It remains first in the transaction; the loser gets 0 rows → `throw` → rollback (the IOU flip does not
+  happen). A double click is safe.
+- The flip of the IOU-row goes AFTER winning the claim → it executes exactly once. Defense-in-depth (opt.):
   `UPDATE transactions ... WHERE id=sourceTx AND status='PENDING_PAYMENT'`.
-- Advisory-lock компании (`lockCompanyAccount`) + balance-gate — без изменений, только для
+- The company advisory-lock (`lockCompanyAccount`) + the balance-gate — unchanged, only for
   `debitsCompanyAccount`.
-- `settleByCompanySourceTransaction` не меняется (делегирует в `settleByCompany`).
+- `settleByCompanySourceTransaction` does not change (it delegates to `settleByCompany`).
 
 ---
 
-## Data-fix (прод) — §8
+## Data-fix (prod) — §8
 
-### Нужен ли: ДА (UX), но НЕ money-critical
+### Is it needed: YES (UX), but NOT money-critical
 
-На проде уже есть «завешенные» пары: фантом `*_PENDING_PAYOUT`(PENDING_PAYMENT) + settle-строка
+On prod there are already "hung" pairs: the phantom `*_PENDING_PAYOUT`(PENDING_PAYMENT) + the settle-row
 `SENIOR_INCOME`/`PAYOUT_DROP`(PAID), `pending_obligations.status=PAID`,
-`closingTransactionId` указывает на settle-строку.
+`closingTransactionId` points at the settle-row.
 
-**Леджер на проде уже корректен**: фантом `*_PENDING_PAYOUT` не участвует ни в одном money-терме,
-а повторный settle заблокирован (obligation уже PAID → `settleByCompanySourceTransaction` находит
-`WHERE status=PENDING` = null → 404). То есть data-fix — **косметика** (убрать фантомные «Ожидает
-выплаты» строки + кнопку «Выплатить»), не деньги. Может выполняться **после** деплоя, без freeze.
+**The prod ledger is already correct**: the phantom `*_PENDING_PAYOUT` does not participate in any money term,
+and a repeat settle is blocked (the obligation is already PAID → `settleByCompanySourceTransaction` finds
+`WHERE status=PENDING` = null → 404). That is, the data-fix is **cosmetic** (remove the phantom "Awaiting
+payout" rows + the "Pay out" button), not money. It can be run **after** the deploy, without a freeze.
 
-### Целевые строки (идемпотентный предикат)
+### Target rows (an idempotent predicate)
 
-Пары, где `pending_obligations.status='PAID'` AND `closingTransactionId IS NOT NULL` AND
-`closingTransactionId <> sourceTransactionId` AND строка `sourceTransactionId` имеет
+Pairs where `pending_obligations.status='PAID'` AND `closingTransactionId IS NOT NULL` AND
+`closingTransactionId <> sourceTransactionId` AND the row `sourceTransactionId` has
 `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT}` AND `status='PENDING_PAYMENT'`.
-(Уже схлопнутые новым кодом пары имеют `sourceTransactionId = closingTransactionId` → пропускаются →
-идемпотентность.)
+(Pairs already collapsed by the new code have `sourceTransactionId = closingTransactionId` → skipped →
+idempotency.)
 
-### Рекомендуемый скрипт: repoint + delete фантома (Confidence: MED)
+### Recommended script: repoint + delete the phantom (Confidence: MED)
 
-Приводит старые пары к новой single-row-модели (`sourceTransactionId = closingTransactionId = единственная строка`):
+Brings the old pairs to the new single-row model (`sourceTransactionId = closingTransactionId = the single row`):
 
 ```sql
--- Выполнять в ОДНОЙ транзакции. Прогнать сначала как SELECT (dry-run), сверить count.
+-- Run in ONE transaction. First run as a SELECT (dry-run), reconcile the count.
 BEGIN;
 
--- 0) DRY-RUN: сколько фантомов схлопнется (сверить с ожидаемым числом hung-пар).
+-- 0) DRY-RUN: how many phantoms will collapse (reconcile with the expected number of hung pairs).
 SELECT o.id AS obligation_id, o.source_transaction_id AS phantom_id,
        o.closing_transaction_id AS settlement_id, src.type AS phantom_type
 FROM pending_obligations o
@@ -200,8 +200,8 @@ WHERE o.status = 'PAID'
   AND src.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT')
   AND src.status = 'PENDING_PAYMENT';
 
--- 1) Repoint: sourceTransactionId → settlement-строку (снимает FK restrict с фантома;
---    obligation уже PAID, поэтому uq_pending_obligations_source_pending (WHERE PENDING) не задет).
+-- 1) Repoint: sourceTransactionId → the settlement-row (removes the FK restrict from the phantom;
+--    the obligation is already PAID, so uq_pending_obligations_source_pending (WHERE PENDING) is not affected).
 UPDATE pending_obligations o
 SET source_transaction_id = o.closing_transaction_id, updated_at = now()
 FROM transactions src
@@ -212,8 +212,8 @@ WHERE src.id = o.source_transaction_id
   AND src.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT')
   AND src.status = 'PENDING_PAYMENT';
 
--- 2) Delete фантома (после repoint на него нет входящих FK: sourceTransactionId переставлен,
---    closingTransactionId никогда не указывал на фантом, инвойса/подписи у PENDING-IOU нет).
+-- 2) Delete the phantom (after the repoint there are no incoming FKs to it: sourceTransactionId re-pointed,
+--    closingTransactionId never pointed at the phantom, a PENDING IOU has no invoice/signature).
 DELETE FROM transactions t
 WHERE t.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT')
   AND t.status = 'PENDING_PAYMENT'
@@ -221,18 +221,18 @@ WHERE t.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT')
   AND NOT EXISTS (SELECT 1 FROM pending_obligations o WHERE o.closing_transaction_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM invoice_signatures s WHERE s.transaction_id = t.id);
 
--- 3) Верификация ПЕРЕД COMMIT: 0 фантомных PENDING_PAYMENT IOU у закрытых обязательств.
+-- 3) Verification BEFORE COMMIT: 0 phantom PENDING_PAYMENT IOUs for closed obligations.
 SELECT count(*) AS remaining_phantoms
 FROM pending_obligations o JOIN transactions src ON src.id = o.source_transaction_id
 WHERE o.status='PAID' AND src.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT')
-  AND src.status='PENDING_PAYMENT';  -- ожидаем 0
+  AND src.status='PENDING_PAYMENT';  -- expect 0
 
-COMMIT;  -- только если count = 0 и dry-run совпал; иначе ROLLBACK.
+COMMIT;  -- only if count = 0 and the dry-run matched; otherwise ROLLBACK.
 ```
 
-### Fallback (zero-delete) — если prod-DELETE сочтут рискованным
+### Fallback (zero-delete) — if the prod-DELETE is deemed risky
 
-Просто нейтрализовать статус фантома (без удаления/repoint):
+Simply neutralize the phantom's status (without a delete/repoint):
 
 ```sql
 UPDATE transactions t SET status='PAID', updated_at=now()
@@ -241,85 +241,85 @@ WHERE o.source_transaction_id = t.id AND o.status='PAID'
   AND t.type IN ('SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT') AND t.status='PENDING_PAYMENT';
 ```
 
-Убирает «Ожидает выплаты» + кнопку «Выплатить» (гейт требует `status=PENDING_PAYMENT`). Компромисс:
-исторически остаются ДВЕ PAID-строки (фантом «Ожидаемая выплата.../Оплачено» + settle-строка).
-Money-safe: `*_PENDING_PAYOUT(PAID)` не входит ни в один money-терм. **НЕ достигает single-row**, но
-снимает острый симптом при нулевом риске удаления.
+Removes "Awaiting payout" + the "Pay out" button (the gate requires `status=PENDING_PAYMENT`). The compromise:
+historically TWO PAID rows remain (the phantom "Expected payout.../Paid" + the settle-row).
+Money-safe: `*_PENDING_PAYOUT(PAID)` is not in any money term. **Does NOT reach single-row**, but
+removes the acute symptom at zero deletion risk.
 
-**Рекомендация:** primary = repoint+delete (даёт настоящую single-row-модель владельца); fallback =
-status-neutralize при вето на DELETE. В обоих случаях: dry-run → сверка count → security-review →
-исполнение Master'ом с прод-доступом (`docker exec psql`, как accounting-migration), НЕ агентом.
+**Recommendation:** primary = repoint+delete (gives the owner's true single-row model); fallback =
+status-neutralize if a DELETE is vetoed. In both cases: dry-run → count reconciliation → security-review →
+execution by Master with prod access (`docker exec psql`, like the accounting-migration), NOT an agent.
 
 ---
 
 ## Consequences
 
-**Плюсы:** обязательство транзитится в PAID in-place, фантом «Ожидает выплаты» исчезает, второй
-строки нет. Blast-radius — один метод `settleByCompany`; ноль правок в леджере / drop-агрегате /
-invoice-сервисе / C4. Все инварианты (TOCTOU, advisory-lock, C6, invoice, C4) сохранены.
+**Pros:** the obligation transitions to PAID in-place, the "Awaiting payout" phantom disappears, there is no second
+row. Blast-radius — the single method `settleByCompany`; zero edits in the ledger / drop-aggregate /
+invoice service / C4. All invariants (TOCTOU, advisory-lock, C6, invoice, C4) preserved.
 
-**Минусы / trade-offs:**
+**Cons / trade-offs:**
 
-- `settleByCompany` меняет семантику с INSERT на UPDATE-in-place — ~26 spec'ов строят
-  `new TransactionsService(...)`/мокируют settle; тесты settle нужно переписать под флип
-  (проверять, что исходная строка сменила type+status и НЕ появилась вторая).
-- `createdBy` флипнутой строки остаётся автором booking'а (не settler'а). Для senior settler
-  фиксируется в `validatedBy`; для drop settler в поле не фиксируется — минорная audit-дельта,
-  при желании писать settler в `notes`.
-- Data-fix (primary) удаляет прод-строки — требует dry-run + security-review + ручное исполнение.
+- `settleByCompany` changes the semantics from INSERT to UPDATE-in-place — ~26 specs build
+  `new TransactionsService(...)`/mock settle; the settle tests need to be rewritten for the flip
+  (check that the original row changed type+status and NO second one appeared).
+- The `createdBy` of the flipped row remains the author of the booking (not the settler). For a senior settler
+  it is recorded in `validatedBy`; for a drop settler it is not recorded in a field — a minor audit delta,
+  write the settler into `notes` if desired.
+- The data-fix (primary) deletes prod rows — requires a dry-run + security-review + manual execution.
 
-**Не-цели:** не меняем момент кредитования баланса дропа (owed-but-unpaid по-прежнему невидим до
-settle); не трогаем credit-сторону леглера; не меняем `bookCompanyObligations`.
+**Non-goals:** we do not change the moment of crediting the drop's balance (owed-but-unpaid is still invisible until
+settle); we do not touch the credit side of the ledger; we do not change `bookCompanyObligations`.
 
-## Конфликт-окно (координация — Master)
+## Conflict window (coordination — Master)
 
-PR **#374** (`feature/transaction-receipts`) активно правит те же файлы: `pending-settlement.service.ts`
-(+30) и `transactions.service.ts` (+245/−123), плюс `SettleSeniorPayoutDialog`. **Реализация этого ADR
-стартует ПОСЛЕ merge #374** (или ребейзом на него) — иначе гарантированный конфликт в `settleByCompany`.
-Координацию порядка (merge #374 → старт) держит Master. `security-reviewer` на реализации — ОБЯЗАТЕЛЕН
+PR **#374** (`feature/transaction-receipts`) is actively editing the same files: `pending-settlement.service.ts`
+(+30) and `transactions.service.ts` (+245/−123), plus `SettleSeniorPayoutDialog`. **The implementation of this ADR
+starts AFTER the merge of #374** (or by rebasing onto it) — otherwise a guaranteed conflict in `settleByCompany`.
+The coordination of the order (merge #374 → start) is held by Master. `security-reviewer` on the implementation — MANDATORY
 (finance / company-account / RBAC money-path).
 
 ## Rollback
 
-Изменение — docs-only (этот ADR). Откат ADR:
+The change is docs-only (this ADR). Rolling back the ADR:
 
 ```bash
-git revert <commit>            # откатить коммит ADR, ИЛИ
+git revert <commit>            # revert the ADR commit, OR
 git checkout origin/main -- docs/architecture/2026-07-14-settle-transition-in-place.md
-# закрыть PR docs/adr-settle-transition без merge
+# close the PR docs/adr-settle-transition without a merge
 ```
 
-Expected state: `docs/architecture/` без файла `2026-07-14-settle-transition-in-place.md`; ветка
-`main` не затронута. Verification: `git status` чист, `ls docs/architecture | grep settle-transition`
-пусто.
+Expected state: `docs/architecture/` without the file `2026-07-14-settle-transition-in-place.md`; the
+`main` branch is not affected. Verification: `git status` clean, `ls docs/architecture | grep settle-transition`
+empty.
 
-Откат РЕАЛИЗАЦИИ (когда напишут код, отдельные PR):
+Rolling back the IMPLEMENTATION (when the code is written, separate PRs):
 
-- Backend-флип: `git revert` PR настройки settle — вернёт INSERT-семантику (фантом вернётся, но
-  деньги корректны).
-- Data-fix primary (delete): необратим построчно; поэтому dry-run + бэкап затронутых строк
-  (`\copy (SELECT ...) TO ...`) ПЕРЕД COMMIT — восстановление из бэкапа при регрессе.
+- Backend flip: `git revert` the settle PR — returns the INSERT semantics (the phantom returns, but
+  the money is correct).
+- Data-fix primary (delete): irreversible row-by-row; therefore dry-run + a backup of the affected rows
+  (`\copy (SELECT ...) TO ...`) BEFORE COMMIT — restore from the backup on a regression.
 
-## Декомпозиция реализации (ревизия task-файлов)
+## Implementation decomposition (revision of task-files)
 
-| Task                         | Агент        | Зона                                   | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Модель                          |
-| ---------------------------- | ------------ | -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `task-coder-settle-in-place` | Coder        | `apps/api/src/finance/**`              | Переписать `settleByCompany`: UPDATE-in-place исходной IOU-строки (type-флип + status + funding-поля + `closingTransactionId=self` + `payoutRequestId=null`); сохранить TOCTOU-claim, advisory-lock, gate, invoice-триггер по флипнутому id; порядок resolve→claim→flip. Unit+integration тесты: double-settle идемпотентность (404/rollback), ledger-нейтральность (баланс до/после = income − settle), drop-credit + C6 (senderId≠drop), C4-исключение (settlementTxIds), senior-invoice триггерится, оба funding (COMPANY_ACCOUNT/ADMIN_PERSONAL + BIZ-03 валютный guard), оба источника IOU (declare + cascade). | opus (finance расчётная логика) |
-| `task-devops-settle-datafix` | DevOps/Coder | `apps/api/drizzle/manual/**` + runbook | Идемпотентный guarded SQL (repoint+delete primary; status-neutralize fallback) + dry-run SELECT + бэкап затронутых строк. Исполняет Master на проде (`docker exec psql`) — НЕ CI.                                                                                                                                                                                                                                                                                                                                                                                                                                    | —                               |
-| `task-autotest-settle-e2e`   | AutoTest     | `apps/e2e/**`                          | E2E: ADMIN/ACCOUNTANT «Выплатить» на `*_PENDING_PAYOUT` → строка транзитится в PAID (одна строка, «Оплачено»), «Выплатить» исчезает, второй строки нет; баланс дропа/леджер компании корректны.                                                                                                                                                                                                                                                                                                                                                                                                                      | sonnet                          |
+| Task                         | Agent        | Zone                                   | Scope                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                | Model                            |
+| ---------------------------- | ------------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------- |
+| `task-coder-settle-in-place` | Coder        | `apps/api/src/finance/**`              | Rewrite `settleByCompany`: UPDATE-in-place of the original IOU-row (type-flip + status + funding fields + `closingTransactionId=self` + `payoutRequestId=null`); preserve the TOCTOU claim, advisory-lock, gate, invoice trigger by the flipped id; the order resolve→claim→flip. Unit+integration tests: double-settle idempotency (404/rollback), ledger-neutrality (balance before/after = income − settle), drop-credit + C6 (senderId≠drop), C4-exclusion (settlementTxIds), the senior invoice is triggered, both fundings (COMPANY_ACCOUNT/ADMIN_PERSONAL + the BIZ-03 currency guard), both IOU sources (declare + cascade). | opus (finance computation logic) |
+| `task-devops-settle-datafix` | DevOps/Coder | `apps/api/drizzle/manual/**` + runbook | An idempotent guarded SQL (repoint+delete primary; status-neutralize fallback) + a dry-run SELECT + a backup of the affected rows. Executed by Master on prod (`docker exec psql`) — NOT CI.                                                                                                                                                                                                                                                                                                                                                                                                                                         | —                                |
+| `task-autotest-settle-e2e`   | AutoTest     | `apps/e2e/**`                          | E2E: ADMIN/ACCOUNTANT "Pay out" on a `*_PENDING_PAYOUT` → the row transitions to PAID (one row, "Paid"), "Pay out" disappears, there is no second row; the drop's balance / the company ledger are correct.                                                                                                                                                                                                                                                                                                                                                                                                                          | sonnet                           |
 
-`security-reviewer` — MANDATORY на `task-coder-settle-in-place` и на data-fix. Design-gate не
-применяется (UI визуально не меняется — та же строка, другой лейбл статуса; manual-qa проверяет в UT,
-что рендер `Приход синьора/Доля дропа + Оплачено` когерентен и фантома нет).
+`security-reviewer` — MANDATORY on `task-coder-settle-in-place` and on the data-fix. The design-gate does not
+apply (the UI does not change visually — the same row, a different status label; manual-qa checks in UT
+that the render `Senior income/Drop share + Paid` is coherent and there is no phantom).
 
 ## Sources
 
-- `apps/api/src/finance/pending-settlement.service.ts:246-365` — `settleByCompany` (INSERT-вторая-строка + TOCTOU-claim + advisory-lock).
-- `apps/api/src/finance/transactions.service.ts:2702-2795` — `bookCompanyObligations` (booking IOU); `:1199` (declare), `:3115` (cascade drop-ветка) — два источника.
-- `apps/api/src/finance/company-account-balance.ts:117-219` — леджер-термы `SENIOR_INCOME`/`PAYOUT_DROP`(COMPANY_ACCOUNT).
-- `apps/api/src/finance/transactions.service.ts:561-634` — `computeDropAggregate` (C6: received/sent по PAYOUT_DROP).
-- `apps/api/src/invoices/invoices.service.ts:142-149` — `autoCreateForSeniorPayout` (гейт `type==='SENIOR_INCOME'`); `:176` autoCreateForPayout (агрегация по payoutRequestId — почему сброс).
-- `apps/api/src/finance/transactions.service.ts:3315-3342,3463-3471` — C4 `settlementTxIds` дискриминатор (totalIncome + monthly); `:938` findOne enrichment.
+- `apps/api/src/finance/pending-settlement.service.ts:246-365` — `settleByCompany` (INSERT-second-row + TOCTOU-claim + advisory-lock).
+- `apps/api/src/finance/transactions.service.ts:2702-2795` — `bookCompanyObligations` (IOU booking); `:1199` (declare), `:3115` (the cascade drop branch) — two sources.
+- `apps/api/src/finance/company-account-balance.ts:117-219` — the ledger terms `SENIOR_INCOME`/`PAYOUT_DROP`(COMPANY_ACCOUNT).
+- `apps/api/src/finance/transactions.service.ts:561-634` — `computeDropAggregate` (C6: received/sent by PAYOUT_DROP).
+- `apps/api/src/invoices/invoices.service.ts:142-149` — `autoCreateForSeniorPayout` (the gate `type==='SENIOR_INCOME'`); `:176` autoCreateForPayout (aggregation by payoutRequestId — why the reset).
+- `apps/api/src/finance/transactions.service.ts:3315-3342,3463-3471` — the C4 `settlementTxIds` discriminator (totalIncome + monthly); `:938` the findOne enrichment.
 - `apps/api/src/database/schema.ts:681-722` — `pending_obligations` FK (`sourceTransactionId` restrict, `closingTransactionId` set-null, `uq_..._source_pending`).
-- `apps/web/.../finance/components/TransactionRow.tsx:330-333` — гейт «Выплатить» (`type∈pending-set AND PENDING_PAYMENT`); `constants.ts:27,43,49,51` — лейблы.
-- PR #374 (`gh pr view 374`) — конфликт-окно: `pending-settlement.service.ts` +30, `transactions.service.ts` +245/−123.
+- `apps/web/.../finance/components/TransactionRow.tsx:330-333` — the "Pay out" gate (`type∈pending-set AND PENDING_PAYMENT`); `constants.ts:27,43,49,51` — the labels.
+- PR #374 (`gh pr view 374`) — the conflict window: `pending-settlement.service.ts` +30, `transactions.service.ts` +245/−123.
