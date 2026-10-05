@@ -4,101 +4,101 @@ paths:
   - 'apps/landing/**'
 ---
 
-# Rule: Design-gate — обязательный дизайнер-в-контуре для любого UI
+# Rule: Design-gate — mandatory designer-in-the-loop for any UI
 
 **Status:** Always-on
 **Applies to:** Master (dispatch), Coder, ui-ux-designer, code-reviewer
-**Source:** `docs/architecture/2026-06-22-claude-design-integration.md` (§4.7 + §4.8) + утверждено владельцем 2026-06-22 («любое UI-решение должно задействовать дизайнера»).
+**Source:** `docs/architecture/2026-06-22-claude-design-integration.md` (§4.7 + §4.8) + approved by the owner 2026-06-22 ("any UI decision must involve the designer").
 
 ---
 
 ## The rule
 
-**Любая задача, чей diff трогает визуальную поверхность `apps/web/**`или`apps/landing/**`**
-(рендеринг `.tsx`, `globals.css`, classNames, layout, иконки, motion) ОБЯЗАНА:
+**Any task whose diff touches a visual surface in `apps/web/**`or`apps/landing/**`**
+(`.tsx` rendering, `globals.css`, classNames, layout, icons, motion) MUST:
 
-1. **до** того как кодер начнёт верстать — пройти через дизайнера (Claude Design генерация ИЛИ
-   ui-ux-designer conformance-проверка), и
-2. **после** реализации — пройти fidelity-аудит (ui-ux-designer Mode B).
+1. **before** the coder starts building — go through the designer (Claude Design generation OR
+   ui-ux-designer conformance check), and
+2. **after** implementation — pass a fidelity audit (ui-ux-designer Mode B).
 
-Интенсивность вовлечения — по tier (ниже). Дизайнер вовлечён ВСЕГДА; вопрос только «насколько».
+The intensity of involvement is set by tier (below). The designer is ALWAYS involved; the only question is "how much".
 
-## Tier-таблица
+## Tier table
 
-| Tier  | Триггер                                                  | Действие дизайнера                                                                                                                 |
-| ----- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| **1** | Новый экран / поток / компонент / редизайн               | Полная генерация в Claude Design (нативный `/design` ИЛИ оркестратор через Chrome MCP) → артефакт → **ui-ux-designer Mode E** spec |
-| **2** | Правка существующего экрана                              | Правка существующего дизайна в Claude Design ИЛИ ui-ux-designer conformance-проверка → обновлённый spec                            |
-| **3** | Тривиальная косметика (текст, один отступ / цвет токена) | ui-ux-designer conformance-проверка против засинхроненной design-system `CheekyCheeseIT CRM` (без браузерного раунда)              |
+| Tier  | Trigger                                             | Designer action                                                                                                                |
+| ----- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **1** | New screen / flow / component / redesign            | Full generation in Claude Design (native `/design` OR orchestrator via Chrome MCP) → artifact → **ui-ux-designer Mode E** spec |
+| **2** | Edit to an existing screen                          | Edit the existing design in Claude Design OR ui-ux-designer conformance check → updated spec                                   |
+| **3** | Trivial cosmetics (text, one padding / token color) | ui-ux-designer conformance check against the synced design-system `CheekyCheeseIT CRM` (no browser round)                      |
 
-- **Tier задаёт Master / оркестратор** при создании задачи — поле `## Design tier:` в task-файле
-  (`.claude/tasks/<task>.md`). Если поле отсутствует на UI-задаче — дефолт **Tier 1** (safe).
+- **Master / orchestrator sets the tier** when creating the task — the `## Design tier:` field in the task file
+  (`.claude/tasks/<task>.md`). If the field is absent on a UI task — default **Tier 1** (safe).
 
-## Контракт артефакта (единственный интерфейс для headless-кодера)
+## Artifact contract (the only interface for the headless coder)
 
-- `docs/design/<slug>.md` — coder-ready spec (пишет ui-ux-designer Mode E): brief, ссылка на
-  Claude Design проект, **token-map** (только наши токены из `globals.css`, не сырой hex),
-  список компонентов (существующие shadcn/ui + что новое), motion / a11y (WCAG 2.2) / responsive
-  (320/768/1024/1440), edge-cases (empty/loading/error/overflow), путь к референс-скриншотам.
-- `docs/design/assets/<slug>/` — `design.html` (экспорт из Claude Design) + `*.png` (скриншоты
-  состояний; `design.png` — главный fidelity-референс для Mode B).
-- **Headless-кодер видит ТОЛЬКО эти файлы.** Браузер, Claude Design-сессия, Chrome MCP — деталь
-  реализации оркестратора, кодеру недоступны. Кодер строит по spec НАШИМИ компонентами/токенами,
-  **НЕ копирует сырой экспортированный HTML** (он generic — divs вместо наших компонентов).
+- `docs/design/<slug>.md` — coder-ready spec (written by ui-ux-designer Mode E): brief, link to the
+  Claude Design project, **token-map** (only our tokens from `globals.css`, not raw hex),
+  component list (existing shadcn/ui + what is new), motion / a11y (WCAG 2.2) / responsive
+  (320/768/1024/1440), edge cases (empty/loading/error/overflow), path to reference screenshots.
+- `docs/design/assets/<slug>/` — `design.html` (export from Claude Design) + `*.png` (state
+  screenshots; `design.png` — the main fidelity reference for Mode B).
+- **The headless coder sees ONLY these files.** The browser, the Claude Design session, Chrome MCP — are an
+  implementation detail of the orchestrator, inaccessible to the coder. The coder builds from the spec with OUR
+  components/tokens, **does NOT copy the raw exported HTML** (it is generic — divs instead of our components).
 
-## Энфорсмент
+## Enforcement
 
-- **Dispatch гейт:** Master НЕ диспатчит UI-кодера без `docs/design/<slug>.md` (Tier 1/2) или
-  записанной Tier-3 conformance-отметки. Dispatch-промпт кодера содержит путь к артефакту +
-  «строй нашими shadcn/ui компонентами, соответствуй `design.png`; НЕ вставляй сырой HTML».
-- **Reviewer-чек:** на PR, трогающем `apps/web/**` / `apps/landing/**` визуальную поверхность,
-  code-reviewer проверяет наличие дизайн-артефакта (`docs/design/<slug>.md`) **и** комментария
-  fidelity-аудита (Mode B), **покрывающего ВСЕ классы устройств** (`Fidelity: PASS|ISSUES|BLOCK` —
-  см. `.claude/rules/common/design-fidelity-review.md`). Отсутствует / частичен (desktop-only) и
-  tier ≠ 3 → `Verdict: BLOCK` со ссылкой на правило.
-- **Текст — отдельный гейт.** PR, меняющий текст для клиента или кандидата (словари
-  `apps/landing/app/i18n/dictionaries/**`, видимые строки `apps/web/**` / `apps/landing/**`,
-  тексты вакансий), требует вердикта `copy-reviewer` (`Copy Review: PASS|ISSUES|BLOCK` —
-  см. `.claude/agents/copy-reviewer.md`). Проверка визуала не заменяет проверку текста:
-  ui-ux-designer смотрит, как строка выглядит, copy-reviewer — что она говорит и на всех ли
-  пяти языках говорит одинаково хорошо. Вердикта нет → `Verdict: BLOCK`.
-- **`merge-approved` — без изменений:** ставит ТОЛЬКО Master / owner по явному «мерджим» владельца.
-  Reviewer / любой агент `merge-approved` НЕ трогает (см. [[feedback_reviewer_self_merge_incident]]).
+- **Dispatch gate:** Master does NOT dispatch a UI coder without `docs/design/<slug>.md` (Tier 1/2) or
+  a recorded Tier-3 conformance note. The coder's dispatch prompt contains the path to the artifact +
+  "build with our shadcn/ui components, conform to `design.png`; do NOT paste raw HTML".
+- **Reviewer check:** on a PR touching a visual surface in `apps/web/**` / `apps/landing/**`,
+  code-reviewer verifies the presence of a design artifact (`docs/design/<slug>.md`) **and** of a
+  fidelity-audit comment (Mode B) **covering ALL device classes** (`Fidelity: PASS|ISSUES|BLOCK` —
+  see `.claude/rules/common/design-fidelity-review.md`). Absent / partial (desktop-only) and
+  tier ≠ 3 → `Verdict: BLOCK` with a link to the rule.
+- **Text — a separate gate.** A PR changing text for a client or candidate (dictionaries
+  `apps/landing/app/i18n/dictionaries/**`, visible strings in `apps/web/**` / `apps/landing/**`,
+  vacancy texts) requires a `copy-reviewer` verdict (`Copy Review: PASS|ISSUES|BLOCK` —
+  see `.claude/agents/copy-reviewer.md`). A visual check does not replace a text check:
+  ui-ux-designer looks at how a string looks, copy-reviewer at what it says and whether it says it
+  equally well in all five languages. No verdict → `Verdict: BLOCK`.
+- **`merge-approved` — unchanged:** set ONLY by Master / owner on the owner's explicit "merge".
+  The reviewer / any agent does NOT touch `merge-approved` (see [[feedback_reviewer_self_merge_incident]]).
 
-## Тема одна — тёмная. Светлую НЕ проверять
+## There is one theme — dark. Do NOT check the light one
 
-**Решение владельца 2026-08-16.** В CRM светлой темы нет и пока не планируется:
-`apps/web/index.html` жёстко несёт `class="dark"`, во всём `apps/web` нет ни `ThemeProvider`,
-ни `useTheme`, ни `prefers-color-scheme`, а `globals.css` определяет только `.dark`.
+**Owner decision 2026-08-16.** There is no light theme in the CRM and none is planned yet:
+`apps/web/index.html` hard-carries `class="dark"`, there is no `ThemeProvider` anywhere in `apps/web`,
+no `useTheme`, no `prefers-color-scheme`, and `globals.css` defines only `.dark`.
 
-**Импортированные ECC-правила (`rules/ecc/web/testing.md`, `rules/ecc/web/design-quality.md`)
-требуют проверять обе темы. Здесь это требование не действует** — project-правила имеют
-приоритет над ECC (см. `rules/ecc/README.md` §Precedence).
+**The imported ECC rules (`rules/ecc/web/testing.md`, `rules/ecc/web/design-quality.md`)
+require checking both themes. That requirement does not apply here** — project rules take
+precedence over ECC (see `rules/ecc/README.md` §Precedence).
 
-Практически: не запрашивать светлые фреймы при генерации, не аудитить светлую в Mode B,
-не заводить находки «в светлой теме сломано». Требование было невыполнимо с самого начала —
-проверять нечего, и агенты тратили на это ходы.
+In practice: do not request light frames during generation, do not audit the light one in Mode B,
+do not file "broken in light theme" findings. The requirement was unfulfillable from the start —
+there is nothing to check, and agents were spending turns on it.
 
-Если светлую тему когда-нибудь заведут — это отдельная задача (токены + переключатель +
-прогон всех экранов), и тогда этот блок снимается вместе с ней.
+If a light theme is ever introduced — that is a separate task (tokens + switch +
+a run over all screens), and then this block is removed along with it.
 
-## Fallback (деградация)
+## Fallback (degradation)
 
-- **Claude Design недоступен / лимит / Chrome MCP-драйв хрупкий** → ui-ux-designer Mode A текстовая
-  спека (без браузерного раунда); в PR body отметить `design-gate: degraded` с причиной.
-- **Token drift** (`globals.css` изменился, Claude Design отстал) → пере-`/design-sync` перед
-  Tier 1 генерацией (детали — `.claude/skills/claude-design-workflow/SKILL.md`).
+- **Claude Design unavailable / rate-limited / Chrome MCP drive fragile** → ui-ux-designer Mode A text
+  spec (no browser round); in the PR body note `design-gate: degraded` with the reason.
+- **Token drift** (`globals.css` changed, Claude Design is behind) → re-`/design-sync` before
+  Tier 1 generation (details — `.claude/skills/claude-design-workflow/SKILL.md`).
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/zone-of-write.md` — `apps/web/**` = Coder/Designer зона; артефакты в `docs/design/**`.
-- `.claude/rules/common/light-track.md` — косметика UI (Tier 3) допустима лёгким треком, но conformance-проверка обязательна.
-- `.claude/rules/common/skills-invocation.md` — триггер → `claude-design-workflow` skill.
-- `.claude/rules/common/responsive-design.md` — адаптив на 4 классах устройств (hard-гейт); Mode B аудитит ВСЕ классы, генерация запрашивает фреймы для всех.
-- `.claude/rules/common/design-fidelity-review.md` — post-impl fidelity-diff макет↔localhost на всех классах = обязательный гейт перед merge (этот файл — гейт ДО кода, fidelity-review — ПОСЛЕ).
+- `.claude/rules/common/zone-of-write.md` — `apps/web/**` = Coder/Designer zone; artifacts in `docs/design/**`.
+- `.claude/rules/common/light-track.md` — UI cosmetics (Tier 3) is allowed on the light track, but the conformance check is mandatory.
+- `.claude/rules/common/skills-invocation.md` — trigger → `claude-design-workflow` skill.
+- `.claude/rules/common/responsive-design.md` — adaptive on 4 device classes (hard gate); Mode B audits ALL classes, generation requests frames for all.
+- `.claude/rules/common/design-fidelity-review.md` — post-impl fidelity-diff mockup↔localhost on all classes = mandatory gate before merge (this file — the gate BEFORE code, fidelity-review — AFTER).
 
-## Источники
+## Sources
 
-- ADR / спека: `docs/architecture/2026-06-22-claude-design-integration.md`.
-- Implementation-план: `docs/superpowers/plans/2026-06-22-claude-design-integration.md`.
-- Память: `project_claude_design_integration`, `feedback_reviewer_self_merge_incident`.
+- ADR / spec: `docs/architecture/2026-06-22-claude-design-integration.md`.
+- Implementation plan: `docs/superpowers/plans/2026-06-22-claude-design-integration.md`.
+- Memory: `project_claude_design_integration`, `feedback_reviewer_self_merge_incident`.

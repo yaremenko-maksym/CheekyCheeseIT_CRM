@@ -1,89 +1,89 @@
-# Rule: Orchestration routing — агент vs воркфлоу vs light-track
+# Rule: Orchestration routing — agent vs workflow vs light-track
 
-**Status:** Always-on (энфорсмент **процедурный** — judgment оркестратора, НЕ blocking-хук)
-**Applies to:** Master (USER-сессия) — тот, кто принимает launch-decision. Агенты-исполнители это дерево не прогоняют.
-**Source:** USER-запрос 2026-06-22 (использовать агентов И воркфлоу в связке; оркестратор решает рационально) + аудит агентной архитектуры (workflow `agent-architecture-audit`) + разведка best-practices (Anthropic multi-agent research, Augment Code overkill-rubric, Anthropic cookbook).
+**Status:** Always-on (enforcement **procedural** — orchestrator judgment, NOT a blocking hook)
+**Applies to:** Master (USER session) — the one who makes the launch decision. Executor agents do not run this tree.
+**Source:** USER request 2026-06-22 (use agents AND workflows together; the orchestrator decides rationally) + an audit of the agent architecture (workflow `agent-architecture-audit`) + best-practices reconnaissance (Anthropic multi-agent research, Augment Code overkill rubric, Anthropic cookbook).
 
 ---
 
-## Зачем
+## Why
 
-Оркестрацию ведёт Master (USER-сессия) напрямую через Agent tool — это сильнейший orchestrator-worker. Это правило **НЕ** вводит второй оркестратор и **НЕ** переписывает dispatch-логику. Оно добавляет ОДНУ недостающую ось решения — **степень параллелизма**: один агент-pipeline vs параллельная волна vs read-only audit-fanout — и фиксирует, когда параллель оправдана, а когда это over-spawn (multi-agent ≈ 15× токенов чата; ~64% задач один агент ≥ multi-agent при равном контексте).
+Orchestration is run by Master (USER session) directly via the Agent tool — this is the strongest orchestrator-worker. This rule does **NOT** introduce a second orchestrator and does **NOT** rewrite the dispatch logic. It adds ONE missing decision axis — **the degree of parallelism**: one agent pipeline vs a parallel wave vs a read-only audit-fanout — and fixes when parallelism is justified and when it is over-spawn (multi-agent ≈ 15× the chat tokens; ~64% of tasks a single agent ≥ multi-agent at equal context).
 
-Две уже существующие оси решения здесь **НЕ дублируются** (их перечитывание = тот самый «третий источник правды», которого избегаем) — они отрабатывают раньше как есть:
+The two already-existing decision axes are **NOT duplicated** here (re-reading them = that very "third source of truth" we avoid) — they fire earlier as they are:
 
-- **Cost-of-error** (auth / finance / RBAC / wallets / transactions / Drizzle-миграции / company-account (USDT) → FULL PIPELINE + **ОБЯЗАТЕЛЬНЫЙ** security-reviewer) — живёт в `contracts.md` §2.1 «Critical-path trigger zones». Срабатывает ПЕРВОЙ и бьёт всё ниже.
-- **Тривиальность / обратимость** (docs / cosmetic / ≤30 LOC / 1 файл без бизнес-логики и без security-поверхности → light-track single-pass) — живёт в `light-track.md`.
-- **Тир модели** (haiku / sonnet / opus + триггеры эскалации) — ортогонально, `model-routing.md` (тир ≠ трек).
+- **Cost-of-error** (auth / finance / RBAC / wallets / transactions / Drizzle migrations / company-account (USDT) → FULL PIPELINE + a **MANDATORY** security-reviewer) — lives in `contracts.md` §2.1 "Critical-path trigger zones". It fires FIRST and beats everything below.
+- **Triviality / reversibility** (docs / cosmetic / ≤30 LOC / 1 file without business logic and without a security surface → light-track single-pass) — lives in `light-track.md`.
+- **The model tier** (haiku / sonnet / opus + escalation triggers) — orthogonal, `model-routing.md` (tier ≠ track).
 
-Это дерево прогоняется **после** того как cost-of-error и light-track-гейты отработали как обычно.
+This tree is run **after** the cost-of-error and light-track gates have fired as usual.
 
-## The rule — ось параллелизма (оценивай сверху вниз; первое совпадение выигрывает)
+## The rule — the parallelism axis (evaluate top to bottom; the first match wins)
 
-**Предусловие** (не часть этого дерева, отрабатывает раньше — НЕ переписываем):
+**Precondition** (not part of this tree, fires earlier — do NOT rewrite):
 
-- задача в critical-path zones (`contracts.md` §2.1) → FULL PIPELINE + security-reviewer. Ничем ниже не отменяется.
-- тривиально / обратимо / docs (`light-track.md`) → LIGHT-TRACK single-pass (Master сам). STOP — воркфлоу/агенты не нужны.
+- a task in critical-path zones (`contracts.md` §2.1) → FULL PIPELINE + security-reviewer. Not overridden by anything below.
+- trivial / reversible / docs (`light-track.md`) → LIGHT-TRACK single-pass (Master himself). STOP — workflows/agents are not needed.
 
-Если задача прошла предусловие и требует кода / работы агентов — выбери ОДНО:
+If the task passed the precondition and requires code / agent work — choose ONE:
 
-### Решение 1 — один pipeline vs параллельная волна
+### Decision 1 — one pipeline vs a parallel wave
 
-**Machine-checkable якорь (артефакт, не интуиция):** параллельный fan-out оправдан ТОЛЬКО если декомпозиция Master дала **≥3 task-файла**, у которых одновременно:
+**A machine-checkable anchor (an artifact, not intuition):** a parallel fan-out is justified ONLY if Master's decomposition yielded **≥3 task files** that simultaneously:
 
-- наборы путей НЕ пересекаются по `zone-of-write` (disjoint files), И
-- нет явного `depends_on` / «ждёт вывод другого агента» (нет sequential-зависимости).
+- have path sets that do NOT overlap by `zone-of-write` (disjoint files), AND
+- have no explicit `depends_on` / "waits for another agent's output" (no sequential dependency).
 
-→ **все условия ДА** → **WAVE-FANOUT**: Master диспатчит волнами ≤ 3-4 одновременных (`light-track.md` «Потолок concurrency»), стаггер, sweep zombie-портов. Это «agent-оркестрация», НЕ отдельный артефакт.
-→ **иначе** → **SINGLE-PIPELINE**: обычный sequential трек Master (coder → review). Большинство задач — здесь («most coding tasks involve fewer truly parallelizable tasks than research» — Anthropic).
+→ **all conditions YES** → **WAVE-FANOUT**: Master dispatches in waves of ≤ 3-4 simultaneous (`light-track.md` "Concurrency ceiling"), staggered, sweeping zombie ports. This is "agent orchestration", NOT a separate artifact.
+→ **otherwise** → **SINGLE-PIPELINE**: the ordinary sequential Master track (coder → review). Most tasks are here ("most coding tasks involve fewer truly parallelizable tasks than research" — Anthropic).
 
-Эвристика-помощник, если на грани (5 вопросов Augment Code): независимы? disjoint files? специфицируемо без in-flight вывода другого? нет sequential deps? есть review-bandwidth? Большинство «нет» → single-pipeline. **Решает артефакт (task-файлы); вопросы — только подсказка.**
+A helper heuristic if on the edge (Augment Code's 5 questions): independent? disjoint files? specifiable without another's in-flight output? no sequential deps? is there review bandwidth? Mostly "no" → single-pipeline. **The artifact decides (task files); the questions are only a hint.**
 
-### Решение 2 — code-work vs read-only breadth-first audit
+### Decision 2 — code-work vs read-only breadth-first audit
 
-Если задача — **обзор / аудит ≥3 независимых модулей-контроллеров, материал превышает одно контекст-окно, БЕЗ записи кода** (RBAC-sweep, dead-code, security-поверхность, «как устроено X по всему репо»):
+If the task is a **survey / audit of ≥3 independent controller-modules, the material exceeds one context window, WITHOUT writing code** (RBAC sweep, dead-code, security surface, "how X works across the whole repo"):
 
-→ **AUDIT-FANOUT** через skill `codebase-audit` (N × haiku explore волнами ≤ 3-4 → opus synth). Движок — Workflow tool ИЛИ `superpowers:dispatching-parallel-agents`. Это ЕДИНСТВЕННЫЙ кейс с реально-новой ценностью поверх прямого диспатча Master.
+→ **AUDIT-FANOUT** via the skill `codebase-audit` (N × haiku explore in waves of ≤ 3-4 → opus synth). The engine — the Workflow tool OR `superpowers:dispatching-parallel-agents`. This is the ONLY case with genuinely new value over Master's direct dispatch.
 
 ### DEFAULT-DENY
 
-Ни одно решение не совпало явно → **SINGLE-PIPELINE / один агент**. Параллельный fan-out запускается ТОЛЬКО по явному совпадению Решения 1-ДА или Решения 2 — никогда «на всякий случай».
+No decision matched explicitly → **SINGLE-PIPELINE / one agent**. A parallel fan-out is launched ONLY on an explicit match of Decision 1-YES or Decision 2 — never "just in case".
 
-### Middle path ПЕРЕД любым fan-out
+### Middle path BEFORE any fan-out
 
-Неоднозначная-но-ограниченная задача → сначала самый дешёвый тир (`model-routing.md`: haiku разведка / sonnet работа), эскалация на opus только при провале quality-гейта. Снимает 40-70% стоимости без compounding-context налога fan-out. Полный fan-out — только при настоящем breadth (Решение 2).
+An ambiguous-but-bounded task → first the cheapest tier (`model-routing.md`: haiku reconnaissance / sonnet work), escalation to opus only on a quality-gate failure. Removes 40-70% of the cost without the compounding-context tax of a fan-out. A full fan-out — only on genuine breadth (Decision 2).
 
-## Связка агенты + воркфлоу (integration model)
+## Coupling agents + workflows (integration model)
 
-- **Master (Agent tool) — единственный владелец** интерактивного pipeline: декомпозиция, launch-decision (это дерево), мониторинг event→action, aggregate verdict, User Testing, merge-gating. Master — **НАД** воркфлоу, не стадия внутри.
-- **Workflow tool / fan-out — узкий инструмент ПОД оркестратором**, оправдан там, где логика predicate-based и есть measurable-новая ценность. По факту это read-only audit / research (этот аудит — живой прецедент). **Dev-pipeline в JS-воркфлоу НЕ кодируем** — он продублировал бы оркестрацию Master (второй исполняемый источник правды, рассинхрон).
-- **Детерминированный слой, который уже есть и НЕ трогается:** `auto-merge-on-label.yml` (label → squash) + CI-гейты.
+- **Master (the Agent tool) is the sole owner** of the interactive pipeline: decomposition, the launch decision (this tree), event→action monitoring, the aggregate verdict, User Testing, merge-gating. Master is **ABOVE** workflows, not a stage within.
+- **The Workflow tool / fan-out is a narrow instrument UNDER the orchestrator**, justified where the logic is predicate-based and there is measurable new value. In fact this is read-only audit / research (this audit is a live precedent). **We do NOT encode the dev pipeline in a JS workflow** — it would duplicate Master's orchestration (a second executable source of truth, desync).
+- **The deterministic layer that already exists and is NOT touched:** `auto-merge-on-label.yml` (label → squash) + CI gates.
 
-## Энфорсмент и трекинг
+## Enforcement and tracking
 
-- **Процедурный** (judgment оркестратора), по образцу `design-gate.md`: routing — это РЕШЕНИЕ, а не нарушение; blocking-хук дал бы false-negative на легитимных edge-cases.
-- **Трекинг — в task-файле / заметках Master**: нестандартный трек (wave / audit) отмечается строкой `routing_decision` — `{ track: "wave-fanout" | "audit-fanout", reason }` (как A1-решение по `autonomy-levels.md`). Стандартный трек (light-track / single-pipeline) не логируется, чтобы не шуметь.
-- Startup-burst guard (≥5 `Agent()` одним сообщением → 529 / CPU-starvation) — пока процедурно (конец Решения 1: волны ≤ 3-4). Non-blocking хук-нудж — возможный follow-up, НЕ в этом правиле (флаки-хук рядом с battle-tested подорвал бы доверие ко всей hook-инфре).
+- **Procedural** (orchestrator judgment), modeled on `design-gate.md`: routing is a DECISION, not a violation; a blocking hook would give a false negative on legitimate edge cases.
+- **Tracking — in the task file / Master's notes**: a non-standard track (wave / audit) is marked with a `routing_decision` line — `{ track: "wave-fanout" | "audit-fanout", reason }` (like an A1 decision per `autonomy-levels.md`). The standard track (light-track / single-pipeline) is not logged, so as not to make noise.
+- Startup-burst guard (≥5 `Agent()` in one message → 529 / CPU starvation) — for now procedural (the end of Decision 1: waves of ≤ 3-4). A non-blocking hook nudge is a possible follow-up, NOT in this rule (a flaky hook next to a battle-tested one would undermine trust in the whole hook infra).
 
-## Красные линии (наследует любой fan-out / воркфлоу)
+## Red lines (inherited by any fan-out / workflow)
 
-- `merge-approved` + labels — ТОЛЬКО Master/owner по явному «мерджим» владельца (golden rule #1; см. инцидент reviewer-self-merge).
-- security-reviewer ОБЯЗАТЕЛЕН на critical-path — это дерево его УСИЛИВАЕТ, не обходит.
-- Агенты только `Agent(isolation=worktree)` + post-проверка `git -C <main> status` (recurring MAIN-contamination).
-- Concurrency ≤ 3-4 волнами; `DATABASE_URL=` (пустой) при push feature-веток.
+- `merge-approved` + labels — ONLY Master/owner on the owner's explicit "merge" (golden rule #1; see the reviewer-self-merge incident).
+- security-reviewer is MANDATORY on the critical path — this tree STRENGTHENS it, does not bypass it.
+- Agents only `Agent(isolation=worktree)` + a post-check `git -C <main> status` (recurring MAIN contamination).
+- Concurrency ≤ 3-4 in waves; `DATABASE_URL=` (empty) when pushing feature branches.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/light-track.md` — «тривиально → light-track» + потолок concurrency (ссылаемся, не дублируем).
-- `.claude/rules/common/model-routing.md` — тир модели (ортогональная ось) + middle-path эскалация.
-- `.claude/agents/contracts.md` §3 — dispatch-матрицы (КАКОЙ агент); это правило — КАКАЯ степень параллелизма.
-- `.claude/skills/codebase-audit/SKILL.md` — механика audit-fanout (Решение 2).
-- `.claude/agents/workflow-registry.md` — каталог 10 read-only воркфлоу + триггеры + дисциплина запуска (default-deny / опт-ин / лог `routing_decision`).
+- `.claude/rules/common/light-track.md` — "trivial → light-track" + the concurrency ceiling (we link, do not duplicate).
+- `.claude/rules/common/model-routing.md` — the model tier (orthogonal axis) + the middle-path escalation.
+- `.claude/agents/contracts.md` §3 — dispatch matrices (WHICH agent); this rule — WHAT degree of parallelism.
+- `.claude/skills/codebase-audit/SKILL.md` — the mechanics of the audit-fanout (Decision 2).
+- `.claude/agents/workflow-registry.md` — a catalog of 10 read-only workflows + triggers + launch discipline (default-deny / opt-in / `routing_decision` log).
 
-## Источники
+## Sources
 
-- USER-запрос 2026-06-22: агенты + воркфлоу в связке + рациональный launch-decision.
-- Anthropic «How we built our multi-agent research system» (~15× токенов vs chat; coding mostly not parallelizable; effort-scaling 1 / 2-4 / 10+).
-- Augment Code «When Multi-Agent AI Is Overkill» (5-gate independence; ≥3 независимых модуля до parallel).
-- Anthropic cookbook «orchestrator-workers» (orchestrator-worker vs fan-out vs routing).
-- Аудит агентной архитектуры 2026-06-22 (workflow `agent-architecture-audit`: дизайн + adversarial-критика NEEDS_REVISION → учтены must-fix'ы).
+- USER request 2026-06-22: agents + workflows together + a rational launch decision.
+- Anthropic "How we built our multi-agent research system" (~15× tokens vs chat; coding mostly not parallelizable; effort-scaling 1 / 2-4 / 10+).
+- Augment Code "When Multi-Agent AI Is Overkill" (5-gate independence; ≥3 independent modules before parallel).
+- Anthropic cookbook "orchestrator-workers" (orchestrator-worker vs fan-out vs routing).
+- Audit of the agent architecture 2026-06-22 (workflow `agent-architecture-audit`: design + adversarial critique NEEDS_REVISION → must-fixes accounted for).

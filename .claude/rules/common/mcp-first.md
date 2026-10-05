@@ -1,66 +1,66 @@
 # Rule: MCP-first tool priority
 
 **Status:** Always-on
-**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (оркестратор)
-**Source:** Project hard requirement (CLAUDE.md "MCP серверы — ИСПОЛЬЗОВАТЬ В ПЕРВУЮ ОЧЕРЕДЬ") + Phase 2.5 activation of `eslint` MCP
+**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (orchestrator)
+**Source:** Project hard requirement (CLAUDE.md "MCP servers — USE FIRST") + Phase 2.5 activation of `eslint` MCP
 
 ---
 
 ## The rule
 
 ```
-MCP-инструмент подходит? → использовать MCP
-Нет MCP, есть нативный (Read/Edit/Write)? → нативный
-Только через shell? → Bash
+An MCP tool fits? → use MCP
+No MCP, there is a native one (Read/Edit/Write)? → native
+Only via shell? → Bash
 ```
 
-Никогда не используй Bash там, где есть подходящий MCP.
+Never use Bash where a suitable MCP exists.
 
-## MCP catalog (когда что)
+## MCP catalog (what, when)
 
-| Задача                                                             | MCP / Tool                                                                                                                                                              |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Найти функцию / класс / импорт / паттерн в коде (AST)              | `mcp__ast-grep__find_code`, `find_code_by_rule`                                                                                                                         |
-| «Как устроено X» / архитектура / blast-radius / call-sites символа | `mcp__codegraph__codegraph_explore` (PRIMARY, спрашивай ПЕРЕД правкой), `codegraph_callers`, `codegraph_search`, `codegraph_node` — pre-indexed граф, дешевле grep/Read |
-| Проверить реальную схему БД / данные                               | `mcp__postgres__query` — вместо чтения `schema.ts`                                                                                                                      |
-| Документация NestJS / TanStack / Zod / React / Drizzle             | `mcp__context7__resolve-library-id` → `query-docs`                                                                                                                      |
-| Lint проверка на изменённых файлах                                 | `mcp__eslint__lint-files` — вместо ожидания pre-commit                                                                                                                  |
-| UI проверка после изменений                                        | `mcp__playwright__browser_navigate` + `browser_snapshot` + `browser_take_screenshot`                                                                                    |
-| Список изменённых файлов PR                                        | `mcp__github__get_pull_request_files`                                                                                                                                   |
-| Описание / статус / labels PR                                      | `mcp__github__get_pull_request`, `get_pull_request_status`                                                                                                              |
-| Reviews / inline-comments                                          | `mcp__github__get_pull_request_reviews`, `get_pull_request_comments`                                                                                                    |
-| Создать review (APPROVE / COMMENT)                                 | `mcp__github__create_pull_request_review`                                                                                                                               |
-| Labels на PR                                                       | Bash: `gh pr edit --add-label / --remove-label`                                                                                                                         |
-| Cross-session wake-up (> 30 мин)                                   | `mcp__scheduled-tasks__create_scheduled_task`                                                                                                                           |
+| Task                                                                 | MCP / Tool                                                                                                                                                               |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Find a function / class / import / pattern in code (AST)             | `mcp__ast-grep__find_code`, `find_code_by_rule`                                                                                                                          |
+| "How X works" / architecture / blast-radius / call-sites of a symbol | `mcp__codegraph__codegraph_explore` (PRIMARY, ask BEFORE editing), `codegraph_callers`, `codegraph_search`, `codegraph_node` — pre-indexed graph, cheaper than grep/Read |
+| Check the real DB schema / data                                      | `mcp__postgres__query` — instead of reading `schema.ts`                                                                                                                  |
+| NestJS / TanStack / Zod / React / Drizzle documentation              | `mcp__context7__resolve-library-id` → `query-docs`                                                                                                                       |
+| Lint check on changed files                                          | `mcp__eslint__lint-files` — instead of waiting for pre-commit                                                                                                            |
+| UI check after changes                                               | `mcp__playwright__browser_navigate` + `browser_snapshot` + `browser_take_screenshot`                                                                                     |
+| List of changed files in a PR                                        | `mcp__github__get_pull_request_files`                                                                                                                                    |
+| PR description / status / labels                                     | `mcp__github__get_pull_request`, `get_pull_request_status`                                                                                                               |
+| Reviews / inline comments                                            | `mcp__github__get_pull_request_reviews`, `get_pull_request_comments`                                                                                                     |
+| Create a review (APPROVE / COMMENT)                                  | `mcp__github__create_pull_request_review`                                                                                                                                |
+| Labels on a PR                                                       | Bash: `gh pr edit --add-label / --remove-label`                                                                                                                          |
+| Cross-session wake-up (> 30 min)                                     | `mcp__scheduled-tasks__create_scheduled_task`                                                                                                                            |
 
-## Native tools (когда MCP не подходит)
+## Native tools (when MCP does not fit)
 
-| Tool    | Когда                                                 | Когда НЕ                              |
-| ------- | ----------------------------------------------------- | ------------------------------------- |
-| `Read`  | Конкретный файл целиком / диапазон строк              | Поиск (есть ast-grep)                 |
-| `Edit`  | Точечные правки в существующем файле                  | Полная перезапись (используй `Write`) |
-| `Write` | Создать новый файл / полная перезапись                | Без `Read` существующего файла        |
-| `Bash`  | `git`, `gh`, `pnpm`, операции без MCP                 | Там где есть MCP                      |
-| `Agent` | Параллельная / изолированная задача (Master → агенты) | Простые однофайловые задачи           |
-| `Skill` | Вызов superpowers (см. `skills-invocation.md`)        | —                                     |
+| Tool    | When                                              | When NOT                              |
+| ------- | ------------------------------------------------- | ------------------------------------- |
+| `Read`  | A specific file whole / a line range              | Search (there is ast-grep)            |
+| `Edit`  | Pointed edits in an existing file                 | Full rewrite (use `Write`)            |
+| `Write` | Create a new file / full rewrite                  | Without a `Read` of the existing file |
+| `Bash`  | `git`, `gh`, `pnpm`, operations without an MCP    | Where an MCP exists                   |
+| `Agent` | Parallel / isolated task (Master → agents)        | Simple single-file tasks              |
+| `Skill` | Invoking superpowers (see `skills-invocation.md`) | —                                     |
 
-## Конкретные правила (mandatory)
+## Concrete rules (mandatory)
 
-- Перед написанием любого сервиса / хука / компонента → `ast-grep find_code` чтобы найти существующий аналог.
-- Перед изменением существующего экспортируемого символа → `codegraph_callers <symbol>` / `codegraph_explore` для blast-radius (резолвит cross-file ссылки точнее grep). Архитектурный вопрос «как работает X» → `codegraph_explore` ПЕРЕД чтением файлов.
-- Перед `pnpm --filter @crm/api db:generate` → `postgres query` для проверки текущей схемы.
-- После каждого Edit / Write на `.ts` / `.tsx` → `eslint lint-files` вместо ожидания pre-commit хука. Подробности — `.claude/rules/common/eslint-mcp-first.md`.
-- Для любого API NestJS / TanStack / Zod / Drizzle — сначала `context7`, не угадывать.
-- Перед написанием `getByRole` / `getByText` (E2E) → `playwright browser_snapshot` чтобы увидеть реальный DOM.
-- Для seed-данных в тестах (id, email, суммы) → `postgres query`, не хардкод.
+- Before writing any service / hook / component → `ast-grep find_code` to find an existing analog.
+- Before changing an existing exported symbol → `codegraph_callers <symbol>` / `codegraph_explore` for blast-radius (resolves cross-file references more precisely than grep). An architectural question "how does X work" → `codegraph_explore` BEFORE reading files.
+- Before `pnpm --filter @crm/api db:generate` → `postgres query` to check the current schema.
+- After each Edit / Write on `.ts` / `.tsx` → `eslint lint-files` instead of waiting for the pre-commit hook. Details — `.claude/rules/common/eslint-mcp-first.md`.
+- For any NestJS / TanStack / Zod / Drizzle API — `context7` first, do not guess.
+- Before writing `getByRole` / `getByText` (E2E) → `playwright browser_snapshot` to see the real DOM.
+- For seed data in tests (id, email, amounts) → `postgres query`, not hardcode.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/eslint-mcp-first.md` — детали ESLint MCP замены post-edit hook'а.
+- `.claude/rules/common/eslint-mcp-first.md` — details of the ESLint MCP replacement for the post-edit hook.
 - Superpowers skills invocation — `.claude/rules/common/skills-invocation.md`.
 
-## Источники
+## Sources
 
-- CLAUDE.md "MCP серверы — ИСПОЛЬЗОВАТЬ В ПЕРВУЮ ОЧЕРЕДЬ"
+- CLAUDE.md "MCP servers — USE FIRST"
 - Phase 2.5 deliverable: `docs/architecture/2026-06-03-phase2.5-deliverable.md`
 - ADR: `docs/architecture/2026-05-31-ecc-migration-design.md` §2.7 (MCP configs)

@@ -6,17 +6,17 @@ paths:
 
 # Testing Requirements
 
-Coverage policy задаётся per task-файл: каждая задача ОБЯЗАНА иметь явные AC на
-unit/E2E/regression тесты; для security-critical логики (auth/finance/RBAC) тесты
-MANDATORY, не optional. TDD workflow — через skill `superpowers:test-driven-development`.
+Coverage policy is set per task file: every task MUST have explicit AC for
+unit/E2E/regression tests; for security-critical logic (auth/finance/RBAC) tests are
+MANDATORY, not optional. TDD workflow — via the skill `superpowers:test-driven-development`.
 
 ## Test Types
 
-1. **Unit** — функции, утилиты, компоненты (Vitest)
-2. **Integration** — API endpoints + БД; RBAC guards проверять против **реальной БД**
-   (`crm_qa`) с assertion на 403/404 — mocked E2E НЕ доказывает backend guard
-   (урок повторялся 3×, см. lessons)
-3. **E2E** — критичные user flows (Playwright, `apps/e2e`; перед написанием spec —
+1. **Unit** — functions, utilities, components (Vitest)
+2. **Integration** — API endpoints + DB; verify RBAC guards against the **real DB**
+   (`crm_qa`) with an assertion on 403/404 — a mocked E2E does NOT prove a backend guard
+   (the lesson recurred 3×, see lessons)
+3. **E2E** — critical user flows (Playwright, `apps/e2e`; before writing a spec —
    skill `playwright-patterns`)
 
 ## Test Structure (AAA Pattern)
