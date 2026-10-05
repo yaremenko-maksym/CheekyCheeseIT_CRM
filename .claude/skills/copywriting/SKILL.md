@@ -1,161 +1,161 @@
 ---
 name: copywriting
-description: Копирайтинг для лендинга и продуктового UI IT-компании — заголовки, подзаголовки, CTA, микрокопия. Мультиязычно (en/uk/ru/es/pt).
-when_to_use: Пишешь или правишь любой текст, который увидит клиент или кандидат — заголовки лендинга, подзаголовки, CTA, пустые состояния, ошибки, тексты вакансий. Также при ревью такого текста.
+description: Copywriting for the landing page and product UI of an IT company — headlines, subheadlines, CTAs, microcopy. Multilingual (en/uk/ru/es/pt).
+when_to_use: You are writing or editing any text a client or candidate will see — landing headlines, subheadlines, CTAs, empty states, errors, vacancy texts. Also when reviewing such text.
 ---
 
-# Копирайтинг для IT-студии
+# Copywriting for an IT studio
 
-Проектный скилл. Собран потому, что готового не нашлось ни локально, ни в паках, а
-общий всё равно не знал бы ни наших правил, ни того, что текст живёт на пяти языках
-с разной длиной строки.
+A project skill. Assembled because nothing ready-made was found, neither locally nor in the packs, and a
+generic one would not know our rules anyway, nor that the text lives in five languages
+with different line lengths.
 
-**Позиционирование, из которого всё следует:** CheekyCheeseIT — аутсорс/аутстафф-студия
-senior-инженеров для международных продуктовых компаний. **Доменом не ограничены**;
-подтверждённый опыт на сегодня — AI, EdTech, E-Commerce (по каждому есть реальный кейс
-с реальными цифрами). Читатель заголовка — CTO или основатель, который за день просмотрел
-пять таких же лендингов. Он не читает, он **сканирует** и ищет причину не закрыть вкладку.
+**The positioning everything follows from:** CheekyCheeseIT is an outsource/outstaff studio of
+senior engineers for international product companies. **Not limited by domain**;
+the confirmed experience to date is AI, EdTech, E-Commerce (each has a real case
+with real numbers). The reader of the headline is a CTO or a founder who has looked through
+five such landings in a day. He does not read, he **scans** and looks for a reason not to close the tab.
 
-> **Различай «беремся» и «есть опыт» — это не синонимы.** Первое утверждать можно про любой
-> домен. Второе — только там, где есть кейс, потому что раздел кейсов на лендинге прямо
-> заявляет: имена скрыты по соглашению, **но задачи, решения и цифры ровно те, что были**.
-> Один придуманный кейс превращает эту фразу в ложь, обращённую к клиентам, и обесценивает
-> все остальные. Не хватает факта — вопрос владельцу, а не догадка.
+> **Distinguish "we take on" and "we have experience" — these are not synonyms.** The first can
+> be asserted about any domain. The second — only where there is a case, because the cases section on the landing directly
+> states: the names are hidden by agreement, **but the tasks, solutions and numbers are exactly what they were**.
+> One invented case turns this phrase into a lie addressed to clients, and devalues
+> all the others. A fact is missing — a question to the owner, not a guess.
 >
-> Обновлено 2026-08-05 (PR #489). До этого здесь стояло «Три домена: AI, EdTech,
-> E-Commerce» — это позиционирование владелец отменил, и формулировка успела бы разойтись
-> по всем будущим задачам на текст, если бы её не поймали при ревью того же PR.
+> Updated 2026-08-05 (PR #489). Before this, "Three domains: AI, EdTech,
+> E-Commerce" stood here — the owner cancelled that positioning, and the wording would have spread
+> across all future text tasks had it not been caught during the review of the same PR.
 
 ---
 
-## 1. Тест на подмену логотипа (главный)
+## 1. The logo-swap test (the main one)
 
-Закрой название компании. Если под текстом можно поставить логотип любого конкурента и
-ничего не сломается — текст пустой, сколько бы он ни был отшлифован.
-
-```
-❌ «Мы создаём продукты, которые масштабируются»   → подходит всем
-❌ «Работаем в любых доменах»                      → подходит всем
-✅ «Только сеньоры. Отгрузка каждую неделю»        → подходит нам
-```
-
-Проверка применяется к КАЖДОМУ заголовку по отдельности, а не к странице целиком.
-Страница может быть конкретной, а половина заголовков в ней — взаимозаменяемым наполнителем.
-
-## 2. Заголовок — это ярлык, а не предложение
-
-- **Одна мысль на заголовок.** Две мысли — это два заголовка или заголовок и подзаголовок.
-- **Потолок ~6 слов** для главного экрана, ~8 для секционных. Не жёсткий лимит, а сигнал:
-  длиннее — почти всегда есть что выбросить.
-- **Точка в конце не ставится.** Точка говорит «это предложение, читай дальше»; заголовок —
-  это подпись к разделу. Вопросительный и восклицательный знаки — по смыслу, они меняют
-  интонацию, а точка не добавляет ничего. Многоточие — почти всегда манерность.
-- **Первые два-три слова обычно выбрасываются.** «Мы — студия, которая помогает…» →
-  «Помогаем…» → чаще всего и это лишнее. Начинай с существительного или глагола, несущего смысл.
-
-## 3. Конкретное бьёт абстрактное
-
-Существительные, которые можно потрогать, и глаголы, которые описывают действие.
-Абстракции («решения», «подходы», «возможности», «экспертиза») — почти всегда признак
-того, что автор не решил, что именно хочет сказать.
-
-Утверждение требует опоры рядом: число, механизм или пример. Без опоры это похвальба,
-а похвальба читается как шум и снижает доверие к соседним утверждениям, в том числе
-к правдивым.
+Cover the company name. If you can put any competitor's logo under the text and
+nothing breaks — the text is empty, no matter how polished it is.
 
 ```
-❌ «Высокая производительность»
-✅ «p95 — 80 мс вместо 400»
+❌ "We build products that scale"            → fits everyone
+❌ "We work in any domain"                   → fits everyone
+✅ "Seniors only. Shipping every week"       → fits us
 ```
 
-## 4. Признаки машинного текста (вычищать)
+The test is applied to EACH headline separately, not to the page as a whole.
+A page can be concrete while half its headlines are interchangeable filler.
 
-Живой текст неровный. Машинный — гладкий, ритмически однородный и составлен из
-универсальных положительных слов.
+## 2. A headline is a label, not a sentence
 
-- **Слова-пустышки:** «раскрыть потенциал», «бесшовный», «передовой», «инновационный»,
-  «в современном быстро меняющемся мире», «вывести на новый уровень», «трансформировать»,
-  «полный спектр», «под ключ» (если не буквально).
-- **Триады.** «Быстро, надёжно, удобно» — три прилагательных подряд обнуляют друг друга.
-  Оставь одно, самое неожиданное, и подопри его.
-- **Одинаковый ритм.** Три абзаца по три предложения одной длины читаются как сгенерированные.
-  Чередуй: короткая фраза. Затем длиннее, с придаточным, которое договаривает мысль.
-- **Симметричные конструкции** («не просто X, а Y») хороши по одной на страницу, а не в каждом блоке.
+- **One thought per headline.** Two thoughts are two headlines or a headline and a subheadline.
+- **A ceiling of ~6 words** for the hero screen, ~8 for section ones. Not a hard limit but a signal:
+  longer — there is almost always something to throw out.
+- **No period at the end.** A period says "this is a sentence, read on"; a headline
+  is a caption for a section. A question mark and an exclamation mark — by meaning, they change
+  the intonation, but a period adds nothing. An ellipsis — almost always affectation.
+- **The first two or three words are usually thrown out.** "We are a studio that helps…" →
+  "We help…" → most often even this is extra. Start with a noun or a verb that carries meaning.
 
-## 5. Пять языков — это пять оригиналов, а не перевод
+## 3. The concrete beats the abstract
 
-> **CRM (с 2026-09-19):** у продукта два языка — `uk` (исходный текст в коде и в каталоге) и `en`. Всё
-> ниже действует на них так же: английский каталог пишется заново, а не переводится; утверждение
-> каждой строки одинаковое в обоих; длину мерить на 320 px для более длинного языка (украинский
-> длиннее английского на 15–30 %). Русского текста в мигрированных модулях CRM нет.
+Nouns you can touch, and verbs that describe an action.
+Abstractions ("solutions", "approaches", "capabilities", "expertise") — almost always a sign
+that the author has not decided what exactly they want to say.
 
-**Главное правило: текст пишется на языке заново, а не переводится.** Дословный перевод
-удачного английского заголовка почти всегда даёт по-русски громоздкую кальку, которая
-формально верна и при этом сразу читается как переведённая.
+A claim requires support next to it: a number, a mechanism or an example. Without support it is bragging,
+and bragging reads as noise and lowers trust in the neighboring claims, including
+the true ones.
 
-**Но заново пишется формулировка, а НЕ утверждение.** Это ограничение важнее самого правила
-и нарушается первым. «Написать на языке заново» меняет то, _как_ сказано, и никогда — _что_
-обещано. Если английский заголовок называет периодичность, а русский её теряет, это не
-адаптация под язык, а два разных обещания на одном сайте.
+```
+❌ "High performance"
+✅ "p95 — 80 ms instead of 400"
+```
 
-Механика, которая это ловит: **до написания выпиши утверждение каждого заголовка одной
-строкой** («мы делаем сложное» + «каждую неделю»), и после написания проверь, что все пять
-языков несут тот же набор. Расходится — переписывай, а не объясняй.
+## 4. Signs of machine text (to scrub out)
 
-Отговорка «в этот язык не влезает» принимается **только после измерения**. Проверено на
-живом лендинге: заголовок, про который автор написал «периодичность не влезает в русский,
-поэтому ушла в абзац», после подстановки «еженедельно» дал ноль новых дефектов вёрстки
-на всех семи ширинах. Не влезало не по вёрстке, а по недосмотру.
+Living text is uneven. Machine text is smooth, rhythmically uniform and assembled from
+universal positive words.
 
-Практические следствия:
+- **Filler words:** "unlock potential", "seamless", "cutting-edge", "innovative",
+  "in today's fast-changing world", "take to the next level", "transform",
+  "full spectrum", "turnkey" (unless literally).
+- **Triads.** "Fast, reliable, convenient" — three adjectives in a row cancel each other out.
+  Keep one, the most unexpected, and prop it up.
+- **The same rhythm.** Three paragraphs of three sentences of the same length read as generated.
+  Alternate: a short phrase. Then longer, with a subordinate clause that finishes the thought.
+- **Symmetric constructions** ("not just X, but Y") are good one per page, not in every block.
 
-- **Длина расходится.** ru/uk длиннее английского примерно на 15–30%, es/pt — на 20–25%.
-  Заголовок из шести английских слов превращается в девять русских и переносится на две
-  строки на телефоне. Считай длину **в символах для самого длинного языка**, а не в словах
-  для английского.
-- **Проверять надо вёрстку, а не только смысл.** Заголовок, красивый в словаре, может дать
-  висячее слово на последней строке при 320px. Это дефект текста, а не вёрстки: чинится
-  переформулировкой.
-- **Регистр обращения фиксируется один раз на язык** и дальше не плавает: ru/uk — «вы»
-  со строчной, без заискивания; es/pt — решение tú/usted принимается явно и держится везде.
-- **Идиомы не переезжают.** Английская игра слов, у которой нет местного аналога, заменяется
-  другим приёмом на этом языке, а не калькируется.
-- **Термины индустрии живут как заимствования — и это приветствуется.** «Deploy», «SaaS»,
-  «AI» на английском; «оффер», «дедлайн», «фідбек», «деплой», «мітинг», «апрув» на украинском и
-  русском — живой язык индустрии, которым говорят читатель и команда. Насильный перевод
-  («розгортання» вместо «деплой») звучит как методичка и читается хуже заимствования.
-  Англицизм-**термин** находкой не считается — ни в ревью, ни в самопроверке.
-  _(Решение владельца 2026-09-26: заимствования допускаются и приветствуются; граница — только
-  термины, не доменные решения.)_
-- **Граница проходит по единству доменного термина, а не по происхождению слова.** Там, где у
-  понятия уже выбрана каноническая форма (глоссарий `CONTEXT.md`), заимствование-**подмена** —
-  находка: «користувач», а не «юзер»; «співробітник», а не «воркер»; «частка», а не «шер»; «USDT»,
-  а не «крипта». Дефект здесь не в том, что слово иностранное, а в том, что одно понятие
-  называется двумя словами на соседних экранах — навигация по продукту ломается. Сленг вместо
-  точного термина («джун» вместо роли JUNIOR, «крипта» вместо USDT) — тот же дефект.
+## 5. Five languages are five originals, not a translation
 
-## 6. Иерархия страницы
+> **CRM (since 2026-09-19):** the product has two languages — `uk` (the source text in the code and in the catalog) and `en`. Everything
+> below applies to them the same way: the English catalog is written anew, not translated; the claim of
+> each string is identical in both; measure the length at 320 px for the longer language (Ukrainian is
+> longer than English by 15–30%). There is no Russian text in the migrated CRM modules.
 
-У каждого экрана есть надзаголовок (eyebrow), заголовок и текст. Они не должны
-пересказывать друг друга: если заголовок можно удалить и смысл не изменится — он лишний.
+**The main rule: the text is written anew in the language, not translated.** A literal translation
+of a good English headline almost always yields in Russian a clumsy calque that is
+formally correct and at the same time reads immediately as translated.
 
-- **Eyebrow** — категория, 1–3 слова, назывной падеж.
-- **H2** — утверждение, ради которого читатель остановился.
-- **Абзац** — доказательство или разворот утверждения. Здесь точки СТАВЯТСЯ, это проза.
-- **CTA** — глагол + объект («Обсудить проект»), не «Отправить» и не «Подробнее».
+**But it is the wording that is written anew, NOT the claim.** This constraint is more important than the rule itself
+and is broken first. "Write anew in the language" changes _how_ it is said, and never — _what_
+is promised. If the English headline names a cadence and the Russian loses it, that is not
+an adaptation to the language but two different promises on one site.
 
-## 7. Порядок работы
+The mechanic that catches this: **before writing, write out the claim of each headline in one
+line** ("we do the complex" + "every week"), and after writing check that all five
+languages carry the same set. It diverges — rewrite, do not explain.
 
-1. Выписать текущие заголовки в один список **без окружения** — так видно повторы и вату,
-   которые в вёрстке маскируются картинками.
-2. Прогнать каждый через тест на подмену логотипа. Провалившиеся переписать первыми.
-3. Написать английский как опорный, затем **написать заново** остальные четыре.
-4. Проверить длину самого длинного языка на 320px — глазами, а не по счётчику символов.
-5. Отдать на ревью `copy-reviewer` — самопроверка на своём же тексте не работает.
+The excuse "it does not fit in this language" is accepted **only after measurement**. Verified on
+a live landing: a headline about which the author wrote "the cadence does not fit in Russian,
+so it went into a paragraph", after substituting "weekly" gave zero new layout defects
+at all seven widths. It did not fit not by layout but by oversight.
 
-## Связанные
+Practical consequences:
 
-- `.claude/agents/copy-reviewer.md` — обязательное ревью текста по рубрике.
-- `.claude/skills/design-system/` — визуальная часть той же проверки (типографика, ритм).
-- `.claude/rules/common/responsive-design.md` — 320px как обязательный класс проверки.
-- `.claude/skills/frontend-design-direction/` — тон и аудитория до написания текста.
+- **The length diverges.** ru/uk are longer than English by about 15–30%, es/pt — by 20–25%.
+  A headline of six English words turns into nine Russian ones and wraps onto two
+  lines on a phone. Count the length **in characters for the longest language**, not in words
+  for English.
+- **You have to check the layout, not only the meaning.** A headline, beautiful in a dictionary, can give
+  a widow word on the last line at 320px. This is a defect of the text, not the layout: it is fixed
+  by rewording.
+- **The register of address is fixed once per language** and does not float afterward: ru/uk — the formal "you" (vy)
+  in lowercase, without groveling; es/pt — the tú/usted decision is made explicitly and held everywhere.
+- **Idioms do not move over.** An English pun that has no local equivalent is replaced
+  by another device in that language, not calqued.
+- **Industry terms live as borrowings — and this is encouraged.** "Deploy", "SaaS",
+  "AI" in English; "ofer" (offer), "dedlain" (deadline), "fidbek" (feedback), "deploi" (deploy), "miting" (meeting), "apruv" (approve) in Ukrainian and
+  Russian — the living language of the industry, which the reader and the team speak. A forced translation
+  ("rozgortannya" instead of "deploy") sounds like a textbook and reads worse than the borrowing.
+  An anglicism-**term** is not considered a finding — neither in review nor in self-check.
+  _(Owner decision 2026-09-26: borrowings are allowed and encouraged; the boundary is only
+  terms, not domain decisions.)_
+- **The boundary runs along the unity of the domain term, not along the origin of the word.** Where a
+  concept already has a chosen canonical form (the `CONTEXT.md` glossary), a borrowing-**substitution** is a
+  finding: "korystuvach" (the Ukrainian for user), not "yuzer" (a borrowing of 'user'); "spivrobitnyk" (employee), not "vorker" (a borrowing of 'worker'); "chastka" (share), not "sher" (a borrowing of 'share'); "USDT",
+  not "krypta" ('crypto'). The defect here is not that the word is foreign, but that one concept
+  is called by two words on neighboring screens — navigation through the product breaks. Slang instead of
+  a precise term ("dzhun" instead of the JUNIOR role, "krypta" instead of USDT) — the same defect.
+
+## 6. The page hierarchy
+
+Each screen has an eyebrow, a headline and body text. They must not
+retell each other: if the headline can be deleted and the meaning does not change — it is extra.
+
+- **Eyebrow** — a category, 1–3 words, nominative case.
+- **H2** — the claim the reader stopped for.
+- **Paragraph** — the proof or the unfolding of the claim. Here periods ARE placed, it is prose.
+- **CTA** — a verb + an object ("Discuss the project"), not "Send" and not "Learn more".
+
+## 7. The order of work
+
+1. Write out the current headlines in one list **without the surroundings** — this makes visible the repeats and the fluff
+   that are masked by images in the layout.
+2. Run each through the logo-swap test. Rewrite the failed ones first.
+3. Write English as the anchor, then **write anew** the other four.
+4. Check the length of the longest language at 320px — by eye, not by a character counter.
+5. Give it to `copy-reviewer` for review — self-check on your own text does not work.
+
+## Related
+
+- `.claude/agents/copy-reviewer.md` — mandatory text review by the rubric.
+- `.claude/skills/design-system/` — the visual part of the same check (typography, rhythm).
+- `.claude/rules/common/responsive-design.md` — 320px as a mandatory check class.
+- `.claude/skills/frontend-design-direction/` — tone and audience before writing the text.

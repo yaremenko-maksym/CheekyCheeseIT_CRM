@@ -1,7 +1,7 @@
 ---
 name: code-review-discipline
-description: 'When code-reviewer or security-reviewer agent готовит PR review для CRM. Содержит DELTA патернов поверх ECC code-reviewer.md / security-reviewer.md — owner==reviewer конфликт (REQUEST_CHANGES запрещён, использовать COMMENT + Verdict: BLOCK first-line), write-then-post resilience (MCP hang recovery), zone-of-write violations → automatic BLOCK. Использовать перед каждым post review, особенно когда выводы блокирующие.'
-when_to_use: "Use when code-reviewer or security-reviewer formulates a Verdict and posts a PR review for the CRM. Examples: 'постю review на PR', 'нужен Verdict BLOCK', 'owner==reviewer, как ревьюить свой PR', 'zone-of-write нарушение в diff', 'write-then-post чтобы не потерять review при MCP hang'."
+description: 'When the code-reviewer or security-reviewer agent prepares a PR review for the CRM. Contains a DELTA of patterns on top of ECC code-reviewer.md / security-reviewer.md — the owner==reviewer conflict (REQUEST_CHANGES forbidden, use COMMENT + Verdict: BLOCK first-line), write-then-post resilience (MCP hang recovery), zone-of-write violations → automatic BLOCK. Use before every posted review, especially when the conclusions are blocking.'
+when_to_use: "Use when the code-reviewer or security-reviewer formulates a Verdict and posts a PR review for the CRM. Examples: 'posting a review on a PR', 'need Verdict BLOCK', 'owner==reviewer, how to review my own PR', 'zone-of-write violation in the diff', 'write-then-post so the review is not lost on an MCP hang'."
 allowed-tools:
   - Read
   - Grep
@@ -13,23 +13,23 @@ allowed-tools:
 
 # Code Review Discipline (delta vs ECC)
 
-Project-specific дополнения к ECC `code-reviewer.md` Pre-Report Gate. **НЕ дублирует** ECC — лифтит только delta, которая не покрыта upstream.
+Project-specific additions to the ECC `code-reviewer.md` Pre-Report Gate. **Does NOT duplicate** ECC — lifts only the delta not covered upstream.
 
 ## When to invoke
 
-- Перед `mcp__github__create_pull_request_review` (любым review event)
-- При формулировании Verdict для PR (BLOCK / APPROVE)
-- Когда diff PR содержит файлы вне zone-of-write Coder'а
-- При исследовании MCP hang во время post review
-- Если предыдущий review «провисел» > 2× expected duration без появления на PR
+- Before `mcp__github__create_pull_request_review` (any review event)
+- When formulating a Verdict for a PR (BLOCK / APPROVE)
+- When the PR diff contains files outside the Coder's zone-of-write
+- When investigating an MCP hang during a posted review
+- If a previous review "hung" > 2× the expected duration without appearing on the PR
 
 ## Patterns
 
 ### 1. Verdict: BLOCK first-line (owner==reviewer constraint)
 
-**Правило:** Для блокировки PR использовать `event: COMMENT` + первая строка тела `Verdict: BLOCK`. **НЕ** использовать `event: REQUEST_CHANGES`.
+**Rule:** To block a PR use `event: COMMENT` + the first line of the body `Verdict: BLOCK`. Do **NOT** use `event: REQUEST_CHANGES`.
 
-**Источник проблемы:** GitHub API запрещает при reviewer-аккаунт == author **оба** блокирующих/одобряющих события: `REQUEST_CHANGES` и `APPROVE`. В CRM ВСЕ AI-агенты работают под единым owner — поэтому и то и другое всегда вернёт 422 (`APPROVE` → `"Can not approve your own pull request"`, проверено на PR #536 2026-08-17). Рабочий вариант ровно один: `event: COMMENT` + вердикт первой строкой.
+**Source of the problem:** The GitHub API forbids, when the reviewer account == author, **both** blocking/approving events: `REQUEST_CHANGES` and `APPROVE`. In the CRM ALL AI agents work under a single owner — so both will always return 422 (`APPROVE` → `"Can not approve your own pull request"`, verified on PR #536 2026-08-17). There is exactly one working option: `event: COMMENT` + the verdict on the first line.
 
 **Implementation:**
 
@@ -41,30 +41,30 @@ mcp__github__create_pull_request_review({
 })
 ```
 
-**Decision rule для Master:**
+**Decision rule for Master:**
 
-- Master парсит `Verdict: BLOCK` в первой строке → снимает `awaiting-pm-review` → ставит `do-not-merge` → создаёт fix-task для Coder.
-- `Verdict: APPROVE` (или отсутствие BLOCK marker) → продолжает Mode 2 aggregate verdict logic.
+- Master parses `Verdict: BLOCK` in the first line → removes `awaiting-pm-review` → puts `do-not-merge` → creates a fix-task for the Coder.
+- `Verdict: APPROVE` (or the absence of a BLOCK marker) → continues the Mode 2 aggregate verdict logic.
 
 ### 2. Write-then-post pattern (MCP hang recovery)
 
-**Правило:** Сохранить body review в `/tmp/<role>-output/pr-<N>-<TS>.md` **ДО** `mcp__github__create_pull_request_review`. MCP может зависать > 10 мин (real incident 2026-05-23) → watchdog crash → review теряется. Файл выживает crash, доступен для manual recovery.
+**Rule:** Save the review body to `/tmp/<role>-output/pr-<N>-<TS>.md` **BEFORE** `mcp__github__create_pull_request_review`. MCP can hang > 10 min (real incident 2026-05-23) → watchdog crash → the review is lost. The file survives the crash, is available for manual recovery.
 
 **Implementation order:**
 
-1. Сформировал body string.
-2. `Write` файл `/tmp/reviewer-output/pr-<N>-<TS>.md` с body.
+1. Formed the body string.
+2. `Write` the file `/tmp/reviewer-output/pr-<N>-<TS>.md` with the body.
 3. `mcp__github__create_pull_request_review` — Attempt #1.
-4. Если MCP hangs / fails → `gh api repos/.../pulls/<N>/reviews -X POST -F event=COMMENT -F body=@/tmp/reviewer-output/pr-<N>-<TS>.md` — Attempt #2 (Bash fallback).
-5. Если оба провалились → Master recovery: Master читает файл и постит вручную.
+4. If MCP hangs / fails → `gh api repos/.../pulls/<N>/reviews -X POST -F event=COMMENT -F body=@/tmp/reviewer-output/pr-<N>-<TS>.md` — Attempt #2 (Bash fallback).
+5. If both failed → Master recovery: Master reads the file and posts it manually.
 
-**Для security-reviewer:** Аналогично, путь `/tmp/security-reviewer-output/pr-<N>-<TS>.md`.
+**For security-reviewer:** Similarly, the path `/tmp/security-reviewer-output/pr-<N>-<TS>.md`.
 
 ### 3. Zone-of-write violation → automatic BLOCK
 
-**Правило:** Если diff PR содержит изменения вне zone-of-write Coder'а — Verdict: BLOCK с указанием конкретного файла.
+**Rule:** If the PR diff contains changes outside the Coder's zone-of-write — Verdict: BLOCK with the specific file named.
 
-**Coder forbidden zones (от 2026-05-23 D1-D4 RCA):**
+**Coder forbidden zones (from the 2026-05-23 D1-D4 RCA):**
 
 - `scripts/pm/**` (Master-only)
 - `scripts/devops/**` (DevOps-only)
@@ -72,7 +72,7 @@ mcp__github__create_pull_request_review({
 - `docs/business/**` (BA-only)
 - `.github/workflows/**` (DevOps-only)
 - `.claude/hooks/**` (DevOps + Architect)
-- Чужие task-файлы
+- Others' task files
 
 **Implementation:**
 
@@ -80,115 +80,115 @@ mcp__github__create_pull_request_review({
 gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|scripts/devops/|.claude/agents/|docs/business/|\.github/workflows/|\.claude/hooks/)'
 ```
 
-Если есть match → Verdict: BLOCK + body содержит конкретные file paths и ссылку на `coder.md` "Zone-of-write" секцию.
+If there is a match → Verdict: BLOCK + the body contains the specific file paths and a link to the `coder.md` "Zone-of-write" section.
 
 ### 4. Confidence-tagged findings (cross-reference ECC)
 
-**Уже в ECC code-reviewer.md** — этот skill **НЕ дублирует** HIGH/MED/LOW gate. Reference: `.claude/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)".
+**Already in ECC code-reviewer.md** — this skill **does NOT duplicate** the HIGH/MED/LOW gate. Reference: `.claude/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)".
 
-**Delta поверх ECC:**
+**Delta on top of ECC:**
 
-- HIGH с zone-of-write violation = automatic BLOCK (этот файл §3).
-- MED finding на `--no-verify` push (Coder обошёл pre-push hook) = BLOCK (это P0 invariant для CRM, см. coder/lessons.md 2026-06-02).
-- LOW finding на «pre-existing flake» rationalization (Coder списал E2E на flake без isolated rerun proof) = MED escalation (см. coder/lessons.md 2026-06-02).
+- HIGH with a zone-of-write violation = automatic BLOCK (this file §3).
+- A MED finding on a `--no-verify` push (Coder bypassed the pre-push hook) = BLOCK (this is a P0 invariant for the CRM, see coder/lessons.md 2026-06-02).
+- A LOW finding on a "pre-existing flake" rationalization (Coder wrote off an E2E as a flake without isolated rerun proof) = MED escalation (see coder/lessons.md 2026-06-02).
 
 ### 5. Owner==reviewer also affects approve flow
 
-**Правило:** В CRM единый AI-owner — это значит `event: APPROVE` тоже не может прийти от того же account что author. Когда code-reviewer/security-reviewer хочет APPROVE — использовать `event: COMMENT` + первая строка `Verdict: APPROVE`. Master парсит так же как BLOCK.
+**Rule:** In the CRM there is a single AI owner — this means `event: APPROVE` also cannot come from the same account as the author. When code-reviewer/security-reviewer wants APPROVE — use `event: COMMENT` + the first line `Verdict: APPROVE`. Master parses it the same way as BLOCK.
 
-**Real impact:** GitHub UI на PR покажет review как "comment" с emoji, но aggregate verdict logic Master работает корректно (парсит Verdict: line, не event type).
+**Real impact:** The GitHub UI on the PR will show the review as a "comment" with an emoji, but Master's aggregate verdict logic works correctly (parses the Verdict: line, not the event type).
 
-### 6. Свой чекаут — и доказательство, что он соответствует ревьюируемому коммиту
+### 6. Your own checkout — and proof that it matches the reviewed commit
 
-**Правило:** ревьюер по умолчанию **не берёт worktree** — он читает diff через
-`gh pr diff` / GitHub MCP. Но как только нужно **запустить, замерить или откатить**
-код (проверка красноты, воспроизведение, измерение) — ревьюер делает **СВОЙ**
-чекаут, путь которого выведен из **его собственного** идентификатора, и работает
-только в нём.
+**Rule:** the reviewer by default **does not take a worktree** — he reads the diff via
+`gh pr diff` / GitHub MCP. But as soon as he needs to **run, measure or roll back**
+code (checking redness, reproducing, measuring) — the reviewer makes **HIS OWN**
+checkout, whose path is derived from **his own** identifier, and works
+only in it.
 
-**Источник проблемы (два инцидента, оба стоили циклов):**
+**Source of the problem (two incidents, both cost cycles):**
 
-- **PR #493, 2026-08-07.** Два ревьюера получили один и тот же рабочий каталог
-  (`/tmp/rev<PR>` — путь из номера PR одинаков для всех, кто ревьюит этот PR).
-  Посреди проверки в каталоге security-ревьюера появились чужие изменения:
-  впрыснутая min-width и посторонний тестовый файл — след параллельного
-  code-ревьюера. Он заметил и перепрогнал замеры, но мог и не заметить: тогда
-  мутация одного агента попала бы в выводы другого **как свойство кода**. В том же
-  PR это уже случилось: «858 px» ушло в отчёт как измерение живого компонента,
-  будучи следствием собственной инъекции.
-- **PR #551, 2026-08-17.** Ревьюер делал проверку красноты — откатывал файл до
-  предыдущей версии — **в живом worktree работающего в тот момент кодера**.
-  Совпади тайминг иначе: либо испорчена работа кодера, либо ревью прочитало
-  мутированный код и вынесло вердикт о нём.
+- **PR #493, 2026-08-07.** Two reviewers got the same working directory
+  (`/tmp/rev<PR>` — the path from the PR number is the same for everyone reviewing this PR).
+  Mid-check, someone else's changes appeared in the security reviewer's directory:
+  an injected min-width and an extraneous test file — the trace of a parallel
+  code reviewer. He noticed and re-ran the measurements, but he might not have: then
+  one agent's mutation would have gotten into another's conclusions **as a property of the code**. In the same
+  PR this already happened: "858 px" went into the report as a measurement of a live component,
+  being a consequence of his own injection.
+- **PR #551, 2026-08-17.** A reviewer was checking redness — rolling a file back to
+  the previous version — **in the live worktree of a coder working at that moment**.
+  Had the timing been different: either the coder's work would be spoiled, or the review read
+  mutated code and rendered a verdict on it.
 
 **Implementation:**
 
 ```bash
-# 1. каталог из СВОЕГО идентификатора, не из номера PR.
-#    $SCRATCH — session-scratchpad, который харнесс выдаёт лично тебе;
-#    если ты в worktree — годится и `git rev-parse --show-toplevel`.
+# 1. the directory from YOUR OWN identifier, not from the PR number.
+#    $SCRATCH — the session scratchpad the harness gives you personally;
+#    if you are in a worktree — `git rev-parse --show-toplevel` works too.
 CHECKOUT="$SCRATCH/checkout"
 
-# 2. реальный head-коммит PR, а не "последний main"
+# 2. the real head commit of the PR, not the "latest main"
 SHA=$(gh pr view <N> --json headRefOid --jq .headRefOid)
 git worktree add --detach "$CHECKOUT" "$SHA"
 
-# 3. ОБЯЗАТЕЛЬНО перед любым замером: дерево == ревьюируемый коммит и чистое.
-#    Одной командой — ровно этот шаг спас #493.
+# 3. MANDATORY before any measurement: the tree == the reviewed commit and clean.
+#    One command — this exact step saved #493.
 git -C "$CHECKOUT" status --porcelain && git -C "$CHECKOUT" rev-parse HEAD
-#    пусто + SHA совпал → мерить можно. Непусто → это НЕ тот код, что в PR:
-#    останавливайся, а не «наверное, неважно».
+#    empty + SHA matched → measuring is allowed. Non-empty → this is NOT the code in the PR:
+#    stop, rather than "probably unimportant".
 
-# 4. закончил — убери за собой СВОЙ чекаут (чужие не трогай):
+# 4. finished — clean up YOUR OWN checkout (do not touch others'):
 git worktree remove "$CHECKOUT"
 ```
 
-**Обязательная строка в теле review** (без неё замеры непроверяемы):
+**A mandatory line in the review body** (without it the measurements are unverifiable):
 
 ```
 Checkout: <abs path> @ <sha> (clean)
 ```
 
-Два ревьюера с одинаковым `Checkout:` = коллизия каталогов, видна Master в аггрегате.
+Two reviewers with the same `Checkout:` = a directory collision, visible to Master in the aggregate.
 
-**Красные линии:**
+**Red lines:**
 
-- Не мутировать чужое дерево — никогда. Мутация ради проверки красноты делается в своём чекауте.
-- Не работать в общем чекауте (каталог оркестратора). `pre:bash:cross-agent-blast` отказывает, но полагаться на хук — второй эшелон, не первый.
-- Не удалять чужой worktree; свой — убрать за собой.
+- Do not mutate someone else's tree — never. Mutation for a redness check is done in your own checkout.
+- Do not work in the shared checkout (the orchestrator's directory). `pre:bash:cross-agent-blast` refuses, but relying on the hook — the second echelon, not the first.
+- Do not delete someone else's worktree; your own — clean up after yourself.
 
-### 7. Нумерация находок (чтобы их можно было перенести поштучно)
+### 7. Numbering the findings (so they can be transferred one by one)
 
-**Правило:** каждая находка получает стабильный идентификатор `<ROLE>-<SEV>-<N>`
-(`CR-H-1`, `SR-M-2`, …) **в момент написания review**, а в конце тела —
-контрольная строка:
+**Rule:** each finding gets a stable identifier `<ROLE>-<SEV>-<N>`
+(`CR-H-1`, `SR-M-2`, …) **at the moment the review is written**, and at the end of the body —
+a control line:
 
 ```
 Findings: CR-H-1, CR-H-2, CR-M-1 (3)
 ```
 
-**Зачем:** на PR #504 (2026-08-11) оркестратор при составлении списка «что
-доделать» **потерял находку безопасности** — обход проверки глифов. Не отклонил,
-а просто не перенёс; кодер её закономерно не сделал. Поймалось только сверкой
-отчёта с исходным ревью. Нумерация + контрольная строка превращают эту сверку в
-сравнение двух чисел.
+**Why:** on PR #504 (2026-08-11) the orchestrator, when compiling the "what to
+finish" list, **lost a security finding** — a bypass of the glyph check. He did not reject it,
+he simply did not transfer it; the coder predictably did not do it. It was caught only by comparing
+the report with the original review. Numbering + a control line turn this comparison into a
+comparison of two numbers.
 
-Полное правило (кто переносит, кто отчитывается, почему не CI-гейт) —
+The full rule (who transfers, who reports, why not a CI gate) —
 `.claude/rules/common/review-findings-transfer.md`.
 
 ## Anti-patterns
 
-| ❌ Don't                                                                   | ✅ Do                                                                         |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `event: REQUEST_CHANGES` для блокировки ИЛИ `event: APPROVE` для одобрения | `event: COMMENT` + первая строка `Verdict: BLOCK` \| `Verdict: APPROVE`       |
-| `mcp__github__create_pull_request_review` без предварительного `Write`     | Write file → MCP → gh fallback → Master recovery (chain)                      |
-| Игнор diff trojan-changes в `scripts/pm/**` / `.github/workflows/**`       | Auto-BLOCK + конкретные file paths в body                                     |
-| Post review с LOW finding в теле                                           | LOW only в summary для Master, НЕ в PR body (см. ECC Pre-Report Gate)         |
-| BLOCK без указания конкретной строки кода / link to rule                   | Каждый HIGH finding с file:line + reference на `.clauderules` / coder.md zone |
-| Работать в каталоге из номера PR (`/tmp/rev<PR>`) или в чужом worktree     | Свой чекаут из своего идентификатора + строка `Checkout: <path> @ <sha>` (§6) |
-| Откатывать файл для проверки красноты в живом дереве работающего агента    | Тот же откат в СВОЁМ чекауте нужного коммита (§6)                             |
-| Мерить/запускать, не проверив, что дерево == ревьюируемому коммиту         | `git status --porcelain` + `rev-parse HEAD` до замера (§6, спасло #493)       |
-| Находки без идентификаторов — их нельзя перенести поштучно                 | `CR-H-1` … + контрольная строка `Findings: … (N)` (§7)                        |
+| ❌ Don't                                                                                 | ✅ Do                                                                                 |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `event: REQUEST_CHANGES` to block OR `event: APPROVE` to approve                         | `event: COMMENT` + the first line `Verdict: BLOCK` \| `Verdict: APPROVE`              |
+| `mcp__github__create_pull_request_review` without a prior `Write`                        | Write file → MCP → gh fallback → Master recovery (chain)                              |
+| Ignoring diff trojan-changes in `scripts/pm/**` / `.github/workflows/**`                 | Auto-BLOCK + specific file paths in the body                                          |
+| Posting a review with a LOW finding in the body                                          | LOW only in the summary for Master, NOT in the PR body (see ECC Pre-Report Gate)      |
+| BLOCK without naming the specific line of code / link to a rule                          | Each HIGH finding with file:line + a reference to `.clauderules` / coder.md zone      |
+| Working in a directory from the PR number (`/tmp/rev<PR>`) or in someone else's worktree | Your own checkout from your own identifier + the line `Checkout: <path> @ <sha>` (§6) |
+| Rolling a file back for a redness check in the live tree of a working agent              | The same rollback in YOUR OWN checkout of the needed commit (§6)                      |
+| Measuring/running without checking that the tree == the reviewed commit                  | `git status --porcelain` + `rev-parse HEAD` before measuring (§6, saved #493)         |
+| Findings without identifiers — they cannot be transferred one by one                     | `CR-H-1` … + the control line `Findings: … (N)` (§7)                                  |
 
 ## References
 
@@ -201,9 +201,9 @@ Findings: CR-H-1, CR-H-2, CR-M-1 (3)
   - `.claude/agents/contracts.md` §4 (aggregate verdict logic + review-timeout recovery)
   - `.claude/agents/coder.md` §"Zone-of-write" (full forbidden list)
 - Related rules (§6–§7, added 2026-08-17):
-  - `.claude/rules/common/agent-isolation.md` — почему каталог выводится из своего идентификатора; что уже гейтит харнесс, а что — хуки
-  - `.claude/rules/common/review-findings-transfer.md` — перенос находок по идентификаторам, отчёт по каждой
-  - `docs/architecture/2026-08-17-agent-collision-mechanics.md` — разбор инцидентов #493 / #551 / #504
+  - `.claude/rules/common/agent-isolation.md` — why the directory is derived from one's own identifier; what the harness already gates, and what the hooks do
+  - `.claude/rules/common/review-findings-transfer.md` — transferring findings by identifier, a report on each
+  - `docs/architecture/2026-08-17-agent-collision-mechanics.md` — the analysis of incidents #493 / #551 / #504
 - Related skills:
   - `dev-flow-resilience` (write-then-post — same pattern, applied to Coder/Master)
   - `superpowers:requesting-code-review`
