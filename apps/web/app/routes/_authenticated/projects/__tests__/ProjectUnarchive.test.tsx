@@ -104,6 +104,24 @@ describe('ProjectUnarchiveHeaderButton', () => {
     expect(onCascade).not.toHaveBeenCalled()
   })
 
+  it('a network failure with no response at all neither throws nor hands off', async () => {
+    vi.mocked(api.post).mockRejectedValue(new Error('Network Error'))
+    const onCascade = renderButton()
+    await userEvent.click(screen.getByTestId('project-unarchive-button'))
+    await waitFor(() => expect(toast.error).toHaveBeenCalled())
+    expect(onCascade).not.toHaveBeenCalled()
+    expect(screen.getByTestId('project-unarchive-button')).toBeEnabled()
+  })
+
+  it('409 with an empty body neither throws nor hands off', async () => {
+    vi.mocked(api.post).mockRejectedValue(axiosError(409, undefined))
+    const onCascade = renderButton()
+    await userEvent.click(screen.getByTestId('project-unarchive-button'))
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByTestId('project-unarchive-button')).toBeEnabled())
+    expect(onCascade).not.toHaveBeenCalled()
+  })
+
   it('a non-409 failure does not hand off and shows the error toast', async () => {
     vi.mocked(api.post).mockRejectedValue(
       axiosError(500, { requiresCascade: true, entities: ENTITIES, message: 'boom' }),
