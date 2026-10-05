@@ -1588,7 +1588,10 @@ export const transactions = pgTable(
 export const salaryMonthInitializations = pgTable(
   'salary_month_initializations',
   {
-    id: uuid('id').defaultRandom().primaryKey(),
+    // Drizzle infers the same physical name (id) from this property key.
+    // Avoid an explicit redundant literal that mutation testing cannot distinguish
+    // from the empty-name form because Drizzle normalizes both to the property key.
+    id: uuid().defaultRandom().primaryKey(),
     receiverId: uuid('receiver_id')
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
