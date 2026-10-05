@@ -35,15 +35,15 @@ This table mirrors the `EVALUATION.md` structure in the ECC repo, comparing **cu
 
 ### 1.1 Core artifact counts
 
-| Component           | Current state                                                                                                                                                                             | ECC v2.0.0-rc.1                                                                                                   | Delta interpretation                                                                                                                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Agents**          | 6 LLM agents (PM/Coder/AutoTest/Reviewer/DevOps/Legal) + 1 human role (BA)                                                                                                                | 47-63 specialized agents (varies by profile)                                                                      | We have monolithic broad-scope agents; ECC favors narrow agents with tight tool allowlists. Phase 3 decomposes our 6 into ECC equivalents + ports custom orchestration layer.                                                        |
-| **Skills**          | 0 ECC-format skills. Knowledge stored in 6 `lessons.md` files (≤30 lines each, append-log + rotation to archive) + free-text `docs/agents/memory/*`                                       | 181-249 SKILL.md packages (varies by profile)                                                                     | Knowledge in our system is free-text accumulated; ECC formalizes as structured SKILL.md with `When to Activate` + `Workflow` + `Tested examples`. Phase 4 converts lessons→skills (grouped by topic, not 1:1).                       |
-| **Commands**        | 0 slash-commands. PM dispatches via `Agent(...)` tool from natural language requests.                                                                                                     | 60-79 slash-entry commands                                                                                        | Commands are legacy compatibility layer in ECC per WORKING-CONTEXT.md ("commands/ — legacy slash-entry compatibility during migration"). Low priority for us — we adopt commands only if needed for cross-harness parity (Phase 5+). |
-| **Hooks**           | 5 bash scripts in `.claude/hooks/` registered via `.claude/settings.json` with `matcher: "Bash"` (broad)                                                                                  | JSON matcher-based registration with specific predicates + Node.js plugin bootstrap + stable IDs                  | Our hooks fire on every Bash invocation and parse internally; ECC hooks use predicate matchers (`tool == "Bash" && command matches "git push"`) for efficiency and clarity. Phase 2 rewrites in ECC JSON format.                     |
-| **Rules**           | 0 dedicated rules files. Constraints embedded inline in agent prompts (e.g., "не редактировать apps/\*\*" in coder.md, "Confidence policy" in legal.md, "Russian language" in CLAUDE.md). | 60+ rules across `rules/common/` + 12 language-specific subdirectories                                            | We have implicit rules; ECC extracts as portable, reusable `rules/<topic>.md` units. Phase 5 surfaces top 5-8 cross-cutting rules into ECC rules/ directory.                                                                         |
-| **MCP configs**     | 8 servers configured in user settings (ast-grep, context7, postgres, eslint, playwright, github, scheduled-tasks, ccd-session)                                                            | 14+ canonical configs in `mcp-configs/` (anthropic-skills, ast-grep, context7, github, playwright, postgres, ...) | Mostly overlapping set. Phase 1 cross-references our 8 against ECC's 14+, adopts canonical configs where shape matches, keeps custom for project-specific servers (e.g., scheduled-tasks usage pattern).                             |
-| **Install profile** | Custom monolithic (no profile abstraction)                                                                                                                                                | 5 profiles: `core`, `developer`, `security`, `research`, `full`                                                   | We adopt `developer` (REPO-ASSESSMENT.md recommendation for SaaS+TS+React+NestJS stack) + selective `security` additions for finance/USDT work.                                                                                      |
+| Component           | Current state                                                                                                                                                                        | ECC v2.0.0-rc.1                                                                                                   | Delta interpretation                                                                                                                                                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Agents**          | 6 LLM agents (PM/Coder/AutoTest/Reviewer/DevOps/Legal) + 1 human role (BA)                                                                                                           | 47-63 specialized agents (varies by profile)                                                                      | We have monolithic broad-scope agents; ECC favors narrow agents with tight tool allowlists. Phase 3 decomposes our 6 into ECC equivalents + ports custom orchestration layer.                                                        |
+| **Skills**          | 0 ECC-format skills. Knowledge stored in 6 `lessons.md` files (≤30 lines each, append-log + rotation to archive) + free-text `docs/agents/memory/*`                                  | 181-249 SKILL.md packages (varies by profile)                                                                     | Knowledge in our system is free-text accumulated; ECC formalizes as structured SKILL.md with `When to Activate` + `Workflow` + `Tested examples`. Phase 4 converts lessons→skills (grouped by topic, not 1:1).                       |
+| **Commands**        | 0 slash-commands. PM dispatches via `Agent(...)` tool from natural language requests.                                                                                                | 60-79 slash-entry commands                                                                                        | Commands are legacy compatibility layer in ECC per WORKING-CONTEXT.md ("commands/ — legacy slash-entry compatibility during migration"). Low priority for us — we adopt commands only if needed for cross-harness parity (Phase 5+). |
+| **Hooks**           | 5 bash scripts in `.claude/hooks/` registered via `.claude/settings.json` with `matcher: "Bash"` (broad)                                                                             | JSON matcher-based registration with specific predicates + Node.js plugin bootstrap + stable IDs                  | Our hooks fire on every Bash invocation and parse internally; ECC hooks use predicate matchers (`tool == "Bash" && command matches "git push"`) for efficiency and clarity. Phase 2 rewrites in ECC JSON format.                     |
+| **Rules**           | 0 dedicated rules files. Constraints embedded inline in agent prompts (e.g., "do not edit apps/\*\*" in coder.md, "Confidence policy" in legal.md, "Russian language" in CLAUDE.md). | 60+ rules across `rules/common/` + 12 language-specific subdirectories                                            | We have implicit rules; ECC extracts as portable, reusable `rules/<topic>.md` units. Phase 5 surfaces top 5-8 cross-cutting rules into ECC rules/ directory.                                                                         |
+| **MCP configs**     | 8 servers configured in user settings (ast-grep, context7, postgres, eslint, playwright, github, scheduled-tasks, ccd-session)                                                       | 14+ canonical configs in `mcp-configs/` (anthropic-skills, ast-grep, context7, github, playwright, postgres, ...) | Mostly overlapping set. Phase 1 cross-references our 8 against ECC's 14+, adopts canonical configs where shape matches, keeps custom for project-specific servers (e.g., scheduled-tasks usage pattern).                             |
+| **Install profile** | Custom monolithic (no profile abstraction)                                                                                                                                           | 5 profiles: `core`, `developer`, `security`, `research`, `full`                                                   | We adopt `developer` (REPO-ASSESSMENT.md recommendation for SaaS+TS+React+NestJS stack) + selective `security` additions for finance/USDT work.                                                                                      |
 
 ### 1.2 Workflow artifacts
 
@@ -61,7 +61,7 @@ This table mirrors the `EVALUATION.md` structure in the ECC repo, comparing **cu
 | Characteristic                          | Current                                                         | ECC v2.0.0-rc.1                                                                                                                                                            | Migration approach                                                                                                                                                                   |
 | --------------------------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Primary harness**                     | Claude Code only                                                | Claude Code primary; ports to Codex, Cursor, OpenCode, Gemini, Zed, GitHub Copilot via `.codex/`, `.cursor/`, `.gemini/`, `.opencode/`, `.zed/` directories + `manifests/` | Phase 5 creates placeholder cross-harness directories only. Active porting deferred to optional Phase 7+.                                                                            |
-| **Primary language (UI/agent prompts)** | Russian (hard requirement per CLAUDE.md)                        | English                                                                                                                                                                    | Adapt: keep ECC structure, prepend "Всегда отвечай на русском" override in each ported agent.                                                                                        |
+| **Primary language (UI/agent prompts)** | Russian (hard requirement per CLAUDE.md)                        | English                                                                                                                                                                    | Adapt: keep ECC structure, prepend an "always respond in Russian" override in each ported agent.                                                                                     |
 | **Code comments**                       | English (international team future-proof)                       | English                                                                                                                                                                    | No change.                                                                                                                                                                           |
 | **Commit messages**                     | English (conventional commits: `feat(drop):`, `fix:`, `chore:`) | English (RULES.md conventional commits + format spec)                                                                                                                      | Adopt ECC's commit format spec verbatim where stricter than ours.                                                                                                                    |
 | **Test framework**                      | Vitest (unit) + Playwright (e2e)                                | Vitest + Playwright + others                                                                                                                                               | Match. No change.                                                                                                                                                                    |
@@ -161,7 +161,7 @@ This is the operational core of the ADR. Each current artifact mapped to an acti
 - **Current purpose:** UA jurisdictional legal advisor. 4 modes: A=consult / B=PR-review / C=brief-check / D=strategic. Knowledge base: `docs/legal/` (UA tax/CFC/crypto/contract regulations).
 - **ECC equivalent:** None. ECC has no jurisdictional legal agent in catalog.
 - **Decision:** **Keep custom**
-- **Justification:** UA-specific regulatory knowledge (ФОП режимы, ПКУ articles, Закон 2074-IX virtual assets, Меморандум НБУ banking caps, CFC ст. 39² ПКУ) is irreducibly local. No ECC pattern to adopt. Phase 3 ports Legal to ECC agent YAML frontmatter format but otherwise preserves all 4 modes and knowledge base unchanged. Phase 4 converts Legal lessons (currently sparse skeleton, but will grow) into UA-specific skills.
+- **Justification:** UA-specific regulatory knowledge (FOP regimes, Tax Code (PKU) articles, Law 2074-IX virtual assets, NBU Memorandum banking caps, CFC art. 39² of the Tax Code) is irreducibly local. No ECC pattern to adopt. Phase 3 ports Legal to ECC agent YAML frontmatter format but otherwise preserves all 4 modes and knowledge base unchanged. Phase 4 converts Legal lessons (currently sparse skeleton, but will grow) into UA-specific skills.
 - **Migration phase:** Phase 3 (port to YAML) + Phase 4 (lessons→skills)
 - **Effort estimate:** **M** (4-6 hours port, +S for skills if lessons accumulate)
 
@@ -252,7 +252,7 @@ This is the operational core of the ADR. Each current artifact mapped to an acti
 #### 2.3.4 `auto-merge-on-label.yml`
 
 - **Current location:** `.github/workflows/auto-merge-on-label.yml` (2.4 KB)
-- **Current purpose:** When `merge-approved` label is added by PM (after user "мерджим" in chat), auto-squash-merge PR.
+- **Current purpose:** When `merge-approved` label is added by PM (after the user says "merge it" in chat), auto-squash-merge PR.
 - **ECC equivalent:** None.
 - **Decision:** **Keep custom**
 - **Justification:** Product workflow (cite `feedback_approval_from_chat` and `feedback_pr_merge_approval` memory items). No change.
@@ -580,10 +580,10 @@ ECC is comprehensive but not omniscient. Below: explicit gaps where ECC patterns
 
 ### 4.1 Russian language requirement
 
-- **Gap:** ECC primary language is English. All agent prompts, skill descriptions, hook messages, RULES.md, AGENTS.md content are English. Our CLAUDE.md hard requirement: "Все агенты общаются с пользователем исключительно на русском языке. Никакого украинского."
+- **Gap:** ECC primary language is English. All agent prompts, skill descriptions, hook messages, RULES.md, AGENTS.md content are English. Our CLAUDE.md hard requirement: "All agents communicate with the user exclusively in Russian. No Ukrainian."
 - **Why ECC doesn't cover this:** ECC is upstream English-first. Author Affaan Mustafa operates in English.
 - **Adaptation plan:**
-  1. Phase 3 — When porting each agent to ECC format, prepend `**ВАЖНО: Всегда отвечай на русском языке.**` to each agent's role section (immediately after YAML frontmatter).
+  1. Phase 3 — When porting each agent to ECC format, prepend `**IMPORTANT: Always respond in Russian.**` to each agent's role section (immediately after YAML frontmatter).
   2. Phase 3 — Strip any "respond in English" directives if present in ECC source agent.
   3. Phase 5 — Add a project-level rule `rules/common/russian-language.md` referenced by all our ported agents. (Cite our `feedback_*` memory items showing this is hard requirement.)
   4. Code comments and commit messages stay English (international future-proof). Lessons.md and `docs/business/` stay Russian. Git commit messages use Conventional Commits in English.
@@ -592,15 +592,15 @@ ECC is comprehensive but not omniscient. Below: explicit gaps where ECC patterns
 
 ### 4.2 UA legal/tax jurisdictional context
 
-- **Gap:** Legal agent has deep UA-specific knowledge (ФОП режимы, ПКУ articles, Закон 2074-IX virtual assets, Меморандум НБУ banking caps, CFC ст. 39² ПКУ, GDPR territorial scope for UA companies). ECC has no jurisdictional legal agent.
+- **Gap:** Legal agent has deep UA-specific knowledge (FOP regimes, Tax Code (PKU) articles, Law 2074-IX virtual assets, NBU Memorandum banking caps, CFC art. 39² of the Tax Code, GDPR territorial scope for UA companies). ECC has no jurisdictional legal agent.
 - **Why ECC doesn't cover this:** Legal advice is jurisdictionally bound; ECC is global tooling.
 - **Adaptation plan:**
   1. Phase 3 — Keep Legal agent fully custom. Port to ECC YAML frontmatter format only. Preserve 4-mode dispatch (A/B/C/D), knowledge base references, escalation patterns.
   2. Phase 4 — Create custom skill stubs:
-     - `skills/ua-tax-compliance/` (ФОП режимы, налоговые ставки)
-     - `skills/ua-cfc-rules/` (контрольованих іноземних компаній, ст. 39² ПКУ)
-     - `skills/ua-crypto-regulation/` (Закон 2074-IX, НКЦБФР virtual assets)
-     - `skills/ua-banking-caps/` (Меморандум НБУ, limits)
+     - `skills/ua-tax-compliance/` (FOP regimes, tax rates)
+     - `skills/ua-cfc-rules/` (controlled foreign companies, art. 39² of the Tax Code)
+     - `skills/ua-crypto-regulation/` (Law 2074-IX, NSSMC virtual assets)
+     - `skills/ua-banking-caps/` (NBU Memorandum, limits)
      - `skills/legal-escalation-patterns/` (when to engage external lawyer)
        All with `origin: custom` in frontmatter. Empty/stub content initially, populates as lessons accumulate post-migration.
   3. Phase 6 — Documentation note in CONTRIBUTING.md that legal skills are project-internal, not for upstream ECC PR.
@@ -665,7 +665,7 @@ ECC is comprehensive but not omniscient. Below: explicit gaps where ECC patterns
 
 ### 4.9 Active product PHASE work in parallel with migration
 
-- **Gap:** Per CLAUDE.md, "Следующий шаг: PHASE 6 — Документы." PM dispatches Coder daily. Migration must not block this.
+- **Gap:** Per CLAUDE.md, "Next step: PHASE 6 — Documents." PM dispatches Coder daily. Migration must not block this.
 - **Why ECC doesn't cover this:** Cross-cutting project management; ECC tooling.
 - **Adaptation plan:**
   1. Migration phases never touch `apps/**` or `packages/**` (hard rule per architect.md).
@@ -723,7 +723,7 @@ ECC is comprehensive but not omniscient. Below: explicit gaps where ECC patterns
 
 - **2 HIGH-severity risks:** Phase 3 agent migration disruption (mitigated by sub-division + coexistence), Coder zone conflict (mitigated by hard rule + hook enforcement).
 - **8 MED-severity risks:** all with concrete mitigations.
-- **Cross-cutting bias:** All risks favor coexistence/incremental over rip-and-replace. Aligned with architect.md "Hard rule #1: запрещено big bang migration."
+- **Cross-cutting bias:** All risks favor coexistence/incremental over rip-and-replace. Aligned with architect.md "Hard rule #1: big bang migration forbidden."
 
 ---
 
@@ -1265,7 +1265,7 @@ These are decisions the Architect cannot make alone and require User input befor
 
 **Options:**
 
-- **A. Per-agent prepend** (architect.md current pattern) — every ported agent has `**ВАЖНО: Всегда отвечай на русском языке.**` at top of role section
+- **A. Per-agent prepend** (architect.md current pattern) — every ported agent has `**IMPORTANT: Always respond in Russian.**` at top of role section
 - **B. Single shared rule** — `rules/common/russian-language.md`, agents reference via `@rule` syntax
 - **C. Both** (belt-and-suspenders) — prepend in agent + shared rule
 
