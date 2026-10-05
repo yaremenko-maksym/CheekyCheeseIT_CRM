@@ -7,7 +7,7 @@
 ## Context
 
 This is a **restyle of the existing global app-shell** to the owner-approved design (Variant A
-"restrained", flat navigation). Redesign = **visual + UX, functionality 1:1**. This is screen #1
+"restrained", flat navigation). Redesign = **visual + UX, functionality 1:1**. This is screen No. 1
 of the phased redesign program (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
 
 ## Artifact (the only visual source — read by absolute path from the master worktree)

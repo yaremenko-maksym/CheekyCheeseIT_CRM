@@ -241,7 +241,7 @@ Application is refused entirely (400, not a single write) if for any derivative:
       `pending_obligations.amount`, while term 7 debits `transactions.amount`, and **the equality of these
       two is checked nowhere in settle** — it is held by `bookCompanyObligations` and task 0
       (#598). A row edited before #598 may violate it. Silently rolling back such a row
-      means returning to the balance a number other than the one that left it — an error "to the plus", risk #4.
+      means returning to the balance a number other than the one that left it — an error "to the plus", risk No. 4.
       Use the **shared** `amountsDiffer` from `@crm/shared`, do not write a third comparison.
 - [ ] `pending_obligations`: a conditional UPDATE `WHERE id = … AND status = 'PAID'` →
       `status='PENDING'`, `closingTransactionId = null`, `amount = plan.newAmount`. Zero
@@ -705,7 +705,7 @@ NULL` would block `ADMIN_INCOME`, which also carries a hash through the income r
 5. Run: `pnpm typecheck`, `mcp__eslint__lint-files` on the changed ones, unit specs,
    integration — on a scratch DB, `pnpm --filter @crm/e2e test`.
 6. `MUTATION_BASE_SHA=$(git rev-parse origin/main) node scripts/devops/mutation-gate.mjs --changed`
-   — and **read the log**, not only the verdict (see test AC #3).
+   — and **read the log**, not only the verdict (see test AC No. 3).
 7. For each test from the table — attach to the PR body the **actual failure output** on the version without
    the fix. A statement without output = an unfulfilled item.
 8. Commit message:

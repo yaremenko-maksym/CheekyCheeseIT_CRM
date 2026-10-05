@@ -82,10 +82,12 @@ row closed by two payments at different rates" is a separate decision.
      - **delete** the AC15(a) refusal (`:3929`) — that is the content of the task;
      - **add** the AC9 refusal (below): a derivative with `obligation.status === 'PAID'` and
        `settledAmount === null`. Place it **next to** the existing check §1.2, of the same form.
-   - `applyEditCascade`, the rollback branch (`revertedType`, `:4015`): - in the `.set()` of the flip back add `originalAmount: null, originalCurrency: null,
-exchangeRate: null` — **unconditionally**, without a branch by type (on a senior row it is a provable
-     no-op, see AC2); - in `CASCADE_REOPEN.metadata.before` (`:4051`) add the retractable values: the triplet and
-     the receipt references (`receiptDocumentId` / `receiptExternalUrl`).
+   - `applyEditCascade`, the rollback branch (`revertedType`, `:4015`):
+     - in the `.set()` of the flip back add `originalAmount: null, originalCurrency: null,
+       exchangeRate: null` — **unconditionally**, without a branch by type (on a senior row it is a provable
+       no-op, see AC2);
+     - in `CASCADE_REOPEN.metadata.before` (`:4051`) add the retractable values: the triplet and
+       the receipt references (`receiptDocumentId` / `receiptExternalUrl`).
 3. `apps/api/src/finance/pending-settlement.service.ts`
    - **delete** the refusal `isDropObligation && priorSettledAmount > 0` (`:372`);
    - the block `if (isDropObligation)` (`:572`):
@@ -98,7 +100,8 @@ exchangeRate: null` — **unconditionally**, without a branch by type (on a seni
      - `rawExchangeRate` (`:777`) — the numerator is `cumulativePaid = priorSettledAmount + paidAmount`
        (rounded to 6 digits), the denominator `obligationAmount` unchanged;
    - the money gate (`:1054`) — collapse the ternary into `remainingOwed(claimedAmount)` (AC7);
-   - the `.set()` of the flip, the drop patch (`:1094`) — `amount: sql\`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}\``**with the same expression** as`settledAmount` (`:1168`).
+   - the `.set()` of the flip, the drop patch (`:1094`) — `amount: sql\`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}\``
+     **with the same expression** as `settledAmount` (`:1168`).
 4. `apps/api/src/database/schema.ts` — add a paragraph about repeated closing to the doc comment of
    `transactions.originalAmount` (AC14). Do **not rewrite** the definitions of the three columns — they are correct,
    only the case "the row is closed twice" is added.
@@ -167,8 +170,8 @@ exchangeRate: null` — **unconditionally**, without a branch by type (on a seni
 
 ### AC4 — `amount` is cumulative, by the same expression as the accumulator
 
-- [ ] `amount: sql\`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}\``—
-  **literally the same expression** as`settledAmount` one line below.
+- [ ] `amount: sql\`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}\`` —
+      **literally the same expression** as `settledAmount` one line below.
 - [ ] The invariant §1.2 (`amount == settled_amount`) on the drop branch becomes **structural**:
       it cannot diverge, because the source of the number is one. This is a strengthening of the earlier argument
       ("one variable `paidAmount`"), not its replacement.

@@ -487,7 +487,7 @@ update workflow .github/workflows/ci.yml without workflows permission`. Two PRs 
     `E2E Tests` (the second one required in the branch protection) was still running at that moment. A PR with the label
     `merge-approved` **sat unmerged for two days**: a failed auto-merge step looks like
     yet another red check, there is no separate signal.
-    The same class as the #437/#449 incident (item 9): the gate checks more narrowly than its name promises.
+    The same class as the #437/#449 incident (item 9): the gate checks **more narrowly** than its name promises.
     Fix: wait for ALL contexts required by branch protection (take the list from the API, do not
     hardcode it — otherwise it drifts apart when a third one is added), or use `--auto`, so that the
     merge happens by itself when all conditions are met. And a separate loud signal on a merge refusal
