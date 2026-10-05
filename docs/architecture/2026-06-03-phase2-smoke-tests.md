@@ -64,7 +64,7 @@ echo "exit=$?"
 **Expected:**
 
 - Exit code: `2`
-- Stdout: `{"decision":"block","reason":"Заблокировано safety хуком: rm -rf on root/home path. ..."}`
+- Stdout: `{"decision":"block","reason":"Blocked by the safety hook: rm -rf on root/home path. ..."}`
 - Stderr: `[pre:bash:safety] BLOCK: rm -rf on root/home path`
 
 **Pass criteria:** Exit 2 + block JSON.
@@ -131,7 +131,7 @@ test -f /tmp/escape-hatch.bak && mv /tmp/escape-hatch.bak .claude/.allow-direct-
 **Expected:**
 
 - Exit code: `2`
-- Stdout: JSON `{"decision":"block","reason":"🚫 PRODUCTION-EDIT BLOCK: попытка править apps/api/src/test.ts ..."}`
+- Stdout: JSON `{"decision":"block","reason":"🚫 PRODUCTION-EDIT BLOCK: attempt to edit apps/api/src/test.ts ..."}`
 - Stderr: `[pre:edit-write:zone-of-write] BLOCK path=apps/api/src/test.ts cwd=...`
 
 **Pass criteria:** Exit 2, block message includes file path.

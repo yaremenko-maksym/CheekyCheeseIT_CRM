@@ -1,85 +1,85 @@
-# Роль ACCOUNTANT — дизайн (2026-06-10)
+# ACCOUNTANT role — design (2026-06-10)
 
-> Статус: DRAFT на ревью владельца. Источник — brainstorming-сессия 2026-06-10.
-> Серия: `junior-ux-refactor`, `drop-role`, этот.
+> Status: DRAFT under owner review. Source — brainstorming session 2026-06-10.
+> Series: `junior-ux-refactor`, `drop-role`, this one.
 
-## 1. Контекст и цель
+## 1. Context and goal
 
-Бухгалтер — финансовый контролёр компании, видит всё (by design), но UX неэффективен: пустой дашборд, **нет batch-операций** (долги компании закрывает по одному), не видит свою историю выплат, флоу разрознены.
+The accountant is the company's financial controller, sees everything (by design), but the UX is inefficient: empty dashboard, **no batch operations** (closes the company's debts one at a time), does not see their own payout history, flows are scattered.
 
-**Цель — контроль-центр:** эффективный финансовый командный пункт с очередями действий и пакетными операциями.
+**Goal — a control center:** an efficient financial command post with action queues and batch operations.
 
-## 2. Принципы
+## 2. Principles
 
-1. **Доверенный контролёр.** Бухгалтер видит всё (реальные финансовые данные) — это его работа, видимость НЕ урезаем.
-2. **Не персоны, а реальность.** Бухгалтер не видит легенды (работает с реальными данными, не client-facing персонами) — корректно, оставляем.
-3. **Эффективность.** Очереди «что требует действия», batch-операции, контекст в диалогах.
+1. **Trusted controller.** The accountant sees everything (real financial data) — that is their job, we do NOT trim visibility.
+2. **Not personas, but reality.** The accountant does not see legends (works with real data, not client-facing personas) — correct, we keep it.
+3. **Efficiency.** "What requires action" queues, batch operations, context in dialogs.
 
-## 3. Суть роли (финансовый контроль)
+## 3. Essence of the role (financial control)
 
-- **Валидация** приходов: `SENIOR_INCOME` / `DROP_INCOME` (PENDING → VALIDATED/REJECTED), создаёт payout_request + PAYOUT placeholder.
-- **Подтверждение платежей:** наличные (`confirmCashPayment`) · payout (`confirmPayout`, выбор админа-получателя + метод/txHash).
-- **Закрытие долгов компании** синьорам: `settleByCompany` → `SENIOR_INCOME` (PAID) + авто-инвойс.
-- **Финсводка/балансы:** `getSummary` (income/expenses/net, балансы дропов и админов, месячный breakdown).
-- **Инвойсы:** видит все (read), подписать может только контрагент.
-- Один на компанию, **обязательный член каждой команды** (senior- и drop-team).
+- **Validation** of incomes: `SENIOR_INCOME` / `DROP_INCOME` (PENDING → VALIDATED/REJECTED), creates a payout_request + PAYOUT placeholder.
+- **Payment confirmation:** cash (`confirmCashPayment`) · payout (`confirmPayout`, selecting the recipient admin + method/txHash).
+- **Closing the company's debts** to seniors: `settleByCompany` → `SENIOR_INCOME` (PAID) + auto-invoice.
+- **Financial summary/balances:** `getSummary` (income/expenses/net, drop and admin balances, monthly breakdown).
+- **Invoices:** sees all (read), only the counterparty can sign.
+- One per company, a **mandatory member of every team** (senior- and drop-team).
 
-## 4. Модель видимости (без изменений — доверенный контролёр)
+## 4. Visibility model (unchanged — trusted controller)
 
-Видит всё: профили (реальные контакты), все команды, все проекты, все транзакции, финсводку. **Не видит:** легенды (корректно — реальные данные, не персоны), `adminNote`/`fopPii` (паспортный PII — даже бухгалтер не видит).
+Sees everything: profiles (real contacts), all teams, all projects, all transactions, financial summary. **Does not see:** legends (correct — real data, not personas), `adminNote`/`fopPii` (passport PII — even the accountant does not see it).
 
-- Бухгалтер виден всем как член команды. Джун видит контакт бухгалтера в команде (потенциальный контакт для **финансовых** вопросов — в отличие от HR для рабочих; см. junior-рефактор).
+- The accountant is visible to everyone as a team member. A junior sees the accountant's contact in the team (a potential contact for **financial** questions — unlike HR for work matters; see the junior refactor).
 
-## 5. Целевой UX (контроль-центр)
+## 5. Target UX (control center)
 
-### 🏠 Контроль-центр (рефактор пустого дашборда)
+### 🏠 Control center (refactor of the empty dashboard)
 
-**Очереди — что требует действия (счётчик + переход):**
+**Queues — what requires action (counter + jump):**
 
-- На валидацию: N приходов PENDING → «Валидировать».
-- Payout'ы на подтверждение: N `PAYOUT` PENDING_PAYMENT → «Подтвердить».
-- Долги компании: N obligations → «Закрыть» (**batch**).
-- Cash на логирование: N validated `DROP_INCOME` без каскада → «Cash передан».
+- For validation: N incomes PENDING → "Validate".
+- Payouts awaiting confirmation: N `PAYOUT` PENDING_PAYMENT → "Confirm".
+- Company debts: N obligations → "Close" (**batch**).
+- Cash to be logged: N validated `DROP_INCOME` without a cascade → "Cash handed over".
 
-**Сводка:** total income/expenses/salaries/net · балансы дропов · балансы админов · месячный breakdown.
+**Summary:** total income/expenses/salaries/net · drop balances · admin balances · monthly breakdown.
 
-### 💰 Финансы (контроль + batch)
+### 💰 Finance (control + batch)
 
-- Таблица всех транзакций (фильтры/сорт) — как сейчас.
-- **Batch-операции:** мультивыбор для закрытия долгов компании (главная боль — сейчас по одному).
-- **Улучшенные диалоги валидации:** контекст исходной суммы (откуда), не только конверсия валют.
+- Table of all transactions (filters/sort) — as it is now.
+- **Batch operations:** multi-select for closing the company's debts (the main pain — currently one at a time).
+- **Improved validation dialogs:** context of the original amount (where it came from), not only currency conversion.
 
-### 👤 Профиль
+### 👤 Profile
 
-Свой + **finance-таб** (своя история выплат — сейчас недоступна).
+Their own + a **finance tab** (their own payout history — currently unavailable).
 
-### 👥 Команда / 📁 Проекты / 📄 Документы
+### 👥 Team / 📁 Projects / 📄 Documents
 
-Контекст для контроля (вторично, остаются как есть).
+Context for control (secondary, remain as they are).
 
-## 6. Данные / RBAC
+## 6. Data / RBAC
 
-- **Batch settlement** эндпоинт: закрыть массив obligations за один вызов (атомарно, с per-item результатом).
-- **Агрегаты очередей** для дашборда: counts (pending validations / payouts / company debts / cash-to-log) — лёгкий эндпоинт.
-- **Finance-таб в self-профиле** бухгалтера: добавить `finance` в `tabs` для ACCOUNTANT self в `getViewPermissions`.
-- **Динамический список админов** в ConfirmPayout/LogCash (фикс хардкода `MAKSYM_ID`/`KOSTYA_ID`).
-- **Контекст суммы** в ValidateDialog (источник/история).
-- Видимость без изменений (тесты — бухгалтер видит всё, кроме легенд/passport-PII).
+- **Batch settlement** endpoint: close an array of obligations in one call (atomically, with per-item result).
+- **Queue aggregates** for the dashboard: counts (pending validations / payouts / company debts / cash-to-log) — a lightweight endpoint.
+- **Finance tab in the accountant's self-profile:** add `finance` to `tabs` for ACCOUNTANT self in `getViewPermissions`.
+- **Dynamic list of admins** in ConfirmPayout/LogCash (fix the hardcoded `MAKSYM_ID`/`KOSTYA_ID`).
+- **Amount context** in ValidateDialog (source/history).
+- Visibility unchanged (tests — the accountant sees everything except legends/passport-PII).
 
-## 7. Фазы внедрения
+## 7. Rollout phases
 
-1. **Бэкенд.** Batch-settlement эндпоинт; дашборд-агрегаты (очереди); dynamic admins; finance-таб permission для self; RBAC-тесты (видимость не сломана).
-2. **UX ядро.** Контроль-центр (дашборд с очередями) + batch-закрытие долгов в финансах.
-3. **UX чистка.** Диалоги (контекст валидации, dynamic admins, inline-валидация txHash), finance-таб профиля, мелочи.
+1. **Backend.** Batch-settlement endpoint; dashboard aggregates (queues); dynamic admins; finance-tab permission for self; RBAC tests (visibility not broken).
+2. **UX core.** Control center (dashboard with queues) + batch closing of debts in finance.
+3. **UX cleanup.** Dialogs (validation context, dynamic admins, inline txHash validation), profile finance tab, small details.
 
-## 8. Решения (зафиксировано)
+## 8. Decisions (fixed)
 
-1. **Видимость** — бухгалтер видит всё (доверенный контролёр), без изменений.
-2. **UX-скоуп** — полный контроль-центр (дашборд-очереди + batch + диалоги + свой finance-таб).
+1. **Visibility** — the accountant sees everything (trusted controller), unchanged.
+2. **UX scope** — full control center (dashboard queues + batch + dialogs + own finance tab).
 
-## 9. Не входит в scope
+## 9. Out of scope
 
-- Урезание видимости бухгалтера.
-- Легенды (бухгалтер с ними не работает).
-- Экспорт отчётов (CSV/PDF) — потенциальная отдельная итерация.
-- UX других ролей.
+- Trimming the accountant's visibility.
+- Legends (the accountant does not work with them).
+- Report export (CSV/PDF) — a potential separate iteration.
+- UX of other roles.

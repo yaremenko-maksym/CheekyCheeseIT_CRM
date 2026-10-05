@@ -3,7 +3,7 @@
 **Date:** 2026-06-03
 **PR:** #94 (rolling, branch `feat/ecc-migration-finish`)
 **Architect:** AI Architect (5th / final Architect dispatch in series)
-**Scope status:** Strictly per User directive — `chore(architect): Phase 6 — cleanup (удалить deprecated .sh, BA docs, hooks-ecc-draft.json)`. No scope creep beyond the three target groups.
+**Scope status:** Strictly per User directive — `chore(architect): Phase 6 — cleanup (remove deprecated .sh, BA docs, hooks-ecc-draft.json)`. No scope creep beyond the three target groups.
 
 ---
 
@@ -60,7 +60,7 @@ Files affected (commit `de7fdda`):
 
 | File                                  | Action                              | Rationale                                                                                                                                                                    |
 | ------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/agents/ba.md` (285 lines)       | MOVED → `docs/business/roles/ba.md` | Substantive spec (golden rules, scenarios, ТЗ template, role boundaries). Preserves long-term value in a clear human-roles location.                                         |
+| `docs/agents/ba.md` (285 lines)       | MOVED → `docs/business/roles/ba.md` | Substantive spec (golden rules, scenarios, technical-spec template, role boundaries). Preserves long-term value in a clear human-roles location.                             |
 | `docs/agents/CLAUDE-ba.md` (11 lines) | DELETED                             | Pure deprecated redirect stub. Other CLAUDE-\*.md stubs preserve LLM context-skip prompts; BA has no LLM session, so the stub has no compatibility value once `ba.md` moves. |
 
 **Internal links inside the moved file** were updated for new path depth:
@@ -104,7 +104,7 @@ Pre-check: `_meta.status: "draft"`, `_meta.activation_target: "Phase 2.5 (separa
 
 ## 2. Out of Phase 6 scope (preserved)
 
-Per User directive: "не преобразуй Phase 6 в большой refactor". The following were left as-is even though they could superficially look like cleanup candidates:
+Per User directive: "do not turn Phase 6 into a big refactor". The following were left as-is even though they could superficially look like cleanup candidates:
 
 | Artifact                                    | Why preserved                                                               |
 | ------------------------------------------- | --------------------------------------------------------------------------- |
@@ -165,7 +165,7 @@ From `docs/architecture/2026-05-31-ecc-migration-design.md` § 4.6 + Q5:
 >
 > **Recommendation:** B — clean separation, removes risk of LLM session-bootstrap heuristics picking up `docs/agents/ba.md` mistakenly.
 
-Phase 6 chose **B** as recommended. The substantive content (285 lines of golden rules + 5-step scenario + ТЗ template) is preserved in the new location with relative-link updates and a banner note explaining the move. The deprecated `CLAUDE-ba.md` redirect stub is deleted because BA has no LLM session to read it.
+Phase 6 chose **B** as recommended. The substantive content (285 lines of golden rules + 5-step scenario + technical-spec template) is preserved in the new location with relative-link updates and a banner note explaining the move. The deprecated `CLAUDE-ba.md` redirect stub is deleted because BA has no LLM session to read it.
 
 ---
 

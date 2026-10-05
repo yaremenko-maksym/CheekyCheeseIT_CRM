@@ -1,41 +1,41 @@
-# Phase 7 — Namespace Cleanup: `.claude/` для AI, `docs/` для project documentation
+# Phase 7 — Namespace Cleanup: `.claude/` for AI, `docs/` for project documentation
 
-**Дата:** 2026-06-03
-**Автор:** Architect agent
-**Статус:** Implemented (rolling PR pending)
-**Предшественники:** ECC migration Phase 6 (ADR § ECC migration design 2026-05-31, PR #94)
-**Цель:** строгое разделение AI-инфраструктуры и project documentation после завершения ECC миграции.
-
----
-
-## 1. Контекст и rationale
-
-После Phase 6 ECC migration все агенты, хуки, правила и task state продолжали жить в `docs/agents/`, `docs/specs/`, `rules/` и `docs/legal/`. Это работало, но создавало смешение двух разных уровней документации:
-
-- **AI infrastructure** (agent prompts, hooks, skills, rules, state, task files, legal KB) — то что Claude Code и custom agents читают/пишут как часть operational workflow.
-- **Project documentation** (architecture decisions, business modules, README) — то что человек читает чтобы понять проект.
-
-USER явно запросил это разделение:
-
-> «Перенеси всех агентов в `.claude/agents` так максимально нативно»
-> «В папке `docs/` только описание проекта и документациях»
-> «Всё что относится к АИ должно быть в папке `.claude/`»
-
-Дополнительно: native Claude Code convention требует чтобы project-level subagents лежали в `.claude/agents/<name>.md` для discoverability через `Agent(subagent_type="...")` matching. До Phase 7 наши агенты не были activable таким способом.
+**Date:** 2026-06-03
+**Author:** Architect agent
+**Status:** Implemented (rolling PR pending)
+**Predecessors:** ECC migration Phase 6 (ADR § ECC migration design 2026-05-31, PR #94)
+**Goal:** a strict separation of AI infrastructure and project documentation after the ECC migration is complete.
 
 ---
 
-## 2. Mapping table (что куда переехало)
+## 1. Context and rationale
 
-### 2.1. Старый → новый путь
+After Phase 6 of the ECC migration, all agents, hooks, rules and task state continued to live in `docs/agents/`, `docs/specs/`, `rules/` and `docs/legal/`. This worked, but created a mixing of two different documentation levels:
 
-| Старый путь                                        | Новый путь                                            | Категория                                                                 |
+- **AI infrastructure** (agent prompts, hooks, skills, rules, state, task files, legal KB) — what Claude Code and custom agents read/write as part of the operational workflow.
+- **Project documentation** (architecture decisions, business modules, README) — what a human reads to understand the project.
+
+USER explicitly requested this separation:
+
+> "Move all the agents into `.claude/agents` as natively as possible"
+> "In the `docs/` folder only the description of the project and documentation"
+> "Everything related to AI should be in the `.claude/` folder"
+
+Additionally: the native Claude Code convention requires project-level subagents to live in `.claude/agents/<name>.md` for discoverability via `Agent(subagent_type="...")` matching. Before Phase 7 our agents were not activatable that way.
+
+---
+
+## 2. Mapping table (what moved where)
+
+### 2.1. Old → new path
+
+| Old path                                           | New path                                              | Category                                                                  |
 | -------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------- |
 | `docs/agents/<agent>.md`                           | `.claude/agents/<agent>.md`                           | Agent system prompts                                                      |
 | `docs/agents/CLAUDE-<agent>.md`                    | `.claude/agents/CLAUDE-<agent>.md`                    | Agent stubs (legacy compat)                                               |
 | `docs/agents/memory/<agent>/lessons{,.archive}.md` | `.claude/agents/memory/<agent>/lessons{,.archive}.md` | Per-agent memory                                                          |
 | `docs/agents/pm-snippets.md`                       | `.claude/agents/pm-snippets.md`                       | PM on-demand snippets                                                     |
-| `docs/agents/RULES.md`                             | `.claude/RULES.md`                                    | Cross-agent rules (top-level в `.claude/`)                                |
+| `docs/agents/RULES.md`                             | `.claude/RULES.md`                                    | Cross-agent rules (top-level in `.claude/`)                               |
 | `docs/agents/README.md`                            | `.claude/agents/README.md`                            | Agents directory README                                                   |
 | `docs/agents/contracts.md`                         | `.claude/agents/contracts.md`                         | Cross-agent state machine                                                 |
 | `docs/agents/CHANGES.md`                           | `.claude/agents/CHANGES.md`                           | Multi-agent docs changelog                                                |
@@ -47,7 +47,7 @@ USER явно запросил это разделение:
 | `docs/agents/archive/`                             | `.claude/agents/archive/`                             | Archived agent prompts (qa)                                               |
 | `rules/common/`                                    | `.claude/rules/common/`                               | Cross-agent common rules                                                  |
 | `rules/ecc/`                                       | `.claude/rules/ecc/`                                  | ECC catalog rules (typescript/web)                                        |
-| `.claude/hooks-ecc/`                               | `.claude/hooks/`                                      | Active ECC hooks (rename, старая `.claude/hooks/` была удалена в Phase 6) |
+| `.claude/hooks-ecc/`                               | `.claude/hooks/`                                      | Active ECC hooks (rename, the old `.claude/hooks/` was deleted in Phase 6) |
 | `docs/specs/pm-state.json`                         | `.claude/state/pm-state.json`                         | LIVE PM state                                                             |
 | `docs/specs/pm-state-events.md`                    | `.claude/state/events.md`                             | Event schema docs                                                         |
 | `docs/specs/tasks/`                                | `.claude/tasks/`                                      | PM task files                                                             |
@@ -61,9 +61,9 @@ USER явно запросил это разделение:
 | `.claude/skills/`                                  | `.claude/skills/`                                     | UNCHANGED (already there)                                                 |
 | `.claude/settings.json`                            | `.claude/settings.json`                               | UNCHANGED location, hook paths updated                                    |
 
-### 2.2. Convention для PM briefs
+### 2.2. Convention for PM briefs
 
-Generic PM brief path (раньше `docs/specs/pm-brief.md`, генерируемый BA workflow) теперь конвенционально:
+The generic PM brief path (formerly `docs/specs/pm-brief.md`, generated by the BA workflow) is now, by convention:
 
 ```
 .claude/briefs/pm-brief.md                 — current PM brief from BA
@@ -74,9 +74,9 @@ Generic PM brief path (раньше `docs/specs/pm-brief.md`, генерируе
 
 ---
 
-## 3. Что осталось в `docs/`
+## 3. What remained in `docs/`
 
-После Phase 7 `docs/` содержит ИСКЛЮЧИТЕЛЬНО project documentation:
+After Phase 7, `docs/` contains EXCLUSIVELY project documentation:
 
 ```
 docs/
@@ -87,7 +87,7 @@ docs/
 │   ├── 2026-06-03-phase{2..6}-deliverable.md
 │   └── 2026-06-03-phase7-namespace-cleanup.md  ← this doc
 ├── business/                          — business modules + roles
-│   └── roles/ba.md                    — BA role doc (human, not LLM agent)
+│   └── roles/ba.md                    — BA role doc (human, not an LLM agent)
 ├── escalations/                       — escalation tracking (project ops)
 ├── runbooks/                          — ops runbooks (s3, user-testing-tunnel)
 ├── superpowers/                       — implementation plans
@@ -95,11 +95,11 @@ docs/
 └── verify/                            — verification screenshots
 ```
 
-`docs/runbooks/`, `docs/superpowers/`, `docs/test-cases/`, `docs/verify/`, `docs/escalations/` — это операционные артефакты проекта (плэны, скриншоты, runbooks). Они не являются AI infrastructure, поэтому остаются в `docs/`.
+`docs/runbooks/`, `docs/superpowers/`, `docs/test-cases/`, `docs/verify/`, `docs/escalations/` — these are operational project artifacts (plans, screenshots, runbooks). They are not AI infrastructure, so they remain in `docs/`.
 
 ---
 
-## 4. Новая `.claude/` структура
+## 4. New `.claude/` structure
 
 ```
 .claude/
@@ -157,7 +157,7 @@ docs/
 
 ## 5. Settings.json hook paths update
 
-`.claude/settings.json` после Phase 2.5 содержал хуки с абсолютными путями на `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/`. После rename `hooks-ecc → hooks` обновлены 5 references:
+`.claude/settings.json` after Phase 2.5 contained hooks with absolute paths to `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks-ecc/`. After the rename `hooks-ecc → hooks`, 5 references were updated:
 
 ```diff
 - bash /.../.claude/hooks-ecc/pre-bash-safety.sh
@@ -172,15 +172,15 @@ docs/
 + bash /.../.claude/hooks/post-edit-write-coder-progress.sh
 ```
 
-Hook scripts сами не содержат references на `hooks-ecc/` (проверено `grep -l "hooks-ecc" .claude/hooks/*.sh` — нет совпадений).
+The hook scripts themselves contain no references to `hooks-ecc/` (verified with `grep -l "hooks-ecc" .claude/hooks/*.sh` — no matches).
 
 ---
 
 ## 6. Internal refs update
 
-Run в 2 прохода:
+Run in 2 passes:
 
-**Pass 1** — 42 файла updated, 457 строк изменено. Правила:
+**Pass 1** — 42 files updated, 457 lines changed. Rules:
 
 - `docs/agents/RULES.md` → `.claude/RULES.md`
 - `docs/agents/<X>` → `.claude/agents/<X>`
@@ -195,40 +195,40 @@ Run в 2 прохода:
 - `rules/{common,ecc}/` → `.claude/rules/{common,ecc}/`
 - standalone `hooks-ecc/` → `hooks/`
 
-**Pass 2** — 12 файлов updated, 31 строка. Правила для остаточных briefs convention:
+**Pass 2** — 12 files updated, 31 lines. Rules for the remaining briefs convention:
 
 - `docs/specs/pm-brief.md` → `.claude/briefs/pm-brief.md`
 - `docs/specs/pm-brief-<slug>.md` → `.claude/briefs/pm-brief-<slug>.md`
-- regex fallback на `docs/specs/<file>.md` → `.claude/briefs/<file>.md`
-- bare `docs/specs/` (без следующего символа) → `.claude/briefs/`
+- regex fallback on `docs/specs/<file>.md` → `.claude/briefs/<file>.md`
+- bare `docs/specs/` (without a following character) → `.claude/briefs/`
 
-**Итого:** 54 уникальных файла, 488 строк refs обновлено.
+**Total:** 54 unique files, 488 lines of refs updated.
 
-### Файлы, ref-ы в которых НЕ трогали:
+### Files whose refs were NOT touched:
 
-- `.claude/agents/CHANGES.md` — historical changelog (Phase 1-6 entries описывают прошлое)
-- `.claude/agents/archive/qa.md` — архивированный QA агент (deprecated)
+- `.claude/agents/CHANGES.md` — historical changelog (Phase 1-6 entries describe the past)
+- `.claude/agents/archive/qa.md` — the archived QA agent (deprecated)
 - `.claude/agents/specs/2026-05-20-productive-pipeline-design.md` — historical design spec
-- `.claude/briefs/onboarding-brief.md` и др. briefs — signed-off historical
+- `.claude/briefs/onboarding-brief.md` and other briefs — signed-off historical
 - `.claude/knowledge/legal-consultations/*.md` — finalized Legal outputs
 - `.claude/state/events.md` — historical event log
 - `.claude/agents/memory/<X>/lessons.archive.md` — archived lessons
-- `docs/architecture/2026-XX-XX-*.md` — ADRs описывают past state (refs на старые пути legitimate)
+- `docs/architecture/2026-XX-XX-*.md` — ADRs describe past state (refs to old paths are legitimate)
 
 ---
 
 ## 7. Activation impact
 
-После Phase 7 native Claude Code subagent discovery работает: harness ищет project-level agents в `.claude/agents/<name>.md`. Это значит:
+After Phase 7, native Claude Code subagent discovery works: the harness looks for project-level agents in `.claude/agents/<name>.md`. This means:
 
-- `Agent(subagent_type="code-reviewer", ...)` — теперь резолвится напрямую в `.claude/agents/code-reviewer.md`
+- `Agent(subagent_type="code-reviewer", ...)` — now resolves directly to `.claude/agents/code-reviewer.md`
 - `Agent(subagent_type="security-reviewer", ...)` — `.claude/agents/security-reviewer.md`
 - `Agent(subagent_type="legal", ...)` — `.claude/agents/legal.md`
-- ... и так далее для всех 9 активных агентов
+- ... and so on for all 9 active agents
 
-Ранее эти агенты были discoverable только через `general-purpose` + manual prompt с указанием путей к `docs/agents/<X>.md`. Phase 7 включает native flow.
+Previously these agents were discoverable only via `general-purpose` + a manual prompt specifying paths to `docs/agents/<X>.md`. Phase 7 enables the native flow.
 
-ECC catalog в `agents/` (root, 62 reference agents from ECC v2.0.0-rc.1) остаётся отдельно — это upstream reference catalog, не наши project agents. PM/Coder/AutoTest/etc по-прежнему могут invoke ECC catalog agents (planner, tdd-guide, typescript-reviewer) через `Agent(subagent_type="<ecc-name>")` — Claude Code harness matchает оба namespace (project + ECC catalog в `agents/`).
+The ECC catalog in `agents/` (root, 62 reference agents from ECC v2.0.0-rc.1) remains separate — it is the upstream reference catalog, not our project agents. PM/Coder/AutoTest/etc can still invoke ECC catalog agents (planner, tdd-guide, typescript-reviewer) via `Agent(subagent_type="<ecc-name>")` — the Claude Code harness matches both namespaces (project + ECC catalog in `agents/`).
 
 ---
 
@@ -254,7 +254,7 @@ ls rules 2>&1                       # No such file or directory  ← OK
 ### 8.2. Hook smoke tests
 
 ```bash
-# Each hook fed test JSON, should exit 0 (allow) for benign tool-call
+# Each hook fed test JSON, should exit 0 (allow) for a benign tool-call
 echo '{"tool_name":"Bash","tool_input":{"command":"ls"}}' \
   | bash .claude/hooks/pre-bash-safety.sh
 echo "exit: $?"  # expected: 0
@@ -283,7 +283,7 @@ git grep -E "docs/(agents|specs|legal)/[a-zA-Z]" .claude/ AGENTS.md docs/README.
 # expected: empty in active operational files; matches only in historical (CHANGES.md, archive/, specs/, briefs/, knowledge/legal-consultations/, events.md, lessons.archive.md)
 
 git grep -E "hooks-ecc/" .
-# expected: empty (rename complete) or только historical ADR docs
+# expected: empty (rename complete) or only historical ADR docs
 
 git grep -E "^(rules/|  rules/)" .
 # expected: empty (all moved to .claude/rules/)
@@ -293,7 +293,7 @@ git grep -E "^(rules/|  rules/)" .
 
 ```bash
 git log -p .claude/state/pm-state.json
-# expected: shows only rename from docs/specs/pm-state.json; no content diff
+# expected: shows only the rename from docs/specs/pm-state.json; no content diff
 ```
 
 ---
@@ -302,27 +302,27 @@ git log -p .claude/state/pm-state.json
 
 | Risk                                                                              | Likelihood | Impact                                          | Mitigation                                                                                                                                                                                |
 | --------------------------------------------------------------------------------- | ---------- | ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hook scripts перестали работать после rename                                      | Low        | High (CI blocks/ no zone-of-write enforcement)  | Smoke tests § 8.2 после каждого hook                                                                                                                                                      |
-| Stale refs в historical docs ломают tooling                                       | Low        | Low (historical docs не consumed автоматически) | Не трогаем historical, документируем в § 6                                                                                                                                                |
-| PM не находит pm-state.json в новом месте                                         | Medium     | High (orchestration breaks)                     | pm-snippets.md обновлён, pm.md обновлён, schema events.md обновлён                                                                                                                        |
-| GHA workflows ссылаются на старые пути                                            | Low        | Medium (workflow fail)                          | Только `.github/workflows/ecc-code-review.yml` имел ref → updated                                                                                                                         |
-| Subagent discovery всё ещё matches ECC catalog `agents/` вместо `.claude/agents/` | Low        | Low (overlap имен — minimal)                    | Имена project agents (pm, coder, autotest, devops, legal, code-reviewer, security-reviewer, architect, reviewer) различаются с ECC catalog (planner, tdd-guide, typescript-reviewer, etc) |
+| Hook scripts stopped working after the rename                                     | Low        | High (CI blocks / no zone-of-write enforcement) | Smoke tests § 8.2 after each hook                                                                                                                                                        |
+| Stale refs in historical docs break tooling                                       | Low        | Low (historical docs are not consumed automatically) | We do not touch historical, we document it in § 6                                                                                                                                       |
+| PM does not find pm-state.json in the new location                                | Medium     | High (orchestration breaks)                     | pm-snippets.md updated, pm.md updated, the events.md schema updated                                                                                                                      |
+| GHA workflows reference old paths                                                 | Low        | Medium (workflow fail)                          | Only `.github/workflows/ecc-code-review.yml` had a ref → updated                                                                                                                         |
+| Subagent discovery still matches the ECC catalog `agents/` instead of `.claude/agents/` | Low        | Low (name overlap — minimal)                    | The names of the project agents (pm, coder, autotest, devops, legal, code-reviewer, security-reviewer, architect, reviewer) differ from the ECC catalog (planner, tdd-guide, typescript-reviewer, etc) |
 
 ---
 
-## 10. Что дальше
+## 10. What's next
 
-Phase 7 завершает крупную ECC migration. Дальнейшие шаги (out of scope):
+Phase 7 concludes the large ECC migration. Further steps (out of scope):
 
 - **Continuous improvement**: lessons rotation, skill viability re-audit
-- **Phase 8**: Smart-contract Phase (USDT ERC-20) — не AI infrastructure, проектная работа
-- **Phase 9**: Dashboard — проектная работа
+- **Phase 8**: Smart-contract Phase (USDT ERC-20) — not AI infrastructure, project work
+- **Phase 9**: Dashboard — project work
 
-ECC migration tracking (`docs/architecture/ecc-reference/`) остаётся в `docs/` — это upstream reference материал, не наша operational AI infrastructure.
+The ECC migration tracking (`docs/architecture/ecc-reference/`) remains in `docs/` — it is upstream reference material, not our operational AI infrastructure.
 
 ---
 
-## Ссылки
+## Links
 
 - Phase 6 retrospective: `docs/architecture/2026-06-03-ecc-migration-retrospective.md`
 - Phase 6 deliverable: `docs/architecture/2026-06-03-phase6-deliverable.md`
