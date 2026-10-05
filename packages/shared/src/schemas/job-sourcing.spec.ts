@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DESCRIPTION_MD_MAX,
   dismissJobQueueItemSchema,
   jobCollectionResultSchema,
+  jobPostingSchema,
   jobQueueCardSchema,
   jobQueueItemSchema,
   jobSeniorityLevelSchema,
@@ -449,6 +451,30 @@ describe('vacancy-queue contract pins', () => {
   it('the card adds a required markdown description to the row', () => {
     expect(jobQueueCardSchema.safeParse({ ...item(), descriptionMd: '' }).success).toBe(true)
     expect(jobQueueCardSchema.safeParse(item()).success).toBe(false)
+  })
+
+  it('descriptionMd is bounded: exactly DESCRIPTION_MD_MAX passes, one more is rejected', () => {
+    expect(DESCRIPTION_MD_MAX).toBe(50000)
+    const at = 'a'.repeat(50000)
+    const over = 'a'.repeat(50001)
+    expect(jobQueueCardSchema.safeParse({ ...item(), descriptionMd: at }).success).toBe(true)
+    expect(jobQueueCardSchema.safeParse({ ...item(), descriptionMd: over }).success).toBe(false)
+    const posting = {
+      id: UUID,
+      sourceType: 'DJINNI_RSS',
+      externalId: 'https://djinni.co/j/1',
+      url: 'https://djinni.co/j/1',
+      title: 't',
+      companyName: 'c',
+      location: null,
+      descriptionMd: at,
+      publishedAt: null,
+      collectedAt: '2026-10-04T00:00:00.000Z',
+      takenByName: null,
+      takenAt: null,
+    }
+    expect(jobPostingSchema.safeParse(posting).success).toBe(true)
+    expect(jobPostingSchema.safeParse({ ...posting, descriptionMd: over }).success).toBe(false)
   })
 
   it('list: counters are non-negative integers and the cursor is capped', () => {

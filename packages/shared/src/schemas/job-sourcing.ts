@@ -136,6 +136,9 @@ export const externalHttpsUrlSchema = z
   // package is DOM/Node-agnostic (no `URL` global in its tsconfig lib).
   .refine((value) => /^https:\/\/\S+$/i.test(value), 'URL must use https')
 
+/** Upper bound for a posting description (~8000 words of markdown). */
+export const DESCRIPTION_MD_MAX = 50000
+
 // ---------------------------------------------------------------------------
 // Posting
 // ---------------------------------------------------------------------------
@@ -151,7 +154,8 @@ export const jobPostingSchema = z.object({
   /** Cities / "remote" as advertised by the source. */
   location: z.string().max(500).nullable(),
   /** Markdown WITHOUT raw HTML — see the module header. */
-  descriptionMd: z.string(),
+  // SECURITY: UNTRUSTED 3rd-party markdown. Bound caps DoS; must be sanitized (no raw HTML) on render in HR UI — future ingest phase.
+  descriptionMd: z.string().max(DESCRIPTION_MD_MAX),
   publishedAt: z.string().datetime().nullable(),
   collectedAt: z.string().datetime(),
 })
@@ -412,7 +416,10 @@ export const jobQueueItemSchema = z.object({
 })
 
 /** The card = list row + the (markdown, never raw HTML) description. */
-export const jobQueueCardSchema = jobQueueItemSchema.extend({ descriptionMd: z.string() })
+export const jobQueueCardSchema = jobQueueItemSchema.extend({
+  // SECURITY: UNTRUSTED 3rd-party markdown. Bound caps DoS; must be sanitized (no raw HTML) on render in HR UI — future ingest phase.
+  descriptionMd: z.string().max(DESCRIPTION_MD_MAX),
+})
 
 export const jobQueueListSchema = z.object({
   items: z.array(jobQueueItemSchema),
