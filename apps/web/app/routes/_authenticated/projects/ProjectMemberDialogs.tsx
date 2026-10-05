@@ -137,6 +137,7 @@ export function ProjectMemberDialogs({
       <Dialog
         open={addMemberOpen}
         onOpenChange={(v) => {
+          // Stryker disable next-line ConditionalExpression: Radix never emits onOpenChange(true) for a controlled Dialog without a trigger, so `if (true)` is unobservable
           if (!v) onCloseAddMember()
         }}
       >
@@ -179,6 +180,7 @@ export function ProjectMemberDialogs({
                     </Badge>
                     <Button
                       size="sm"
+                      // Stryker disable next-line StringLiteral: 'default' is also the cva defaultVariants fallback, so emptying it is equivalent
                       variant={isAdded ? 'outline' : 'default'}
                       className={cn(
                         'shrink-0 h-7 text-xs px-2.5',

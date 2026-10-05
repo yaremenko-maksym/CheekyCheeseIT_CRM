@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { beforeEach, describe, expect, it, vi, type Mock, type MockInstance } from 'vitest'
 import type { ProjectMemberDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { ProjectMemberDialogs, type UserForAdd } from '../ProjectMemberDialogs'
@@ -57,6 +57,7 @@ interface Handlers {
   onCloseRemoveMember: Mock<() => void>
   onCloseAddMember: Mock<() => void>
   onMemberAdded: Mock<(id: string) => void>
+  invalidate: MockInstance<QueryClient['invalidateQueries']>
 }
 
 function setup(props: Partial<React.ComponentProps<typeof ProjectMemberDialogs>> = {}): Handlers {
@@ -64,10 +65,12 @@ function setup(props: Partial<React.ComponentProps<typeof ProjectMemberDialogs>>
     onCloseRemoveMember: vi.fn<() => void>(),
     onCloseAddMember: vi.fn<() => void>(),
     onMemberAdded: vi.fn<(id: string) => void>(),
+    invalidate: undefined as unknown as Handlers['invalidate'],
   }
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  handlers.invalidate = vi.spyOn(qc, 'invalidateQueries')
   render(
     <QueryClientProvider client={qc}>
       <ProjectMemberDialogs
@@ -76,7 +79,9 @@ function setup(props: Partial<React.ComponentProps<typeof ProjectMemberDialogs>>
         addMemberOpen={false}
         availableToAdd={CANDIDATES}
         addedMemberIds={new Set()}
-        {...handlers}
+        onCloseRemoveMember={handlers.onCloseRemoveMember}
+        onCloseAddMember={handlers.onCloseAddMember}
+        onMemberAdded={handlers.onMemberAdded}
         {...props}
       />
     </QueryClientProvider>,
@@ -98,12 +103,32 @@ describe('ProjectMemberDialogs — remove confirm', () => {
     expect(screen.getByText('Олег Джуніор')).toBeTruthy()
   })
 
-  it('confirm deletes the member by userId and closes on success', async () => {
+  it('explains the consequence with the member name followed by a literal space', () => {
+    setup({ removeMemberTarget: TARGET })
+    const body = screen.getByText(
+      (_, el) =>
+        el?.tagName === 'P' && el.textContent === 'Олег Джуніор більше не буде у складі проєкту.',
+    )
+    expect(body).toBeTruthy()
+  })
+
+  it('confirm deletes the member by userId, refreshes project queries and closes on success', async () => {
     vi.mocked(api.delete).mockResolvedValue({ data: {} })
-    const { onCloseRemoveMember } = setup({ removeMemberTarget: TARGET })
+    const { onCloseRemoveMember, invalidate } = setup({ removeMemberTarget: TARGET })
     await userEvent.click(screen.getByRole('button', { name: 'Прибрати' }))
     await waitFor(() => expect(onCloseRemoveMember).toHaveBeenCalledTimes(1))
     expect(api.delete).toHaveBeenCalledWith('/projects/proj-1/members/u9')
+    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects', 'proj-1'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects'] })
+  })
+
+  it('dismissing the confirm dialog (Escape) calls onCloseRemoveMember once without deleting', async () => {
+    const { onCloseRemoveMember, onCloseAddMember } = setup({ removeMemberTarget: TARGET })
+    await userEvent.keyboard('{Escape}')
+    expect(onCloseRemoveMember).toHaveBeenCalledTimes(1)
+    expect(onCloseAddMember).not.toHaveBeenCalled()
+    expect(api.delete).not.toHaveBeenCalled()
   })
 
   it('cancel closes without calling the API', async () => {
@@ -134,8 +159,41 @@ describe('ProjectMemberDialogs — add picker', () => {
     expect(screen.queryByText('Немає кого додати')).toBeNull()
     expect(screen.getByText('Іван Петренко')).toBeTruthy()
     expect(screen.getByText('maria@example.com')).toBeTruthy()
-    expect(screen.getAllByTestId('avatar-img')).toHaveLength(1)
+    const imgs = screen.getAllByTestId('avatar-img')
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0]?.getAttribute('src')).toBe('https://img.example/m.png')
+    // the url itself is never rendered as text (guards `url || <img>`)
+    expect(screen.queryByText('https://img.example/m.png')).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Додати' })).toHaveLength(2)
+  })
+
+  it('colours the role badge by role, falling back to the junior variant for a role without one', () => {
+    setup({
+      addMemberOpen: true,
+      availableToAdd: [
+        candidate({ id: 'r1', displayName: 'Рита', role: 'HR' }),
+        candidate({ id: 'r2', displayName: 'Дмитро', role: 'DROP' }),
+      ],
+    })
+    const hr = screen.getByText('HR')
+    expect(hr.className).toContain('text-purple-400')
+    expect(hr.className).not.toContain('text-green-400')
+    const drop = screen.getByText('Дроп')
+    expect(drop.className).toContain('text-green-400')
+    expect(drop.className).not.toContain('text-cyan-400')
+  })
+
+  it('styles a not-yet-added button as a primary action and an added one as an emerald outline', () => {
+    setup({ addMemberOpen: true, addedMemberIds: new Set(['c1']) })
+    const added = screen.getByRole('button', { name: 'Додано' })
+    expect(added.className).toContain('text-emerald-500')
+    expect(added.className).toContain('border-emerald-500/40')
+    expect(added.className).toContain('bg-transparent')
+    expect(added.className).toContain('h-7')
+    const todo = screen.getByRole('button', { name: 'Додати' })
+    expect(todo.className).not.toContain('text-emerald-500')
+    expect(todo.className).toContain('bg-primary')
+    expect(todo.className).toContain('h-7')
   })
 
   it('shows «Додано» and disables the button for already-added ids', () => {
@@ -148,7 +206,7 @@ describe('ProjectMemberDialogs — add picker', () => {
   it('click posts the userId, shows pending, then reports the add to the page', async () => {
     let resolve: (v: unknown) => void = () => {}
     vi.mocked(api.post).mockReturnValue(new Promise((r) => (resolve = r)))
-    const { onMemberAdded } = setup({ addMemberOpen: true })
+    const { onMemberAdded, invalidate } = setup({ addMemberOpen: true })
     const [first] = screen.getAllByRole('button', { name: 'Додати' })
     await userEvent.click(first!)
     const pending = await screen.findByRole('button', { name: 'Додаємо…' })
@@ -156,6 +214,10 @@ describe('ProjectMemberDialogs — add picker', () => {
     expect(api.post).toHaveBeenCalledWith('/projects/proj-1/members', { userId: 'c1' })
     resolve({ data: {} })
     await waitFor(() => expect(onMemberAdded).toHaveBeenCalledWith('c1'))
+    expect(invalidate).toHaveBeenCalledTimes(3)
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects', 'proj-1'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['users'] })
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Додаємо…' })).toBeNull())
   })
 
