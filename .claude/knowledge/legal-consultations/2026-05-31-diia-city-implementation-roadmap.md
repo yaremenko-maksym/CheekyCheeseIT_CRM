@@ -1000,3 +1000,5 @@ These tactics exist, but **the line between optimization and evasion here is blu
   - Specific client contracts (may contain clauses requiring a special structure)
   - Regional specifics (Kyiv vs a region — sometimes different service rates)
   - Current IT legislative initiatives (there are draft laws to change Diia City in Q3-Q4 2026)
+
+**The next consultation is recommended:** in **6 months** after the TOV launch to review the results of the first quarterly reporting and adjust the strategy (or earlier upon substantial changes in scale / legislation).

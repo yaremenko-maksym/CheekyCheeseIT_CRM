@@ -574,7 +574,7 @@ For our scale (₴5M/year ≈ $120k/year) — a standard Business KYB is suffici
 
 ##### 5.6 Tax reporting (what WhiteBIT reports to the DPS)
 
-**Currently (2026-05-31):** WhiteBIT is operationally based in Lithuania (W Group); **automatic reporting to the DPS of Ukraine does NOT apply** (UA crypto regulation is not in force — Law 2074-IX awaits the activation of 10225-d).
+**Currently (2026-05-31):** WhiteBIT is operationally based in Lithuania (W Group); **automatic reporting to the DPS of Ukraine does NOT apply** (UA crypto regulation is not in force — Law 2074-IX awaits the activation of 10225-d (original: 10225-д)).
 
 **What this means for you practically:**
 

@@ -97,7 +97,7 @@ CRM Cheeky Cheese IT — an outsource/outstaffing company (Ukraine). Teams: ADMI
 
 **Confidence:** LOW (overall) — with a breakdown by sub-questions:
 
-- Q1 (crypto-law / VASP) — **LOW** (Law 2074-IX not in force, awaiting changes to the Tax Code; the status of 10225-d is fluid)
+- Q1 (crypto-law / VASP) — **LOW** (Law 2074-IX not in force, awaiting changes to the Tax Code; the status of 10225-d (original: 10225-д) is fluid)
 - Q2 (taxation) — **LOW→MED** (the current DPS position is known, but changes are coming on 01.01.2026)
 - Q3 (AML / Fin Mon) — **LOW** (the 30k UAH threshold is known, but the specifics of VASP obligations are future)
 - Q4 (smart contract / VASP status) — **LOW** (no enforcement practice, pure hypothetical analysis)

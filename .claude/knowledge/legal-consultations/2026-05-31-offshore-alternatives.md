@@ -10,7 +10,7 @@
 
 The User received 3 previous strategic consultations (UA-scope):
 
-1. [USDT payouts PHASE 8](2026-05-31-usdt-payouts-phase8.md) — the UA crypto vacuum until the activation of 10225-d
+1. [USDT payouts PHASE 8](2026-05-31-usdt-payouts-phase8.md) — the UA crypto vacuum until the activation of 10225-d (original: 10225-д)
 2. [TOV + multi-channel revenue](2026-05-31-tov-multi-channel-revenue.md) — a TOV Diia City was recommended, but **the cash and crypto channels had to be excluded** (NBU limits + the crypto regulation gap)
 3. [Diia City implementation roadmap](2026-05-31-diia-city-implementation-roadmap.md) — 8-12 weeks setup, ₴80-150k
 

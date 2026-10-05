@@ -2216,7 +2216,7 @@ User re-acceptance of the ToS is required if a "material change" (per E.4.12). A
 
 - **The banking-cap timeline is tight:** from 14.08.2026 the bank cap is ₴3M/month. If scale > ₴4-5M/quarter — the TOV transition is critical before Q3 2026.
 - **The Diia City startup-resident benefit has a 24-month limit** (per [P1] memory). Apply BEFORE active deployment, not after scale.
-- **USDT (PHASE 8) — keep feature_flag=false** until the activation of Law 2074-IX (while waiting on the Tax Code amendments, draft law 10225-d first reading 03.09.2025 per [P2] memory).
+- **USDT (PHASE 8) — keep feature_flag=false** until the activation of Law 2074-IX (while waiting on the Tax Code amendments, draft law 10225-d (original: 10225-д) first reading 03.09.2025 per [P2] memory).
 - **GDPR scale:** if the CRM target breaks into EU users — a DPO appointment + Data Privacy Framework registration recommended.
 
 ---

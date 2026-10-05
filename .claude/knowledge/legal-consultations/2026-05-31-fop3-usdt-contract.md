@@ -29,7 +29,7 @@ Memory lesson [P2]: Law 2074-IX is adopted but NOT in force. The current DPS pos
 **Clarify the current state:**
 
 - As of 2026-05-31 — what does the DPS say about accepting USDT on a FOP-3?
-- Has anything changed after the first reading of 10225-d (03.09.2025)?
+- Has anything changed after the first reading of 10225-d (original: 10225-д) (03.09.2025)?
 - What are the risks if the user specifies USDT in a FOP contract with a client **today**?
 - What specific penalties (forced transfer to the general system? a 15% penalty? annulment of FOP status?)
 
