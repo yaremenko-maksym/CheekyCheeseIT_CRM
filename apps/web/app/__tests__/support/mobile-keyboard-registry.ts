@@ -17,7 +17,7 @@
  *
  * A single registry entry can cover MANY runtime call sites when they share
  * one JSX definition (`AmountCurrencyInput`, `PhoneInput`, `ShareSlider`,
- * `SliderNumberInput`, and `InterviewDetailSheet`'s local `FieldRow` all
+ * and `InterviewDetailSheet`'s local `FieldRow` all
  * render exactly one `<Input>`/`<input>` node reused across screens) — see
  * `input-scan.ts` module doc.
  *
@@ -166,7 +166,6 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:amount-currency-amount-input': 'MONEY', // AmountCurrencyInput — money/rate everywhere
   'app/components/ui/phone-input.tsx#1': 'PHONE', // PhoneInput's underlying text input
   'app/components/ui/share-slider.tsx#2': 'INTEGER_SPINNER', // % share number input (paired with range slider)
-  'app/components/ui/slider-number-input.tsx#2': 'INTEGER_SPINNER', // generic number input (paired with range slider)
 
   // ---- ui/image-upload-field.tsx ----
   'testid:image-upload-field-url-input': 'URL',

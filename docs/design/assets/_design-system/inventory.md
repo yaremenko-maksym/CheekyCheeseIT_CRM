@@ -92,7 +92,7 @@
 
 ## UI-примитивы (`components/ui/`)
 
-shadcn/ui примитивы на базе Radix UI + Tailwind. (Исключены кастомные/прикладные компоненты — `AmountCurrencyInput`, `AnimatedTabs`, `CrmDialog`, `DatePicker`, `ImageUploadField`, `PhoneInput`, `RoleSelect`, `SegmentedToggle`, `ShareSlider`, `SliderNumberInput`, `TechAutocompleteInput` — и Sonner toast-обёртка; они учтены среди композитов.)
+shadcn/ui примитивы на базе Radix UI + Tailwind. (Исключены кастомные/прикладные компоненты — `AmountCurrencyInput`, `AnimatedTabs`, `CrmDialog`, `DatePicker`, `ImageUploadField`, `PhoneInput`, `RoleSelect`, `SegmentedToggle`, `ShareSlider`, `TechAutocompleteInput` — и Sonner toast-обёртка; они учтены среди композитов.)
 
 | name         | file                              | variants                                                                                                                                  |
 | ------------ | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
@@ -175,7 +175,6 @@ shadcn/ui примитивы на базе Radix UI + Tailwind. (Исключе�
 | InProgressPanel     | `routes/_authenticated/routing/components/InProgressPanel.tsx`     | Панель активных проектов/собеседований для дашборда                              |
 | EarningsStatsBlock  | `routes/_authenticated/routing/components/EarningsStatsBlock.tsx`  | Блок сводных earnings-метрик                                                     |
 | EarningsSparkline   | `routes/_authenticated/routing/components/EarningsSparkline.tsx`   | Мини-чарт тренда earnings                                                        |
-| SliderNumberInput   | `components/ui/slider-number-input.tsx`                            | Generic slider + number input (0–100), для salary-change и % селекторов          |
 
 ### Документы / Инвойсы
 
@@ -214,7 +213,7 @@ shadcn/ui примитивы на базе Radix UI + Tailwind. (Исключе�
 | ArchiveUserDialog               | `components/user-profile/admin-actions/ArchiveUserDialog.tsx`      | Подтверждение архивации пользователя с impact                                                              |
 | ChangeRequisitesDialog          | `components/user-profile/admin-actions/ChangeRequisitesDialog.tsx` | Admin-override реквизитов (bank/wallet)                                                                    |
 | ChangeRoleDialog                | `components/user-profile/admin-actions/ChangeRoleDialog.tsx`       | Смена роли (SENIOR/HR/ACCOUNTANT/ADMIN/JUNIOR)                                                             |
-| ChangeSalaryDialog              | `components/user-profile/admin-actions/ChangeSalaryDialog.tsx`     | Обновление зарплаты и % доли через SliderNumberInput                                                       |
+| ChangeSalaryDialog              | `components/user-profile/admin-actions/ChangeSalaryDialog.tsx`     | Обновление зарплаты и % доли                                                                               |
 | EditProfileDialog               | `components/user-profile/admin-actions/EditProfileDialog.tsx`      | Admin bulk-правка профиля (name/email/phone)                                                               |
 | ProfileEditFields               | `components/user-profile/self-edit/ProfileEditFields.tsx`          | Self-edit форма полей профиля (name/email/phone/avatar)                                                    |
 | RequisitesEditForm              | `components/user-profile/self-edit/RequisitesEditForm.tsx`         | Self-edit форма реквизитов (bank/wallet/company account)                                                   |

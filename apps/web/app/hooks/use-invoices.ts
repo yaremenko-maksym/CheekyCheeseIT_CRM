@@ -2,7 +2,6 @@
  * TanStack Query hooks for the Invoice Signing Epic frontend.
  *
  * Two query groups:
- *   - list (`useInvoices(filters)`)            staleTime 60s, gcTime 5 min
  *   - detail (`useInvoice(transactionId)`)     staleTime 30s, gcTime 5 min
  *
  * Mutation: `useSignInvoice()` — POSTs `/api/invoices/:id/sign`, invalidates
@@ -23,7 +22,6 @@ import { useLingui } from '@lingui/react/macro'
 import type {
   InvoiceDto,
   InvoiceListFilters,
-  InvoiceListItem,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
@@ -60,34 +58,6 @@ export function invoicesListQueryKey(filters: InvoiceListFilters) {
 
 export function invoiceDetailQueryKey(transactionId: string) {
   return ['invoices', 'detail', transactionId] as const
-}
-
-// ---------------------------------------------------------------------------
-// Query: list
-// ---------------------------------------------------------------------------
-
-export function useInvoices(
-  filters: InvoiceListFilters,
-  options?: { enabled?: boolean },
-): UseQueryResult<InvoiceListItem[], Error> {
-  return useQuery<InvoiceListItem[], Error>({
-    queryKey: invoicesListQueryKey(filters),
-    queryFn: async () => {
-      const params: Record<string, string> = {}
-      if (filters.status) params['status'] = filters.status
-      if (filters.type) params['type'] = filters.type
-      const res = await api.get<{ items: InvoiceListItem[] } | InvoiceListItem[]>(
-        '/invoices',
-        { params },
-      )
-      // Backend returns InvoiceListItem[] directly today; tolerate the
-      // `{ items: [] }` envelope as future-proofing for pagination.
-      return Array.isArray(res.data) ? res.data : res.data.items
-    },
-    staleTime: INVOICE_LIST_STALE_MS,
-    gcTime: INVOICE_LIST_GC_MS,
-    enabled: options?.enabled ?? true,
-  })
 }
 
 // ---------------------------------------------------------------------------
