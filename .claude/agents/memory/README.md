@@ -1,89 +1,89 @@
 # Agent Memory — Lessons Learned
 
-Каждый агент имеет свой `lessons.md` — накопленные уроки от прошлых задач.
+Each agent has its own `lessons.md` — accumulated lessons from past tasks.
 
-## Структура
+## Structure
 
 ```
 .claude/agents/memory/
-├── README.md          (этот файл)
+├── README.md          (this file)
 ├── coder/lessons.md
 ├── autotest/lessons.md
 ├── reviewer/lessons.md
 ├── devops/lessons.md
-└── pm/lessons.md       (active, ≤ 20 строк; архивных файлов НЕТ)
+└── pm/lessons.md       (active, ≤ 20 lines; NO archive files)
 ```
 
-Механизм архивации `.md` удалён (2026-06-29) — `lessons.archive.md` больше нет; устаревшие уроки удаляются при консолидации, история восстановима из git.
+The `.md` archiving mechanism was removed (2026-06-29) — there is no more `lessons.archive.md`; stale lessons are deleted on consolidation, history is recoverable from git.
 
-## Когда читать
+## When to read
 
-Каждый агент читает свой `lessons.md` при старте — это часть обязательного чтения (см. `.claude/agents/<self>.md` секция «Session-recovery»).
+Each agent reads its own `lessons.md` at startup — it is part of the mandatory reading (see `.claude/agents/<self>.md` section "Session-recovery").
 
-## Когда писать
+## When to write
 
-**Trigger-based** (User answer #5 — skill-driven через `anthropic-skills:consolidate-memory`):
+**Trigger-based** (User answer #5 — skill-driven via `anthropic-skills:consolidate-memory`):
 
-После каждого **merged PR** PM ОБЯЗАН:
+After each **merged PR** PM MUST:
 
-1. Append 1-3 урока в `.claude/agents/memory/<agent>/lessons.md` соответствующего агента (тот кто делал основную работу).
-2. Консолидировать при достижении threshold (`lessons.md` ≥ **20 строк** ИЛИ после batch merged PRs): дедуп / упрощение / выделение паттернов → promote-and-prune (**без архива**):
+1. Append 1-3 lessons to `.claude/agents/memory/<agent>/lessons.md` of the corresponding agent (the one who did the main work).
+2. Consolidate when reaching the threshold (`lessons.md` ≥ **20 lines** OR after a batch of merged PRs): dedup / simplify / extract patterns → promote-and-prune (**without an archive**):
 
-- **P0 (5+ повторений)** → promote в Golden rules соответствующего agent doc (`<agent>.md`).
-- **P1** → consolidate в `rules/common/<topic>.md` (если cross-agent) или `<agent>.md` (если agent-specific).
-- **Остальное (одноразовое / поглощённое промоутом)** → **удалить** (не архивировать; история в git).
+- **P0 (5+ repetitions)** → promote into the Golden rules of the corresponding agent doc (`<agent>.md`).
+- **P1** → consolidate into `rules/common/<topic>.md` (if cross-agent) or `<agent>.md` (if agent-specific).
+- **The rest (one-off / absorbed by a promote)** → **delete** (do not archive; history is in git).
 
-> Это отдельная операция PM над in-repo `lessons.md`, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`).
+> This is a separate PM operation over the in-repo `lessons.md`, NOT the skill `anthropic-skills:consolidate-memory` (that one dedups the personal user memory `~/.claude`).
 
-Это «levelling-up» урока: персональный case → общее правило → enforced rule.
+This is the "levelling-up" of a lesson: a personal case → a general rule → an enforced rule.
 
-## Формат строки
-
-```
-<YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic-tag) <конкретный урок одной фразой>
-```
-
-**Поля:**
-
-- `<YYYY-MM-DD>` — дата урока.
-- `[P0]|[P1]|[P2]` — **приоритет** (D4 [P2] фикс, 2026-05-23):
-  - **P0** — критическое правило. Нарушение ведёт к: data loss, security gap, repeat regression, потеря коммитов, отказ системы. Агент ОБЯЗАН прочитать P0 при старте.
-  - **P1** — важное правило. Нарушение ведёт к: rework, увеличение раундов review, замедление пайплайна.
-  - **P2** — nice-to-know. Помогает оптимизировать, не блокирует.
-- `[<task-id>]` — task-id для трассируемости.
-- `#topic` — опциональный topic-тег для grep'абельности. Примеры: `#tunnel`, `#tdd`, `#review-gate`, `#commit-hygiene`, `#layout`, `#ci`, `#worktree`, `#workflow`.
-
-Примеры хороших уроков:
+## Line format
 
 ```
-2026-05-20 [P0] [task-fix-pr22-ui-round4] #commit-hygiene git add . подметает чужие debug-артефакты — только явный список файлов из task.
-2026-05-19 [P0] [task-teams-redesign] #testing data-testid обязателен для back-button/dialog-close — Playwright strict mode падает на дублях в sidebar+content.
-2026-05-18 [P1] [task-fix-flaky-tests] #test-stability userEvent в RTL требует delay:null для стабильности — иначе race с act().
+<YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic-tag) <a concrete lesson in one phrase>
 ```
 
-Примеры **плохих** уроков (не писать):
+**Fields:**
+
+- `<YYYY-MM-DD>` — the date of the lesson.
+- `[P0]|[P1]|[P2]` — **priority** (D4 [P2] fix, 2026-05-23):
+  - **P0** — a critical rule. A violation leads to: data loss, a security gap, a repeat regression, lost commits, a system failure. The agent MUST read P0 at startup.
+  - **P1** — an important rule. A violation leads to: rework, more review rounds, pipeline slowdown.
+  - **P2** — nice-to-know. Helps to optimize, does not block.
+- `[<task-id>]` — the task-id for traceability.
+- `#topic` — an optional topic tag for greppability. Examples: `#tunnel`, `#tdd`, `#review-gate`, `#commit-hygiene`, `#layout`, `#ci`, `#worktree`, `#workflow`.
+
+Examples of good lessons:
 
 ```
-2026-05-20 [P1] [task-knowledge-api] Сделал задачу.       # ← бесполезно
-2026-05-20 [P2] [task-x] Использовал TanStack Query.      # ← очевидно из кода
-2026-05-20 [P2] [task-y] Pnpm typecheck прошёл.           # ← это норма, не урок
+2026-05-20 [P0] [task-fix-pr22-ui-round4] #commit-hygiene git add . sweeps up other people's debug artifacts — only an explicit list of files from the task.
+2026-05-19 [P0] [task-teams-redesign] #testing data-testid is mandatory for back-button/dialog-close — Playwright strict mode fails on duplicates in sidebar+content.
+2026-05-18 [P1] [task-fix-flaky-tests] #test-stability userEvent in RTL requires delay:null for stability — otherwise a race with act().
 ```
 
-**Как выбрать приоритет (rule of thumb):**
+Examples of **bad** lessons (do not write):
 
-- Урок про **mechanism** (gate, label, hook) → P0
-- Урок про **safety/security/data** → P0
-- Урок про **regression-prevention** → P0 или P1
-- Урок про **process/communication** → P1
-- Урок про **optimization/style** → P2
+```
+2026-05-20 [P1] [task-knowledge-api] Did the task.       # ← useless
+2026-05-20 [P2] [task-x] Used TanStack Query.      # ← obvious from the code
+2026-05-20 [P2] [task-y] Pnpm typecheck passed.           # ← this is the norm, not a lesson
+```
 
-## Правила
+**How to choose the priority (rule of thumb):**
 
-1. **Один урок = одна строка.** Не размазывать на абзац.
-2. **Конкретность.** «Layout regression потому что X» лучше чем «осторожнее с layout».
-3. **Применимость.** Урок должен помочь следующему агенту в похожей ситуации.
-4. **Лимит.** Active `lessons.md` ≤ 20 строк. Достигли — PM консолидирует (promote-and-prune, см. «Когда писать»).
+- A lesson about a **mechanism** (gate, label, hook) → P0
+- A lesson about **safety/security/data** → P0
+- A lesson about **regression-prevention** → P0 or P1
+- A lesson about **process/communication** → P1
+- A lesson about **optimization/style** → P2
 
-## Где жил этот файл раньше
+## Rules
 
-Старая версия (до 2026-06-02 refactor) описывала threshold-based ротацию (30 строк). Это не работало — lessons недозаписывались (см. `architect-audit.md` §4.5). Новая версия — trigger-based + skill-driven (PM вызывает skill после merged PR при threshold 20 строк).
+1. **One lesson = one line.** Do not spread it over a paragraph.
+2. **Concreteness.** "Layout regression because of X" is better than "be careful with layout".
+3. **Applicability.** The lesson should help the next agent in a similar situation.
+4. **Limit.** The active `lessons.md` ≤ 20 lines. Reached it — PM consolidates (promote-and-prune, see "When to write").
+
+## Where this file used to live
+
+The old version (before the 2026-06-02 refactor) described threshold-based rotation (30 lines). It did not work — lessons were under-recorded (see `architect-audit.md` §4.5). The new version is trigger-based + skill-driven (PM invokes the skill after a merged PR at the 20-line threshold).

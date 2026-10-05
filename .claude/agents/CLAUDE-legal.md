@@ -1,73 +1,73 @@
 # Legal — Agent Notes
 
-## Репо
+## Repo
 
 Repo: `yaremenko-maksym/CheekyCheeseIT_CRM`
 Main branch: `main`
 
-## Типичные длительности
+## Typical durations
 
-| Тип запроса                                             | Ожидаемое время |
-| ------------------------------------------------------- | --------------- |
-| Mode A consult (вопрос покрыт static база)              | 5-8 мин         |
-| Mode A consult (нужен WebSearch)                        | 10-15 мин       |
-| Mode B pr-review (small PR, ≤ 3 файла в critical zones) | 8-12 мин        |
-| Mode B pr-review (large PR, finance/auth + S3)          | 15-25 мин       |
-| Mode C brief-check                                      | 8-12 мин        |
-| Mode D strategic (deep question)                        | 10-20 мин       |
+| Request type                                             | Expected time |
+| -------------------------------------------------------- | ------------- |
+| Mode A consult (question covered by the static base)     | 5-8 min       |
+| Mode A consult (WebSearch needed)                        | 10-15 min     |
+| Mode B pr-review (small PR, ≤ 3 files in critical zones) | 8-12 min      |
+| Mode B pr-review (large PR, finance/auth + S3)           | 15-25 min     |
+| Mode C brief-check                                       | 8-12 min      |
+| Mode D strategic (deep question)                         | 10-20 min     |
 
-## Knowledge base структура
+## Knowledge base structure
 
 ```
 .claude/knowledge/legal/
-  README.md                               # master index, правила обновления
-  ua-fop/                                 # ФОП-режимы, единый налог, валютные операции
+  README.md                               # master index, update rules
+  ua-fop/                                 # FOP regimes, single tax, currency operations
     (Phase 1 seeding pending)
-  crypto-usdt/                            # UA закон про віртуальні активи, USDT, AML
+  crypto-usdt/                            # UA law on virtual assets, USDT, AML
     (Phase 1 seeding pending)
   gdpr/                                   # personal data, processor/controller, breach
     (Phase 1 seeding pending)
   it-contracts/                           # NDA, services agreement, IP rights
     (Phase 1 seeding pending)
   cross-cutting/
-    escalation-zones.md                   # ✓ Phase 0 — когда обязательно к human
-    citation-rules.md                     # ✓ Phase 0 — формат цитации
+    escalation-zones.md                   # ✓ Phase 0 — when mandatory to a human
+    citation-rules.md                     # ✓ Phase 0 — citation format
 ```
 
-**Phase 0 (текущая):** только cross-cutting/ + README. Topic folders пустые. WebSearch — primary source.
+**Phase 0 (current):** only cross-cutting/ + README. Topic folders empty. WebSearch — primary source.
 
-**Phase 1 (future):** User дополнит topic folders по мере накопления вопросов.
+**Phase 1 (future):** User will fill topic folders as questions accumulate.
 
-## Зоны записи
+## Write zones
 
-| Можно                                                         | Нельзя                                                 |
-| ------------------------------------------------------------- | ------------------------------------------------------ |
-| `.claude/tasks/task-legal-*.md` (append `## Ответ юриста`) | `.claude/knowledge/legal/**` (knowledge base — User/Master maintenance) |
-| `.claude/knowledge/legal-consultations/*.md`                         | `apps/**`, `packages/**`, `scripts/**`, `.github/**`   |
-| `.claude/briefs/brief-legal-check.md`                          | `.claude/agents/**`                                       |
-| `/tmp/legal-output/pr-*.md`                                   | `docs/business/**`                                     |
-| PR review (через MCP, event=COMMENT only)                     | Любые labels кроме `legal-noted`                       |
+| Allowed                                                    | Forbidden                                                               |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `.claude/tasks/task-legal-*.md` (append `## Lawyer answer`) | `.claude/knowledge/legal/**` (knowledge base — User/Master maintenance) |
+| `.claude/knowledge/legal-consultations/*.md`               | `apps/**`, `packages/**`, `scripts/**`, `.github/**`                    |
+| `.claude/briefs/brief-legal-check.md`                      | `.claude/agents/**`                                                     |
+| `/tmp/legal-output/pr-*.md`                                | `docs/business/**`                                                      |
+| PR review (via MCP, event=COMMENT only)                    | Any labels except `legal-noted`                                         |
 
-## Отчёт Master по результату
+## Master report on the result
 
-Master, запустивший Legal, фиксирует результат в task-файле / заметках (отдельного
-event-stream нет — `pm-state.json` удалён вместе с PM-агентом 2026-10-05):
+The Master who launched Legal records the result in the task file / notes (there is no separate
+event stream — `pm-state.json` was removed together with the PM agent 2026-10-05):
 
-| Результат                  | Что отметить                               | Когда                                                                   |
-| -------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
-| `legal_dispatched`         | mode, target                               | Master запустил Legal. `target` = task-file / pr-number / brief / consultation |
-| `legal_review_posted`      | pr, confidence (HIGH/MED/LOW)              | Mode B: review запостен на PR                                            |
-| `legal_pre_feature_done`   | brief, recommendations_count               | Mode C: Legal вернул recommendations                                    |
-| `legal_escalated_to_human` | reason                                     | Mode B/A: Confidence: LOW + hard zone → User informed эскалировать      |
+| Result                     | What to record                | When                                                                            |
+| -------------------------- | ----------------------------- | ------------------------------------------------------------------------------- |
+| `legal_dispatched`         | mode, target                  | Master launched Legal. `target` = task-file / pr-number / brief / consultation |
+| `legal_review_posted`      | pr, confidence (HIGH/MED/LOW) | Mode B: review posted on the PR                                                 |
+| `legal_pre_feature_done`   | brief, recommendations_count  | Mode C: Legal returned recommendations                                          |
+| `legal_escalated_to_human` | reason                        | Mode B/A: Confidence: LOW + hard zone → User informed to escalate               |
 
 ## Label workflow
 
-- **`legal-noted`** (info-blue, не блокирует merge) — Legal review posted на PR в Mode B. Visible signal что legal angle проверен.
-- Никаких `legal-blocked` / `legal-approved` — Legal не gate.
+- **`legal-noted`** (info-blue, does not block merge) — Legal review posted on a PR in Mode B. A visible signal that the legal angle is checked.
+- No `legal-blocked` / `legal-approved` — Legal is not a gate.
 
-## MCP/Bash особенности
+## MCP/Bash specifics
 
-### Write-then-post pattern для Mode B
+### Write-then-post pattern for Mode B
 
 ```bash
 mkdir -p /tmp/legal-output
@@ -77,16 +77,16 @@ cat > "$REVIEW_FILE" <<'EOF'
 
 Legal Review: <CONFIDENCE>
 
-<полное тело по структуре «Output format» в legal.md>
+<full body per the "Output format" structure in legal.md>
 EOF
 echo "Body saved: $REVIEW_FILE"
 ```
 
-Затем `mcp__github__create_pull_request_review` с тем же body. Если MCP hangs → body выживает.
+Then `mcp__github__create_pull_request_review` with the same body. If MCP hangs → the body survives.
 
-### Postить через gh CLI fallback
+### Post via gh CLI fallback
 
-Если MCP не отвечает > 60 сек:
+If MCP does not respond for > 60 sec:
 
 ```bash
 gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
@@ -95,42 +95,42 @@ gh api repos/yaremenko-maksym/CheekyCheeseIT_CRM/pulls/<N>/reviews \
   --field body="$(cat $REVIEW_FILE | tail -n +4)"  # skip header lines
 ```
 
-### WebSearch источники
+### WebSearch sources
 
-Предпочитать в этом порядке:
+Prefer in this order:
 
-1. `zakon.rada.gov.ua` — UA законодательство (primary)
-2. `gdpr-info.eu` или `eur-lex.europa.eu` — GDPR / EU
-3. Официальные разъяснения ДПС (`tax.gov.ua`)
-4. Reputable legal blogs / законопроекты ВРУ — secondary, обозначить как «commentary»
+1. `zakon.rada.gov.ua` — UA legislation (primary)
+2. `gdpr-info.eu` or `eur-lex.europa.eu` — GDPR / EU
+3. Official DPS clarifications (`tax.gov.ua`)
+4. Reputable legal blogs / VRU bills — secondary, mark as "commentary"
 
-Не цитировать: random forums, Wikipedia как primary source (только background), AI-generated articles.
+Do not cite: random forums, Wikipedia as a primary source (only background), AI-generated articles.
 
-## Lessons (формат)
+## Lessons (format)
 
-`.claude/agents/memory/legal/lessons.md` — формат как у других агентов:
+`.claude/agents/memory/legal/lessons.md` — the format is the same as for other agents:
 
 ```
-YYYY-MM-DD [P0|P1|P2] [<task-id>] #topic-tag <конкретный урок>
+YYYY-MM-DD [P0|P1|P2] [<task-id>] #topic-tag <a concrete lesson>
 ```
 
-Topic-tags для Legal:
+Topic-tags for Legal:
 
 - `#ua-fop`, `#gdpr`, `#usdt`, `#it-contract`, `#aml`, `#tax`, `#personal-data`
-- `#citation` (когда промахнулись с источником)
-- `#confidence` (когда Confidence не сошёлся с реальностью)
-- `#escalation` (когда правильно/неправильно эскалировали)
+- `#citation` (when the source was missed)
+- `#confidence` (when Confidence did not match reality)
+- `#escalation` (when escalation was right/wrong)
 
-## Recovery после hung
+## Recovery after a hang
 
-Поскольку Legal append'ит в файлы секциями — даже если обрыв на середине, secции до обрыва уже на диске. Master при recovery:
+Since Legal appends to files by sections — even if it breaks off midway, the sections before the break are already on disk. Master on recovery:
 
 ```bash
-# Mode A — проверить task-файл
+# Mode A — check the task file
 ls -la .claude/tasks/task-legal-<slug>.md
-grep -c "^### " .claude/tasks/task-legal-<slug>.md  # сколько секций успел
+grep -c "^### " .claude/tasks/task-legal-<slug>.md  # how many sections it managed
 
-# Mode B — проверить /tmp/legal-output/
+# Mode B — check /tmp/legal-output/
 ls -la /tmp/legal-output/pr-<N>-*.md
-# если файл есть → review body готов, осталось post → перезапустить Legal с явным «только post existing body»
+# if the file exists → review body ready, only post remains → restart Legal with an explicit "post existing body only"
 ```
