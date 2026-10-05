@@ -206,3 +206,351 @@ describe('boundedFetchText', () => {
     expect(f).toHaveBeenCalledTimes(2)
   })
 })
+
+const redirect = (status: number, location: string | null) =>
+  new Response('', { status, headers: location === null ? {} : { location } })
+
+describe('boundedFetchText — manual redirects (SR-H-1 / CR-M-1)', () => {
+  const two = ['api.example.test', 'cdn.example.test']
+
+  it('calls fetch exactly once when the redirect target is a foreign host', async () => {
+    const f = vi.fn().mockResolvedValueOnce(redirect(302, 'https://evil.test/steal'))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+        headers: { 'x-api-key': 'secret' },
+      }),
+    ).rejects.toThrow(/not allowed/)
+    expect(f).toHaveBeenCalledTimes(1)
+    expect((f.mock.calls[0][1] as RequestInit).redirect).toBe('manual')
+  })
+  it('refuses a redirect downgrade to http before any request', async () => {
+    const f = vi.fn().mockResolvedValueOnce(redirect(301, 'http://api.example.test/y'))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).rejects.toThrow(/not allowed/)
+    expect(f).toHaveBeenCalledTimes(1)
+  })
+  it('follows a same-host relative redirect and keeps headers and body on 307', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(307, '/y'))
+      .mockResolvedValueOnce(resp('done', { status: 200, url: 'https://api.example.test/y' }))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+        method: 'POST',
+        body: '{"q":1}',
+        headers: { 'x-api-key': 'secret' },
+      }),
+    ).resolves.toBe('done')
+    expect(f.mock.calls[1][0]).toBe('https://api.example.test/y')
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe('{"q":1}')
+    expect(init.headers).toMatchObject({ 'x-api-key': 'secret' })
+  })
+  it('follows a redirect to another allow-listed host WITHOUT custom headers or body', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(307, 'https://cdn.example.test/z'))
+      .mockResolvedValueOnce(resp('done', { status: 200, url: 'https://cdn.example.test/z' }))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', {
+        allowedHosts: two,
+        minGapMs: 0,
+        method: 'POST',
+        body: '{"q":1}',
+        headers: { 'x-api-key': 'secret', 'x-rapidapi-key': 'secret2' },
+      }),
+    ).resolves.toBe('done')
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.headers).toEqual({ 'user-agent': expect.stringContaining('CheekyCheeseIT-CRM') })
+    expect(init.body).toBeUndefined()
+    expect(init.method).toBe('GET')
+  })
+  it('downgrades POST to GET without body on a 303 to the same host', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(303, '/r'))
+      .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText('https://api.example.test/x', {
+      allowedHosts: hosts,
+      minGapMs: 0,
+      method: 'POST',
+      body: 'b',
+    })
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.method).toBe('GET')
+    expect(init.body).toBeUndefined()
+  })
+  it('allows at most 3 redirects', async () => {
+    const f = vi.fn().mockImplementation(async () => redirect(302, '/loop'))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).rejects.toThrow(/too many redirects/)
+    expect(f).toHaveBeenCalledTimes(4)
+  })
+  it('follows exactly 3 redirects', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(302, '/1'))
+      .mockResolvedValueOnce(redirect(302, '/2'))
+      .mockResolvedValueOnce(redirect(302, '/3'))
+      .mockResolvedValueOnce(resp('end', { status: 200, url: 'https://api.example.test/3' }))
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).resolves.toBe('end')
+  })
+  it('cancels the body of a redirect response', async () => {
+    const r = redirect(302, '/y')
+    const cancel = vi.spyOn(r.body as ReadableStream, 'cancel')
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(r)
+      .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/y' }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 })
+    expect(cancel).toHaveBeenCalled()
+  })
+  it('fails on a redirect without a Location header', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(redirect(302, null)))
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).rejects.toThrow(/redirect without location/)
+  })
+})
+
+describe('boundedFetchText — URL hardening (SR-M-2)', () => {
+  it.each([
+    ['userinfo', 'https://user:pass@api.example.test/x'],
+    ['userinfo-only user', 'https://user@api.example.test/x'],
+    ['@ bypass', 'https://api.example.test@evil.test/x'],
+    ['@ bypass reversed', 'https://evil.test@api.example.test/x'],
+    ['non-default port', 'https://api.example.test:8443/x'],
+    ['trailing dot', 'https://api.example.test./x'],
+    ['upper-case host', 'https://API.EXAMPLE.TEST/x'],
+  ])('refuses %s before the network', async (_name, url) => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    await expect(boundedFetchText(url, { allowedHosts: hosts, minGapMs: 0 })).rejects.toThrow(
+      /not allowed/,
+    )
+    expect(f).not.toHaveBeenCalled()
+  })
+  it('refuses even the explicit default port (authority must equal the host exactly)', async () => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test:443/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).rejects.toThrow(/not allowed/)
+    expect(f).not.toHaveBeenCalled()
+  })
+})
+
+describe('boundedFetchText — allowedHosts validation (SR-M-1)', () => {
+  it.each([
+    'localhost',
+    'redis',
+    '127.0.0.1',
+    '10.0.0.5',
+    '[::1]',
+    'foo.local',
+    'db.internal',
+    'api.example.test:8443',
+    'https://api.example.test',
+    'api.example.test/path',
+    'API.example.test',
+    'api.example.test.',
+    '*.example.test',
+    '-bad.example.test',
+    'a..b.test',
+    '',
+    'sub.localhost',
+  ])('rejects the allowedHosts entry %j as a config error without network', async (entry) => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: [entry], minGapMs: 0 }),
+    ).rejects.toThrow(/invalid allowedHosts/)
+    expect(f).not.toHaveBeenCalled()
+  })
+  it('rejects an empty allow-list', async () => {
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: [] }),
+    ).rejects.toThrow(/invalid allowedHosts/)
+  })
+  it('accepts ordinary DNS hosts', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://muse-api.example.com/x' })),
+    )
+    await expect(
+      boundedFetchText('https://muse-api.example.com/x', {
+        allowedHosts: ['muse-api.example.com', 'jooble.org'],
+        minGapMs: 0,
+      }),
+    ).resolves.toBe('ok')
+  })
+})
+
+describe('boundedFetchText — limits, timeout, defaults (SR-M-3 / CR-M-2)', () => {
+  const ok = () => resp('ok', { status: 200, url: 'https://api.example.test/x' })
+
+  it('rejects maxBytes / timeoutMs above the ceiling or non-positive', async () => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    for (const bad of [
+      { maxBytes: 10 * 1024 * 1024 + 1 },
+      { maxBytes: 0 },
+      { maxBytes: Number.NaN },
+      { timeoutMs: 60_001 },
+      { timeoutMs: 0 },
+      { timeoutMs: -1 },
+    ]) {
+      await expect(
+        boundedFetchText('https://api.example.test/x', {
+          allowedHosts: hosts,
+          minGapMs: 0,
+          ...bad,
+        }),
+      ).rejects.toThrow(/invalid (maxBytes|timeoutMs)/)
+    }
+    expect(f).not.toHaveBeenCalled()
+  })
+  it('accepts the ceilings themselves', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => ok()),
+    )
+    await expect(
+      boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+        maxBytes: 10 * 1024 * 1024,
+        timeoutMs: 60_000,
+      }),
+    ).resolves.toBe('ok')
+  })
+  it('aborts a hanging request at timeoutMs and clears the timer', async () => {
+    vi.useFakeTimers()
+    try {
+      const clear = vi.spyOn(globalThis, 'clearTimeout')
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(
+          (_u: string, init: RequestInit) =>
+            new Promise((_res, rej) => {
+              init.signal?.addEventListener('abort', () => rej(new Error('aborted')))
+            }),
+        ),
+      )
+      const p = boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+        timeoutMs: 500,
+      })
+      const settled = p.then(
+        () => null,
+        (e: Error) => e.message,
+      )
+      await vi.advanceTimersByTimeAsync(499)
+      expect(clear).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await settled).toBe('aborted')
+      expect(clear).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('uses a 15 s default timeout', async () => {
+    vi.useFakeTimers()
+    try {
+      let aborted = false
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockImplementation(
+          (_u: string, init: RequestInit) =>
+            new Promise((_res, rej) => {
+              init.signal?.addEventListener('abort', () => {
+                aborted = true
+                rej(new Error('aborted'))
+              })
+            }),
+        ),
+      )
+      const p = boundedFetchText('https://api.example.test/x', {
+        allowedHosts: hosts,
+        minGapMs: 0,
+      })
+      const settled = p.then(
+        () => null,
+        (e: Error) => e.message,
+      )
+      await vi.advanceTimersByTimeAsync(14_999)
+      expect(aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(aborted).toBe(true)
+      expect(await settled).toBe('aborted')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('uses a 2 MiB default size cap', async () => {
+    const limit = 2 * 1024 * 1024
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          resp('x'.repeat(limit), { status: 200, url: 'https://api.example.test/x' }),
+        )
+        .mockResolvedValueOnce(
+          resp('x'.repeat(limit + 1), { status: 200, url: 'https://api.example.test/x' }),
+        ),
+    )
+    const o = { allowedHosts: hosts, minGapMs: 0 }
+    await expect(boundedFetchText('https://api.example.test/x', o)).resolves.toHaveLength(limit)
+    await expect(boundedFetchText('https://api.example.test/x', o)).rejects.toThrow(/too large/)
+  })
+  it('uses a 1 s default throttle gap', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = vi.fn().mockImplementation(async () => ok())
+      vi.stubGlobal('fetch', f)
+      const o = { allowedHosts: hosts }
+      await boundedFetchText('https://api.example.test/x', o)
+      const p2 = boundedFetchText('https://api.example.test/x', o)
+      await vi.advanceTimersByTimeAsync(999)
+      expect(f).toHaveBeenCalledTimes(1)
+      await vi.advanceTimersByTimeAsync(1)
+      await p2
+      expect(f).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('falls back to the requested URL when response.url is empty', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('ok', { status: 200 })))
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).resolves.toBe('ok')
+  })
+  it('returns an empty string for a null body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response(null, { status: 204 })))
+    await expect(
+      boundedFetchText('https://api.example.test/x', { allowedHosts: hosts, minGapMs: 0 }),
+    ).resolves.toBe('')
+  })
+})
