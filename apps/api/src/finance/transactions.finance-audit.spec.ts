@@ -157,7 +157,9 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
         values: (v: unknown) => {
           if (table === salaryMonthInitializations) {
             return {
-              onConflictDoNothing: () => ({ returning: () => Promise.resolve([{ id: 'marker-1' }]) }),
+              onConflictDoNothing: () => ({
+                returning: () => Promise.resolve([{ id: 'marker-1' }]),
+              }),
             }
           }
           if (table === transactions) {
