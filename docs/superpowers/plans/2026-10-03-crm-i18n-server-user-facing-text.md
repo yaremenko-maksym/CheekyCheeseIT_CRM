@@ -8,7 +8,7 @@
 
 **Tech Stack:** NestJS 11 + Fastify + Drizzle (api) · Zod v4 + `@crm/shared` (shared SSOT) · React + TanStack + Lingui `5.9.5` (web) · Vitest (unit) + Playwright (E2E). Catalog: `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-**Spec / source of truth:** owner decision 2026-10-03 (this text is priority over emails/PDF); audit `docs/architecture/2026-09-19-crm-i18n-audit.md` (Table B row "Текст, приходящий с сервера, имеет приоритет над клиентским"; EXPENSE data-at-rest precedent, line ~470); memory `project_crm_i18n_2026_09`. This plan was produced from a live audit of `apps/api/src` (`git grep -nP '[а-яА-ЯёЁ]'` filtered to non-comment/non-log string literals → 486 candidates → classified below).
+**Spec / source of truth:** owner decision 2026-10-03 (this text is priority over emails/PDF); audit `docs/architecture/2026-09-19-crm-i18n-audit.md` (Table B row "Server-provided text takes priority over client text"; EXPENSE data-at-rest precedent, line ~470); memory `project_crm_i18n_2026_09`. This plan was produced from a live audit of `apps/api/src` (`git grep -nP '[а-яА-ЯёЁ]'` filtered to non-comment/non-log string literals → 486 candidates → classified below).
 
 ---
 
@@ -46,8 +46,8 @@ Copied verbatim from the i18n programme; every task's requirements implicitly in
 
 **OUT OF SCOPE (with reason — each verified during the audit):**
 
-- **Raw-prose `throw new NotFoundException('…')` / `ForbiddenException('…')` etc.** — a large tail (`vacancies.service` 10, `credentials.service` 14, `vacancies/applications.service` 13, `users/archived-entitlement`, …). These **do** reach the user verbatim (`extractBackendMessage` Priority 2 → `getUserFacingErrorMessage` → toast), so they are a real leak — but they are the **continuation of the stage-4 API-error-code migration** (same mechanism: `apiError(code, status, params)` + registry), which the owner scoped as "коды ошибок api … не трогать". Folding dozens of throw-sites into this plan would duplicate that track and balloon it past 4 PRs. **Raised as Decision Q1 below; recommended as a separate plan.**
-- **`job-sourcing/*`** raw-prose errors — module is **paused** (memory `project_resume_autosubmit_paused`, "код job-sourcing не трогать"). Excluded regardless of channel.
+- **Raw-prose `throw new NotFoundException('…')` / `ForbiddenException('…')` etc.** — a large tail (`vacancies.service` 10, `credentials.service` 14, `vacancies/applications.service` 13, `users/archived-entitlement`, …). These **do** reach the user verbatim (`extractBackendMessage` Priority 2 → `getUserFacingErrorMessage` → toast), so they are a real leak — but they are the **continuation of the stage-4 API-error-code migration** (same mechanism: `apiError(code, status, params)` + registry), which the owner scoped as "api error codes … do not touch". Folding dozens of throw-sites into this plan would duplicate that track and balloon it past 4 PRs. **Raised as Decision Q1 below; recommended as a separate plan.**
+- **`job-sourcing/*`** raw-prose errors — module is **paused** (memory `project_resume_autosubmit_paused`, "do not touch the job-sourcing code"). Excluded regardless of channel.
 - **PDF / invoice / contract / typst / ToS rendering** (`invoice-pdf.service` 41, `invoices.service` 20, `contract-pdf.service` 14, `contract-rendering` 9, `resume-typst` 6, `tos-pdf` 1, `default-resume.typ` 8) — the **PDF track**, deprioritized by the owner behind this one.
 - **Email copy** (`notification-email-copy` 49, `personal-email-invite-mailer` 12, `notification-email.cron` 3, `resend-mailer` 1) — the **email track**, deprioritized by the owner.
 - **Logs** (`[onchain-registry] …`, `createMonthlySalaries: …`, every `this.logger.*`) — owner decision: logs stay; existing ones non-critical.
@@ -234,7 +234,7 @@ Four PRs. Each = api + shared + web atomic (the contract and its only consumer s
 
 ## Decisions for the owner (A2 — recommended answers; proceeding on recommendation unless told otherwise)
 
-**Q1 — Raw-prose NestException error messages (the largest residual).** Dozens of `throw new NotFoundException('Вакансия не найдена')`-style Russian strings (vacancies, credentials, applications, …) reach the user **verbatim** via `extractBackendMessage` → toast. They are the un-migrated tail of the stage-4 API-error-code effort (same `apiError(code,…)` + registry mechanism), which you scoped as "коды ошибок api … не трогать".
+**Q1 — Raw-prose NestException error messages (the largest residual).** Dozens of `throw new NotFoundException('Вакансия не найдена')`-style Russian strings (vacancies, credentials, applications, …) reach the user **verbatim** via `extractBackendMessage` → toast. They are the un-migrated tail of the stage-4 API-error-code effort (same `apiError(code,…)` + registry mechanism), which you scoped as "api error codes … do not touch".
 → **Recommended:** keep them **out** of this plan; handle them as a dedicated **continuation of the stage-4 error-code migration** (one plan, module-by-module, mechanical). Reversible; cost of deferral = those toasts stay Russian for uk/en users a while longer.
 
 **Q2 — Data-at-rest residuals (S5): auto team-names «Команда {name}» and server-written transaction `notes`.**
