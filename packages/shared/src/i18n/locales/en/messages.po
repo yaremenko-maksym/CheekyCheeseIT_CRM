@@ -87,8 +87,8 @@ msgstr "(HR can only create seniors)"
 msgid "(до отримання: {0})"
 msgstr "(to receive: {0})"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "(за замовчуванням)"
 msgstr "(default)"
 
@@ -587,8 +587,8 @@ msgstr "Markdown. This block is added to the end of every new contract under the
 msgid "invoicePdf.number"
 msgstr "No. {number}"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Override"
 msgstr "Override"
 
@@ -2669,11 +2669,11 @@ msgstr "Paste the full resume text — at least 40 characters"
 msgid "Вставте сюди текст резюме цілком"
 msgstr "Paste the whole resume text here"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Встановлено для цього проєкту; глобальна частка дропа: {fallback}%"
 msgstr "Set for this project; the drop’s global share: {fallback}%"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Встановлено для цього проєкту; глобальна частка сеньйора: {fallback}%"
 msgstr "Set for this project; the senior’s global share: {fallback}%"
 
@@ -3027,7 +3027,7 @@ msgstr "Dividends can only be withdrawn to an admin's account"
 msgid "Динаміка за місяцями"
 msgstr "Monthly trend"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Діє попередній відсоток, поки новий не підтверджено."
 msgstr "The previous percentage applies until the new one is confirmed."
 
@@ -4141,7 +4141,7 @@ msgstr "Fill in all required fields"
 #. placeholder {0}: pending.percent === null ? pending.effectivePercentAfterApproval : pending.percent
 #. placeholder {0}: user.pendingSeniorShare.percent === null ? user.pendingSeniorShare.effectivePercentAfterApproval : user.pendingSeniorShare.percent
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Запропоновано {0}%"
 msgstr "Proposed {0}%"
 
@@ -7744,7 +7744,7 @@ msgid "Підтверджено"
 msgstr "Validated"
 
 #. placeholder {0}: pending.approverName
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Підтверджує {0} — поки діє <0>{effective}%</0>"
 msgstr "Confirmed by {0} — until then <0>{effective}%</0> applies"
 
@@ -11193,7 +11193,7 @@ msgstr "Senior’s share at the team level"
 msgid "Частка сеньйора у відсотках"
 msgstr "Senior's share, percent"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectInfoRows.tsx
 msgid "Частка сеньйора:"
 msgstr "Senior’s share:"
 
