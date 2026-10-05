@@ -52,13 +52,17 @@ export function ProjectHero({
   return (
     <motion.div
       className="relative overflow-hidden rounded-2xl border border-border/40 bg-card"
+      // Stryker disable next-line ObjectLiteral,UnaryOperator: entrance-animation keyframes only, no behavior (jsdom does not run framer-motion tweens)
       initial={{ opacity: 0, y: -8 }}
+      // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior
       animate={{ opacity: 1, y: 0 }}
+      // Stryker disable next-line ObjectLiteral: animation timing only, no behavior
       transition={{ duration: 0.35 }}
     >
       {/* Ambient glow blob */}
       <div
         className="pointer-events-none absolute -top-16 -left-16 h-64 w-64 rounded-full opacity-[0.07] blur-3xl"
+        // Stryker disable next-line ObjectLiteral,StringLiteral: cosmetic glow colour, no behavior
         style={{ background: '#f5c542' }}
       />
       {/* UX-H-1 / COPY-M-5 (fix-round 3): the row flip used to happen at
@@ -80,6 +84,7 @@ export function ProjectHero({
           <div className="relative shrink-0">
             <div
               className="absolute inset-0 rounded-xl opacity-30 blur-md"
+              // Stryker disable next-line ObjectLiteral,StringLiteral: cosmetic glow colour, no behavior
               style={{ background: '#f5c542' }}
             />
             <ProjectLogo

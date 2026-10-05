@@ -276,6 +276,20 @@ describe('ProjectHero — stat chips', () => {
     expect(screen.getByText('15.03.2024')).toBeInTheDocument()
   })
 
+  it('dates render in UTC (short style) regardless of the viewer timezone', () => {
+    const prevTz = process.env.TZ
+    // UTC+14: 23:30Z on the 15th is already the 16th locally; the UTC style must keep the 15th.
+    process.env.TZ = 'Pacific/Kiritimati'
+    try {
+      setup({}, { startDate: '2024-03-15T23:30:00.000Z', archivedAt: '2024-05-01T23:30:00.000Z' })
+      expect(screen.getByText('15.03.2024')).toBeInTheDocument()
+      expect(screen.getByText('01.05.2024')).toBeInTheDocument()
+    } finally {
+      if (prevTz === undefined) delete process.env.TZ
+      else process.env.TZ = prevTz
+    }
+  })
+
   it('archived-since chip appears only for an archived project', () => {
     setup({}, { archivedAt: '2024-05-01T00:00:00.000Z' })
     expect(screen.getByText('В архіві з')).toBeInTheDocument()
