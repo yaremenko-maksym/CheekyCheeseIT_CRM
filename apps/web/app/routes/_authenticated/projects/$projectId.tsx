@@ -34,7 +34,6 @@ import { type ExchangeRates, fmtUsd } from '@/routes/_authenticated/finance/cons
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
-import { getApiErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
@@ -64,13 +63,13 @@ import { PendingShareApprovalBanner, ProjectHeaderApprovalNote } from './Project
 import { ProjectEffectiveTeamCard, MemberRow } from './ProjectTeamCards'
 import { ProjectTransactions } from './ProjectTransactions'
 import { useProjectPermissions } from './use-project-permissions'
+import { useProjectDropMutations } from './use-project-drop-mutations'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { type UnarchiveCascadeEntity } from '@/hooks/use-archive'
 import { ProjectUnarchiveHeaderButton, ProjectCascadeUnarchiveModal } from './ProjectUnarchive'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
-import { toast } from 'sonner'
 
 /**
  * Defensive coercion: if a project row has a `domain` value that is not
@@ -270,20 +269,9 @@ function ProjectDetailPage() {
     },
   })
 
-  // Drop mutation: PATCH /projects/:id { dropId } for attach (string) and detach (null)
-  const dropMutation = useMutation({
-    mutationFn: (dropId: string | null) =>
-      api.patch<ProjectDto>(`/projects/${projectId}`, { dropId }).then((r) => r.data),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId] })
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      void qc.invalidateQueries({ queryKey: ['users'] })
-      setDropPickerOpen(false)
-      setDetachDropConfirmOpen(false)
-    },
-    onError: (err) => {
-      toast.error(getApiErrorMessage(err, t`Не вдалося змінити дропа`))
-    },
+  const { dropMutation } = useProjectDropMutations(projectId, () => {
+    setDropPickerOpen(false)
+    setDetachDropConfirmOpen(false)
   })
 
   function openEdit() {

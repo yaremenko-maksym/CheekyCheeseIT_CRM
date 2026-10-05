@@ -5978,7 +5978,7 @@ msgstr "Failed to save the details"
 msgid "Не вдалося зібрати PDF"
 msgstr "Could not build the PDF"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/use-project-drop-mutations.ts
 msgid "Не вдалося змінити дропа"
 msgstr "Could not change the drop"
 
