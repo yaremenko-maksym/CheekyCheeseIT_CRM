@@ -1,717 +1,715 @@
 # task-cascade-apply
 
-## Агент: coder
+## Agent: coder
 
-## Статус: ready
+## Status: ready
 
-## Блокеры: none (задачи 0/1/2/4 в `main` — #598, #599, #603, #600)
+## Blockers: none (tasks 0/1/2/4 are in `main` — #598, #599, #603, #600)
 
-## Приоритет: critical
+## Priority: critical
 
-## Модель: opus
+## Model: opus
 
-Обоснование по `rules/common/model-routing.md`: финансовая расчётная логика + счёт компании +
-cross-module (formula баланса ↔ settle ↔ каскад ↔ инвойсы). Ошибка «в плюс» на этом пути не
-ловится ни одним гейтом.
+Justification per `rules/common/model-routing.md`: financial calculation logic + company account +
+cross-module (balance formula ↔ settle ↔ cascade ↔ invoices). An error "to the plus" on this path is
+caught by no gate.
 
-## Зависит от
+## Depends on
 
-Задача 3 из декомпозиции `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md`.
-Точные конструктивные решения — аддендум `docs/architecture/2026-08-23-cascade-apply-ledger-term.md`
-(**читать целиком до первой правки**; ниже ссылки на его разделы вида «аддендум 1.4»).
+Task 3 from the decomposition of `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md`.
+The exact constructive decisions are in the addendum `docs/architecture/2026-08-23-cascade-apply-ledger-term.md`
+(**read in full before the first edit**; below are references to its sections like "addendum 1.4").
 
-## Ветка: feature/cascade-apply
-
----
-
-## Контекст
-
-Ядро каскада: первое, что реально пишет деньги. Снимается BIZ-18 **только для `amount`**,
-производные пересчитываются, оплаченные возвращаются в `PENDING`, и — самое важное — в формулу
-баланса счёта компании добавляется девятый терм, без которого откат статуса **завышает баланс на
-уже выплаченное** и пускает систему тратить то, чего нет.
-
-Всё, из чего это строится, уже в `main`: колонки-снимки (#599), чистый резолвер + предпросмотр
-(#603), аннулирование инвойса (#600, метод `voidAndReissueInvoiceForAmountEdit` **написан и не
-имеет ни одного вызывающего** — его подключение входит в эту задачу).
+## Branch: feature/cascade-apply
 
 ---
 
-## Конкретные изменения
+## Context
+
+The core of the cascade: the first thing that actually writes money. BIZ-18 is lifted **only for `amount`**,
+derivatives are recomputed, paid ones return to `PENDING`, and — most important — a ninth term is added to the
+company account balance formula, without which the status rollback **inflates the balance by the
+already paid amount** and lets the system spend what does not exist.
+
+Everything this is built from is already in `main`: the snapshot columns (#599), the pure resolver + preview
+(#603), invoice voiding (#600, the method `voidAndReissueInvoiceForAmountEdit` is **written and has not a
+single caller** — wiring it up is part of this task).
+
+---
+
+## Concrete changes
 
 1. `packages/shared/src/schemas/edit-cascade.ts`
-   - `CascadeObligationSnapshot` — добавить `currency: CurrencyEnum` (аддендум 3.5, пункт 95 бэклога).
-   - `CascadeSourceSnapshot` — добавить `settledAmount: number | null` и
-     `hasClosedObligation: boolean` (AC13: редактируемая строка может сама быть закрытым
-     обязательством).
-   - `cascadeWarningCodeSchema` — добавить `'OBLIGATION_CURRENCY_MISMATCH'`.
-   - `resolveDerivative` — при `derivative.obligation && derivative.obligation.currency !== sourceCurrency`
-     добавить это предупреждение. `newAmount` при этом **вычисляется как обычно** (число само по
-     себе корректно, неверна была бы только запись его в чужую валюту — блокирует применение,
-     см. п. 3).
-2. `packages/shared/src/schemas/finance.ts` — `adminUpdateTransactionSchema` (`:1248`): добавить
+   - `CascadeObligationSnapshot` — add `currency: CurrencyEnum` (addendum 3.5, backlog item 95).
+   - `CascadeSourceSnapshot` — add `settledAmount: number | null` and
+     `hasClosedObligation: boolean` (AC13: the editable row may itself be a closed
+     obligation).
+   - `cascadeWarningCodeSchema` — add `'OBLIGATION_CURRENCY_MISMATCH'`.
+   - `resolveDerivative` — when `derivative.obligation && derivative.obligation.currency !== sourceCurrency`
+     add this warning. `newAmount` is **computed as usual** in that case (the number is correct in
+     itself, only writing it into a foreign currency would be wrong — it blocks application,
+     see item 3).
+2. `packages/shared/src/schemas/finance.ts` — `adminUpdateTransactionSchema` (`:1248`): add
    `cascadeVersion: z.string().min(1).optional()`.
 3. `apps/api/src/finance/transactions.service.ts`
-   - `loadCascadeSnapshot` (`:3209`) — прокинуть `currency: obligation.currency` в
-     `CascadeObligationSnapshot`; заполнить `settledAmount` / `hasClosedObligation` источника,
-     расширив **существующий** запрос обязательств на `source_transaction_id = sourceId`
-     (второго round-trip не заводить); принять необязательный флаг `forUpdate`, при котором строки
-     `pending_obligations` и `transactions` читаются `SELECT … FOR UPDATE` с `ORDER BY id`
-     (порядок и причина — аддендум 1.9). Форма запроса остаётся ОДНА на оба входа (AC4 ADR).
-   - `adminUpdateTransaction` (`:2935`) — BIZ-18 (`:3004`) сузить до
-     `currencyChanged || salaryMonthChanged`; добавить три новых отказа по самой редактируемой
-     строке (AC13); добавить ветку применения каскада (см. AC2–AC8, AC15).
-   - Новый приватный метод `applyEditCascade(dbtx, snapshot, plan, actor)` — вся запись
-     производных, чтобы её можно было накрыть юнит-дублём.
+   - `loadCascadeSnapshot` (`:3209`) — pass `currency: obligation.currency` into
+     `CascadeObligationSnapshot`; fill in the source's `settledAmount` / `hasClosedObligation`,
+     extending the **existing** obligations query to `source_transaction_id = sourceId`
+     (do not introduce a second round-trip); accept an optional `forUpdate` flag, with which the rows
+     of `pending_obligations` and `transactions` are read `SELECT … FOR UPDATE` with `ORDER BY id`
+     (the order and the reason — addendum 1.9). The query shape stays ONE for both entry points (AC4 ADR).
+   - `adminUpdateTransaction` (`:2935`) — narrow BIZ-18 (`:3004`) to
+     `currencyChanged || salaryMonthChanged`; add three new refusals based on the edited
+     row itself (AC13); add the cascade application branch (see AC2–AC8, AC15).
+   - A new private method `applyEditCascade(dbtx, snapshot, plan, actor)` — all the writing of
+     derivatives, so that it can be covered by a unit double.
 4. `apps/api/src/finance/company-account-balance.ts`
-   - новая константа `COMPANY_TERM_TYPES_PENDING_SETTLED = ['SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT']`,
-     **используемая и термом, и сторожем** (одна константа, без второй копии — пункт 85 бэклога);
-   - новый хелпер `sumSettledAmount` рядом с `sumAmount` (`:142`);
-   - девятый терм в `sumLedgerTerms` (`:267`) и **минус** в возвращаемом выражении (`:360`);
-   - OR-ветка в `assertNoOffCurrencyCompanyRows` (`:228`) + правка текста
-     `CompanyAccountOffCurrencyError` (перестаёт быть только про `PAID`).
+   - a new constant `COMPANY_TERM_TYPES_PENDING_SETTLED = ['SENIOR_PENDING_PAYOUT','DROP_PENDING_PAYOUT']`,
+     **used both by the term and by the watchdog** (one constant, no second copy — backlog item 85);
+   - a new helper `sumSettledAmount` next to `sumAmount` (`:142`);
+   - a ninth term in `sumLedgerTerms` (`:267`) and a **minus** in the returned expression (`:360`);
+   - an OR branch in `assertNoOffCurrencyCompanyRows` (`:228`) + a fix of the text of
+     `CompanyAccountOffCurrencyError` (it stops being only about `PAID`).
 5. `apps/api/src/finance/pending-settlement.service.ts`
-   - `resolveSource` (`:1234` область) — добавить `sourceSettledAmount: source.settledAmount`
-     и `sourceFundingSource: source.fundingSource` (AC14);
-   - сверка источника финансирования — **рядом** с существующей проверкой
-     `sourceSettledCurrency !== currency` (`:806`), той же формы (AC14);
-   - SENIOR-доплата: `owedNow` вместо `parseFloat(obligation.amount)` в `settledAmountThisSettle`
-     (`:771`) и в money-гейте (`:892`); в `WHERE` флипа (`:917` область) добавить
-     `settled_amount IS NOT DISTINCT FROM <прочитанное значение>` (TOCTOU без новой блокировки —
-     нулевое число строк уже обрабатывается существующим `if (!paidRow) throw`);
-   - DROP-доплата: отказ вслух при `settled_amount > 0` (аддендум 1.11). Дублируется отказом на
-     стороне каскада (AC15), чтобы строка не оказалась откачена в состояние, из которого нет
-     выхода: здесь — последний рубеж, там — своевременный;
-   - `owedNow === 0` — штатное закрытие, `owedNow < 0` — отказ (AC15).
-6. `apps/api/src/finance/company-account-balance-currency.spec.ts` — ожидаемое число запросов
-   9 → 10; цикл проверки `'USDT'` по первым **девяти** WHERE (девятый — новый терм, у него метка
-   в `settled_currency`), десятый — сторож.
-7. Спеки (см. «Тест-AC»): `apps/api/src/finance/cascade-apply.unit.spec.ts`,
+   - `resolveSource` (`:1234` area) — add `sourceSettledAmount: source.settledAmount`
+     and `sourceFundingSource: source.fundingSource` (AC14);
+   - the funding source check — **next to** the existing check
+     `sourceSettledCurrency !== currency` (`:806`), of the same form (AC14);
+   - SENIOR top-up: `owedNow` instead of `parseFloat(obligation.amount)` in `settledAmountThisSettle`
+     (`:771`) and in the money gate (`:892`); in the `WHERE` of the flip (`:917` area) add
+     `settled_amount IS NOT DISTINCT FROM <the value read>` (TOCTOU without a new lock —
+     a zero row count is already handled by the existing `if (!paidRow) throw`);
+   - DROP top-up: a loud refusal when `settled_amount > 0` (addendum 1.11). Duplicated by a refusal on
+     the cascade side (AC15), so that a row does not end up rolled back into a state with no
+     exit: here — the last line of defense, there — a timely one;
+   - `owedNow === 0` — a regular closure, `owedNow < 0` — a refusal (AC15).
+6. `apps/api/src/finance/company-account-balance-currency.spec.ts` — expected number of queries
+   9 → 10; the `'USDT'` check loop over the first **nine** WHEREs (the ninth is the new term, its
+   marker is in `settled_currency`), the tenth is the watchdog.
+7. Specs (see "Test AC"): `apps/api/src/finance/cascade-apply.unit.spec.ts`,
    `apps/api/src/finance/cascade-apply.integration.spec.ts`,
-   `apps/api/src/finance/company-account-balance.spec.ts` (арифметика девятого терма),
-   `packages/shared/src/schemas/edit-cascade.spec.ts` (новое предупреждение).
+   `apps/api/src/finance/company-account-balance.spec.ts` (arithmetic of the ninth term),
+   `packages/shared/src/schemas/edit-cascade.spec.ts` (the new warning).
 
 ---
 
-## Переиспользование / Regression scope
+## Reuse / Regression scope
 
-**Существующий код для переиспользования (обязательно, не переписывать):**
+**Existing code to reuse (mandatory, do not rewrite):**
 
-- `resolveEditCascade`, `computeCascadeVersion`, `amountsDiffer` (`@crm/shared`) — вся арифметика
-  каскада уже здесь. Локально её не воспроизводить ни в каком виде.
-- `loadCascadeSnapshot` — одна форма чтения на предпросмотр и на применение.
-- `roundShareAmount` (`@crm/shared`) — только через резолвер, напрямую в apply не звать.
+- `resolveEditCascade`, `computeCascadeVersion`, `amountsDiffer` (`@crm/shared`) — all the cascade
+  arithmetic is already here. Do not reproduce it locally in any form.
+- `loadCascadeSnapshot` — one read shape for preview and for application.
+- `roundShareAmount` (`@crm/shared`) — only through the resolver, do not call it directly in apply.
 - `lockCompanyAccount`, `COMPANY_ACCOUNT_FUNDING_SOURCE` (`company-account-balance.ts`).
-- `InvoicesService.voidAndReissueInvoiceForAmountEdit` — уже внедрён в `TransactionsService`
-  (`:217-218`, `forwardRef`), DI менять не нужно.
-- Паттерн условного UPDATE с проверкой числа затронутых строк — `settleByCompany` (`:828`),
+- `InvoicesService.voidAndReissueInvoiceForAmountEdit` — already injected into `TransactionsService`
+  (`:217-218`, `forwardRef`), DI does not need to change.
+- The conditional-UPDATE-with-affected-row-count-check pattern — `settleByCompany` (`:828`),
   `adminDeleteTransaction`, `restoreTransaction`.
 
-**Shared-код, который будет затронут (blast-radius):**
+**Shared code that will be affected (blast-radius):**
 
-- `sumLedgerTerms` → `computeCompanyAccountBalanceFromLedger` → четыре денежных гейта
+- `sumLedgerTerms` → `computeCompanyAccountBalanceFromLedger` → four money gates
   (`createExpense`, `paySalary`, `settleByCompany`, `createDividend`) + `…ForDisplay`.
-  Pinning-тесты до изменения: `company-account-balance.spec.ts`, `company-account-balance-currency.spec.ts`.
-- `CascadeObligationSnapshot` / `cascadeWarningCodeSchema` → `getEditCascadePreview` и его спеки.
-- `adminUpdateTransactionSchema` → `transactions.controller.ts:244` + UI (задача 5, ещё нет).
+  Pinning tests before the change: `company-account-balance.spec.ts`, `company-account-balance-currency.spec.ts`.
+- `CascadeObligationSnapshot` / `cascadeWarningCodeSchema` → `getEditCascadePreview` and its specs.
+- `adminUpdateTransactionSchema` → `transactions.controller.ts:244` + UI (task 5, not yet).
 
-**Не должно сломаться:**
+**Must not break:**
 
-- Обычный settle (первый по строке) — байт-в-байт то же поведение: `owedNow` при
-  `settled_amount IS NULL` равен `obligation.amount`.
-- Метаданные-правки (`notes`/`receipt`/`category`) на `PAID`-строке остаются разрешены.
-- Правка **валюты** и `salaryMonth` на `PAID` остаётся запрещена.
-- Гвард 1 (семейство `PAYOUT`) и гвард 2 (`payoutRequestId`) — не трогать вовсе.
-- Синхронизация `pending_obligations` из #598 (scope `status='PENDING'`) — не ослаблять `WHERE`.
+- A regular settle (the first one on a row) — byte-for-byte the same behavior: `owedNow` when
+  `settled_amount IS NULL` equals `obligation.amount`.
+- Metadata edits (`notes`/`receipt`/`category`) on a `PAID` row remain allowed.
+- Editing **currency** and `salaryMonth` on `PAID` remains forbidden.
+- Guard 1 (the `PAYOUT` family) and guard 2 (`payoutRequestId`) — do not touch at all.
+- The `pending_obligations` synchronization from #598 (scope `status='PENDING'`) — do not weaken the `WHERE`.
 
 ---
 
 ## API endpoints
 
-Новых нет. Меняется тело существующего `PATCH /api/transactions/:id/admin-edit`
-(`transactions.controller.ts:241-245`, RBAC `@Roles('ADMIN')` + сервисная проверка — обе
-сохраняются): добавляется необязательное поле `cascadeVersion`.
+None new. The body of the existing `PATCH /api/transactions/:id/admin-edit` changes
+(`transactions.controller.ts:241-245`, RBAC `@Roles('ADMIN')` + service check — both
+are kept): an optional field `cascadeVersion` is added.
 
 ---
 
 ## DB schema
 
-**Миграций нет.** Все три колонки (`settled_amount`, `settled_currency`, `settled_share_percent`)
-добавлены задачей 1 (#599) и применены на проде. Новых колонок задача не вводит.
+**No migrations.** All three columns (`settled_amount`, `settled_currency`, `settled_share_percent`)
+were added by task 1 (#599) and applied in prod. The task introduces no new columns.
 
 ---
 
 ## RBAC
 
-| Роль       | Доступ                                                       |
-| ---------- | ------------------------------------------------------------ |
-| ADMIN      | full (единственный, кто может править и запускать каскад)    |
-| SENIOR     | none                                                          |
-| JUNIOR     | none                                                          |
-| HR         | none                                                          |
-| ACCOUNTANT | none на правку; settle/доплата — как сегодня (без изменений) |
+| Role       | Access                                                   |
+| ---------- | -------------------------------------------------------- |
+| ADMIN      | full (the only one who can edit and trigger the cascade) |
+| SENIOR     | none                                                     |
+| JUNIOR     | none                                                     |
+| HR         | none                                                     |
+| ACCOUNTANT | none for editing; settle/top-up — as today (unchanged)   |
 
 ---
 
-## Швы под тестами
+## Seams under test
 
-- `TransactionsService.adminUpdateTransaction` — эндпоинт-шов, через него наблюдается весь
-  каскад (существующий, самый высокий из достаточных).
-- `TransactionsService.applyEditCascade` — новый приватный метод; наблюдается через юнит-дубль с
-  подменённым `dbtx` (захват порядка и содержимого записей). Нужен потому, что гейт мутаций не
-  видит интеграционные спеки (`mutation-gate-integration-specs.md`).
-- `sumLedgerTerms` через `computeCompanyAccountBalanceFromLedger` — существующий шов, уже
-  покрытый двумя спеками; арифметика девятого терма проверяется там же.
-- `resolveEditCascade` — существующий чистый шов (`packages/shared`), новое предупреждение
-  проверяется конструированием снимка руками.
-- `PendingSettlementService.settleByCompany` — существующий шов для доплаты.
+- `TransactionsService.adminUpdateTransaction` — the endpoint seam, through it the entire
+  cascade is observed (existing, the highest of the sufficient ones).
+- `TransactionsService.applyEditCascade` — a new private method; observed through a unit double with a
+  substituted `dbtx` (capturing the order and content of writes). It is needed because the mutation gate does not
+  see integration specs (`mutation-gate-integration-specs.md`).
+- `sumLedgerTerms` through `computeCompanyAccountBalanceFromLedger` — an existing seam, already
+  covered by two specs; the arithmetic of the ninth term is verified there too.
+- `resolveEditCascade` — an existing pure seam (`packages/shared`), the new warning
+  is verified by constructing a snapshot by hand.
+- `PendingSettlementService.settleByCompany` — the existing seam for the top-up.
 
 ---
 
 ## Acceptance criteria
 
-### AC1 — BIZ-18 сужается хирургически
+### AC1 — BIZ-18 is narrowed surgically
 
-- [ ] `transactions.service.ts:3004` становится
-      `if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged))`. `amountChanged` из
-      условия убран, **и больше нигде не ослаблен**.
-- [ ] `data.currency` по-прежнему не может измениться на `PAID`-строке (пункт 95 бэклога:
-      широкое снятие открывает живую ветку `data.currency` и ломает валютного сторожа).
+- [ ] `transactions.service.ts:3004` becomes
+      `if (tx.status === 'PAID' && (currencyChanged || salaryMonthChanged))`. `amountChanged` is removed from
+      the condition, **and not weakened anywhere else**.
+- [ ] `data.currency` still cannot change on a `PAID` row (backlog item 95:
+      a broad removal opens the live `data.currency` branch and breaks the currency watchdog).
 - [ ] grep: `grep -n "currencyChanged || salaryMonthChanged" apps/api/src/finance/transactions.service.ts`
 
-### AC2 — обязательный предпросмотр и оптимистичная блокировка
+### AC2 — mandatory preview and optimistic locking
 
-- [ ] При `tx.status === 'PAID' && amountChanged` отсутствующий `cascadeVersion` → `400`
-      с текстом про обязательный предпросмотр.
-- [ ] Внутри БД-транзакции снимок перечитывается `loadCascadeSnapshot(dbtx, id, { forUpdate: true })`,
-      от него берётся `computeCascadeVersion`; несовпадение с присланным → `409` с текстом
-      «обновите предпросмотр». Молчаливого пересчёта нет.
-- [ ] План строится **только** вызовом `resolveEditCascade(снимок, { amount })`. Собственной
-      арифметики доли в `apps/api` не появляется: `grep -n "roundShareAmount" apps/api/src/finance/transactions.service.ts`
-      не даёт новых вхождений внутри каскада.
+- [ ] On `tx.status === 'PAID' && amountChanged` a missing `cascadeVersion` → `400`
+      with text about the mandatory preview.
+- [ ] Inside the DB transaction the snapshot is re-read with `loadCascadeSnapshot(dbtx, id, { forUpdate: true })`,
+      `computeCascadeVersion` is taken from it; a mismatch with the one sent → `409` with the text
+      "refresh the preview". There is no silent recomputation.
+- [ ] The plan is built **only** by calling `resolveEditCascade(snapshot, { amount })`. No own
+      share arithmetic appears in `apps/api`: `grep -n "roundShareAmount" apps/api/src/finance/transactions.service.ts`
+      gives no new occurrences inside the cascade.
 
-### AC3 — порядок блокировок
+### AC3 — lock order
 
-- [ ] Последовательность внутри БД-транзакции строго: `pending_obligations` (FOR UPDATE /
-      условный UPDATE, `ORDER BY id`) → `lockCompanyAccount(dbtx)` → `transactions`
-      (FOR UPDATE, `ORDER BY id`) → записи. Обоснование — аддендум 1.9 (ABBA с `settleByCompany`
-      даёт 40P01 на денежном пути).
-- [ ] `lockCompanyAccount` берётся всегда, когда каскад что-то пишет, а не только когда
-      производная company-funded (аддендум 1.6, про READ COMMITTED между SUM-ами).
+- [ ] The sequence inside the DB transaction is strictly: `pending_obligations` (FOR UPDATE /
+      conditional UPDATE, `ORDER BY id`) → `lockCompanyAccount(dbtx)` → `transactions`
+      (FOR UPDATE, `ORDER BY id`) → writes. Justification — addendum 1.9 (ABBA with `settleByCompany`
+      gives 40P01 on the money path).
+- [ ] `lockCompanyAccount` is taken always when the cascade writes anything, not only when
+      the derivative is company-funded (addendum 1.6, about READ COMMITTED between SUMs).
 
-### AC4 — блокирующие условия применения
+### AC4 — blocking conditions of application
 
-Применение отказывается целиком (400, ни одной записи), если по любой производной:
+Application is refused entirely (400, not a single write) if for any derivative:
 
-- [ ] `plan.newAmount === null` (`NO_SHARE_SNAPSHOT`) — пересчитать невозможно, гадать запрещено
-      (AC5 п.4 ADR);
-- [ ] `obligation.currency !== source.currency` (`OBLIGATION_CURRENCY_MISMATCH`) — каскад
-      **пишет** в `pending_obligations.amount`, и валюта этой колонки обязана быть проверена, а
-      не предположена (аддендум 3.5).
-- [ ] `NON_USDT_CURRENCY` на **закрытом** обязательстве (`obligation.status === 'PAID'`) —
-      **блокирует** (аддендум 1.14). Остаток невычислим (вычитание из разных единиц), значит
-      откаченную строку нечем закрыть, а переоткрытое обязательство — это утверждение о долге
-      перед человеком. Отказ обратим ничем; тупик обратим только правкой данных.
-      _(Ревизия: в первой редакции задания это допущение было противоположным. Довод опирался на
-      посылку «доплата работает»; для drop она не работает — посылка исчезла вместе с выводом.)_
+- [ ] `plan.newAmount === null` (`NO_SHARE_SNAPSHOT`) — recomputation is impossible, guessing is forbidden
+      (AC5 item 4 of the ADR);
+- [ ] `obligation.currency !== source.currency` (`OBLIGATION_CURRENCY_MISMATCH`) — the cascade
+      **writes** into `pending_obligations.amount`, and the currency of this column must be checked, not
+      assumed (addendum 3.5).
+- [ ] `NON_USDT_CURRENCY` on a **closed** obligation (`obligation.status === 'PAID'`) —
+      **blocks** (addendum 1.14). The remainder is incomputable (subtraction from different units), so
+      there is nothing to close the rolled-back row with, and a reopened obligation is a claim about a debt
+      to a person. The refusal is reversible by nothing; the dead end is reversible only by editing data.
+      _(Revision: in the first edition of the task this assumption was the opposite. The argument relied on
+      the premise "the top-up works"; for drop it does not work — the premise disappeared together with the conclusion.)_
 
-### AC5 — производная с ещё открытым обязательством
+### AC5 — a derivative with a still-open obligation
 
-- [ ] Обе копии суммы обновляются в одной БД-транзакции: `pending_obligations.amount`
-      (scope `status='PENDING'`) и `transactions.amount`.
-- [ ] Записываемое значение — **`max(plan.newAmount, settledAmount)`**, а не `plan.newAmount`
-      (аддендум 1.7, единое правило «`amount` не опускается ниже накопителя»). Для строки, никогда
-      не проходившей settle, `settledAmount = 0` и `max` — тождество, то есть поведение первой
-      редакции сохраняется байт-в-байт.
-- [ ] Если `max` сработал (`newAmount < settledAmount` — это **уже откаченная** строка, по которой
-      выплачено больше новой доли): дополнительно журналируется `CASCADE_OVERPAYMENT`. Без `max`
-      остаток к доплате станет отрицательным и обязательство нечем будет закрыть (SR-M-4).
-- [ ] Статус не меняется, снимок процента не трогается.
-- [ ] Журнал: `CASCADE_AMOUNT_UPDATE` c `targetId` = id производной.
+- [ ] Both copies of the amount are updated in one DB transaction: `pending_obligations.amount`
+      (scope `status='PENDING'`) and `transactions.amount`.
+- [ ] The value written is **`max(plan.newAmount, settledAmount)`**, not `plan.newAmount`
+      (addendum 1.7, the single rule "`amount` does not drop below the accumulator"). For a row that
+      never went through settle, `settledAmount = 0` and `max` is the identity, i.e. the behavior of the first
+      edition is preserved byte-for-byte.
+- [ ] If `max` kicked in (`newAmount < settledAmount` — this is an **already rolled-back** row, on which
+      more was paid than the new share): `CASCADE_OVERPAYMENT` is additionally journaled. Without `max`
+      the remainder to top up becomes negative and there is nothing to close the obligation with (SR-M-4).
+- [ ] The status does not change, the percent snapshot is not touched.
+- [ ] Journal: `CASCADE_AMOUNT_UPDATE` with `targetId` = the derivative's id.
 
-### AC6 — откат оплаченной производной (`plan.needsReconfirm === true`)
+### AC6 — rollback of a paid derivative (`plan.needsReconfirm === true`)
 
-- [ ] **Сначала — сверка инварианта, на котором стоит терм 9 (аддендум 1.2).** Для производной с
-      `fundingSource === 'COMPANY_ACCOUNT'`: если
-      `amountsDiffer(Number(tx.amount), Number(tx.settledAmount ?? 0))` — **отказать вслух** (400),
-      ничего не записав. Текст обязан называть инвариант и его держателей, например: «расходятся
-      сумма строки и сумма фактических выплат (`amount` ≠ `settled_amount`) — леджер вернёт не тот
-      дебет; строка требует ручной сверки перед правкой».
-      Почему это обязательно: `settleByCompany` на senior-ветке берёт накопитель из
-      `pending_obligations.amount`, а терм 7 дебетует `transactions.amount`, и **равенство этих
-      двух в settle нигде не проверяется** — его держат `bookCompanyObligations` и задача 0
-      (#598). Строка, отредактированная до #598, может его нарушать. Молча откатить такую строку
-      значит вернуть в баланс не то число, которое из него ушло, — ошибка «в плюс», риск №4.
-      Использовать **общий** `amountsDiffer` из `@crm/shared`, не писать третье сравнение.
-- [ ] `pending_obligations`: условный UPDATE `WHERE id = … AND status = 'PAID'` →
-      `status='PENDING'`, `closingTransactionId = null`, `amount = plan.newAmount`. Ноль
-      затронутых строк ⇒ откат уже случился ⇒ выйти без второй записи в журнал (идемпотентность).
-- [ ] `transactions`: `type` → `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` (по текущему типу),
+- [ ] **First — verify the invariant on which term 9 stands (addendum 1.2).** For a derivative with
+      `fundingSource === 'COMPANY_ACCOUNT'`: if
+      `amountsDiffer(Number(tx.amount), Number(tx.settledAmount ?? 0))` — **refuse loudly** (400),
+      writing nothing. The text must name the invariant and its holders, for example: "the row amount and the
+      amount of actual payments diverge (`amount` ≠ `settled_amount`) — the ledger would return the wrong
+      debit; the row requires manual reconciliation before editing".
+      Why this is mandatory: `settleByCompany` on the senior branch takes the accumulator from
+      `pending_obligations.amount`, while term 7 debits `transactions.amount`, and **the equality of these
+      two is checked nowhere in settle** — it is held by `bookCompanyObligations` and task 0
+      (#598). A row edited before #598 may violate it. Silently rolling back such a row
+      means returning to the balance a number other than the one that left it — an error "to the plus", risk No. 4.
+      Use the **shared** `amountsDiffer` from `@crm/shared`, do not write a third comparison.
+- [ ] `pending_obligations`: a conditional UPDATE `WHERE id = … AND status = 'PAID'` →
+      `status='PENDING'`, `closingTransactionId = null`, `amount = plan.newAmount`. Zero
+      affected rows ⇒ the rollback has already happened ⇒ exit without a second journal entry (idempotency).
+- [ ] `transactions`: `type` → `SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT` (per the current type),
       `status` → `PENDING_PAYMENT`, `amount = plan.newAmount`.
-- [ ] Снимок процента возвращается в **живую** колонку: `seniorSharePercent` для senior-производной,
-      `dropSharePercent` для drop-производной, значение — `plan.sharePercent`
-      (аддендум 2). `settled_share_percent` **не трогается**. `*SharePercentSource` остаётся `NULL`.
-- [ ] `settled_amount` / `settled_currency` **не трогаются** — накопитель монотонный.
+- [ ] The percent snapshot is returned to the **live** column: `seniorSharePercent` for a senior derivative,
+      `dropSharePercent` for a drop derivative, the value — `plan.sharePercent`
+      (addendum 2). `settled_share_percent` is **not touched**. `*SharePercentSource` stays `NULL`.
+- [ ] `settled_amount` / `settled_currency` are **not touched** — the accumulator is monotonic.
 - [ ] `fundingSource`, `receiptDocumentId`/`receiptExternalUrl`, `senderId`/`senderLabel`,
-      `validatedBy`/`validatedAt`, `currency`, `dropCascadeOrigin` **не стираются** (AC3 п.4 ADR;
-      `fundingSource` и `currency` вдобавок нужны девятому терму).
-- [ ] Журнал: `CASCADE_REOPEN`, `targetId` = id производной, metadata
-      `{ obligationId, causedBy: <id источника>, settledAmount, sharePercent, before: {amount,type,status}, after: {amount,type,status} }`,
-      **внутри той же БД-транзакции**.
+      `validatedBy`/`validatedAt`, `currency`, `dropCascadeOrigin` are **not erased** (AC3 item 4 of the ADR;
+      `fundingSource` and `currency` are additionally needed by the ninth term).
+- [ ] Journal: `CASCADE_REOPEN`, `targetId` = the derivative's id, metadata
+      `{ obligationId, causedBy: <source id>, settledAmount, sharePercent, before: {amount,type,status}, after: {amount,type,status} }`,
+      **inside the same DB transaction**.
 
-### AC7 — ветка переплаты на ЗАКРЫТОМ обязательстве: НИЧЕГО не писать (аддендум 1.7)
+### AC7 — overpayment branch on a CLOSED obligation: write NOTHING (addendum 1.7)
 
-> Обе ветки AC5 и AC7 — один закон: **`amount` производной никогда не записывается ниже её
-> `settled_amount`.** На закрытом обязательстве это «не писать вовсе» (там `amount` уже равен
-> накопителю), на открытом — `max(...)` из AC5. Формулировки разные, потому что разные состояния;
-> денежная причина одна.
+> Both branches of AC5 and AC7 are one law: **a derivative's `amount` is never written below its
+> `settled_amount`.** On a closed obligation this is "do not write at all" (there `amount` already equals
+> the accumulator), on an open one — the `max(...)` from AC5. The wordings differ because the states differ;
+> the monetary reason is one.
 
-- [ ] Если обязательство `PAID`, а `plan.needsReconfirm === false` (то есть
-      `newAmount <= settledAmount`) — по этой производной **не пишется ни `transactions.amount`,
-      ни `pending_obligations.amount`, ни статус, ни тип, ни процент**.
-- [ ] Причина, которую надо понимать, а не запоминать: терм 7/8 дебетует `amount`, физически ушёл
-      `settled_amount`. Записать меньшее `amount` = завысить баланс компании ровно на переплату.
-- [ ] Журнал: `CASCADE_OVERPAYMENT` c `{ obligationId, causedBy, settledAmount, newShare, overpaidBy }`.
-- [ ] Строка остаётся `PAID` и в терм 7/8 попадает с прежним числом.
+- [ ] If the obligation is `PAID` and `plan.needsReconfirm === false` (that is,
+      `newAmount <= settledAmount`) — for this derivative **neither `transactions.amount`,
+      nor `pending_obligations.amount`, nor the status, nor the type, nor the percent is written**.
+- [ ] The reason to be understood, not memorized: term 7/8 debits `amount`, what physically left is
+      `settled_amount`. Writing a smaller `amount` = inflating the company balance by exactly the overpayment.
+- [ ] Journal: `CASCADE_OVERPAYMENT` with `{ obligationId, causedBy, settledAmount, newShare, overpaidBy }`.
+- [ ] The row stays `PAID` and falls into term 7/8 with the same number as before.
 
-### AC8 — девятый терм леджера
+### AC8 — the ninth ledger term
 
-- [ ] `sumLedgerTerms` получает девятый SUM по `settled_amount` c условием
+- [ ] `sumLedgerTerms` gets a ninth SUM over `settled_amount` with the condition
       `type IN COMPANY_TERM_TYPES_PENDING_SETTLED ∧ status='PENDING_PAYMENT' ∧
-      fundingSource='COMPANY_ACCOUNT' ∧ settled_currency='USDT'`, и он **вычитается**.
-- [ ] Предиката `settled_amount > 0` НЕТ (избыточен, даёт неубиваемого мутанта — аддендум 1.3).
-- [ ] Термы 1–8 не меняются ни на байт (`git diff` по файлу это подтверждает).
-- [ ] Хелпер `sumSettledAmount` суммирует именно `settled_amount` и не переиспользует `sumAmount`.
+fundingSource='COMPANY_ACCOUNT' ∧ settled_currency='USDT'`, and it is **subtracted**.
+- [ ] The predicate `settled_amount > 0` is ABSENT (redundant, gives an unkillable mutant — addendum 1.3).
+- [ ] Terms 1–8 do not change by a single byte (`git diff` on the file confirms this).
+- [ ] The helper `sumSettledAmount` sums exactly `settled_amount` and does not reuse `sumAmount`.
 
-### AC9 — расширение валютного сторожа (оценивать независимо от AC8)
+### AC9 — extension of the currency watchdog (evaluate independently of AC8)
 
-- [ ] В `assertNoOffCurrencyCompanyRows` добавлена OR-ветка (аддендум 1.8), **в том же запросе**,
-      без дополнительного round-trip.
-- [ ] `settled_currency IS NULL` включён в условие («метки нет» ≠ «метка совпадает»).
-- [ ] Текст `CompanyAccountOffCurrencyError` перестаёт утверждать, что все найденные строки `PAID`.
+- [ ] An OR branch is added to `assertNoOffCurrencyCompanyRows` (addendum 1.8), **in the same query**,
+      without an additional round-trip.
+- [ ] `settled_currency IS NULL` is included in the condition ("no marker" ≠ "the marker matches").
+- [ ] The text of `CompanyAccountOffCurrencyError` stops asserting that all the rows found are `PAID`.
 
-**Предусловие безопасности проверяется по коду, а не опросом базы.** Ветка добавляет условие
-отказа четырём денежным гейтам, поэтому надо знать, что подходящих строк не существует. Первая
-редакция требовала read-only SELECT на живой БД — **это невыполнимо**: прод на VPS без SSH
-(`project_deployment_plan`), локальная `crm_db` в докере пуста, `crm_qa` про реальные данные не
-отвечает. Инструкция, которую нельзя исполнить, даёт либо тихий пропуск, либо «ноль» не из той
-базы. Вместо неё — три грепа, которые исполняет **кодер в своём worktree**, и их вывод идёт в
-тело PR:
+**The safety precondition is verified from the code, not by polling the database.** The branch adds a
+refusal condition to four money gates, so it must be known that no matching rows exist. The first
+edition required a read-only SELECT on the live DB — **this is infeasible**: prod is on a VPS without SSH
+(`project_deployment_plan`), the local `crm_db` in docker is empty, `crm_qa` says nothing about real data. An
+instruction that cannot be executed yields either a silent skip or a "zero" from the wrong
+database. Instead — three greps, which the **coder runs in their worktree**, and their output goes into the
+PR body:
 
 ```bash
-# 1. Кто вообще пишет статус PENDING_PAYMENT. Ожидается РОВНО 4 совпадения:
-#    два IOU-вставки в bookCompanyObligations + два в payout-пути (createPayoutRequest).
+# 1. Who writes the status PENDING_PAYMENT at all. Expected EXACTLY 4 matches:
+#    two IOU inserts in bookCompanyObligations + two in the payout path (createPayoutRequest).
 grep -rn "status: 'PENDING_PAYMENT'" apps/api/src --include='*.ts' | grep -v '\.spec\.ts'
 
-# 2. Кто пишет fundingSource = COMPANY_ACCOUNT. Ожидается: только флип settleByCompany
-#    (+ paySalary/createExpense/дивиденды на СВОИХ типах, которых нет в списке типов ветки).
+# 2. Who writes fundingSource = COMPANY_ACCOUNT. Expected: only the settleByCompany flip
+#    (+ paySalary/createExpense/dividends on THEIR types, which are not in the branch's type list).
 grep -rn "fundingSource: " apps/api/src --include='*.ts' | grep -v '\.spec\.ts' | grep -i "COMPANY_ACCOUNT"
 
-# 3. Проверить глазами: ни одно совпадение из (1) не пишет fundingSource в том же .set()/.values().
+# 3. Check by eye: no match from (1) writes fundingSource in the same .set()/.values().
 ```
 
-- [ ] Вывод всех трёх приложен к телу PR с выводом одной строкой: комбинация
+- [ ] The output of all three is attached to the PR body with a one-line conclusion: the combination
       `type ∈ {SENIOR_PENDING_PAYOUT, DROP_PENDING_PAYOUT} ∧ fundingSource='COMPANY_ACCOUNT'`
-      этим кодом **никогда не производилась** (до задачи 3 нет ни одного пути `PAID → PENDING_PAYMENT`).
-- [ ] Если грепы дают другую картину (появился пятый писатель статуса или писатель
-      `fundingSource` на IOU-строке) → **AC9 не делать**, вынести в `.blocked.md` с выводом грепа.
-- [ ] Unit-тест: ветка сторожа **не срабатывает** на строках тех форм, которые производит текущий
-      код (IOU после booking: `PENDING_PAYMENT` + `fundingSource=null`; строка после флипа:
-      `PAID` + `COMPANY_ACCOUNT` + USDT), и **срабатывает** на сконструированной вручную
+      was **never produced** by this code (before task 3 there is not a single `PAID → PENDING_PAYMENT` path).
+- [ ] If the greps give a different picture (a fifth status writer appeared or a writer of
+      `fundingSource` on an IOU row) → **do not do AC9**, put it into `.blocked.md` with the grep output.
+- [ ] Unit test: the watchdog branch **does not fire** on rows of the forms that the current
+      code produces (an IOU after booking: `PENDING_PAYMENT` + `fundingSource=null`; a row after the flip:
+      `PAID` + `COMPANY_ACCOUNT` + USDT), and **fires** on a hand-constructed
       `PENDING_PAYMENT` + `COMPANY_ACCOUNT` + `settled_currency='UAH'`.
 
-### AC10 — доплата после отката
+### AC10 — top-up after rollback
 
-- [ ] `PendingSettlementService.resolveSource` возвращает `sourceSettledAmount`.
+- [ ] `PendingSettlementService.resolveSource` returns `sourceSettledAmount`.
 - [ ] SENIOR: `owedNow = parseFloat(claimedAmount) - Number(sourceSettledAmount ?? 0)`;
-      этим значением меряется money-гейт (`:892`) и им же становится `settledAmountThisSettle`
-      (`:771`). `amount` флип по-прежнему не трогает.
-- [ ] После доплаты выполняется `settled_amount == amount` (инвариант аддендума 1.2) — проверяется
-      тестом, а не рассуждением.
-- [ ] `owedNow === 0` → **закрыть штатно** (идемпотентное закрытие, AC15): флип проходит,
-      `settled_amount += 0`, леджер не меняется. Отказ здесь создавал бы тупик (SR-M-4).
-- [ ] `owedNow < 0` → `400` («по обязательству уже выплачено больше, чем оно стоит — требуется
-      ручное решение по переплате»). Правило `max` из AC5 делает это состояние недостижимым;
-      проверка остаётся как fail-loud на случай его появления другим путём.
-- [ ] DROP + `settled_amount > 0` → `400`. Текст обязан читаться владельцем как «ветка ещё не
-      сделана», а не «что-то сломалось»: например «Доплата по частично выплаченному
-      обязательству дропа пока не поддерживается — курс и сумма фактического платежа на такой
-      строке считаются по одной выплате. Обязательство остаётся открытым, «уже выплачено» видно;
-      закрытие остатка — отдельная задача.» Слов «ошибка», «невозможно», «повреждено» в тексте
-      быть не должно. Первый settle drop-обязательства не меняется никак.
-- [ ] `WHERE` флипа дополнен `settled_amount IS NOT DISTINCT FROM <прочитанное>` — гонка между
-      пред-транзакционным чтением и записью даёт ноль строк и существующий `throw`.
+      the money gate (`:892`) is measured by this value and it also becomes `settledAmountThisSettle`
+      (`:771`). The flip still does not touch `amount`.
+- [ ] After the top-up `settled_amount == amount` holds (the invariant of addendum 1.2) — verified
+      by a test, not by reasoning.
+- [ ] `owedNow === 0` → **close as usual** (an idempotent closure, AC15): the flip passes,
+      `settled_amount += 0`, the ledger does not change. A refusal here would create a dead end (SR-M-4).
+- [ ] `owedNow < 0` → `400` ("more has already been paid on the obligation than it is worth — a
+      manual decision on the overpayment is required"). The `max` rule from AC5 makes this state unreachable;
+      the check stays as fail-loud in case it appears by another route.
+- [ ] DROP + `settled_amount > 0` → `400`. The text must read to the owner as "the branch is not yet
+      built", not "something broke": for example "A top-up on a partially paid
+      drop obligation is not yet supported — the rate and the amount of the actual payment on such
+      a row are computed per a single payment. The obligation stays open, "already paid" is visible;
+      closing the remainder is a separate task." The words "error", "impossible", "corrupted" must not be
+      in the text. The first settle of a drop obligation does not change at all.
+- [ ] The flip's `WHERE` is extended with `settled_amount IS NOT DISTINCT FROM <the value read>` — a race between the
+      pre-transaction read and the write gives zero rows and the existing `throw`.
 
-### AC11 — инвойс (подключение задачи 4)
+### AC11 — invoice (wiring up task 4)
 
-- [ ] После коммита БД-транзакции вызывается
-      `invoicesService.voidAndReissueInvoiceForAmountEdit(id, actorId)` для источника и для
-      **каждой** производной, чей `amount` изменился.
-- [ ] Вызов вне БД-транзакции каскада (метод открывает свою, с `FOR UPDATE` — вложение даст
-      самоблокировку). Ошибка логируется и не откатывает уже применённый каскад — тот же
-      контракт, что у существующих fire-and-forget триггеров инвойса.
-- [ ] Ничего из #600 не переписывается.
+- [ ] After the DB transaction commits, `invoicesService.voidAndReissueInvoiceForAmountEdit(id, actorId)`
+      is called for the source and for **each** derivative whose `amount` changed.
+- [ ] The call is outside the cascade's DB transaction (the method opens its own, with `FOR UPDATE` — nesting would cause
+      a self-lock). The error is logged and does not roll back the already applied cascade — the same
+      contract as the existing fire-and-forget invoice triggers.
+- [ ] Nothing from #600 is rewritten.
 
-### AC12 — идемпотентность
+### AC12 — idempotency
 
-- [ ] `amountsDiffer` (общая) — единственное сравнение «изменилась ли сумма». Второго описания
-      этого правила не появляется.
-- [ ] Повторная правка на то же значение: каскада нет, журнала нет, записей нет.
-- [ ] Повторный откат уже откаченной производной: ноль затронутых строк, выход без второй записи
-      в журнал.
-- [ ] Число производных не растёт ни при какой последовательности правок (строки **обновляются**,
-      не создаются).
+- [ ] `amountsDiffer` (shared) is the only comparison of "did the amount change". A second description
+      of this rule does not appear.
+- [ ] A repeated edit to the same value: no cascade, no journal, no writes.
+- [ ] A repeated rollback of an already rolled-back derivative: zero affected rows, exit without a second entry
+      in the journal.
+- [ ] The number of derivatives does not grow under any sequence of edits (rows are **updated**,
+      not created).
 
-### AC13 — правка `PAID`-строки, которая сама стоит в терме леджера (SR-H-1, аддендум 1.12)
+### AC13 — editing a `PAID` row that itself stands in a ledger term (SR-H-1, addendum 1.12)
 
-Гвард `originalAmount !== null` необходим, но **недостаточен**: у оплаченной senior-строки
-`originalAmount` равен `null` (флип раскрывает триплет только под `isDropObligation`), а
-`payoutRequestId` он же обнуляет — значит гвард 2 её тоже не держит. Терм 7 дебетует такую строку
-по `amount`, и правка вниз завышает баланс компании. Сверка из AC6 её не ловит: та обходит
-`plan.derivatives`, а здесь редактируемая строка — сама себе источник.
+The guard `originalAmount !== null` is necessary but **insufficient**: for a paid senior row
+`originalAmount` is `null` (the flip reveals the triplet only under `isDropObligation`), and
+`payoutRequestId` is nulled by it too — so guard 2 does not hold it either. Term 7 debits such a row
+by `amount`, and an edit downward inflates the company balance. The check from AC6 does not catch it: that one walks
+`plan.derivatives`, while here the edited row is its own source.
 
-Правило: **правка `amount` запрещена, когда у числа есть второй носитель, который правка не
-двигает.** Три новых предиката отказа (400, ничего не записывается), в дополнение к
-существующему `originalAmount !== null`:
+The rule: **editing `amount` is forbidden when the number has a second carrier that the edit does not
+move.** Three new refusal predicates (400, nothing is written), in addition to the
+existing `originalAmount !== null`:
 
-- [ ] `tx.settledAmount !== null` — строка является закрытым или частично закрытым
-      обязательством; её `amount` пришпилен к накопителю.
-- [ ] существует `pending_obligations` c `source_transaction_id = <id строки> AND status='PAID'`
-      — то же самое для строк, закрытых **до** #599 (у них `settled_amount` пуст).
-      Ключ `source_transaction_id` верен именно потому, что settle флипает строку на месте:
-      после флипа `source_transaction_id == closing_transaction_id == id самой строки`.
-- [ ] `tx.type === 'COMPANY_DEPOSIT'` — сумма наблюдена в блокчейне (C4 основного ADR).
-- [ ] Тексты отказов разные и называют **носитель**, а не «нельзя»: «строка закрывает
-      обязательство, сумма подтверждена фактическими выплатами — исправляйте сторнирующей
-      транзакцией», «сумма депозита сверена с блокчейном».
-- [ ] **Не добавлять** отказ для `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN`: у них второго
-      носителя суммы нет (проверено — ни `original_amount`, ни `tx_hash` с суммовой сверкой), и
-      правка там означает «мы записали не то число», а леджер обязан за ней последовать. Это и
-      есть работа, ради которой задача существует. Полная сверка по всем восьми термам — таблица
-      в аддендуме 1.12.
-- [ ] Данные для проверки грузятся **той же** `loadCascadeSnapshot`: в `CascadeSourceSnapshot`
-      добавляются `settledAmount: number | null` и `hasClosedObligation: boolean`. Второго
-      запроса к БД для этого не заводить.
-- [ ] **Ловушка, которую надо обойти сознательно.** Предикат AC13 применяется **только к строке,
-      которую редактирует запрос** (`tx` в `adminUpdateTransaction`). Каскад пишет `amount`
-      производных, у которых `settledAmount !== null`, — это его штатная работа (AC5/AC6).
-      Если вынести предикат в общий хелпер и позвать его из `applyEditCascade`, каскад начнёт
-      отказывать сам себе. Проверить тестом: откат производной с непустым накопителем проходит,
-      прямая правка той же строки — нет.
-- [ ] Совместимость с основным сценарием: у `ADMIN_INCOME` `settledAmount` пуст, закрытого
-      обязательства на себя нет, тип не `COMPANY_DEPOSIT` — все три предиката молчат. Проверить
-      тестом, иначе AC13 может тихо убить фичу целиком.
+- [ ] `tx.settledAmount !== null` — the row is a closed or partially closed
+      obligation; its `amount` is pinned to the accumulator.
+- [ ] there exists a `pending_obligations` with `source_transaction_id = <row id> AND status='PAID'`
+      — the same for rows closed **before** #599 (their `settled_amount` is empty).
+      The key `source_transaction_id` is correct precisely because settle flips the row in place:
+      after the flip `source_transaction_id == closing_transaction_id == the row's own id`.
+- [ ] `tx.type === 'COMPANY_DEPOSIT'` — the amount was observed on the blockchain (C4 of the main ADR).
+- [ ] The refusal texts are different and name the **carrier**, not just "not allowed": "the row closes
+      an obligation, the amount is confirmed by actual payments — correct it with a reversing
+      transaction", "the deposit amount is reconciled with the blockchain".
+- [ ] **Do not add** a refusal for `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN`: they have no second
+      carrier of the amount (verified — neither `original_amount`, nor `tx_hash` with an amount check), and
+      an edit there means "we recorded the wrong number", and the ledger must follow it. That is
+      exactly the work the task exists for. The full reconciliation across all eight terms — the table
+      in addendum 1.12.
+- [ ] The data for the check is loaded by the **same** `loadCascadeSnapshot`: `CascadeSourceSnapshot`
+      gets `settledAmount: number | null` and `hasClosedObligation: boolean`. Do not introduce a second
+      DB query for this.
+- [ ] **A trap that must be consciously avoided.** The AC13 predicate applies **only to the row
+      the request edits** (`tx` in `adminUpdateTransaction`). The cascade writes the `amount` of
+      derivatives that have `settledAmount !== null` — that is its regular work (AC5/AC6).
+      If the predicate is moved into a shared helper and called from `applyEditCascade`, the cascade will start
+      refusing itself. Verify by a test: rolling back a derivative with a non-empty accumulator passes,
+      a direct edit of the same row does not.
+- [ ] Compatibility with the main scenario: `ADMIN_INCOME` has an empty `settledAmount`, no closed
+      obligation on itself, the type is not `COMPANY_DEPOSIT` — all three predicates stay silent. Verify
+      by a test, otherwise AC13 may quietly kill the whole feature.
 
-### AC14 — доплата обязана идти из того же источника финансирования (SR-H-2, аддендум 1.13)
+### AC14 — a top-up must come from the same funding source (SR-H-2, addendum 1.13)
 
-Термы 7/8/9 ключуются на **живой** колонке `funding_source`. Откат её сохраняет, но следующий
-settle перезаписывает — и строка выпадает сразу из обоих термов (`funding_source` уже не
-`COMPANY_ACCOUNT`, статус уже не `PENDING_PAYMENT`). Деньги, ушедшие со счёта компании, исчезают
-из леджера. Сценарий целиком в USDT, поэтому валютный гвард рядом не срабатывает.
+Terms 7/8/9 are keyed on the **live** column `funding_source`. The rollback preserves it, but the next
+settle overwrites it — and the row drops out of both terms at once (`funding_source` is no longer
+`COMPANY_ACCOUNT`, status is no longer `PENDING_PAYMENT`). Money that left the company account disappears
+from the ledger. The scenario is entirely in USDT, so the currency guard next to it does not fire.
 
-- [ ] `PendingSettlementService.resolveSource` возвращает `sourceFundingSource: string | null`.
-- [ ] В `settleByCompany`, **рядом с существующей проверкой `sourceSettledCurrency !== currency`**
-      (та же форма, тот же довод): при `priorSettled > 0` и
-      `(debitsCompanyAccount ? 'COMPANY_ACCOUNT' : null) !== sourceFundingSource` — отказ 400 с
-      текстом, называющим оба источника.
-- [ ] Проверка **безусловна** (не только для senior): доплата по drop сейчас запрещена AC10, но
-      гвард не должен зависеть от того, снимут ли её в 3b.
-- [ ] Инвариант записать комментарием у самой проверки: «все settle'ы одной строки — из одного
-      источника; `funding_source` это его запись; на неё ключуются термы 7/8/9».
-- [ ] Колонку `settled_funding_source` **не заводить**: это потребовало бы правки термов 7 и 8,
-      которые задача обязуется не трогать (аддендум 1.10). Эскейп на будущее задокументирован.
+- [ ] `PendingSettlementService.resolveSource` returns `sourceFundingSource: string | null`.
+- [ ] In `settleByCompany`, **next to the existing check `sourceSettledCurrency !== currency`**
+      (the same form, the same argument): when `priorSettled > 0` and
+      `(debitsCompanyAccount ? 'COMPANY_ACCOUNT' : null) !== sourceFundingSource` — a 400 refusal with
+      text naming both sources.
+- [ ] The check is **unconditional** (not only for senior): a top-up on drop is currently forbidden by AC10, but
+      the guard must not depend on whether it is lifted in 3b.
+- [ ] Record the invariant in a comment at the check itself: "all settles of one row come from one
+      source; `funding_source` is its record; terms 7/8/9 are keyed on it".
+- [ ] Do **not introduce** a column `settled_funding_source`: that would require editing terms 7 and 8,
+      which the task commits not to touch (addendum 1.10). The escape hatch for the future is documented.
 
-### AC15 — каскад не откатывает то, что не сможет закрыть (SR-M-3 / SR-M-4, аддендум 1.14)
+### AC15 — the cascade does not roll back what it will not be able to close (SR-M-3 / SR-M-4, addendum 1.14)
 
-Переоткрытое обязательство — это **утверждение о долге** перед человеком: его `amount` входит в
-money-гейт и в агрегаты. Строка, которую нельзя закрыть, заявляет несуществующий долг. Отказ
-обратим ничем, тупик — только правкой данных.
+A reopened obligation is a **claim about a debt** to a person: its `amount` enters the
+money gate and the aggregates. A row that cannot be closed declares a nonexistent debt. The refusal is
+reversible by nothing, the dead end — only by editing data.
 
-- [ ] Перед откатом производной проверяется, что последующий settle по ней возможен правилами
-      AC10. Не возможен — отказ 400, **ни одной записи**.
-- [ ] Невозможен в двух случаях: (а) drop-производная с непустым накопителем (доплата по drop не
-      реализована); (б) `settled_currency` не совпадает с валютой обязательства (остаток
-      невычислим). Оба проверяются **до** первой записи, а не после отката.
-- [ ] Третий случай — `newAmount < settledAmount` на уже откаченной строке — закрыт правилом
-      `max(...)` из AC5, а не отдельной проверкой.
-- [ ] Тексты отказов читаются как «ветка ещё не сделана», по образцу AC10.
-- [ ] Следствие для AC10: **`owedNow === 0` больше НЕ ошибка**, а законное идемпотентное
-      закрытие. Ноль значит «выплачено ровно столько, сколько обязательство стоит»; закрытие
-      леджер-нейтрально (строка уходит из терма 9 на `settled_amount` и приходит в терм 7 на
-      `amount`, а они равны). Отказ остаётся только на `owedNow < 0`, и правило `max` делает это
-      состояние недостижимым.
-
----
-
-## Тест-AC — по каждому риску AC6 основного ADR + семь новых
-
-Формулировка «покрыто тестами» — брак. По каждому пункту указано, **что именно покраснеет на
-версии кода без фикса**, и это надо подтвердить фактически (пункт 75 бэклога): `git stash` фикс,
-прогнать спеку, приложить вывод падения в тело PR. Заявления без вывода не принимаются.
-
-Помнить про слепоту гейтов (пункты 71/82 бэклога): `check-mutation-tally.mjs` краснеет только на
-`Survived`, гейт мутаций **не видит** `*.integration.spec.ts`, а `Integration Tests (Postgres)`
-не входит в required checks. Поэтому у **каждого** денежного утверждения ниже есть юнит-дубль.
-
-| #      | Риск                                     | Тест                                                                                                                                                                                                                                             | Краснеет на                                                                                                     |
-| ------ | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| **1**  | предпросмотр ≠ факт                      | integration: один фикстур → `GET :id/edit-preview` → `PATCH :id/admin-edit` → сравнить **структуру целиком**: по каждой производной `tx.amount`, `obligation.amount`, `status`, `type`, восстановленный процент против полей плана                | реализации, считающей долю локально (иное округление) или пишущей не тем полям; «в обоих N строк» это не ловит      |
-| **1b** | то же, видимое гейту мутаций             | unit: подменённый `dbtx` захватывает `.set()`-объекты; тест сам зовёт **настоящий** `resolveEditCascade` и сверяет захваченные суммы с планом                                                                                                     | подмене `roundShareAmount` на локальную арифметику; мутанту в вычислении суммы записи                              |
-| **2**  | односторонняя проверка симметрии         | integration: после каскада по **каждой записанной** производной утверждать `tx.amount === obligation.amount` **И** `obligation.amount === roundShareAmount(новыйДоход, снимок)`. Ветка переплаты (AC7) из этой проверки исключена намеренно        | обновлению только `transactions` (первое равенство падает) и только `pending_obligations` (тоже падает)             |
-| **3**  | тавтологичный тест                       | `MUTATION_BASE_SHA=$(git rev-parse origin/main) node scripts/devops/mutation-gate.mjs --changed` + **прочитать лог**, а не вердикт: ноль `Survived` при непустом `NoCoverage` без integration-hint = брак                                          | мутанту в `roundShareAmount`/в арифметике каскада, который не убивает ни один тест                                  |
-| **4**  | **баланс растёт на выплаченное**         | integration: settle company-funded → `B1 = computeCompanyAccountBalanceFromLedger(db)` → правка дохода вверх → `B2` → `expect(B2).toBe(B1)`                                                                                                        | отсутствию девятого терма: `B2 === B1 + староеОбязательство`                                                        |
-| **4b** | то же, видимое гейту мутаций             | unit в `company-account-balance.spec.ts`: скормить девять сумм фиксированными числами и утверждать точное значение итога; отдельно — `…-currency.spec.ts`: ровно **10** запросов и наличие `PENDING_PAYMENT` + `COMPANY_ACCOUNT` + `settled_currency` в девятом WHERE | знаку `+` вместо `−`; пропущенному терму; терму, суммирующему `amount` вместо `settled_amount`                      |
-| **5**  | потерян снимок процента                  | integration: settle → правка → прочитать строку: живая колонка процента непуста и равна `settled_share_percent`; затем повторный `GET :id/edit-preview` возвращает `newAmount !== null`                                                            | реализации, оставившей процент `NULL`: второй предпросмотр отдаёт `NO_SHARE_SNAPSHOT`                               |
-| **6**  | накопитель обнуляется / доплата неверна  | integration-цепочка senior: settle 2000 → правка до 3000 → доплата → правка до 4500 → доплата. На каждом шаге: `settled_amount` строго растёт, после каждой доплаты `settled_amount === amount`, `remainingToPay` из предпросмотра совпал с фактически списанным | доплате на полную сумму (`settled_amount` уходит в `2×`); обнулению накопителя откатом; расхождению `amount ≠ settled_amount` |
-| **7**  | гонка предпросмотр ↔ settle              | integration с ручной последовательностью: предпросмотр (версия V) → settle другой сессией → `PATCH` с V → **409**, ноль записей в БД                                                                                                              | реализации, игнорирующей `cascadeVersion`: правка проходит и молча пересчитывает                                     |
-| **8**  | расхождение уезжает в подписанный инвойс | integration: подписанный инвойс на производной → правка → старая подпись помечена `voidedAt`, новый инвойс несёт новую сумму, `verifyInvoice` отдаёт её же                                                                                        | не подключённому `voidAndReissueInvoiceForAmountEdit`: старый подписанный инвойс жив со старой суммой                |
-| **8b** | то же, видимое гейту мутаций             | unit: шпион на `invoicesService.voidAndReissueInvoiceForAmountEdit` — вызван по источнику и по каждой изменённой производной, ровно по одному разу                                                                                                 | пропущенному вызову; вызову только по источнику                                                                      |
-| **9**  | журнал по части полей                    | по одному тесту на действие: `CASCADE_AMOUNT_UPDATE`, `CASCADE_REOPEN`, `CASCADE_OVERPAYMENT` — проверять **каждое поле** metadata отдельно, включая `settledAmount` и `causedBy`; плюс существующий `AMOUNT_OR_RECEIVER_CHANGE` по источнику       | журналу «одна запись на весь каскад»; отсутствующему `settledAmount`; `targetId`, указывающему на источник вместо производной |
-| **10** | правка валюты проходит вместе с суммой   | `PATCH` с изменённой `currency` на `PAID` company-строке → **400**; следом `computeCompanyAccountBalanceFromLedger` возвращает число, не бросая                                                                                                    | широкому снятию BIZ-18: правка проходит, а затем сторож роняет четыре гейта                                          |
-| **11** | каскад плодит дубли                      | integration: две правки подряд → `count(*)` производных по `source_income_transaction_id` не изменился; для drop дополнительно — попытка вставки второй строки даёт `23505`, а не тихий дубль                                                     | реализации, дописывающей дельта-строку вместо обновления                                                             |
-| **12** | правка мимо интерфейса                   | все тесты дёргают сервис/эндпоинт напрямую, без UI                                                                                                                                                                                                | логике каскада, уехавшей в контроллер или в диалог                                                                   |
-| **13** | ABBA-дедлок с `settleByCompany`          | unit: подменённый `dbtx` пишет порядок обращений; утверждать `pending_obligations` → `lockCompanyAccount` → `transactions` (аддендум 1.9)                                                                                                          | любой перестановке — та же форма проверки, что MED-2 на #598                                                        |
-| **14** | не взят advisory-лок                     | unit: `lockCompanyAccount` вызван ровно один раз до записей в `transactions`                                                                                                                                                                      | отсутствию вызова (баланс читается гейтом посреди переезда строки между термами)                                    |
-| **15** | валюта обязательства не проверена (п. 95) | unit по резолверу: снимок с `obligation.currency='EUR'` при `source.currency='USDT'` → предупреждение `OBLIGATION_CURRENCY_MISMATCH`; integration: `PATCH` на таком наборе → **400**, ноль записей                                               | отсутствию проверки: каскад молча пишет USDT-долю в EUR-обязательство                                               |
-| **16** | **переплата обновляет `amount`**          | integration: settle 2000 → правка дохода вниз (новая доля 1000) → строка всё ещё `PAID`, `tx.amount === 2000`, `obligation.amount === 2000`, и `computeCompanyAccountBalanceFromLedger` **не изменился**                                          | «услужливому» `amount := 1000`: баланс компании вырастает на 1000 при том, что деньги ушли                           |
-| **17** | **`amount ≠ settled_amount` откатывается молча** | unit (гейт мутаций видит): снимок company-funded производной, у которой `tx.amount = 2000`, а `settled_amount = 1800` (форма легаси-строки, отредактированной до #598) → `applyEditCascade` бросает 400, `dbtx` не получил **ни одной** записи. Плюс зеркальный кейс: равные значения проходят | реализации без сверки AC6: откат проходит, терм 9 возвращает 1800 вместо исчезнувших 2000 — баланс завышен на 200 |
-| **17b** | тот же инвариант на настоящей БД          | integration: подготовить строку с расхождением прямым UPDATE на scratch-БД → `PATCH` → 400 и ноль изменений в обеих таблицах                                                                                                                       | той же реализации без сверки; ловит вдобавок опечатку в имени колонки, которую юнит-дубль пропустит               |
-| **18** | **правка самой оплаченной senior-строки завышает баланс** (SR-H-1) | integration: доход → IOU → company-settle 260 (у строки `originalAmount === null`, `payoutRequestId === null` — утверждать это в тесте, иначе он молча перестанет проверять то, ради чего написан) → `B1` → `PATCH` на этой строке `amount: 26` → **400** и `B2 === B1` | реализации, где отказ ловит только `originalAmount`: правка проходит, дебет терма 7 падает с 260 до 26, баланс растёт на 234 |
-| **18b** | тот же отказ, видимый гейту мутаций       | unit по трём предикатам AC13 поимённо: `settledAmount !== null`; закрытое обязательство при `settledAmount === null` (легаси); `type === 'COMPANY_DEPOSIT'`. Плюс негативные кейсы: `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN` **проходят** | удалению любого из трёх предикатов; и — важнее — добавлению лишнего запрета на три типа, которые обязаны остаться редактируемыми |
-| **19** | **доплата из другого пота стирает компенсацию** (SR-H-2) | integration целиком в USDT: company-settle 260 → правка вверх (откат, терм 9 держит 260) → доплата с `ADMIN_PERSONAL` → **400**. И контрольный прогон: доплата из `COMPANY_ACCOUNT` проходит, `B` после неё меньше `B_до_доплаты` ровно на `owedNow` | реализации без сверки источника: доплата проходит, строка выпадает и из терма 7, и из терма 9, 260 USDT исчезают из леджера |
-| **19b** | зеркальный порядок                        | integration: `ADMIN_PERSONAL`-settle → откат → доплата из `COMPANY_ACCOUNT` → **400**                                                                                                                                                            | той же реализации: терм 7 стал бы дебетовать полное обязательство при частичной оплате компанией                  |
-| **20** | **откат в тупик** (SR-M-3)                | integration: drop-обязательство, закрытое в UAH → `PATCH` на источнике → **400**, обязательство осталось `PAID`, ноль записей. Отдельно: drop, закрытый в USDT company-funded → тоже **400** (доплата по drop не реализована)                     | реализации, откатывающей такую строку: обязательство переоткрыто, закрыть его нечем, а `pending_obligations.amount` заявляет несуществующий долг |
-| **21** | **правка «туда и обратно»** (SR-M-4)      | integration: settle 260 → правка дохода вверх (доля 520, откат) → правка обратно (доля 260) → утверждать `amount === 260`, `settled_amount === 260`, `owedNow === 0`, и **settle закрывает строку штатно**; после закрытия `B` не изменился        | реализации без `max` в AC5 и/или с отказом на `owedNow === 0`: строка остаётся `PENDING_PAYMENT` навсегда          |
-
-Дополнительно (правила проекта, не опция):
-
-- `Skill('security-review')` **до** написания первой строки эндпоинта; поверхность денежная ⇒
-  `security-reviewer` в ревью обязателен.
-- `Skill('superpowers:test-driven-development')` — тест до реализации.
-- `Skill('superpowers:verification-before-completion')` — перед объявлением готовности.
-- Property-тест каскада, если пишется, обязан порождать комбинацию «обязательство `PENDING` +
-  накопитель > 0» (пункт 87 бэклога: генератор, выводящий накопитель из статуса, слеп по
-  построению).
-- E2E локально перед push; push feature-ветки — `DATABASE_URL= git push`.
+- [ ] Before rolling back a derivative it is verified that a subsequent settle on it is possible under the rules of
+      AC10. If not possible — a 400 refusal, **not a single write**.
+- [ ] It is impossible in two cases: (a) a drop derivative with a non-empty accumulator (a top-up on drop is not
+      implemented); (b) `settled_currency` does not match the obligation's currency (the remainder is
+      incomputable). Both are checked **before** the first write, not after the rollback.
+- [ ] The third case — `newAmount < settledAmount` on an already rolled-back row — is closed by the rule
+      `max(...)` from AC5, not by a separate check.
+- [ ] The refusal texts read as "the branch is not yet built", following the model of AC10.
+- [ ] A consequence for AC10: **`owedNow === 0` is no longer an error**, but a legitimate idempotent
+      closure. Zero means "exactly as much was paid as the obligation is worth"; the closure is
+      ledger-neutral (the row leaves term 9 at `settled_amount` and arrives in term 7 at
+      `amount`, and they are equal). The refusal remains only on `owedNow < 0`, and the `max` rule makes this
+      state unreachable.
 
 ---
 
-## Допущения (заполняет исполнитель по ходу — A1-решения)
+## Test AC — for each risk of AC6 of the main ADR + seven new ones
 
-Предзаполнено архитектором — это решения, принятые при написании задания. Исполнитель дописывает
-свои ниже той же строкой-формой.
+The wording "covered by tests" is a defect. For each item it is stated **what exactly will turn red on the
+version of the code without the fix**, and this must be confirmed in fact (backlog item 75): `git stash` the fix,
+run the spec, attach the failure output to the PR body. Claims without output are not accepted.
 
-- **Доплата реализуется только для SENIOR-ветки; DROP-доплата отказывается вслух** — на drop-строке
-  `amount` это факт платежа в валюте платежа, рядом лежит триплет `originalAmount`/`exchangeRate`,
-  описывающий **одну** конверсию; частичная доплата делает `amount` накопительным и ломает
-  `amount = originalAmount × exchangeRate`. Обратимо, откат: отдельная задача 3b, не переделка
-  этого PR (аддендум 1.11).
-- **Несовпадение `cascadeVersion` отдаётся как `409 Conflict`, а не `400`** — семантика
-  «состояние изменилось», уже используемая в `signInvoice`. Обратимо, откат: одна строка.
-- **`cascadeVersion` обязателен всегда при `PAID` + изменение суммы**, даже когда производных
-  нет, — правило проще и попутно даёт оптимистичную блокировку самой редактируемой строке.
-  Обратимо, откат: сузить условие.
-- ~~**`NON_USDT_CURRENCY` не блокирует применение**~~ — **допущение отменено** после
-  security-review #607. Довод опирался на посылку «доплата работает»; для drop она не работает
-  (AC10), поэтому откат создавал бы обязательство, которое нечем закрыть. Теперь блокирует —
-  AC4 + AC15. Оставлено зачёркнутым намеренно: отменённое допущение и забытое допущение выглядят
-  одинаково, если первое стереть.
-- **`*SharePercentSource` после отката остаётся `NULL`** — снимка происхождения задача 1 не
-  сохраняла, придумывать его нельзя (пункт 70 бэклога). Обратимо, откат: колонка-снимок в
-  отдельной миграции.
-- **Сверка `amount == settled_amount` перед откатом (AC6) отказывает целиком, а не чинит данные.**
-  Побочный эффект: правка дохода по строке с уже разошедшимися копиями (легаси, отредактированная
-  до #598) будет отклонена до ручного разбора владельцем. Альтернатива — молча вернуть в баланс
-  не то число, которое из него ушло. Обратимо, откат: снять проверку (и вместе с ней —
-  корректность терма 9 на таких строках).
-- **Предусловие AC9 доказывается грепом по путям записи, а не запросом к базе** — у исполнителя
-  нет доступа к прод-данным, а «ноль» из другой базы хуже отсутствия проверки. Обратимо, откат:
-  вынести оба SQL в decision brief владельцу как предусловие мержа.
-- **Смешение источников финансирования на одном обязательстве не поддерживается** (AC14) —
-  отказ вместо новой колонки `settled_funding_source`, потому что колонка потребовала бы правки
-  термов 7/8, которые задача обязуется не трогать. Обратимо, откат: колонка + правка термов
-  отдельной задачей.
-- **`COMPANY_DEPOSIT` закрывается по типу, а не по `tx_hash`** (AC13) — предикат `tx_hash IS NOT
-  NULL` заблокировал бы `ADMIN_INCOME`, который тоже несёт хеш через реестр приходов, то есть
-  убил бы основной сценарий фичи. Обратимо, откат: сузить предикат, если появится второй
-  on-chain-сверяемый тип.
+Remember the blindness of the gates (backlog items 71/82): `check-mutation-tally.mjs` goes red only on
+`Survived`, the mutation gate **does not see** `*.integration.spec.ts`, and `Integration Tests (Postgres)`
+is not among the required checks. Therefore **every** money claim below has a unit double.
 
-### Дописано исполнителем (раунд 1, PR #607)
+| #       | Risk                                                                  | Test                                                                                                                                                                                                                                                                                         | Goes red on                                                                                                                                                            |
+| ------- | --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1**   | preview ≠ fact                                                        | integration: one fixture → `GET :id/edit-preview` → `PATCH :id/admin-edit` → compare the **whole structure**: per derivative `tx.amount`, `obligation.amount`, `status`, `type`, the restored percent against the plan's fields                                                              | an implementation computing the share locally (different rounding) or writing to the wrong fields; "N rows in both" does not catch this                                |
+| **1b**  | the same, visible to the mutation gate                                | unit: a substituted `dbtx` captures the `.set()` objects; the test itself calls the **real** `resolveEditCascade` and compares the captured amounts with the plan                                                                                                                            | replacing `roundShareAmount` with local arithmetic; a mutant in the computation of the written amount                                                                  |
+| **2**   | one-sided symmetry check                                              | integration: after the cascade for **each written** derivative assert `tx.amount === obligation.amount` **AND** `obligation.amount === roundShareAmount(newIncome, snapshot)`. The overpayment branch (AC7) is deliberately excluded from this check                                         | updating only `transactions` (the first equality fails) and only `pending_obligations` (fails too)                                                                     |
+| **3**   | tautological test                                                     | `MUTATION_BASE_SHA=$(git rev-parse origin/main) node scripts/devops/mutation-gate.mjs --changed` + **read the log**, not the verdict: zero `Survived` with a non-empty `NoCoverage` without an integration hint = a defect                                                                   | a mutant in `roundShareAmount`/in the cascade arithmetic that no test kills                                                                                            |
+| **4**   | **the balance grows by the paid amount**                              | integration: settle company-funded → `B1 = computeCompanyAccountBalanceFromLedger(db)` → edit the income upward → `B2` → `expect(B2).toBe(B1)`                                                                                                                                               | the absence of the ninth term: `B2 === B1 + oldObligation`                                                                                                             |
+| **4b**  | the same, visible to the mutation gate                                | unit in `company-account-balance.spec.ts`: feed nine amounts as fixed numbers and assert the exact total; separately — `…-currency.spec.ts`: exactly **10** queries and the presence of `PENDING_PAYMENT` + `COMPANY_ACCOUNT` + `settled_currency` in the ninth WHERE                        | a `+` sign instead of `−`; a skipped term; a term summing `amount` instead of `settled_amount`                                                                         |
+| **5**   | the percent snapshot is lost                                          | integration: settle → edit → read the row: the live percent column is non-empty and equals `settled_share_percent`; then a repeated `GET :id/edit-preview` returns `newAmount !== null`                                                                                                      | an implementation that left the percent `NULL`: the second preview returns `NO_SHARE_SNAPSHOT`                                                                         |
+| **6**   | the accumulator is zeroed / the top-up is wrong                       | integration chain senior: settle 2000 → edit to 3000 → top-up → edit to 4500 → top-up. At each step: `settled_amount` strictly grows, after each top-up `settled_amount === amount`, `remainingToPay` from the preview matched the actually debited amount                                   | a top-up for the full amount (`settled_amount` goes to `2×`); zeroing of the accumulator by the rollback; a divergence `amount ≠ settled_amount`                       |
+| **7**   | race preview ↔ settle                                                 | integration with a manual sequence: preview (version V) → settle by another session → `PATCH` with V → **409**, zero writes to the DB                                                                                                                                                        | an implementation ignoring `cascadeVersion`: the edit passes and silently recomputes                                                                                   |
+| **8**   | divergence leaks into a signed invoice                                | integration: a signed invoice on a derivative → edit → the old signature is marked `voidedAt`, the new invoice carries the new amount, `verifyInvoice` returns the same                                                                                                                      | an unwired `voidAndReissueInvoiceForAmountEdit`: the old signed invoice is alive with the old amount                                                                   |
+| **8b**  | the same, visible to the mutation gate                                | unit: a spy on `invoicesService.voidAndReissueInvoiceForAmountEdit` — called for the source and for each changed derivative, exactly once each                                                                                                                                               | a skipped call; a call only for the source                                                                                                                             |
+| **9**   | journal by part of the fields                                         | one test per action: `CASCADE_AMOUNT_UPDATE`, `CASCADE_REOPEN`, `CASCADE_OVERPAYMENT` — check **each field** of the metadata separately, including `settledAmount` and `causedBy`; plus the existing `AMOUNT_OR_RECEIVER_CHANGE` on the source                                               | a journal of "one entry for the entire cascade"; a missing `settledAmount`; a `targetId` pointing to the source instead of the derivative                              |
+| **10**  | a currency edit passes together with the amount                       | `PATCH` with a changed `currency` on a `PAID` company row → **400**; afterwards `computeCompanyAccountBalanceFromLedger` returns a number without throwing                                                                                                                                   | a broad removal of BIZ-18: the edit passes, and then the watchdog takes down four gates                                                                                |
+| **11**  | the cascade breeds duplicates                                         | integration: two edits in a row → the `count(*)` of derivatives by `source_income_transaction_id` did not change; for drop additionally — an attempt to insert a second row gives `23505`, not a silent duplicate                                                                            | an implementation appending a delta row instead of updating                                                                                                            |
+| **12**  | an edit bypassing the interface                                       | all tests hit the service/endpoint directly, without UI                                                                                                                                                                                                                                      | cascade logic that moved into the controller or the dialog                                                                                                             |
+| **13**  | ABBA deadlock with `settleByCompany`                                  | unit: a substituted `dbtx` records the order of accesses; assert `pending_obligations` → `lockCompanyAccount` → `transactions` (addendum 1.9)                                                                                                                                                | any permutation — the same form of check as MED-2 on #598                                                                                                              |
+| **14**  | the advisory lock is not taken                                        | unit: `lockCompanyAccount` called exactly once before the writes to `transactions`                                                                                                                                                                                                           | the absence of the call (the balance is read by a gate in the middle of a row's move between terms)                                                                    |
+| **15**  | the obligation's currency is not checked (item 95)                    | unit on the resolver: a snapshot with `obligation.currency='EUR'` and `source.currency='USDT'` → the warning `OBLIGATION_CURRENCY_MISMATCH`; integration: `PATCH` on such a set → **400**, zero writes                                                                                       | the absence of the check: the cascade silently writes the USDT share into an EUR obligation                                                                            |
+| **16**  | **an overpayment updates `amount`**                                   | integration: settle 2000 → edit the income downward (new share 1000) → the row is still `PAID`, `tx.amount === 2000`, `obligation.amount === 2000`, and `computeCompanyAccountBalanceFromLedger` **did not change**                                                                          | an "obliging" `amount := 1000`: the company balance grows by 1000 while the money has left                                                                             |
+| **17**  | **`amount ≠ settled_amount` is rolled back silently**                 | unit (the mutation gate sees it): a snapshot of a company-funded derivative with `tx.amount = 2000` and `settled_amount = 1800` (the form of a legacy row edited before #598) → `applyEditCascade` throws 400, `dbtx` received **not a single** write. Plus a mirror case: equal values pass | an implementation without the AC6 check: the rollback passes, term 9 returns 1800 instead of the vanished 2000 — the balance is inflated by 200                        |
+| **17b** | the same invariant on a real DB                                       | integration: prepare a row with the divergence by a direct UPDATE on the scratch DB → `PATCH` → 400 and zero changes in both tables                                                                                                                                                          | the same implementation without the check; additionally catches a typo in a column name that the unit double will miss                                                 |
+| **18**  | **editing the paid senior row itself inflates the balance** (SR-H-1)  | integration: income → IOU → company-settle 260 (the row has `originalAmount === null`, `payoutRequestId === null` — assert this in the test, otherwise it will silently stop checking what it was written for) → `B1` → `PATCH` on this row `amount: 26` → **400** and `B2 === B1`           | an implementation where the refusal catches only `originalAmount`: the edit passes, the term-7 debit drops from 260 to 26, the balance grows by 234                    |
+| **18b** | the same refusal, visible to the mutation gate                        | unit on the three AC13 predicates by name: `settledAmount !== null`; a closed obligation with `settledAmount === null` (legacy); `type === 'COMPANY_DEPOSIT'`. Plus negative cases: `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN` **pass**                                                  | the removal of any of the three predicates; and — more important — the addition of an extra ban on the three types that must stay editable                             |
+| **19**  | **a top-up from a different pocket erases the compensation** (SR-H-2) | integration entirely in USDT: company-settle 260 → edit upward (rollback, term 9 holds 260) → top-up with `ADMIN_PERSONAL` → **400**. And a control run: a top-up from `COMPANY_ACCOUNT` passes, `B` after it is lower than `B_before_top-up` by exactly `owedNow`                           | an implementation without the source check: the top-up passes, the row drops out of both term 7 and term 9, 260 USDT vanish from the ledger                            |
+| **19b** | mirror order                                                          | integration: `ADMIN_PERSONAL`-settle → rollback → top-up from `COMPANY_ACCOUNT` → **400**                                                                                                                                                                                                    | the same implementation: term 7 would debit the full obligation on a partial payment by the company                                                                    |
+| **20**  | **rollback into a dead end** (SR-M-3)                                 | integration: a drop obligation closed in UAH → `PATCH` on the source → **400**, the obligation stayed `PAID`, zero writes. Separately: a drop closed in USDT company-funded → also **400** (a top-up on drop is not implemented)                                                             | an implementation rolling back such a row: the obligation is reopened, there is nothing to close it with, and `pending_obligations.amount` declares a nonexistent debt |
+| **21**  | **an edit "there and back"** (SR-M-4)                                 | integration: settle 260 → edit the income upward (share 520, rollback) → edit back (share 260) → assert `amount === 260`, `settled_amount === 260`, `owedNow === 0`, and **settle closes the row as usual**; after the closure `B` did not change                                            | an implementation without the `max` in AC5 and/or with a refusal on `owedNow === 0`: the row stays `PENDING_PAYMENT` forever                                           |
 
-- **`fundingSource` добавлен в `CascadeDerivativeSnapshot`** — AC6 ключует отказ на
-  `fundingSource === 'COMPANY_ACCOUNT'`, а на снимке этого поля не было. Второй запрос за одной
-  колонкой раздвоил бы `loadCascadeSnapshot`, который ADR AC4 держит единственным. Резолвер поле
-  не читает. Обратимо, откат: убрать поле, читать отдельно.
-- **Advisory-лок берёт сам `loadCascadeSnapshot({ forUpdate: true })`** — это единственная
-  позиция между двумя row-локами, не инвертирующая порядок `settleByCompany` (аддендум 1.9), а
-  лок нельзя передать вызывающему «на середину». Следствие: лок берётся и на пути, кончающемся
-  409 — надмножество AC3 в безопасную сторону. Обратимо, откат: разделить хелпер.
-- **`owedNow` отказывает только при `priorSettled > 0`** — сплошной вариант отверг бы первый
-  settle законного нулевого обязательства (0%-доля), а задание требует байт-в-байт то же
-  поведение на первом settle. _(Раунд 2: сам порог переигран AC15 — теперь отказ только на
-  `owedNow < 0`; условие `priorSettled > 0` тем самым стало избыточным и снято.)_
-- **Правка суммы на строке с `originalAmount` отказывается** (ADR AC5 §5) — BIZ-18 блокировал это
-  до PR; сужение не должно открывать дыру, где `exchange_rate` тихо становится ложным.
-  _(Раунд 2: вошло в AC13 как один из четырёх предикатов.)_
+Additionally (project rules, not optional):
 
-### Дописано исполнителем (раунд 2, находки ревью)
-
-- **Тест-AC 8 (round-trip подписанного инвойса через S3/PDF) не воспроизводится в этом PR**
-  (SPEC-L-1) — сам метод `voidAndReissueInvoiceForAmountEdit` покрыт real-DB спекой из #600
-  (`invoice-signature-integrity.integration.spec.ts`), а вклад этой задачи — вызов — закреплён
-  шпионом 8b в юнит-спеке, видимой гейту мутаций (пять утверждений: вызов по источнику и каждой
-  изменённой производной ровно по разу, отсутствие вызова на ветке переплаты, отсутствие на
-  метаданной правке, атрибуция реальному оператору под impersonation, логирование проглоченной
-  ошибки). Обратимо, откат: поднять инвойс-стек в интеграционной спеке отдельной задачей.
-- **SR-M-2 (`amount = original_amount × exchange_rate` на производной) закрыт предикатом
-  AC15(а), без четвёртого предиката** — триплет штампуется ТОЛЬКО drop-settle'ом, а drop-settle с
-  нулевым накопителем возможен лишь на нулевом обязательстве, то есть при 0%-доле, при которой
-  `newAmount` тоже ноль и `needsReconfirm` ложно. Значит любая drop-производная, способная дойти
-  до отката, имеет накопитель > 0 и отвергается AC15(а). Обратимо, откат: добавить предикат
-  `originalAmount !== null` в фазу 1 (ценой недостижимости drop-ветки восстановления процента).
-- **Drop-ветка восстановления процента (`dropSharePercent`) сохранена, хотя недостижима**
-  — по тому же доводу выше. AC6 требует её явно, а задача 3b снимает AC15(а) и делает её живой;
-  юнит-тест на неё помечен как синтетический, чтобы следующий читатель не принял состояние за
-  реальное. Обратимо, откат: удалить ветку вместе с AC15(а) в 3b.
+- `Skill('security-review')` **before** writing the first line of the endpoint; the surface is monetary ⇒
+  `security-reviewer` in the review is mandatory.
+- `Skill('superpowers:test-driven-development')` — the test before the implementation.
+- `Skill('superpowers:verification-before-completion')` — before declaring readiness.
+- The cascade's property test, if written, must generate the combination "obligation `PENDING` +
+  accumulator > 0" (backlog item 87: a generator deriving the accumulator from the status is blind
+  by construction).
+- E2E locally before push; push of the feature branch — `DATABASE_URL= git push`.
 
 ---
 
-## Запрещено трогать
+## Assumptions (filled in by the executor as work proceeds — A1 decisions)
 
-- **Гвард 1** (`type ∈ {PAYOUT, PAYOUT_ADMIN, PAYOUT_CONFIRMED}`) и **гвард 2**
-  (`payoutRequestId`) — ни ослаблять, ни «уточнять». Гвард 2 единственный удерживает каскад
-  одноуровневым; за ним `payableAmount`, сверяемый с состоявшимся on-chain переводом точно.
-- **`data.currency` и `data.salaryMonth` на `PAID`-строке** — остаются заблокированными.
-- **Термы 1–8** формулы баланса — ни один байт.
-- **`settled_amount` / `settled_currency`** — только через существующий DB-native инкремент в
-  `settleByCompany`. Каскад их не пишет и не обнуляет никогда.
-- **Соседние дефекты L11 и L16** (AC5 п.10 ADR) — не чинить в этом PR.
-- **Блок конверсии DROP** в `settleByCompany` (`:499-742`) — не переписывать; из него меняется
-  только база вычисления при доплате, которой в этой задаче для drop нет ⇒ блок не меняется вовсе.
-- **`InvoicesService`** — только вызов, никаких правок внутри (#600).
-- `.claude/state/pm-state.json`, `.github/workflows/**`, `docs/architecture/**` — чужие зоны.
-- **Живая `crm_db`**: задача её не требует вообще — ни на чтение, ни на запись (AC9 переведён на
-  проверку по коду). Любая запись, `db:push`, `db:seed`, интеграционные
-  спеки против неё — запрещены (`live-db-access.md`). Интеграционные спеки — только на scratch-БД,
-  `DATABASE_URL` инлайном в команде, без `export`.
+Pre-filled by the architect — these are decisions made when writing the task. The executor adds
+their own below in the same line form.
 
-### Раунд 3 — дописано исполнителем
+- **The top-up is implemented only for the SENIOR branch; a DROP top-up refuses loudly** — on a drop row
+  `amount` is the fact of the payment in the payment currency, next to it lies the triplet `originalAmount`/`exchangeRate`
+  describing **one** conversion; a partial top-up makes `amount` cumulative and breaks
+  `amount = originalAmount × exchangeRate`. Reversible, rollback: a separate task 3b, not a rework
+  of this PR (addendum 1.11).
+- **A `cascadeVersion` mismatch is returned as `409 Conflict`, not `400`** — the semantics
+  "the state changed", already used in `signInvoice`. Reversible, rollback: one line.
+- **`cascadeVersion` is always required on `PAID` + an amount change**, even when there are no
+  derivatives — the rule is simpler and along the way gives optimistic locking to the edited row itself.
+  Reversible, rollback: narrow the condition.
+- ~~**`NON_USDT_CURRENCY` does not block application**~~ — **the assumption is cancelled** after
+  security-review #607. The argument relied on the premise "the top-up works"; for drop it does not work
+  (AC10), so the rollback would create an obligation with nothing to close it. It now blocks —
+  AC4 + AC15. Left struck through deliberately: a cancelled assumption and a forgotten assumption look
+  the same if the first is erased.
+- **`*SharePercentSource` stays `NULL` after the rollback** — task 1 did not save the origin snapshot,
+  it must not be invented (backlog item 70). Reversible, rollback: a snapshot column in
+  a separate migration.
+- **The `amount == settled_amount` check before the rollback (AC6) refuses outright, it does not repair data.**
+  Side effect: an income edit on a row with already diverged copies (legacy, edited
+  before #598) will be rejected until the owner sorts it out manually. The alternative is to silently return to the balance
+  a number other than the one that left it. Reversible, rollback: remove the check (and with it —
+  the correctness of term 9 on such rows).
+- **The AC9 precondition is proven by a grep over the write paths, not by a query to the database** — the executor
+  has no access to prod data, and a "zero" from another database is worse than the absence of a check. Reversible, rollback:
+  put both SQLs into a decision brief to the owner as a merge precondition.
+- **Mixing funding sources on one obligation is not supported** (AC14) —
+  a refusal instead of a new column `settled_funding_source`, because the column would require editing
+  terms 7/8, which the task commits not to touch. Reversible, rollback: a column + editing the terms
+  as a separate task.
+- **`COMPANY_DEPOSIT` is closed by type, not by `tx_hash`** (AC13) — the predicate `tx_hash IS NOT
+NULL` would block `ADMIN_INCOME`, which also carries a hash through the income registry, i.e. would
+  kill the main scenario of the feature. Reversible, rollback: narrow the predicate if a second
+  on-chain-reconciled type appears.
 
-- **Задача 3b (доплата по drop) идёт ПЕРЕД задачей 5** — решение владельца по SR-L-2. Отказ
-  «правка дохода с уже выплаченной долей дропа не поддерживается» (AC10 + AC15) — это осознанный
-  порядок работ, а не забытый хвост: пока 3b не сделана, UI задачи 5 не должен предлагать правку
-  там, где сохранение заведомо откажет. Записано строкой именно потому, что механика верна и
-  выглядит завершённой — без этой строки следующий читатель будет каждый раз заново решать,
-  баг это или намерение.
-- **Легаси-эпоха закрывается дизъюнктом, а не расчётом на разовый скрипт** (SR-H-3) — задание
-  предполагало, что факт прогона `2026-07-15_settle_phantom_cleanup.sql` нигде не записан.
-  Проверено: записан. Прогонялся auto-вариант (`..._auto.sql`, PR #382, затем де-вайринг;
-  обоснование — `KNOWN_NOT_WIRED` в `scripts/devops/check-prod-ddl-wiring.py`). Дизъюнкт от этого
-  нужен не меньше: репоинт скрипта **сужен** до `src.type IN ('SENIOR_PENDING_PAYOUT',
-  'DROP_PENDING_PAYOUT') AND src.status = 'PENDING_PAYMENT'` — он чинил только те обязательства,
-  чья старая строка-источник оставалась фантомным IOU в ожидании выплаты (ради снятия FK перед
-  удалением фантома). Обязательства с `closing <> source`, у которых старый источник — что-то
-  другое, остались как были. Общий довод: гвард, чья корректность держится на том, что разовый
-  скрипт покрыл все строки, — это гвард, чья корректность лежит вне кода. Обратимо, откат: снять
-  дизъюнкт (и вместе с ним — защиту до-июльских строк).
-- **Сверка источника доплаты расширена до пары `(funding_source, sender_id)`** (SR-M-5, решение
-  владельца) — внутри `ADMIN_PERSONAL` карман у всех админов один и тот же (`NULL`), поэтому
-  проверка кармана не различает партнёров, а флип перезаписывает `sender_id`, под которым
-  `adminBalances.sent` суммирует всю сумму строки. Для company-settle пара с обеих сторон
-  `(COMPANY_ACCOUNT, null)` — поведение не меняется. Обратимо, откат: вернуть сравнение одного
-  кармана.
-- **Пол по накопителю применён на ОБОИХ путях записи, а не объявлен законом на одном** (SR-M-6) —
-  откатанная строка стоит в `PENDING_PAYMENT`, поэтому `isCascadeEdit` ложно и прямая правка шла
-  мимо пола. Теперь `Math.max(запрошенное, settled_amount)` считается один раз и используется
-  обоими писателями; в журнал попадает и записанное число, и напечатанное (`flooredFrom`).
-  Обратимо, откат: убрать пол с прямого пути и переписать формулировку AC5 как «каскад», а не
-  «строка».
-- **Предпросмотр отдаёт четыре причины AC13, а не предупреждение** (CR-M-1) — предикаты и тексты
-  переехали в `@crm/shared` (`classifyEditedRowLedgerFact` + `CASCADE_LEDGER_FACT_MESSAGES`), и
-  оба входа спрашивают их. Побочное следствие: `SOURCE_ORIGINAL_AMOUNT_SET` на `PAID`-строке
-  больше не предупреждение, а отказ `PAYMENT_FACT_RECORDED`; на не-`PAID` строке предупреждение
-  осталось. Обратимо, откат: вернуть перечисление причин в сервис.
-- **Чтения `settled_amount`/`original_amount` со строки сделаны тотальными по `undefined`**
-  (побочно, при CR-M-1) — `Number(undefined)` даёт `NaN`, а `NaN !== null`, то есть отсутствующая
-  колонка читалась бы как «на строке есть накопитель» и включала денежный отказ. Сегодня
-  недостижимо (чтение без проекции), но частичная проекция ради скорости — правка на одну строку,
-  и по падению никто бы сюда не пришёл.
+### Added by the executor (round 1, PR #607)
 
-### Раунд 4 — дописано исполнителем
+- **`fundingSource` added to `CascadeDerivativeSnapshot`** — AC6 keys the refusal on
+  `fundingSource === 'COMPANY_ACCOUNT'`, and the snapshot did not have this field. A second query for one
+  column would have split `loadCascadeSnapshot`, which ADR AC4 keeps single. The resolver does not read
+  the field. Reversible, rollback: remove the field, read separately.
+- **The advisory lock is taken by `loadCascadeSnapshot({ forUpdate: true })` itself** — this is the only
+  position between the two row locks that does not invert the order of `settleByCompany` (addendum 1.9), and
+  the lock cannot be handed to the caller "for the middle". Consequence: the lock is taken also on a path ending in
+  409 — a superset of AC3 in the safe direction. Reversible, rollback: split the helper.
+- **`owedNow` refuses only when `priorSettled > 0`** — the blanket variant would have rejected the first
+  settle of a legitimate zero obligation (a 0% share), while the task requires byte-for-byte the same
+  behavior on the first settle. _(Round 2: the threshold itself was reworked by AC15 — now the refusal is only on
+  `owedNow < 0`; the condition `priorSettled > 0` thereby became redundant and was removed.)_
+- **An amount edit on a row with `originalAmount` is refused** (ADR AC5 §5) — BIZ-18 blocked this
+  before the PR; the narrowing must not open a hole where `exchange_rate` quietly becomes false.
+  _(Round 2: it entered AC13 as one of the four predicates.)_
 
-- **Правка «туда и обратно» на строке ниже накопителя ПОДНИМАЕТ сумму, а не молчит** (SR-M-1) —
-  когда прислана сумма и после пола хранимая цифра сдвигается, пишутся обе копии и пишется журнал;
-  когда не сдвигается, не пишется ничего. Раньше пол срабатывал по «сумма прислана», а вторая
-  копия и журнал — по «сумма изменилась», и правка заметки на легаси-строке (`amount` 100 при
-  накопителе 260) молча переписывала `transactions.amount` в 260, оставляя
-  `pending_obligations.amount` на 100 — тот самый L3. Направление починки безопасное: подъём
-  `amount` до фактически выплаченного заставляет терм 7 дебетовать больше, не меньше. Обратимо,
-  откат: вернуть условие к «сумма прислана» и починить журнал отдельно.
-- **Пол при ОТСУТСТВУЮЩЕМ накопителе — тождество, а не `max(x, 0)`** — `?? 0` читается одинаково
-  для всех сумм, которые API вообще принимает (обе точки входа валидируют `.positive()`), но
-  вводит второе, никем не заказанное правило «не ниже нуля» и обрезает отрицательный зонд
-  резолвера. Закон про накопитель; где накопителя нет, сказать нечего. Обратимо, откат: одна
-  строка.
-- **`isCascadeAmountEdit` сравнивает СЫРОЙ запрос, а не пол** — это два разных вопроса. «Сдвигается
-  ли хранимая цифра» (по полу) решает, что писать; «просил ли оператор изменение» (сырое) решает,
-  каскад ли это, а значит — применять ли AC13 и требовать ли токен. Первая версия раунда 4 сравнивала
-  по полу; на закрытой строке `amount === settled_amount`, поэтому ЛЮБАЯ понижающая правка
-  возвращалась полом к текущему значению, AC13 пропускался и оператор получал молчаливый успех —
-  ровно на той популяции, ради которой AC13 заведён. Поймано двумя интеграционными спеками
-  (`risk 18`, `risk 25`) и закреплено юнит-тестом. Обратимо, откат: одна строка.
-- **Конверсия `numeric`-колонки живёт внутри `floorAmountAtAccumulator`** — хелпер принимает и
-  строку, и число, и `null`. Пока конверсию делал вызывающий, у него получалась ветка, которую не
-  мог убить ни один тест: отличить `null` от `0` способен только неположительный запрос, а таких
-  API не принимает. Обратимо, откат: сузить сигнатуру и вернуть конверсию наверх.
+### Added by the executor (round 2, review findings)
 
-### Раунд 5 — дописано исполнителем
-
-- **Итоговый UPDATE связывает и накопитель, не только статус** (SR-L-1) — предикат по статусу
-  закрывает A→B («её оплатили»), но не A→B→A («оплатили и вернули статус»): строка читается как
-  `PENDING_PAYMENT`, а накопитель уже говорит, что деньги ушли. Денежной ошибки «в плюс» из этого
-  не следует (терм 9 суммирует накопитель, следующий каскад чинит полом AC5), поэтому LOW; но
-  усиление — одна строка с прецедентом на той же колонке в флипе `settleByCompany`, и
-  `IS NOT DISTINCT FROM` вместо `=` обязателен, иначе строка с `NULL`-накопителем перестанет
-  совпадать и сломается каждая обычная правка. Обратимо, откат: снять предикат.
-- **Расхождение сырого и пола закреплено тестом, а не только комментарием** (SR-M-1) — комментарий
-  раунда 4 утверждал, что оба сравнения берут одну и ту же floored-цифру и что это «pinned by an
-  explicit test». Ни то, ни другое не было правдой: сравнивается сырое — именно потому, что floored
-  едва не убрало AC13. Тест `the two questions genuinely diverge…` измеряет расхождение на
-  достижимом входе (закрытая строка, понижающая правка) и фиксирует, за каким из двух вопросов
-  идёт предикат. Проверено переключением предиката на floored: тест краснеет.
-
-### Раунд 5 — вынесено из этого PR (не молчание, а решение)
-
-- **SR-L-2 — предпросмотр и запись читают строку разными запросами.** Не чинится здесь по решению
-  координатора: `spec-review` оценил это как пре-существующий принятый компромисс из #603, заведён
-  отдельный пункт бэклога. Довод, с которым согласен: сведение двух чтений к одному — самостоятельная
-  задача, а починка «по одному расхождению за раунд» оставляет причину на месте. (Я поднимал это же
-  наблюдение в отчёте раунда 4 — фиксирую, что оно принято и адресовано, а не потеряно.)
-- **CR-M-4 — классификация правки размазана по пяти `const`.** Суждение о читаемости, вынесено в
-  предложения для будущих задач серии. Четвёртый заход в одну и ту же функцию ради читаемости на
-  PR, который только что позеленел, — риск, несоразмерный пользе.
+- **Test AC 8 (a round-trip of a signed invoice through S3/PDF) is not reproduced in this PR**
+  (SPEC-L-1) — the method `voidAndReissueInvoiceForAmountEdit` itself is covered by the real-DB spec from #600
+  (`invoice-signature-integrity.integration.spec.ts`), and this task's contribution — the call — is pinned
+  by the spy 8b in a unit spec visible to the mutation gate (five assertions: a call for the source and each
+  changed derivative exactly once, no call on the overpayment branch, no call
+  on a metadata edit, attribution to the real operator under impersonation, logging of the swallowed
+  error). Reversible, rollback: bring up the invoice stack in an integration spec as a separate task.
+- **SR-M-2 (`amount = original_amount × exchange_rate` on a derivative) is closed by the AC15(a)
+  predicate, without a fourth predicate** — the triplet is stamped ONLY by drop-settle, and drop-settle with
+  a zero accumulator is possible only on a zero obligation, i.e. at a 0% share, at which
+  `newAmount` is also zero and `needsReconfirm` is false. So any drop derivative able to reach
+  a rollback has an accumulator > 0 and is rejected by AC15(a). Reversible, rollback: add the predicate
+  `originalAmount !== null` to phase 1 (at the cost of the unreachability of the drop branch of percent restoration).
+- **The drop branch of percent restoration (`dropSharePercent`) is kept, although unreachable**
+  — by the same argument above. AC6 requires it explicitly, and task 3b lifts AC15(a) and makes it live;
+  the unit test on it is marked synthetic, so that the next reader does not take the state for
+  real. Reversible, rollback: delete the branch together with AC15(a) in 3b.
 
 ---
 
-## Verification (Coder перед `git push`)
+## Do not touch
 
-1. `git rev-parse --show-toplevel` — совпадает с выданным worktree; строка
-   `Worktree: <path> (verified)` в отчёте.
-2. `git diff HEAD --name-only` — только файлы из «Конкретные изменения».
-3. По каждому AC — `grep -n "<pattern>" <file>` подтверждает наличие.
-4. `git diff origin/main -- apps/api/src/finance/company-account-balance.ts` — термы 1–8
-   не изменены (глазами, построчно).
-4b. Три грепа из AC9 выполнены, вывод приложен к телу PR. Доступа к живой БД задача не требует —
-   если ловишь себя на мысли «надо бы посмотреть в прод», перечитай AC9: там объяснено, почему
-   ответ добывается из исходников.
-5. Прогон: `pnpm typecheck`, `mcp__eslint__lint-files` по изменённым, юнит-спеки,
-   интеграционные — на scratch-БД, `pnpm --filter @crm/e2e test`.
+- **Guard 1** (`type ∈ {PAYOUT, PAYOUT_ADMIN, PAYOUT_CONFIRMED}`) and **guard 2**
+  (`payoutRequestId`) — neither weaken nor "refine". Guard 2 alone keeps the cascade
+  single-level; behind it `payableAmount`, reconciled exactly with the on-chain transfer that took place.
+- **`data.currency` and `data.salaryMonth` on a `PAID` row** — remain blocked.
+- **Terms 1–8** of the balance formula — not a single byte.
+- **`settled_amount` / `settled_currency`** — only through the existing DB-native increment in
+  `settleByCompany`. The cascade neither writes nor zeroes them, ever.
+- **The neighboring defects L11 and L16** (AC5 item 10 of the ADR) — do not fix in this PR.
+- **The DROP conversion block** in `settleByCompany` (`:499-742`) — do not rewrite; of it only
+  the computation base changes on a top-up, which this task does not have for drop ⇒ the block does not change at all.
+- **`InvoicesService`** — only the call, no edits inside (#600).
+- `.claude/state/pm-state.json`, `.github/workflows/**`, `docs/architecture/**` — other people's zones.
+- **The live `crm_db`**: the task does not need it at all — neither for reading nor for writing (AC9 was converted to
+  a check by code). Any write, `db:push`, `db:seed`, integration
+  specs against it — are forbidden (`live-db-access.md`). Integration specs — only on a scratch DB,
+  `DATABASE_URL` inline in the command, without `export`.
+
+### Round 3 — added by the executor
+
+- **Task 3b (a top-up on drop) goes BEFORE task 5** — the owner's decision on SR-L-2. The refusal
+  "editing income with an already paid drop share is not supported" (AC10 + AC15) is a deliberate
+  order of work, not a forgotten tail: until 3b is done, the UI of task 5 must not offer an edit
+  where saving will certainly refuse. Recorded as a line precisely because the mechanics are correct and
+  look finished — without this line each next reader will decide anew
+  whether it is a bug or an intention.
+- **The legacy epoch is closed by a disjunct, not by relying on a one-off script** (SR-H-3) — the task
+  assumed that the fact of the run of `2026-07-15_settle_phantom_cleanup.sql` is recorded nowhere.
+  Verified: it is recorded. The auto variant was run (`..._auto.sql`, PR #382, then de-wiring;
+  justification — `KNOWN_NOT_WIRED` in `scripts/devops/check-prod-ddl-wiring.py`). The disjunct is needed no less
+  because of that: the script's repoint is **narrowed** to `src.type IN ('SENIOR_PENDING_PAYOUT',
+'DROP_PENDING_PAYOUT') AND src.status = 'PENDING_PAYMENT'` — it fixed only those obligations
+  whose old source row remained a phantom IOU awaiting payout (in order to remove the FK before
+  deleting the phantom). Obligations with `closing <> source`, whose old source is something
+  else, remained as they were. The general argument: a guard whose correctness rests on a one-off
+  script having covered all rows is a guard whose correctness lies outside the code. Reversible, rollback: remove
+  the disjunct (and with it — the protection of pre-July rows).
+- **The check of the top-up's source is extended to the pair `(funding_source, sender_id)`** (SR-M-5, the owner's
+  decision) — inside `ADMIN_PERSONAL` the pocket is the same (`NULL`) for all admins, so
+  the pocket check does not distinguish partners, and the flip overwrites `sender_id`, under which
+  `adminBalances.sent` sums the whole row amount. For company-settle the pair on both sides is
+  `(COMPANY_ACCOUNT, null)` — the behavior does not change. Reversible, rollback: return the comparison of a single
+  pocket.
+- **The accumulator floor is applied on BOTH write paths, not declared a law on one** (SR-M-6) —
+  a rolled-back row stands in `PENDING_PAYMENT`, so `isCascadeEdit` is false and a direct edit went
+  past the floor. Now `Math.max(requested, settled_amount)` is computed once and used
+  by both writers; the journal gets both the written number and the printed one (`flooredFrom`).
+  Reversible, rollback: remove the floor from the direct path and rewrite the AC5 wording as "the cascade", not
+  "the row".
+- **The preview returns the four AC13 reasons, not a warning** (CR-M-1) — the predicates and texts
+  moved to `@crm/shared` (`classifyEditedRowLedgerFact` + `CASCADE_LEDGER_FACT_MESSAGES`), and
+  both entry points ask them. A side consequence: `SOURCE_ORIGINAL_AMOUNT_SET` on a `PAID` row
+  is no longer a warning, but a refusal `PAYMENT_FACT_RECORDED`; on a non-`PAID` row the warning
+  remained. Reversible, rollback: return the enumeration of reasons to the service.
+- **Reads of `settled_amount`/`original_amount` from the row made total over `undefined`**
+  (incidentally, with CR-M-1) — `Number(undefined)` gives `NaN`, and `NaN !== null`, i.e. a missing
+  column would be read as "the row has an accumulator" and would trigger a money refusal. Today
+  unreachable (a read without projection), but a partial projection for speed is a one-line edit,
+  and nobody would come here after the failure.
+
+### Round 4 — added by the executor
+
+- **An edit "there and back" on a row below the accumulator RAISES the amount, it does not stay silent** (SR-M-1) —
+  when an amount is sent and after the floor the stored number shifts, both copies are written and the journal is written;
+  when it does not shift, nothing is written. Before, the floor fired on "amount sent", while the second
+  copy and the journal — on "amount changed", and a note edit on a legacy row (`amount` 100 with
+  accumulator 260) silently rewrote `transactions.amount` to 260, leaving
+  `pending_obligations.amount` at 100 — that very L3. The direction of the fix is safe: raising
+  `amount` to the actually paid amount makes term 7 debit more, not less. Reversible,
+  rollback: return the condition to "amount sent" and fix the journal separately.
+- **The floor with an ABSENT accumulator is the identity, not `max(x, 0)`** — `?? 0` reads the same
+  for all amounts the API accepts at all (both entry points validate `.positive()`), but
+  introduces a second rule nobody ordered, "not below zero", and clips the resolver's negative probe. The law is about the accumulator; where there is no accumulator, there is nothing to say. Reversible, rollback: one
+  line.
+- **`isCascadeAmountEdit` compares the RAW request, not the floor** — these are two different questions. "Does
+  the stored number shift" (by the floor) decides what to write; "did the operator ask for a change" (raw) decides
+  whether this is a cascade, and therefore whether to apply AC13 and require the token. The first version of round 4 compared
+  by the floor; on a closed row `amount === settled_amount`, so ANY downward edit
+  was returned by the floor to the current value, AC13 was skipped and the operator got a silent success —
+  exactly on the population AC13 was introduced for. Caught by two integration specs
+  (`risk 18`, `risk 25`) and pinned by a unit test. Reversible, rollback: one line.
+- **The conversion of the `numeric` column lives inside `floorAmountAtAccumulator`** — the helper accepts a
+  string, a number, and `null`. While the caller did the conversion, it had a branch that
+  no test could kill: only a non-positive request can tell `null` from `0`, and the API accepts no such
+  requests. Reversible, rollback: narrow the signature and move the conversion back up.
+
+### Round 5 — added by the executor
+
+- **The final UPDATE binds the accumulator too, not only the status** (SR-L-1) — the status predicate
+  closes A→B ("it was paid"), but not A→B→A ("paid and the status was returned"): the row reads as
+  `PENDING_PAYMENT`, while the accumulator already says the money left. A monetary error "to the plus" does not
+  follow from this (term 9 sums the accumulator, the next cascade repairs it with the AC5 floor), hence LOW; but
+  the hardening is one line with a precedent on the same column in the `settleByCompany` flip, and
+  `IS NOT DISTINCT FROM` instead of `=` is mandatory, otherwise a row with a `NULL` accumulator would stop
+  matching and every ordinary edit would break. Reversible, rollback: remove the predicate.
+- **The divergence of the raw value and the floor is pinned by a test, not only by a comment** (SR-M-1) — the comment
+  of round 4 claimed that both comparisons take the same floored number and that this is "pinned by an
+  explicit test". Neither was true: the raw one is compared — precisely because floored
+  almost removed AC13. The test `the two questions genuinely diverge…` measures the divergence on a
+  reachable input (a closed row, a downward edit) and records which of the two questions
+  the predicate follows. Verified by switching the predicate to floored: the test goes red.
+
+### Round 5 — taken out of this PR (not silence, a decision)
+
+- **SR-L-2 — the preview and the write read the row with different queries.** Not fixed here by the coordinator's
+  decision: `spec-review` assessed it as a pre-existing accepted trade-off from #603, a separate
+  backlog item was opened. The argument I agree with: reducing two reads to one is an independent
+  task, and fixing "one divergence per round" leaves the cause in place. (I raised this same observation
+  in the round 4 report — I record that it was accepted and addressed, not lost.)
+- **CR-M-4 — the classification of the edit is smeared over five `const`s.** A judgment about readability, moved
+  into proposals for future tasks of the series. A fourth pass into the same function for readability on a
+  PR that has just gone green is a risk disproportionate to the benefit.
+
+---
+
+## Verification (Coder before `git push`)
+
+1. `git rev-parse --show-toplevel` — matches the issued worktree; the line
+   `Worktree: <path> (verified)` in the report.
+2. `git diff HEAD --name-only` — only files from "Concrete changes".
+3. For each AC — `grep -n "<pattern>" <file>` confirms presence.
+4. `git diff origin/main -- apps/api/src/finance/company-account-balance.ts` — terms 1–8
+   unchanged (by eye, line by line).
+   4b. The three greps from AC9 are done, the output is attached to the PR body. The task does not require access to the live DB —
+   if you catch yourself thinking "I should look at prod", reread AC9: it explains why the
+   answer is obtained from the sources.
+5. Run: `pnpm typecheck`, `mcp__eslint__lint-files` on the changed ones, unit specs,
+   integration — on a scratch DB, `pnpm --filter @crm/e2e test`.
 6. `MUTATION_BASE_SHA=$(git rev-parse origin/main) node scripts/devops/mutation-gate.mjs --changed`
-   — и **прочитать лог**, а не только вердикт (см. тест-AC №3).
-7. Для каждого теста из таблицы — приложить в тело PR **фактический вывод падения** на версии без
-   фикса. Формулировка без вывода = невыполненный пункт.
+   — and **read the log**, not only the verdict (see test AC No. 3).
+7. For each test from the table — attach to the PR body the **actual failure output** on the version without
+   the fix. A statement without output = an unfulfilled item.
 8. Commit message:
    ```
    ac_verified: 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
    ```
-   (`vision:` не нужен — UI в этой задаче не трогается.)
+   (`vision:` is not needed — the UI is not touched in this task.)
