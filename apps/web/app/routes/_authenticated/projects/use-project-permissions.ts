@@ -37,9 +37,10 @@ export function useProjectPermissions(
   const canRemoveMembers = isAdmin
   const canSeeProjectFinance = user?.role !== 'HR' && user?.role !== 'JUNIOR'
   const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
-  const isSubject =
-    // Stryker disable next-line OptionalChaining: `project?.dropId != null` already short-circuits to false for a nullish project, so the second `project?.dropId` is never evaluated with project == null — unobservable.
-    user?.id === project?.seniorId || (project?.dropId != null && user?.id === project?.dropId)
+  // Hoisted so the nullish-project guard is evaluated once; every optional chain
+  // below is observable by a test (no mutation suppression needed).
+  const dropId = project?.dropId
+  const isSubject = user?.id === project?.seniorId || (dropId != null && user?.id === dropId)
   const canAccessLegend =
     !!project &&
     !isSubject &&
