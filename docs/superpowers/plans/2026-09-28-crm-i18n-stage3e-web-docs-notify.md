@@ -1,106 +1,106 @@
-# CRM i18n — этап 3, волна (e) «web-docs-notify» — план реализации
+# CRM i18n — stage 3, wave (e) "web-docs-notify" — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Перевести на `uk`/`en` всё, что в CRM касается документов и «того, что ждёт решения»: страницу `/documents` (список, тулбар, фильтры, счётчик, пустые состояния), карточку/строку/детальный диалог документа, статус-бейдж, превью изображений и PDF, диалог загрузки, экран `/pending` (секции, строки, действия по долям) и русский хвост, оставшийся в оболочке уведомлений (`use-notification-preferences.ts`). Четыре PR, мержатся **последовательно** (общий `.po` + общий хаб подписей документов). После волны в мигрированных файлах не остаётся русского текста, три расходящиеся карты `CATEGORY_LABELS_RU` сводятся в одну message-карту, а поведение уже развязано от текста предыдущими этапами (см. ниже).
+**Goal:** Translate to `uk`/`en` everything in the CRM that concerns documents and "what awaits a decision": the `/documents` page (list, toolbar, filters, counter, empty states), the document card/row/detail dialog, the status badge, image and PDF previews, the upload dialog, the `/pending` screen (sections, rows, share actions) and the Russian tail remaining in the notifications shell (`use-notification-preferences.ts`). Four PRs, merged **sequentially** (shared `.po` + the shared document-labels hub). After the wave no Russian text remains in the migrated files, three divergent `CATEGORY_LABELS_RU` maps are consolidated into one message map, and the behavior is already decoupled from the text by the previous stages (see below).
 
-**Architecture:** Тот же единственный каталог `packages/shared/src/i18n/locales/{uk,en}/messages.po` и те же шаблоны A–L, что в волнах (a)–(d). Особенность этой волны — **бо́льшая часть «notify»-поверхности уже сделана**, и план об этом знает поимённо (раздел «Что уже закрыто до старта»): реестр уведомлений (`NOTIFICATION_TITLE_MESSAGES`, `describeNotification`, `renderNotification`) полностью мигрирован этапом 4 (#698/#702/#714) и **потребляется, не дублируется**; колокол `notifications-bell.tsx` и вкладка `NotificationSettingsTab.tsx` уже на `uk`; testid, собранный из локализованного заголовка (`PendingKindSection`/`focusSelectorsAfterActing`), и `localeCompare('ru')` в сортировке документов **уже развязаны от текста этапом 2** — то есть два единственных места, где перевод ломал бы не вид, а работу, закрыты ДО этой волны. Нового в волне три вещи. Первое — **хаб подписей документов** (`components/documents/document-labels.ts`): одна `CATEGORY_LABEL_MESSAGES` вместо трёх `CATEGORY_LABELS_RU`, один канон статуса `READY_TO_SIGN` (COPY-H-docs-4), один набор текстов подтверждения удаления — хаб вводится PR1 и потребляется PR2–PR4, старые локальные карты живут `@deprecated` до PR своего последнего потребителя (как `TYPE_LABELS` в волне d). Второе — **`SORT_OPTION_MESSAGES` уже введён этапом 3a** в `documents-filter-sort.ts`, но его потребитель `documents.tsx` ещё рендерит легаси `SORT_OPTIONS` (русский) напрямую в JSX; PR1 переводит потребителя и удаляет легаси-экспорт (handoff уже подготовлен этапом 3a — см. его doc-комментарий, называющий эту волну «wave (e)»). Третье — **A-дефекты HIGH, которые переехали бы в оба языка** (обещание восстановления не тому адресату, подпись «К транзакции» над id проекта, «инвойс» вместо «счёт», английский axios на русском экране) закрываются В ХОДЕ миграции своих файлов, а не размножаются переводом.
+**Architecture:** The same single catalog `packages/shared/src/i18n/locales/{uk,en}/messages.po` and the same templates A–L as in waves (a)–(d). A feature of this wave — **most of the "notify" surface is already done**, and the plan knows this by name (the "What is already closed before start" section): the notifications registry (`NOTIFICATION_TITLE_MESSAGES`, `describeNotification`, `renderNotification`) is fully migrated in stage 4 (#698/#702/#714) and is **consumed, not duplicated**; the bell `notifications-bell.tsx` and the `NotificationSettingsTab.tsx` tab are already in `uk`; the testid built from the localized title (`PendingKindSection`/`focusSelectorsAfterActing`), and `localeCompare('ru')` in the document sort are **already decoupled from the text in stage 2** — that is, the two only places where the translation would break not the look but the work are closed BEFORE this wave. Three things are new in the wave. First — **the document labels hub** (`components/documents/document-labels.ts`): one `CATEGORY_LABEL_MESSAGES` instead of three `CATEGORY_LABELS_RU`, one `READY_TO_SIGN` status canon (COPY-H-docs-4), one set of deletion-confirmation texts — the hub is introduced by PR1 and consumed by PR2–PR4, the old local maps live `@deprecated` until the PR of their last consumer (as `TYPE_LABELS` in wave d). Second — **`SORT_OPTION_MESSAGES` was already introduced in stage 3a** in `documents-filter-sort.ts`, but its consumer `documents.tsx` still renders the legacy `SORT_OPTIONS` (Russian) directly in JSX; PR1 migrates the consumer and removes the legacy export (the handoff is already prepared by stage 3a — see its doc comment naming this wave "wave (e)"). Third — **A-defects HIGH that would carry over into both languages** (a recovery promise to the wrong recipient, the caption "К транзакции" above a project id, "инвойс" instead of "счёт", an English axios on a Russian screen) are closed DURING the migration of their files, not multiplied by the translation.
 
-**Данных-в-БД, требующих перевода, в этой волне нет** (в отличие от `EXPENSE_CATEGORIES` в волне d) — см. «Спорное решение 1»: заголовки/тела уведомлений на экране рендерятся из каталога по типу, а колонки `notifications.title`/`body` читаются только как фолбэк для незнакомых/легаси-типов; их текст пишут производители в `apps/api` (срез `api`), не веб.
+**There is no data-in-DB requiring translation in this wave** (unlike `EXPENSE_CATEGORIES` in wave d) — see "Contested decision 1": notification titles/bodies on the screen are rendered from the catalog by type, and the columns `notifications.title`/`body` are read only as a fallback for unknown/legacy types; their text is written by the producers in `apps/api` (the `api` slice), not the web.
 
-**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), настроен этапом 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
+**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), set up in stage 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
 
-**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (гейты), §7 (порядок волн), §8 (тесты), §12 (a11y-фокус после действия на `/pending`). Аудит: `docs/architecture/2026-09-19-crm-i18n-audit.md`, срез `web-docs-notify` (21 находка COPY-H/M/L-docs-1…21, `Findings:` в конце среза + «Поправка к границам среза» + «Рекомендуемый порядок миграции»). Образцы формата, качества и шаблонов A–L: планы волн (a) `2026-09-20-crm-i18n-stage3a-web-core.md`, (b) `2026-09-24-crm-i18n-stage3b-web-people.md`, (c) `2026-09-26-crm-i18n-stage3c-web-projects.md`, (d) `2026-09-27-crm-i18n-stage3d-web-finance.md` (свежайшие уроки #700–#735).
+**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (gates), §7 (wave order), §8 (tests), §12 (a11y focus after an action on `/pending`). Audit: `docs/architecture/2026-09-19-crm-i18n-audit.md`, the `web-docs-notify` slice (21 findings COPY-H/M/L-docs-1…21, `Findings:` at the end of the slice + "Slice boundary correction" + "Recommended migration order"). Samples of format, quality and templates A–L: the wave plans (a) `2026-09-20-crm-i18n-stage3a-web-core.md`, (b) `2026-09-24-crm-i18n-stage3b-web-people.md`, (c) `2026-09-26-crm-i18n-stage3c-web-projects.md`, (d) `2026-09-27-crm-i18n-stage3d-web-finance.md` (the freshest lessons #700–#735).
 
-**Замер:** все числа ниже сняты командами на `origin/main` `025c28a0a` (#735, i18n 3d PR4) 2026-09-28, в чистом worktree. Метрика — **видимые кириллические строки вне комментариев** (block-comment-aware скан: снимаются `/*…*/`, `{/*…*/}`, `//`), привязана к **символам** (`CATEGORY_LABELS_RU`, `pluralizeDocuments`, `KIND_SECTIONS`, …) и **счётчикам по файлам**, не к номерам строк (`doc-durability.md`). Перед стартом каждого PR исполнитель повторяет замер (шаг 0 каждой задачи): между планом и исполнением в `main` могут смёржиться другие ветки.
+**Measurement:** all the numbers below were taken by commands on `origin/main` `025c28a0a` (#735, i18n 3d PR4) 2026-09-28, in a clean worktree. The metric — **visible Cyrillic lines outside comments** (a block-comment-aware scan: `/*…*/`, `{/*…*/}`, `//` are removed), tied to **symbols** (`CATEGORY_LABELS_RU`, `pluralizeDocuments`, `KIND_SECTIONS`, …) and **per-file counters**, not to line numbers (`doc-durability.md`). Before starting each PR the implementer repeats the measurement (step 0 of each task): between the plan and execution other branches may have merged into `main`.
 
 ---
 
-## Что уже закрыто до старта (проверить на шаге 0, НЕ переделывать)
+## What is already closed before start (check at step 0, do NOT redo)
 
-Проверено командами на `025c28a0a`. Каждый пункт — то, что аудит числил в срезе, но что закрыто раньше. Трогать эти файлы в этой волне значит переделывать чужую работу.
+Checked by commands on `025c28a0a`. Each item — what the audit counted in the slice but which was closed earlier. Touching these files in this wave means redoing someone else's work.
 
-| Уже сделано                                                                                                                                                                                                                    | Кем / где                                                                       | Как проверено                                                                                         |
+| Already done                                                                                                                                                                                                                    | By whom / where                                                                 | How checked                                                                                           |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Реестр уведомлений: `NOTIFICATION_TITLE_MESSAGES` (13 типов), `describeNotification`, `notificationActions`, `renderNotification`, `MISC/DETAIL/ACTION`-карты — полностью `uk`/`en`                                            | этап 4 (#698/#702/#714), `packages/shared/src/schemas/notification-registry.ts` | все 13 `message:` — украинские; `en` в `.po`; спека `notification-registry.spec.ts` зелёная           |
-| Колокол `notifications-bell.tsx` — весь видимый текст на `uk` (`t\`Сповіщення\``, `<Trans>Прочитати все</Trans>`, пустое состояние, футер)                                                                                     | этап 4                                                                          | видимых русских строк 0 (весь остаток — комментарии)                                                  |
-| Вкладка `NotificationSettingsTab.tsx` — все `msg` на `uk`, потребляет `NOTIFICATION_TITLE_MESSAGES` через `renderMessage`                                                                                                      | этап 4 (позиция 7b/7c)                                                          | все 20 `msg`/строк — украинские; русский остаток — только комментарии                                 |
-| `notification-type-icon.tsx`, `context/notifications.tsx` (мёртвый стаб), `use-notifications-api.ts`                                                                                                                           | —                                                                               | видимой кириллицы 0                                                                                   |
-| **testid из локализованного заголовка развязан:** `PendingKindSection` строит testid по `${zone}-${kind}` (не `${title}`); `focusSelectorsAfterActing`/`sectionKindOf` в `pending/index.tsx` завязаны на `kind`, не на `title` | этап 2 (task-i18n-stage2-task8), doc-комментарии на месте                       | `git grep 'pending-kind-heading-\${zone}-\${kind}'`, `sectionKindOf`                                  |
-| **`localeCompare('ru')` в сортировке документов заменён** на `compareNames(locale)` (`@crm/shared`)                                                                                                                            | этап 2, `lib/documents-filter-sort.ts` `sortDocuments`                          | в файле нет `localeCompare`; есть `compareNames`                                                      |
-| **`SORT_OPTION_MESSAGES` уже введён** (канон, `uk`), рядом с легаси `SORT_OPTIONS` (русский, `@deprecated`-по-смыслу)                                                                                                          | этап 3a, `lib/documents-filter-sort.ts`                                         | оба экспорта присутствуют; легаси помечен комментарием «removed once wave (e) migrates documents.tsx» |
+| The notifications registry: `NOTIFICATION_TITLE_MESSAGES` (13 types), `describeNotification`, `notificationActions`, `renderNotification`, `MISC/DETAIL/ACTION` maps — fully `uk`/`en`                                          | stage 4 (#698/#702/#714), `packages/shared/src/schemas/notification-registry.ts` | all 13 `message:` are Ukrainian; `en` in the `.po`; the spec `notification-registry.spec.ts` green    |
+| The bell `notifications-bell.tsx` — all visible text in `uk` (`t\`Сповіщення\``, `<Trans>Прочитати все</Trans>`, the empty state, the footer)                                                                                   | stage 4                                                                          | 0 visible Russian strings (all the rest — comments)                                                   |
+| The `NotificationSettingsTab.tsx` tab — all `msg` in `uk`, consumes `NOTIFICATION_TITLE_MESSAGES` via `renderMessage`                                                                                                           | stage 4 (position 7b/7c)                                                         | all 20 `msg`/strings — Ukrainian; the Russian remainder — only comments                               |
+| `notification-type-icon.tsx`, `context/notifications.tsx` (a dead stub), `use-notifications-api.ts`                                                                                                                             | —                                                                               | 0 visible Cyrillic                                                                                    |
+| **The testid from the localized title is decoupled:** `PendingKindSection` builds the testid from `${zone}-${kind}` (not `${title}`); `focusSelectorsAfterActing`/`sectionKindOf` in `pending/index.tsx` are tied to `kind`, not `title` | stage 2 (task-i18n-stage2-task8), doc comments in place                         | `git grep 'pending-kind-heading-\${zone}-\${kind}'`, `sectionKindOf`                                  |
+| **`localeCompare('ru')` in the document sort is replaced** with `compareNames(locale)` (`@crm/shared`)                                                                                                                          | stage 2, `lib/documents-filter-sort.ts` `sortDocuments`                         | there is no `localeCompare` in the file; there is `compareNames`                                      |
+| **`SORT_OPTION_MESSAGES` is already introduced** (canon, `uk`), next to the legacy `SORT_OPTIONS` (Russian, `@deprecated`-by-meaning)                                                                                           | stage 3a, `lib/documents-filter-sort.ts`                                         | both exports present; the legacy one marked with a comment "removed once wave (e) migrates documents.tsx" |
 
-**Вывод для периметра:** «notify»-часть среза сводится к одному файлу с двумя строками (`use-notification-preferences.ts`, COPY-H-docs-6). Вся остальная работа волны — **документы** (`/documents` + `components/documents`) и **pending** (`/pending` + `components/pending`).
+**Conclusion for the perimeter:** the "notify" part of the slice reduces to one file with two strings (`use-notification-preferences.ts`, COPY-H-docs-6). All the rest of the wave's work is **documents** (`/documents` + `components/documents`) and **pending** (`/pending` + `components/pending`).
 
 ---
 
 ## Global Constraints
 
-Действуют на каждую задачу. Пункты с пометкой «урок» взяты из разборов PR #700–#735 (волны a–d) и уже однажды стоили отдельного раунда ревью.
+Apply to each task. Items marked "lesson" are taken from the reviews of PR #700–#735 (waves a–d) and already cost a separate review round once.
 
-**Версии и механика Lingui**
+**Lingui versions and mechanics**
 
-- `@lingui/*` — **5.9.5 EXACT**, одной версией (`version-pins.md`). Этот план ничего не апгрейдит.
-- Исходный текст в коде — **украинский** (`sourceLocale: 'uk'`). Английский пишет тот же кодер в том же PR как второй оригинал (скилл `copywriting` §5, решение владельца №7). Интерфейс по умолчанию `uk`, второй язык `en`.
-- На уровне модуля — только `msg`. `t`, `plural`, `select` на уровне модуля запрещены: строка замёрзнет при импорте. В компоненте `t`/`i18n` берутся из `useLingui()` (`@lingui/react/macro`).
-- **Урок (#700): макрос `plural()` несовместим со Stryker.** Под инструментированием `#` не подставляется. Для чисел в JSX — компонент `<Plural>`; вне JSX — `msg` с ICU-строкой и `i18n._(descriptor, { count })`. В этой волне это касается прежде всего `documents.tsx` `pluralizeDocuments` (mod10/mod100 «документ/документа/документов») и множественных фраз в `PendingItemRow`.
-- **Урок (#707): `as const satisfies Record<…, MessageDescriptor>` на карте `msg`-шаблонов отключает Stryker для всего блока** (0 мутантов). Пишется `satisfies Record<…>` без `as const` и без `as const satisfies`. Касается новой `CATEGORY_LABEL_MESSAGES`, `DOCUMENT_STATUS_MESSAGES`, `KIND_SECTION_MESSAGES`.
-- `i18n._()` принимает только **выражение**: `i18n._(CATEGORY_LABEL_MESSAGES[cat])`. Объектный литерал со spread роняет `lingui extract`. Триарг — `i18n._(id, values, options)`, не spread.
-- **Урок (#707): у записей с явным id (`api-error.*`, `zod-error.*`, `notification.*`) `msgstr` правится руками в обоих `.po`.** `i18n:extract` существующий `msgstr` не перезаписывает. Эта волна тексты с явным id не заводит и не меняет — только `renderMessage`-потребление реестра (уже в `main`). Если такая правка понадобится — отдельная строка в «Допущениях» PR и ручная правка обоих `.po`.
-- **Reuse-first по подписям, а не по хабу.** Простые повторяющиеся JSX-тексты (`«Отмена»` ×5, `«Другое»` ×3, `«Переместить в корзину?»` ×3) под Lingui дедуплицируются **автоматически по msgid**: одинаковый source-текст = одна запись каталога. Хаб нужен только там, где текст живёт в **структурной карте/`Record`**, потребляемой программно (категории, статусы) — там разные копии дают расходящиеся переводы. Не заводить хаб под то, что Lingui сведёт сам; свести в хаб то, что он не видит.
+- `@lingui/*` — **5.9.5 EXACT**, a single version (`version-pins.md`). This plan upgrades nothing.
+- Source text in the code — **Ukrainian** (`sourceLocale: 'uk'`). English is written by the same coder in the same PR as a second original (skill `copywriting` §5, owner decision #7). The default interface is `uk`, the second language is `en`.
+- At the module level — only `msg`. `t`, `plural`, `select` at the module level are forbidden: the string freezes on import. In a component `t`/`i18n` are taken from `useLingui()` (`@lingui/react/macro`).
+- **Lesson (#700): the `plural()` macro is incompatible with Stryker.** Under instrumentation `#` is not substituted. For numbers in JSX — the `<Plural>` component; outside JSX — `msg` with an ICU string and `i18n._(descriptor, { count })`. In this wave this concerns primarily `documents.tsx` `pluralizeDocuments` (mod10/mod100 «документ/документа/документов») and the plural phrases in `PendingItemRow`.
+- **Lesson (#707): `as const satisfies Record<…, MessageDescriptor>` on a map of `msg` templates disables Stryker for the whole block** (0 mutants). Write `satisfies Record<…>` without `as const` and without `as const satisfies`. This concerns the new `CATEGORY_LABEL_MESSAGES`, `DOCUMENT_STATUS_MESSAGES`, `KIND_SECTION_MESSAGES`.
+- `i18n._()` accepts only an **expression**: `i18n._(CATEGORY_LABEL_MESSAGES[cat])`. An object literal with a spread breaks `lingui extract`. Three-arg — `i18n._(id, values, options)`, not a spread.
+- **Lesson (#707): for records with an explicit id (`api-error.*`, `zod-error.*`, `notification.*`) the `msgstr` is edited by hand in both `.po`.** `i18n:extract` does not overwrite an existing `msgstr`. This wave does not introduce or change texts with an explicit id — only the `renderMessage` consumption of the registry (already in `main`). If such an edit is needed — a separate line in the PR's "Assumptions" and a manual edit of both `.po`.
+- **Reuse-first by captions, not by hub.** Simple repeated JSX texts (`«Отмена»` ×5, `«Другое»` ×3, `«Переместить в корзину?»` ×3) are automatically deduplicated under Lingui **by msgid**: the same source text = one catalog record. A hub is needed only where the text lives in a **structural map/`Record`** consumed programmatically (categories, statuses) — there different copies give divergent translations. Do not introduce a hub for what Lingui will consolidate itself; consolidate into a hub what it does not see.
 
-**Серверный текст ошибок (#704) и реестр уведомлений (#698/#702/#714) — потреблять, не дублировать**
+**Server error text (#704) and the notifications registry (#698/#702/#714) — consume, do not duplicate**
 
-- Коды ошибок API и клиентские резолверы `getApiErrorMessage`/`translateZodCode`/`translateZodMessage` (`apps/web/app/lib/axios-utils.ts`) — уже в `main`. **COPY-H-docs-6 (сырой английский axios: `Request failed with status code 413`, `Network Error`)** закрывается через `getApiErrorMessage` + осмысленный запасной текст с действием (по образцу волны d, COPY-H-fin-3). Сырое `.message` наружу не отдавать. Касается `upload-document-dialog.tsx` `handleSubmit` и `hooks/use-notification-preferences.ts`.
-- `NOTIFICATION_TITLE_MESSAGES`/`renderNotification`/`renderMessage` — **потреблять**. Волна их не трогает и не воспроизводит их defensive-ветки (`renderMessage` уже экспортирован ровно чтобы их не дублировать — SPEC-H-2, #714).
+- The API error codes and the client resolvers `getApiErrorMessage`/`translateZodCode`/`translateZodMessage` (`apps/web/app/lib/axios-utils.ts`) — already in `main`. **COPY-H-docs-6 (a raw English axios: `Request failed with status code 413`, `Network Error`)** is closed via `getApiErrorMessage` + a meaningful fallback text with an action (modeled on wave d, COPY-H-fin-3). Do not hand a raw `.message` outward. This concerns `upload-document-dialog.tsx` `handleSubmit` and `hooks/use-notification-preferences.ts`.
+- `NOTIFICATION_TITLE_MESSAGES`/`renderNotification`/`renderMessage` — **consume**. The wave does not touch them and does not reproduce their defensive branches (`renderMessage` was exported exactly so as not to duplicate them — SPEC-H-2, #714).
 
-**Тексты (`CONTEXT.md` → «Формы `uk`/`en`» + таблица канона ниже)**
+**Texts (`CONTEXT.md` → "`uk`/`en` forms" + the canon table below)**
 
-- Апостроф — `’` (U+2019). Многоточие — `…` (U+2026), не `...` (COPY-L-docs-19: три ASCII-точки против символа в соседних состояниях). Кавычки: `uk` — ёлочки `«…»`, `en` — типографские `“…”`.
-- **Термины берутся из глоссария `CONTEXT.md` дословно:**
-  - **Счёт = «Рахунок»** (`_Избегать_`: інвойс, акт, платіжка). Отсюда COPY-H-docs-5: `«Инвойс»`/`«Инвойсы»` ×… → «Рахунок» (тот же дефект уже исправлен в колоколе #664).
-  - **Документ = «документ»**; для категории `CONTRACT` глоссарий помечает «договор вообще» как термин к уточнению (COPY-H-docs-3) — **PR1 фиксирует выбор в `CONTEXT.md`** (рекомендация ниже), после чего одна карта, одно слово на категорию.
-  - **Архив = «Архів»** (документы), «архів» — состояние, не действие.
-  - Статус контракта `draft` (COPY-H-docs-4/-16): глоссарий запрещает «Черновик» для статуса **проекта**, для контракта слова нет — **PR2 заводит его в `CONTEXT.md`** рядом с `employeeContracts`.
-- **Урок (#702, п.13): сырой enum/статус/тип/MIME в видимом тексте — находка.** После замены литерала сканировать **весь** файл на сырой enum/идентификатор по JSX-тексту, `aria-label`, `title`, `placeholder`. Отсюда COPY-M-docs-10 (сырой MIME `application/vnd.openxml…` → «PDF»/«Зображення JPEG»), COPY-M-docs-11 (`#{shortId(projectId)}` → название проекта), COPY-M-docs-9 («…из S3 и базы» → «без можливості відновлення» — имя хранилища с экрана убрать). Исключения: `PDF`, `JPEG`, `S3`/`R2` как имена в `title`-атрибуте, если нужны коду.
-- **Урок (#702, п.9): подстановка в косвенный падеж ломает `uk`.** Имя/роль подставляется только в именительном. Конструкция выбирается не требующая падежа (шаблон K). Касается склеек `PendingItemRow` (`` `Сейчас ${cur}% → предложено ${pct}%` ``, `` `Предлагает ${proposedBy}` ``, `` `Ждём: ${waitingFor}` ``), `document-card` (`` `Открыть документ «${name}»` ``), `pdf-preview` (`` `Предпросмотр: ${filename}` ``), `upload-document-dialog` (`` `Файл больше ${max}. Ваш файл: ${size}` ``).
-- **Урок аудита (COPY-H-docs-1..6): закрыть A-дефект в ходе миграции, а не перевести как есть.** Переводить дефектную строку — значит размножить дефект на два языка. Каждый HIGH из трассировки исправляется по существу, не транслитерируется.
-- Тост и отказ — **одно предложение, без точки в конце**, с глаголом; тупик без следующего шага — находка (COPY-M-docs-13 «У вас нет доступа» → назвать адресата; COPY-M-docs-14 «Доля неизвестна. Обновите» → сказать, что делать, когда обновление не помогло; COPY-M-docs-12 ошибка PDF → «Повторити»+«Завантажити»). Одна ситуация — один текст.
-- Жаргон/имя инфраструктуры наружу запрещён (COPY-M-docs-9 «S3», COPY-M-docs-10 сырой MIME).
-- **Урок (#701, п.5): русизмы проверять по юникоду, не байтовым `grep`.** Перед каждым push:
+- The apostrophe — `’` (U+2019). The ellipsis — `…` (U+2026), not `...` (COPY-L-docs-19: three ASCII dots against the symbol in neighboring states). Quotes: `uk` — guillemets `«…»`, `en` — typographic `“…”`.
+- **Terms are taken from the `CONTEXT.md` glossary verbatim:**
+  - **Invoice = «Рахунок»** (`_Избегать_`: інвойс, акт, платіжка). Hence COPY-H-docs-5: `«Инвойс»`/`«Инвойсы»` ×… → «Рахунок» (the same defect was already fixed in the bell #664).
+  - **Document = «документ»**; for the category `CONTRACT` the glossary flags "a contract in general" as a term to clarify (COPY-H-docs-3) — **PR1 fixes the choice in `CONTEXT.md`** (recommendation below), after which one map, one word per category.
+  - **Archive = «Архів»** (documents), «архів» — a state, not an action.
+  - The contract status `draft` (COPY-H-docs-4/-16): the glossary forbids «Черновик» for a **project** status, for a contract there is no word — **PR2 enters it into `CONTEXT.md`** next to `employeeContracts`.
+- **Lesson (#702, item 13): a raw enum/status/type/MIME in visible text is a finding.** After replacing a literal, scan the **whole** file for a raw enum/identifier in JSX text, `aria-label`, `title`, `placeholder`. Hence COPY-M-docs-10 (raw MIME `application/vnd.openxml…` → «PDF»/«Зображення JPEG»), COPY-M-docs-11 (`#{shortId(projectId)}` → the project name), COPY-M-docs-9 («…из S3 и базы» → «без можливості відновлення» — remove the storage name from the screen). Exceptions: `PDF`, `JPEG`, `S3`/`R2` as names in the `title` attribute, if the code needs them.
+- **Lesson (#702, item 9): substitution into an oblique case breaks `uk`.** A name/role is substituted only in the nominative. The construction is chosen to not require a case (template K). This concerns the concatenations in `PendingItemRow` (`` `Сейчас ${cur}% → предложено ${pct}%` ``, `` `Предлагает ${proposedBy}` ``, `` `Ждём: ${waitingFor}` ``), `document-card` (`` `Открыть документ «${name}»` ``), `pdf-preview` (`` `Предпросмотр: ${filename}` ``), `upload-document-dialog` (`` `Файл больше ${max}. Ваш файл: ${size}` ``).
+- **Audit lesson (COPY-H-docs-1..6): close an A-defect during the migration, not translate it as is.** Translating a defective string means multiplying the defect into two languages. Each HIGH from the trace is fixed on its merits, not transliterated.
+- A toast and a refusal — **one sentence, no period at the end**, with a verb; a dead end without a next step is a finding (COPY-M-docs-13 «У вас нет доступа» → name the recipient; COPY-M-docs-14 «Доля неизвестна. Обновите» → say what to do when refreshing does not help; COPY-M-docs-12 a PDF error → «Повторити»+«Завантажити»). One situation — one text.
+- Jargon/infrastructure name is forbidden outward (COPY-M-docs-9 «S3», COPY-M-docs-10 a raw MIME).
+- **Lesson (#701, item 5): check russisms by unicode, not a byte `grep`.** Before each push:
 
 ```bash
 python3 -c "import re,sys,subprocess;fs=subprocess.run(['git','diff','--name-only','origin/main','--','apps/web/app'],capture_output=True,text=True).stdout.split();[print(f,i,l.strip()) for f in fs if f.endswith(('.ts','.tsx')) for i,l in enumerate(open(f,encoding='utf8'),1) if re.search('[ыЫэЭъЪёЁ]',l) and not re.match(r'\s*(//|\*|\{/\*)',l)]"
 ```
 
-Строки из этого вывода в файлах **своего** PR — недоделка. Исключения — тестовые фикстуры с русскими данными (имена файлов вроде `резюме-тест.pdf`) и комментарии. Буквы `і ї є ґ` — уже украинский, не русизм; guard целит на `ы э ъ ё`.
+Strings from this output in files of **your** PR are an incomplete migration. Exceptions — test fixtures with Russian data (file names like `резюме-тест.pdf`) and comments. The letters `і ї є ґ` are already Ukrainian, not a russism; the guard targets `ы э ъ ё`.
 
-**Тесты**
+**Tests**
 
-- Якоря — `data-testid` и роли. Текст в ассертах берётся из **каталога `uk`**, не литералом:
-  - Vitest — `loadCatalog(locale)` и `I18nTestProvider` из `apps/web/app/test/i18n.tsx` (уже в `main`);
-  - E2E — `loadMessages('uk')` и `assertInCatalog(uk, '<текст>')` из `apps/e2e/fixtures/catalog.ts` (уже в `main`).
-- **Урок аудита (COPY-B «тесты дублируют литералы»): 9 unit-файлов (79 вхождений) и 7 E2E-файлов (20 селекторов) сверяют русский текст.** Где ассерт по тексту не является предметом проверки — якорь по `data-testid`; где проверяется сама формулировка — текст из каталога. E2E-фикстуры с русскими **именами файлов** (`резюме-тест.pdf`) из замены исключить (они — данные, не UI).
-- **Урок (#700, п.2): E2E-свип по всему `apps/e2e`, а не по спекам из диффа.** Регрессия — любой литерал мигрированного компонента в любой спеке. Процедура и скрипт — «Общий шаг: E2E-свип» ниже. «Pre-existing» допустимо только если CI на `origin/main` красный на той же спеке.
-- **Урок (#700, п.3): мутационный гейт на полном диффе — обязательный AC**, `survived 0`. Если у `NoCoverage` нет integration-hint, его закрывает unit-тест (`mutation-gate-integration-specs.md`). Локальный SKIP по таймауту — не PASS.
-- **Урок (#699, п.12): каждое подавление Stryker — с причиной на той же строке директивы** (`// Stryker disable next-line <Mutator>: <причина>`, не короче 12 символов). Перед push — `node scripts/devops/check-mutation-suppressions.mjs`: локальный `pnpm mutation:changed` его не вызывает, а CI с ним валит все Mutation Gate джобы ещё до старта.
-- Тесты правит тот же кодер в том же PR. Новых `*.spec.ts`-сценариев E2E волна не заводит; новые unit-кейсы (одна карта категорий вместо трёх; `pluralizeDocuments`→ICU на 1/2/5/11/21; статус без сырого enum; фолбэк ошибки с действием) — внутри существующих тест-файлов.
+- Anchors — `data-testid` and roles. Text in assertions is taken from the **`uk` catalog**, not a literal:
+  - Vitest — `loadCatalog(locale)` and `I18nTestProvider` from `apps/web/app/test/i18n.tsx` (already in `main`);
+  - E2E — `loadMessages('uk')` and `assertInCatalog(uk, '<text>')` from `apps/e2e/fixtures/catalog.ts` (already in `main`).
+- **Audit lesson (COPY-B "tests duplicate literals"): 9 unit files (79 occurrences) and 7 E2E files (20 selectors) check Russian text.** Where an assertion by text is not the subject of the check — anchor by `data-testid`; where the wording itself is checked — text from the catalog. E2E fixtures with Russian **file names** (`резюме-тест.pdf`) are excluded from the replacement (they are data, not UI).
+- **Lesson (#700, item 2): the E2E sweep is over the whole `apps/e2e`, not over the specs in the diff.** A regression — any literal of a migrated component in any spec. The procedure and script — "Common step: E2E sweep" below. "Pre-existing" is allowed only if CI on `origin/main` is red on the same spec.
+- **Lesson (#700, item 3): the mutation gate on the full diff is a mandatory AC**, `survived 0`. If a `NoCoverage` has no integration-hint, a unit test closes it (`mutation-gate-integration-specs.md`). A local SKIP on timeout is not a PASS.
+- **Lesson (#699, item 12): each Stryker suppression — with a reason on the same directive line** (`// Stryker disable next-line <Mutator>: <reason>`, no shorter than 12 characters). Before push — `node scripts/devops/check-mutation-suppressions.mjs`: a local `pnpm mutation:changed` does not call it, and CI with it fails all Mutation Gate jobs before even starting.
+- Tests are edited by the same coder in the same PR. The wave does not introduce new `*.spec.ts` E2E scenarios; new unit cases (one category map instead of three; `pluralizeDocuments`→ICU at 1/2/5/11/21; a status without a raw enum; an error fallback with an action) — inside the existing test files.
 
-**Процесс**
+**Process**
 
-- `git add` явным списком (в каждой задаче он есть). Push — `DATABASE_URL= git push`, без `--no-verify`. Каждый коммит несёт `ac_verified:` с номерами из «Acceptance criteria» своей задачи.
-- **Урок (#700, п.6): каденс для 20+ файлов** — `wip:`-коммиты локально, в конце **один** push. Pre-push под нагрузкой флакает. `documents.tsx` (36 строк, PR1) и `document-detail-dialog.tsx` (31, PR2) — по секциям, `wip:` после каждой.
-- **Урок (#700, п.5): скриншоты и живые проходы делаются скриптом `npx playwright` в своём scratchpad**, не через `mcp__playwright__*`: браузер MCP общий у всех параллельных агентов.
-- **Урок (#700, п.7): CI — арбитр E2E.** Не гонять полный локальный E2E-зелёный на нагруженной машине (финанс-кодеры волны d зависали на мониторинге dev-серверов). Достаточно **изолированного прогона затронутых спек** (`DATABASE_URL= pnpm --filter @crm/e2e test -- <спека>`) в ОДНОЙ foreground-команде с timeout; полный прогон всех шардов подтверждает CI на PR.
-- **Урок (#704/#707): конфликт `.po` при последовательных PR аддитивен.** Берутся обе стороны, затем `pnpm i18n:extract` дважды, второй прогон даёт пустой дифф. Проверка числами: `msgid` = `main` + новые записи PR, а fuzzy/`#-#-#`/пустых `msgstr` в `en` — 0. Merge `.po` не отдаётся haiku.
-- После каждого Edit/Write `.ts`/`.tsx` — `mcp__eslint__lint-files`. На тронутых строках новых warning `lingui/no-unlocalized-strings` быть не должно.
-- **`security-review`:** `/pending` (доли, подтверждения) и `SeniorShareApprovalActions` — деньги/RBAC (`viewerSharePercent`, `approvalId`, `supersededAt`-поколения). PR4 (pending) требует `security-reviewer` **обязательно**. Документы за RBAC-фильтром (`availableCategories`, `canRestore = isDeleted && isAdmin`, чек-маскировка) — PR1/PR2 несут строку для `security-reviewer` (текст меняем, RBAC — нет). PR3 (upload/pdf) — `security-reviewer` по загрузке файлов.
-- Каждый PR проходит design-gate **Tier 2** (правка существующих экранов: conformance ui-ux-designer, без генерации в Claude Design) и fidelity Mode B на всех классах устройств. Вердикт `copy-reviewer` — по `uk` и по `en` **отдельно**.
-- **Responsive AC для каждого PR:** экраны проверяются на 320/375 (мобайл), 768 (планшет), 1024/1280 (ноутбук), 1440/1920 (большой) на **обоих** языках. Нет горизонтального скролла (`document.scrollWidth <= clientWidth`), подписи не обрезаны без `truncate`+`title`, тач-таргеты ≥44×44. Скриншоты 320 и 1440 × `uk` и `en` — к PR. **Особый риск волны — попап уведомлений (320px, `w-80`) и плотная сетка карточек документов**: украинские подписи длиннее русских; перемерить перенос на 320/375.
+- `git add` by an explicit list (each task has one). Push — `DATABASE_URL= git push`, without `--no-verify`. Each commit carries `ac_verified:` with the numbers from the "Acceptance criteria" of its task.
+- **Lesson (#700, item 6): a cadence for 20+ files** — `wip:` commits locally, one push at the end. Pre-push under load flakes. `documents.tsx` (36 lines, PR1) and `document-detail-dialog.tsx` (31, PR2) — by section, `wip:` after each.
+- **Lesson (#700, item 5): screenshots and live passes are done with the `npx playwright` script in your own scratchpad**, not via `mcp__playwright__*`: the MCP browser is shared across all parallel agents.
+- **Lesson (#700, item 7): CI is the E2E arbiter.** Do not run a full local E2E green on a loaded machine (the wave d finance coders hung on monitoring dev servers). An **isolated run of the affected specs** (`DATABASE_URL= pnpm --filter @crm/e2e test -- <spec>`) in ONE foreground command with a timeout is enough; the full run of all shards is confirmed by CI on the PR.
+- **Lesson (#704/#707): the `.po` conflict on sequential PRs is additive.** Take both sides, then `pnpm i18n:extract` twice, the second run gives an empty diff. Check by numbers: `msgid` = `main` + the PR's new records, and fuzzy/`#-#-#`/empty `msgstr` in `en` — 0. The `.po` merge is not given to haiku.
+- After each Edit/Write of `.ts`/`.tsx` — `mcp__eslint__lint-files`. On the touched lines there must be no new `lingui/no-unlocalized-strings` warnings.
+- **`security-review`:** `/pending` (shares, confirmations) and `SeniorShareApprovalActions` — money/RBAC (`viewerSharePercent`, `approvalId`, `supersededAt` generations). PR4 (pending) requires `security-reviewer` **mandatorily**. Documents behind an RBAC filter (`availableCategories`, `canRestore = isDeleted && isAdmin`, receipt masking) — PR1/PR2 carry a line for `security-reviewer` (we change the text, not RBAC). PR3 (upload/pdf) — `security-reviewer` on file upload.
+- Each PR passes design-gate **Tier 2** (editing existing screens: a ui-ux-designer conformance check, without generation in Claude Design) and fidelity Mode B on all device classes. The `copy-reviewer` verdict — on `uk` and on `en` **separately**.
+- **Responsive AC for each PR:** the screens are checked at 320/375 (mobile), 768 (tablet), 1024/1280 (laptop), 1440/1920 (large) in **both** languages. No horizontal scroll (`document.scrollWidth <= clientWidth`), labels not truncated without `truncate`+`title`, touch targets ≥44×44. Screenshots 320 and 1440 × `uk` and `en` — to the PR. **A special risk of the wave is the notifications popup (320px, `w-80`) and the dense document card grid**: the Ukrainian captions are longer than the Russian ones; re-measure wrapping at 320/375.
 
 ---
 
-## Тестовый доступ к каталогу (хелперы уже в `main`)
+## Test access to the catalog (helpers already in `main`)
 
 ```tsx
 // Vitest (apps/web)
@@ -111,20 +111,20 @@ expect(screen.getByText('Рахунок')).toBeInTheDocument()
 ```
 
 ```ts
-// E2E (apps/e2e) — перед прогоном обязателен `pnpm i18n:compile`
+// E2E (apps/e2e) — `pnpm i18n:compile` is mandatory before a run
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 const uk = await loadMessages('uk')
 await expect(page.getByText(assertInCatalog(uk, 'Документів ще немає'))).toBeVisible()
 ```
 
-`assertInCatalog` падает с понятной ошибкой, если текста нет в каталоге: устаревший литерал не превращается в таймаут Playwright. Относительный путь импорта зависит от глубины спеки (`'../fixtures/catalog'` для `tests/*.spec.ts`, `'../../fixtures/catalog'` для `tests/crm/*.spec.ts`).
+`assertInCatalog` fails with a clear error if the text is not in the catalog: an outdated literal does not turn into a Playwright timeout. The relative import path depends on the spec's depth (`'../fixtures/catalog'` for `tests/*.spec.ts`, `'../../fixtures/catalog'` for `tests/crm/*.spec.ts`).
 
-**Урок (#700, рецидивил 4× на волне d): E2E-ассерт — через `assertInCatalog`, НЕ литерал.**
+**Lesson (#700, recurred 4× in wave d): an E2E assert — via `assertInCatalog`, NOT a literal.**
 
 ```ts
-// ❌ было — литерал ломается молча при смене формулировки
+// ❌ was — a literal breaks silently on a wording change
 await expect(page.getByRole('heading', { name: 'Документы' })).toBeVisible()
-// ✅ стало — каталог = источник; несоответствие = явная ошибка, не таймаут
+// ✅ became — the catalog = the source; a mismatch = an explicit error, not a timeout
 const uk = await loadMessages('uk')
 await expect(
   page.getByTestId('documents-page').getByText(assertInCatalog(uk, 'Документи')),
@@ -133,155 +133,155 @@ await expect(
 
 ---
 
-## Периметр волны (e) — как получен
+## Perimeter of wave (e) — how it was obtained
 
-Команды (границы среза аудита `web-docs-notify` + «Поправка к границам среза»):
+Commands (the boundaries of the `web-docs-notify` audit slice + the "Slice boundary correction"):
 
 ```bash
 git ls-tree -r --name-only origin/main -- \
   apps/web/app/routes/_authenticated/documents.tsx apps/web/app/components/documents/ \
   apps/web/app/routes/_authenticated/pending/ apps/web/app/components/pending/
-# видимая кириллица вне комментариев — block-comment-aware скан (см. «Замер»)
+# visible Cyrillic outside comments — a block-comment-aware scan (see "Measurement")
 ```
 
-Результат на `025c28a0a`: **~186 видимых кириллических строк, требующих перевода, в 14 продуктовых файлах** (без уже сделанных). Метрика видимого текста (снятые комментарии) уже́ метрики аудита «≈226 фрагментов» — разница в том, что колокол/`NotificationSettingsTab`/реестр из аудитных 19 продуктовых файлов уже мигрированы. Самые тяжёлые: `documents.tsx` 36 · `document-detail-dialog.tsx` 31 · `upload-document-dialog.tsx` 25 · `document-card.tsx` 21 · `document-row.tsx` 17 · `pending/index.tsx` 13 · `PendingItemRow.tsx` 12.
+Result on `025c28a0a`: **~186 visible Cyrillic lines requiring translation in 14 product files** (excluding the already done). The visible-text metric (comments removed) is below the audit metric "≈226 fragments" — the difference is that the bell/`NotificationSettingsTab`/registry out of the audit's 19 product files are already migrated. The heaviest: `documents.tsx` 36 · `document-detail-dialog.tsx` 31 · `upload-document-dialog.tsx` 25 · `document-card.tsx` 21 · `document-row.tsx` 17 · `pending/index.tsx` 13 · `PendingItemRow.tsx` 12.
 
-Каждое отклонение периметра от аудита — строка в таблице ниже.
+Each deviation of the perimeter from the audit — a line in the table below.
 
-| Что                                                                                                                                            | Решение                           | Почему                                                                                                                                                                                                                                                                               |
+| What                                                                                                                                            | Decision                           | Why                                                                                                                                                                                                                                                                               |
 | ---------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `notifications-bell.tsx`, `NotificationSettingsTab.tsx`, `notification-type-icon.tsx`, `context/notifications.tsx`, `use-notifications-api.ts` | **не трогать (уже сделано)**      | Мигрированы этапом 4 / текста нет. См. «Что уже закрыто до старта». Верификация — да, правка — нет                                                                                                                                                                                   |
-| `packages/shared/.../notification-registry.ts` (`NOTIFICATION_TITLE_MESSAGES`, `renderNotification`)                                           | **потреблять (#698/#702/#714)**   | Срез `shared`, полностью мигрирован. Волна его читает через колокол/вкладку, не меняет                                                                                                                                                                                               |
-| `lib/documents-filter-sort.ts` — `localeCompare`, `SORT_OPTION_MESSAGES`                                                                       | **PR1 (только удалить легаси)**   | Поведение (`compareNames`) и канон (`SORT_OPTION_MESSAGES`) сделаны этапами 2/3a. PR1 переводит потребителя `documents.tsx` и удаляет легаси `SORT_OPTIONS` (handoff подготовлен doc-комментарием этапа 3a)                                                                          |
-| testid `PendingKindSection`/`focusSelectorsAfterActing`                                                                                        | **не трогать (уже развязано)**    | Этап 2 привязал testid к `kind`, не к `title`. Наша волна переводит только видимые `title` — теперь это безопасно. `PendingKindSection.tsx` сам текста не несёт (0 кириллицы)                                                                                                        |
-| `pdf-preview.tsx`, `document-image.tsx`                                                                                                        | **включить (кросс-потребляемы)**  | Оба живут в `components/documents` и здесь родные, но потребляются вне среза (`PdfPreview` — resume/vacancies/admin-contracts; `DocumentImage` — ProjectLogo/UserAvatar/image-upload). Сигнатуры сохранить; текст внутренний — правка безопасна, но E2E-свип обязан покрыть их спеки |
-| `hooks/use-notification-preferences.ts`                                                                                                        | **включить (PR4)**                | Единственный «notify»-файл с русским (COPY-H-docs-6): `Не удалось сохранить настройку`, `Сохранено`                                                                                                                                                                                  |
-| `document-list.tsx` (`internalEmpty` мёртвый + `<iframe>`-фолбэк)                                                                              | **PR2/PR3 — удалить мёртвое**     | COPY-M-docs-8: пустое состояние `DocumentList` недостижимо (родитель всегда передаёт `emptyState`); содержимое `<iframe>` в HTML5 не рендерится. Мёртвый текст удаляется, не переводится                                                                                             |
-| `apps/api/**` — производители `NOTIFICATION_TITLES` в колонку `title`                                                                          | **не трогать (срез `api`)**       | Русский текст, который производители пишут в БД, — миграция среза `api` (backend). На экране не читается (см. «Спорное решение 1»)                                                                                                                                                   |
-| `document-card.tsx` ветка `isReceipt && doc.projectId` («К транзакции #…»)                                                                     | **включить (PR2, COPY-H-docs-2)** | Дефект переедет в оба языка; ветка почти мертва (`ReceiptInput` грузит чек без `projectId`). Решение — снять чип/вести на транзакцию (см. трассировку)                                                                                                                               |
+| `notifications-bell.tsx`, `NotificationSettingsTab.tsx`, `notification-type-icon.tsx`, `context/notifications.tsx`, `use-notifications-api.ts` | **do not touch (already done)**   | Migrated in stage 4 / no text. See "What is already closed before start". Verification — yes, editing — no                                                                                                                                                                         |
+| `packages/shared/.../notification-registry.ts` (`NOTIFICATION_TITLE_MESSAGES`, `renderNotification`)                                           | **consume (#698/#702/#714)**      | The `shared` slice, fully migrated. The wave reads it via the bell/tab, does not change it                                                                                                                                                                                         |
+| `lib/documents-filter-sort.ts` — `localeCompare`, `SORT_OPTION_MESSAGES`                                                                       | **PR1 (only remove the legacy)**  | The behavior (`compareNames`) and the canon (`SORT_OPTION_MESSAGES`) are done in stages 2/3a. PR1 migrates the consumer `documents.tsx` and removes the legacy `SORT_OPTIONS` (the handoff is prepared by the stage 3a doc comment)                                                 |
+| the testid `PendingKindSection`/`focusSelectorsAfterActing`                                                                                    | **do not touch (already decoupled)** | Stage 2 tied the testid to `kind`, not `title`. Our wave translates only the visible `title` — now this is safe. `PendingKindSection.tsx` itself carries no text (0 Cyrillic)                                                                                                       |
+| `pdf-preview.tsx`, `document-image.tsx`                                                                                                        | **include (cross-consumed)**      | Both live in `components/documents` and are native here, but consumed outside the slice (`PdfPreview` — resume/vacancies/admin-contracts; `DocumentImage` — ProjectLogo/UserAvatar/image-upload). Keep the signatures; the text is internal — the edit is safe, but the E2E sweep must cover their specs |
+| `hooks/use-notification-preferences.ts`                                                                                                        | **include (PR4)**                 | The only "notify" file with Russian (COPY-H-docs-6): `Не удалось сохранить настройку`, `Сохранено`                                                                                                                                                                                 |
+| `document-list.tsx` (`internalEmpty` dead + `<iframe>` fallback)                                                                               | **PR2/PR3 — remove the dead**     | COPY-M-docs-8: the `DocumentList` empty state is unreachable (the parent always passes `emptyState`); the `<iframe>` content is not rendered in HTML5. The dead text is removed, not translated                                                                                     |
+| `apps/api/**` — the `NOTIFICATION_TITLES` producers into the `title` column                                                                    | **do not touch (the `api` slice)** | The Russian text the producers write to the DB is a migration of the `api` slice (backend). It is not read on the screen (see "Contested decision 1")                                                                                                                              |
+| `document-card.tsx` branch `isReceipt && doc.projectId` («К транзакции #…»)                                                                     | **include (PR2, COPY-H-docs-2)**  | The defect would carry over into both languages; the branch is almost dead (`ReceiptInput` loads a receipt without `projectId`). The decision — remove the chip/link to the transaction (see the trace)                                                                            |
 
 ---
 
-## Итог по PR (последовательный мерж; сумма ~186 строк)
+## Summary by PR (sequential merge; the sum ~186 lines)
 
-| PR      | Что                                                                                                                                                                                                                                              | Продуктовых файлов | Строк кириллицы |
+| PR      | What                                                                                                                                                                                                                                              | Product files | Cyrillic lines |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------ | --------------- |
-| **PR1** | Хаб `document-labels.ts` (одна карта категорий + канон статусов + тексты удаления) + страница `/documents` (`documents.tsx`) + чистка `documents-filter-sort.ts` (потребить `SORT_OPTION_MESSAGES`, удалить `SORT_OPTIONS`) + `CONTEXT.md` канон | 2 + хаб            | ~36 + хаб       |
-| **PR2** | Карточка/строка/детальный диалог/статус/изображение/список: `document-card`, `document-row`, `document-detail-dialog`, `document-status-badge`, `document-image`, `document-list`                                                                | 6                  | ~80             |
-| **PR3** | Загрузка + превью PDF: `upload-document-dialog`, `pdf-preview`                                                                                                                                                                                   | 2                  | ~33             |
-| **PR4** | Pending + хвост уведомлений: `pending/index.tsx`, `PendingItemRow`, `SeniorShareApprovalActions`, `PendingKindSection` (тест), `use-notification-preferences.ts` + удаление `@deprecated` карт из хаба                                           | 5                  | ~37             |
+| **PR1** | Hub `document-labels.ts` (one category map + status canon + deletion texts) + the `/documents` page (`documents.tsx`) + cleanup of `documents-filter-sort.ts` (consume `SORT_OPTION_MESSAGES`, remove `SORT_OPTIONS`) + `CONTEXT.md` canon | 2 + hub            | ~36 + hub       |
+| **PR2** | Card/row/detail dialog/status/image/list: `document-card`, `document-row`, `document-detail-dialog`, `document-status-badge`, `document-image`, `document-list`                                                                                 | 6                  | ~80             |
+| **PR3** | Upload + PDF preview: `upload-document-dialog`, `pdf-preview`                                                                                                                                                                                   | 2                  | ~33             |
+| **PR4** | Pending + the notifications tail: `pending/index.tsx`, `PendingItemRow`, `SeniorShareApprovalActions`, `PendingKindSection` (test), `use-notification-preferences.ts` + removing the `@deprecated` maps from the hub                            | 5                  | ~37             |
 
-**Альтернатива (Допущение 2):** объединить PR2+PR3 в один «документы-компоненты» PR (3 PR всего) — периметры не пересекаются с PR1/PR4, но PR получится ~113 строк / 8 файлов. Выбор за оркестратором, если ревью окажется лёгким. Разбивать мельче 4 PR смысла нет.
+**Alternative (Assumption 2):** combine PR2+PR3 into one "document-components" PR (3 PRs total) — the perimeters do not overlap with PR1/PR4, but the PR becomes ~113 lines / 8 files. The choice is up to the orchestrator if the review turns out easy. Splitting finer than 4 PRs makes no sense.
 
 ---
 
-## Дисциплина последовательности
+## Sequence discipline
 
-Волна **последовательная**, не параллельная: общий `.po` и общий хаб `document-labels.ts`. Каждый следующий PR стартует после мержа предыдущего и ребейзится на него.
+The wave is **sequential**, not parallel: a shared `.po` and a shared hub `document-labels.ts`. Each next PR starts after the previous is merged and is rebased onto it.
 
-| Шаг | PR      | Ждёт     | Почему                                                                                                                                                                                                                                                                                                                                                    |
+| Step | PR      | Waits for | Why                                                                                                                                                                                                                                                                                                                                                    |
 | --- | ------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **PR1** | —        | Вводит хаб `CATEGORY_LABEL_MESSAGES`/`DOCUMENT_STATUS_MESSAGES`/`DELETE_CONFIRM_MESSAGES`. **Локальные `CATEGORY_LABELS_RU` в `upload`/`detail` НЕ удаляет** (потребители в PR2/PR3) — их русский остаётся до своего PR. Мигрирует `documents.tsx` на хаб + `SORT_OPTION_MESSAGES`, удаляет легаси `SORT_OPTIONS`. Заносит канон волны (e) в `CONTEXT.md` |
-| 2   | **PR2** | мерж PR1 | Потребляет хаб; удаляет локальную `CATEGORY_LABELS_RU` из `document-detail-dialog`; статус `READY_TO_SIGN` берёт из хаба (COPY-H-docs-4). Ребейз на PR1                                                                                                                                                                                                   |
-| 3   | **PR3** | мерж PR2 | Потребляет хаб; удаляет **последнюю** локальную `CATEGORY_LABELS_RU` (в `upload-document-dialog`). После PR3 `git grep 'CATEGORY_LABELS_RU'` — пусто                                                                                                                                                                                                      |
-| 4   | **PR4** | мерж PR3 | Pending + `use-notification-preferences`. Удаляет `@deprecated`-остатки из хаба, если такие есть. Финальная сверка волны (скрипт ниже)                                                                                                                                                                                                                    |
+| 1   | **PR1** | —        | Introduces the hub `CATEGORY_LABEL_MESSAGES`/`DOCUMENT_STATUS_MESSAGES`/`DELETE_CONFIRM_MESSAGES`. **Does NOT remove the local `CATEGORY_LABELS_RU` in `upload`/`detail`** (consumers in PR2/PR3) — their Russian remains until their PR. Migrates `documents.tsx` to the hub + `SORT_OPTION_MESSAGES`, removes the legacy `SORT_OPTIONS`. Enters the wave (e) canon into `CONTEXT.md` |
+| 2   | **PR2** | merge of PR1 | Consumes the hub; removes the local `CATEGORY_LABELS_RU` from `document-detail-dialog`; the status `READY_TO_SIGN` is taken from the hub (COPY-H-docs-4). Rebase onto PR1                                                                                                                                                                                 |
+| 3   | **PR3** | merge of PR2 | Consumes the hub; removes the **last** local `CATEGORY_LABELS_RU` (in `upload-document-dialog`). After PR3 `git grep 'CATEGORY_LABELS_RU'` — empty                                                                                                                                                                                                      |
+| 4   | **PR4** | merge of PR3 | Pending + `use-notification-preferences`. Removes the `@deprecated` remainders from the hub, if any. The final wave check (script below)                                                                                                                                                                                                                |
 
-**Распределение E2E-спек** (чей текст ассертит строка, тот PR её и правит; точный список — свипом на шаге push). Спеки среза с кириллицей: `crm/documents-search-sort.spec.ts`, `crm/documents-status-badges.spec.ts`, `documents-pdf-preview.spec.ts`, `documents-pr1.spec.ts`, `documents-pr3.spec.ts`, `pending.spec.ts`, `pending-settlement.spec.ts`, `notification-settings.spec.ts`, `notification-types.spec.ts`, `notifications-popup-overflow.spec.ts` (последние три — по уже мигрированным колоколу/вкладке; их русские селекторы, если остались, — регресс из свипа, а не наша миграция).
+**E2E spec distribution** (whichever's text a line asserts, that PR edits it; the exact list — with the sweep at the push step). Slice specs with Cyrillic: `crm/documents-search-sort.spec.ts`, `crm/documents-status-badges.spec.ts`, `documents-pdf-preview.spec.ts`, `documents-pr1.spec.ts`, `documents-pr3.spec.ts`, `pending.spec.ts`, `pending-settlement.spec.ts`, `notification-settings.spec.ts`, `notification-types.spec.ts`, `notifications-popup-overflow.spec.ts` (the last three — on the already-migrated bell/tab; their Russian selectors, if any remain, are a regression from the sweep, not our migration).
 
-| PR  | Спеки (ориентир — уточнить свипом)                                                                                      |
+| PR  | Specs (guide — refine with the sweep)                                                                                   |
 | --- | ----------------------------------------------------------------------------------------------------------------------- |
-| PR1 | `documents-pr1.spec.ts`, `crm/documents-search-sort.spec.ts` (список, тулбар, сортировка, счётчик, пустые)              |
-| PR2 | `crm/documents-status-badges.spec.ts`, `documents-pr1.spec.ts`, `documents-pr3.spec.ts` (карточка/строка/статус/детали) |
-| PR3 | `documents-pr3.spec.ts`, `documents-pdf-preview.spec.ts` (загрузка, PDF)                                                |
-| PR4 | `pending.spec.ts`, `pending-settlement.spec.ts` (секции, строки, доли)                                                  |
+| PR1 | `documents-pr1.spec.ts`, `crm/documents-search-sort.spec.ts` (list, toolbar, sort, counter, empty)                      |
+| PR2 | `crm/documents-status-badges.spec.ts`, `documents-pr1.spec.ts`, `documents-pr3.spec.ts` (card/row/status/detail)        |
+| PR3 | `documents-pr3.spec.ts`, `documents-pdf-preview.spec.ts` (upload, PDF)                                                   |
+| PR4 | `pending.spec.ts`, `pending-settlement.spec.ts` (sections, rows, shares)                                                |
 
 ---
 
-## Канон терминов волны (e) — `uk`/`en`
+## Wave (e) term canon — `uk`/`en`
 
-PR1 переносит эту таблицу в `CONTEXT.md` (раздел «Формы `uk`/`en`», продолжение волн a–d) первым коммитом. PR2–PR4 берут слова отсюда дословно. Формы `uk` — черновик; окончательный текст утверждает `copy-reviewer` («два оригинала»).
+PR1 moves this table into `CONTEXT.md` (the "`uk`/`en` forms" section, a continuation of waves a–d) in the first commit. PR2–PR4 take the words from here verbatim. The `uk` forms — a draft; the final text is approved by `copy-reviewer` ("two originals").
 
-| Термин (рус., для справки)                        | `uk`                                                                      | `en`                                                                           | `_Избегать_` (`uk`/`en`)                              | Откуда                                    |
+| Term (rus., for reference)                        | `uk`                                                                      | `en`                                                                           | `_Избегать_` (`uk`/`en`)                              | Source                                    |
 | ------------------------------------------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------- | ----------------------------------------- |
-| Документ                                          | документ                                                                  | document                                                                       | «файл» як синонім документа                           | глоссарий                                 |
-| Категория `INVOICE` (счёт)                        | Рахунок                                                                   | Invoice                                                                        | «Інвойс», «акт», «платіжка»                           | COPY-H-docs-5; глоссарий **Счёт**         |
-| Категория `CONTRACT`                              | **Договір** (рекомендация — см. «Спорное решение 2»)                      | Contract                                                                       | смешивать «договір»/«контракт» в одном сценарии       | COPY-H-docs-3; `CONTEXT.md` (уточнить)    |
-| Категория `RESUME`                                | Резюме                                                                    | Résumé                                                                         | —                                                     | COPY-H-docs-3                             |
-| Категория `SCAN`                                  | Скан                                                                      | Scan                                                                           | «Скан документа»/«Сканы документов» вразнобій         | COPY-H-docs-3 (одно слово на категорию)   |
-| Категория `AVATAR` / `LOGO` / `OTHER`             | Аватар / Логотип / Інше                                                   | Avatar / Logo / Other                                                          | —                                                     | COPY-H-docs-3                             |
-| Архив (документов)                                | Архів                                                                     | Archive                                                                        | —                                                     | COPY-H-docs-1                             |
-| Можно восстановить из «Архив»                     | Документ піде в архів. Повернути його може адмін                          | The document goes to the archive. An admin can restore it                      | «можна відновити пізніше» (обіцянка не тому)          | COPY-H-docs-1 (обещание не тому адресату) |
-| Удалить навсегда (из S3 и базы)                   | Файл буде видалено без можливості відновлення                             | The file will be deleted permanently                                           | «…назавжди з S3 і бази» (ім’я сховища на екрані)      | COPY-M-docs-9                             |
-| Статус `READY_TO_SIGN`                            | Готовий до підпису                                                        | Ready to sign                                                                  | «Готово до підпису»/«Готовий до підписання» вразнобій | COPY-H-docs-4 (один канон, из хаба)       |
-| Статус контракта `draft`                          | Чернетка (рекомендация — см. «Спорное решение 2»)                         | Draft                                                                          | «Драфт» (транслітерація)                              | COPY-M-docs-16; `CONTEXT.md` (уточнить)   |
-| Статус `signed`                                   | Підписано                                                                 | Signed                                                                         | —                                                     | COPY-H-docs-4                             |
-| Счёт ждёт подписи                                 | Очікує підпису                                                            | Awaiting signature                                                             | «Вимагає підпису»/«Очікує підпису» вразнобій          | COPY-M-docs-15 (один канон)               |
-| Поиск по имени…                                   | Пошук за назвою файлу                                                     | Search by file name                                                            | «Пошук за іменем» (двозначно з фільтром власника)     | COPY-L-docs-17                            |
-| Пусто: нет документов                             | Документів ще немає                                                       | No documents yet                                                               | «Немає даних», «Порожньо»                             | COPY-M-docs-6; аудит                      |
-| Пусто: фильтр ничего не нашёл                     | Нічого не знайдено — скиньте фільтри                                      | No matches — clear the filters                                                 | «Немає даних»                                         | каталог волны b (ключ уже есть)           |
-| Нет доступа к документам                          | Документи вам не відкриті. Потрібен доступ — напишіть адміну              | You don’t have access to documents. Ask an admin if you need it                | «У вас немає доступу» (тупик)                         | COPY-M-docs-13                            |
-| Формат (значение)                                 | PDF / Зображення JPEG (человеческое)                                      | PDF / JPEG image                                                               | сирий MIME `application/vnd.…`                        | COPY-M-docs-10 (MIME — в `title`)         |
-| Проект (в деталях документа)                      | назва проєкту                                                             | project name                                                                   | `#<8 символів UUID>`                                  | COPY-M-docs-11 (id — в `title` ссылки)    |
-| Открыть/Скачать PDF                               | Завантажити PDF (если `download`) / Відкрити PDF (если открывает)         | Download PDF / Open PDF                                                        | «Відкрити PDF» на `<a download>` (обіцяє не те)       | COPY-M-docs-7                             |
-| Ошибка загрузки PDF                               | Не вдалося завантажити PDF                                                | Couldn’t load the PDF                                                          | без «Повторити»/«Завантажити»                         | COPY-M-docs-12 (+ повтор/скачать)         |
-| Загрузка…                                         | Завантаження…                                                             | Loading…                                                                       | «Загрузка...» (ASCII-крапки)                          | COPY-L-docs-19                            |
-| Сортировка `SORT_OPTION_MESSAGES`                 | (уже в `main`, этап 3a — потребить)                                       | (уже в `.po`)                                                                  | називати алфавіт у підписі, якщо copy-review вирішить | COPY-L-docs-18 (поведінка закрита)        |
-| Секции `/pending` (Проекты/Доли/Контракты/Другое) | Проєкти / Частки / Контракти / Інше                                       | Projects / Shares / Contracts / Other                                          | —                                                     | аудит B (testid уже розв’язано)           |
-| Ваша доля неизвестна (обновите)                   | Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна | Your share didn’t arrive from the server. Don’t confirm blindly — ask an admin | «Оновіть сторінку» (не лікує)                         | COPY-M-docs-14                            |
-| Действия по доле (подтвердить/отклонить)          | Підтвердити / Підтвердження… / Відхилити                                  | Confirm / Confirming… / Reject                                                 | «Подтверждение...» (ASCII-крапки)                     | COPY-L-docs-19                            |
-| Не удалось сохранить настройку                    | Не вдалося зберегти налаштування — <причина через `getApiErrorMessage`>   | Couldn’t save the setting — <reason>                                           | сирий `err.message` (англ. axios)                     | COPY-H-docs-6                             |
-| Сохранено                                         | Збережено                                                                 | Saved                                                                          | —                                                     | COPY-H-docs-6 (сусідній тост)             |
+| Document                                          | документ                                                                  | document                                                                       | «файл» as a synonym for a document                    | glossary                                  |
+| Category `INVOICE` (invoice)                      | Рахунок                                                                   | Invoice                                                                        | «Інвойс», «акт», «платіжка»                           | COPY-H-docs-5; glossary **Invoice**       |
+| Category `CONTRACT`                               | **Договір** (recommendation — see "Contested decision 2")                | Contract                                                                       | mixing «договір»/«контракт» in one scenario           | COPY-H-docs-3; `CONTEXT.md` (clarify)     |
+| Category `RESUME`                                 | Резюме                                                                    | Résumé                                                                         | —                                                     | COPY-H-docs-3                             |
+| Category `SCAN`                                   | Скан                                                                      | Scan                                                                           | «Скан документа»/«Сканы документов» inconsistently    | COPY-H-docs-3 (one word per category)     |
+| Category `AVATAR` / `LOGO` / `OTHER`              | Аватар / Логотип / Інше                                                   | Avatar / Logo / Other                                                          | —                                                     | COPY-H-docs-3                             |
+| Archive (of documents)                            | Архів                                                                     | Archive                                                                        | —                                                     | COPY-H-docs-1                             |
+| Can be restored from the "Archive"                | Документ піде в архів. Повернути його може адмін                          | The document goes to the archive. An admin can restore it                      | «можна відновити пізніше» (promise to the wrong one)  | COPY-H-docs-1 (promise to the wrong recipient) |
+| Delete permanently (from S3 and the DB)           | Файл буде видалено без можливості відновлення                             | The file will be deleted permanently                                           | «…назавжди з S3 і бази» (storage name on the screen)  | COPY-M-docs-9                             |
+| Status `READY_TO_SIGN`                            | Готовий до підпису                                                        | Ready to sign                                                                  | «Готово до підпису»/«Готовий до підписання» inconsistently | COPY-H-docs-4 (one canon, from the hub)   |
+| Contract status `draft`                           | Чернетка (recommendation — see "Contested decision 2")                   | Draft                                                                          | «Драфт» (transliteration)                             | COPY-M-docs-16; `CONTEXT.md` (clarify)    |
+| Status `signed`                                   | Підписано                                                                 | Signed                                                                         | —                                                     | COPY-H-docs-4                             |
+| An invoice is awaiting signature                  | Очікує підпису                                                            | Awaiting signature                                                             | «Вимагає підпису»/«Очікує підпису» inconsistently     | COPY-M-docs-15 (one canon)                |
+| Search by name…                                   | Пошук за назвою файлу                                                     | Search by file name                                                            | «Пошук за іменем» (ambiguous with the owner filter)   | COPY-L-docs-17                            |
+| Empty: no documents                               | Документів ще немає                                                       | No documents yet                                                               | «Немає даних», «Порожньо»                             | COPY-M-docs-6; audit                      |
+| Empty: a filter found nothing                     | Нічого не знайдено — скиньте фільтри                                      | No matches — clear the filters                                                 | «Немає даних»                                         | wave b catalog (key already exists)       |
+| No access to documents                            | Документи вам не відкриті. Потрібен доступ — напишіть адміну              | You don’t have access to documents. Ask an admin if you need it                | «У вас немає доступу» (dead end)                      | COPY-M-docs-13                            |
+| Format (value)                                    | PDF / Зображення JPEG (human)                                            | PDF / JPEG image                                                               | raw MIME `application/vnd.…`                          | COPY-M-docs-10 (MIME — in `title`)        |
+| Project (in the document details)                 | назва проєкту                                                             | project name                                                                   | `#<8 chars of a UUID>`                                | COPY-M-docs-11 (id — in the link `title`) |
+| Open/Download PDF                                 | Завантажити PDF (if `download`) / Відкрити PDF (if it opens)             | Download PDF / Open PDF                                                        | «Відкрити PDF» on `<a download>` (promises the wrong) | COPY-M-docs-7                             |
+| PDF load error                                    | Не вдалося завантажити PDF                                                | Couldn’t load the PDF                                                          | without «Повторити»/«Завантажити»                     | COPY-M-docs-12 (+ retry/download)         |
+| Loading…                                          | Завантаження…                                                            | Loading…                                                                       | «Загрузка...» (ASCII dots)                            | COPY-L-docs-19                            |
+| Sort `SORT_OPTION_MESSAGES`                       | (already in `main`, stage 3a — consume)                                   | (already in the `.po`)                                                         | naming the alphabet in the caption, if copy-review decides | COPY-L-docs-18 (behavior closed)          |
+| Sections `/pending` (Projects/Shares/Contracts/Other) | Проєкти / Частки / Контракти / Інше                                       | Projects / Shares / Contracts / Other                                          | —                                                     | audit B (testid already decoupled)        |
+| Your share is unknown (refresh)                   | Частка не прийшла із сервера. Не підтверджуйте наосліп — запитайте адміна | Your share didn’t arrive from the server. Don’t confirm blindly — ask an admin | «Оновіть сторінку» (doesn’t cure)                     | COPY-M-docs-14                            |
+| Share actions (confirm/reject)                    | Підтвердити / Підтвердження… / Відхилити                                  | Confirm / Confirming… / Reject                                                 | «Подтверждение...» (ASCII dots)                       | COPY-L-docs-19                            |
+| Couldn’t save the setting                         | Не вдалося зберегти налаштування — <reason via `getApiErrorMessage`>      | Couldn’t save the setting — <reason>                                           | raw `err.message` (English axios)                     | COPY-H-docs-6                             |
+| Saved                                             | Збережено                                                                 | Saved                                                                          | —                                                     | COPY-H-docs-6 (the neighboring toast)     |
 
-Апостроф, многоточие, кавычки, `en`-отказы «Couldn’t …» — по общему разделу `CONTEXT.md` «Формы `uk`/`en`». Категории документов и статус контракта — **собственные enum'ы этого среза**, переводятся картой (шаблон G), не через app-`Role`.
+The apostrophe, ellipsis, quotes, `en` refusals "Couldn’t …" — per the common `CONTEXT.md` section "`uk`/`en` forms". Document categories and the contract status — **the own enums of this slice**, translated by a map (template G), not via the app-`Role`.
 
 ---
 
-## Шаблоны миграции
+## Migration templates
 
-**A–L — те же, что в волнах (a)–(d)** (см. `docs/superpowers/plans/2026-09-26-crm-i18n-stage3c-web-projects.md` + раздел «Шаблоны» волны d). Уточнения этой волны:
+**A–L — the same as in waves (a)–(d)** (see `docs/superpowers/plans/2026-09-26-crm-i18n-stage3c-web-projects.md` + the "Templates" section of wave d). Refinements of this wave:
 
-**G-docs. Три `CATEGORY_LABELS_RU` → одна `CATEGORY_LABEL_MESSAGES` (хаб).**
+**G-docs. Three `CATEGORY_LABELS_RU` → one `CATEGORY_LABEL_MESSAGES` (hub).**
 
 ```ts
-// было — три копии в documents.tsx / upload-document-dialog.tsx / document-detail-dialog.tsx,
-//        со СЛОВАМИ, расходящимися между собой (CONTRACT: «Договоры»/«Договор»/«Контракт»)
+// was — three copies in documents.tsx / upload-document-dialog.tsx / document-detail-dialog.tsx,
+//        with WORDS diverging between themselves (CONTRACT: «Договоры»/«Договор»/«Контракт»)
 const CATEGORY_LABELS_RU: Record<DocumentCategory, string> = { CONTRACT: 'Договоры' /* … */ }
 
-// стало — ОДНА карта в новом components/documents/document-labels.ts; satisfies без as const
+// became — ONE map in the new components/documents/document-labels.ts; satisfies without as const
 import { msg } from '@lingui/core/macro'
 import type { MessageDescriptor } from '@lingui/core'
 export const CATEGORY_LABEL_MESSAGES = {
-  CONTRACT: msg`Договір`, // en: Contract  (одно слово на категорию — COPY-H-docs-3)
+  CONTRACT: msg`Договір`, // en: Contract  (one word per category — COPY-H-docs-3)
   INVOICE: msg`Рахунок`, // en: Invoice   (COPY-H-docs-5)
-  // … все ключи DocumentCategory
+  // … all DocumentCategory keys
 } satisfies Record<DocumentCategory, MessageDescriptor>
 ```
 
-Потребитель — `i18n._(CATEGORY_LABEL_MESSAGES[cat])`. **Понижение регистра переведённой строки запрещено:** `documents.tsx` счётчик делает `CATEGORY_LABELS_RU[cat].toLowerCase()` (аудит B) — под Lingui заводится ОТДЕЛЬНЫЙ `msg` в нижнем регистре («у категорії {категорія}»), а не `.toLowerCase()` на результате `i18n._()`.
+The consumer — `i18n._(CATEGORY_LABEL_MESSAGES[cat])`. **Lowercasing the translated string is forbidden:** the `documents.tsx` counter does `CATEGORY_LABELS_RU[cat].toLowerCase()` (audit B) — under Lingui a SEPARATE `msg` in lowercase is introduced («у категорії {категорія}»), not `.toLowerCase()` on the result of `i18n._()`.
 
-**J-docs. `pluralizeDocuments` → ICU.** `documents.tsx` `pluralizeDocuments(n)` (mod10/mod100 «документ/документа/документов») — правильные формы, но захардкожены и русские; для `en` форм две, для `uk` — свои.
+**J-docs. `pluralizeDocuments` → ICU.** `documents.tsx` `pluralizeDocuments(n)` (mod10/mod100 «документ/документа/документов») — correct forms, but hardcoded and Russian; for `en` two forms, for `uk` its own.
 
 ```tsx
 <Plural value={n} one="# документ" few="# документи" many="# документів" other="# документа" />
 // en: one="# document" other="# documents"
 ```
 
-Самописную функцию удалить. Счётчик `«${n} ${pluralizeDocuments(n)}${' · в архиве'}${scope}`` пересобрать из `<Plural>`+`<Trans>`-слотов (склейка — шаблон K), без склейки родительного падежа.
+Remove the self-written function. The counter `«${n} ${pluralizeDocuments(n)}${' · в архиве'}${scope}`` is reassembled from `<Plural>`+`<Trans>` slots (concatenation — template K), without the genitive-case concatenation.
 
-**K-docs. Склейки `PendingItemRow` → `<Trans>`-слоты / `select`.** Четыре варианта одной фразы в `metaLinesFor` (`Сейчас…→предложено…`, `Предлагает…`, `Ждём:…`, `Ваша доля:…·синьор:…`) — кандидат на `select` по признаку ветки (аудит: «четыре варианта одной фразы — кандидат на `select`»). Проценты — через `<Plural>`/ICU, имена (`proposedBy`, `seniorName`) — только в именительном, слотом. Тернарник `{cat === 'AVATAR' ? 'аватаров' : 'логотипов'}` (родительный внутри тернарника, `documents.tsx` `internalEmpty`) → `select` по `cat`, не склейка падежа.
+**K-docs. `PendingItemRow` concatenations → `<Trans>` slots / `select`.** Four variants of one phrase in `metaLinesFor` (`Сейчас…→предложено…`, `Предлагает…`, `Ждём:…`, `Ваша доля:…·синьор:…`) — a candidate for `select` by the branch feature (audit: "four variants of one phrase — a candidate for `select`"). Percentages — via `<Plural>`/ICU, names (`proposedBy`, `seniorName`) — only in the nominative, as a slot. The ternary `{cat === 'AVATAR' ? 'аватаров' : 'логотипов'}` (genitive inside a ternary, `documents.tsx` `internalEmpty`) → `select` by `cat`, not a case concatenation.
 
-**L-docs. `date-fns/locale/ru` → `formatRelativeTime`/`formatDate` из `@crm/shared`.** `ru` импортируется в `document-card`, `document-row`, `document-detail-dialog` (PR2), `PendingItemRow` (PR4). `fmtRelative` продублирован (`PendingItemRow` — комментарий это признаёт) — свести к `formatRelativeTime(iso, locale)`. `format(d, 'd MMMM yyyy', { locale: ru })` (порядок «день месяц год» зашит) → `formatDate(iso, locale, 'long')`. `locale` берётся из `useLocale()` в компоненте (хук не звать в `.map()`).
+**L-docs. `date-fns/locale/ru` → `formatRelativeTime`/`formatDate` from `@crm/shared`.** `ru` is imported in `document-card`, `document-row`, `document-detail-dialog` (PR2), `PendingItemRow` (PR4). `fmtRelative` is duplicated (`PendingItemRow` — a comment admits it) — reduce to `formatRelativeTime(iso, locale)`. `format(d, 'd MMMM yyyy', { locale: ru })` (the order "day month year" is hardcoded) → `formatDate(iso, locale, 'long')`. `locale` is taken from `useLocale()` in the component (do not call the hook in `.map()`).
 
-**Хаб статусов и подтверждений (COPY-H-docs-4, -1, -9).** `document-labels.ts` держит также `DOCUMENT_STATUS_MESSAGES` (`READY_TO_SIGN`/`SIGNED`/`DRAFT`/`invoice awaiting signature` — один канон) и `DELETE_CONFIRM_MESSAGES` (архив: «Повернути може адмін»; насовсем: «без можливості відновлення»). `document-status-badge.tsx` (PR2) и `PendingItemRow.tsx` (PR4) берут `READY_TO_SIGN` отсюда — иначе один статус на соседних экранах снова разойдётся. Три копии диалога подтверждения удаления (card/row/detail) берут тексты из `DELETE_CONFIRM_MESSAGES`.
+**The status and confirmation hub (COPY-H-docs-4, -1, -9).** `document-labels.ts` also holds `DOCUMENT_STATUS_MESSAGES` (`READY_TO_SIGN`/`SIGNED`/`DRAFT`/`invoice awaiting signature` — one canon) and `DELETE_CONFIRM_MESSAGES` (archive: «Повернути може адмін»; permanent: «без можливості відновлення»). `document-status-badge.tsx` (PR2) and `PendingItemRow.tsx` (PR4) take `READY_TO_SIGN` from here — otherwise one status on neighboring screens diverges again. The three copies of the deletion-confirmation dialog (card/row/detail) take the texts from `DELETE_CONFIRM_MESSAGES`.
 
 ---
 
-## Общий шаг: E2E-свип (в каждом PR перед push)
+## Common step: E2E sweep (in each PR before push)
 
-Скрипт собирает русские фрагменты, которые **удалил этот PR**, и ищет их во всём `apps/e2e`. Каждая находка — строка для проверки. Осталась в другом, ещё не мигрированном компоненте и спека ассертит именно его — не трогать. Ассертит мигрированный экран — перевести на `assertInCatalog` (шаблон I). **Имена файлов-фикстур с кириллицей (`резюме-тест.pdf`) — данные, не UI: исключить.**
+The script collects the Russian fragments that **this PR removed** and searches for them across the whole `apps/e2e`. Each hit — a line to check. It remained in another not-yet-migrated component and a spec asserts exactly it — do not touch. It asserts a migrated screen — move to `assertInCatalog` (template I). **Fixture file names with Cyrillic (`резюме-тест.pdf`) are data, not UI: exclude.**
 
 ```bash
-SCRATCH="${TMPDIR:-/tmp}/wave-e-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # свой каталог из своей ветки
+SCRATCH="${TMPDIR:-/tmp}/wave-e-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # own directory from your branch
 mkdir -p "$SCRATCH"
 git diff origin/main -- apps/web/app > "$SCRATCH/wave-e.diff"
 ```
@@ -291,7 +291,7 @@ git diff origin/main -- apps/web/app > "$SCRATCH/wave-e.diff"
 import re, sys, pathlib
 ru = re.compile(r'[А-Яа-яЁё]')
 frag = re.compile(r"""['"`]([^'"`\n]*[А-Яа-яЁё][^'"`\n]*)['"`]|>\s*([^<>{}\n]*[А-Яа-яЁё][^<>{}\n]*?)\s*(?:<|\{|$)|^-\s+([А-Яа-яЁё][^<>{}\n]*?)\s*(?:<|\{|$)""")
-FIXTURE = re.compile(r'\.(pdf|png|jpe?g|docx?|xlsx?)$', re.I)   # имена файлов-фикстур — не UI
+FIXTURE = re.compile(r'\.(pdf|png|jpe?g|docx?|xlsx?)$', re.I)   # fixture file names — not UI
 removed = set()
 for line in open(sys.argv[1], encoding='utf8'):
     if line.startswith('-') and not line.startswith('---') and ru.search(line) \
@@ -311,179 +311,179 @@ for spec in sorted(pathlib.Path('apps/e2e').rglob('*.ts')):
 
 ```bash
 python3 "$SCRATCH/e2e_sweep.py" "$SCRATCH/wave-e.diff" > "$SCRATCH/sweep.txt"
-cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # список для git add
+cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # list for git add
 ```
 
-Вывод целиком — в тело PR (раздел «E2E-свип») с отметкой по каждой строке: «переведена на каталог», «testid» или «не наш текст — <какой компонент вне волны рендерит>». Строка без отметки — незакрытая. В коммит спеки попадают через `git add $(cat "$SCRATCH/sweep-specs.txt")`.
+The whole output — into the PR body (the "E2E sweep" section) with a mark on each line: "moved to the catalog", "testid" or "not our text — <which component outside the wave renders it>". A line without a mark is unclosed. The specs enter the commit via `git add $(cat "$SCRATCH/sweep-specs.txt")`.
 
 ---
 
-## Task 1 (PR1): хаб `document-labels.ts` + страница `/documents` + чистка сортировки
+## Task 1 (PR1): hub `document-labels.ts` + the `/documents` page + sort cleanup
 
-**Files** (видимая кириллица на `025c28a0a`):
+**Files** (visible Cyrillic on `025c28a0a`):
 
-| Файл                                            | Кир. | Паттерн(ы)  | Находки аудита / примечание                                                                                                                                                                                                                                   |
-| ----------------------------------------------- | ---- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/documents/document-labels.ts` (NEW) | —    | G           | Хаб: `CATEGORY_LABEL_MESSAGES` (COPY-H-docs-3/-5), `DOCUMENT_STATUS_MESSAGES` (COPY-H-docs-4), `DELETE_CONFIRM_MESSAGES` (COPY-H-docs-1/-9), нижний регистр категории                                                                                         |
-| `routes/_authenticated/documents.tsx`           | 36   | A,B,C,G,J,K | COPY-M-docs-13 (`documents-no-access`), M-6 (пустые), L-17 (placeholder «Поиск по имени…»), H-5 («Инвойс»/`invoiceEmpty`), `pluralizeDocuments`→ICU, `.toLowerCase()` на переводе, `statusOptions`, потребить `SORT_OPTION_MESSAGES` + удалить `SORT_OPTIONS` |
-| `lib/documents-filter-sort.ts`                  | ~1   | —           | Удалить легаси `SORT_OPTIONS` (потребитель мигрирован); `SORT_OPTION_MESSAGES`/`sortDocuments`/`compareNames` не трогать (сделано этапами 2/3a)                                                                                                               |
+| File                                            | Cyr. | Pattern(s)  | Audit findings / note                                                                                                                                                                                                                                       |
+| ----------------------------------------------- | ---- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `components/documents/document-labels.ts` (NEW) | —    | G           | Hub: `CATEGORY_LABEL_MESSAGES` (COPY-H-docs-3/-5), `DOCUMENT_STATUS_MESSAGES` (COPY-H-docs-4), `DELETE_CONFIRM_MESSAGES` (COPY-H-docs-1/-9), lowercase category                                                                                              |
+| `routes/_authenticated/documents.tsx`           | 36   | A,B,C,G,J,K | COPY-M-docs-13 (`documents-no-access`), M-6 (empty), L-17 (placeholder «Поиск по имени…»), H-5 («Инвойс»/`invoiceEmpty`), `pluralizeDocuments`→ICU, `.toLowerCase()` on the translation, `statusOptions`, consume `SORT_OPTION_MESSAGES` + remove `SORT_OPTIONS` |
+| `lib/documents-filter-sort.ts`                  | ~1   | —           | Remove the legacy `SORT_OPTIONS` (the consumer is migrated); do not touch `SORT_OPTION_MESSAGES`/`sortDocuments`/`compareNames` (done in stages 2/3a)                                                                                                        |
 
-Вне продуктовых: `CONTEXT.md` (канон волны e), `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
+Outside the product: `CONTEXT.md` (the wave e canon), `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты (ассерты на каталог): `documents/__tests__/*` (где ассертят `documents.tsx`), `lib/__tests__/documents-filter-sort*` (сортировка/опции). Новые кейсы (одна карта категорий; `pluralizeDocuments`→ICU на 1/2/5/11/21; пустые состояния с причиной) — внутри существующих файлов.
+Tests (assertions to the catalog): `documents/__tests__/*` (where they assert `documents.tsx`), `lib/__tests__/documents-filter-sort*` (sort/options). New cases (one category map; `pluralizeDocuments`→ICU at 1/2/5/11/21; empty states with a reason) — inside the existing files.
 
-E2E: строка PR1 «Распределения» + вывод свипа.
+E2E: the PR1 "Distribution" row + the sweep output.
 
 **Interfaces:**
 
-- Consumes: `SORT_OPTION_MESSAGES` (`lib/documents-filter-sort`), `useLocale()` (`@/lib/i18n`), `useLingui()`, `formatDate` (`@crm/shared`), хелперы каталога.
-- Produces: `CATEGORY_LABEL_MESSAGES: Record<DocumentCategory, MessageDescriptor>`, `DOCUMENT_STATUS_MESSAGES`, `DELETE_CONFIRM_MESSAGES` в `document-labels.ts`. Раздел канона волны (e) в `CONTEXT.md`. Удаляет легаси `SORT_OPTIONS` из `documents-filter-sort.ts`.
+- Consumes: `SORT_OPTION_MESSAGES` (`lib/documents-filter-sort`), `useLocale()` (`@/lib/i18n`), `useLingui()`, `formatDate` (`@crm/shared`), the catalog helpers.
+- Produces: `CATEGORY_LABEL_MESSAGES: Record<DocumentCategory, MessageDescriptor>`, `DOCUMENT_STATUS_MESSAGES`, `DELETE_CONFIRM_MESSAGES` in `document-labels.ts`. The wave (e) canon section in `CONTEXT.md`. Removes the legacy `SORT_OPTIONS` from `documents-filter-sort.ts`.
 
-### Опасность: `document-labels.ts` — хаб, локальные карты живут до своего PR
+### Danger: `document-labels.ts` — a hub, the local maps live until their PR
 
-`CATEGORY_LABELS_RU` живёт в трёх файлах. PR1 вводит хаб и мигрирует `documents.tsx`, но **не удаляет** копии в `upload`/`detail` — их русский остаётся до PR2 (`detail`) и PR3 (`upload`). Финальная сверка `git grep 'CATEGORY_LABELS_RU'` → пусто — только после PR3.
+`CATEGORY_LABELS_RU` lives in three files. PR1 introduces the hub and migrates `documents.tsx`, but **does not remove** the copies in `upload`/`detail` — their Russian remains until PR2 (`detail`) and PR3 (`upload`). The final check `git grep 'CATEGORY_LABELS_RU'` → empty — only after PR3.
 
-### Опасность: `documents.tsx` за RBAC — текст меняем, доступ нет
+### Danger: `documents.tsx` behind RBAC — we change the text, not the access
 
-`availableCategories`/`statusOptions`/`documents-no-access` зависят от роли (`isAdmin`, `canRestore`). Перевод меняет **текст**, не то, какие категории/статусы видны и кто восстанавливает. Тест — набор видимых опций per-role не изменился. Строка в теле PR для `security-reviewer`.
+`availableCategories`/`statusOptions`/`documents-no-access` depend on the role (`isAdmin`, `canRestore`). The translation changes the **text**, not which categories/statuses are visible and who restores. The test — the set of visible options per-role did not change. A line in the PR body for `security-reviewer`.
 
 ### Acceptance criteria (PR1)
 
-1. В `CONTEXT.md` есть подраздел «Волна e — `web-docs-notify`» с формами канона (включая выбор `CONTRACT`=«Договір» и `draft`=«Чернетка», см. «Спорное решение 2»).
-2. `document-labels.ts`: `CATEGORY_LABEL_MESSAGES` (одна карта, `satisfies` без `as const`), `DOCUMENT_STATUS_MESSAGES`, `DELETE_CONFIRM_MESSAGES` — термины по канону (Рахунок/Договір/Архів); тест «карта возвращает текст без сырого enum» зелёный.
-3. `documents.tsx` на `uk`/`en`: категории/статусы из хаба; `pluralizeDocuments`→`<Plural>` (тест 1/2/5/11/21); placeholder «Пошук за назвою файлу» (L-17); `documents-no-access` с адресатом (M-13); пустые состояния с причиной (M-6); «Рахунок» вместо «Инвойс» (H-5); счётчик без `.toLowerCase()` на переводе.
-4. `documents.tsx` потребляет `SORT_OPTION_MESSAGES` через `i18n._()`; легаси `SORT_OPTIONS` удалён из `documents-filter-sort.ts`; `git grep 'SORT_OPTIONS\b'` — пусто.
-5. В файлах PR1 0 строк `[ыэъё]` вне комментариев.
-6. Unit ассертят каталог; E2E-свип выполнен, таблица в теле PR; E2E спек PR1 зелёные (изолированный прогон; CI — арбитр).
-7. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-8. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-9. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk` и `en`; `security-reviewer` APPROVE (RBAC категорий/статусов, чек-маскировка).
+1. In `CONTEXT.md` there is a subsection "Wave e — `web-docs-notify`" with the canon forms (including the choice `CONTRACT`=«Договір» and `draft`=«Чернетка», see "Contested decision 2").
+2. `document-labels.ts`: `CATEGORY_LABEL_MESSAGES` (one map, `satisfies` without `as const`), `DOCUMENT_STATUS_MESSAGES`, `DELETE_CONFIRM_MESSAGES` — terms per the canon (Рахунок/Договір/Архів); the test "the map returns text without a raw enum" is green.
+3. `documents.tsx` in `uk`/`en`: categories/statuses from the hub; `pluralizeDocuments`→`<Plural>` (test 1/2/5/11/21); placeholder «Пошук за назвою файлу» (L-17); `documents-no-access` with a recipient (M-13); empty states with a reason (M-6); «Рахунок» instead of «Инвойс» (H-5); the counter without `.toLowerCase()` on the translation.
+4. `documents.tsx` consumes `SORT_OPTION_MESSAGES` via `i18n._()`; the legacy `SORT_OPTIONS` removed from `documents-filter-sort.ts`; `git grep 'SORT_OPTIONS\b'` — empty.
+5. In the PR1 files 0 lines of `[ыэъё]` outside comments.
+6. Unit asserts the catalog; the E2E sweep is done, a table in the PR body; the PR1 E2E specs are green (isolated run; CI — the arbiter).
+7. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+8. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+9. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk` and `en`; `security-reviewer` APPROVE (category/status RBAC, receipt masking).
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
-git rev-parse --show-toplevel                       # == выданный worktree
+git rev-parse --show-toplevel                       # == the assigned worktree
 git fetch origin main && git log --oneline -1 origin/main
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/routes/_authenticated/documents.tsx
-git grep -l 'CATEGORY_LABELS_RU' origin/main -- apps/web/app       # актуальный список копий
-git grep -n 'SORT_OPTIONS\b' origin/main -- apps/web/app           # подтвердить единственного потребителя
+git grep -l 'CATEGORY_LABELS_RU' origin/main -- apps/web/app       # the current list of copies
+git grep -n 'SORT_OPTIONS\b' origin/main -- apps/web/app           # confirm the sole consumer
 ```
 
-Если числа отличаются от таблицы больше чем на 10 % — обновить таблицу в task-файле до начала работы.
+If the numbers differ from the table by more than 10% — update the table in the task file before starting.
 
-- [ ] **Step 1: Канон → `CONTEXT.md`** — подраздел «Волна e — `web-docs-notify`». Отдельный коммит `docs(context): wave e uk/en term forms`, `ac_verified: 1`.
-- [ ] **Step 2: Тест на хаб (падает)** — `it.each` по локалям: `CATEGORY_LABEL_MESSAGES.INVOICE`=«Рахунок»/«Invoice», нет «Інвойс»; `DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN`=«Готовий до підпису». FAIL.
-- [ ] **Step 3: `document-labels.ts` (хаб) → PASS** — карты по G (`satisfies` без `as const`).
-- [ ] **Step 4: `documents.tsx` по секциям (`wip:`)** — тулбар/фильтры/сортировка (потребить `SORT_OPTION_MESSAGES`) → счётчик+`<Plural>` → пустые состояния/no-access → placeholder.
-- [ ] **Step 5: `documents-filter-sort.ts`** — удалить легаси `SORT_OPTIONS`.
-- [ ] **Step 6: Проверка, тесты, E2E-свип, гейты, коммит** (руссизм-скан; `i18n:extract ×2`; `typecheck`/`lint`/`test`; изолированный E2E; `mutation:changed`; `check-mutation-suppressions.mjs`; `git add` явным списком + `sweep-specs.txt`).
+- [ ] **Step 1: Canon → `CONTEXT.md`** — the subsection "Wave e — `web-docs-notify`". A separate commit `docs(context): wave e uk/en term forms`, `ac_verified: 1`.
+- [ ] **Step 2: Test for the hub (fails)** — `it.each` by locale: `CATEGORY_LABEL_MESSAGES.INVOICE`=«Рахунок»/«Invoice», no «Інвойс»; `DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN`=«Готовий до підпису». FAIL.
+- [ ] **Step 3: `document-labels.ts` (hub) → PASS** — maps per G (`satisfies` without `as const`).
+- [ ] **Step 4: `documents.tsx` by section (`wip:`)** — toolbar/filters/sort (consume `SORT_OPTION_MESSAGES`) → counter+`<Plural>` → empty states/no-access → placeholder.
+- [ ] **Step 5: `documents-filter-sort.ts`** — remove the legacy `SORT_OPTIONS`.
+- [ ] **Step 6: Check, tests, E2E sweep, gates, commit** (the russism scan; `i18n:extract ×2`; `typecheck`/`lint`/`test`; isolated E2E; `mutation:changed`; `check-mutation-suppressions.mjs`; `git add` by an explicit list + `sweep-specs.txt`).
 
-Коммит: `feat(web,i18n): stage 3e wave (e) part 1 — documents page + category hub to uk/en` + `ac_verified: 1,2,3,4,5,6,7,8 (9 — reviews after push)`.
+Commit: `feat(web,i18n): stage 3e wave (e) part 1 — documents page + category hub to uk/en` + `ac_verified: 1,2,3,4,5,6,7,8 (9 — reviews after push)`.
 
 ---
 
-## Task 2 (PR2): карточка/строка/детали/статус/изображение/список
+## Task 2 (PR2): card/row/detail/status/image/list
 
 **Files:**
 
-| Файл                                              | Кир. | Паттерн(ы) | Находки аудита / примечание                                                                                                                                                                                                                   |
+| File                                              | Cyr. | Pattern(s) | Audit findings / note                                                                                                                                                                                                                         |
 | ------------------------------------------------- | ---- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/documents/document-detail-dialog.tsx` | 31   | B,C,G,K,L  | по секциям (`wip:`); удалить локальную `CATEGORY_LABELS_RU`→хаб; M-10 (сырой MIME→человеческий формат), M-11 (id проекта→название), M-9 (S3/база), даты `date-fns/ru`→`format.ts`                                                             |
-| `components/documents/document-card.tsx`          | 21   | B,C,G,K,L  | H-1 (обещание восстановления не тому — из `DELETE_CONFIRM_MESSAGES`), H-2 («К транзакции #…» над id проекта), H-5 («Инвойс #…»), M-9, M-15 (invoice pending signature), L-20 (`aria` недоступно с причиной), склейка `«Открыть документ «…»»` |
-| `components/documents/document-row.tsx`           | 17   | B,C,G,L    | H-5, M-9, M-15, L-20 (одна формулировка `aria` с причиной в обоих представлениях), «Удалён»→статус из хаба, даты                                                                                                                              |
-| `components/documents/document-status-badge.tsx`  | 7    | G          | H-4 (`READY_TO_SIGN` из хаба, один канон), M-16 (`draft` «Драфт»→слово из `CONTEXT.md`), M-15                                                                                                                                                 |
-| `components/documents/document-image.tsx`         | 2    | C          | L-21 (`aria-label` на `<div>` без роли → `role="img"`/`role="status"` или видимый текст); кросс-потребляемый компонент                                                                                                                        |
-| `components/documents/document-list.tsx`          | 2    | —          | M-8: пустое состояние недостижимо (родитель передаёт `emptyState`) — **удалить мёртвый текст**, не переводить                                                                                                                                 |
+| `components/documents/document-detail-dialog.tsx` | 31   | B,C,G,K,L  | by section (`wip:`); remove the local `CATEGORY_LABELS_RU`→hub; M-10 (raw MIME→human format), M-11 (project id→name), M-9 (S3/DB), dates `date-fns/ru`→`format.ts`                                                                            |
+| `components/documents/document-card.tsx`          | 21   | B,C,G,K,L  | H-1 (recovery promise to the wrong one — from `DELETE_CONFIRM_MESSAGES`), H-2 («К транзакции #…» above a project id), H-5 («Инвойс #…»), M-9, M-15 (invoice pending signature), L-20 (`aria` unavailable with a reason), the concatenation `«Открыть документ «…»»` |
+| `components/documents/document-row.tsx`           | 17   | B,C,G,L    | H-5, M-9, M-15, L-20 (one `aria` wording with a reason in both views), «Удалён»→status from the hub, dates                                                                                                                              |
+| `components/documents/document-status-badge.tsx`  | 7    | G          | H-4 (`READY_TO_SIGN` from the hub, one canon), M-16 (`draft` «Драфт»→a word from `CONTEXT.md`), M-15                                                                                                                                         |
+| `components/documents/document-image.tsx`         | 2    | C          | L-21 (`aria-label` on a `<div>` without a role → `role="img"`/`role="status"` or visible text); a cross-consumed component                                                                                                                  |
+| `components/documents/document-list.tsx`          | 2    | —          | M-8: the empty state is unreachable (the parent passes `emptyState`) — **remove the dead text**, do not translate                                                                                                                           |
 
-Тесты: `documents/__tests__/{document-card,document-row,document-status-badge,document-image}.test.tsx` + детальный диалог. Новые кейсы (статус без сырого enum; формат из MIME; название проекта вместо id) — внутри существующих.
+Tests: `documents/__tests__/{document-card,document-row,document-status-badge,document-image}.test.tsx` + the detail dialog. New cases (a status without a raw enum; the format from the MIME; the project name instead of the id) — inside the existing ones.
 
-**Interfaces:** Consumes `CATEGORY_LABEL_MESSAGES`/`DOCUMENT_STATUS_MESSAGES`/`DELETE_CONFIRM_MESSAGES` (хаб PR1), `format.ts`, `useLocale`, хелперы каталога. Удаляет локальную `CATEGORY_LABELS_RU` из `document-detail-dialog`.
+**Interfaces:** Consumes `CATEGORY_LABEL_MESSAGES`/`DOCUMENT_STATUS_MESSAGES`/`DELETE_CONFIRM_MESSAGES` (the PR1 hub), `format.ts`, `useLocale`, the catalog helpers. Removes the local `CATEGORY_LABELS_RU` from `document-detail-dialog`.
 
-### Опасность: `document-image` кросс-потребляем
+### Danger: `document-image` is cross-consumed
 
-`DocumentImage` используют `ProjectLogo`, `UserAvatar`, `image-upload-field`. Правка `aria-label` (L-21) — внутренняя, сигнатуру не менять. E2E-свип обязан покрыть спеки проектов/профиля.
+`DocumentImage` is used by `ProjectLogo`, `UserAvatar`, `image-upload-field`. The `aria-label` edit (L-21) is internal, do not change the signature. The E2E sweep must cover the project/profile specs.
 
 ### Acceptance criteria (PR2)
 
-1. `document-detail-dialog` на `uk`/`en`: категории из хаба (локальная карта удалена); формат человеческий, сырой MIME — в `title` (M-10); название проекта, id — в `title` (M-11); «без можливості відновлення» (M-9); даты через `format.ts`, `date-fns/ru` убран.
-2. `document-card` на `uk`/`en`: H-1 (кто восстанавливает — из хаба), H-2 (чип «К транзакции» снят/ведёт на транзакцию — см. трассировку), H-5 («Рахунок»), M-15 (один канон «очікує підпису»), L-20 (`aria` с причиной), склейка через слот.
-3. `document-row` на `uk`/`en`: H-5, M-9, M-15, L-20 (та же формулировка, что в card), статус из хаба.
-4. `document-status-badge`: `READY_TO_SIGN`/`SIGNED`/`draft` из хаба/`CONTEXT.md`, «Драфт»→слово (M-16), нет сырого enum.
-5. `document-image`: `aria-label` работает (роль или видимый текст, L-21). `document-list`: мёртвый текст удалён (M-8).
-6. В файлах PR2 0 строк `[ыэъё]` вне комментариев; `git grep 'CATEGORY_LABELS_RU'` не находит `document-detail-dialog`.
-7. Unit ассертят каталог; E2E-свип; E2E спек PR2 зелёные.
-8. `i18n:extract ×2` пустой; `en` 0 пустых `msgstr`. `mutation:changed survived 0`; suppressions зелёный.
-9. Design tier 2, fidelity Mode B; скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (чек/инвойс-маскировка, `canRestore`).
+1. `document-detail-dialog` in `uk`/`en`: categories from the hub (the local map removed); the format human, raw MIME — in `title` (M-10); the project name, id — in `title` (M-11); «без можливості відновлення» (M-9); dates via `format.ts`, `date-fns/ru` removed.
+2. `document-card` in `uk`/`en`: H-1 (who restores — from the hub), H-2 (the «К транзакции» chip removed/links to the transaction — see the trace), H-5 («Рахунок»), M-15 (one canon «очікує підпису»), L-20 (`aria` with a reason), the concatenation via a slot.
+3. `document-row` in `uk`/`en`: H-5, M-9, M-15, L-20 (the same wording as in card), the status from the hub.
+4. `document-status-badge`: `READY_TO_SIGN`/`SIGNED`/`draft` from the hub/`CONTEXT.md`, «Драфт»→a word (M-16), no raw enum.
+5. `document-image`: the `aria-label` works (a role or visible text, L-21). `document-list`: the dead text removed (M-8).
+6. In the PR2 files 0 lines of `[ыэъё]` outside comments; `git grep 'CATEGORY_LABELS_RU'` does not find `document-detail-dialog`.
+7. Unit asserts the catalog; the E2E sweep; the PR2 E2E specs are green.
+8. `i18n:extract ×2` empty; `en` 0 empty `msgstr`. `mutation:changed survived 0`; suppressions green.
+9. Design tier 2, fidelity Mode B; screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (receipt/invoice masking, `canRestore`).
 
-Шаги: Step 0 замер → Step 1 тесты (падают) → Step 2 `document-detail-dialog` по секциям → Step 3 `document-card` (H-1/H-2/H-5) → Step 4 `document-row` → Step 5 `document-status-badge` (+ `draft` в `CONTEXT.md`) → Step 6 `document-image`/`document-list` → Step 7 проверка/гейты/коммит. Коммит: `feat(web,i18n): stage 3e wave (e) part 2 — document card, row, detail, status to uk/en`, `ac_verified: 1,2,3,4,5,6,7,8 (9 — reviews after push)`.
+Steps: Step 0 measurement → Step 1 tests (fail) → Step 2 `document-detail-dialog` by section → Step 3 `document-card` (H-1/H-2/H-5) → Step 4 `document-row` → Step 5 `document-status-badge` (+ `draft` in `CONTEXT.md`) → Step 6 `document-image`/`document-list` → Step 7 check/gates/commit. Commit: `feat(web,i18n): stage 3e wave (e) part 2 — document card, row, detail, status to uk/en`, `ac_verified: 1,2,3,4,5,6,7,8 (9 — reviews after push)`.
 
 ---
 
-## Task 3 (PR3): загрузка + превью PDF
+## Task 3 (PR3): upload + PDF preview
 
 **Files:**
 
-| Файл                                              | Кир. | Паттерн(ы) | Находки аудита / примечание                                                                                                                                                                                                                                    |
-| ------------------------------------------------- | ---- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/documents/upload-document-dialog.tsx` | 25   | B,C,G,K    | удалить **последнюю** локальную `CATEGORY_LABELS_RU`→хаб; H-6 (`e.message` axios→`getApiErrorMessage`), H-5 («Инвойс»), K-склейка «Файл больше {max}. Ваш файл: {size}», «Загрузка...»→«Завантаження…» (L-19)                                                  |
-| `components/documents/pdf-preview.tsx`            | 8    | B,C,K      | M-7 (кнопка «Открыть PDF» на `<a download>`→«Завантажити PDF» либо снять `download`), M-8 (мёртвый текст `<iframe>`-фолбэка — удалить), M-12 (ошибка PDF без «Повторити»/«Завантажити»), склейка `title`/`aria` «Предпросмотр: {filename}»; кросс-потребляемый |
+| File                                              | Cyr. | Pattern(s) | Audit findings / note                                                                                                                                                                                                                                    |
+| ------------------------------------------------- | ---- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/documents/upload-document-dialog.tsx` | 25   | B,C,G,K    | remove the **last** local `CATEGORY_LABELS_RU`→hub; H-6 (`e.message` axios→`getApiErrorMessage`), H-5 («Инвойс»), the K-concatenation «Файл больше {max}. Ваш файл: {size}», «Загрузка...»→«Завантаження…» (L-19)                                          |
+| `components/documents/pdf-preview.tsx`            | 8    | B,C,K      | M-7 (the «Открыть PDF» button on `<a download>`→«Завантажити PDF» or remove `download`), M-8 (the dead `<iframe>` fallback text — remove), M-12 (a PDF error without «Повторити»/«Завантажити»), the `title`/`aria` concatenation «Предпросмотр: {filename}»; cross-consumed |
 
-Тесты: `documents/__tests__/{upload-document-dialog,pdf-preview}.test.tsx`. Новые кейсы (разбор ошибки загрузки по статусу; «Завантажити» vs «Відкрити» по `download`) — внутри существующих.
+Tests: `documents/__tests__/{upload-document-dialog,pdf-preview}.test.tsx`. New cases (parsing the upload error by status; «Завантажити» vs «Відкрити» by `download`) — inside the existing ones.
 
-**Interfaces:** Consumes `CATEGORY_LABEL_MESSAGES` (хаб), `getApiErrorMessage` (`@/lib/axios-utils`), `format.ts`, хелперы каталога. Удаляет последнюю `CATEGORY_LABELS_RU`.
+**Interfaces:** Consumes `CATEGORY_LABEL_MESSAGES` (the hub), `getApiErrorMessage` (`@/lib/axios-utils`), `format.ts`, the catalog helpers. Removes the last `CATEGORY_LABELS_RU`.
 
-### Опасность: `pdf-preview` кросс-потребляем
+### Danger: `pdf-preview` is cross-consumed
 
-`PdfPreview` используют resume/vacancies/admin-contracts. Текст внутренний, сигнатуру не менять; E2E-свип покрывает `documents-pdf-preview.spec.ts` + спеки-потребители.
+`PdfPreview` is used by resume/vacancies/admin-contracts. The text is internal, do not change the signature; the E2E sweep covers `documents-pdf-preview.spec.ts` + the consumer specs.
 
 ### Acceptance criteria (PR3)
 
-1. `upload-document-dialog` на `uk`/`en`: категории из хаба (последняя локальная карта удалена — `git grep 'CATEGORY_LABELS_RU'` пусто по всему `apps/web`); H-6 (axios→`getApiErrorMessage`+действие «оберіть файл менше 20 МБ»); H-5; склейка размера через слот; «Завантаження…» (L-19).
-2. `pdf-preview` на `uk`/`en`: M-7 (текст = поведению кнопки), M-8 (мёртвый `<iframe>`-текст удалён), M-12 (ошибка+«Повторити»+«Завантажити»), склейки `title`/`aria` через слот.
-3. В файлах PR3 0 строк `[ыэъё]` вне комментариев.
-4. Unit ассертят каталог; E2E-свип; E2E спек PR3 зелёные.
-5. `i18n:extract ×2` пустой; `en` 0 пустых. `mutation:changed survived 0`; suppressions зелёный.
-6. Design tier 2, fidelity Mode B; скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (загрузка файлов, размер/тип).
+1. `upload-document-dialog` in `uk`/`en`: categories from the hub (the last local map removed — `git grep 'CATEGORY_LABELS_RU'` empty across all `apps/web`); H-6 (axios→`getApiErrorMessage`+the action «оберіть файл менше 20 МБ»); H-5; the size concatenation via a slot; «Завантаження…» (L-19).
+2. `pdf-preview` in `uk`/`en`: M-7 (the text = the button behavior), M-8 (the dead `<iframe>` text removed), M-12 (an error+«Повторити»+«Завантажити»), the `title`/`aria` concatenations via a slot.
+3. In the PR3 files 0 lines of `[ыэъё]` outside comments.
+4. Unit asserts the catalog; the E2E sweep; the PR3 E2E specs are green.
+5. `i18n:extract ×2` empty; `en` 0 empty. `mutation:changed survived 0`; suppressions green.
+6. Design tier 2, fidelity Mode B; screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (file upload, size/type).
 
-Шаги: Step 0 замер + `git grep CATEGORY_LABELS_RU` → Step 1 тесты (падают) → Step 2 `upload-document-dialog` (axios/категории/склейки) → Step 3 `pdf-preview` (M-7/M-8/M-12) → Step 4 проверка/гейты/коммит. Коммит: `feat(web,i18n): stage 3e wave (e) part 3 — upload dialog + PDF preview to uk/en`, `ac_verified: 1,2,3,4,5 (6 — reviews after push)`.
+Steps: Step 0 measurement + `git grep CATEGORY_LABELS_RU` → Step 1 tests (fail) → Step 2 `upload-document-dialog` (axios/categories/concatenations) → Step 3 `pdf-preview` (M-7/M-8/M-12) → Step 4 check/gates/commit. Commit: `feat(web,i18n): stage 3e wave (e) part 3 — upload dialog + PDF preview to uk/en`, `ac_verified: 1,2,3,4,5 (6 — reviews after push)`.
 
 ---
 
-## Task 4 (PR4): pending + хвост уведомлений + финальная сверка
+## Task 4 (PR4): pending + the notifications tail + the final check
 
 **Files:**
 
-| Файл                                                | Кир. | Паттерн(ы) | Находки аудита / примечание                                                                                                                                               |
-| --------------------------------------------------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `routes/_authenticated/pending/index.tsx`           | 13   | A,B,K      | `KIND_SECTIONS` titles («Проекты»/«Доли»/«Контракты») + `OTHER_SECTION_TITLE` («Другое») — теперь безопасно (testid по `kind`, этап 2); тернарники пустых состояний       |
-| `components/pending/PendingItemRow.tsx`             | 12   | B,C,K,L    | M-14 (`viewerSharePercent==null` «Обновите»→что делать), четыре варианта фразы `metaLinesFor`→`select` (K), проценты→ICU, `date-fns/ru`→`format.ts`, `fmtRelative` свести |
-| `components/pending/SeniorShareApprovalActions.tsx` | 10   | B,C        | L-19 («Подтверждение…»/«Отклонение…» ASCII→символ), подписи действий, фолбэки ошибок (`seniorShareErrorMessage`)                                                          |
-| `components/pending/PendingKindSection.tsx`         | 0    | I          | текста нет; testid уже по `kind` — **не трогать**, только обновить тест на каталог, если ассертит `title`                                                                 |
+| File                                                | Cyr. | Pattern(s) | Audit findings / note                                                                                                                                                     |
+| --------------------------------------------------- | ---- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `routes/_authenticated/pending/index.tsx`           | 13   | A,B,K      | `KIND_SECTIONS` titles («Проекты»/«Доли»/«Контракты») + `OTHER_SECTION_TITLE` («Другое») — now safe (testid by `kind`, stage 2); the empty-state ternaries                 |
+| `components/pending/PendingItemRow.tsx`             | 12   | B,C,K,L    | M-14 (`viewerSharePercent==null` «Обновите»→what to do), four variants of the `metaLinesFor` phrase→`select` (K), percentages→ICU, `date-fns/ru`→`format.ts`, reconcile `fmtRelative` |
+| `components/pending/SeniorShareApprovalActions.tsx` | 10   | B,C        | L-19 («Подтверждение…»/«Отклонение…» ASCII→the symbol), action captions, error fallbacks (`seniorShareErrorMessage`)                                                        |
+| `components/pending/PendingKindSection.tsx`         | 0    | I          | no text; the testid is already by `kind` — **do not touch**, only update the test to the catalog if it asserts `title`                                                      |
 | `hooks/use-notification-preferences.ts`             | 2    | C          | H-6 (`Не удалось сохранить настройку: ${err.message}`→`getApiErrorMessage`), «Сохранено»→«Збережено»                                                                      |
-| `components/documents/document-labels.ts`           | —    | —          | удалить `@deprecated`-остатки, если после PR2/PR3 такие есть; финальная сверка                                                                                            |
+| `components/documents/document-labels.ts`           | —    | —          | remove the `@deprecated` remainders, if any after PR2/PR3; the final check                                                                                                 |
 
-Тесты: `pending/__tests__/{PendingItemRow,PendingKindSection,SeniorShareApprovalActions}.test.tsx`, `routes/_authenticated/pending/__tests__/{index,index.gate}.test.tsx`. Новые кейсы (`select` фразы доли на всех ветках; проценты 1/2/5) — внутри существующих.
+Tests: `pending/__tests__/{PendingItemRow,PendingKindSection,SeniorShareApprovalActions}.test.tsx`, `routes/_authenticated/pending/__tests__/{index,index.gate}.test.tsx`. New cases (the `select` share phrase on all branches; percentages 1/2/5) — inside the existing ones.
 
-**Interfaces:** Consumes `DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN` (хаб PR1, для `CONTRACT_TO_SIGN`), `getApiErrorMessage`, `format.ts`, `useLocale`, хелперы каталога.
+**Interfaces:** Consumes `DOCUMENT_STATUS_MESSAGES.READY_TO_SIGN` (the PR1 hub, for `CONTRACT_TO_SIGN`), `getApiErrorMessage`, `format.ts`, `useLocale`, the catalog helpers.
 
-### Опасность: `/pending` — доли/подтверждения, critical-path
+### Danger: `/pending` — shares/confirmations, critical-path
 
-`PendingItemRow`/`SeniorShareApprovalActions` — доли, `approvalId`, поколения `supersededAt`. Перевод меняет **текст**, не логику подтверждения/группировки (`sectionTitleOf`/`sectionKindOf`) и не то, чью долю видит смотрящий. Тест — поведение группировки и фокус-после-действия (спека §12) не изменились. `security-reviewer` **обязателен**.
+`PendingItemRow`/`SeniorShareApprovalActions` — shares, `approvalId`, `supersededAt` generations. The translation changes the **text**, not the confirmation/grouping logic (`sectionTitleOf`/`sectionKindOf`) nor whose share the viewer sees. The test — the grouping behavior and focus-after-action (spec §12) did not change. `security-reviewer` is **mandatory**.
 
 ### Acceptance criteria (PR4)
 
-1. `pending/index.tsx` на `uk`/`en`: `KIND_SECTIONS` titles «Проєкти»/«Частки»/«Контракти», `OTHER_SECTION_TITLE` «Інше»; тернарники пустых состояний через `select`/слоты; testid (`pending-kind-*`) не изменились (проверить, что по `kind`, не по `title`).
-2. `PendingItemRow` на `uk`/`en`: M-14 («не підтверджуйте наосліп — запитайте адміна»); четыре варианта фразы→`select`; проценты→ICU; `CONTRACT_TO_SIGN` статус из хаба (H-4); даты через `format.ts`, `fmtRelative`-дубль сведён.
-3. `SeniorShareApprovalActions` на `uk`/`en`: символ `…` (L-19), фолбэки ошибок с действием.
-4. `use-notification-preferences.ts`: H-6 (`getApiErrorMessage`+запасной текст), «Збережено».
-5. `PendingKindSection` тест — ассерты на каталог/testid; продуктовый файл не изменён по тексту.
-6. В файлах PR4 0 строк `[ыэъё]` вне комментариев; хаб очищен от `@deprecated`.
-7. Unit ассертят каталог; E2E-свип; E2E спек PR4 зелёные.
-8. `i18n:extract ×2` пустой; `en` 0 пустых. `mutation:changed survived 0`; suppressions зелёный.
-9. **Финальная сверка волны (e)** (скрипт ниже) — `violations: 0`; `git grep 'CATEGORY_LABELS_RU|SORT_OPTIONS'` по `apps/web/app` — пусто.
-10. Design tier 2, fidelity Mode B; скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (доли, подтверждения, фокус-после-действия).
+1. `pending/index.tsx` in `uk`/`en`: `KIND_SECTIONS` titles «Проєкти»/«Частки»/«Контракти», `OTHER_SECTION_TITLE` «Інше»; the empty-state ternaries via `select`/slots; the testid (`pending-kind-*`) unchanged (check that it is by `kind`, not `title`).
+2. `PendingItemRow` in `uk`/`en`: M-14 («не підтверджуйте наосліп — запитайте адміна»); four variants of the phrase→`select`; percentages→ICU; the `CONTRACT_TO_SIGN` status from the hub (H-4); dates via `format.ts`, the `fmtRelative` duplicate reconciled.
+3. `SeniorShareApprovalActions` in `uk`/`en`: the symbol `…` (L-19), error fallbacks with an action.
+4. `use-notification-preferences.ts`: H-6 (`getApiErrorMessage`+a fallback text), «Збережено».
+5. `PendingKindSection` test — assertions to the catalog/testid; the product file not changed by text.
+6. In the PR4 files 0 lines of `[ыэъё]` outside comments; the hub cleared of `@deprecated`.
+7. Unit asserts the catalog; the E2E sweep; the PR4 E2E specs are green.
+8. `i18n:extract ×2` empty; `en` 0 empty. `mutation:changed survived 0`; suppressions green.
+9. **The final wave (e) check** (script below) — `violations: 0`; `git grep 'CATEGORY_LABELS_RU|SORT_OPTIONS'` over `apps/web/app` — empty.
+10. Design tier 2, fidelity Mode B; screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS `uk`/`en`; `security-reviewer` APPROVE (shares, confirmations, focus-after-action).
 
-Финальная сверка волны (e) — в тело PR4:
+The final wave (e) check — into the PR4 body:
 
 ```bash
 python3 - <<'EOF'
@@ -502,132 +502,132 @@ for f in out:
             print(f,n,l.strip()); bad+=1
 print('violations:', bad)
 EOF
-git grep -nP '\bCATEGORY_LABELS_RU\b|\bSORT_OPTIONS\b' -- apps/web/app   # ожидается: пусто
+git grep -nP '\bCATEGORY_LABELS_RU\b|\bSORT_OPTIONS\b' -- apps/web/app   # expected: empty
 ```
 
-Шаги: Step 0 замер → Step 1 тесты (падают) → Step 2 `pending/index.tsx` → Step 3 `PendingItemRow` (`select`/ICU/M-14) → Step 4 `SeniorShareApprovalActions` → Step 5 `use-notification-preferences` → Step 6 `PendingKindSection` тест + очистка хаба + финальная сверка → Step 7 гейты/коммит. Коммит: `feat(web,i18n): stage 3e wave (e) part 4 — pending screen + notification prefs to uk/en`, `ac_verified: 1,2,3,4,5,6,7,8,9 (10 — reviews after push)`.
+Steps: Step 0 measurement → Step 1 tests (fail) → Step 2 `pending/index.tsx` → Step 3 `PendingItemRow` (`select`/ICU/M-14) → Step 4 `SeniorShareApprovalActions` → Step 5 `use-notification-preferences` → Step 6 `PendingKindSection` test + hub cleanup + the final check → Step 7 gates/commit. Commit: `feat(web,i18n): stage 3e wave (e) part 4 — pending screen + notification prefs to uk/en`, `ac_verified: 1,2,3,4,5,6,7,8,9 (10 — reviews after push)`.
 
 ---
 
-## Трассировка находок аудита `web-docs-notify`
+## Trace of the `web-docs-notify` audit findings
 
-`Findings:` среза — 21. Каждый идентификатор ниже.
+The slice's `Findings:` — 21. Each identifier below.
 
-| Находка        | Статус на `025c28a0a`                                                       | Где закрывается                                                                                |
+| Finding        | Status on `025c28a0a`                                                       | Where it is closed                                                                            |
 | -------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| COPY-H-docs-1  | открыта (обещание восстановления не тому)                                   | PR1 (`DELETE_CONFIRM_MESSAGES` хаб), PR2 (card/row/detail потребляют)                          |
-| COPY-H-docs-2  | открыта («К транзакции #…» над id проекта)                                  | PR2 (`document-card`: снять чип / вести на транзакцию — см. решение в AC2)                     |
-| COPY-H-docs-3  | открыта (3 карты категорий, CONTRACT слово)                                 | PR1 (одна `CATEGORY_LABEL_MESSAGES` + выбор в `CONTEXT.md`); последние копии удаляются PR2/PR3 |
-| COPY-H-docs-4  | открыта (`READY_TO_SIGN` два слова)                                         | PR1 (`DOCUMENT_STATUS_MESSAGES` канон), PR2 (`status-badge`), PR4 (`PendingItemRow`)           |
-| COPY-H-docs-5  | открыта («Инвойс» вместо «Счёт»)                                            | PR1 (`documents.tsx`), PR2 (card/row/detail), PR3 (upload)                                     |
-| COPY-H-docs-6  | открыта (английский axios на русском экране)                                | PR3 (`upload-document-dialog`), PR4 (`use-notification-preferences`)                           |
-| COPY-M-docs-7  | открыта («Открыть PDF» на `<a download>`)                                   | PR3 (`pdf-preview`)                                                                            |
-| COPY-M-docs-8  | открыта (мёртвый текст `<iframe>`/`document-list`)                          | PR2 (`document-list`), PR3 (`pdf-preview`)                                                     |
-| COPY-M-docs-9  | открыта («…из S3 и базы»)                                                   | PR2 (card/row/detail — `DELETE_CONFIRM_MESSAGES`)                                              |
-| COPY-M-docs-10 | открыта (сырой MIME)                                                        | PR2 (`document-detail-dialog`)                                                                 |
-| COPY-M-docs-11 | открыта (id проекта вместо названия)                                        | PR2 (`document-detail-dialog`)                                                                 |
-| COPY-M-docs-12 | открыта (ошибка PDF без повтора/скачивания)                                 | PR3 (`pdf-preview`)                                                                            |
-| COPY-M-docs-13 | открыта («У вас нет доступа» тупик)                                         | PR1 (`documents.tsx` `documents-no-access`)                                                    |
-| COPY-M-docs-14 | открыта («Доля неизвестна. Обновите»)                                       | PR4 (`PendingItemRow`)                                                                         |
-| COPY-M-docs-15 | открыта (invoice pending signature 2 слова)                                 | PR2 (card/row/status — один канон)                                                             |
-| COPY-M-docs-16 | открыта («Драфт» транслитерация)                                            | PR2 (`document-status-badge` + слово в `CONTEXT.md`)                                           |
-| COPY-L-docs-17 | открыта («Поиск по имени…»)                                                 | PR1 (`documents.tsx` placeholder)                                                              |
-| COPY-L-docs-18 | **поведение закрыто (этап 2/3a)**; форма подписи — в `SORT_OPTION_MESSAGES` | PR1 (потребить); `copy-reviewer` решает, называть ли алфавит в существующем каноне             |
-| COPY-L-docs-19 | открыта (ASCII-точки vs символ `…`)                                         | PR3 (`upload`/`pdf-preview`), PR4 (`SeniorShareApprovalActions`)                               |
-| COPY-L-docs-20 | открыта (`aria` недоступно две степени)                                     | PR2 (`document-card`/`document-row` — одна формулировка)                                       |
-| COPY-L-docs-21 | открыта (`aria-label` на `<div>` без роли)                                  | PR2 (`document-image`)                                                                         |
+| COPY-H-docs-1  | open (recovery promise to the wrong one)                                    | PR1 (`DELETE_CONFIRM_MESSAGES` hub), PR2 (card/row/detail consume)                             |
+| COPY-H-docs-2  | open («К транзакции #…» above a project id)                                 | PR2 (`document-card`: remove the chip / link to the transaction — see the decision in AC2)    |
+| COPY-H-docs-3  | open (3 category maps, the CONTRACT word)                                   | PR1 (one `CATEGORY_LABEL_MESSAGES` + the choice in `CONTEXT.md`); the last copies removed PR2/PR3 |
+| COPY-H-docs-4  | open (`READY_TO_SIGN` two words)                                            | PR1 (`DOCUMENT_STATUS_MESSAGES` canon), PR2 (`status-badge`), PR4 (`PendingItemRow`)           |
+| COPY-H-docs-5  | open («Инвойс» instead of «Счёт»)                                           | PR1 (`documents.tsx`), PR2 (card/row/detail), PR3 (upload)                                     |
+| COPY-H-docs-6  | open (English axios on a Russian screen)                                    | PR3 (`upload-document-dialog`), PR4 (`use-notification-preferences`)                           |
+| COPY-M-docs-7  | open («Открыть PDF» on `<a download>`)                                      | PR3 (`pdf-preview`)                                                                            |
+| COPY-M-docs-8  | open (dead `<iframe>`/`document-list` text)                                 | PR2 (`document-list`), PR3 (`pdf-preview`)                                                     |
+| COPY-M-docs-9  | open («…из S3 и базы»)                                                      | PR2 (card/row/detail — `DELETE_CONFIRM_MESSAGES`)                                              |
+| COPY-M-docs-10 | open (raw MIME)                                                             | PR2 (`document-detail-dialog`)                                                                 |
+| COPY-M-docs-11 | open (project id instead of the name)                                       | PR2 (`document-detail-dialog`)                                                                 |
+| COPY-M-docs-12 | open (a PDF error without retry/download)                                   | PR3 (`pdf-preview`)                                                                            |
+| COPY-M-docs-13 | open («У вас нет доступа» dead end)                                         | PR1 (`documents.tsx` `documents-no-access`)                                                    |
+| COPY-M-docs-14 | open («Доля неизвестна. Обновите»)                                         | PR4 (`PendingItemRow`)                                                                         |
+| COPY-M-docs-15 | open (invoice pending signature 2 words)                                    | PR2 (card/row/status — one canon)                                                             |
+| COPY-M-docs-16 | open («Драфт» transliteration)                                             | PR2 (`document-status-badge` + the word in `CONTEXT.md`)                                       |
+| COPY-L-docs-17 | open («Поиск по имени…»)                                                   | PR1 (`documents.tsx` placeholder)                                                              |
+| COPY-L-docs-18 | **behavior closed (stage 2/3a)**; the caption form — in `SORT_OPTION_MESSAGES` | PR1 (consume); `copy-reviewer` decides whether to name the alphabet in the existing canon      |
+| COPY-L-docs-19 | open (ASCII dots vs the symbol `…`)                                         | PR3 (`upload`/`pdf-preview`), PR4 (`SeniorShareApprovalActions`)                               |
+| COPY-L-docs-20 | open (`aria` unavailable, two degrees)                                      | PR2 (`document-card`/`document-row` — one wording)                                             |
+| COPY-L-docs-21 | open (`aria-label` on a `<div>` without a role)                             | PR2 (`document-image`)                                                                         |
 
-Findings: COPY-H-docs-1 … COPY-H-docs-6, COPY-M-docs-7 … COPY-M-docs-16, COPY-L-docs-17 … COPY-L-docs-21 (21) — строк в таблице 21.
+Findings: COPY-H-docs-1 … COPY-H-docs-6, COPY-M-docs-7 … COPY-M-docs-16, COPY-L-docs-17 … COPY-L-docs-21 (21) — 21 rows in the table.
 
-Отдельно из раздела «B. Опасности» аудита (не нумерованные COPY): **testid из локализованного заголовка** и **`localeCompare('ru')`** — **закрыты этапом 2** (см. «Что уже закрыто до старта»). Ручные множественные формы, склейки, `Record`-на-модуле, даты с фиксированной локалью — распределены по шаблонам J-docs/K-docs/L-docs/G-docs в задачах выше.
+Separately from the audit's "B. Dangers" section (not numbered COPY): **the testid from the localized title** and **`localeCompare('ru')`** — **closed in stage 2** (see "What is already closed before start"). Manual plural forms, concatenations, `Record`-at-module, dates with a fixed locale — distributed across templates J-docs/K-docs/L-docs/G-docs in the tasks above.
 
 ---
 
-## Находки вне периметра (не расширяем, записываем)
+## Findings outside the perimeter (we do not expand, we record)
 
-| Что                                                                                                   | Чья волна / куда                                                                                      |
+| What                                                                                                   | Whose wave / where to                                                                                 |
 | ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Производители `NOTIFICATION_TITLES` (русский) в колонку `notifications.title` — `apps/api` сервисы    | Срез `api` (backend). На экране не читается (см. «Спорное решение 1»); отдельная задача               |
-| `NotificationSettingsTab.tsx` `IMPERSONATION_EXPLANATION` = `` `${MSG}.` `` (пунктуация вне перевода) | web-people / уже мигрирован этапом 4; если точка-снаружи осталась — фикс отдельной строкой web-people |
-| `ContractTab`/`UserDialog` ветвление пустого состояния по английской прозе ошибки                     | Срез web-people (профиль/контракты), не docs-notify. Проверить в его волне                            |
-| `lib/format-amount.ts` (`formatAmount` `ru-RU`) — корень форматирования сумм                          | Кросс-срез web-core/web-finance (Спорное решение 3 волны d). Документы сумм не форматируют            |
+| The `NOTIFICATION_TITLES` producers (Russian) into the `notifications.title` column — `apps/api` services | The `api` slice (backend). Not read on the screen (see "Contested decision 1"); a separate task       |
+| `NotificationSettingsTab.tsx` `IMPERSONATION_EXPLANATION` = `` `${MSG}.` `` (punctuation outside the translation) | web-people / already migrated in stage 4; if the period-outside remained — a fix as a separate web-people line |
+| `ContractTab`/`UserDialog` empty-state branching by the English error prose                            | The web-people slice (profile/contracts), not docs-notify. Check in its wave                          |
+| `lib/format-amount.ts` (`formatAmount` `ru-RU`) — the amount-formatting root                           | Cross-slice web-core/web-finance (wave d Contested decision 3). Documents do not format amounts       |
 
 ---
 
-## Что НЕ входит
+## What is NOT included
 
-- **`apps/api`** — волна `apps/web` его не трогает. Русский текст, который производители пишут в `notifications.title`/`body`, — миграция среза `api`.
-- **Уже мигрированное** (реестр уведомлений, колокол, `NotificationSettingsTab`, testid-развязка, `localeCompare`, `SORT_OPTION_MESSAGES`) — потреблять/верифицировать, не переделывать.
-- **Этап 6**: ESLint `lingui/no-unlocalized-strings` в режиме error, guard на русские буквы, `extract --clean` как хард-гейт.
-- Тексты с явным id (`api-error.*`, `zod-error.*`, `notification.*`) волна не меняет, только использует.
-- Имена/бренды/расширения (`PDF`, `JPEG`, `S3`/`R2` в `title`) — не переводятся.
-- E2E-фикстуры с русскими именами файлов (`резюме-тест.pdf`) — данные, не UI.
-
----
-
-## Спорное решение 1 — данные-в-БД заголовков уведомлений: перевод НЕ требуется
-
-**Проверено на `025c28a0a` чтением `notification-registry.ts` + `notifications-bell.tsx`.**
-
-Задание ставит риск «три типа уведомлений берут title из БД» по аналогии с `EXPENSE_CATEGORIES` в волне d. Разбор показывает, что **аналогии нет и слепого перевода данных не будет**, потому что путь показа и путь хранения разведены by design (спека §7.1, реализовано этапом 4):
-
-- **Показ** (`renderNotification(n, i18n)` в колоколе): для любого из 13 известных типов, чьи `data` проходят Zod, заголовок берётся из **`NOTIFICATION_TITLE_MESSAGES`** (полностью `uk`/`en`, #714), деталь — из `describeNotification`. Колонки `n.title`/`n.body` при этом **не читаются**.
-- **Хранение**: производители (`approvals/employee-contracts/transactions/projects/teams/users.service.ts` в `apps/api`) пишут в `notifications.title` нейтральный текст (легаси `NOTIFICATION_TITLES` — русский для 10 исходных типов; **украинский** для трёх «замороженных» — инвойсы/вакансии). Этот текст **читается только в фолбэке** `renderNotification` для **незнакомого/легаси-типа до реестра** или когда `data` не парсится.
-
-Отсюда:
-
-1. **Веб-волна ничего не переводит в данных** — заголовки на экране уже мигрированы (реестр), три «замороженных» типа и так хранят украинский.
-2. **Русский в `notifications.title` для 10 исходных типов** — это backend-текст среза `api`, попадающий на экран только фолбэком для битых/легаси-строк; его судьба — отдельная задача среза `api`, не эта волна.
-3. **Прод-запрос к данным не нужен** (в отличие от EXPENSE): значения известны из кода (`NOTIFICATION_TITLES`), путь показа их не использует.
-
-**Рекомендация:** ничего не переводить в данных этой волной; зафиксировать в теле PR4 факт «notification title data-at-rest — показ через реестр (сделано #714), хранение — срез `api`». **Вопроса владельцу по прод-данным title НЕТ** (см. «Вопросы владельцу»). Единственный опциональный follow-up (низкий приоритет): бэкфилл старых легаси-строк `notifications.title` при миграции среза `api` — но фолбэк и так честно показывает сохранённое, ценность низкая.
-
-## Спорное решение 2 — слова для `CONTRACT` и статуса `draft` (пробел глоссария)
-
-`CONTEXT.md` не даёт однозначного слова ни для категории `CONTRACT` (COPY-H-docs-3: три карты дают «Договоры»/«Договор»/«Контракт»), ни для статуса контракта `draft` (COPY-M-docs-16: «Драфт» — транслитерация; «Черновик» запрещён только для статуса **проекта**).
-
-**Рекомендация (A1, обратимо, фиксируется в `CONTEXT.md` PR1/PR2, окончательно — `copy-reviewer`):**
-
-- `CONTRACT` → `uk` «Договір» / `en` «Contract» (совпадает с доменным «договір» в `employeeContracts`; «контракт» оставить как разговорный синоним в справке, но в UI — одно слово).
-- `draft` (контракт) → `uk` «Чернетка» / `en` «Draft» («Чернетка» ≠ запрещённый для проекта «Черновик»; это статус контракта, где запрета нет).
-
-Обе формы — черновик; `copy-reviewer` вправе выбрать иначе, тогда правится строка канона и `.po`. Это **не** вопрос владельцу — доменная терминология в зоне `copy-reviewer`.
-
-## Спорное решение 3 — `document-card` чип «К транзакции #…» (COPY-H-docs-2)
-
-Ветка `isReceipt && doc.projectId` печатает `doc.projectId` (id **проекта**) под подписью «К транзакции», ведёт на общий `/finance`, и почти мертва (`ReceiptInput` грузит чек без `projectId`).
-
-**Рекомендация (A1):** снять номер и вести на «Фінанси» без ложной привязки — чип «Чек із Фінансів» без номера (минимальная правда), поскольку связь чек↔транзакция в данных отсутствует. Вести на конкретную транзакцию нельзя без её id, которого в `doc` нет. Зафиксировать в теле PR2; если владелец/`spec-reviewer` захочет реальную привязку — отдельная задача (данные + API), вне i18n-волны.
+- **`apps/api`** — the `apps/web` wave does not touch it. The Russian text the producers write to `notifications.title`/`body` is a migration of the `api` slice.
+- **The already migrated** (the notifications registry, the bell, `NotificationSettingsTab`, the testid decoupling, `localeCompare`, `SORT_OPTION_MESSAGES`) — consume/verify, do not redo.
+- **Stage 6**: ESLint `lingui/no-unlocalized-strings` in error mode, the guard for Russian letters, `extract --clean` as a hard gate.
+- Texts with an explicit id (`api-error.*`, `zod-error.*`, `notification.*`) the wave does not change, only uses.
+- Names/brands/extensions (`PDF`, `JPEG`, `S3`/`R2` in `title`) — not translated.
+- E2E fixtures with Russian file names (`резюме-тест.pdf`) — data, not UI.
 
 ---
 
-## Допущения (A1 — обратимые, записаны)
+## Contested decision 1 — notification title data-in-DB: translation NOT required
 
-1. **Периметр = срез аудита `web-docs-notify` минус уже мигрированное** (реестр уведомлений, колокол, `NotificationSettingsTab`, testid-развязка, `localeCompare`, `SORT_OPTION_MESSAGES`). Включены кросс-потребляемые `pdf-preview`/`document-image` (родные в `components/documents`). Исключены `apps/api`, `format-amount.ts` (кросс-срез). Каждое отклонение — строка в таблице «Периметр».
-2. **4 PR, последовательный мерж.** ~186 строк / 14 файлов. **Альтернатива:** объединить PR2+PR3 в один (3 PR) — периметры не пересекаются; выбор за оркестратором, если ревью лёгкое.
-3. **Хаб `document-labels.ts` вводится PR1, локальные `CATEGORY_LABELS_RU` живут до своего PR** (detail — PR2, upload — PR3), как `TYPE_LABELS` @deprecated PR1→PR4 в волне d. `git grep 'CATEGORY_LABELS_RU'` пуст только после PR3.
-4. **`security-reviewer` обязателен на PR4** (доли/подтверждения — critical-path); PR1/PR2/PR3 несут строку для `security-reviewer` (RBAC/маскировка/загрузка — текст меняем, логику нет).
-5. **Слова `CONTRACT`/`draft`** — рекомендация «Спорного решения 2», окончательно утверждает `copy-reviewer`; расхождение с черновиком — не нарушение плана.
-6. **Чип «К транзакции»** — рекомендация «Спорного решения 3» (снять номер); реальная привязка — отдельная задача вне i18n.
-7. **Черновики `uk`/`en` в каноне** — ориентир; окончательный текст — `copy-reviewer` («два оригинала»).
+**Checked on `025c28a0a` by reading `notification-registry.ts` + `notifications-bell.tsx`.**
 
-## Вопросы владельцу (A2/A3 — необратимо/дорого)
+The assignment poses the risk "three notification types take the title from the DB" by analogy with `EXPENSE_CATEGORIES` in wave d. The analysis shows that **there is no analogy and no blind data translation will happen**, because the display path and the storage path are separated by design (spec §7.1, implemented in stage 4):
 
-**Вопроса по прод-данным заголовков уведомлений НЕТ** (в отличие от EXPENSE в волне d). Разбор «Спорного решения 1» показал: путь показа рендерит из мигрированного реестра, колонки `title`/`body` — только фолбэк для легаси-типов, значения известны из кода, прод-запрос не нужен. Слепого перевода данных не будет.
+- **Display** (`renderNotification(n, i18n)` in the bell): for any of the 13 known types whose `data` passes Zod, the title is taken from **`NOTIFICATION_TITLE_MESSAGES`** (fully `uk`/`en`, #714), the detail — from `describeNotification`. The columns `n.title`/`n.body` are **not read** here.
+- **Storage**: the producers (`approvals/employee-contracts/transactions/projects/teams/users.service.ts` in `apps/api`) write neutral text to `notifications.title` (the legacy `NOTIFICATION_TITLES` — Russian for the 10 original types; **Ukrainian** for the three "frozen" ones — invoices/vacancies). This text is **read only in the fallback** of `renderNotification` for an **unknown/legacy type before the registry** or when the `data` does not parse.
 
-Остальные развилки (`CONTRACT`/`draft` слова, чип «К транзакции») — A1, решаются `copy-reviewer`/`spec-reviewer` в рамках PR, владельца не блокируют.
+Hence:
+
+1. **The web wave translates nothing in the data** — the titles on the screen are already migrated (the registry), the three "frozen" types already store Ukrainian.
+2. **Russian in `notifications.title` for the 10 original types** — this is backend text of the `api` slice, reaching the screen only as a fallback for broken/legacy strings; its fate is a separate task of the `api` slice, not this wave.
+3. **A prod query to the data is not needed** (unlike EXPENSE): the values are known from the code (`NOTIFICATION_TITLES`), the display path does not use them.
+
+**Recommendation:** translate nothing in the data in this wave; record in the PR4 body the fact "notification title data-at-rest — display via the registry (done #714), storage — the `api` slice". **There is NO owner question on prod title data** (see "Questions for the owner"). The only optional follow-up (low priority): a backfill of the old legacy `notifications.title` strings during the `api`-slice migration — but the fallback honestly shows the stored value anyway, the value is low.
+
+## Contested decision 2 — the words for `CONTRACT` and the status `draft` (a glossary gap)
+
+`CONTEXT.md` gives no single word either for the category `CONTRACT` (COPY-H-docs-3: three maps give «Договоры»/«Договор»/«Контракт»), or for the contract status `draft` (COPY-M-docs-16: «Драфт» — transliteration; «Черновик» is forbidden only for a **project** status).
+
+**Recommendation (A1, reversible, fixed in `CONTEXT.md` PR1/PR2, finally — `copy-reviewer`):**
+
+- `CONTRACT` → `uk` «Договір» / `en` «Contract» (matches the domain «договір» in `employeeContracts`; leave «контракт» as a colloquial synonym in the reference, but in the UI — one word).
+- `draft` (contract) → `uk` «Чернетка» / `en` «Draft» («Чернетка» ≠ the project-forbidden «Черновик»; this is a contract status, where there is no ban).
+
+Both forms are a draft; `copy-reviewer` may choose otherwise, then the canon line and the `.po` are edited. This is **not** an owner question — domain terminology is in the `copy-reviewer` zone.
+
+## Contested decision 3 — the `document-card` chip «К транзакции #…» (COPY-H-docs-2)
+
+The branch `isReceipt && doc.projectId` prints `doc.projectId` (the **project** id) under the caption «К транзакции», links to the general `/finance`, and is almost dead (`ReceiptInput` loads a receipt without `projectId`).
+
+**Recommendation (A1):** remove the number and link to "Фінанси" without a false binding — the chip «Чек із Фінансів» without a number (minimal truth), since the receipt↔transaction link is absent in the data. Linking to a specific transaction is impossible without its id, which is not in the `doc`. Record in the PR2 body; if the owner/`spec-reviewer` wants a real binding — a separate task (data + API), outside the i18n wave.
 
 ---
 
-## Проверка готовности волны (e)
+## Assumptions (A1 — reversible, recorded)
 
-- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — зелёные после каждого PR.
-- `DATABASE_URL= pnpm --filter @crm/e2e test -- <спеки из «Распределения» + свипа>` — изолированный прогон зелёный; CI на всех шардах зелёный (арбитр — CI, не локаль).
-- `pnpm i18n:extract` дважды подряд — второй прогон не меняет `.po`; в `en` 0 пустых `msgstr`.
-- `pnpm mutation:changed` — `survived 0`; `NoCoverage` без integration-hint закрыт unit-тестом; `node scripts/devops/check-mutation-suppressions.mjs` — зелёный.
-- Финальная сверка PR4: 0 строк `[ыэъё]` вне комментариев в периметре; `git grep 'CATEGORY_LABELS_RU|SORT_OPTIONS'` по `apps/web/app` — пусто.
-- В `CONTEXT.md` есть подраздел «Волна e — `web-docs-notify`» (включая `CONTRACT`/`draft`).
-- `copy-reviewer`: `PASS` на `uk` и на `en` для каждого из 4 PR.
-- `security-reviewer`: `APPROVE` для PR4 (доли/подтверждения) и строка-подтверждение для PR1–PR3 (RBAC/маскировка/загрузка не изменены).
-- Скриншоты 320/1440 × `uk`/`en` для каждого мигрированного экрана — в теле каждого PR; fidelity Mode B — все ширины (риск — попап 320px, плотная сетка карточек).
-- Трассировка: 21 идентификатор аудита `web-docs-notify` — у каждого строка в теле того PR, который его закрывает (`review-findings-transfer.md`); COPY-L-docs-18 отмечен как «поведение закрыто этапом 2/3a».
+1. **Perimeter = the `web-docs-notify` audit slice minus the already migrated** (the notifications registry, the bell, `NotificationSettingsTab`, the testid decoupling, `localeCompare`, `SORT_OPTION_MESSAGES`). The cross-consumed `pdf-preview`/`document-image` are included (native in `components/documents`). Excluded: `apps/api`, `format-amount.ts` (cross-slice). Each deviation — a line in the "Perimeter" table.
+2. **4 PRs, sequential merge.** ~186 lines / 14 files. **Alternative:** combine PR2+PR3 into one (3 PRs) — the perimeters do not overlap; the choice is up to the orchestrator if the review is light.
+3. **The hub `document-labels.ts` is introduced by PR1, the local `CATEGORY_LABELS_RU` live until their PR** (detail — PR2, upload — PR3), as `TYPE_LABELS` @deprecated PR1→PR4 in wave d. `git grep 'CATEGORY_LABELS_RU'` empty only after PR3.
+4. **`security-reviewer` is mandatory on PR4** (shares/confirmations — critical-path); PR1/PR2/PR3 carry a line for `security-reviewer` (RBAC/masking/upload — we change the text, not the logic).
+5. **The words `CONTRACT`/`draft`** — the recommendation of "Contested decision 2", finally approved by `copy-reviewer`; a divergence from the draft is not a plan violation.
+6. **The «К транзакции» chip** — the recommendation of "Contested decision 3" (remove the number); a real binding — a separate task outside i18n.
+7. **The `uk`/`en` drafts in the canon** — a guide; the final text — `copy-reviewer` ("two originals").
+
+## Questions for the owner (A2/A3 — irreversible/expensive)
+
+**There is NO question on prod notification title data** (unlike EXPENSE in wave d). The "Contested decision 1" analysis showed: the display path renders from the migrated registry, the `title`/`body` columns — only a fallback for legacy types, the values are known from the code, a prod query is not needed. There will be no blind data translation.
+
+The other forks (`CONTRACT`/`draft` words, the «К транзакции» chip) — A1, resolved by `copy-reviewer`/`spec-reviewer` within the PR, do not block the owner.
+
+---
+
+## Wave (e) readiness check
+
+- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — green after each PR.
+- `DATABASE_URL= pnpm --filter @crm/e2e test -- <the specs from the "Distribution" + the sweep>` — an isolated run green; CI on all shards green (the arbiter — CI, not the locale).
+- `pnpm i18n:extract` twice in a row — the second run does not change `.po`; in `en` 0 empty `msgstr`.
+- `pnpm mutation:changed` — `survived 0`; a `NoCoverage` without an integration-hint closed by a unit test; `node scripts/devops/check-mutation-suppressions.mjs` — green.
+- PR4 final check: 0 lines of `[ыэъё]` outside comments in the perimeter; `git grep 'CATEGORY_LABELS_RU|SORT_OPTIONS'` over `apps/web/app` — empty.
+- In `CONTEXT.md` there is a subsection "Wave e — `web-docs-notify`" (including `CONTRACT`/`draft`).
+- `copy-reviewer`: `PASS` on `uk` and on `en` for each of the 4 PRs.
+- `security-reviewer`: `APPROVE` for PR4 (shares/confirmations) and a confirmation line for PR1–PR3 (RBAC/masking/upload unchanged).
+- Screenshots 320/1440 × `uk`/`en` for each migrated screen — in each PR's body; fidelity Mode B — all widths (risk — the 320px popup, the dense card grid).
+- Trace: 21 `web-docs-notify` audit identifiers — each with a line in the body of the PR that closes it (`review-findings-transfer.md`); COPY-L-docs-18 marked as "behavior closed in stage 2/3a".
