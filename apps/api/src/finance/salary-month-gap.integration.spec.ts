@@ -704,8 +704,7 @@ describe('salary-month-gap — SHIPPING route carries the RBAC gate (production 
 
   it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
     const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-      | unknown[]
-      | undefined
+      unknown[] | undefined
     expect(guards).toBeDefined()
     expect(guards).toContain(RolesGuard)
   })

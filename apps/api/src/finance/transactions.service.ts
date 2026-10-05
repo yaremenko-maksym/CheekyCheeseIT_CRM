@@ -1777,10 +1777,7 @@ export class TransactionsService {
           // task-team-senior-share-override. Propagate the source from the
           // originating SENIOR_INCOME so PayoutContent renders the badge.
           seniorSharePercentSource: (firstIncomeSource ?? null) as
-            | 'PROJECT'
-            | 'TEAM'
-            | 'USER_DEFAULT'
-            | null,
+            'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null,
         }
       }
     }
@@ -5590,10 +5587,7 @@ export class TransactionsService {
     // (paySalary). senderId/fundingSource stay null until then; the currency is
     // the nominal of the reminder (default USD). No advisory lock / balance gate.
     const currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
-      | 'USDT'
-      | 'USD'
-      | 'EUR'
-      | 'UAH'
+      'USDT' | 'USD' | 'EUR' | 'UAH'
 
     // A SALARY transaction is one concrete salary part. Operators may record
     // several parts for the same employee/month; only the automatic monthly
