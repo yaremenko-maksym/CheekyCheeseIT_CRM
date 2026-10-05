@@ -25,7 +25,7 @@
  */
 import { render, screen } from '@testing-library/react'
 import { describe, expect, it } from 'vitest'
-import { InfoRow } from '../$projectId'
+import { InfoRow } from '../ProjectInfoRows'
 
 const classesOf = (el: Element) => [...el.classList].sort()
 
