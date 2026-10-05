@@ -66,15 +66,15 @@ Saying both is explicitly encouraged:
 
 ### 5. Appropriateness
 
-Register of address (does "вы"/"ты" drift within a language), cultural appropriateness of idioms,
+Register of address (does the formal/informal "you" drift within a language), cultural appropriateness of idioms,
 forcibly translated industry terms, legally risky formulations
 (guarantees, promises of a result, comparisons with competitors).
 
 **Borrowings are welcome — you check the unity of a domain term, you do not fight
-anglicisms.** A borrowed term ("оффер", "дедлайн", "фідбек", "деплой", "апрув") —
+anglicisms.** A borrowed term ("offer", "deadline", "feedback", "deploy", "approve" used as loanwords) —
 is the living language of the industry, and is **not** a finding. A finding appears where a borrowing
-replaces the canonical form already chosen in `CONTEXT.md` ("юзер" instead of "користувач", "шер"
-instead of "частка", "крипта" instead of USDT) or where one concept is named by two words on adjacent
+replaces the canonical form already chosen in `CONTEXT.md` ("yuzer" instead of "korystuvach", "sher"
+instead of "chastka", "krypta" instead of USDT) or where one concept is named by two words on adjacent
 screens: the defect is in the split term, not in the origin of the word. The project rule is unity of
 the term (`CONTEXT.md _Avoid_`), not purity of the language. _(Owner decision 2026-09-26.)_
 
