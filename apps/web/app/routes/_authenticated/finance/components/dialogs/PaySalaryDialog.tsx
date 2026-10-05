@@ -75,12 +75,13 @@ export function PaySalaryDialog({
   // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
   // a stale-by-up-to-3-hours cache thinks is still "today's".
   const todayKey = kyivToday()
-  const sourceDateKey = tx ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10) : ''
+  const sourceDateKey = tx
+    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+    : todayKey
 
   useEffect(() => {
-    if (!tx) return
     const today = kyivToday()
-    setPayoutDate(sourceDateKey > today ? sourceDateKey : today)
+    setPayoutDate([today, sourceDateKey].sort()[1]!)
   }, [tx?.id, sourceDateKey])
 
   const { data: rates } = useQuery<ExchangeRates>({
@@ -321,8 +322,7 @@ export function PaySalaryDialog({
             {sourceDateKey && (
               <p id="pay-salary-date-helper" className="text-[11px] text-muted-foreground">
                 <Trans>
-                  Найраніша доступна дата —{' '}
-                  {formatDate(`${sourceDateKey}T00:00:00.000Z`, locale, 'short')}.
+                  Найраніша доступна дата — {formatDate(`${sourceDateKey}T00:00:00.000Z`, locale)}.
                 </Trans>
               </p>
             )}

@@ -364,8 +364,8 @@ export function PayoutPaymentForm({
               {payoutMinDate && (
                 <p id="payout-payment-date-helper" className="text-[11px] text-muted-foreground">
                   <Trans>
-                    Найраніша доступна дата —{' '}
-                    {formatDate(`${payoutMinDate}T00:00:00.000Z`, locale, 'short')}.
+                    Найраніша доступна дата — {formatDate(`${payoutMinDate}T00:00:00.000Z`, locale)}
+                    .
                   </Trans>
                 </p>
               )}

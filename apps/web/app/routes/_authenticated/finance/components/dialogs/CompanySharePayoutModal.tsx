@@ -268,11 +268,12 @@ export function CompanySharePayoutModal({
   const selectedTxs = validatedTxs.filter((tx) => selected.has(tx.id))
   const minPayoutDate = selectedTxs.reduce((latest, tx) => {
     const date = transactionDateKey(tx)
-    return date > latest ? date : latest
+    return [latest, date].sort()[1]!
   }, '')
 
   useEffect(() => {
-    if (minPayoutDate && payoutDate < minPayoutDate) setPayoutDate(minPayoutDate)
+    const clamped = [payoutDate, minPayoutDate].sort()[1]!
+    setPayoutDate(clamped)
   }, [minPayoutDate, payoutDate])
   // selectedTxs is a derived array (new reference per render); depending on
   // `selected` + `validatedTxs` directly keeps this memo correct without an
@@ -513,7 +514,7 @@ export function CompanySharePayoutModal({
                     >
                       <Trans>
                         Найраніша доступна дата —{' '}
-                        {formatDate(`${minPayoutDate}T00:00:00.000Z`, locale, 'short')}.
+                        {formatDate(`${minPayoutDate}T00:00:00.000Z`, locale)}.
                       </Trans>
                     </p>
                   )}

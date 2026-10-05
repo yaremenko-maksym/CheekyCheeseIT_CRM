@@ -69,7 +69,7 @@ export function usePayoutPaymentForm(
   const payoutTx = payout?.transactions?.find((tx) => tx.type === 'PAYOUT')
   const payoutMinDate = payoutTx
     ? new Date(payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
-    : (payout?.createdAt.slice(0, 10) ?? '')
+    : payout?.createdAt.slice(0, 10)
 
   // Reset local state whenever this sub-screen becomes active with a
   // (possibly new) payout id — mirrors the original open→open-with-new-id effect.
@@ -89,7 +89,7 @@ export function usePayoutPaymentForm(
   useEffect(() => {
     if (!active || !payoutMinDate) return
     const today = kyivToday()
-    setPayoutDate(payoutMinDate > today ? payoutMinDate : today)
+    setPayoutDate([today, payoutMinDate].sort()[1]!)
   }, [active, payoutId, payoutMinDate])
 
   useEffect(() => {

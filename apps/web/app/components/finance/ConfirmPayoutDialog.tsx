@@ -92,12 +92,13 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
   const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const isCompanyAccount = method === 'COMPANY_ACCOUNT'
-  const sourceDateKey = tx ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10) : ''
+  const sourceDateKey = tx
+    ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+    : kyivToday()
 
   useEffect(() => {
-    if (!sourceDateKey) return
     const today = kyivToday()
-    setPayoutDate(sourceDateKey > today ? sourceDateKey : today)
+    setPayoutDate([today, sourceDateKey].sort()[1]!)
   }, [sourceDateKey])
 
   // Return type is `void` on purpose — the two branches resolve to different
