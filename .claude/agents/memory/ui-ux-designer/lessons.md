@@ -1,9 +1,9 @@
 # UI/UX Designer Lessons
 
-Накопленные уроки от прошлых задач UI/UX Designer. Формат: `YYYY-MM-DD [P0|P1|P2] [task-id] #topic урок`.
-См. [`../README.md`](../README.md) для правил и примеров.
+Accumulated lessons from past UI/UX Designer tasks. Format: `YYYY-MM-DD [P0|P1|P2] [task-id] #topic lesson`.
+See [`../README.md`](../README.md) for rules and examples.
 
 ---
 
-(пусто — UI/UX Designer только что зарегистрирован 2026-06-04 в том же PR что и Manual QA. Первые уроки появятся после первых merged PR с designer dispatch'ем)
-2026-06-11 [P1] [pr-172] (#worktree-contamination) Designer Mode D работал НЕ в своём isolation-worktree, а в чужом (PM-овском, создал там ветку *-audit) — повезло, что тот был свободен. Правило как у Coder: pwd-чек перед git-операциями, работать только в .claude/worktrees/agent-<свой-id>; чужие worktree и MAIN-чекаут — запретная зона.
+(empty — the UI/UX Designer was just registered 2026-06-04 in the same PR as Manual QA. The first lessons will appear after the first merged PRs with a designer dispatch)
+2026-06-11 [P1] [pr-172] (#worktree-contamination) Designer Mode D worked NOT in its own isolation worktree, but in someone else's (the PM's, created a *-audit branch there) — lucky that it was free. The rule is the same as for Coder: a pwd check before git operations, work only in .claude/worktrees/agent-<your-id>; someone else's worktree and the MAIN checkout are a forbidden zone.

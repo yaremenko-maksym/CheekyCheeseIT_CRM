@@ -1,46 +1,46 @@
 # Workflow Registry — read-only audit/research fan-outs (on-demand)
 
-Каталог **read-only audit/research воркфлоу** (Решение 2 из `rules/common/orchestration-routing.md`).
-Движок — `Workflow` tool ИЛИ skill `codebase-audit` (N×haiku explore волнами ≤ 3-4 → opus synthesis → adversarial verify).
+Catalog of **read-only audit/research workflows** (Decision 2 from `rules/common/orchestration-routing.md`).
+The engine is the `Workflow` tool OR the skill `codebase-audit` (N×haiku explore in waves ≤ 3-4 → opus synthesis → adversarial verify).
 
-**Master не читает upfront** — сверяется с этим файлом, когда событие похоже на trigger ниже.
-
----
-
-## 🔴 Дисциплина запуска (НЕ жечь токены)
-
-Воркфлоу ≈ **15× токенов** обычного чата (Anthropic multi-agent research). Поэтому:
-
-1. **Default-deny.** Запуск ТОЛЬКО при (а) явном trigger-match из таблицы ниже, подтверждённом machine-checkable якорем Решения 2 (≥ 3 независимых модуля, read-only, материал > одного контекст-окна), ИЛИ (б) явном запросе владельца («запусти воркфлоу X» / ultracode on). Никогда «на всякий случай».
-2. **Middle-path ПЕРЕД fan-out.** Неоднозначная-но-ограниченная задача → сначала дешёвый тир (haiku разведка / sonnet работа, `model-routing.md`); полный fan-out — только при настоящем breadth.
-3. **Опт-ин владельца на тяжёлый прогон.** ultracode off → Master предлагает воркфлоу + примерную стоимость, запускает после «да». ultracode on → запускает по trigger-match.
-4. **Лог `routing_decision`** в task-файле / заметках Master (`{ track: "audit-fanout", workflow, reason }`) — только нестандартный трек (не light-track / single-pipeline).
-5. **Это НЕ dev-pipeline.** Воркфлоу не реализуют фичи (это Master → Coder). Только read-only аудит/разведка → ledger, который Master триажит и роутит в light-track / pipeline.
+**Master does not read this upfront** — it checks against this file when an event looks like a trigger below.
 
 ---
 
-## Каталог (10)
+## 🔴 Launch discipline (DO NOT burn tokens)
 
-| #   | Воркфлоу                                | Когда запускать (trigger)                                                                            | Что делает (fan-out)                                                                                            |
-| --- | --------------------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| 1   | **RBAC / security-surface sweep**       | перед/после изменений RBAC; периодический аудит ролей; «может ли роль X дойти до Y»                  | по контроллеру на агента: `@Roles`/`@UseGuards` + тело сервиса; cross-check матрицы 5 ролей + DROP; adversarial обход |
-| 2   | **Design-fidelity sweep**               | после реализации UI; перед merge UI                                                                  | pipeline `экран × {320,768,1024,1440}`: localhost ↔ `design.png` diff + severity (требует живого стека)         |
-| 3   | **E2E flake-triage**                    | CI краснеет несколькими E2E разом                                                                    | classify по спеку (код/гонка/окружение/pre-existing) → кто чинит (AutoTest spec vs Coder code)                  |
-| 4   | **«Как устроено X по репо»**            | перед крупным рефактором (pre-refactor understanding)                                                | N читателей по подсистемам → карта call-sites + blast-radius                                                    |
-| 5   | **Money-precision / rounding audit**    | перед правкой сплит-математики; баланс разошёлся на минор-юниты; перед деплоем финансов              | каталог денежной арифметики (scaled-int vs float) + фикстуры-доказательства дрейфа                              |
-| 6   | **Money-mutation safety matrix**        | перед новым денежным эндпоинтом/типом транзакции; «balance doubled / paid twice»; перед внешним аудитором | concurrency-гарды + аудит-трейл по всем точкам записи денег                                                |
-| 7   | **Web↔API contract sweep**              | перед релизом; PR трогает сериализатор / shared-схему; «API возвращает X, UI показывает undefined»   | JOIN-матрица endpoint ↔ схема ↔ парс по контроллерам; мёртвые схемы / невалидированный вывод                    |
-| 8   | **Language / locale-leak sweep**        | перед локализацией / i18n-вехой; после батча фич                                                     | RU/EN/UK reach-классификация (англ в Exception = баг). **После этапа 6 i18n (спека 2026-09-19) → translation-coverage**: непокрытые ключи `en`, необёрнутые строки в обход каталога, русские буквы `ы э ъ ё` в продуктовом коде |
-| 9   | **Doc-vs-reality drift sweep**          | после вехи (route/dep/storage/phase change); месячная гигиена; онбординг агента                      | стейл-факты доков vs ground-truth кода (package.json / route-tree / deploy)                                     |
-| 10  | **md-coherence + AI-infra reinforcement** | после большого изменения agent-инфры; месячная гигиена; lessons → rules                            | docs-vs-docs когерентность (дубли / мёртвые ссылки / противоречия) + петля «работа над ошибками» (lessons → правила) |
+A workflow ≈ **15× the tokens** of a normal chat (Anthropic multi-agent research). Therefore:
 
-> Бэклог-статус и детали дизайна каждого — память владельца `project_candidate_workflows`.
-> Trigger-карта эволюционирует: новый воркфлоу → строка сюда (+ если нужно — trigger в `contracts.md`).
+1. **Default-deny.** Launch ONLY when (a) there is an explicit trigger-match from the table below, confirmed by the machine-checkable anchor of Decision 2 (≥ 3 independent modules, read-only, material > one context window), OR (b) an explicit owner request ("run workflow X" / ultracode on). Never "just in case".
+2. **Middle-path BEFORE fan-out.** An ambiguous-but-bounded task → first the cheap tier (haiku recon / sonnet work, `model-routing.md`); a full fan-out — only on true breadth.
+3. **Owner opt-in for a heavy run.** ultracode off → Master proposes the workflow + an approximate cost, launches after "yes". ultracode on → launches on a trigger-match.
+4. **Log `routing_decision`** in the task file / Master's notes (`{ track: "audit-fanout", workflow, reason }`) — only the non-standard track (not light-track / single-pipeline).
+5. **This is NOT a dev-pipeline.** Workflows do not implement features (that is Master → Coder). Only read-only audit/recon → a ledger that Master triages and routes into light-track / pipeline.
 
 ---
 
-## Связанные правила
+## Catalog (10)
 
-- `rules/common/orchestration-routing.md` — агент vs воркфлоу vs light-track (Решение 1/2 + default-deny).
-- `rules/common/model-routing.md` — тир модели + middle-path эскалация.
-- `.claude/skills/codebase-audit/SKILL.md` — механика audit-fanout.
+| #   | Workflow                                  | When to launch (trigger)                                                                                 | What it does (fan-out)                                                                                                                                                                                                                                                 |
+| --- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **RBAC / security-surface sweep**         | before/after RBAC changes; periodic role audit; "can role X reach Y"                                     | one controller per agent: `@Roles`/`@UseGuards` + the service body; cross-check the 5-role matrix + DROP; adversarial bypass                                                                                                                                          |
+| 2   | **Design-fidelity sweep**                 | after a UI implementation; before a UI merge                                                             | pipeline `screen × {320,768,1024,1440}`: localhost ↔ `design.png` diff + severity (requires a live stack)                                                                                                                                                             |
+| 3   | **E2E flake-triage**                      | CI goes red on several E2E at once                                                                       | classify by spec (code/race/environment/pre-existing) → who fixes (AutoTest spec vs Coder code)                                                                                                                                                                       |
+| 4   | **"How X works across the repo"**         | before a large refactor (pre-refactor understanding)                                                     | N readers by subsystem → a map of call-sites + blast-radius                                                                                                                                                                                                          |
+| 5   | **Money-precision / rounding audit**      | before editing split math; a balance diverged by minor units; before a finance deploy                    | a catalog of money arithmetic (scaled-int vs float) + fixtures proving drift                                                                                                                                                                                          |
+| 6   | **Money-mutation safety matrix**          | before a new money endpoint/transaction type; "balance doubled / paid twice"; before an external auditor | concurrency guards + an audit trail across all money-write points                                                                                                                                                                                                    |
+| 7   | **Web↔API contract sweep**                | before a release; a PR touches a serializer / shared schema; "API returns X, UI shows undefined"         | a JOIN matrix endpoint ↔ schema ↔ parse across controllers; dead schemas / unvalidated output                                                                                                                                                                         |
+| 8   | **Language / locale-leak sweep**          | before localization / an i18n milestone; after a batch of features                                       | RU/EN/UK reach-classification (English in an Exception = a bug). **After i18n stage 6 (spec 2026-09-19) → translation-coverage**: uncovered `en` keys, unwrapped strings bypassing the catalog, Russian letters `ы э ъ ё` in product code |
+| 9   | **Doc-vs-reality drift sweep**            | after a milestone (route/dep/storage/phase change); monthly hygiene; agent onboarding                    | stale doc facts vs the ground-truth of the code (package.json / route-tree / deploy)                                                                                                                                                                                  |
+| 10  | **md-coherence + AI-infra reinforcement** | after a large agent-infra change; monthly hygiene; lessons → rules                                       | docs-vs-docs coherence (duplicates / dead links / contradictions) + the "work over the mistakes" loop (lessons → rules)                                                                                                                                               |
+
+> Backlog status and design details of each — the owner's memory `project_candidate_workflows`.
+> The trigger map evolves: a new workflow → a row here (+ if needed — a trigger in `contracts.md`).
+
+---
+
+## Related rules
+
+- `rules/common/orchestration-routing.md` — agent vs workflow vs light-track (Decision 1/2 + default-deny).
+- `rules/common/model-routing.md` — model tier + middle-path escalation.
+- `.claude/skills/codebase-audit/SKILL.md` — audit-fanout mechanics.
