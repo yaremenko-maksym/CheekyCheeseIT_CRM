@@ -163,7 +163,7 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 ## 8. Other extracted rules (Phase 2.5 + earlier)
 
-- **Russian language for user-facing output** — **[`.claude/rules/common/russian-language.md`](rules/common/russian-language.md)** (Phase 2.5 / ADR Q7 Option C). Все агенты общаются с user на русском; код / commits / variable names — английский.
+- **Language policy** — **[`.claude/rules/common/russian-language.md`](rules/common/russian-language.md)** (owner decision 2026-10-05, supersedes ADR Q7 Option C). Everything in the repo and all agent output is English; Russian lives only in the owner↔Claude direct chat (personal, out-of-repo). Product i18n (`uk` default + `en` via Lingui) is separate and unchanged.
 - **ESLint MCP-first** — **[`.claude/rules/common/eslint-mcp-first.md`](rules/common/eslint-mcp-first.md)** (Phase 2.5 supersedes post-edit hook). Перед Edit / Write на `.ts` / `.tsx` → `mcp__eslint__lint-files`.
 - **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](rules/common/orchestration-routing.md)** (2026-06-22). Master выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (critical-path zones, `contracts.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
 - **Model routing (тир модели на задачу)** — **[`rules/common/model-routing.md`](rules/common/model-routing.md)** (2026-06-11). Самая дешёвая достаточная модель; эскалация по триггеру.

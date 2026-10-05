@@ -99,8 +99,9 @@ CPU-timeout под нагрузкой. Пустой `DATABASE_URL` -> integratio
 инфраструктурная зона (`infra`, `deploy`, `ci`, `hooks`, `agents`). Список **не закрытый** —
 берётся то, что точнее описывает область.
 
-Commit message body — на английском (Conventional Commits standard). User-facing assistant
-ответы — на русском (см. `.claude/rules/common/russian-language.md`).
+Commit message body — на английском (Conventional Commits standard). Assistant / agent output —
+также английский (см. `.claude/rules/common/russian-language.md`); русский — только в личном чате
+владельца с Claude.
 
 > **Почему перечисление снято (2026-09-02).** Здесь стоял закрытый список из восьми типов и
 > десяти scope'ов. Перепись истории показала, что он описывал не эту кодовую базу:
@@ -120,7 +121,7 @@ Commit message body — на английском (Conventional Commits standard
 ## Связанные правила
 
 - `.claude/rules/common/zone-of-write.md` — какой агент может писать какие пути (Reviewer выдаёт BLOCK на нарушения).
-- `.claude/rules/common/russian-language.md` — assistant outputs русский, commits английский.
+- `.claude/rules/common/russian-language.md` — English in repo + agent output, commits English; Russian only in the owner chat.
 - Phase 2.5 hook activation: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `pre-bash-coder-push-gate.sh`).
 
 ## Источники
