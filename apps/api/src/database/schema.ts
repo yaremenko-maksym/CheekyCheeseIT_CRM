@@ -2855,6 +2855,7 @@ export const jobPostingSignals = pgTable(
       .references(() => jobPostings.id, { onDelete: 'cascade' }),
     userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
     kind: jobSignalKindEnum('kind').notNull(),
+    // Stryker disable next-line BooleanLiteral: withTimezone selects timestamptz at the DB level — only observable via a real Postgres round-trip (integration), not a unit test (mutation-gate-integration-specs.md)
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [index('idx_job_posting_signals_posting').on(t.postingId, t.kind)],
