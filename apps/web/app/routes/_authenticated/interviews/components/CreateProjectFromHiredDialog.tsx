@@ -7,6 +7,7 @@ import type { CreateProjectDto, ProjectDto, ItDomain } from '@crm/shared'
 import { createProjectSchema, IT_DOMAINS } from '@crm/shared'
 import { api } from '@/lib/axios'
 import { cn } from '@/lib/utils'
+import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -33,21 +34,14 @@ type UserOption = {
   avatarDocumentId: string | null
 }
 
-function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
-
 function UserChip({ user, onRemove }: { user: UserOption; onRemove: () => void }) {
   return (
     <div className="flex items-center gap-1.5 rounded-full border border-border bg-muted/40 pl-1 pr-1.5 py-0.5">
       <Avatar className="h-5 w-5 shrink-0">
         {user.avatarUrl && <AvatarImage src={user.avatarUrl} alt={user.displayName} />}
-        <AvatarFallback className="text-[9px]">{getInitials(user.displayName)}</AvatarFallback>
+        <AvatarFallback className="text-[9px]">
+          {getInitialsBySpaceSplit(user.displayName)}
+        </AvatarFallback>
       </Avatar>
       <span className="text-xs font-medium">{user.displayName}</span>
       <button onClick={onRemove} className="text-muted-foreground hover:text-foreground ml-0.5">

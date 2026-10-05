@@ -28,7 +28,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
-import { sha256Hex } from './invoice-pdf.utils'
+import { sha256Hex } from '../common/pdf/pdf.utils'
 // security-review PR #456 round 2: autoCreateForSeniorPayout/autoCreateForPayout
 // /autoCreateForSalary/signInvoice's linked-income lookup now read the
 // `nonDeletedTransactions` VIEW via `.select().from(...)` instead of the

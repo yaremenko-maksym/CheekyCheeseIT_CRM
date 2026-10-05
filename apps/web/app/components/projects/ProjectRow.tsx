@@ -9,6 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLogo } from './ProjectLogo'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { ProjectApprovalActions } from './ProjectApprovalActions'
 import { resolveProjectApprovalCaption } from './project-approval-caption'
 
@@ -44,15 +45,6 @@ export type ProjectRowProps = {
    * "no reason paragraph" behaviour, unchanged.
    */
   reasonPending?: boolean | undefined
-}
-
-function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
 }
 
 /**
@@ -182,7 +174,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
             documentId={project.logoDocumentId}
             externalUrl={project.logoExternalUrl}
             companyName={project.companyName}
-            fallback={getInitials(project.companyName)}
+            fallback={getInitialsBySpaceSplit(project.companyName)}
             avatarClassName="h-10 w-10 shrink-0 rounded-lg border border-border [&_[data-slot=avatar-fallback]]:rounded-lg [&_[data-slot=avatar-fallback]]:text-xs [&_[data-slot=avatar-fallback]]:font-semibold"
           />
           <div className="min-w-0 flex-1">
@@ -230,7 +222,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
             <>
               <Avatar className="h-7 w-7 shrink-0">
                 <AvatarFallback className="text-[10px] font-semibold bg-primary/20 text-primary">
-                  {getInitials(project.seniorName ?? '')}
+                  {getInitialsBySpaceSplit(project.seniorName)}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
@@ -289,7 +281,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
                   <AvatarImage src={firstJunior.avatarUrl} alt={firstJunior.displayName} />
                 )}
                 <AvatarFallback className="text-[10px] font-semibold">
-                  {getInitials(firstJunior.displayName)}
+                  {getInitialsBySpaceSplit(firstJunior.displayName)}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">

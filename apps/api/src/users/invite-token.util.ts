@@ -4,8 +4,8 @@
  * shape (256-bit random, sha256-hashed at rest) is testable in isolation
  * and reused identically by both the create-time invite and the admin
  * resend action (single place a future change to the token format has to
- * touch, mirroring `invoice-pdf.utils.ts`'s existing sha256 convention in
- * this codebase — see that file's `hashPdfBuffer`).
+ * touch, mirroring `common/pdf/pdf.utils.ts`'s existing sha256 convention in
+ * this codebase — see that file's `sha256Hex`).
  */
 import { createHash, randomBytes } from 'node:crypto'
 

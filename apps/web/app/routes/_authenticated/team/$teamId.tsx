@@ -27,6 +27,7 @@ import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
+import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { hasRealPhone } from '@/lib/format-phone'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
@@ -71,15 +72,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   HR: 'hr',
   ACCOUNTANT: 'accountant',
   DROP: 'drop',
-}
-
-function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
 }
 
 async function fetchTeam(id: string): Promise<TeamDto> {
@@ -651,7 +643,7 @@ function TeamDetailPage() {
                                   <AvatarImage src={member.avatarUrl} alt={member.displayName} />
                                 )}
                                 <AvatarFallback className="bg-muted text-xs">
-                                  {getInitials(member.displayName)}
+                                  {getInitialsBySpaceSplit(member.displayName)}
                                 </AvatarFallback>
                               </Avatar>
                             </ProfileNameLink>
@@ -834,7 +826,7 @@ function TeamDetailPage() {
                                       />
                                     )}
                                     <AvatarFallback className="bg-muted text-[8px]">
-                                      {getInitials(junior.displayName)}
+                                      {getInitialsBySpaceSplit(junior.displayName)}
                                     </AvatarFallback>
                                   </Avatar>
                                   <span className="text-xs text-muted-foreground truncate">
@@ -1099,7 +1091,7 @@ function TeamDetailPage() {
                         <Avatar className="h-6 w-6 shrink-0">
                           {u.avatarUrl && <AvatarImage src={u.avatarUrl} alt={u.displayName} />}
                           <AvatarFallback className="text-[9px]">
-                            {getInitials(u.displayName)}
+                            {getInitialsBySpaceSplit(u.displayName)}
                           </AvatarFallback>
                         </Avatar>
                         <span className="flex-1 truncate text-sm">{u.displayName}</span>
@@ -1194,7 +1186,7 @@ function TeamDetailPage() {
                             <Avatar className="h-5 w-5">
                               {s.avatarUrl && <AvatarImage src={s.avatarUrl} alt={s.displayName} />}
                               <AvatarFallback className="text-[9px]">
-                                {getInitials(s.displayName)}
+                                {getInitialsBySpaceSplit(s.displayName)}
                               </AvatarFallback>
                             </Avatar>
                             <span>{s.displayName}</span>

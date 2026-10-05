@@ -109,7 +109,7 @@ import {
   type InvoiceSignatureInfo,
   type InvoiceTransactionInfo,
 } from './invoice-pdf.service'
-import { sha256Hex, shortHash } from './invoice-pdf.utils'
+import { sha256Hex, shortHash } from '../common/pdf/pdf.utils'
 
 // ---------------------------------------------------------------------------
 // Company info constants (TBD — currently hardcoded; future migration into

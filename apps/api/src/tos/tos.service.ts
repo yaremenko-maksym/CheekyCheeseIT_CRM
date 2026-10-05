@@ -2,6 +2,7 @@ import { ConflictException, HttpStatus, Injectable, NotFoundException } from '@n
 import { and, desc, eq, sql } from 'drizzle-orm'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
+import { isUniqueViolation } from '../database/pg-errors'
 import { tosAcceptances, tosVersions } from '../database/schema'
 import type { DrizzleTx } from '../database/types' // still used by publish()
 
@@ -17,23 +18,6 @@ import type { DrizzleTx } from '../database/types' // still used by publish()
  * only one INSERT wins and the other gets an empty RETURNING — we then fetch the
  * existing row. The UNIQUE constraint on (user_id, tos_version_id) is the source of truth.
  */
-
-/** Postgres SQLSTATE for a unique-constraint violation. */
-const PG_UNIQUE_VIOLATION = '23505'
-
-/**
- * True when `err` (or any error in its `.cause` chain) is a Postgres
- * unique-constraint violation (SQLSTATE 23505). Drizzle-orm wraps query
- * failures so the original pg error lives on `.cause`; this walks the chain.
- */
-function isUniqueViolation(err: unknown): boolean {
-  let cur: unknown = err
-  for (let depth = 0; cur != null && depth < 8; depth += 1) {
-    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
-    cur = (cur as { cause?: unknown }).cause
-  }
-  return false
-}
 
 @Injectable()
 export class TosService {
