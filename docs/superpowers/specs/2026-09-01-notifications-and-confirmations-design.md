@@ -1,348 +1,346 @@
-# Уведомления и подтверждения сотрудником — дизайн
+# Notifications and employee confirmations — design
 
-**Дата:** 2026-09-01
-**Статус:** утверждён владельцем по секциям, ожидает вычитки спеки целиком
-**Тип:** архитектурный (новая подсистема + изменение аутентификации + гейт на деньгах)
+**Date:** 2026-09-01
+**Status:** approved by the owner section by section, awaiting a proofread of the whole spec
+**Type:** architectural (a new subsystem + an authentication change + a gate on money)
 
 ---
 
-## 1. Задача
+## 1. Task
 
-Две связанные вещи, которые владелец назвал вместе, но которые устроены по-разному.
+Two related things the owner named together, but which are built differently.
 
-**Уведомления.** Сотрудник должен узнавать о событиях со своим профилем: добавлена
-транзакция, изменился её статус, добавили в команду, добавили в проект, появился новый
-участник команды, документ ждёт подписи. Сегодня уведомления существуют, но покрывают
-только инвойсы и вакансии.
+**Notifications.** An employee should learn about events on their profile: a transaction was
+added, its status changed, they were added to a team, added to a project, a new team
+member appeared, a document is awaiting a signature. Today notifications exist, but cover
+only invoices and vacancies.
 
-**Подтверждения.** Действия, затрагивающие ответственность и деньги сотрудника, не
-вступают в силу, пока он не согласится на платформе. Названы два случая: новый проект
-и изменение доли. Цель владельца дословно — «убираем любые разногласия».
+**Confirmations.** Actions that affect an employee's responsibility and money do not
+take effect until they agree on the platform. Two cases were named: a new project
+and a share change. The owner's goal verbatim — "we remove any disagreements".
 
-Уведомления информируют; подтверждения меняют состояние системы. Это разные механики,
-и смешивать их нельзя: потерянное уведомление безвредно, потерянное подтверждение —
-это потерянное изменение доли.
+Notifications inform; confirmations change the system's state. These are different mechanics,
+and they must not be mixed: a lost notification is harmless, a lost confirmation —
+that is a lost share change.
 
-## 2. Что уже есть (проверено по коду, не по документации)
+## 2. What already exists (checked against the code, not the documentation)
 
-| Компонент                | Состояние                                                                     |
-| ------------------------ | ----------------------------------------------------------------------------- |
-| Таблица `notifications`  | Есть: тип, заголовок, тело, **одна** ссылка, отметка о прочтении              |
-| Типы уведомлений         | Три: подпись инвойса, инвойс подписан, отклик на вакансию                     |
-| Кто их порождает         | Один сервис (инвойсы)                                                         |
-| Колокольчик в интерфейсе | Есть, 251 строка                                                              |
-| Тосты                    | `sonner` — то, что shadcn/ui предлагает как тост. Стоит, используется точечно |
-| Почта                    | `ResendMailerService` — через API, не сырой SMTP. Переиспользуема             |
-| Доля синьора/дропа       | Читается **через резолвер** с каскадом проект → команда → пользователь        |
-| Жизненный цикл проекта   | **Двоичный**: `archivedAt IS NULL` = активен. Поля статуса нет                |
-| Адрес пользователя       | **Один**, с ограничением уникальности. Вход — Google SSO по нему              |
+| Component                 | State                                                                |
+| ------------------------- | -------------------------------------------------------------------- |
+| The `notifications` table | Exists: type, title, body, **one** link, a read marker               |
+| Notification types        | Three: invoice signature, invoice signed, vacancy application        |
+| Who produces them         | One service (invoices)                                               |
+| The bell in the UI        | Exists, 251 lines                                                    |
+| Toasts                    | `sonner` — what shadcn/ui offers as a toast. Present, used pointwise |
+| Mail                      | `ResendMailerService` — via an API, not raw SMTP. Reusable           |
+| Senior/drop share         | Read **through a resolver** with a cascade project → team → user     |
+| Project lifecycle         | **Binary**: `archivedAt IS NULL` = active. There is no status field  |
+| User address              | **One**, with a uniqueness constraint. Login — Google SSO by it      |
 
-Вывод, определивший объём: **транспорт уже есть, дорого стоят состояния.**
+The conclusion that set the scope: **the transport already exists, the states are expensive.**
 
-## 3. Решения владельца
+## 3. Owner decisions
 
-Приняты в диалоге 2026-09-01, каждое — ответ на заданный вопрос.
+Made in the 2026-09-01 dialogue, each — an answer to a posed question.
 
-1. **Подтверждение — стадия процесса**, состояние самого объекта, а не отдельная сущность.
-2. **Черновик проекта полностью невидим** всем, кроме админа и приглашённых сотрудников.
-3. **Отказ возможен и требует причины.** Админ видит причину и может предложить заново.
-4. **Проект подтверждают оба** — синьор и дроп.
-5. **Отказ одного гасит предложение целиком**; ранее данное согласие сохраняется в истории,
-   но аннулируется — при повторном предложении подтверждают снова.
-6. **Каналы настраивает сам сотрудник.**
-7. **Личный адрес вводит админ** при создании; на него уходит приглашение со ссылкой.
+1. **A confirmation is a process stage**, a state of the object itself, not a separate entity.
+2. **A project draft is fully invisible** to everyone except the admin and the invited employees.
+3. **Rejection is possible and requires a reason.** The admin sees the reason and can propose anew.
+4. **A project is confirmed by both** — the senior and the drop.
+5. **A rejection by one kills the proposal entirely**; previously given consent is kept in history,
+   but annulled — on a repeat proposal they confirm again.
+6. **The employee configures the channels themselves.**
+7. **The admin enters the personal address** at creation; the invitation with a link goes to it.
 
-### Доопределено при самопроверке спеки
+### Clarified during the spec self-check
 
-Две вещи диалог оставил неоднозначными; выбираю явно, чтобы исполнитель не гадал.
+Two things the dialogue left ambiguous; I choose explicitly so the implementer does not guess.
 
-**Изменение доли подтверждает тот, чья доля меняется.** Меняем процент синьора —
-подтверждает синьор; процент дропа — дроп. Правило «оба подтверждают» относится к
-**созданию проекта**, где затронуты оба; в изменении одной доли второй участник не
-сторона. Если владелец хочет иначе — это меняет только количество строк в согласовании,
-не механику.
+**A share change is confirmed by the one whose share changes.** We change the senior's percent —
+the senior confirms; the drop's percent — the drop. The "both confirm" rule applies to
+**project creation**, where both are affected; in a single share change the other participant is not
+a party. If the owner wants otherwise — this changes only the number of rows in the approval,
+not the mechanics.
 
-**Предложение не истекает само.** Ни у проекта, ни у доли нет срока, по истечении
-которого что-то происходит автоматически. Причина: любое автоматическое решение здесь —
-это либо «согласился молчанием» (прямо противоречит цели снять разногласия), либо
-«отклонено само» (наказывает за отпуск). Висящие предложения решаются человеком: админ
-видит их в своём списке и может отозвать или напомнить.
+**A proposal does not expire by itself.** Neither the project nor the share has a deadline after
+which something happens automatically. Reason: any automatic decision here is either
+"agreed by silence" (directly contradicts the goal of removing disagreements), or
+"rejected by itself" (punishes being on vacation). Hanging proposals are resolved by a human: the admin
+sees them in their list and can withdraw or remind.
 
-### Допущения, принятые мной (владелец может отменить)
+### Assumptions I made (the owner may override)
 
-- **Письма про подтверждения и подписи отключить нельзя** — приглушить можно, выключить
-  нет. Иначе процесс встаёт молча: проект висит в черновике, потому что галочку сняли год
-  назад.
-- **Рабочий адрес остаётся способом входа без приглашения** — он наш, мы им управляем,
-  и это уже работает. Токен приглашения нужен только личному адресу.
+- **Emails about confirmations and signatures cannot be turned off** — they can be muted, but not
+  disabled. Otherwise the process stalls silently: the project hangs in draft because a checkbox was unchecked
+  a year ago.
+- **The work address stays a login method without an invitation** — it is ours, we manage it,
+  and it already works. An invitation token is needed only for a personal address.
 
-## 4. Данные
+## 4. Data
 
-### 4.1 Согласования
+### 4.1 Approvals
 
-Одна таблица на все подтверждаемые объекты: что подтверждаем (вид объекта + его
-идентификатор), **кто** должен ответить, статус (`PENDING` / `APPROVED` / `REJECTED`),
-причина отказа, время решения, кто предложил, и `supersededAt` для повторного предложения.
+One table for all confirmable objects: what we confirm (the object kind + its
+identifier), **who** must answer, the status (`PENDING` / `APPROVED` / `REJECTED`),
+the rejection reason, the decision time, who proposed, and `supersededAt` for a repeat proposal.
 
-**Одно предложение — несколько строк**, по строке на подтверждающего. Отсюда бесплатно
-следуют оба требования владельца: частичное согласие выражается само собой, а «отказ
-одного гасит» — это погашение оставшихся `PENDING` той же группы.
+**One proposal — several rows**, a row per confirmer. From this both owner requirements follow
+for free: partial agreement expresses itself, and "a rejection by one kills" — that is the
+killing of the remaining `PENDING` rows of the same group.
 
-Повторное предложение не переписывает старые строки: они гасятся через `supersededAt`,
-и в истории видно обе попытки с причиной отказа. Это и есть то, что снимает разногласия
-задним числом.
+A repeat proposal does not rewrite the old rows: they are killed via `supersededAt`,
+and the history shows both attempts with the rejection reason. This is exactly what removes disagreements
+after the fact.
 
-### 4.2 Статус проекта
+### 4.2 Project status
 
-Явное поле: `DRAFT` / `ACTIVE` / `REJECTED`. Архивность **остаётся отдельным измерением** —
-смешивать «не подтверждён» и «закончен» нельзя, это разные факты о проекте.
+An explicit field: `DRAFT` / `ACTIVE` / `REJECTED`. Archived-ness **stays a separate dimension** —
+mixing "not confirmed" and "finished" is forbidden, these are different facts about the project.
 
-### 4.3 Ожидающая доля
+### 4.3 Pending share
 
-Ложится рядом с действующим значением. Резолвер продолжает возвращать **действующее**,
-пока согласование открыто; при подтверждении значения меняются местами одной операцией.
+Lies next to the current value. The resolver keeps returning the **current** value
+while the approval is open; on confirmation the values swap in a single operation.
 
-Отдельная таблица настроек финансов проекта, зеркалящая долю, **ожидающего значения не
-получает** — иначе заведём вторую копию там, где и первая-то уже помечена как зеркало.
+A separate table of project finance settings that mirrors the share **does not get a pending
+value** — otherwise we'd introduce a second copy where even the first is already marked a mirror.
 
-### 4.4 Адреса пользователя
+### 4.4 User addresses
 
-Отдельная таблица: владелец, адрес, вид (рабочий / личный), подтверждён ли, разрешён ли
-вход.
+A separate table: owner, address, kind (work / personal), whether confirmed, whether login is allowed.
 
-**Почему таблица, а не вторая колонка.** Ограничение уникальности на колонке гарантирует,
-что рабочие адреса не повторяются, и отдельно — что личные не повторяются. Оно **не**
-гарантирует, что личный адрес одного не совпадает с рабочим другого. Это прямой вход в
-чужой аккаунт, и двумя колонками такое ограничение в Postgres не выражается. В отдельной
-таблице уникальность адреса — свойство конструкции.
+**Why a table, not a second column.** A uniqueness constraint on a column guarantees
+that work addresses do not repeat, and separately — that personal ones do not repeat. It does **not**
+guarantee that one person's personal address does not coincide with another's work address. That is a direct login into
+someone else's account, and two columns cannot express such a constraint in Postgres. In a separate
+table the address uniqueness is a property of the construction.
 
-## 5. Аутентификация
+## 5. Authentication
 
-Вход остаётся только через Google. Меняется одно: поиск пользователя по адресу идёт по
-таблице адресов, а не по колонке. **Три точки правки**, все в одном файле контроллера
-аутентификации.
+Login stays only via Google. One thing changes: user lookup by address goes through the
+address table, not the column. **Three edit points**, all in a single authentication
+controller file.
 
-**Приглашение вместо экрана верификации.** Письмо о создании учётной записи несёт
-одноразовый токен. Личный адрес становится способом входа **только после того, как по
-ссылке прошли и вошли**. До этого адрес существует, письма на него идут, войти по нему
-нельзя.
+**An invitation instead of a verification screen.** The account-creation email carries
+a one-time token. The personal address becomes a login method **only after the
+link is followed and logged in through**. Before that the address exists, emails go to it,
+but one cannot log in by it.
 
-Это закрывает риск опечатки: ошибочный адрес не открывает доступ молча — он проявляется
-тем, что сотрудник не получил письмо.
+This closes the typo risk: a wrong address does not silently grant access — it manifests
+as the employee not receiving the email.
 
-**`security-review` на этом PR обязателен** по правилу проекта. Проверять там следует
-ровно одно: может ли один адрес привести к двум учётным записям.
+**`security-review` on this PR is mandatory** by the project rule. Exactly one thing should be checked
+there: can one address lead to two accounts.
 
-## 6. Черновик проекта: тринадцать мест
+## 6. Project draft: thirteen places
 
-**Проблема не в добавлении статуса, а в том, чтобы никто не забыл его учесть.**
+**The problem is not adding a status, but that nobody forgets to account for it.**
 
-Тринадцать мест в семи файлах определяют активность проекта как `projects.archivedAt IS
-NULL`. Поручить «обнови тринадцать мест» — значит получить двенадцать обновлённых и одно
-забытое, которое всплывёт в финансах через месяц.
+Thirteen places in seven files define a project's activity as `projects.archivedAt IS
+NULL`. To assign "update the thirteen places" means getting twelve updated and one
+forgotten, which surfaces in finance a month later.
 
-> **Поправка 2026-09-02.** Здесь стояло «двадцать мест в шестнадцати файлах». Двадцать —
-> это все вхождения `isNull(...archivedAt)` в API, а они относятся к **трём разным**
-> архивностям: проектов (13), пользователей (5) и команд (1). Архивность пользователя —
-> отдельное измерение с отдельным смыслом, и подмена её статусом проекта сломала бы
-> доступ, а не проект. Цифра пересчитана исполнением, а не памятью.
+> **Amendment 2026-09-02.** Here it said "twenty places in sixteen files". Twenty —
+> that is all occurrences of `isNull(...archivedAt)` in the API, and they relate to **three different**
+> archived-nesses: projects (13), users (5) and teams (1). User archived-ness is a
+> separate dimension with a separate meaning, and substituting the project status would break
+> access, not the project. The number was recomputed by execution, not from memory.
 
-**Решение — то же, что уже работает на транзакциях:** представление `visible_projects`,
-отдающее только подтверждённые и неархивные. Читающие переходят на него. Забыть нельзя не
-потому, что помнят, а потому что сырая таблица перестаёт быть тем, что читают.
+**The solution — the same one that already works on transactions:** a `visible_projects` view,
+returning only confirmed and non-archived ones. Readers switch to it. Forgetting is impossible not
+because they remember, but because the raw table stops being what they read.
 
-Прецедент в репозитории: `non_deleted_transactions` плюс запрет сырого обращения к
-таблице. Запрет расширяется на проекты.
+Precedent in the repository: `non_deleted_transactions` plus a ban on raw access to the
+table. The ban is extended to projects.
 
-**Админ и подтверждающие** получают доступ к черновику явным узким путём — это
-единственное место, где черновик существует для интерфейса.
+**The admin and confirmers** get access to the draft via an explicit narrow path — this is the
+only place where a draft exists for the UI.
 
-**Черновик нельзя завести в транзакции** — отказ на сервере, а не спрятанная кнопка.
-Кнопку можно обойти; деньги на неподтверждённом проекте — ровно то разногласие, которое
-задача устраняет.
+**A draft cannot be the subject of a transaction** — a server refusal, not a hidden button. A
+button can be bypassed; money on an unconfirmed project is exactly the disagreement the task removes.
 
-**Отклонённый проект** остаётся видимым админу с причиной, чтобы предложить заново. Для
-остальных он невидим так же, как черновик.
+**A rejected project** stays visible to the admin with the reason, to propose anew. For
+everyone else it is invisible, the same as a draft.
 
-### 6.1 Где черновик живёт в интерфейсе (решение владельца 2026-09-02)
+### 6.1 Where the draft lives in the UI (owner decision 2026-09-02)
 
-**Фильтр в существующем списке проектов, а не отдельный раздел.** Переключатель статуса:
-_Активные_ (по умолчанию — то есть ровно нынешнее поведение) / _Ожидают подтверждения_ /
-_Отклонённые_. Черновик открывается той же карточкой проекта, с плашкой «ждёт
-подтверждения: имя».
+**A filter in the existing project list, not a separate section.** A status toggle:
+_Active_ (by default — i.e. exactly the current behavior) / _Awaiting confirmation_ /
+_Rejected_. A draft opens with the same project card, with a badge "awaiting
+confirmation: name".
 
-Отвергнут отдельный раздел «Согласования», собирающий и черновики, и запросы на смену
-доли: он даёт общую очередь, но ценой того, что проект живёт в двух разных местах в
-зависимости от статуса. Искать проект по статусу — худший способ его искать.
+A separate "Approvals" section, collecting both drafts and share-change requests, is rejected:
+it gives a common queue, but at the cost of the project living in two different places depending
+on status. Searching for a project by status is the worst way to search for it.
 
-Отвергнут и вариант «только по ссылке из уведомления»: прочитанное и забытое уведомление
-делает зависший черновик ненаходимым.
+The "only via a link in a notification" option is also rejected: a read and forgotten notification
+makes a stuck draft unfindable.
 
-**Отклонённый лежит, пока админ сам не уберёт.** Ни срока, ни авто-архивации. Причина
-отказа остаётся на виду — это и есть то, что снимает разногласия задним числом, а
-исчезающая через N дней запись такого не умеет. Авто-архивация отвергнута отдельно: она
-смешала бы «не согласились» с «сделали и закончили», то есть ровно то разделение, ради
-которого статус и заводится (§4.2).
+**A rejected one lies there until the admin removes it.** No deadline, no auto-archival. The rejection
+reason stays visible — this is exactly what removes disagreements after the fact, and
+a record that disappears after N days cannot do this. Auto-archival is rejected separately: it
+would mix "did not agree" with "did and finished", i.e. exactly the separation for
+which the status is introduced (§4.2).
 
-## 7. Уведомления
+## 7. Notifications
 
-### 7.1 Кнопки действий выводятся из типа, а не хранятся
+### 7.1 Action buttons are derived from the type, not stored
 
-В записи лежат **тип события и идентификаторы** того, к чему оно относится. Какие кнопки
-показать и как назвать — решает клиент по типу.
+The record holds **the event type and the identifiers** of what it relates to. Which buttons
+to show and how to name them — the client decides by type.
 
-Альтернатива (хранить готовые кнопки в записи) отвергнута: тогда правка подписи требует
-правки данных, старые уведомления консервируют прошлогодние формулировки, а тексты
-интерфейса расползаются по строкам базы, где их не видит ни один текстовый гейт.
+The alternative (storing ready-made buttons in the record) is rejected: then editing wording requires
+editing data, old notifications preserve last year's phrasing, and UI texts
+sprawl across database rows, where no text gate sees them.
 
-### 7.2 Состав типов
+### 7.2 Composition of types
 
-**Информируют** (настраиваются свободно): транзакция добавлена; статус транзакции
-изменился; добавлен в команду; добавлен в проект; новый участник команды.
+**Inform** (configured freely): a transaction added; a transaction status
+changed; added to a team; added to a project; a new team member.
 
-**Требуют действия** (письмо не отключается): подтвердить проект; подтвердить новую долю;
-подписать документ.
+**Require action** (the email is not disabled): confirm a project; confirm a new share;
+sign a document.
 
-**Админу:** сотрудник подтвердил; сотрудник отклонил с причиной. Без этого об отказе
-узнают, только зайдя посмотреть.
+**To the admin:** an employee confirmed; an employee rejected with a reason. Without this, a rejection
+is learned only by going to look.
 
-### 7.3 Содержание
+### 7.3 Content
 
-Уведомление говорит **что произошло и что от вас нужно**; подробности — по кнопке.
-«Изменена доля по проекту X: 26% → 30%, подтвердите» достаточно; расчёты и история живут
-на странице проекта.
+A notification says **what happened and what is needed from you**; the details — behind a button.
+"Your share on project X changed: 26% → 30%, please confirm" is enough; calculations and history live
+on the project page.
 
-### 7.4 Деградация
+### 7.4 Degradation
 
-Уведомление живёт дольше, чем то, о чём оно. Проект архивировали, документ удалили —
-кнопка обязана вести к честному «объекта больше нет», а не в белый экран.
+A notification lives longer than the thing it is about. The project was archived, the document was deleted —
+the button must lead to an honest "the object no longer exists", not to a white screen.
 
-## 8. Интерфейс
+## 8. UI
 
-### 8.1 Тост и уведомление — разные вещи
+### 8.1 A toast and a notification are different things
 
-Тост подтверждает **действие пользователя**: сохранил, отправил, подтвердил. Уведомление
-сообщает о действии **другого человека**.
+A toast confirms the **user's action**: saved, sent, confirmed. A notification
+reports another person's action.
 
-Показывать тостом каждое входящее — значит выбрасывать «вас добавили в команду» посреди
-редактирования транзакции. Это обесценивает тост там, где он нужен.
+Showing every incoming one as a toast means throwing "you were added to a team" into the middle
+of editing a transaction. This devalues the toast where it is needed.
 
-**Правило:** тосты — на свои действия; входящие — в колокольчик со счётчиком. Исключение
-одно: событие, требующее действия немедленно по объекту, открытому прямо сейчас.
+**Rule:** toasts — for your own actions; incoming ones — into the bell with a counter. The one exception:
+an event requiring action immediately on the object open right now.
 
-### 8.2 Починка попапа
+### 8.2 Fixing the popup
 
-Список разрешает вертикальную прокрутку, но **не запрещает горизонтальную**. Ограничение
-тела двумя строками **не переносит длинные слова** — режет по строкам, а не по символам.
-Одна ссылка, адрес кошелька или имя файла без пробелов выходят за 320 пикселей.
+The list allows vertical scrolling, but **does not forbid horizontal**. Constraining the
+body to two lines **does not wrap long words** — it cuts by lines, not by characters.
+A single link, a wallet address or a file name without spaces goes past 320 pixels.
 
-Сегодня не проявляется: у трёх существующих типов тексты короткие. С суммами и адресами
-полезет. **Чинить до новых типов**, иначе давний баг будет выглядеть регрессией от них.
+It does not manifest today: the three existing types have short texts. With amounts and addresses
+it will creep out. **Fix before the new types**, otherwise an old bug will look like a regression from them.
 
-### 8.3 Экран «что от меня ждут»
+### 8.3 The "what is expected of me" screen
 
-Список всего, ожидающего ответа: проекты, доли, документы. Колокольчик — лента, из
-которой элементы уходят вниз; незакрытое обязательство не должно теряться под десятком
-новых уведомлений.
+A list of everything awaiting a response: projects, shares, documents. The bell — a feed, from
+which items move down; an open obligation must not get lost under a dozen
+new notifications.
 
-### 8.4 Процессные гейты
+### 8.4 Process gates
 
-- **Дизайн-гейт:** новый экран — Tier 1 (дизайн до вёрстки, приёмка сверкой с макетом);
-  попап и тосты — Tier 2.
-- **Адаптив** — жёсткий гейт на четырёх классах устройств. Для попапа существенно: 320
-  пикселей — та ширина, где горизонтальная прокрутка проявится первой.
+- **Design gate:** a new screen — Tier 1 (design before markup, acceptance by comparison with the mockup);
+  the popup and toasts — Tier 2.
+- **Responsive** — a hard gate on four device classes. For the popup it matters: 320
+  pixels — the width where horizontal scrolling appears first.
 
-## 9. Порядок работ
+## 9. Work order
 
-| #   | Что                                            | Почему здесь                                |
-| --- | ---------------------------------------------- | ------------------------------------------- |
-| 1   | Починка попапа                                 | Ни от чего не зависит; нужна до новых типов |
-| 2   | Таблица адресов + вход + приглашение           | Фундамент: без неё некуда слать             |
-| 3   | Таблица согласований                           | Фундамент подтверждений                     |
-| 4   | Черновик проекта: статус, представление, страж | Самое рискованное: тринадцать мест          |
-| 5   | Ожидающая доля                                 | Одна точка в резолвере                      |
-| 6   | Типы уведомлений и их производители            | Требует, чтобы 2–5 существовали             |
-| 7   | Почта, настройки, экран «что от меня ждут»     | Верхний слой                                |
+| #   | What                                                | Why here                                        |
+| --- | --------------------------------------------------- | ----------------------------------------------- |
+| 1   | Fixing the popup                                    | Depends on nothing; needed before new types     |
+| 2   | Address table + login + invitation                  | Foundation: without it there is nowhere to send |
+| 3   | Approvals table                                     | Foundation of confirmations                     |
+| 4   | Project draft: status, view, guard                  | The riskiest: thirteen places                   |
+| 5   | Pending share                                       | One point in the resolver                       |
+| 6   | Notification types and their producers              | Requires 2–5 to exist                           |
+| 7   | Mail, settings, the "what is expected of me" screen | The top layer                                   |
 
-## 10. Риски
+## 10. Risks
 
-**Тринадцать мест (п. 4).** Объём, на котором «обнови везде» теряет одно место. Поэтому смена
-источника чтения плюс страж, а не правка по списку. **Если страж не выходит без ложных
-срабатываний — не ставить его**, а сказать и предложить иначе: шумящий страж воспитывает
-привычку обходить, и мы это уже проходили.
+**Thirteen places (item 4).** The volume at which "update everywhere" loses one place. Hence a change
+of the read source plus a guard, not an edit by list. **If the guard does not come out without false
+positives — do not add it**, but say so and propose otherwise: a noisy guard breeds
+a habit of bypassing, and we have been through this.
 
-**Аутентификация (п. 2).** Дыра, невидимая из диффа: один адрес, ведущий к двум учётным
-записям.
+**Authentication (item 2).** A hole invisible from the diff: one address leading to two
+accounts.
 
-**Производители уведомлений (п. 6) незаметно большие.** Каждый — правка в чужом сервисе:
-транзакции, команды, проекты, документы. Пять модулей, и в каждом надо не сломать
-существующее.
+**Notification producers (item 6) are quietly large.** Each — an edit in another's service:
+transactions, teams, projects, documents. Five modules, and in each one must not break the
+existing.
 
-**Уведомления о деньгах — это раскрытие.** Текст «доля 26% → 30%» уходит на **личную**
-почту, вне нашего контура. Объём того, что попадает в письмо, стоит держать минимальным:
-письмо зовёт в CRM, подробности — там.
+**Money notifications are a disclosure.** The text "share 26% → 30%" goes to a **personal**
+mailbox, outside our perimeter. The volume of what gets into the email should be kept minimal:
+the email calls into the CRM, the details — there.
 
-## 11. Тексты писем
+## 11. Email texts
 
-Утверждены владельцем 2026-09-01. Письмо **не содержит сумм и процентов** — называет суть
-запроса и ведёт в CRM. Побочно это снижает цену утечки: письмо уходит на личную почту,
-вне нашего контура, и само по себе финансов не раскрывает.
+Approved by the owner 2026-09-01. The email **contains no amounts and no percentages** — it names the gist
+of the request and leads into the CRM. Incidentally this reduces the cost of a leak: the email goes to a personal
+mailbox, outside our perimeter, and by itself discloses no finances.
 
-### Темы
+### Subjects
 
-Единый префикс **«Запрос на …»** для всего, что требует ответа. Он сообщает, что это
-предложение, а не свершившийся факт, ещё до того, как письмо открыли. Побочно письма
-выстраиваются в почте узнаваемым рядом, и почтовый клиент учится на них быстрее, чем на
-разнородных темах.
+A unified prefix **"Request for …"** for everything that requires an answer. It signals that this is a
+proposal, not an accomplished fact, even before the email is opened. Incidentally the emails
+line up in the mailbox as a recognizable row, and the email client learns from them faster than from
+heterogeneous subjects.
 
 - `Запрос на добавление проекта «{название}»`
 - `Запрос на смену процента по проекту «{название}»`
 - `Запрос на подпись: {тип документа} за {период}`
-- `Доступ к CRM CheekyCheeseIT` — приглашение, это не запрос
+- `Доступ к CRM CheekyCheeseIT` — the invitation, this is not a request
 
-### Правила, которым тексты подчиняются
+### Rules the texts obey
 
-- **Одна кнопка на письмо.** «Открыть» и «Отклонить» рядом означало бы, что отказ можно
-  дать не заходя, — а нам нужен след в системе с причиной.
-- **Ни одной благодарности и вежливой рамки.** Транзакционное письмо, которое благодарит,
-  читается как рассылка и попадает в «Промоакции» вместе с ней.
-- **В письме о смене доли вторая строка снимает испуг:** действует прежняя доля, новая
-  вступит в силу только после согласия. Без этого человек, увидев тему, решает, что у него
-  уже что-то изменили.
-- **В приглашении последняя строка — защита, а не вежливость:** «если письмо пришло по
-  ошибке, не переходите по ссылке». Она превращает опечатку в адресе из тихой дыры в
-  понятную получателю ситуацию.
-- Тексты проходят `copy-reviewer` — правило проекта прямо говорит, что самопроверка на
-  собственном тексте не работает.
+- **One button per email.** "Open" and "Reject" side by side would mean a rejection can be
+  given without entering, — but we need a trace in the system with a reason.
+- **Not a single thank-you or polite frame.** A transactional email that thanks
+  reads like a mailing and lands in "Promotions" together with it.
+- **In the share-change email the second line removes the fright:** the previous share is in effect, the new one
+  takes effect only after consent. Without this a person, seeing the subject, decides that something
+  has already been changed for them.
+- **In the invitation the last line is a protection, not politeness:** "if the email arrived by
+  mistake, do not follow the link". It turns an address typo from a silent hole into a
+  situation clear to the recipient.
+- The texts pass `copy-reviewer` — a project rule explicitly says that self-checking on
+  one's own text does not work.
 
-## 12. Доставляемость (измерено 2026-09-01)
+## 12. Deliverability (measured 2026-09-01)
 
-| Запись                     | Состояние                 |
-| -------------------------- | ------------------------- |
-| DKIM на корневом домене    | есть                      |
-| SPF на поддомене отправки  | есть                      |
-| **SPF на корневом домене** | **отсутствует**           |
-| **DMARC**                  | **отсутствует полностью** |
+| Record                       | State               |
+| ---------------------------- | ------------------- |
+| DKIM on the root domain      | present             |
+| SPF on the sending subdomain | present             |
+| **SPF on the root domain**   | **absent**          |
+| **DMARC**                    | **absent entirely** |
 
-Настроенный адрес отправителя лежит на **корне**, а SPF — на поддомене. Подпись частично
-компенсирует, но выравнивание хрупкое.
+The configured sender address is on the **root**, and SPF — on the subdomain. The signature partially
+compensates, but the alignment is fragile.
 
-**Обе записи живут в DNS, а не в коде** — подготовить может исполнитель, применить только
-владелец.
+**Both records live in DNS, not in code** — the implementer can prepare, only the owner can
+apply.
 
-### Про пометку «Важное» в Gmail
+### About the "Important" marker in Gmail
 
-**Отправитель поставить её не может.** Важность вычисляется почтовым сервисом для каждого
-получателя отдельно, по его собственному поведению. Заголовки приоритета для этой метки не
-учитываются; письмо, которое их шлёт, важным не становится, но часть фильтров считает это
-признаком рассылки — то есть попытка может ухудшить доставляемость.
+**The sender cannot set it.** Importance is computed by the mail service for each
+recipient separately, by their own behavior. Priority headers are not accounted for for this marker;
+an email that sends them does not become important, but some filters treat this
+as a sign of a mailing — i.e. the attempt may worsen deliverability.
 
-**Достижимо вместо этого:** попадать в основную вкладку, а не в промоакции (никакой
-рекламной вёрстки); один постоянный отправитель, на котором почта учится; разделение
-потоков — требующие действия отдельно от информационных; разовая просьба к команде добавить
-адрес в контакты.
+**Achievable instead:** landing in the primary tab, not promotions (no
+promotional layout); one constant sender that the mail learns on; splitting the
+streams — action-required separately from informational; a one-time request to the team to add the
+address to contacts.
 
-### Вёрстка
+### Layout
 
-Почтовые клиенты — не браузеры: наши токены и современная вёрстка там не работают. Письма
-верстаются таблицами и встроенными стилями. Это свойство среды, а не выбор.
+Email clients are not browsers: our tokens and modern layout do not work there. Emails
+are laid out with tables and inline styles. This is a property of the environment, not a choice.
