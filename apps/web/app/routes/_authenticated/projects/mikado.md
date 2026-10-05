@@ -33,7 +33,11 @@
   `isAdmin`, `canManage`, `canOpenEdit`, `canRemoveMembers`, `canSeeProjectFinance`, `canEditOverride`,
   `canAccessLegend`, `canManageCredentials`; `isSubject` внутренний; characterization:
   `__tests__/use-project-permissions.test.ts`, роли x состояния проекта)
-- [todo] хук `useProjectDropMutations`
+- [done] хук `useProjectDropMutations(projectId, onSuccessClose)` -> `use-project-drop-mutations.ts` (лист 8;
+  единственная drop-мутация `dropMutation` — PATCH `{ dropId }` для attach/detach; страница передаёт
+  `onSuccessClose`, закрывающий оба диалога; инвалидации/toast перенесены дословно;
+  characterization: `__tests__/use-project-drop-mutations.test.tsx`). `addMemberMutation`/`removeMemberMutation`
+  остались в странице (member-, не drop-мутации; завязаны на локальные `Set`-состояния)
 
 Уровень 2 — нужен дизайн интерфейса (предпосылки: уровень 1):
 
