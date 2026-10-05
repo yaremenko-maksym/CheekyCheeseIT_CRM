@@ -48,7 +48,7 @@
   страница держит open-состояния, `dropCandidates` и гейт `canManageDrop` на кнопках-триггерах;
   characterization: `__tests__/ProjectDropDialogs.test.tsx`)
 - [todo] диалоги remove-member / add-member <- `useProjectPermissions`
-- [todo] overview-таб (вынос) <- `ProjectInfoRows`, `PendingShareApprovalBanner`, `ProjectEffectiveTeamCard`
+- [done] overview-таб -> `ProjectOverviewTab.tsx` (лист 12; три блока `activeTab === 'overview'` (карточки деталей/состава, legend, credentials) одним компонентом-фрагментом; страница передаёт `project`, `projectId`, viewer id/role, флаги `canManage`/`canRemoveMembers`/`canSeeProjectFinance`/`canEditOverride`/`canAccessLegend`/`canManageCredentials` (гейт credentials не менялся), `availableToAddCount` и колбэки `onAddMember`/`onRemoveMember`; characterization: `__tests__/ProjectOverviewTab.test.tsx`)
 - [done] hero-хедер -> `ProjectHero.tsx` (лист 11; страница передаёт `project`, viewer id/role, `rates`, флаги `isAdmin`/`canOpenEdit` и колбэки `onEdit`/`onArchive`/`onCascadeRequired`; PendingShareApprovalBanner остаётся в странице; characterization: `__tests__/ProjectHero.test.tsx`)
 
 Риск-зоны: finance-маскирование (`canSeeProjectFinance`); порядок хуков до early-return
