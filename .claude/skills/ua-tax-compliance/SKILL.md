@@ -24,15 +24,15 @@ UA-specific tax / company structure knowledge. Lifted from `.claude/agents/memor
 
 ## Patterns
 
-### 1. Exit Capital Tax 9% (Diia City resident) vs Single Tax 5% — break-even analysis
+### 1. Tax on Withdrawn Capital 9% (Diia City resident) vs Single Tax 5% — break-even analysis
 
-**Rule:** Exit Capital Tax 9% (Tax on Withdrawn Capital, Diia City) beats the Single Tax 5% (Single Tax FOP-3) even at small turnover at IT margins of 25-35% — 5% of turnover > 9% of profit in typical outsource structures.
+**Rule:** Tax on Withdrawn Capital 9% (Diia City) beats the Single Tax 5% (Single Tax FOP-3) even at small turnover at IT margins of 25-35% — 5% of turnover > 9% of profit in typical outsource structures.
 
-**Break-even Single Tax vs Exit Capital Tax** = only at a margin ≥40-50% (unrealistic for IT-outsource).
+**Break-even Single Tax vs Tax on Withdrawn Capital** = only at a margin ≥40-50% (unrealistic for IT-outsource).
 
 **Decision rule:**
 
-- An outsource company with a 25-35% margin → TOV-Diia City Exit Capital Tax wins already at mini-scale.
+- An outsource company with a 25-35% margin → TOV-Diia City Tax on Withdrawn Capital wins already at mini-scale.
 - A product company with a margin >50% → FOP-3 may remain optimal (but the banking cap 14.08.2026 blocker — see §6).
 
 ### 2. Startup resident of Diia City (24-month bridge)
@@ -66,8 +66,8 @@ UA-specific tax / company structure knowledge. Lifted from `.claude/agents/memor
 
 **Rule:** The NBU + AUB Memorandum + 29 banks of 14.05.2026 — structural banking caps for FOP-3 **independent of the Tax Code limits and crypto regulation**:
 
-| Date       | Cap     |
-| ---------- | ------- |
+| Date       | Cap       |
+| ---------- | --------- |
 | 14.08.2026 | ₴3M/month |
 | 14.11.2026 | ₴1M/month |
 
@@ -127,14 +127,14 @@ This cap — the banks simply will not process it. For a scale > ₴10M/year the
 
 **Realistic options (2025-2026):**
 
-| Jurisdiction    | Bank                            | Reality                            |
-| --------------- | ------------------------------- | ---------------------------------- |
-| Estonia LHV     | —                               | Requires a face-to-face visit      |
-| Cyprus Eurobank | —                               | 6-10 weeks enhanced DD             |
-| Hong Kong       | —                               | Practically closed since 2020      |
-| UAE             | Emirates NBD / Mashreq via IFZA | Realistically opens                |
-| Georgia         | TBC                             | Realistically opens                |
-| Delaware LLC    | Mercury / Wise                  | Realistically opens                |
+| Jurisdiction    | Bank                            | Reality                                      |
+| --------------- | ------------------------------- | -------------------------------------------- |
+| Estonia LHV     | —                               | Requires a face-to-face visit                |
+| Cyprus Eurobank | —                               | 6-10 weeks enhanced DD                       |
+| Hong Kong       | —                               | Practically closed since 2020                |
+| UAE             | Emirates NBD / Mashreq via IFZA | Realistically opens                          |
+| Georgia         | TBC                             | Realistically opens                          |
+| Delaware LLC    | Mercury / Wise                  | Realistically opens                          |
 | —               | Revolut                         | Closed the entire UA market in December 2025 |
 
 ### 11. Substance requirements — stricter since 2025
@@ -151,16 +151,16 @@ This cap — the banks simply will not process it. For a scale > ₴10M/year the
 
 ## Anti-patterns
 
-| ❌ Don't                                                 | ✅ Do                                                                              |
-| -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| ❌ Don't                                                   | ✅ Do                                                                                     |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Advise Cyprus 12.5% / UAE 9% as "tax savings" for a UA UBO | Explain the CFC effective rate test → Cyprus/UAE FAIL without the active income exemption |
-| Skip the Diia City audit in the monthly accruals plan    | Include ₴3-7k/month from day-1 (mandatory)                                          |
-| Advise FOP-3 + USDT for a team scale > ₴10M/year         | Hard refuse → TOV-Diia City startup resident                                        |
-| Advise a bridge FOP → TOV without the 4 conditions check | Verify NULL USDT + < ₴3M/month + no commingling + ≤ 6 months hard cutoff            |
-| Advise offshore without a TP documentation budget        | Include ₴30-50k/year TP fees + lawyer engagement                                   |
-| Advise opening a bank AFTER company registration         | Verify banking BEFORE registration (KYC bottleneck)                                |
-| Advise remote offshore (without substance)               | Substance requirements 2025 — real office + real employees + local decision-making |
-| Take an internet template for Diia City gig contracts    | IT-corporate lawyer (Juscutum / EQUITY / Avellum) review mandatory                 |
+| Skip the Diia City audit in the monthly accruals plan      | Include ₴3-7k/month from day-1 (mandatory)                                                |
+| Advise FOP-3 + USDT for a team scale > ₴10M/year           | Hard refuse → TOV-Diia City startup resident                                              |
+| Advise a bridge FOP → TOV without the 4 conditions check   | Verify NULL USDT + < ₴3M/month + no commingling + ≤ 6 months hard cutoff                  |
+| Advise offshore without a TP documentation budget          | Include ₴30-50k/year TP fees + lawyer engagement                                          |
+| Advise opening a bank AFTER company registration           | Verify banking BEFORE registration (KYC bottleneck)                                       |
+| Advise remote offshore (without substance)                 | Substance requirements 2025 — real office + real employees + local decision-making        |
+| Take an internet template for Diia City gig contracts      | IT-corporate lawyer (Juscutum / EQUITY / Avellum) review mandatory                        |
 
 ## References
 

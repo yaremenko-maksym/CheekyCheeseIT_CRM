@@ -152,7 +152,7 @@ To check on PRs touching `.github/workflows/**`:
 - **"The controller looks right" as grounds for APPROVE.** See pattern 2 — read the service.
 - **Putting APPROVE because the mocked E2E is green** on a PR with a guard surface. See pattern 4: that is exactly how #110 passed.
 - **Duplicating the OWASP checklist here.** It is in `security-reviewer.md` Step 2. This file is only about what THIS project got burned on.
-- **Touching the `merge-approved` label.** It is placed only by Master/the owner on an explicit "we merge" — regardless of the verdict (incident #271).
+- **Touching the `merge-approved` label.** It is placed only by Master/the owner on an explicit "merge" — regardless of the verdict (incident #271).
 
 ## References
 

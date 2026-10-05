@@ -85,12 +85,12 @@ only because tests use them.
 
 The category of the dependency determines how a deepened module is tested through its seam:
 
-| Category                 | What it is                                             | How it is tested                                                                 |
-| ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| **In-process**           | pure computation, memory, no I/O                       | always deepenable; the test goes directly through the new interface, no adapter needed |
-| **Locally swappable**    | a local stand exists (Postgres in docker, in-memory FS) | the seam is internal, a port on the external interface is not needed             |
-| **Ours, but over the network** | our services behind a network boundary          | a port on the seam: logic in the module, transport injected by an adapter (HTTP / queue) |
-| **Truly external**       | Etherscan, S3/R2, NBU, mail — not ours                 | the dependency is injected by a port, the tests give a mock adapter              |
+| Category                       | What it is                                              | How it is tested                                                                         |
+| ------------------------------ | ------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **In-process**                 | pure computation, memory, no I/O                        | always deepenable; the test goes directly through the new interface, no adapter needed   |
+| **Locally swappable**          | a local stand exists (Postgres in docker, in-memory FS) | the seam is internal, a port on the external interface is not needed                     |
+| **Ours, but over the network** | our services behind a network boundary                  | a port on the seam: logic in the module, transport injected by an adapter (HTTP / queue) |
+| **Truly external**             | Etherscan, S3/R2, NBU, mail — not ours                  | the dependency is injected by a port, the tests give a mock adapter                      |
 
 **Replace, do not layer.** Old unit tests on shallow modules become garbage the moment
 tests on the deepened module's interface appear — delete them. A test that has to change when the

@@ -74,11 +74,11 @@ UA-specific IT-contract risk patterns. Lifted from `.claude/agents/memory/legal/
 
 **UA IT-corporate lawyers ranking (for our profile):**
 
-| Lawyer       | Tier     | Bundle cost | Best for                       |
-| ------------ | -------- | ----------- | ------------------------------ |
-| **Juscutum** | IT-focus | ₴80-150k    | Recommended (best balance)     |
-| **EQUITY**   | Budget   | ₴60-110k    | Smaller scope / tight budget   |
-| **Avellum**  | Premium  | ₴120-220k   | Full-service if budget allows  |
+| Lawyer       | Tier     | Bundle cost | Best for                         |
+| ------------ | -------- | ----------- | -------------------------------- |
+| **Juscutum** | IT-focus | ₴80-150k    | Recommended (best balance)       |
+| **EQUITY**   | Budget   | ₴60-110k    | Smaller scope / tight budget     |
+| **Avellum**  | Premium  | ₴120-220k   | Full-service if budget allows    |
 | **Sayenko**  | Overkill | —           | For a < ₴50M business — overkill |
 
 **Decision rule:** AI Legal acceptable deliverables:
@@ -126,15 +126,15 @@ UA-specific IT-contract risk patterns. Lifted from `.claude/agents/memory/legal/
 
 ## Anti-patterns
 
-| ❌ Don't                                                         | ✅ Do                                                                                       |
-| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| AI generates ready-to-sign legal templates                       | Analysis + structured skeleton + lawyer-engagement prep pack only                           |
-| Accept the blanket clause "consent in the contract" as sufficient | Narrow audit rights with specific scope — UA judicial practice rejects blanket consent      |
-| Advise a SENIOR commission > 75% post-termination without compensation | Unconscionability risk — add a damages formula + reasonable duration                 |
-| Skip the recharacterization check for gig contracts              | Verify 5 red flags (fixed hours / equipment / supervision / no risk / exclusive)            |
-| Engage an IT-corporate lawyer without a prep-pack                | A 15-item decisions checklist + structured questions = ~50% fee reduction                   |
-| Assume brand ownership from a WIPO link                          | Verify the owner-name from the WIPO record (UK trademark UK00003407857 = Jallen Gourmet, not Yaremenko) |
-| An internet template for Diia City gig contracts                 | Juscutum / EQUITY / Avellum review mandatory                                                |
+| ❌ Don't                                                               | ✅ Do                                                                                                   |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| AI generates ready-to-sign legal templates                             | Analysis + structured skeleton + lawyer-engagement prep pack only                                       |
+| Accept the blanket clause "consent in the contract" as sufficient      | Narrow audit rights with specific scope — UA judicial practice rejects blanket consent                  |
+| Advise a SENIOR commission > 75% post-termination without compensation | Unconscionability risk — add a damages formula + reasonable duration                                    |
+| Skip the recharacterization check for gig contracts                    | Verify 5 red flags (fixed hours / equipment / supervision / no risk / exclusive)                        |
+| Engage an IT-corporate lawyer without a prep-pack                      | A 15-item decisions checklist + structured questions = ~50% fee reduction                               |
+| Assume brand ownership from a WIPO link                                | Verify the owner-name from the WIPO record (UK trademark UK00003407857 = Jallen Gourmet, not Yaremenko) |
+| An internet template for Diia City gig contracts                       | Juscutum / EQUITY / Avellum review mandatory                                                            |
 
 ## References
 

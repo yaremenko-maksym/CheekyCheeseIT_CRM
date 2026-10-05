@@ -27,13 +27,13 @@ A custom cookbook on top of the ECC playwright slot. The CRM uses Playwright @1.
 
 ### 1. Strict-mode + `getByText` — conflict with descriptive texts
 
-**Rule:** `getByText('...')` without `exact: true` fails strict mode if the new descriptive text matches as a substring with an existing `<label>`. Real incident: adding the hint "New senior team with the selected HR and accountant" to a RadioGroup broke `users.spec.ts` because the existing `<label>Accountant</label>` matched.
+**Rule:** `getByText('...')` without `exact: true` fails strict mode if the new descriptive text matches as a substring with an existing role `<label>` (rendered from the uk/en catalog). Real incident: adding a descriptive hint that mentioned a role (a senior's team with its HR and accountant) to a RadioGroup broke `users.spec.ts` because an existing role label matched as a substring.
 
 **Decision rule:**
 
-- Before adding role words ("HR", "Accountant", "Senior", "Admin", "Junior") to a new helper text — `grep -rn "getByText" apps/e2e/tests/*.spec.ts` to check for conflicts.
-- If the conflict is unavoidable — use `getByText('...', { exact: true })` or `getByRole('...', { name: '...' })`.
-- In the spec, too, prefer `getByRole('button', { name: 'X' })` over `getByText('X')` for UI elements.
+- Before adding words that name a role (the `ADMIN` / `SENIOR` / `JUNIOR` / `HR` / `ACCOUNTANT` labels) to a new helper text — `grep -rn "getByText" apps/e2e/tests/*.spec.ts` to check for conflicts.
+- If the conflict is unavoidable — select by `data-testid` (`getByTestId(...)`) or by role with the catalog descriptor (`getByRole('...', { name: i18n._(...) })`), not by a raw substring.
+- In the spec, too, prefer `getByTestId(...)` / `getByRole('button', { name: i18n._(...) })` over `getByText('X')` for UI elements.
 
 ### 2. Radix RadioGroupItem + async submit — flaky POST verification
 
@@ -72,10 +72,10 @@ A custom cookbook on top of the ECC playwright slot. The CRM uses Playwright @1.
 
 **Rule:** The CRM has TWO different archiving components:
 
-| Component                                 | testids                                                                 | Usage                |
-| ----------------------------------------- | ----------------------------------------------------------------------- | -------------------- |
-| `components/users/ArchiveConfirmDialog`   | `archive-confirm-dialog`                                                | User archive         |
-| `components/archive/ArchiveConfirmDialog` | `archive-confirm-input` + `archive-confirm-submit` (NO wrapper testid)  | Team / project archive |
+| Component                                 | testids                                                                | Usage                  |
+| ----------------------------------------- | ---------------------------------------------------------------------- | ---------------------- |
+| `components/users/ArchiveConfirmDialog`   | `archive-confirm-dialog`                                               | User archive           |
+| `components/archive/ArchiveConfirmDialog` | `archive-confirm-input` + `archive-confirm-submit` (NO wrapper testid) | Team / project archive |
 
 When writing a spec — determine exactly which component renders. Do NOT copy testids between them.
 
@@ -113,19 +113,19 @@ Apply in all Vitest interaction tests (by default).
 
 **Rule (E2E and Vitest):** elements are found by `data-testid` and roles; where text is needed, the string is taken
 from the `uk` catalog (`i18n._(descriptor)` / importing the descriptor), not written as a literal. Changing the wording
-or the language must not color the tests. A `data-testid` is not built from translatable text (incident
+or the language must not redden the tests. A `data-testid` is not built from translatable text (incident
 `pending-kind-heading-<zone>-<title>`, i18n audit §2).
 
 ## Anti-patterns
 
-| ❌ Don't                                                  | ✅ Do                                                                                    |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `page.getByText('Accountant')` for a button click         | `page.getByRole('button', { name: i18n._(ROLE_LABELS.ACCOUNTANT) })` — text from the catalog |
-| `radio.click()` + immediate `waitForRequest(POST)`        | Click label → wait for UI contract (toast/visible field) → assertions without waitForRequest |
-| Debug screenshots in `apps/e2e/debug-*.png` in the repo   | `/tmp/autotest-<runid>/*.png` (git-ignored)                                              |
-| UI text change without a spec.ts update in the same commit | Atomic commit: component.tsx + spec.ts together                                          |
-| `it.skip('...flaky...')` to skip an unstable test         | Isolate the root cause (race / timing / async) + add a retry in the config               |
-| `--no-verify` to shove through a push with a failing E2E  | Run the test in isolation, add `it.retry(2)` locally, push without --no-verify           |
+| ❌ Don't                                                   | ✅ Do                                                                                                                   |
+| ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `page.getByText(<raw role label>)` for a button click      | `page.getByTestId(...)` or `page.getByRole('button', { name: i18n._(ROLE_LABELS.ACCOUNTANT) })` — text from the catalog |
+| `radio.click()` + immediate `waitForRequest(POST)`         | Click label → wait for UI contract (toast/visible field) → assertions without waitForRequest                            |
+| Debug screenshots in `apps/e2e/debug-*.png` in the repo    | `/tmp/autotest-<runid>/*.png` (git-ignored)                                                                             |
+| UI text change without a spec.ts update in the same commit | Atomic commit: component.tsx + spec.ts together                                                                         |
+| `it.skip('...flaky...')` to skip an unstable test          | Isolate the root cause (race / timing / async) + add a retry in the config                                              |
+| `--no-verify` to shove through a push with a failing E2E   | Run the test in isolation, add `it.retry(2)` locally, push without --no-verify                                          |
 
 ## References
 

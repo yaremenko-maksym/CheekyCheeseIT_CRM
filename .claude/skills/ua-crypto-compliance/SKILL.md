@@ -81,14 +81,14 @@ UA-specific crypto / virtual assets / AML knowledge for CRM Phase 8 (Smart Contr
 
 ## Anti-patterns
 
-| ❌ Don't                                            | ✅ Do                                                                   |
-| --------------------------------------------------- | ----------------------------------------------------------------------- |
-| Advise USDT payout as a production-ready solution   | Explain Law 2074-IX status + feature_flag false until 10225-d activation |
-| Skip KYC for crypto transactions < UAH 30k          | Capture source of funds anyway (audit-ready)                            |
-| Advise FOP-3 + USDT as a "legal bridge"             | Hard refuse — State Tax Service ban + 15% penalty                       |
-| Consider multi-issuer cash/crypto schemes           | Hard refuse + escalate to a criminal defense lawyer                     |
-| Advise a cash-channel in IT-outsource               | Hard refuse — NBU limit ₴10k/day + prohibition of FX-cash with non-residents |
-| Change the wallet field without a consent re-confirmation flow | Require a consent re-confirm UI + audit log entry before production deploy |
+| ❌ Don't                                                       | ✅ Do                                                                        |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Advise USDT payout as a production-ready solution              | Explain Law 2074-IX status + feature_flag false until 10225-d activation     |
+| Skip KYC for crypto transactions < UAH 30k                     | Capture source of funds anyway (audit-ready)                                 |
+| Advise FOP-3 + USDT as a "legal bridge"                        | Hard refuse — State Tax Service ban + 15% penalty                            |
+| Consider multi-issuer cash/crypto schemes                      | Hard refuse + escalate to a criminal defense lawyer                          |
+| Advise a cash-channel in IT-outsource                          | Hard refuse — NBU limit ₴10k/day + prohibition of FX-cash with non-residents |
+| Change the wallet field without a consent re-confirmation flow | Require a consent re-confirm UI + audit log entry before production deploy   |
 
 ## References
 

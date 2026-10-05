@@ -1,6 +1,6 @@
 ---
 name: decomposing-large-code
-description: 'A reproducible discipline for safely splitting giant files and modules: the Mikado Method (goal → naive attempt → revert at the first blocker → prerequisite node into the graph → recursion down to the leaves) on top of Michael Feathers'' characterization tests. Execution by leaves bottom-up, each leaf an atomic PR, the base always green. Behavior-preserving: zero changes to observable behavior.'
+description: "A reproducible discipline for safely splitting giant files and modules: the Mikado Method (goal → naive attempt → revert at the first blocker → prerequisite node into the graph → recursion down to the leaves) on top of Michael Feathers' characterization tests. Execution by leaves bottom-up, each leaf an atomic PR, the base always green. Behavior-preserving: zero changes to observable behavior."
 when_to_use: "Use when about to split a giant file or module whose seam is already chosen (via codebase-design): a >800-line service/route/component, a god file, a module that is 'too big'. Examples: 'split a giant file', 'decompose god file', 'split of a module >800 lines', 'transactions.service.ts is too big', 'this file is too big to edit safely', 'split schema.ts', 'how to safely cut up UserDialog.tsx'."
 allowed-tools:
   - Read
@@ -110,11 +110,11 @@ was weakened for the sake of green.
 
 ## Three agent failures and countermeasures
 
-| Failure                                                              | Countermeasure                                                                                                                   |
-| -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Greed of edits** — the agent fixes everything at once, accumulates broken | The leaf constraint (3–5 files) + `git reset --hard` at the first blocker instead of "one more edit and it will work" |
-| **Goal drift** — by the end of the session the agent edits not what it started | The external graph `mikado.md`, read at the start of each session; a node by symbol, not by line |
-| **The illusion of green** — the test was tweaked to pass            | `mutation-gate` catches weakened specs; the rule "never weaken a spec" (`.claude/rules/common/*`); behavior-preserving = zero changes to observable behavior, so there is nothing to change in the tests either |
+| Failure                                                                        | Countermeasure                                                                                                                                                                                                  |
+| ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Greed of edits** — the agent fixes everything at once, accumulates broken    | The leaf constraint (3–5 files) + `git reset --hard` at the first blocker instead of "one more edit and it will work"                                                                                           |
+| **Goal drift** — by the end of the session the agent edits not what it started | The external graph `mikado.md`, read at the start of each session; a node by symbol, not by line                                                                                                                |
+| **The illusion of green** — the test was tweaked to pass                       | `mutation-gate` catches weakened specs; the rule "never weaken a spec" (`.claude/rules/common/*`); behavior-preserving = zero changes to observable behavior, so there is nothing to change in the tests either |
 
 The countermeasure against the illusion of green is positive: the split preserves behavior, so the tests
 stay as they are; the need to touch a test on a purely mechanical split is a signal that the behavior

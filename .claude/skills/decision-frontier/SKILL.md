@@ -1,6 +1,6 @@
 ---
 name: decision-frontier
-description: 'Autonomous version of a grilling session: the agent builds the task''s decision tree itself, extinguishes each branch with facts from the repository, and classifies only the irreducible remainder by autonomy levels A1/A2/A3. The reversible it decides itself on the record, the irreversible it accumulates into a decision brief. Replaces interviewing the owner where the owner is unavailable.'
+description: "Autonomous version of a grilling session: the agent builds the task's decision tree itself, extinguishes each branch with facts from the repository, and classifies only the irreducible remainder by autonomy levels A1/A2/A3. The reversible it decides itself on the record, the irreversible it accumulates into a decision brief. Replaces interviewing the owner where the owner is unavailable."
 when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: Master task decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'unclear which of the two options to do', 'the task does not describe the edge-case', 'I want to ask the owner', 'gather questions into one batch', 'what decisions are there even here', 'does this need to be blocked'."
 allowed-tools:
   - Read
@@ -36,15 +36,15 @@ Done when every fork of the task is written down and each shows what it depends 
 **This is the main step.** Most "questions for the owner" are facts the agent is obliged to obtain itself.
 Walk the frontier and for each question ask: **does a command answer it?**
 
-| Where to look                       | With what                                                                 |
-| ----------------------------------- | ------------------------------------------------------------------------- |
-| Project language and concepts       | `CONTEXT.md`                                                              |
-| Decisions already made              | `docs/architecture/**` (ADR), `.out-of-scope/**`                          |
-| Owner's decisions on this topic     | `.claude/tasks/BACKLOG-followups.md` ("Owner decisions" sections)         |
-| Past gotchas                        | `.claude/agents/memory/<agent>/lessons.md`                                |
-| How it is built now                 | `codegraph_explore`, `ast-grep find_code`                                 |
-| What is actually in the data        | `postgres query` — **`SELECT` only** (`rules/common/live-db-access.md`)   |
-| What was decided last time on a similar case | `gh pr list --search`, `git log --grep`                          |
+| Where to look                                | With what                                                               |
+| -------------------------------------------- | ----------------------------------------------------------------------- |
+| Project language and concepts                | `CONTEXT.md`                                                            |
+| Decisions already made                       | `docs/architecture/**` (ADR), `.out-of-scope/**`                        |
+| Owner's decisions on this topic              | `.claude/tasks/BACKLOG-followups.md` ("Owner decisions" sections)       |
+| Past gotchas                                 | `.claude/agents/memory/<agent>/lessons.md`                              |
+| How it is built now                          | `codegraph_explore`, `ast-grep find_code`                               |
+| What is actually in the data                 | `postgres query` — **`SELECT` only** (`rules/common/live-db-access.md`) |
+| What was decided last time on a similar case | `gh pr list --search`, `git log --grep`                                 |
 
 A branch extinguished by a fact **disappears from the tree** — it was not a decision. Record the found fact
 next to the branch: you will need it to justify the recommendation.

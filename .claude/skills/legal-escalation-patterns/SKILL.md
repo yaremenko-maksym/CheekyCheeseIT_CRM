@@ -140,15 +140,15 @@ practitioner (UA jurisprudence / inter-jurisdictional law).
 
 ## Anti-patterns
 
-| ❌ Don't                                                 | ✅ Do                                                                       |
-| -------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Re-dispatch Legal for a cosmetic-variant evasion question | Master identifies "variant N of a scheme already analyzed" + restate the boundary |
-| Lecture / moralize on detection of an evasion variant    | Identify the pattern + add a NEW technical insight + offer 3 forks          |
-| Analyze multi-issuer schemes deeper                      | Hard refuse — Art. 212 of the Criminal Code of Ukraine + escalate to a criminal defense lawyer |
-| AI generates a ready-to-sign contract draft              | Analysis / structured skeleton / lawyer-engagement prep pack only           |
-| Full re-litigation on structural follow-up consultations | Focused side-by-side delta-comparison (~500 lines)                          |
-| Skip the disclaimer in Legal output                      | Standard disclaimer language with every output                              |
-| AI engages a specialist lawyer directly                  | AI suggests a specialist + the boundary, final engagement — User            |
+| ❌ Don't                                                  | ✅ Do                                                                                          |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Re-dispatch Legal for a cosmetic-variant evasion question | Master identifies "variant N of a scheme already analyzed" + restate the boundary              |
+| Lecture / moralize on detection of an evasion variant     | Identify the pattern + add a NEW technical insight + offer 3 forks                             |
+| Analyze multi-issuer schemes deeper                       | Hard refuse — Art. 212 of the Criminal Code of Ukraine + escalate to a criminal defense lawyer |
+| AI generates a ready-to-sign contract draft               | Analysis / structured skeleton / lawyer-engagement prep pack only                              |
+| Full re-litigation on structural follow-up consultations  | Focused side-by-side delta-comparison (~500 lines)                                             |
+| Skip the disclaimer in Legal output                       | Standard disclaimer language with every output                                                 |
+| AI engages a specialist lawyer directly                   | AI suggests a specialist + the boundary, final engagement — User                               |
 
 ## References
 

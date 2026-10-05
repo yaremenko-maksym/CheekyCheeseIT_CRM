@@ -39,11 +39,11 @@ ui-ux-designer via `Agent`) CANNOT draw it itself — it reads the **file artifa
 CLI 2.1.185 ships native slash commands. They are **interactive** — they are **TYPED by the owner** in a live
 `claude` session; the headless orchestrator does NOT invoke them via the Skill tool.
 
-| Command         | What it does                                                                                                 | Who types it         |
-| --------------- | ------------------------------------------------------------------------------------------------------------ | -------------------- |
-| `/design-login` | Links Claude Code ↔ Claude Design (OAuth design-scope to the claude.ai login)                               | Owner, in `claude`   |
-| `/design-sync`  | Reads tokens + React components from the code → creates/updates the design system in Claude Design ("BEST FIDELITY") | Owner, in `claude`   |
-| `/design`       | Launch / handoff: generation against the design system                                                       | Owner, in `claude`   |
+| Command         | What it does                                                                                                         | Who types it       |
+| --------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| `/design-login` | Links Claude Code ↔ Claude Design (OAuth design-scope to the claude.ai login)                                        | Owner, in `claude` |
+| `/design-sync`  | Reads tokens + React components from the code → creates/updates the design system in Claude Design ("BEST FIDELITY") | Owner, in `claude` |
+| `/design`       | Launch / handoff: generation against the design system                                                               | Owner, in `claude` |
 
 **Do NOT create project command equivalents** (`.claude/commands/design*.md`) — they would shadow/conflict
 with the native ones. The project value = the gate + Mode E reconciliation + this skill + enforcement.

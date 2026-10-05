@@ -24,13 +24,13 @@ Two things make this skill a skill: the **primary source** and the **file in the
 
 ## What counts as a primary source
 
-| Topic                     | Primary source                                                           | Not a primary source                      |
-| ------------------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
-| Library behaviour         | its source code, changelog, official documentation (`context7`)          | an article, a Stack Overflow answer, a tutorial |
-| Third-party API contract  | the vendor's official spec, OpenAPI, a live response to a trial call     | a blog example, an npm wrapper            |
-| Standard / format         | an RFC, W3C, a specification                                             | an MDN retelling (useful, but secondary)  |
-| Law                       | the text of the act, the bill registry, an agency clarification          | a legal blog, a news item                 |
-| Vendor infrastructure     | the endpoint / list published by the vendor                              | a GitHub gist, a copied list              |
+| Topic                    | Primary source                                                       | Not a primary source                            |
+| ------------------------ | -------------------------------------------------------------------- | ----------------------------------------------- |
+| Library behaviour        | its source code, changelog, official documentation (`context7`)      | an article, a Stack Overflow answer, a tutorial |
+| Third-party API contract | the vendor's official spec, OpenAPI, a live response to a trial call | a blog example, an npm wrapper                  |
+| Standard / format        | an RFC, W3C, a specification                                         | an MDN retelling (useful, but secondary)        |
+| Law                      | the text of the act, the bill registry, an agency clarification      | a legal blog, a news item                       |
+| Vendor infrastructure    | the endpoint / list published by the vendor                          | a GitHub gist, a copied list                    |
 
 **Tracing rule:** every claim in the report leads to the party that **owns** it. If you found a
 fact in a retelling, go to the source of the retelling and cite it. The primary source is unavailable
@@ -92,7 +92,7 @@ major bump", "watch the bill registry", "cross-check the list monthly".
 
 - **Cloudflare IP ranges** — after the firewall is enabled, a stale list **takes the site down**, it does not
   merely make noise; a file with a shelf life and a recheck signal is needed.
-- **Status of law 2074-IX** (virtual assets) — not enacted, awaiting the related bill;
+- **Status of law 2074-IX** (virtual assets) — adopted but not in force, awaiting the related bill;
   legal skills reference a snapshot that must have a shelf life.
 
 ## Related

@@ -30,10 +30,10 @@ is not a prototype but a draft that no one will later be able to accept or rejec
 
 Next pick the branch. The wrong branch devalues all the work:
 
-| Question                                          | Branch     |
-| ------------------------------------------------- | ---------- |
-| "How should this look?"                           | **UI**     |
-| "Is the state model / business logic correct?"    | **Logic**  |
+| Question                                       | Branch    |
+| ---------------------------------------------- | --------- |
+| "How should this look?"                        | **UI**    |
+| "Is the state model / business logic correct?" | **Logic** |
 
 The question is ambiguous, the owner is unavailable → a backend module gives logic, a screen or component gives UI;
 record the assumption as a line at the top (this is A1 per `autonomy-levels.md`).

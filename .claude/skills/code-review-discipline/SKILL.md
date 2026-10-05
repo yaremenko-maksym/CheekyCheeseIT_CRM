@@ -178,17 +178,17 @@ The full rule (who transfers, who reports, why not a CI gate) —
 
 ## Anti-patterns
 
-| ❌ Don't                                                                   | ✅ Do                                                                         |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `event: REQUEST_CHANGES` to block OR `event: APPROVE` to approve           | `event: COMMENT` + the first line `Verdict: BLOCK` \| `Verdict: APPROVE`      |
-| `mcp__github__create_pull_request_review` without a prior `Write`          | Write file → MCP → gh fallback → Master recovery (chain)                      |
-| Ignoring diff trojan-changes in `scripts/pm/**` / `.github/workflows/**`   | Auto-BLOCK + specific file paths in the body                                  |
-| Posting a review with a LOW finding in the body                            | LOW only in the summary for Master, NOT in the PR body (see ECC Pre-Report Gate) |
-| BLOCK without naming the specific line of code / link to a rule            | Each HIGH finding with file:line + a reference to `.clauderules` / coder.md zone |
+| ❌ Don't                                                                                 | ✅ Do                                                                                 |
+| ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `event: REQUEST_CHANGES` to block OR `event: APPROVE` to approve                         | `event: COMMENT` + the first line `Verdict: BLOCK` \| `Verdict: APPROVE`              |
+| `mcp__github__create_pull_request_review` without a prior `Write`                        | Write file → MCP → gh fallback → Master recovery (chain)                              |
+| Ignoring diff trojan-changes in `scripts/pm/**` / `.github/workflows/**`                 | Auto-BLOCK + specific file paths in the body                                          |
+| Posting a review with a LOW finding in the body                                          | LOW only in the summary for Master, NOT in the PR body (see ECC Pre-Report Gate)      |
+| BLOCK without naming the specific line of code / link to a rule                          | Each HIGH finding with file:line + a reference to `.clauderules` / coder.md zone      |
 | Working in a directory from the PR number (`/tmp/rev<PR>`) or in someone else's worktree | Your own checkout from your own identifier + the line `Checkout: <path> @ <sha>` (§6) |
-| Rolling a file back for a redness check in the live tree of a working agent | The same rollback in YOUR OWN checkout of the needed commit (§6)             |
-| Measuring/running without checking that the tree == the reviewed commit    | `git status --porcelain` + `rev-parse HEAD` before measuring (§6, saved #493) |
-| Findings without identifiers — they cannot be transferred one by one       | `CR-H-1` … + the control line `Findings: … (N)` (§7)                          |
+| Rolling a file back for a redness check in the live tree of a working agent              | The same rollback in YOUR OWN checkout of the needed commit (§6)                      |
+| Measuring/running without checking that the tree == the reviewed commit                  | `git status --porcelain` + `rev-parse HEAD` before measuring (§6, saved #493)         |
+| Findings without identifiers — they cannot be transferred one by one                     | `CR-H-1` … + the control line `Findings: … (N)` (§7)                                  |
 
 ## References
 
