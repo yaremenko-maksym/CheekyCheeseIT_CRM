@@ -8,7 +8,6 @@ import type { MessageDescriptor } from '@lingui/core'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import {
   Archive,
-  ArchiveRestore,
   ArrowLeft,
   Briefcase,
   Building2,
@@ -92,15 +91,10 @@ import { ProjectEffectiveTeamCard, MemberRow, ProjectDropDistribution } from './
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
-import {
-  useUnarchiveEntity,
-  type UnarchiveCascadeEntity,
-  type UnarchiveError,
-} from '@/hooks/use-archive'
-import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
+import { type UnarchiveCascadeEntity } from '@/hooks/use-archive'
+import { ProjectUnarchiveHeaderButton, ProjectCascadeUnarchiveModal } from './ProjectUnarchive'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
 import { toast } from 'sonner'
-import type { AxiosError } from 'axios'
 
 /**
  * Defensive coercion: if a project row has a `domain` value that is not
@@ -1737,70 +1731,6 @@ function ProjectDetailPage() {
   )
 }
 
-/**
- * Header-level Unarchive button replacing AdminActionsMenu's unarchive flow.
- * Handles the 409-cascade response by lifting the entities to the parent.
- */
-function ProjectUnarchiveHeaderButton({
-  projectId,
-  projectName: _projectName,
-  onCascadeRequired,
-}: {
-  projectId: string
-  projectName: string
-  onCascadeRequired: (entities: UnarchiveCascadeEntity[]) => void
-}) {
-  const unarchive = useUnarchiveEntity('project', projectId)
-  const handleClick = async () => {
-    try {
-      await unarchive.mutateAsync({})
-    } catch (err) {
-      const ax = err as AxiosError<UnarchiveError>
-      if (ax.response?.status === 409 && ax.response.data?.requiresCascade) {
-        onCascadeRequired(ax.response.data.entities)
-      }
-    }
-  }
-  return (
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={() => void handleClick()}
-      disabled={unarchive.isPending}
-      className="gap-1.5"
-      data-testid="project-unarchive-button"
-    >
-      <ArchiveRestore className="h-3.5 w-3.5" />
-      <Trans>Відновити</Trans>
-    </Button>
-  )
-}
-
-function ProjectCascadeUnarchiveModal({
-  projectId,
-  projectName,
-  entities,
-  onClose,
-}: {
-  projectId: string
-  projectName: string
-  entities: UnarchiveCascadeEntity[]
-  onClose: () => void
-}) {
-  const unarchive = useUnarchiveEntity('project', projectId)
-  return (
-    <CascadeUnarchiveModal
-      projectName={projectName}
-      entities={entities}
-      isPending={unarchive.isPending}
-      onConfirm={async () => {
-        await unarchive.mutateAsync({ cascade: true })
-        onClose()
-      }}
-      onCancel={onClose}
-    />
-  )
-}
 function ProjectTransactions({
   projectId,
   project,
