@@ -49,7 +49,7 @@
   characterization: `__tests__/ProjectDropDialogs.test.tsx`)
 - [todo] диалоги remove-member / add-member <- `useProjectPermissions`
 - [todo] overview-таб (вынос) <- `ProjectInfoRows`, `PendingShareApprovalBanner`, `ProjectEffectiveTeamCard`
-- [todo] hero-хедер <- `ProjectHeaderApprovalNote`, `ProjectUnarchive*`
+- [done] hero-хедер -> `ProjectHero.tsx` (лист 11; страница передаёт `project`, viewer id/role, `rates`, флаги `isAdmin`/`canOpenEdit` и колбэки `onEdit`/`onArchive`/`onCascadeRequired`; PendingShareApprovalBanner остаётся в странице; characterization: `__tests__/ProjectHero.test.tsx`)
 
 Риск-зоны: finance-маскирование (`canSeeProjectFinance`); порядок хуков до early-return
 (Rules of Hooks); field-scoped RBAC в submit.
