@@ -1450,7 +1450,7 @@ msgid "Вашу частку за замовчуванням пропонуют�
 msgstr "Вашу частку за замовчуванням пропонують змінити: зараз <0>{currentPercent}%</0>, пропонують <1>{0}%</1>. Поки ви не підтвердите, діє {currentPercent}%"
 
 #. placeholder {0}: pending.percent
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
 msgstr "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
 
@@ -2448,8 +2448,8 @@ msgstr "Відхилено: {money}"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхилити"
 msgstr "Відхилити"
 
@@ -2458,7 +2458,7 @@ msgid "Відхилити проєкт «{companyName}»"
 msgstr "Відхилити проєкт «{companyName}»"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхилити пропозицію"
 msgstr "Відхилити пропозицію"
 
@@ -2467,7 +2467,7 @@ msgid "Відхилити пропозицію щодо частки"
 msgstr "Відхилити пропозицію щодо частки"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхиляємо…"
 msgstr "Відхиляємо…"
 
@@ -5638,7 +5638,7 @@ msgid "Наприклад: видалено помилково"
 msgstr "Наприклад: видалено помилково"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Наприклад: домовилися про 30%"
 msgstr "Наприклад: домовилися про 30%"
 
@@ -5796,7 +5796,7 @@ msgstr "Не вдалося відновити користувача. Спро�
 msgid "Не вдалося відновити. Спробуйте ще раз"
 msgstr "Не вдалося відновити. Спробуйте ще раз"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Не вдалося відхилити"
 msgstr "Не вдалося відхилити"
 
@@ -6061,7 +6061,7 @@ msgstr "Не вдалося підписати контракт"
 msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
 msgstr "Не вдалося підписати рахунок. Спробуйте ще раз"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Не вдалося підтвердити"
 msgstr "Не вдалося підтвердити"
 
@@ -7733,7 +7733,7 @@ msgstr "Підтвердження ручної виплати партнеру 
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Підтвердження…"
 msgstr "Підтвердження…"
 
@@ -7767,7 +7767,7 @@ msgstr "Підтверджують: {drop}, {senior}"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Підтвердити"
 msgstr "Підтвердити"
 
@@ -7835,7 +7835,7 @@ msgid "По одній навичці в рядку"
 msgstr "По одній навичці в рядку"
 
 #. placeholder {0}: pending.effectivePercentAfterApproval
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "По проєкту пропонують зняти індивідуальну частку: зараз <0>{currentPercent}%</0>, стане <1>{0}%</1>. "
 msgstr "По проєкту пропонують зняти індивідуальну частку: зараз <0>{currentPercent}%</0>, стане <1>{0}%</1>. "
 
@@ -7959,7 +7959,7 @@ msgstr "Показати пароль"
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
 msgstr "Показник «всього зароблено» бачать лише адміністратор і бухгалтер"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Поки ви не підтвердите, діє <0>{currentPercent}%</0>."
 msgstr "Поки ви не підтвердите, діє <0>{currentPercent}%</0>."
 
@@ -8481,7 +8481,7 @@ msgstr "Причина відмови (у разі відмови)"
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Причина відмови *"
 msgstr "Причина відмови *"
 
@@ -8493,7 +8493,7 @@ msgstr "Причина відмови:"
 msgid "Причина відновлення (обов’язково)"
 msgstr "Причина відновлення (обов’язково)"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Причина обов’язкова і буде видна адміністратору."
 msgstr "Причина обов’язкова і буде видна адміністратору."
 
@@ -8660,7 +8660,7 @@ msgid "notification.APPROVAL_REJECTED.title"
 msgstr "Пропозицію відхилено"
 
 #: apps/web/app/hooks/use-user-profile.ts
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 
@@ -9455,8 +9455,8 @@ msgstr "Скасовуємо пропозицію…"
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -11080,7 +11080,7 @@ msgid "Частка в проєкті «{projectName}»: пропозицію в
 msgstr "Частка в проєкті «{projectName}»: пропозицію відхилено — лишається попередня. Адміністратор побачить причину"
 
 #. placeholder {0}: data.effectiveSeniorSharePercent
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Частка в проєкті тепер {0}%"
 msgstr "Частка в проєкті тепер {0}%"
 

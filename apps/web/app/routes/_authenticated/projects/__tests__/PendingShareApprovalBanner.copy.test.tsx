@@ -24,7 +24,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProjectDetailDto } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
-import { PendingShareApprovalBanner } from '../$projectId'
+import { PendingShareApprovalBanner } from '../ProjectApprovalBanners'
 
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },

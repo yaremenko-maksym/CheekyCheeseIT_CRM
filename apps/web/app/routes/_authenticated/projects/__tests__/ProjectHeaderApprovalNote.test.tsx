@@ -12,7 +12,7 @@ import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { ProjectApprovalCaptionInput } from '@/components/projects/project-approval-caption'
 import { loadCatalog } from '@/test/i18n'
-import { ProjectHeaderApprovalNote } from '../$projectId'
+import { ProjectHeaderApprovalNote } from '../ProjectApprovalBanners'
 
 // task-i18n-stage3c-pr3: `resolveProjectApprovalCaption` (PR3) now resolves
 // through the shared `@lingui/core` `i18n` singleton — `loadCatalog`

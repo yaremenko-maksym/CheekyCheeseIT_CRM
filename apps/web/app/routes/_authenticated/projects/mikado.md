@@ -20,7 +20,7 @@
 Уровень 1 — чистые автономные листья (предпосылок нет):
 
 - [done] `InfoRow`, `ProjectShareInfo`, `ProjectDropShareInfo` -> `ProjectInfoRows.tsx`
-- [todo] `PendingShareApprovalBanner`, `ProjectHeaderApprovalNote` -> свои файлы
+- [done] `PendingShareApprovalBanner`, `ProjectHeaderApprovalNote` -> `ProjectApprovalBanners.tsx`
 - [todo] `ProjectEffectiveTeamCard`, `MemberRow`, `ProjectDropDistribution`
 - [todo] `ProjectTransactions`
 - [todo] `ProjectUnarchiveHeaderButton`, `ProjectCascadeUnarchiveModal`
