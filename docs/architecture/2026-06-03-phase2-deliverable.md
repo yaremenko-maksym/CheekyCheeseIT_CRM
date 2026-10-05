@@ -53,7 +53,7 @@ pre-edit-write-zone-of-write.sh   3.0 KB  pre:edit-write:zone-of-write
 All three:
 
 - Are POSIX-compatible bash, no Node bootstrap (per Architect constraint
-  "не имитируй ECC node.js dispatcher").
+  "do not imitate the ECC node.js dispatcher").
 - Emit ECC-style exit codes (0 = allow, 2 = block) AND legacy Claude Code
   JSON decision body on stdout for compatibility.
 - Fast-exit (microseconds) on non-target inputs.
