@@ -2384,7 +2384,7 @@ describe.skipIf(!hasDatabaseUrl())('Vacancies — real backend integration', () 
       expect(res.statusCode).toBe(413)
     })
 
-    it('3. field parts beyond the fields:12 cap → the request is aborted — empirically a 500 ("Premature close") via app.inject(), NOT a clean 413: busboy stops consuming the body as soon as the 13th field part hits the limit, and the injected request stream errors on the unread trailing bytes', async () => {
+    it('3. field parts beyond the fields:12 cap → the request is rejected with a clean 413 (FieldsLimitError) — since @fastify/multipart 10.1.x; before the bump this surfaced as a 500 ("Premature close") when busboy stopped consuming the body at the 13th field part', async () => {
       const pdf = await makeValidPdfBuffer()
       const fields: Record<string, string> = {
         fullName: 'Extra Fields Candidate',
@@ -2409,7 +2409,7 @@ describe.skipIf(!hasDatabaseUrl())('Vacancies — real backend integration', () 
         headers: { 'content-type': contentType },
         payload: body,
       })
-      expect(res.statusCode).toBe(500)
+      expect(res.statusCode).toBe(413)
     })
 
     it('4. a field value beyond the fieldSize (8 KiB) cap is silently TRUNCATED by @fastify/multipart (no multipart-level rejection — busboy just truncates and sets valueTruncated), then rejected downstream by the real Zod validation (coverLetter max 2000 chars) → 400', async () => {
