@@ -18,6 +18,11 @@ describe('getInitialsBySpaceSplit', () => {
     expect(getInitialsBySpaceSplit('')).toBe('?')
   })
 
+  it('null and undefined fall back to "?"', () => {
+    expect(getInitialsBySpaceSplit(null)).toBe('?')
+    expect(getInitialsBySpaceSplit(undefined)).toBe('?')
+  })
+
   it('leading space contributes nothing (empty token)', () => {
     expect(getInitialsBySpaceSplit(' John')).toBe('J')
   })

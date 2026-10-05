@@ -222,7 +222,7 @@ export function ProjectRow({ project, viewerRole, viewerId, reasonPending }: Pro
             <>
               <Avatar className="h-7 w-7 shrink-0">
                 <AvatarFallback className="text-[10px] font-semibold bg-primary/20 text-primary">
-                  {getInitialsBySpaceSplit(project.seniorName ?? '')}
+                  {getInitialsBySpaceSplit(project.seniorName)}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0">
