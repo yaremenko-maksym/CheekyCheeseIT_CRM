@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Редизайн сторінок команд: рядковий список із тулбаром, сторінка команди з RBAC-видами, діалоги редагування + додавання учасників, нові поля telegram/notes у команді.
+**Goal:** Redesign of the team pages: a row list with a toolbar, a team page with RBAC views, edit + add-member dialogs, new telegram/notes fields on the team.
 
-**Architecture:** DB-міграція додає два поля до `teams`. Backend розширює `mapTeam` і `update`. Frontend list page — рядковий список із пошуком/фільтром/сортуванням. Detail page — single-column layout із секцією проектів та двома діалогами. RBAC реалізується на фронті на основі `user.role`.
+**Architecture:** A DB migration adds two fields to `teams`. The backend extends `mapTeam` and `update`. The frontend list page — a row list with search/filter/sort. The detail page — a single-column layout with a projects section and two dialogs. RBAC is implemented on the frontend based on `user.role`.
 
 **Tech Stack:** Drizzle ORM, NestJS 11, Zod v4, React + TanStack Query, Framer Motion, shadcn/ui, Tailwind v4.
 
@@ -12,15 +12,15 @@
 
 ## File Map
 
-| Файл | Дія | Що змінюється |
+| File | Action | What changes |
 |------|-----|---------------|
-| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | CREATE | SQL-міграція |
-| `apps/api/src/database/schema.ts` | MODIFY | `+telegram`, `+notes` у таблиці `teams` |
-| `packages/shared/src/schemas/teams.ts` | MODIFY | `+telegram?`, `+notes?` у `teamSchema` і `updateTeamSchema` |
-| `apps/api/src/teams/teams.service.ts` | MODIFY | `mapTeam` повертає поля; `update` приймає telegram/notes; `addMember` перевіряє SENIOR-дублікат і JUNIOR з проектом |
-| `apps/api/src/teams/teams.controller.ts` | MODIFY | `update` передає `telegram`, `notes` у сервіс |
-| `apps/web/app/routes/crm/team/index.tsx` | MODIFY | Рядковий список, тулбар, прибрати add/delete кнопки |
-| `apps/web/app/routes/crm/team/$teamId.tsx` | MODIFY | Single-column, секція проектів, діалоги edit/addMember, RBAC |
+| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | CREATE | SQL migration |
+| `apps/api/src/database/schema.ts` | MODIFY | `+telegram`, `+notes` in the `teams` table |
+| `packages/shared/src/schemas/teams.ts` | MODIFY | `+telegram?`, `+notes?` in `teamSchema` and `updateTeamSchema` |
+| `apps/api/src/teams/teams.service.ts` | MODIFY | `mapTeam` returns the fields; `update` accepts telegram/notes; `addMember` checks the SENIOR duplicate and a JUNIOR with a project |
+| `apps/api/src/teams/teams.controller.ts` | MODIFY | `update` passes `telegram`, `notes` to the service |
+| `apps/web/app/routes/crm/team/index.tsx` | MODIFY | Row list, toolbar, remove the add/delete buttons |
+| `apps/web/app/routes/crm/team/$teamId.tsx` | MODIFY | Single-column, projects section, edit/addMember dialogs, RBAC |
 
 ---
 
@@ -31,7 +31,7 @@
 - Modify: `apps/api/src/database/schema.ts`
 - Modify: `packages/shared/src/schemas/teams.ts`
 
-- [ ] **Step 1.1: Створити файл міграції**
+- [ ] **Step 1.1: Create the migration file**
 
 ```sql
 -- apps/api/drizzle/migrations/0002_team_telegram_notes.sql
@@ -39,17 +39,17 @@ ALTER TABLE "teams" ADD COLUMN "telegram" varchar(500);
 ALTER TABLE "teams" ADD COLUMN "notes" text;
 ```
 
-- [ ] **Step 1.2: Застосувати міграцію**
+- [ ] **Step 1.2: Apply the migration**
 
 ```bash
 pnpm --filter @crm/api exec drizzle-kit migrate
 ```
 
-Очікуваний вивід: `[✓] migrations applied successfully!`
+Expected output: `[✓] migrations applied successfully!`
 
-- [ ] **Step 1.3: Оновити schema.ts — таблиця teams**
+- [ ] **Step 1.3: Update schema.ts — the teams table**
 
-У `apps/api/src/database/schema.ts` замінити блок `teams`:
+In `apps/api/src/database/schema.ts` replace the `teams` block:
 
 ```typescript
 export const teams = pgTable('teams', {
@@ -62,9 +62,9 @@ export const teams = pgTable('teams', {
 })
 ```
 
-- [ ] **Step 1.4: Оновити shared teamSchema**
+- [ ] **Step 1.4: Update the shared teamSchema**
 
-У `packages/shared/src/schemas/teams.ts`:
+In `packages/shared/src/schemas/teams.ts`:
 
 ```typescript
 export const teamSchema = z.object({
@@ -90,7 +90,7 @@ export const updateTeamSchema = z.object({
 pnpm --filter @crm/shared typecheck
 ```
 
-Очікуваний вивід: 0 errors.
+Expected output: 0 errors.
 
 - [ ] **Step 1.6: Commit**
 
@@ -109,9 +109,9 @@ git commit -m "feat(teams): add telegram and notes fields to teams table"
 - Modify: `apps/api/src/teams/teams.service.ts`
 - Modify: `apps/api/src/teams/teams.controller.ts`
 
-- [ ] **Step 2.1: Оновити `mapTeam` — повертати telegram і notes**
+- [ ] **Step 2.1: Update `mapTeam` — return telegram and notes**
 
-У `teams.service.ts` у методі `mapTeam` замінити рядки `return { id: team.id, name: team.name, ...`:
+In `teams.service.ts` in the `mapTeam` method replace the lines `return { id: team.id, name: team.name, ...`:
 
 ```typescript
 return {
@@ -139,9 +139,9 @@ return {
 }
 ```
 
-- [ ] **Step 2.2: Оновити `update` — приймати telegram і notes**
+- [ ] **Step 2.2: Update `update` — accept telegram and notes**
 
-Замінити сигнатуру і тіло методу `update`:
+Replace the signature and body of the `update` method:
 
 ```typescript
 async update(id: string, name: string, telegram: string | null | undefined, notes: string | null | undefined, currentUser: SessionUser) {
@@ -174,9 +174,9 @@ async update(id: string, name: string, telegram: string | null | undefined, note
 }
 ```
 
-- [ ] **Step 2.3: Додати валідацію в `addMember` — дублікат SENIOR і JUNIOR з проектом**
+- [ ] **Step 2.3: Add validation in `addMember` — SENIOR duplicate and a JUNIOR with a project**
 
-У методі `addMember`, після перевірки `if (user.role === 'ADMIN')`, додати:
+In the `addMember` method, after the `if (user.role === 'ADMIN')` check, add:
 
 ```typescript
 // Prevent adding a second SENIOR
@@ -195,9 +195,9 @@ if (user.role === 'JUNIOR') {
 }
 ```
 
-- [ ] **Step 2.4: Оновити контролер — передати telegram і notes**
+- [ ] **Step 2.4: Update the controller — pass telegram and notes**
 
-У `teams.controller.ts` замінити метод `update`:
+In `teams.controller.ts` replace the `update` method:
 
 ```typescript
 @Patch(':id')
@@ -217,7 +217,7 @@ update(
 pnpm --filter @crm/api typecheck
 ```
 
-Очікуваний вивід: 0 errors.
+Expected output: 0 errors.
 
 - [ ] **Step 2.6: Commit**
 
@@ -229,16 +229,16 @@ git commit -m "feat(teams): update service — telegram/notes, SENIOR dedup, JUN
 
 ---
 
-## Task 3: Frontend — Список команд (index.tsx)
+## Task 3: Frontend — Team list (index.tsx)
 
 **Files:**
 - Modify: `apps/web/app/routes/crm/team/index.tsx`
 
-Зберегти всю логіку діалогів (CreateSenior, EditTeam, DeleteTeam, AddMember) — лише змінити верстку та прибрати кнопки UserPlus і Trash2 з карточок.
+Keep all dialog logic (CreateSenior, EditTeam, DeleteTeam, AddMember) — only change the markup and remove the UserPlus and Trash2 buttons from the cards.
 
-- [ ] **Step 3.1: Додати стани тулбара**
+- [ ] **Step 3.1: Add toolbar state**
 
-Після рядка `const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)` додати:
+After the line `const [addMemberTeam, setAddMemberTeam] = useState<TeamDto | null>(null)` add:
 
 ```typescript
 const [search, setSearch] = useState('')
@@ -246,9 +246,9 @@ const [filterRole, setFilterRole] = useState<string>('all')
 const [sortBy, setSortBy] = useState<'name' | 'members' | 'projects'>('name')
 ```
 
-- [ ] **Step 3.2: Обчислити відфільтровані та відсортовані команди**
+- [ ] **Step 3.2: Compute the filtered and sorted teams**
 
-Після стану тулбару, перед `if (isLoading)` додати:
+After the toolbar state, before `if (isLoading)` add:
 
 ```typescript
 const filteredTeams = useMemo(() => {
@@ -289,11 +289,11 @@ const filteredTeams = useMemo(() => {
 }, [teams, projects, search, filterRole, sortBy])
 ```
 
-Також переконатись що `useMemo` додано в імпорти вгорі файлу разом з іншими хуками.
+Also make sure `useMemo` is added to the imports at the top of the file along with the other hooks.
 
-- [ ] **Step 3.3: Замінити заголовок сторінки — без subtitle**
+- [ ] **Step 3.3: Replace the page heading — without a subtitle**
 
-Знайти:
+Find:
 ```typescript
 <div>
   <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
@@ -301,14 +301,14 @@ const filteredTeams = useMemo(() => {
 </div>
 ```
 
-Замінити на:
+Replace with:
 ```typescript
 <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
 ```
 
-- [ ] **Step 3.4: Додати тулбар між заголовком і списком**
+- [ ] **Step 3.4: Add the toolbar between the heading and the list**
 
-Після `</div>` (блок з порожньою командою) і перед `<motion.div className="grid ...">` додати:
+After `</div>` (the empty-team block) and before `<motion.div className="grid ...">` add:
 
 ```typescript
 <div className="flex gap-2">
@@ -346,11 +346,11 @@ const filteredTeams = useMemo(() => {
 </div>
 ```
 
-Додати `Search` в імпорти lucide-react.
+Add `Search` to the lucide-react imports.
 
-- [ ] **Step 3.5: Замінити grid на список рядків**
+- [ ] **Step 3.5: Replace the grid with a row list**
 
-Знайти блок:
+Find the block:
 ```typescript
 <motion.div
   className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
@@ -361,7 +361,7 @@ const filteredTeams = useMemo(() => {
   {teams?.map((team) => (
 ```
 
-Замінити `className` і змінити `teams?.map` на `filteredTeams.map`:
+Replace `className` and change `teams?.map` to `filteredTeams.map`:
 
 ```typescript
 <motion.div
@@ -378,9 +378,9 @@ const filteredTeams = useMemo(() => {
   {filteredTeams.map((team) => (
 ```
 
-- [ ] **Step 3.6: Замінити Card на рядок фіксованої висоти**
+- [ ] **Step 3.6: Replace Card with a fixed-height row**
 
-Знайти весь блок від `<motion.div key={team.id} variants={item}>` до закриваючого `</motion.div>` і замінити:
+Find the whole block from `<motion.div key={team.id} variants={item}>` to the closing `</motion.div>` and replace:
 
 ```typescript
 <motion.div key={team.id} variants={item}>
@@ -476,25 +476,25 @@ const filteredTeams = useMemo(() => {
 </motion.div>
 ```
 
-- [ ] **Step 3.7: Прибрати невикористані імпорти**
+- [ ] **Step 3.7: Remove unused imports**
 
-Видалити з імпортів: `Trash2`, `UserPlus`, `Card`, `CardContent`, `CardHeader`, `CardTitle`.  
-Додати: `Search` з `lucide-react`.
+Remove from the imports: `Trash2`, `UserPlus`, `Card`, `CardContent`, `CardHeader`, `CardTitle`.  
+Add: `Search` from `lucide-react`.
 
-Перевірити що `Users` залишається (потрібний для empty-state).
+Check that `Users` remains (needed for the empty-state).
 
-- [ ] **Step 3.8: Запустити dev і перевірити в браузері**
+- [ ] **Step 3.8: Run dev and check in the browser**
 
 ```bash
-# У окремому терміналі, якщо не запущено:
+# In a separate terminal, if not running:
 pnpm dev
 ```
 
-Відкрити http://localhost:3000/crm/team, переконатись:
-- Заголовок без subtitle
-- Список рядків фіксованої висоти (навіть при 3 HR — висота не змінюється)
-- Тулбар: пошук, фільтр ролей, сортування
-- Тільки ✏ кнопка для ADMIN/HR
+Open http://localhost:3000/crm/team, make sure:
+- The heading without a subtitle
+- A list of fixed-height rows (even with 3 HR — the height does not change)
+- Toolbar: search, role filter, sort
+- Only the ✏ button for ADMIN/HR
 
 - [ ] **Step 3.9: Typecheck**
 
@@ -502,7 +502,7 @@ pnpm dev
 pnpm --filter @crm/web typecheck
 ```
 
-Очікуваний вивід: 0 errors.
+Expected output: 0 errors.
 
 - [ ] **Step 3.10: Commit**
 
@@ -513,14 +513,14 @@ git commit -m "feat(teams): redesign list — row layout, toolbar, remove add/de
 
 ---
 
-## Task 4: Frontend — Сторінка команди ($teamId.tsx)
+## Task 4: Frontend — Team page ($teamId.tsx)
 
 **Files:**
 - Modify: `apps/web/app/routes/crm/team/$teamId.tsx`
 
-- [ ] **Step 4.1: Додати імпорти**
+- [ ] **Step 4.1: Add imports**
 
-Повністю замінити блок імпортів:
+Fully replace the imports block:
 
 ```typescript
 import { createFileRoute, Link } from '@tanstack/react-router'
@@ -553,16 +553,16 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { toast } from 'sonner'
 ```
 
-- [ ] **Step 4.2: Додати стани діалогів і тип UserOption**
+- [ ] **Step 4.2: Add dialog state and the UserOption type**
 
-Після `const queryClient = useQueryClient()` додати:
+After `const queryClient = useQueryClient()` add:
 
 ```typescript
 const [showEdit, setShowEdit] = useState(false)
 const [showAddMember, setShowAddMember] = useState(false)
 ```
 
-Перед функцією `TeamDetailPage` додати тип:
+Before the `TeamDetailPage` function add the type:
 
 ```typescript
 type UserOption = {
@@ -574,9 +574,9 @@ type UserOption = {
 }
 ```
 
-- [ ] **Step 4.3: Додати query для списку користувачів**
+- [ ] **Step 4.3: Add a query for the user list**
 
-Після блоку `const { data: projects }` додати:
+After the `const { data: projects }` block add:
 
 ```typescript
 const { data: allUsers } = useQuery<UserOption[]>({
@@ -586,9 +586,9 @@ const { data: allUsers } = useQuery<UserOption[]>({
 })
 ```
 
-- [ ] **Step 4.4: Обчислити активні проекти команди**
+- [ ] **Step 4.4: Compute the team's active projects**
 
-Після `const canManage = ...` додати:
+After `const canManage = ...` add:
 
 ```typescript
 const activeProjects = projects?.filter(
@@ -597,7 +597,7 @@ const activeProjects = projects?.filter(
     team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
 ) ?? []
 
-// Junior бачить тільки свій проект
+// Junior sees only their own project
 const visibleProjects =
   user?.role === 'JUNIOR'
     ? activeProjects.filter((p) =>
@@ -606,12 +606,12 @@ const visibleProjects =
     : activeProjects
 ```
 
-- [ ] **Step 4.5: Обчислити список учасників для фільтрованого перегляду**
+- [ ] **Step 4.5: Compute the member list for the filtered view**
 
-Після `const orderedRoles = ...` додати:
+After `const orderedRoles = ...` add:
 
 ```typescript
-// Junior не бачить інших джунів
+// Junior does not see other juniors
 const visibleMembersByRole =
   user?.role === 'JUNIOR'
     ? Object.fromEntries(
@@ -624,7 +624,7 @@ const visibleOrderedRoles = roleOrder.filter(
 )
 ```
 
-- [ ] **Step 4.6: Обчислити відфільтрований список для діалогу addMember**
+- [ ] **Step 4.6: Compute the filtered list for the addMember dialog**
 
 ```typescript
 const memberUserIds = new Set(team?.members.map((m) => m.userId) ?? [])
@@ -658,7 +658,7 @@ const candidateUsers: CandidateUser[] = (allUsers ?? [])
   })
 ```
 
-- [ ] **Step 4.7: Додати форму редагування команди**
+- [ ] **Step 4.7: Add the team edit form**
 
 ```typescript
 const editForm = useForm({
@@ -688,7 +688,7 @@ const updateMutation = useMutation({
 })
 ```
 
-- [ ] **Step 4.8: Додати стан і мутацію для addMember**
+- [ ] **Step 4.8: Add state and a mutation for addMember**
 
 ```typescript
 const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
@@ -715,9 +715,9 @@ async function handleAddMembers() {
 }
 ```
 
-- [ ] **Step 4.9: Замінити заголовок сторінки**
+- [ ] **Step 4.9: Replace the page heading**
 
-Знайти весь блок `{/* Header */}` і замінити:
+Find the whole `{/* Header */}` block and replace:
 
 ```typescript
 {/* Header */}
@@ -765,9 +765,9 @@ async function handleAddMembers() {
 </motion.div>
 ```
 
-- [ ] **Step 4.10: Замінити grid layout на single-column**
+- [ ] **Step 4.10: Replace the grid layout with single-column**
 
-Знайти `<div className="grid gap-6 lg:grid-cols-3">` і замінити весь блок від цього тегу до закриваючого `</div>` перед `</motion.div>`:
+Find `<div className="grid gap-6 lg:grid-cols-3">` and replace the whole block from this tag to the closing `</div>` before `</motion.div>`:
 
 ```typescript
 <div className="space-y-6">
@@ -901,9 +901,9 @@ async function handleAddMembers() {
 </div>
 ```
 
-- [ ] **Step 4.11: Додати діалог редагування команди**
+- [ ] **Step 4.11: Add the team edit dialog**
 
-Перед закриваючим `</motion.div>` основного компонента додати:
+Before the closing `</motion.div>` of the main component add:
 
 ```typescript
 {/* Edit Team Dialog */}
@@ -979,7 +979,7 @@ async function handleAddMembers() {
 </Dialog>
 ```
 
-- [ ] **Step 4.12: Додати діалог додавання учасника**
+- [ ] **Step 4.12: Add the add-member dialog**
 
 ```typescript
 {/* Add Member Dialog */}
@@ -1062,20 +1062,20 @@ async function handleAddMembers() {
 </Dialog>
 ```
 
-- [ ] **Step 4.13: Прибрати старий sidebar з stats**
+- [ ] **Step 4.13: Remove the old stats sidebar**
 
-Переконатись, що весь блок `{/* Sidebar - Team Stats */}` (`<motion.div variants={item} className="space-y-4">` з картками "Статистика" і "Активність") видалено — він замінений новою структурою у Step 4.10.
+Make sure the whole `{/* Sidebar - Team Stats */}` block (`<motion.div variants={item} className="space-y-4">` with the "Statistics" and "Activity" cards) is removed — it is replaced by the new structure in Step 4.10.
 
-- [ ] **Step 4.14: Перевірити в браузері**
+- [ ] **Step 4.14: Check in the browser**
 
-Відкрити http://localhost:3000/crm/team → клікнути на команду.
+Open http://localhost:3000/crm/team → click on a team.
 
-Перевірити:
-- Заголовок + кнопки "Додати" і "Редагувати" (для ADMIN/HR)
-- SENIOR: бачить всіх учасників і всі проекти, без кнопок
-- JUNIOR: бачить Senior/HR/Accountant, приховані інші джуни, тільки свій проект
-- Діалог редагування: поля name, telegram, notes, зберігає
-- Діалог додавання: список за алфавітом, disabled з поясненням, checkbox, кнопка "Додати (N)"
+Check:
+- The heading + the "Add" and "Edit" buttons (for ADMIN/HR)
+- SENIOR: sees all members and all projects, no buttons
+- JUNIOR: sees Senior/HR/Accountant, other juniors hidden, only their own project
+- Edit dialog: fields name, telegram, notes, saves
+- Add dialog: an alphabetical list, disabled with an explanation, a checkbox, the "Add (N)" button
 
 - [ ] **Step 4.15: Typecheck**
 
@@ -1083,7 +1083,7 @@ async function handleAddMembers() {
 pnpm --filter @crm/web typecheck
 ```
 
-Очікуваний вивід: 0 errors.
+Expected output: 0 errors.
 
 - [ ] **Step 4.16: Commit**
 
