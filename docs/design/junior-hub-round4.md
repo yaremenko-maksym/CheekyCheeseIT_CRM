@@ -2,61 +2,61 @@
 
 > Mode B → D — Visual Audit + Design Direction (round 4, post-UT feedback #188)
 > Spec slug: `junior-hub-round4`
-> Источник: UT feedback owner (2026-06-13) — «правая колонка «Моя зарплата» короче левого стека → пустота справа снизу; выглядит бедно»
-> Прецеденты: `docs/design/junior-hub-round3.md` (round 3, реализован в #188)
-> Автор: ui-ux-designer · 2026-06-13
-> Скриншот «до»: `docs/design/assets/junior-r4/01-before-1440.jpeg`
+> Source: owner UT feedback (2026-06-13) — "the right column «Моя зарплата» is shorter than the left stack → emptiness at the bottom right; looks poor"
+> Precedents: `docs/design/junior-hub-round3.md` (round 3, implemented in #188)
+> Author: ui-ux-designer · 2026-06-13
+> "Before" screenshot: `docs/design/assets/junior-r4/01-before-1440.jpeg`
 
 ---
 
-## 0. Диагностика (почему round 3 дал неравную высоту)
+## 0. Diagnosis (why round 3 produced unequal height)
 
-### Реальный снимок 1440×900 (живой стек после #188)
+### Real 1440×900 snapshot (live stack after #188)
 
 ```
-Левый стек (col-span-1):
-  ├── ProjectInfoCard    ~380px  (лого, домен, старт, статус, HR-контакт)
+Left stack (col-span-1):
+  ├── ProjectInfoCard    ~380px  (logo, domain, start, status, HR contact)
   ├── gap-4              16px
-  └── PersonaCard        ~155px  (аватар, имя, роль, кнопка)
+  └── PersonaCard        ~155px  (avatar, name, role, button)
   ──────────────────────────────
-  Итого левой колонки:   ~551px
+  Left column total:     ~551px
 
-Правая колонка (col-span-2):
-  └── SalarySnapshotCard ~415px  (заголовок, 500 USD, 3 строки выплат, ссылка)
+Right column (col-span-2):
+  └── SalarySnapshotCard ~415px  (heading, 500 USD, 3 payout rows, link)
 
-Разница:                 ~136px пустоты справа снизу
+Difference:              ~136px of emptiness at the bottom right
 ```
 
 ### Root cause
 
-Round 3 применил `items-start` на grid-контейнере — это корректное исправление round 2
-(убрало `h-full` растяжку внутри карточек). Но у `items-start` есть последствие:
-каждый grid-item имеет `align-self: start`, то есть занимает ровно столько высоты,
-сколько его контент. Левый стек тянется до PersonaCard (~551px), правая SalaryCard —
-до «Все мои выплаты» (~415px). Разница 136px — визуальная пустота.
+Round 3 applied `items-start` on the grid container — a correct fix of round 2
+(it removed the `h-full` stretching inside the cards). But `items-start` has a consequence:
+every grid item has `align-self: start`, i.e. takes exactly as much height
+as its content. The left stack extends to PersonaCard (~551px), the right SalaryCard —
+to "Все мои выплаты" (~415px). The 136px difference is visual emptiness.
 
-Три варианта решения:
+Three solution options:
 
-1. **A — чисто контентный**: добавить настолько богатый контент в SalaryCard, что она
-   дотянется по высоте естественно. Проблема: данных нестабильно (может быть 0–3 строки).
-2. **B — CSS stretch + left self-start**: убрать `items-start` → `items-stretch`, левый
-   `motion.div` получает `self-start` (его карточки остаются h-fit), правый `motion.div`
-   получает `flex flex-col`, SalaryCard — `h-full flex flex-col`. Правая колонка займёт
-   100% высоты grid-строки. Левый стек — натуральная высота. Чисто, без хаков.
-3. **C — hybrid**: оставить `items-start`, правый `motion.div` + `h-full self-stretch` +
-   SalaryCard `h-full`. При `items-start` grid row = max(left, right), `h-full` на обёртке
-   не сработает предсказуемо без явного grid row height.
+1. **A — purely content**: add so much content to SalaryCard that it reaches the height
+   naturally. Problem: the data is unstable (there may be 0–3 rows).
+2. **B — CSS stretch + left self-start**: remove `items-start` → `items-stretch`, the left
+   `motion.div` gets `self-start` (its cards stay h-fit), the right `motion.div`
+   gets `flex flex-col`, SalaryCard — `h-full flex flex-col`. The right column takes
+   100% of the grid row height. The left stack — natural height. Clean, no hacks.
+3. **C — hybrid**: keep `items-start`, the right `motion.div` + `h-full self-stretch` +
+   SalaryCard `h-full`. With `items-start` the grid row = max(left, right), `h-full` on the wrapper
+   will not work predictably without an explicit grid row height.
 
-**Выбор стратегии: Вариант B.** Самый чистый и предсказуемый CSS. Подтверждён MDN:
-при `align-items: stretch` (default) каждый grid-item растягивается до высоты grid-строки.
-`self-start` на левом div блокирует растяжку только для него. Правый div `flex flex-col` +
-SalaryCard `flex-1` — карточка заполняет всю доступную высоту.
+**Strategy choice: Option B.** The cleanest and most predictable CSS. Confirmed by MDN:
+with `align-items: stretch` (the default) every grid item stretches to the height of the grid row.
+`self-start` on the left div blocks the stretch only for it. The right div `flex flex-col` +
+SalaryCard `flex-1` — the card fills all the available height.
 
 ---
 
-## 1. Equal-Height: Grid-стратегия
+## 1. Equal-Height: Grid strategy
 
-### Было (round 3)
+### Was (round 3)
 
 ```tsx
 <motion.div
@@ -72,72 +72,72 @@ SalaryCard `flex-1` — карточка заполняет всю доступ�
   </motion.div>
 ```
 
-**Проблема:** `items-start` → оба child-div получают `align-self: start` → их высота
-равна контенту. SalaryCard короче левого стека → пустота.
+**Problem:** `items-start` → both child divs get `align-self: start` → their height
+equals the content. SalaryCard is shorter than the left stack → emptiness.
 
-### Стало (round 4)
+### Now (round 4)
 
 ```tsx
 <motion.div
   className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"
-  {/* items-start УБИРАЕТСЯ — используем default align-items: stretch */}
+  {/* items-start is REMOVED — we use the default align-items: stretch */}
   ...
 >
-  {/* Левый стек: self-start — НЕ растягивается, карточки остаются h-fit */}
+  {/* Left stack: self-start — does NOT stretch, cards stay h-fit */}
   <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4 self-start">
     <ProjectInfoCard ... />
     <PersonaCard ... />
   </motion.div>
 
-  {/* Правая колонка: flex flex-col — SalaryCard заполняет grid row height */}
+  {/* Right column: flex flex-col — SalaryCard fills the grid row height */}
   <motion.div variants={card} className="lg:col-span-2 flex flex-col">
     <SalarySnapshotCard ... className="flex-1" />
   </motion.div>
 ```
 
-**Механика:**
+**Mechanics:**
 
-- Без `items-start` grid по умолчанию `align-items: stretch`.
-- Левый `motion.div` с `self-start` — align-self overridden → высота по контенту (~551px).
-- Grid-строка = 551px (от левого стека как более высокого).
-- Правый `motion.div` без `self-start` → получает `align-self: stretch` → высота = 551px.
-- `flex flex-col` на правом div + `flex-1` на SalaryCard → SalaryCard занимает 100% 551px.
-- Внутри SalaryCard: `flex flex-col` + нижняя секция `mt-auto` → контент вверху, итог внизу.
+- Without `items-start` the grid defaults to `align-items: stretch`.
+- The left `motion.div` with `self-start` — align-self overridden → height by content (~551px).
+- Grid row = 551px (from the left stack as the taller one).
+- The right `motion.div` without `self-start` → gets `align-self: stretch` → height = 551px.
+- `flex flex-col` on the right div + `flex-1` on SalaryCard → SalaryCard takes 100% of 551px.
+- Inside SalaryCard: `flex flex-col` + the bottom section `mt-auto` → content at the top, total at the bottom.
 
 **Responsive:**
 
-- На mobile (`grid-cols-1`): обе колонки — col-span-1, нет смысла в stretch → поведение
-  корректное (стек вертикально, каждая карточка h-fit).
-- На tablet (`md:grid-cols-2`): левый стек col-1, правый col-1 → stretch работает
-  аналогично desktop (левый `self-start`, правый занимает высоту ряда).
+- On mobile (`grid-cols-1`): both columns are col-span-1, stretch makes no sense → the behavior
+  is correct (stacked vertically, each card h-fit).
+- On tablet (`md:grid-cols-2`): left stack col-1, right col-1 → stretch works
+  like on desktop (the left `self-start`, the right takes the row height).
 
 ---
 
-## 2. SalarySnapshotCard — полный редизайн
+## 2. SalarySnapshotCard — full redesign
 
-### Проблема round 3 (видно на скриншоте «до»)
+### Round 3 problem (visible on the "before" screenshot)
 
-1. Большое «500 USD» + «/ мес» — единственный визуальный акцент, остальное плоско.
-2. «Последние выплаты» — мелкая серая подпись, потом 3 строки без визуальной структуры.
-3. Ссылка «Все мои выплаты» — единственный интерактивный элемент кроме заголовка.
-4. На col-span-2 (928px эффективной ширины на 1440px) — контент занимает только
-   ~200px по высоте из ~415px карточки. С round 4 карточка станет ~551px — без переработки
-   пустота увеличится.
+1. The big "500 USD" + "/ мес" — the only visual accent, the rest is flat.
+2. "Последние выплаты" — a small gray caption, then 3 rows without visual structure.
+3. The "Все мои выплаты" link — the only interactive element besides the heading.
+4. At col-span-2 (928px effective width at 1440px) the content takes only
+   ~200px of height out of the ~415px card. With round 4 the card becomes ~551px — without rework
+   the emptiness will grow.
 
-### Принципы redesign
+### Redesign principles
 
-- **Заполнить высоту осмысленно, не декоративно.** Контент-разделы с семантической ролью.
-- **Визуально богаче без AI-slop.** Нет градиентов, нет декоративных блобов. Богатство =
-  правильные размеры, правильные dividers, правильная информационная иерархия.
-- **Убрать кнопку «Все мои выплаты».** Требование UT. Убирается полностью.
-- **Структура карточки — 3 зоны:**
-  1. **Header zone** — заголовок «Моя зарплата» + иконка (без изменений).
-  2. **Rate zone** — крупная ставка + контекст валюты/периода + тонкий разделитель.
-  3. **Payments zone** — секция выплат с header'ом + строки + статус-бейджи аккуратнее.
-  4. **Summary zone** — «прилипает» к низу через `mt-auto`: сводная строка или пустое
-     состояние.
+- **Fill the height meaningfully, not decoratively.** Content sections with a semantic role.
+- **Visually richer without AI-slop.** No gradients, no decorative blobs. Richness =
+  right sizes, right dividers, right information hierarchy.
+- **Remove the "Все мои выплаты" button.** UT requirement. Removed entirely.
+- **Card structure — 3 zones:**
+  1. **Header zone** — heading "Моя зарплата" + icon (unchanged).
+  2. **Rate zone** — large rate + currency/period context + a thin divider.
+  3. **Payments zone** — payouts section with a header + rows + neater status badges.
+  4. **Summary zone** — "sticks" to the bottom via `mt-auto`: a summary row or an empty
+     state.
 
-### Структура контента (новая)
+### Content structure (new)
 
 ```
 ┌─ Card h-full flex flex-col ────────────────────────────────────────────────────┐
@@ -158,12 +158,12 @@ SalaryCard `flex-1` — карточка заполняет всю доступ�
 │  │  Май 2026           500 USD        [Ожидание]                            │ │
 │  │  Апрель 2026        500 USD        [Выплачено]                           │ │
 │  │  Март 2026          500 USD        [Выплачено]                           │ │
-│  │  (строки: py-2.5, border-b border-border/20, last:border-0)              │ │
+│  │  (rows: py-2.5, border-b border-border/20, last:border-0)                │ │
 │  │                                                                           │ │
-│  │  (при 0 выплат: серая italic строка «Выплат ещё не было»)                │ │
+│  │  (with 0 payouts: a gray italic row «Выплат ещё не было»)                │ │
 │  └──────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                │
-│  flex-1 (spacer — занимает остаток высоты между выплатами и итогом)           │
+│  flex-1 (spacer — takes the remaining height between payouts and the total)   │
 │                                                                                │
 │  ┌─ Summary zone (mt-auto) ─────────────────────────────────────────────────┐ │
 │  │  Separator opacity-20                                                     │ │
@@ -174,11 +174,11 @@ SalaryCard `flex-1` — карточка заполняет всю доступ�
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Детали компонента
+### Component details
 
 ```tsx
 function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading, className }: SalarySnapshotCardProps) {
-  const baseClass = 'border-border/40 bg-card flex flex-col'  // flex-col для h-full
+  const baseClass = 'border-border/40 bg-card flex flex-col'  // flex-col for h-full
   const cardClass = className ? `${baseClass} ${className}` : baseClass
 
   if (isLoading) { ... }
@@ -275,26 +275,26 @@ function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading, className }: Sal
 }
 ```
 
-**Что убрано:**
+**What is removed:**
 
-- Ссылка «Все мои выплаты» с `data-testid="salary-all-link"` — **удалена полностью**.
-- `ExternalLink` import — убирается если не используется в других местах файла.
+- The "Все мои выплаты" link with `data-testid="salary-all-link"` — **removed entirely**.
+- The `ExternalLink` import — removed if not used elsewhere in the file.
 
-**Что изменено:**
+**What is changed:**
 
-- `text-3xl` → `text-4xl` для суммы (шире карточка = крупнее акцент оправдан).
-- `space-y-4` в CardContent → `flex flex-col flex-1 gap-0` (структурный контейнер для h-full).
-- Заголовок секции выплат: `text-xs` → добавлен `uppercase tracking-wider` (SaaS-стиль).
-- Badge выплат: добавлено `min-w-[72px] justify-center` — выравнивание по ширине.
-- Summary zone: новая секция внизу карточки — итоговая строка со ставкой.
-- `<Link to="/crm/finance">` — **удалена**.
-- CardHeader: добавлен `shrink-0` чтобы не сжимался при flex-1 у CardContent.
+- `text-3xl` → `text-4xl` for the amount (a wider card = a larger accent is justified).
+- `space-y-4` in CardContent → `flex flex-col flex-1 gap-0` (a structural container for h-full).
+- Payments section heading: `text-xs` → added `uppercase tracking-wider` (SaaS style).
+- Payout badge: added `min-w-[72px] justify-center` — width alignment.
+- Summary zone: a new section at the bottom of the card — a total row with the rate.
+- `<Link to="/crm/finance">` — **removed**.
+- CardHeader: added `shrink-0` so that it does not shrink when CardContent has flex-1.
 
 ---
 
-## 3. HubCards — итоговый шаблон
+## 3. HubCards — final template
 
-### Только изменённые строки (diff-формат для Coder)
+### Only the changed lines (diff format for the Coder)
 
 ```diff
 - className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-start"
@@ -315,7 +315,7 @@ function SalarySnapshotCard({ salaryMeta, salaryTxs, isLoading, className }: Sal
 + </motion.div>
 ```
 
-### Полный HubCards (для reference)
+### Full HubCards (for reference)
 
 ```tsx
 function HubCards({ project, projectId }: { project: ProjectDto; projectId: string }) {
@@ -334,7 +334,7 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
       animate="show"
       data-testid="junior-hub-bento"
     >
-      {/* Left stack: self-start → h-fit cards, не растягиваются */}
+      {/* Left stack: self-start → h-fit cards, do not stretch */}
       <motion.div variants={card} className="lg:col-span-1 flex flex-col gap-4 self-start">
         <ProjectInfoCard project={project} hrContact={hrContact ?? null} hrLoading={hrLoading} />
         <PersonaCard legend={legend ?? null} isLoading={legendLoading} />
@@ -361,59 +361,59 @@ function HubCards({ project, projectId }: { project: ProjectDto; projectId: stri
 
 ---
 
-## 4. Импорты: что удалить
+## 4. Imports: what to remove
 
-В `apps/web/app/routes/crm/project.tsx` после изменений удалить:
+In `apps/web/app/routes/crm/project.tsx` after the changes remove:
 
 ```tsx
-// УДАЛИТЬ если ExternalLink не используется в других компонентах файла:
+// REMOVE if ExternalLink is not used in other components of the file:
 import { BookOpen, DollarSign, ExternalLink, Phone, Send, UserCircle } from 'lucide-react'
-//                             ^^^^^^^^^^ — убрать из destructure
+//                             ^^^^^^^^^^ — remove from the destructure
 
-// УДАЛИТЬ ссылку «Все мои выплаты»:
+// REMOVE the «Все мои выплаты» link:
 // <Link to="/crm/finance" ... data-testid="salary-all-link">...</Link>
-// Если Link импортирован только для этого — убрать import { Link } тоже.
-// Проверить: Link используется в SalarySnapshotCard. Если убираем единственное место — убрать.
+// If Link was imported only for this — remove import { Link } too.
+// Check: Link is used in SalarySnapshotCard. If we remove the only place — remove it.
 ```
 
-Проверить файл: `import { createFileRoute, Link, useNavigate }` — `Link` используется ТОЛЬКО
-в `SalarySnapshotCard` для «Все мои выплаты». После удаления ссылки → убрать `Link` из импорта.
+Check the file: `import { createFileRoute, Link, useNavigate }` — `Link` is used ONLY
+in `SalarySnapshotCard` for "Все мои выплаты". After removing the link → remove `Link` from the import.
 
 ---
 
-## 5. data-testid изменения (от round 3)
+## 5. data-testid changes (from round 3)
 
-### Удаляются
+### Removed
 
-| testid            | Причина                                    |
-| ----------------- | ------------------------------------------ |
-| `salary-all-link` | Ссылка «Все мои выплаты» удалена полностью |
+| testid            | Reason                                      |
+| ----------------- | ------------------------------------------- |
+| `salary-all-link` | The "Все мои выплаты" link removed entirely |
 
-### Добавляются
+### Added
 
-| testid             | Что                                                |
-| ------------------ | -------------------------------------------------- |
-| `salary-rate-zone` | Обёртка rate-секции (ставка + валюта + период)     |
-| `salary-summary`   | Summary zone внизу карточки (ставка за месяц итог) |
+| testid             | What                                                        |
+| ------------------ | ----------------------------------------------------------- |
+| `salary-rate-zone` | Wrapper of the rate section (rate + currency + period)      |
+| `salary-summary`   | Summary zone at the bottom of the card (monthly rate total) |
 
-### Сохраняются (без изменений)
+### Kept (unchanged)
 
-| testid                 | Что                                  |
-| ---------------------- | ------------------------------------ |
-| `salary-snapshot-card` | SalarySnapshotCard                   |
-| `salary-rate-amount`   | Цифра ставки (span внутри rate-zone) |
-| `salary-no-rate`       | Italic «Ставка не назначена»         |
-| `salary-tx-list`       | Обёртка списка выплат                |
-| `salary-tx-row`        | Строка выплаты                       |
-| `junior-hub-bento`     | Корневой motion.div                  |
-| `project-info-card`    | ProjectInfoCard                      |
-| `persona-card`         | PersonaCard                          |
+| testid                 | What                                    |
+| ---------------------- | --------------------------------------- |
+| `salary-snapshot-card` | SalarySnapshotCard                      |
+| `salary-rate-amount`   | The rate number (span inside rate-zone) |
+| `salary-no-rate`       | Italic «Ставка не назначена»            |
+| `salary-tx-list`       | Wrapper of the payouts list             |
+| `salary-tx-row`        | Payout row                              |
+| `junior-hub-bento`     | Root motion.div                         |
+| `project-info-card`    | ProjectInfoCard                         |
+| `persona-card`         | PersonaCard                             |
 
 ---
 
-## 6. Skeleton loading — обновить
+## 6. Skeleton loading — update
 
-Skeleton должен отражать равные высоты. Правый skeleton — тоже `flex flex-col`:
+The skeleton must reflect equal heights. The right skeleton is `flex flex-col` too:
 
 ```tsx
 {
@@ -424,127 +424,127 @@ Skeleton должен отражать равные высоты. Правый s
 </div>
 ```
 
-`min-h-[200px]` — минимальная высота skeleton при пустом контенте.
+`min-h-[200px]` — the minimum skeleton height with empty content.
 
 ---
 
 ## 7. Token map
 
-Все токены из `apps/web/app/styles/globals.css`. Новых токенов не добавляется.
+All tokens come from `apps/web/app/styles/globals.css`. No new tokens are added.
 
-| Назначение          | Token                      | Tailwind class                   |
-| ------------------- | -------------------------- | -------------------------------- |
-| Карточки bento      | `--color-card`             | `bg-card`                        |
-| Граница карточек    | `--color-border`           | `border-border/40`               |
-| Разделители         | `--color-border` × opacity | `border-border/20`, `opacity-30` |
-| Основной текст      | `--color-foreground`       | `text-foreground`                |
-| Вторичный текст     | `--color-muted-foreground` | `text-muted-foreground`          |
-| Суммы (tabular)     | CSS `font-variant-numeric` | `tabular-nums`                   |
-| Радиус карточек     | `--radius-lg`              | `rounded-lg`                     |
-| Размер суммы ставки | (нет токена, utility)      | `text-4xl`                       |
+| Purpose           | Token                      | Tailwind class                   |
+| ----------------- | -------------------------- | -------------------------------- |
+| Bento cards       | `--color-card`             | `bg-card`                        |
+| Card border       | `--color-border`           | `border-border/40`               |
+| Dividers          | `--color-border` × opacity | `border-border/20`, `opacity-30` |
+| Primary text      | `--color-foreground`       | `text-foreground`                |
+| Secondary text    | `--color-muted-foreground` | `text-muted-foreground`          |
+| Amounts (tabular) | CSS `font-variant-numeric` | `tabular-nums`                   |
+| Card radius       | `--radius-lg`              | `rounded-lg`                     |
+| Rate amount size  | (no token, utility)        | `text-4xl`                       |
 
 ---
 
 ## 8. A11y (WCAG 2.2 AA)
 
-### 8.1 Убранные элементы
+### 8.1 Removed elements
 
-- Ссылка «Все мои выплаты» (`<Link>`) удалена — убирает один интерактивный элемент из
-  tab order. Это упрощает focus path, не нарушает его.
+- The "Все мои выплаты" link (`<Link>`) is removed — it takes one interactive element out of the
+  tab order. This simplifies the focus path, does not break it.
 
-### 8.2 Новые элементы
+### 8.2 New elements
 
-- Summary zone — не интерактивная, семантически `<div>`. Нет ARIA-изменений.
-- Badge: `min-w-[72px] justify-center` — визуальное выравнивание. Badge-контент остаётся
-  читаемым (`text-xs`). Контраст «Выплачено» / «Ожидание» — не меняется, токены те же.
+- The summary zone — non-interactive, semantically a `<div>`. No ARIA changes.
+- Badge: `min-w-[72px] justify-center` — visual alignment. The Badge content stays
+  readable (`text-xs`). The contrast of "Выплачено" / "Ожидание" — unchanged, the same tokens.
 
 ### 8.3 Target size (SC 2.5.8)
 
-Интерактивных элементов в SalaryCard после изменений нет (ссылка удалена, Badge не интерактивен).
+There are no interactive elements in SalaryCard after the changes (the link is removed, Badge is not interactive).
 
-### 8.4 Focus order после изменений
+### 8.4 Focus order after the changes
 
-1. ProjectSwitcher (если > 1 проекта)
-2. ProjectInfoCard → TG/phone ссылки (HrInline)
-3. PersonaCard → кнопка «Открыть легенду»
-4. SalarySnapshotCard — нет интерактивных элементов (ссылка удалена)
-5. ProjectCredentialsSection → «+ Добавить» → строки → [👁] кнопки
+1. ProjectSwitcher (if > 1 project)
+2. ProjectInfoCard → TG/phone links (HrInline)
+3. PersonaCard → the "Открыть легенду" button
+4. SalarySnapshotCard — no interactive elements (the link is removed)
+5. ProjectCredentialsSection → "+ Добавить" → rows → [👁] buttons
 
 ### 8.5 Reflow (SC 1.4.10)
 
-`grid-cols-3` → при zoom 400% → `grid-cols-1`, обе колонки стекаются вертикально.
-`self-start` на левом div — не влияет на mobile layout (col-span-1 нет stretch).
+`grid-cols-3` → at 400% zoom → `grid-cols-1`, both columns stack vertically.
+`self-start` on the left div — does not affect the mobile layout (col-span-1 has no stretch).
 
 ---
 
 ## 9. Anti-pattern checklist (Mode C)
 
-- Нет градиентов.
-- Нет `rounded-2xl` везде — только `rounded-lg` Card.
-- Нет `shadow-xl`.
-- Нет decorative blobs или иконок для украшения.
-- Summary zone — функциональная (повторяет ставку как anchor внизу), не декоративная.
-- `text-4xl` для суммы — единственный размерный акцент, на 2/3-ширины карточке оправдан.
-- `uppercase tracking-wider` на «ПОСЛЕДНИЕ ВЫПЛАТЫ» — SaaS-паттерн (не AI-slop,
-  используется в shadcn/ui TableHead по умолчанию).
-- Нет `transition: all`.
+- No gradients.
+- No `rounded-2xl` everywhere — only `rounded-lg` Card.
+- No `shadow-xl`.
+- No decorative blobs or icons for decoration.
+- The summary zone — functional (repeats the rate as an anchor at the bottom), not decorative.
+- `text-4xl` for the amount — the only size accent, justified on a 2/3-width card.
+- `uppercase tracking-wider` on "ПОСЛЕДНИЕ ВЫПЛАТЫ" — a SaaS pattern (not AI-slop,
+  used in shadcn/ui TableHead by default).
+- No `transition: all`.
 
 ---
 
 ## 10. Edge cases
 
-| Кейс                      | Поведение                                                                                                                                                                                                    |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Нет ставки, нет выплат    | Rate zone: «Ставка не назначена» italic. Payments zone: «Выплат ещё не было» italic. Summary zone: скрыта (только при `hasRate`). Карточка h-full от grid row — пустая, но без дыры (grid row = левый стек). |
-| Нет ставки, есть выплаты  | Rate zone: «Ставка не назначена». Payments zone: строки выплат. Summary zone: скрыта.                                                                                                                        |
-| Есть ставка, нет выплат   | Rate zone: «500 USD / месяц». Payments zone: «Выплат ещё не было». Summary zone: «Ставка за месяц 500 USD». Карточка заполнена через flex-1 spacer.                                                          |
-| 1 строка выплаты          | Одна строка в payments zone. Spacer компенсирует. Summary внизу.                                                                                                                                             |
-| 3 строки выплат (номинал) | 3 строки. Spacer сокращается. Summary внизу.                                                                                                                                                                 |
-| Данные загружаются        | Skeleton: `flex-1 min-h-[200px]` — skeleton занимает grid row height.                                                                                                                                        |
-| Мобайл < 768px            | `grid-cols-1` → `self-start` на левом div неактивен (одна колонка). SalaryCard — h-fit (flex-1 на col-span-1 неэффективен без stretch-соседа). Нормальное поведение.                                         |
+| Case                    | Behavior                                                                                                                                                                                                               |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| No rate, no payouts     | Rate zone: «Ставка не назначена» italic. Payments zone: «Выплат ещё не было» italic. Summary zone: hidden (only with `hasRate`). The card is h-full of the grid row — empty, but with no hole (grid row = left stack). |
+| No rate, has payouts    | Rate zone: «Ставка не назначена». Payments zone: payout rows. Summary zone: hidden.                                                                                                                                    |
+| Has rate, no payouts    | Rate zone: «500 USD / месяц». Payments zone: «Выплат ещё не было». Summary zone: «Ставка за месяц 500 USD». The card is filled via the flex-1 spacer.                                                                  |
+| 1 payout row            | One row in the payments zone. The spacer compensates. Summary at the bottom.                                                                                                                                           |
+| 3 payout rows (nominal) | 3 rows. The spacer shrinks. Summary at the bottom.                                                                                                                                                                     |
+| Data loading            | Skeleton: `flex-1 min-h-[200px]` — the skeleton takes the grid row height.                                                                                                                                             |
+| Mobile < 768px          | `grid-cols-1` → `self-start` on the left div is inactive (one column). SalaryCard — h-fit (flex-1 on col-span-1 is ineffective without a stretch neighbor). Normal behavior.                                           |
 
 ---
 
-## 11. Handoff-чеклист для Coder
+## 11. Handoff checklist for the Coder
 
 ### apps/web/app/routes/crm/project.tsx
 
-- [ ] `HubCards`: убрать `items-start` из grid className → `"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"`
-- [ ] Левый `motion.div`: добавить `self-start` → `"lg:col-span-1 flex flex-col gap-4 self-start"`
-- [ ] Правый `motion.div`: добавить `flex flex-col` → `"lg:col-span-2 flex flex-col"`
-- [ ] Передать `className="flex-1"` в `SalarySnapshotCard`
-- [ ] `SalarySnapshotCard`: добавить `flex flex-col` к `baseClass` → `'border-border/40 bg-card flex flex-col'`
-- [ ] `SalarySnapshotCard` CardHeader: добавить `shrink-0`
+- [ ] `HubCards`: remove `items-start` from the grid className → `"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4"`
+- [ ] Left `motion.div`: add `self-start` → `"lg:col-span-1 flex flex-col gap-4 self-start"`
+- [ ] Right `motion.div`: add `flex flex-col` → `"lg:col-span-2 flex flex-col"`
+- [ ] Pass `className="flex-1"` into `SalarySnapshotCard`
+- [ ] `SalarySnapshotCard`: add `flex flex-col` to `baseClass` → `'border-border/40 bg-card flex flex-col'`
+- [ ] `SalarySnapshotCard` CardHeader: add `shrink-0`
 - [ ] `SalarySnapshotCard` CardContent: `className="space-y-4"` → `className="flex flex-col flex-1 pt-0 gap-0"`
-- [ ] Rate zone: `text-3xl` → `text-4xl`; добавить `pb-4` к wrapper; `ml-auto` на «/ мес»
-- [ ] `<Separator>` после rate zone: добавить `mb-4 shrink-0`
-- [ ] Payments zone header: добавить `uppercase tracking-wider`
-- [ ] Badge в строках выплат: добавить `min-w-[72px] justify-center`
-- [ ] Добавить `<div className="flex-1" />` spacer после payments zone
-- [ ] Добавить summary zone (`mt-auto pt-3 shrink-0`) с `<Separator>` + строкой ставки
-- [ ] **УДАЛИТЬ** `<Link to="/crm/finance" ... data-testid="salary-all-link">...</Link>`
-- [ ] Убрать `Link` из импорта `createFileRoute, Link, useNavigate` → оставить `createFileRoute, useNavigate`
-- [ ] Убрать `ExternalLink` из lucide-react импорта
-- [ ] Обновить skeleton правой колонки: `<div className="lg:col-span-2 flex flex-col"><Skeleton className="flex-1 min-h-[200px] rounded-lg" /></div>`
+- [ ] Rate zone: `text-3xl` → `text-4xl`; add `pb-4` to the wrapper; `ml-auto` on "/ мес"
+- [ ] `<Separator>` after the rate zone: add `mb-4 shrink-0`
+- [ ] Payments zone header: add `uppercase tracking-wider`
+- [ ] Badge in payout rows: add `min-w-[72px] justify-center`
+- [ ] Add a `<div className="flex-1" />` spacer after the payments zone
+- [ ] Add the summary zone (`mt-auto pt-3 shrink-0`) with `<Separator>` + the rate row
+- [ ] **REMOVE** `<Link to="/crm/finance" ... data-testid="salary-all-link">...</Link>`
+- [ ] Remove `Link` from the import `createFileRoute, Link, useNavigate` → leave `createFileRoute, useNavigate`
+- [ ] Remove `ExternalLink` from the lucide-react import
+- [ ] Update the right column skeleton: `<div className="lg:col-span-2 flex flex-col"><Skeleton className="flex-1 min-h-[200px] rounded-lg" /></div>`
 
-### E2E (AutoTest зона)
+### E2E (AutoTest zone)
 
-- [ ] Удалить тест на `salary-all-link` (элемент удалён)
-- [ ] Добавить проверку что `salary-snapshot-card` не содержит ссылки на `/crm/finance`
-- [ ] Добавить smoke: `salary-summary` visible когда `salaryMeta.monthlySalary` не null
+- [ ] Remove the test on `salary-all-link` (the element is removed)
+- [ ] Add a check that `salary-snapshot-card` contains no link to `/crm/finance`
+- [ ] Add a smoke: `salary-summary` visible when `salaryMeta.monthlySalary` is not null
 
 ---
 
-## 12. Открытые вопросы для PM
+## 12. Open questions for the PM
 
-1. **Summary zone при нет ставки**: карточка будет пустой снизу (spacer заполняет). Это
-   приемлемо? Альтернатива — показывать summary zone с «—» при нет ставки.
+1. **Summary zone with no rate**: the card will be empty at the bottom (the spacer fills). Is this
+   acceptable? An alternative — show the summary zone with "—" when there is no rate.
 
-2. **Количество строк выплат**: сейчас API возвращает 3 последних. При 0 строк — только
-   «Выплат ещё не было». При большом контенте (3 строки) — spacer сократится, summary
-   прижмётся снизу. Если владелец хочет видеть больше строк — увеличить лимит в
-   `useSalaryTransactions()` до 5, spec от этого не меняется.
+2. **Number of payout rows**: currently the API returns the 3 latest. With 0 rows — only
+   "Выплат ещё не было". With a lot of content (3 rows) — the spacer shrinks, the summary
+   is pressed to the bottom. If the owner wants to see more rows — raise the limit in
+   `useSalaryTransactions()` to 5, the spec does not change because of that.
 
-3. **«Все мои выплаты» убрана навсегда?** Убрана полностью (требование UT). Если нужен
-   способ попасть в историю выплат — это через навигацию «Финансы» (уже есть в сайдбаре).
-   Уточнить у владельца что ссылки больше нет совсем, не перенести в другое место.
+3. **"Все мои выплаты" removed forever?** Removed entirely (UT requirement). If a way into the payout
+   history is needed — it is through the "Финансы" navigation (already in the sidebar).
+   Clarify with the owner that the link is gone entirely, not moved elsewhere.

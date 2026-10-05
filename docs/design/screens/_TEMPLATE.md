@@ -1,49 +1,49 @@
 # <Screen name> — <domain>
 
-> Per-screen artifact (CRM redesign). Coder-ready spec на наших shadcn/ui + токенах. Headless-агенты
-> опираются ТОЛЬКО на этот файл + `assets/` (браузер им недоступен). Шаблон: `docs/design/screens/_TEMPLATE.md`.
-> Программа: `docs/superpowers/specs/2026-06-22-crm-redesign-program.md`.
+> Per-screen artifact (CRM redesign). Coder-ready spec on our shadcn/ui + tokens. Headless agents
+> rely ONLY on this file + `assets/` (they have no browser access). Template: `docs/design/screens/_TEMPLATE.md`.
+> Program: `docs/superpowers/specs/2026-06-22-crm-redesign-program.md`.
 
-| Поле               | Значение                                             |
+| Field              | Value                                                |
 | ------------------ | ---------------------------------------------------- |
-| Screen             | `<имя>`                                              |
-| Route / trigger    | `<роут или как открыть модалку>`                     |
-| Roles              | `<какие роли видят>`                                 |
-| Claude Design URL  | `<ссылка на макет>`                                  |
+| Screen             | `<name>`                                             |
+| Route / trigger    | `<route or how to open the modal>`                   |
+| Roles              | `<which roles see it>`                               |
+| Claude Design URL  | `<link to the mockup>`                               |
 | Status             | `captured` \| `approved` \| `implemented` \| `stale` |
-| Last synced commit | `<short SHA main, на котором снят>`                  |
+| Last synced commit | `<short SHA of main it was captured on>`             |
 
-## Состояния
+## States
 
-| Состояние  | Скриншот (эталон)             | Заметки                                  |
-| ---------- | ----------------------------- | ---------------------------------------- |
-| default    | `assets/<screen>/default.png` |                                          |
-| empty      | `assets/<screen>/empty.png`   |                                          |
-| loading    | `assets/<screen>/loading.png` | skeleton                                 |
-| error      | `assets/<screen>/error.png`   |                                          |
-| <доменное> | `assets/<screen>/<state>.png` | напр. drag / expanded / validation-error |
+| State             | Screenshot (reference)        | Notes                                   |
+| ----------------- | ----------------------------- | --------------------------------------- |
+| default           | `assets/<screen>/default.png` |                                         |
+| empty             | `assets/<screen>/empty.png`   |                                         |
+| loading           | `assets/<screen>/loading.png` | skeleton                                |
+| error             | `assets/<screen>/error.png`   |                                         |
+| <domain-specific> | `assets/<screen>/<state>.png` | e.g. drag / expanded / validation-error |
 
-> Если состояние не удалось снять — явно укажи причину здесь, НЕ удаляй строку молча.
+> If a state could not be captured — state the reason here explicitly, do NOT silently delete the row.
 
-## Компоненты (маппинг на наш стек)
+## Components (mapping to our stack)
 
-Из инвентаря `docs/design/assets/_design-system/inventory.md`:
+From the inventory `docs/design/assets/_design-system/inventory.md`:
 
-| Визуальный блок | Наш компонент (shadcn/ui / композит) | Новый? |
-| --------------- | ------------------------------------ | ------ |
-| <блок>          | `<Button / Card / CrmDialog / ...>`  | нет    |
+| Visual block | Our component (shadcn/ui / composite) | New? |
+| ------------ | ------------------------------------- | ---- |
+| <block>      | `<Button / Card / CrmDialog / ...>`   | no   |
 
 ## Token-map
 
-Только токены `apps/web/app/styles/globals.css` (без сырого hex / generic-градиентов).
+Only tokens from `apps/web/app/styles/globals.css` (no raw hex / generic gradients).
 
 ## A11y / responsive / motion
 
-- **A11y (WCAG 2.2):** target-size ≥ 24px, focus order + видимый focus, контраст 4.5:1/3:1, aria-label для icon-only, focus-trap для модалок.
+- **A11y (WCAG 2.2):** target-size ≥ 24px, focus order + visible focus, contrast 4.5:1/3:1, aria-label for icon-only, focus-trap for modals.
 - **Responsive:** 320 / 768 / 1024 / 1440.
-- **Motion:** <описание анимаций/переходов — длительность, easing, что движется; кадры в assets, не playable>.
+- **Motion:** <description of animations/transitions — duration, easing, what moves; frames in assets, not playable>.
 
-## Для кодера
+## For the coder
 
-Строй НАШИМИ компонентами по этому spec; `design.png` — fidelity-референс (Mode B сверит). НЕ копируй
-сырой экспортированный HTML из `design.html` (это визуальный референс, не код для вставки).
+Build with OUR components per this spec; `design.png` is the fidelity reference (Mode B will compare). Do NOT copy
+the raw exported HTML from `design.html` (it is a visual reference, not code to paste).

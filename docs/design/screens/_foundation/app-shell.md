@@ -1,141 +1,141 @@
 # App-shell — Foundation (Phase 0 north-star)
 
-> Per-screen artifact (CRM redesign). Coder-ready spec на наших shadcn/ui + токенах. Headless-агенты
-> опираются ТОЛЬКО на этот файл + `assets/` (браузер им недоступен). Шаблон: `docs/design/screens/_TEMPLATE.md`.
-> Направление: `docs/design/foundation.md`. Программа: `docs/superpowers/specs/2026-06-22-crm-redesign-program.md`.
+> Per-screen artifact (CRM redesign). Coder-ready spec on our shadcn/ui + tokens. Headless agents
+> rely ONLY on this file + `assets/` (they have no browser access). Template: `docs/design/screens/_TEMPLATE.md`.
+> Direction: `docs/design/foundation.md`. Program: `docs/superpowers/specs/2026-06-22-crm-redesign-program.md`.
 
-| Поле               | Значение                                                                                  |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| Screen             | App-shell (глобальный каркас: header + nav-sidebar + content chrome)                      |
-| Route / trigger    | `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout`) — наследуется КАЖДЫМ экраном |
-| Roles              | Все 6 (ADMIN/SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) — sidebar role-filtered                    |
-| Claude Design URL  | `https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea`                         |
-| Status             | `approved` (владелец 2026-06-23)                                                          |
-| Last synced commit | `86d72c32` (база; редизайн = рестайл текущего shell)                                      |
+| Field              | Value                                                                                    |
+| ------------------ | ---------------------------------------------------------------------------------------- |
+| Screen             | App-shell (global shell: header + nav-sidebar + content chrome)                          |
+| Route / trigger    | `apps/web/app/routes/_authenticated/route.tsx` (`CrmLayout`) — inherited by EVERY screen |
+| Roles              | All 6 (ADMIN/SENIOR/JUNIOR/HR/ACCOUNTANT/DROP) — sidebar role-filtered                   |
+| Claude Design URL  | `https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea`                        |
+| Status             | `approved` (owner, 2026-06-23)                                                           |
+| Last synced commit | `86d72c32` (base; the redesign = a restyle of the current shell)                         |
 
 ---
 
 ## Fidelity reference
 
-- **Claude Design проект:** `https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea` (система `CheekyCheeseIT CRM`, Opus 4.8; проект «CRM глобальный каркас»).
-- **`design.png`** — главный fidelity-референс для Mode B: кадр **Варианта А** (хедер + плоский сайдбар + плотная таблица «Пользователи»), faithful server-рендер Claude Design.
-- **`design-states.png`** — все 4 состояния в одном кадре: default (Вариант А) · сайдбар свёрнут · уведомления открыты · мобайл-overlay.
-- **Кодер строит НАШИМИ shadcn/ui компонентами** по spec ниже, сверяясь визуально с `design.png`. Сырые исходники Claude Design (generic CD-классы, не наши компоненты) в репо **НЕ коммитим** — во избежание копипасты + лишнего веса (3 МБ runtime-бандл); при нужде полный Project-archive экспортируется из CD-проекта по URL выше.
-- _Как получен `design.png`:_ `/design` → Export → **Project archive** → распаковка (`ditto`, юникод-имена) → локальный `http.server` → Playwright рендер showcase-страницы (sibling резолвится) → кроп Варианта А. Прямая растеризация рендера CD недоступна (Chrome MCP `save_to_disk` не пишет файл; print-URL виснет в Playwright) — archive-путь надёжен и автономен, **без ручного скриншота владельца**.
-- **Решение владельца 2026-06-23:** ведём **Вариант А «сдержанный»**; навигация — **ПЛОСКИЙ список** (группировка по секциям РАБОЧЕЕ ПРОСТРАНСТВО/УПРАВЛЕНИЕ/ЛИЧНОЕ отклонена).
-- **Identity-блок в хедере (владелец 2026-06-23: «делать всё как в макете»):** РЕАЛИЗОВАТЬ как в `design.png` — имя пользователя + email справа от/в составе user-trigger, видимы на десктопе (≥`lg`), на мобайле/планшете скрыты (остаются в dropdown). Требует обновления инварианта `ui-invariants-pr56` (email теперь в 2 местах) — зона AutoTest.
-- **Адаптив (владелец 2026-06-23):** обязателен на 4 классах устройств (mobile/tablet/laptop/large) — `responsive-design.md`. app-shell — эталон мобильной адаптации (sidebar→Sheet).
+- **Claude Design project:** `https://claude.ai/design/p/cb5277cf-5b56-44ff-9a6a-4404d8c92cea` (system `CheekyCheeseIT CRM`, Opus 4.8; project "CRM глобальный каркас").
+- **`design.png`** — the main fidelity reference for Mode B: a frame of **Variant A** (header + flat sidebar + dense "Пользователи" table), a faithful server render from Claude Design.
+- **`design-states.png`** — all 4 states in one frame: default (Variant A) · sidebar collapsed · notifications open · mobile overlay.
+- **The coder builds with OUR shadcn/ui components** per the spec below, checking visually against `design.png`. The raw Claude Design sources (generic CD classes, not our components) are **NOT committed** to the repo — to avoid copy-pasting and extra weight (3 MB runtime bundle); if needed, the full Project archive is exported from the CD project at the URL above.
+- _How `design.png` was obtained:_ `/design` → Export → **Project archive** → unpack (`ditto`, unicode names) → local `http.server` → Playwright render of the showcase page (sibling resolves) → crop of Variant A. Direct rasterization of the CD render is unavailable (Chrome MCP `save_to_disk` writes no file; the print URL hangs in Playwright) — the archive path is reliable and autonomous, **with no manual screenshot from the owner**.
+- **Owner decision 2026-06-23:** we go with **Variant A "restrained"**; navigation is a **FLAT list** (grouping into sections РАБОЧЕЕ ПРОСТРАНСТВО/УПРАВЛЕНИЕ/ЛИЧНОЕ was rejected).
+- **Identity block in the header (owner 2026-06-23: "do everything as in the mockup"):** IMPLEMENT as in `design.png` — user name + email to the right of/as part of the user trigger, visible on desktop (≥`lg`), hidden on mobile/tablet (they remain in the dropdown). Requires updating the `ui-invariants-pr56` invariant (the email is now in 2 places) — AutoTest zone.
+- **Responsive (owner 2026-06-23):** mandatory on 4 device classes (mobile/tablet/laptop/large) — `responsive-design.md`. The app-shell is the reference for mobile adaptation (sidebar→Sheet).
 
-## Реальные блоки (1:1 — НИЧЕГО не добавлять, не удалять)
+## Real blocks (1:1 — add NOTHING, remove NOTHING)
 
-Источник истины — код `_authenticated/route.tsx` + `components/crm/nav-sidebar.tsx` +
-`components/layout/notifications-bell.tsx`. Редизайн = рестайл ЭТИХ блоков, не новые.
+The source of truth is the code of `_authenticated/route.tsx` + `components/crm/nav-sidebar.tsx` +
+`components/layout/notifications-bell.tsx`. The redesign = a restyle of THESE blocks, not new ones.
 
-### A. Header (верхний бар) — `sticky top-0 z-40`, glassy (`bg-background/80 backdrop-blur-md`), `border-b`, `px-6 py-3`
+### A. Header (top bar) — `sticky top-0 z-40`, glassy (`bg-background/80 backdrop-blur-md`), `border-b`, `px-6 py-3`
 
-- **Слева (gap-3):**
-  1. Кнопка-бургер (`Menu` icon, **только ≤768px** `md:hidden`) — открывает мобильный sidebar-Sheet.
-  2. Бренд-линк на `/`: `BrandMark` (h-7 w-7, `text-primary`) + текст «CheekyCheeseIT» (`font-semibold tracking-tight`).
-  3. `Badge variant="outline"` «CRM» (**скрыт <640px**, `sm:flex`).
-- **Справа (gap-1):** 4. Кнопка-иконка «Поиск» (`Search`, ghost, `aria-label`). _Существующий блок-плейсхолдер — сохранить как есть._ 5. **NotificationsBell** — `Bell` ghost-кнопка + unread-бейдж (круглый `bg-primary text-primary-foreground`, «99+» cap); dropdown w-80: header «Уведомления» + «Прочитать всё» (CheckCheck), список строк (TypeIcon + title + body line-clamp-2 + relative-время ru + unread-точка + Trash на hover), empty-state (Inbox + «Уведомлений нет»), loading-skeleton. 6. **User-menu** (DropdownMenu, trigger = `UserAvatar` h-8, fallback `bg-primary/20 text-primary`): label (displayName + email muted), role-`Badge` (variant=роль), «Профиль» (UserCircle → `/profile`), «Выйти» (LogOut).
+- **Left (gap-3):**
+  1. Burger button (`Menu` icon, **only ≤768px** `md:hidden`) — opens the mobile sidebar Sheet.
+  2. Brand link to `/`: `BrandMark` (h-7 w-7, `text-primary`) + the text "CheekyCheeseIT" (`font-semibold tracking-tight`).
+  3. `Badge variant="outline"` "CRM" (**hidden <640px**, `sm:flex`).
+- **Right (gap-1):** 4. Icon button "Поиск" (`Search`, ghost, `aria-label`). _Existing placeholder block — keep as is._ 5. **NotificationsBell** — `Bell` ghost button + unread badge (round `bg-primary text-primary-foreground`, "99+" cap); dropdown w-80: header "Уведомления" + "Прочитать всё" (CheckCheck), list of rows (TypeIcon + title + body line-clamp-2 + relative time (ru) + unread dot + Trash on hover), empty state (Inbox + "Уведомлений нет"), loading skeleton. 6. **User menu** (DropdownMenu, trigger = `UserAvatar` h-8, fallback `bg-primary/20 text-primary`): label (displayName + email muted), role `Badge` (variant=role), "Профиль" (UserCircle → `/profile`), "Выйти" (LogOut).
 
 ### B. NavSidebar — `components/crm/nav-sidebar.tsx`
 
-- **Desktop:** `<aside>` `bg-background`, `border-r border-border/60`, ширина **208px** (`w-52`) / collapsed **56px** (`w-14`), `transition-[width] 200ms`. Без шапки-бренда (бренд в header). Внутри:
-  - `ScrollArea` → `<nav>` (`flex-col gap-0.5 p-2 pt-3`) — плоский список role-filtered пунктов.
-  - Низ: `border-t` + collapse-toggle (ghost icon, Chevron Left/Right, tooltip «Свернуть/Развернуть»).
-- **Пункты (12, порядок фиксирован; видимость по роли через `navRolesFor()`):** Мой проект (Home), Легенда (BookOpen), Дашборд (LayoutDashboard, active-exact), Пользователи (Users), Админ (Settings), Команда (UsersRound), Проекты (Briefcase), Финансы (DollarSign), Статистика (BarChart3), Собеседования (KanbanSquare), Документы (FileText), Профиль (UserCircle, последний). _Teamless SENIOR прячет Проекты+Собеседования._
-- **Пункт (link):** `text-muted-foreground` → hover `bg-accent text-accent-foreground` → active `bg-accent text-accent-foreground` + лево-бордер `border-l-2 border-primary` + иконка `text-primary`. Collapsed: центр-иконка + tooltip + active-ring.
-- **Mobile:** `Sheet` (side left, w-60) со СВОЕЙ шапкой-брендом (BrandMark flat + «CheekyCheeseIT») + тот же список.
+- **Desktop:** `<aside>` `bg-background`, `border-r border-border/60`, width **208px** (`w-52`) / collapsed **56px** (`w-14`), `transition-[width] 200ms`. No brand header (the brand is in the header). Inside:
+  - `ScrollArea` → `<nav>` (`flex-col gap-0.5 p-2 pt-3`) — a flat list of role-filtered items.
+  - Bottom: `border-t` + collapse toggle (ghost icon, Chevron Left/Right, tooltip "Свернуть/Развернуть").
+- **Items (12, fixed order; visibility by role via `navRolesFor()`):** Мой проект (Home), Легенда (BookOpen), Дашборд (LayoutDashboard, active-exact), Пользователи (Users), Админ (Settings), Команда (UsersRound), Проекты (Briefcase), Финансы (DollarSign), Статистика (BarChart3), Собеседования (KanbanSquare), Документы (FileText), Профиль (UserCircle, last). _A teamless SENIOR hides Проекты+Собеседования._
+- **Item (link):** `text-muted-foreground` → hover `bg-accent text-accent-foreground` → active `bg-accent text-accent-foreground` + left border `border-l-2 border-primary` + icon `text-primary`. Collapsed: centered icon + tooltip + active ring.
+- **Mobile:** `Sheet` (side left, w-60) with ITS OWN brand header (BrandMark flat + "CheekyCheeseIT") + the same list.
 
 ### C. Content chrome
 
-- `<main>` `flex-1 min-h-0 flex flex-col overflow-hidden`, `scrollbar-gutter: stable` → `<Outlet/>` (контент экрана).
-- Между header и body — **TosUpdateBanner** (conditional: `tosUpdateAvailable && !requiresTos`).
+- `<main>` `flex-1 min-h-0 flex flex-col overflow-hidden`, `scrollbar-gutter: stable` → `<Outlet/>` (screen content).
+- Between the header and the body — **TosUpdateBanner** (conditional: `tosUpdateAvailable && !requiresTos`).
 
-### D. Ambient-фон (декоративная глубина, существующий)
+### D. Ambient background (decorative depth, existing)
 
-3 размытых motion-blob'а (`bg-primary/[0.05]`, `bg-violet-500/[0.05]`, `bg-amber-500/[0.035]`, blur 100–120px),
-`fixed inset-0 -z-10 pointer-events-none`, медленный дрейф 24–36s, **пауза при скрытом табе**. Сохранить
-атмосферу (можно гармонизировать к бренду), не превращать в AI-slop blob-градиент.
+3 blurred motion blobs (`bg-primary/[0.05]`, `bg-violet-500/[0.05]`, `bg-amber-500/[0.035]`, blur 100–120px),
+`fixed inset-0 -z-10 pointer-events-none`, slow drift 24–36s, **paused when the tab is hidden**. Keep the
+atmosphere (it may be harmonized with the brand), do not turn it into an AI-slop blob gradient.
 
-### E. Onboarding-режим
+### E. Onboarding mode
 
-Если путь `/onboarding*` → рендерится ТОЛЬКО `<Outlet/>` (без header/sidebar). Не трогать.
-
----
-
-## Состояния
-
-| Состояние     | Эталон                                         | Заметки                                                                                 |
-| ------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------- |
-| default       | `assets/app-shell/design.png`                  | Вариант А: ADMIN, развёрнутый sidebar, desktop 1360px (главный референс)                |
-| collapsed     | `assets/app-shell/design-states.png` (фрейм 2) | sidebar `w-14`, иконки + tooltips                                                       |
-| notifications | `assets/app-shell/design-states.png` (фрейм 3) | открытый bell-dropdown (список + unread-бейдж)                                          |
-| mobile        | `assets/app-shell/design-states.png` (фрейм 4) | ≤768: бургер + Sheet-overlay sidebar (плоский список)                                   |
-| role-junior   | — (не сгенерён)                                | механически: nav-фильтр `navRolesFor` → 5 пунктов JUNIOR (как в текущем коде) + рестайл |
-| loading       | — (не сгенерён)                                | сохранить существующий skeleton (`isLoading` ветка route.tsx), рестайл наследуется      |
-
-> Сгенерённые состояния — в `design-states.png` (один кадр, 4 фрейма) + `design.png` (default крупно).
-> `role-junior` и `loading` дизайн не генерил: выводятся из существующего кода (role-фильтр nav + skeleton) — сохранить, рестайл наследуется от каркаса.
+If the path is `/onboarding*` → ONLY `<Outlet/>` is rendered (no header/sidebar). Do not touch.
 
 ---
 
-## Компоненты (маппинг на наш стек)
+## States
 
-Существующие — НЕ вводить новые (inventory `docs/design/assets/_design-system/inventory.md`):
+| State         | Reference                                      | Notes                                                                                      |
+| ------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| default       | `assets/app-shell/design.png`                  | Variant A: ADMIN, expanded sidebar, desktop 1360px (main reference)                        |
+| collapsed     | `assets/app-shell/design-states.png` (frame 2) | sidebar `w-14`, icons + tooltips                                                           |
+| notifications | `assets/app-shell/design-states.png` (frame 3) | open bell dropdown (list + unread badge)                                                   |
+| mobile        | `assets/app-shell/design-states.png` (frame 4) | ≤768: burger + Sheet overlay sidebar (flat list)                                           |
+| role-junior   | — (not generated)                              | mechanically: `navRolesFor` nav filter → 5 JUNIOR items (as in the current code) + restyle |
+| loading       | — (not generated)                              | keep the existing skeleton (the `isLoading` branch of route.tsx), the restyle is inherited |
 
-| Визуальный блок          | Наш компонент (shadcn/ui / композит)                   | Новый? |
-| ------------------------ | ------------------------------------------------------ | ------ |
-| Header bar               | layout-разметка в `route.tsx` (не отдельный компонент) | нет    |
-| Бренд                    | `BrandMark` + текст                                    | нет    |
-| «CRM» бейдж / role-бейдж | `Badge` (outline / role-варианты)                      | нет    |
-| Поиск / меню-триггеры    | `Button` (ghost, size icon)                            | нет    |
-| Уведомления              | `NotificationsBell` (+ `DropdownMenu`, `Skeleton`)     | нет    |
-| User-меню                | `DropdownMenu` + `UserAvatar`                          | нет    |
-| Sidebar                  | `NavSidebar` (+ `ScrollArea`, `Sheet`, `Tooltip`)      | нет    |
-| Content scroll           | `<main>` + `Outlet`                                    | нет    |
-| ToS-баннер               | `TosUpdateBanner`                                      | нет    |
-| Ambient-фон              | `motion.div` blobs (framer-motion)                     | нет    |
+> The generated states are in `design-states.png` (one frame, 4 sub-frames) + `design.png` (default, large).
+> The design did not generate `role-junior` and `loading`: they are derived from the existing code (nav role filter + skeleton) — keep them, the restyle is inherited from the shell.
+
+---
+
+## Components (mapping to our stack)
+
+Existing — do NOT introduce new ones (inventory `docs/design/assets/_design-system/inventory.md`):
+
+| Visual block             | Our component (shadcn/ui / composite)                   | New? |
+| ------------------------ | ------------------------------------------------------- | ---- |
+| Header bar               | layout markup in `route.tsx` (not a separate component) | no   |
+| Brand                    | `BrandMark` + text                                      | no   |
+| "CRM" badge / role badge | `Badge` (outline / role variants)                       | no   |
+| Search / menu triggers   | `Button` (ghost, size icon)                             | no   |
+| Notifications            | `NotificationsBell` (+ `DropdownMenu`, `Skeleton`)      | no   |
+| User menu                | `DropdownMenu` + `UserAvatar`                           | no   |
+| Sidebar                  | `NavSidebar` (+ `ScrollArea`, `Sheet`, `Tooltip`)       | no   |
+| Content scroll           | `<main>` + `Outlet`                                     | no   |
+| ToS banner               | `TosUpdateBanner`                                       | no   |
+| Ambient background       | `motion.div` blobs (framer-motion)                      | no   |
 
 ---
 
 ## Token-map
 
-Только токены `globals.css` (без сырого hex). См. `foundation.md` §5.
+Only `globals.css` tokens (no raw hex). See `foundation.md` §5.
 
-- Канвас: `bg-background` · header: `bg-background/80` + `backdrop-blur-md` + `border-border/60`.
-- Sidebar: `bg-background` + `border-r border-border/60`; active-пункт `bg-accent` + `text-accent-foreground` + `border-primary`; иконка active `text-primary`; пункт `text-muted-foreground`.
-- Бренд/акценты: `text-primary`; unread-бейдж `bg-primary text-primary-foreground`.
+- Canvas: `bg-background` · header: `bg-background/80` + `backdrop-blur-md` + `border-border/60`.
+- Sidebar: `bg-background` + `border-r border-border/60`; active item `bg-accent` + `text-accent-foreground` + `border-primary`; active icon `text-primary`; item `text-muted-foreground`.
+- Brand/accents: `text-primary`; unread badge `bg-primary text-primary-foreground`.
 - Avatar fallback: `bg-primary/20 text-primary`.
-- Тексты: `text-foreground` / `text-muted-foreground`.
+- Text: `text-foreground` / `text-muted-foreground`.
 
 ---
 
 ## A11y / responsive / motion
 
-- **A11y (WCAG 2.2):** target-size ≥24px (icon-кнопки header); `aria-label` на Поиск/Bell/меню; focus-ring `ring-ring` (user-trigger уже имеет `focus-visible:ring-2`); focus-trap в Sheet/Dropdown (Radix); sidebar-Sheet несёт sr-only Title+Description.
-- **Responsive:** ≤768 — sidebar→Sheet (бургер в header), «CRM»-бейдж скрыт <640; 1024–1440 — основной desktop; header sticky, не прыгает.
-- **Motion:** sidebar width-transition 200ms ease-in-out; ambient-blobs 24–36s (пауза при hidden-табе; `transform`/`scale` — compositor-friendly); уважать `prefers-reduced-motion`. Compositor-only, без layout-анимаций.
+- **A11y (WCAG 2.2):** target-size ≥24px (header icon buttons); `aria-label` on Search/Bell/menu; focus ring `ring-ring` (the user trigger already has `focus-visible:ring-2`); focus-trap in Sheet/Dropdown (Radix); the sidebar Sheet carries an sr-only Title+Description.
+- **Responsive:** ≤768 — sidebar→Sheet (burger in the header), the "CRM" badge is hidden <640; 1024–1440 — main desktop; the header is sticky and does not jump.
+- **Motion:** sidebar width transition 200ms ease-in-out; ambient blobs 24–36s (paused on a hidden tab; `transform`/`scale` — compositor-friendly); respect `prefers-reduced-motion`. Compositor-only, no layout animations.
 
 ---
 
-## Бриф для генерации (Claude Design, system `CheekyCheeseIT CRM`)
+## Generation brief (Claude Design, system `CheekyCheeseIT CRM`)
 
-**Задача:** профессионально перерисовать ГЛОБАЛЬНЫЙ app-shell CRM (header + left nav-sidebar + content
-chrome) на едином визуальном языке `foundation.md`. Это north-star — задаёт направление всему приложению.
+**Task:** professionally redraw the GLOBAL CRM app-shell (header + left nav-sidebar + content
+chrome) in the unified visual language of `foundation.md`. This is the north-star — it sets the direction for the whole application.
 
-**Сохранить 1:1 (add nothing not listed):** все блоки A–E выше — те же пункты навигации (12, role-filtered),
-те же элементы header (бренд, CRM-бейдж, Поиск, Уведомления, User-меню), collapse-sidebar, mobile-Sheet,
-ToS-баннер, ambient-фон, onboarding-bare-режим. **НЕ добавлять** новых пунктов/кнопок/виджетов; НЕ
-переименовывать пункты; НЕ менять навигационную структуру/роутинг/RBAC.
+**Keep 1:1 (add nothing not listed):** all blocks A–E above — the same navigation items (12, role-filtered),
+the same header elements (brand, CRM badge, Search, Notifications, User menu), collapse-sidebar, mobile Sheet,
+ToS banner, ambient background, onboarding bare mode. **Do NOT add** new items/buttons/widgets; do NOT
+rename items; do NOT change the navigation structure/routing/RBAC.
 
-**Менять ТОЛЬКО:** визуал/иерархию/отступы/плотность/расположение по канонам UI/UX — чтобы было
-профессионально, спокойно, сканируемо (dense operations-консоль, dark-default, бренд-жёлтый дисциплинированно).
+**Change ONLY:** visuals/hierarchy/spacing/density/placement per UI/UX canons — so that it is
+professional, calm, scannable (a dense operations console, dark-default, brand yellow used with discipline).
 
 **Tone / constraints:** `foundation.md` §1 (dense·quiet·scannable·professional) + Tailwind v4 + shadcn/ui +
-Russian UI + WCAG 2.2 AA + responsive 320/768/1024/1440 + наши 218 токенов. Anti-slop: без purple-градиентов,
-oversized hero, карточек-в-карточках, жёлтых заливок площадей.
+Russian UI + WCAG 2.2 AA + responsive 320/768/1024/1440 + our 218 tokens. Anti-slop: no purple gradients,
+oversized hero, cards-in-cards, yellow fills of large areas.
 
-**Состояния для генерации:** default (ADMIN, desktop) · collapsed-sidebar · JUNIOR-роль (5 пунктов) ·
-mobile (Sheet) · notifications-dropdown открыт.
+**States to generate:** default (ADMIN, desktop) · collapsed sidebar · JUNIOR role (5 items) ·
+mobile (Sheet) · notifications dropdown open.
