@@ -2,7 +2,7 @@
 
 **Slug:** `tos-pdf-preview`  
 **Date:** 2026-07-11  
-**Design tier:** 2 (правка существующего экрана — ToS admin editor right pane)  
+**Design tier:** 2 (edit of an existing screen — ToS admin editor right pane)  
 **Routes affected:** `/admin/tos`, `/admin/tos/new`
 
 ---

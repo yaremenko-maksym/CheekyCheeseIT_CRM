@@ -1,372 +1,372 @@
-# User dual-email (рабочий + личный) — design-gate спека (Tier 2)
+# User dual-email (work + personal) — design-gate spec (Tier 2)
 
-**PR:** #623 (`feat/user-emails-dual-login`), голова на момент аудита `525480cc`.
-**Причина запуска:** `code-reviewer` дал `Verdict: BLOCK` (`CR-H-2`) — диф трогает
-`apps/web/**` без дизайн-артефакта и без отметки дизайнера (обязательно даже на Tier 3).
-**Режим:** Mode B (conformance + fidelity-аудит) поверх уже реализованного UI —
-не Mode A/E с нуля, поэтому это ретроактивная спека по факту, а не бриф до вёрстки.
+**PR:** #623 (`feat/user-emails-dual-login`), head at the time of the audit `525480cc`.
+**Reason for the run:** `code-reviewer` gave `Verdict: BLOCK` (`CR-H-2`) — the diff touches
+`apps/web/**` with no design artifact and no designer sign-off (mandatory even at Tier 3).
+**Mode:** Mode B (conformance + fidelity audit) on top of the already implemented UI —
+not Mode A/E from scratch, so this is a retroactive spec after the fact, not a brief before layout.
 
 ## Tier
 
-**Tier 2 — правка существующего экрана.** Оба затронутых места (`UserDialog.tsx`,
-`UserProfileHeader.tsx`) — не новые экраны, а добавление одного поля в уже
-существующие формы/шапки профиля, построенные на тех же примитивах, что и
-остальная форма. Полная генерация в Claude Design (Tier 1) избыточна: масштаб —
-одно поле + одна ссылка, а не новый layout.
+**Tier 2 — edit of an existing screen.** Both affected places (`UserDialog.tsx`,
+`UserProfileHeader.tsx`) are not new screens, but the addition of one field to
+existing forms/profile headers built on the same primitives as
+the rest of the form. A full Claude Design generation (Tier 1) is excessive: the scale is
+one field + one link, not a new layout.
 
-## Что изменилось (по факту, не по брифу)
+## What changed (as built, not as briefed)
 
-1. `apps/web/app/components/users/UserDialog.tsx` — в форму создания пользователя
-   добавлено поле **«Личный email (необязательно)»**, рендерится только в режиме
-   создания (`isCreate &&`), между полем `email` и полем `displayName`.
-2. `apps/web/app/components/user-profile/UserProfileHeader.tsx` — если у
-   пользователя есть `personalEmail`, в строке контактов шапки профиля после
-   рабочего email добавляется вторая ссылка `mailto:` с иконкой `MailPlus` и
-   `title="Личный email"`.
+1. `apps/web/app/components/users/UserDialog.tsx` — the user creation form gained the
+   field **«Личный email (необязательно)»**, rendered only in create mode
+   (`isCreate &&`), between the `email` field and the `displayName` field.
+2. `apps/web/app/components/user-profile/UserProfileHeader.tsx` — if the
+   user has a `personalEmail`, a second `mailto:` link with a `MailPlus` icon and
+   `title="Личный email"` is added to the profile header's contacts row after the
+   work email.
 
-## Компоненты (маппинг на существующий инвентарь — новых не заводилось)
+## Components (mapping to the existing inventory — no new ones were created)
 
-| Место                              | Примитив                                                     | Откуда                                                                                                         |
-| ---------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
-| Поле формы (лейбл + hint + ошибка) | `Field`                                                      | `apps/web/app/components/users/section.tsx` — уже существующий wrapper, используется всеми полями в этой форме |
-| Секция «Идентичность»              | `Section`                                                    | тот же файл                                                                                                    |
-| Инпут                              | `Input` (`type="email"`)                                     | `@/components/ui/input`                                                                                        |
-| Ссылка в шапке профиля             | нативный `<a>` + `lucide-react` иконка (`Mail` / `MailPlus`) | тот же паттерн, что уже применён к телефону/telegram в том же компоненте                                       |
+| Place                             | Primitive                                                | Source                                                                                                     |
+| --------------------------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Form field (label + hint + error) | `Field`                                                  | `apps/web/app/components/users/section.tsx` — an already existing wrapper, used by all fields in this form |
+| «Идентичность» section            | `Section`                                                | same file                                                                                                  |
+| Input                             | `Input` (`type="email"`)                                 | `@/components/ui/input`                                                                                    |
+| Link in the profile header        | native `<a>` + `lucide-react` icon (`Mail` / `MailPlus`) | the same pattern already applied to phone/telegram in the same component                                   |
 
-Ни один новый компонент не понадобился — это ожидаемо для Tier 2.
+No new component was needed — expected for Tier 2.
 
 ## Token-map
 
-Оба места используют исключительно токены из `apps/web/app/styles/globals.css`
-(`@theme inline`) через готовые Tailwind-классы: `text-muted-foreground`,
+Both places use exclusively tokens from `apps/web/app/styles/globals.css`
+(`@theme inline`) via ready-made Tailwind classes: `text-muted-foreground`,
 `text-destructive`, `border-border/60`, `bg-muted/20`, `underline-offset-4`,
-`hover:text-foreground`. **Ни одного сырого hex, ни одного произвольного
-значения** — conformance по токенам чистая.
+`hover:text-foreground`. **Not a single raw hex, not a single arbitrary
+value** — token conformance is clean.
 
-## Conformance-проверка
+## Conformance check
 
-**Design Review: PASS.** Визуальный ритм, типографика (`text-sm`/`text-xs`),
-цвет ошибки/hint полностью совпадают с соседними полями той же формы и с
-остальной страницей профиля. AI-slop (Mode C) не обнаружен: ни градиентов, ни
-decorative glass-morphism, ни лишних скруглений — новые элементы визуально
-неотличимы от старых по стилю, что для Tier 2 и есть цель.
+**Design Review: PASS.** Visual rhythm, typography (`text-sm`/`text-xs`),
+and error/hint color fully match the neighboring fields of the same form and
+the rest of the profile page. No AI-slop (Mode C) found: no gradients, no
+decorative glass-morphism, no extra rounding — the new elements are visually
+indistinguishable in style from the old ones, which for Tier 2 is the goal.
 
-## Fidelity-аудит (320/375 · 768 · 1024/1280 · 1440/1920)
+## Fidelity audit (320/375 · 768 · 1024/1280 · 1440/1920)
 
-Тестовые данные: `user_emails.kind='PERSONAL'` длиной 140 симв. без пробелов —
+Test data: `user_emails.kind='PERSONAL'` of 140 chars with no spaces —
 `nataliyaoleksandrivnaoleksandrivnaoleksandrivnashevchenko@corporatemailhostingserviceforlongtermarchivallongtermarchivallongtermarchival.com`
-(реалистичный «worst case» — личные адреса иногда длинные и без разделителей;
-кап поля 255 симв., security-review SR-M-1). Смотрел живьём на `localhost`
-(scratch БД `crm_scratch_designer`, свой dev-стек 3010/3011), не по коду.
+(a realistic "worst case" — personal addresses are sometimes long and without separators;
+the field cap is 255 chars, security-review SR-M-1). Viewed live on `localhost`
+(scratch DB `crm_scratch_designer`, own dev stack 3010/3011), not from the code.
 
-### До фикса — воспроизведено на ВСЕХ проверенных ширинах
+### Before the fix — reproduced at ALL checked widths
 
-| Ширина  | Компонент           | Ожидалось                                                                 | По факту                                                                                                                                                                                                  | Severity |
-| ------- | ------------------- | ------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| 1440    | `UserProfileHeader` | личный email переносится на новую строку внутри своей колонки             | ссылка шириной 1016px при доступной ширине колонки 757px — заезжает ПОД кнопки «Доска собеседований» / «Действия», текст читается через прозрачную кнопку                                                 | UX-H-1   |
-| 1024    | `UserProfileHeader` | то же                                                                     | то же плюс правый край текста обрезан краем viewport — часть адреса физически недоступна                                                                                                                  | UX-H-1   |
-| 768     | `UserProfileHeader` | перенос на несколько строк (layout уже `flex-col`, колонка на всю ширину) | текст не переносится (`overflow-wrap: normal`), обрезан `<main class="overflow-hidden">` — не просто визуально спрятан, а недоступен: нет скролла, `document.documentElement.scrollWidth === clientWidth` | UX-H-1   |
-| 320/375 | `UserProfileHeader` | то же                                                                     | то же — обрезано краем `<main overflow-hidden>`, часть адреса невозможно увидеть или выделить ни при каком взаимодействии                                                                                 | UX-H-1   |
+| Width   | Component           | Expected                                                                   | Actual                                                                                                                                                                                                        | Severity |
+| ------- | ------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| 1440    | `UserProfileHeader` | the personal email wraps to a new line inside its own column               | the link is 1016px wide with 757px of available column width — it slides UNDER the «Доска собеседований» / «Действия» buttons, the text is readable through the transparent button                            | UX-H-1   |
+| 1024    | `UserProfileHeader` | same                                                                       | same, plus the right edge of the text is cut off by the viewport edge — part of the address is physically unavailable                                                                                         | UX-H-1   |
+| 768     | `UserProfileHeader` | wraps onto several lines (layout is already `flex-col`, full-width column) | the text does not wrap (`overflow-wrap: normal`), clipped by `<main class="overflow-hidden">` — not merely visually hidden but unavailable: no scroll, `document.documentElement.scrollWidth === clientWidth` | UX-H-1   |
+| 320/375 | `UserProfileHeader` | same                                                                       | same — clipped by the edge of `<main overflow-hidden>`, part of the address cannot be seen or selected by any interaction                                                                                     | UX-H-1   |
 
-**Механизм (проверено `getComputedStyle` + `getBoundingClientRect`, не
-предположение):** ссылки в строке контактов не имели `overflow-wrap`,
-дефолт `normal`. Ровно тот же класс дефекта, что уже чинился в
-`notifications-bell.tsx` (#620, `wrap-anywhere` вместо `break-words` — spec
-CSS Text прямо исключает `break-word` из расчёта `min-content` intrinsic size
-у флекс-айтема, поэтому `break-words` НЕ решает проблему, только
-`wrap-anywhere`/`overflow-wrap: anywhere`). Отличие от #620: там overflow был
-виден через горизонтальный скроллбар попап-окна; здесь `<main
-overflow-hidden>` (шелл приложения) просто обрезал контент без скролла —
-хуже, потому что нечитаемый текст не восстановим прокруткой ни на одной
-ширине.
+**Mechanism (verified via `getComputedStyle` + `getBoundingClientRect`, not an
+assumption):** the links in the contacts row had no `overflow-wrap`,
+the default is `normal`. Exactly the same class of defect that was already fixed in
+`notifications-bell.tsx` (#620, `wrap-anywhere` instead of `break-words` — the CSS Text
+spec explicitly excludes `break-word` from the `min-content` intrinsic size calculation
+of a flex item, so `break-words` does NOT solve the problem, only
+`wrap-anywhere`/`overflow-wrap: anywhere` does). The difference from #620: there the overflow was
+visible through the popup window's horizontal scrollbar; here `<main
+overflow-hidden>` (the app shell) simply clipped the content with no scroll —
+worse, because unreadable text cannot be recovered by scrolling at any
+width.
 
-### Фикс (сделал сам — cosmetic, моя зона `apps/web/**`)
+### Fix (done myself — cosmetic, my zone `apps/web/**`)
 
-`apps/web/app/components/user-profile/UserProfileHeader.tsx`: обеим ссылкам
-(`email` и `personalEmail`) добавлены `min-w-0` (даёт флекс-айтему реально
-сжаться внутри `flex flex-wrap` родителя) + `wrap-anywhere` (позволяет
-браузеру учитывать точки разрыва при расчёте intrinsic size — тот же
-приём, что и в #620); иконкам — `shrink-0`, чтобы не сжимались при переносе
-текста. Почему на `email` тоже: работа `.max(255)` тоже не гарантирует
-структуру без пробелов — тот же риск, просто не отревьюенный до сих пор,
-закрываю класс целиком, а не один экземпляр (та же логика, что в #620 —
-«latent ahead of new data shapes»).
+`apps/web/app/components/user-profile/UserProfileHeader.tsx`: both links
+(`email` and `personalEmail`) got `min-w-0` (lets the flex item actually
+shrink inside the `flex flex-wrap` parent) + `wrap-anywhere` (lets the
+browser take break opportunities into account when computing intrinsic size — the same
+technique as in #620); icons got `shrink-0` so they do not shrink when the
+text wraps. Why `email` too: the `.max(255)` constraint also does not guarantee
+a structure without spaces — the same risk, just not reviewed until now,
+so I close the whole class, not one instance (the same logic as in #620 —
+"latent ahead of new data shapes").
 
-### После фикса — проверено на тех же 4 ширинах, живьём
+### After the fix — verified at the same 4 widths, live
 
-| Ширина | Результат                                                                                                 |
-| ------ | --------------------------------------------------------------------------------------------------------- |
-| 1440   | переносится на вторую строку внутри своей колонки, кнопки справа не задеты, `scrollWidth === clientWidth` |
-| 1024   | то же, полностью читаемо в колонке                                                                        |
-| 768    | переносится на несколько строк, никакого обрезания                                                        |
-| 320    | переносится на 3 строки, всё читаемо, `scrollWidth === clientWidth === 320`                               |
+| Width | Result                                                                                                           |
+| ----- | ---------------------------------------------------------------------------------------------------------------- |
+| 1440  | wraps to a second line inside its own column, buttons on the right are unaffected, `scrollWidth === clientWidth` |
+| 1024  | same, fully readable in the column                                                                               |
+| 768   | wraps onto several lines, no clipping                                                                            |
+| 320   | wraps onto 3 lines, everything readable, `scrollWidth === clientWidth === 320`                                   |
 
-Скриншоты до/после — см. `docs/design/assets/user-dual-email/SCREENSHOTS-LOCATION.md`
-(окружение этой сессии физически положило файлы в чужой worktree — see note там,
-это ограничение инструмента, не решение дизайна).
+Before/after screenshots — see `docs/design/assets/user-dual-email/SCREENSHOTS-LOCATION.md`
+(this session's environment physically put the files in a foreign worktree — see the note
+there, this is a tool limitation, not a design decision).
 
-## Состояния
+## States
 
-| Состояние                                   | Проверено                                                                                                                                | Результат                                                                                                                                                                          |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Пусто (личного email нет)                   | живьём, пользователь без `PERSONAL`-строки                                                                                               | строка контактов просто не рендерит вторую ссылку — чисто, без «заглушки»                                                                                                          |
-| Ошибка валидации — совпадает с рабочим      | живьём в диалоге создания                                                                                                                | лейбл + рамка инпута красные (`text-destructive`/`border-destructive`), текст «Личный email должен отличаться от рабочего» под полем — паттерн `Field` отработал как везде в форме |
-| Ошибка валидации — некорректный формат      | по коду (та же ветка `z.string().email()`, тот же рендер `Field`) — визуально идентично строке выше, отдельно не перепроверял, риска нет | —                                                                                                                                                                                  |
-| Очень длинный адрес — в САМОЙ форме (инпут) | живьём на 1440 и 320                                                                                                                     | инпут — однострочный `<input>`, скроллит содержимое штатно, оверфлоу диалога нет на любой ширине (нативное поведение, не требует правки)                                           |
-| «Нет доступа» vs «пусто»                    | живьём: ACCOUNTANT смотрит на Oleksiy (личный email ЕСТЬ в БД)                                                                           | **визуально неотличимо от «пусто»** — см. находку UX-M-1 ниже                                                                                                                      |
+| State                                          | Checked                                                                                                                                   | Result                                                                                                                                                                                               |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Empty (no personal email)                      | live, user without a `PERSONAL` row                                                                                                       | the contacts row simply does not render the second link — clean, no "placeholder"                                                                                                                    |
+| Validation error — matches the work email      | live in the create dialog                                                                                                                 | label + input border are red (`text-destructive`/`border-destructive`), the text «Личный email должен отличаться от рабочего» under the field — the `Field` pattern worked as everywhere in the form |
+| Validation error — invalid format              | by code (same `z.string().email()` branch, same `Field` render) — visually identical to the row above, not re-checked separately, no risk | —                                                                                                                                                                                                    |
+| Very long address — in the form ITSELF (input) | live at 1440 and 320                                                                                                                      | the input is a single-line `<input>`, scrolls its content as usual, no dialog overflow at any width (native behavior, needs no fix)                                                                  |
+| "No access" vs "empty"                         | live: ACCOUNTANT looks at Oleksiy (personal email EXISTS in the DB)                                                                       | **visually indistinguishable from "empty"** — see finding UX-M-1 below                                                                                                                               |
 
-## Находки
+## Findings
 
-| #      | Severity                       | File:line                                                                                   | Находка                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  | Статус                                                                                                         |
-| ------ | ------------------------------ | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| UX-H-1 | HIGH                           | `apps/web/app/components/user-profile/UserProfileHeader.tsx` (контакт-ссылки в шапке)       | Длинный `email`/`personalEmail` без пробелов переполняет свою колонку — заезжает под кнопки (1024/1440) или обрезается `<main overflow-hidden>` без возможности прокрутки (320/375/768). Воспроизведено живьём с 140-симв. адресом на всех 4 классах устройств                                                                                                                                                                                                                                                                                                                                                                           | **done — исправил сам** (`wrap-anywhere` + `min-w-0` + `shrink-0` на иконках), перепроверено на всех 4 ширинах |
-| UX-M-1 | MED                            | `apps/api/src/users/users.service.ts:2099` (маппинг DTO) + `UserProfileHeader.tsx` (рендер) | `personalEmail: personalContact ? row?.email ?? null : null` — «нет доступа» и «не заполнено» дают **один и тот же `null`**, фронт не может их различить. Реально бьёт ACCOUNTANT (везде `realContacts=true`, `personalContact` не выставляется) и HR-в-команде (та же комбинация, `users-access.service.ts:174`/`198`) — воспроизведено живьём: ACCOUNTANT на профиле пользователя с реально заполненным личным email видит ровно ту же картину, что и на профиле без него. Правка требует нового сигнала в API-контракте (например отдельный булев флаг видимости), это уже не косметика — вне моей зоны (`apps/web/**` cosmetic only) | **not done** — нужен Coder/backend, завожу как находку, не чиню                                                |
-| —      | LOW (наблюдение, не блокирует) | тот же файл, все контакт-ссылки (`email`/`phone`/`telegram`)                                | Высота ссылки на мобильном — 20px, ниже WCAG 2.2 SC 2.5.8 (24px минимум). **Не введено этим диффом** — идентичный класс/высота был у `email`-ссылки ДО добавления `personalEmail`, это существующий паттерн всей строки контактов. Не считаю находкой этого PR (scope creep на pre-existing), фиксирую для трекинга отдельно                                                                                                                                                                                                                                                                                                             | не в скоупе Tier 2                                                                                             |
+| #      | Severity                          | File:line                                                                                   | Finding                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 | Status                                                                                                   |
+| ------ | --------------------------------- | ------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| UX-H-1 | HIGH                              | `apps/web/app/components/user-profile/UserProfileHeader.tsx` (contact links in the header)  | A long `email`/`personalEmail` with no spaces overflows its column — slides under the buttons (1024/1440) or is clipped by `<main overflow-hidden>` with no ability to scroll (320/375/768). Reproduced live with a 140-char address at all 4 device classes                                                                                                                                                                                                                                                                                                                                                                                                            | **done — fixed myself** (`wrap-anywhere` + `min-w-0` + `shrink-0` on icons), re-verified at all 4 widths |
+| UX-M-1 | MED                               | `apps/api/src/users/users.service.ts:2099` (DTO mapping) + `UserProfileHeader.tsx` (render) | `personalEmail: personalContact ? row?.email ?? null : null` — "no access" and "not filled in" yield **the same `null`**, the frontend cannot tell them apart. It really hits ACCOUNTANT (`realContacts=true` everywhere, `personalContact` is not set) and HR-in-team (the same combination, `users-access.service.ts:174`/`198`) — reproduced live: an ACCOUNTANT on the profile of a user with a really filled-in personal email sees exactly the same picture as on a profile without one. The fix requires a new signal in the API contract (e.g. a separate boolean visibility flag), which is no longer cosmetic — outside my zone (`apps/web/**` cosmetic only) | **not done** — needs Coder/backend, logging as a finding, not fixing                                     |
+| —      | LOW (observation, does not block) | same file, all contact links (`email`/`phone`/`telegram`)                                   | The link height on mobile is 20px, below WCAG 2.2 SC 2.5.8 (24px minimum). **Not introduced by this diff** — the identical class/height was on the `email` link BEFORE `personalEmail` was added, this is the existing pattern of the whole contacts row. I do not count it as a finding of this PR (scope creep onto pre-existing), recording it separately for tracking                                                                                                                                                                                                                                                                                               | not in scope of Tier 2                                                                                   |
 
 **Findings: UX-H-1, UX-M-1 (2)**
 
-## A11y (WCAG 2.2) — критические пути
+## A11y (WCAG 2.2) — critical paths
 
-- [x] Порядок фокуса в диалоге создания: `Email → Личный email → Имя и фамилия`
-      подтверждено live-запросом `querySelectorAll('input, select, textarea,
-button, [tabindex]')` — ни у одного поля нет explicit `tabindex`, DOM-порядок
-      совпадает с задуманным (namespace комментарий в коде подтверждён: провалидировать
-      личный email против рабочего можно только после того как рабочий уже введён — это
-      и объясняет порядок).
-- [x] Contrast: текст ошибки/hint — стандартные токены (`text-destructive`,
-      `text-muted-foreground`), уже проходят где угодно в проекте, здесь не новый набор.
-- [x] Focus-visible: `Input` — общий примитив с рамкой при ошибке
-      (`border-destructive focus-visible:ring-destructive/30`), поведение как у
-      соседних полей.
-- [x] Target size ≥24px: инпуты — 36px высотой (общий `Input`, не новый для этого
-      диффа). Контакт-ссылки в шапке — 20px, см. LOW-наблюдение выше (pre-existing).
-- [~] `aria-label`/`title` на новой ссылке — есть (`title="Личный email"`), но
-  `title` не читается частью screen readers по умолчанию так же надёжно, как
-  `aria-label`; иконка `MailPlus` рядом с текстом email частично компенсирует
-  (сам email уже озвучивается текстом ссылки). Не блокирую как отдельную
-  находку — тот же паттерн (`title` без `aria-label`) уже используется в
-  других иконках-ссылках этого файла (telegram), это не новый разрыв.
+- [x] Focus order in the create dialog: `Email → Личный email → Имя и фамилия`
+      confirmed by a live query `querySelectorAll('input, select, textarea,
+button, [tabindex]')` — no field has an explicit `tabindex`, DOM order
+      matches the intended one (the namespace comment in the code is confirmed: the personal
+      email can only be validated against the work email once the work one has already been entered — this
+      explains the order).
+- [x] Contrast: error/hint text — standard tokens (`text-destructive`,
+      `text-muted-foreground`), they already pass everywhere in the project, not a new set here.
+- [x] Focus-visible: `Input` — a shared primitive with an error border
+      (`border-destructive focus-visible:ring-destructive/30`), behavior like the
+      neighboring fields.
+- [x] Target size ≥24px: inputs are 36px tall (the shared `Input`, not new for this
+      diff). Contact links in the header — 20px, see the LOW observation above (pre-existing).
+- [~] `aria-label`/`title` on the new link — present (`title="Личный email"`), but
+  `title` is not read by some screen readers by default as reliably as
+  `aria-label`; the `MailPlus` icon next to the email text partially compensates
+  (the email itself is already announced by the link text). I do not block as a separate
+  finding — the same pattern (`title` without `aria-label`) is already used on
+  other icon links in this file (telegram), this is not a new gap.
 
-## Responsive — сводка
+## Responsive — summary
 
-Полное покрытие 320/375/768/1024/1280/1440/1920 не потребовалось отдельно —
-рендер на всех протестированных ширинах масштабируется линейно (flex-wrap +
-теперь wrap-anywhere), 1280/1920 не дают качественно нового поведения относительно
-1024/1440 (нет новых брейкпоинтов между ними в этом компоненте).
+Full coverage of 320/375/768/1024/1280/1440/1920 was not needed separately —
+rendering at all tested widths scales linearly (flex-wrap +
+now wrap-anywhere), 1280/1920 give no qualitatively new behavior relative to
+1024/1440 (no new breakpoints between them in this component).
 
-## Тема
+## Theme
 
-Проверялась только тёмная (`.dark`) — единственная в CRM, светлой нет и не
-планируется (`design-gate.md`).
+Only dark (`.dark`) was checked — the only one in the CRM, there is no light theme and none
+is planned (`design-gate.md`).
 
-## Handoff (раунд 1)
+## Handoff (round 1)
 
-Правка косметическая, в моей зоне `apps/web/**`, уже применена и
-перепроверена скриншотами. Coder ничего строить не должен по этому месту —
-находка UX-M-1 требует отдельной задачи на бэкенд-контракт (не Tier-2
-cosmetic), передаю через PM.
+The fix is cosmetic, in my zone `apps/web/**`, already applied and
+re-verified with screenshots. Coder has nothing to build for this place —
+finding UX-M-1 requires a separate backend-contract task (not Tier-2
+cosmetic), passing it on via PM.
 
 ---
 
-# Раунд 2 — resend-invite UI + смена личного email (`CR-H-4`)
+# Round 2 — resend-invite UI + personal email change (`CR-H-4`)
 
-**Причина запуска:** `code-reviewer` дал `Verdict: BLOCK` (`CR-H-4`, раунды 2 и 3) — после раунда 1 на ветку доехала новая визуальная поверхность
-(task-user-emails-invite), design-gate для неё не пройден: пункт меню
-«Отправить приглашение снова», бейдж «не подтверждён» в шапке профиля,
-баннер на странице входа для приглашённых и целиком новый диалог
-`ChangePersonalEmailDialog.tsx`. Голова на момент этого раунда — `04ff6414`.
+**Reason for the run:** `code-reviewer` gave `Verdict: BLOCK` (`CR-H-4`, rounds 2 and 3) — after round 1 a new visual surface landed on the branch
+(task-user-emails-invite), and the design-gate for it has not been passed: the menu item
+«Отправить приглашение снова», the «не подтверждён» badge in the profile header,
+the banner on the login page for invited users, and the entirely new dialog
+`ChangePersonalEmailDialog.tsx`. Head at the time of this round — `04ff6414`.
 
-**Tier:** остаётся **2** — все элементы либо переиспользуют существующие
-паттерны (пункт меню = форма `edit`/`set-note`/`archive`, баннер = структурная
-копия error-баннера), либо это одноцелевой диалог, зеркалящий
-`AdminNoteDialog` (тот же набор примитивов, `Dialog`/`Label`/`Input`/`Button`,
-без нового layout).
+**Tier:** stays **2** — all elements either reuse existing
+patterns (menu item = the form of `edit`/`set-note`/`archive`, banner = a structural
+copy of the error banner), or are a single-purpose dialog mirroring
+`AdminNoteDialog` (the same set of primitives, `Dialog`/`Label`/`Input`/`Button`,
+no new layout).
 
 ## Conformance — PASS
 
-Токены, отступы, радиусы — без отклонений от `globals.css`. Ни одного сырого
-hex, ни AI-slop паттернов. Пункт меню и баннер визуально неотличимы от
-соседних элементов той же природы — это и есть цель Tier 2.
+Tokens, spacing, radii — no deviations from `globals.css`. Not a single raw
+hex, no AI-slop patterns. The menu item and banner are visually indistinguishable from
+neighboring elements of the same nature — which is the Tier 2 goal.
 
-## Fidelity-аудит (320/375 · 768 · 1024/1280 · 1440/1920) — живьём на localhost
+## Fidelity audit (320/375 · 768 · 1024/1280 · 1440/1920) — live on localhost
 
-### UX-H-2 (HIGH) — нашёл и уже исправил
+### UX-H-2 (HIGH) — found and already fixed
 
-`apps/web/app/components/user-profile/UserProfileHeader.tsx`. Бейдж
-«не подтверждён» (`personalEmailCanLogin === false`) рендерится в одном
-`inline-flex items-center` ряду вместе с иконкой и текстом личного email.
-Пока адрес умещается в одну строку — не заметно. Как только адрес переносится
-на 2+ строки (реалистичный `oleksiy.andriyovych.kovalenko1987@gmail.com` на
-320px — уже 3 строки), `items-center` центрирует иконку и бейдж по ВЫСОТЕ
-всего переносящегося блока, а не по первой строке: бейдж физически
-приземляется в середину ещё не закончившегося адреса (между
-`h.kovalenko1987@` и `gmail.com` в измеренном случае). Воспроизведено на
-живом DOM через `getBoundingClientRect` (не предположение) — тот же
-механизм ломает и иконку письма перед рабочим email, просто на 2 строках
-смещение в 12px визуально не читается, а на 3+ строках уже безошибочно
-видно.
+`apps/web/app/components/user-profile/UserProfileHeader.tsx`. The badge
+«не подтверждён» (`personalEmailCanLogin === false`) is rendered in the same
+`inline-flex items-center` row together with the icon and the personal email text.
+While the address fits on one line, it is unnoticeable. As soon as the address wraps
+onto 2+ lines (a realistic `oleksiy.andriyovych.kovalenko1987@gmail.com` at
+320px is already 3 lines), `items-center` centers the icon and badge by the HEIGHT
+of the entire wrapping block, not by the first line: the badge physically
+lands in the middle of the not-yet-finished address (between
+`h.kovalenko1987@` and `gmail.com` in the measured case). Reproduced on the
+live DOM via `getBoundingClientRect` (not an assumption) — the same
+mechanism also breaks the mail icon before the work email, it's just that at 2 lines
+a 12px offset is not visually readable, while at 3+ lines it is unmistakably
+visible.
 
-Исправил сам (моя зона): `items-center` → `items-start` на всех трёх
-контейнерах этой строки (обёртка `<a>` рабочего email, обёртка-`<span>`
-личного email, обёртка `<a>` личного email). Для однострочного контента
-(ничего не переносится) результат пиксель-в-пиксель идентичен
-`items-center` — проверено на 1440/1024/768/320, с бейджем и без. Юнит-тесты
-(`UserProfileHeader.test.tsx`, 15/15) зелёные, ESLint чист.
+Fixed it myself (my zone): `items-center` → `items-start` on all three
+containers of this row (the `<a>` wrapper of the work email, the `<span>` wrapper
+of the personal email, the `<a>` wrapper of the personal email). For single-line content
+(nothing wraps) the result is pixel-for-pixel identical to
+`items-center` — verified at 1440/1024/768/320, with and without the badge. Unit tests
+(`UserProfileHeader.test.tsx`, 15/15) are green, ESLint is clean.
 
-### UX-H-3 (HIGH) — нашёл и уже исправил
+### UX-H-3 (HIGH) — found and already fixed
 
 `apps/web/app/components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx`.
-Ошибка валидации («Личный email должен отличаться от рабочего») показывала
-только красный текст ПОД полем — сам инпут и лейбл оставались нейтрально-
-серыми. Прямое сравнение с `UserDialog.tsx`'s `personalEmail`
-`form.Field`-полем (тот же валидатор, те же два текста ошибки, тот же продукт
-по сути под другим именем) показывает установленный в этом же PR паттерн:
-`border-destructive focus-visible:ring-destructive/30` на инпуте +
-`text-destructive` на лейбле. Здесь этого не было — воспроизведено скриншотом
-(серая рамка, красный текст ошибки рядом). Исправил, скопировав классы
-sibling-поля один в один (не изобретал заново). Проверено на 320/768/1440 в
-состоянии ошибки.
+The validation error («Личный email должен отличаться от рабочего») showed
+only red text UNDER the field — the input itself and the label stayed neutral
+gray. A direct comparison with `UserDialog.tsx`'s `personalEmail`
+`form.Field` field (same validator, same two error texts, essentially the same
+product under a different name) shows the pattern established in this same PR:
+`border-destructive focus-visible:ring-destructive/30` on the input +
+`text-destructive` on the label. Here it was absent — reproduced with a screenshot
+(gray border, red error text next to it). Fixed by copying the classes
+of the sibling field one-to-one (did not reinvent). Verified at 320/768/1440 in
+the error state.
 
-### UX-M-2 (MED) — нашёл и уже исправил
+### UX-M-2 (MED) — found and already fixed
 
-Тот же файл. Кнопка `Сохранить` использовала `variant="default"` (тот же
-золотой primary, что у любого безобидного сохранения) для ВСЕХ веток,
-включая удаление личного email и его смену — обе, по докблоку самого
-компонента, немедленно отзывают уже существующий адрес. У
-`ArchiveUserDialog` (тоже необратимое действие) кнопка `variant="destructive"`,
-у пункта меню «Архивировать» — тот же красный. Добавил `revokesExisting =
-!!currentEmail`: `destructive`, когда есть что отзывать (смена ИЛИ удаление),
-`default` — только при первом добавлении личного email (нечего отзывать,
-действие чисто аддитивное). Текст лейбла кнопки НЕ трогал — это отдельная,
-уже отслеживаемая copy-находка (кнопка удаления подписана «Сохранить»).
-Проверено на 320/768/1440 в обоих состояниях (смена и удаление — красная;
-первое добавление — золотая).
+Same file. The `Сохранить` button used `variant="default"` (the same
+gold primary as any harmless save) for ALL branches,
+including removal of the personal email and changing it — both, per the component's own
+docblock, immediately revoke the already existing address. `ArchiveUserDialog`
+(also an irreversible action) has a `variant="destructive"` button,
+and the «Архивировать» menu item has the same red. Added `revokesExisting =
+!!currentEmail`: `destructive` when there is something to revoke (change OR removal),
+`default` — only on the first addition of a personal email (nothing to revoke,
+the action is purely additive). I did NOT touch the button's label text — that is a separate,
+already tracked copy finding (the removal button is labeled «Сохранить»).
+Verified at 320/768/1440 in both states (change and removal — red;
+first addition — gold).
 
-## Text↔behavior — UX-H-4 (HIGH, не косметика, передаю как находку)
+## Text↔behavior — UX-H-4 (HIGH, not cosmetic, passing on as a finding)
 
-Задание прямо просило проверить: не разошёлся ли текст предупреждения
-диалога с реальным поведением отзыва сессии. **Разошёлся, проверено
-исполнением, не чтением кода.**
+The assignment explicitly asked to check whether the dialog's warning text had diverged
+from the actual session revocation behavior. **It had diverged, verified by
+execution, not by reading code.**
 
-`DialogDescription` утверждает: «Смена или удаление **немедленно закроют
+`DialogDescription` states: «Смена или удаление **немедленно закроют
 вход** со старого адреса — даже если сотрудник уже подтвердил его».
 
-Проверил напрямую через `curl` с двумя независимыми cookie-jar (без браузера,
-без домыслов):
+I verified directly via `curl` with two independent cookie jars (no browser,
+no guesswork):
 
-1. `POST /api/auth/dev-login` с личным email JUNIOR-пользователя
-   (`canLogin=true`) → сессия выдана, `GET /api/auth/me` → `200`.
-2. Отдельной сессией ADMIN → `PATCH /:id/personal-email` с `personalEmail:
-null` (удаление) → `200 ok`.
-3. **Той же самой, уже выданной сессией JUNIOR** → `GET /api/auth/me` →
-   **`200`, та же личность.** Сессия пережила отзыв.
+1. `POST /api/auth/dev-login` with the personal email of a JUNIOR user
+   (`canLogin=true`) → session issued, `GET /api/auth/me` → `200`.
+2. In a separate ADMIN session → `PATCH /:id/personal-email` with `personalEmail:
+null` (removal) → `200 ok`.
+3. **With the very same, already issued JUNIOR session** → `GET /api/auth/me` →
+   **`200`, same identity.** The session survived the revocation.
 
-Механизм (прочитал код ПОСЛЕ того, как воспроизвёл эффект, не вместо этого):
-`JwtPayload` несёт только `{id, email, role}` — канонический рабочий email,
-не тот, по которому вошли (это и задумано, PR это явно документирует).
-`JwtAuthGuard.resolveCurrentUser` перепроверяет по БД только `archivedAt` и
-`role`; про `user_emails`/`canLogin` там нет ни строки. Нет ни
-session-версионирования, ни Redis-blacklist токенов — ничего, что могло бы
-инвалидировать уже выданный JWT при изменении `user_emails`.
+Mechanism (I read the code AFTER reproducing the effect, not instead of it):
+`JwtPayload` carries only `{id, email, role}` — the canonical work email,
+not the one used to log in (this is by design, the PR explicitly documents it).
+`JwtAuthGuard.resolveCurrentUser` re-checks against the DB only `archivedAt` and
+`role`; there is not a single line about `user_emails`/`canLogin` there. There is neither
+session versioning nor a Redis token blacklist — nothing that could
+invalidate an already issued JWT when `user_emails` changes.
 
-Текст обещает то, чего система не делает: слово «немедленно» рядом с «даже
-если сотрудник уже подтвердил его» читается админом как «активная сессия
-обрывается прямо сейчас» — в первую очередь ИМЕННО в сценарии, где кнопку
-жмут срочно (подозрение на компрометацию адреса). Реально отзывается только
-ВОЗМОЖНОСТЬ начать новую сессию по старому адресу; уже открытая продолжает
-работать до естественного истечения токена.
+The text promises something the system does not do: the word «немедленно» next to «даже
+если сотрудник уже подтвердил его» is read by an admin as "the active session
+is cut off right now" — primarily in EXACTLY the scenario where the button
+is pressed urgently (suspected address compromise). What is actually revoked is only
+the ABILITY to start a new session via the old address; an already open one
+keeps working until the token naturally expires.
 
-**Не чиню сам** — это не косметика: либо переписать текст так, чтобы не
-обещать то, чего нет («вход по старому адресу закроется — уже открытая
-сессия продолжит работать» или аналог, к тому же copy-reviewer уже правит
-соседние строки этого диалога и может внести правку туда же), либо (по
-готовности) добавить настоящую инвалидацию сессии на бэкенде и тогда текст
-станет верным как есть. Оставляю решение PM/copy-reviewer/backend — привожу
-как HIGH, потому что это ложное чувство защищённости у ADMIN на security-
-чувствительном экране.
+**Not fixing it myself** — this is not cosmetic: either rewrite the text so that it does not
+promise what does not exist («вход по старому адресу закроется — уже открытая
+сессия продолжит работать» or an equivalent; besides, copy-reviewer is already editing
+neighboring strings of this dialog and can make the edit there too), or (once
+ready) add real session invalidation on the backend, and then the text
+becomes true as is. Leaving the decision to PM/copy-reviewer/backend — I list it
+as HIGH because it is a false sense of security for the ADMIN on a security-
+sensitive screen.
 
-### Обновление — закрыта после rebase на актуальную голову ветки
+### Update — closed after rebase onto the current branch head
 
-Между началом этого раунда (база `04ff6414`) и пушем ветка ушла вперёд до
-`44996e6c`. При rebase на нёй обнаружился коммит `7e187795`
+Between the start of this round (base `04ff6414`) and the push, the branch moved ahead to
+`44996e6c`. During the rebase onto it, commit `7e187795` was found
 («SR-H-5 lock order, SR-H-6 per-row session revocation»,
-`security-review PR #623 round 5`) — он чинит РОВНО этот разрыв: докблок
-`JwtAuthGuard` (`jwt.guard.ts`) прямым текстом называет тот же дефект («an
+`security-review PR #623 round 5`) — it fixes EXACTLY this gap: the docblock of
+`JwtAuthGuard` (`jwt.guard.ts`) names the same defect in plain words («an
 already-open session survived a `changePersonalEmail` revocation of that
-exact row untouched, for the rest of its 7-day cookie») и добавляет
-`JwtPayload.userEmailId` + повторную проверку конкретной строки
-`user_emails` с тем же `CACHE_TTL_MS` (60с), что уже применялся к
+exact row untouched, for the rest of its 7-day cookie») and adds
+`JwtPayload.userEmailId` + a re-check of the specific `user_emails` row
+with the same `CACHE_TTL_MS` (60s) that was already applied to
 `archivedAt`/`role`.
 
-Не повторял свой `curl`-эксперимент живьём в этом раунде (система под
-нагрузкой ~20 параллельных worktree, полный dev-стек уже поднимался и
-разбирался дважды в этом раунде) — вместо этого проверил **исполнением**
-существующий юнит-сьют, а не чтением: `jwt.guard.spec.ts` несёт отдельный
+I did not repeat my `curl` experiment live in this round (the system is under
+load from ~20 parallel worktrees, a full dev stack had already been brought up and
+torn down twice in this round) — instead I verified **by execution** the
+existing unit suite, not by reading: `jwt.guard.spec.ts` carries a separate
 `describe('JwtAuthGuard — SR-H-6: per-row session revocation via
-userEmailId')` с прямыми кейсами `'rejects a session whose userEmailId row
-was revoked (canLogin: false) — the row still exists'` и `'rejects a
+userEmailId')` with direct cases `'rejects a session whose userEmailId row
+was revoked (canLogin: false) — the row still exists'` and `'rejects a
 session whose userEmailId row no longer exists at all (changePersonalEmail
-DELETEs the row, not just flips a flag)'` — оба зелёные (полный прогон
-`apps/api` при push-хуке: 3399/3399 после исключения нестабильного
-таймингового теста, см. ниже). Это ровно два сценария, которые я
-воспроизвёл живьём и которые были красными на `04ff6414`.
+DELETEs the row, not just flips a flag)'` — both green (full run of
+`apps/api` at the push hook: 3399/3399 after excluding an unstable
+timing test, see below). These are exactly the two scenarios that I
+reproduced live and that were red at `04ff6414`.
 
-Слово «немедленно» в тексте диалога тоже больше не расходится с
-поведением: `copy-review PR #623 round 5` (коммит `111ec11c`) переписал
-`DialogDescription` на состояние-зависимый текст («Сохраните — и вход по
-этому адресу закроется сразу…» для удаления/смены; для первого добавления
-описание вообще не упоминает отзыв) — то есть закрыт и текстовый, и
-поведенческий конец расхождения, причём независимо друг от друга и до
-того, как я успел это передать через PM.
+The word «немедленно» in the dialog text no longer diverges from
+behavior either: `copy-review PR #623 round 5` (commit `111ec11c`) rewrote
+`DialogDescription` into state-dependent text («Сохраните — и вход по
+этому адресу закроется сразу…» for removal/change; for the first addition
+the description does not mention revocation at all) — so both the text and
+the behavioral end of the divergence are closed, independently of each other and before
+I managed to pass this on via PM.
 
-**Статус: `UX-H-4` закрыта не мной, задним числом подтверждена** —
-понижаю из «открытая находка» в «проверено, воспроизведено на старой
-голове, зафиксировано разрешённым на новой». Оставляю нарратив разведки
-выше как есть (в т.ч. `curl`-репро) — это единственное прямое
-доказательство, что дефект был реальным, а не гипотетическим.
+**Status: `UX-H-4` closed not by me, confirmed retroactively** —
+downgrading from "open finding" to "verified, reproduced at the old
+head, recorded as resolved at the new one". I am leaving the reconnaissance narrative
+above as is (including the `curl` repro) — it is the only direct
+evidence that the defect was real, not hypothetical.
 
-## Состояния диалога — проверено живьём
+## Dialog states — verified live
 
-| Состояние                                   | Проверено                          | Результат                                                                                                                                                                                             |
-| ------------------------------------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Первое добавление (`currentEmail=null`)     | live, JUNIOR без личного email     | плейсхолдер, кнопка золотая (не revokesExisting); на исходной голове описание звучало не по месту (`UX-H-4`) — на актуальной голове copy round 5 сделал описание состояние-зависимым, находка закрыта |
-| Удаление (поле очищено, `currentEmail` был) | live                               | подсказка «Поле пустое — сохранение удалит…», кнопка красная после фикса `UX-M-2`                                                                                                                     |
-| Ошибка — совпадает с рабочим                | live, submit и blur                | лейбл+рамка красные после фикса `UX-H-3`, текст ошибки под полем                                                                                                                                      |
-| Fetch-фокус/Escape                          | live                               | Radix авто-фокусит инпут при открытии; `Escape` закрывает без побочных эффектов                                                                                                                       |
-| Overflow на 320 с длинным текущим значением | live (140-симв. и 44-симв. адреса) | нет — `<input>` скроллит содержимое нативно, диалог не растягивается                                                                                                                                  |
+| State                                           | Checked                               | Result                                                                                                                                                                                                       |
+| ----------------------------------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| First addition (`currentEmail=null`)            | live, JUNIOR without personal email   | placeholder, button gold (not revokesExisting); at the original head the description sounded out of place (`UX-H-4`) — at the current head copy round 5 made the description state-dependent, finding closed |
+| Removal (field cleared, `currentEmail` existed) | live                                  | hint «Поле пустое — сохранение удалит…», button red after the `UX-M-2` fix                                                                                                                                   |
+| Error — matches the work email                  | live, submit and blur                 | label+border red after the `UX-H-3` fix, error text under the field                                                                                                                                          |
+| Fetch-focus/Escape                              | live                                  | Radix auto-focuses the input on open; `Escape` closes with no side effects                                                                                                                                   |
+| Overflow at 320 with a long current value       | live (140-char and 44-char addresses) | none — `<input>` scrolls its content natively, the dialog does not stretch                                                                                                                                   |
 
-## Responsive — сводка (раунд 2)
+## Responsive — summary (round 2)
 
-Все три новых элемента (пункт меню, бейдж, баннер) и диалог целиком проверены
-на 320/375 · 768 · 1024/1280 · 1440/1920. Единственная находка,
-чувствительная к ширине — `UX-H-2` (проявляется только при переносе на 2+
-строки, т.е. заметнее на узких классах, но механизм и фикс одинаковы на всех).
-Bare `DialogContent` (без `CrmDialogContent`/`max-h`/scroll, в отличие от
-`ArchiveUserDialog`) не создаёт риска на этом диалоге — контента мало
-(описание + одно поле + опциональная строка), overflow на 320×568 не
-воспроизведён ни в одном состоянии.
+All three new elements (menu item, badge, banner) and the dialog as a whole were checked
+at 320/375 · 768 · 1024/1280 · 1440/1920. The only width-sensitive
+finding is `UX-H-2` (manifests only on wrapping onto 2+
+lines, i.e. more noticeable at narrow classes, but the mechanism and fix are the same at all).
+A bare `DialogContent` (without `CrmDialogContent`/`max-h`/scroll, unlike
+`ArchiveUserDialog`) creates no risk on this dialog — there is little content
+(description + one field + an optional line), overflow at 320×568 was
+not reproduced in any state.
 
-## Тема
+## Theme
 
-Проверялась только тёмная — см. раунд 1.
+Only dark was checked — see round 1.
 
-## Findings (раунд 2)
+## Findings (round 2)
 
-`Findings: UX-H-2, UX-H-3, UX-M-2, UX-H-4 (4)` — все четыре закрыты.
-UX-H-2/UX-H-3/UX-M-2 исправлены мной, перепроверены живьём. UX-H-4
-воспроизведена мной живьём на голове `04ff6414` (была реальным дефектом),
-закрыта не мной — коммитами `7e187795` (SR-H-6, бэкенд) и `111ec11c`
-(copy round 5, текст), обнаруженными при rebase на актуальную голову
-ветки; подтверждена исполнением существующего юнит-сьюта
-(`jwt.guard.spec.ts`), не только чтением.
+`Findings: UX-H-2, UX-H-3, UX-M-2, UX-H-4 (4)` — all four are closed.
+UX-H-2/UX-H-3/UX-M-2 were fixed by me, re-verified live. UX-H-4
+was reproduced by me live at head `04ff6414` (was a real defect),
+closed not by me — by commits `7e187795` (SR-H-6, backend) and `111ec11c`
+(copy round 5, text), discovered during the rebase onto the current branch
+head; confirmed by executing the existing unit suite
+(`jwt.guard.spec.ts`), not just by reading.
 
-## Handoff (раунд 2)
+## Handoff (round 2)
 
-Косметические фиксы применены в моей зоне (`apps/web/**`), ESLint +
-typecheck + `pnpm --filter @crm/web build` чисты, релевантные юнит-тесты
-(`user-profile`, `admin-actions`) зелёные. Ветка перебазирована на
-`origin/feat/user-emails-dual-login` (`44996e6c`) без ручного разрешения
-конфликтов — `git rebase` собрал оба намерения в
-`ChangePersonalEmailDialog.tsx` автоматически (мои правки и copy round 5
-трогали разные атрибуты одних и тех же JSX-узлов). Открытых находок этого
-раунда не осталось.
+Cosmetic fixes applied in my zone (`apps/web/**`), ESLint +
+typecheck + `pnpm --filter @crm/web build` are clean, relevant unit tests
+(`user-profile`, `admin-actions`) are green. The branch was rebased onto
+`origin/feat/user-emails-dual-login` (`44996e6c`) without manual conflict
+resolution — `git rebase` combined both intents in
+`ChangePersonalEmailDialog.tsx` automatically (my edits and copy round 5
+touched different attributes of the same JSX nodes). No open
+findings from this round remain.
