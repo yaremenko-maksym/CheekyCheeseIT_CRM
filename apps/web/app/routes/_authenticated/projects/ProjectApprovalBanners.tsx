@@ -31,9 +31,10 @@ import { Textarea } from '@/components/ui/textarea'
  * ACTIONABLE surface, deliberately separate from that read-only indicator.
  */
 /*
- * Exported for `__tests__/PendingShareApprovalBanner.copy.test.tsx` — the
- * alternative is mounting the whole project-detail route just to read a dialog
- * title. No behaviour change.
+ * Exported for `__tests__/PendingShareApprovalBanner.copy.test.tsx` — the same
+ * test-only export `InfoRow` and `ProjectEditFields` in this file already
+ * carry, and for the same reason: the alternative is mounting a 2000-line
+ * route to read a dialog title. No behaviour change.
  */
 export function PendingShareApprovalBanner({
   projectId,
@@ -252,9 +253,10 @@ export function PendingShareApprovalBanner({
  * `rejectionReason` this viewer's DTO does not carry — masked to `null`
  * server-side for every non-ADMIN viewer (SR-M-5), same as the row.
  *
- * Exported for a standalone render test — same reason as
- * `PendingShareApprovalBanner` (see that banner's own doc): mounting the whole
- * project-detail route to read one <p> would be the alternative.
+ * Exported for a standalone render test — same reason `InfoRow` /
+ * `ProjectEditFields` / `PendingShareApprovalBanner` already are (see that
+ * banner's own doc): mounting the whole 2000+-line route to read one <p>
+ * would be the alternative.
  */
 export function ProjectHeaderApprovalNote({
   project,
