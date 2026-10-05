@@ -1,171 +1,171 @@
-# Rule: Model routing — минимально достаточная модель
+# Rule: Model routing — the minimally sufficient model
 
 **Status:** Always-on
-**Applies to:** Master (диспетч через `Agent()`), все агенты, USER-сессии
-**Source:** Запрос USER 2026-06-11 (оптимизация токенов). Цены за 1M токенов (input/output): Fable 5 $10/$50 · Opus 4.8 $5/$25 · Sonnet 4.6 $3/$15 · Haiku 4.5 $1/$5.
+**Applies to:** Master (dispatch via `Agent()`), all agents, USER sessions
+**Source:** USER request 2026-06-11 (token optimization). Prices per 1M tokens (input/output): Fable 5 $10/$50 · Opus 4.8 $5/$25 · Sonnet 4.6 $3/$15 · Haiku 4.5 $1/$5.
 
 ---
 
-## Принцип
+## Principle
 
-Каждую задачу выполняет **самая дешёвая модель, мощности которой гарантированно хватает закрыть её точно**. Сомнение между тирами → старший тир берём только когда цена ошибки (security / деньги / каскадный пере-диспетч) выше разницы прайса; иначе младший тир + эскалация по триггеру.
+Each task is done by **the cheapest model whose capacity is guaranteed to close it precisely**. A doubt between tiers → take the higher tier only when the cost of error (security / money / cascading re-dispatch) is higher than the price difference; otherwise the lower tier + escalation by trigger.
 
-> **Главный принцип (фидбек владельца 2026-10-03).** Минимально достаточная модель — **ДЕФОЛТ, не
-> исключение**. Самый дешёвый тир, которого **гарантированно** хватит, пробуется **ПЕРВЫМ**. Старший тир —
-> только когда (а) задача заведомо judgment-heavy / critical (деньги, RBAC, безопасность, миграции,
-> кросс-зонные контракты, архитектура) **или** (б) младший тир провалился. Новые и сильные версии моделей —
-> для сложного или после провала слабой, **не по умолчанию**. Проект огромный: переплата за тир на каждой
-> механической задаче складывается в основную статью расхода.
+> **Main principle (owner feedback 2026-10-03).** The minimally sufficient model is the **DEFAULT, not an
+> exception**. The cheapest tier that is **guaranteed** to suffice is tried **FIRST**. A higher tier —
+> only when (a) the task is knowingly judgment-heavy / critical (money, RBAC, security, migrations,
+> cross-zone contracts, architecture) **or** (b) the lower tier failed. New and strong model versions —
+> for the complex or after the weaker one failed, **not by default**. The project is huge: overpaying for a tier on every
+> mechanical task adds up to the main expense line.
 
-## Статическое назначение (зафиксировано в frontmatter агентов)
+## Static assignment (fixed in the agents' frontmatter)
 
-| Tier       | Агенты                                                                                                                               | Почему                                                                                                                                                           |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **opus**   | `architect`, `legal`                                                                                                                 | Judgment-heavy ADR / юр-анализ: кривой ADR / пропущенный юр-риск стоят дороже 1.7× прайса. Оркестрацию ведёт Master (USER-сессия, тир выбирается через `/model`) |
-| **sonnet** | `coder`, `autotest`, `code-reviewer`, `spec-reviewer`, `security-reviewer`, `copy-reviewer`, `manual-qa`, `ui-ux-designer`, `devops` | Рабочая лошадка: код, тесты, ревью, QA. **Ревьюеры (вкл. copy/security) — здесь, НЕ в opus** (см. ниже)                                                          |
-| **haiku**  | Нет постоянных агентов — точечный `model="haiku"` override (механика + **ревью text-only/простого каталога по чеклисту**)            | Простая механика, разведка, механическая верификация (см. даунгрейд ниже)                                                                                        |
-| **fable**  | **НИКОГДА для агентов** (и вообще не использовать без крайней нужды)                                                                 | Самый дорогой; даже USER main-сессии предпочесть Opus 4.8                                                                                                        |
+| Tier       | Agents                                                                                                                               | Why                                                                                                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **opus**   | `architect`, `legal`                                                                                                                 | Judgment-heavy ADR / legal analysis: a crooked ADR / a missed legal risk cost more than 1.7× the price. Orchestration is run by Master (USER session, the tier is chosen via `/model`) |
+| **sonnet** | `coder`, `autotest`, `code-reviewer`, `spec-reviewer`, `security-reviewer`, `copy-reviewer`, `manual-qa`, `ui-ux-designer`, `devops` | The workhorse: code, tests, review, QA. **Reviewers (incl. copy/security) — here, NOT in opus** (see below)                                                                            |
+| **haiku**  | No permanent agents — a pointed `model="haiku"` override (mechanics + **text-only / simple-catalog review by checklist**)            | Simple mechanics, reconnaissance, mechanical verification (see the downgrade below)                                                                                                    |
+| **fable**  | **NEVER for agents** (and in general not to be used without dire need)                                                               | The most expensive; even the USER main session should prefer Opus 4.8                                                                                                                  |
 
-НЕ менять frontmatter `model:` агентов без обновления этой таблицы (single source).
+Do NOT change the agents' frontmatter `model:` without updating this table (single source).
 
-**Статический `model:` — ПОТОЛОК по умолчанию, а не назначение на задачу.** `model: sonnet` у `coder`
-означает «выше sonnet без причины не поднимаемся», а не «всё кодирование идёт на sonnet». Master (оркестратор)
-**ОБЯЗАН** передавать `model=` (и effort, где harness это позволяет) в `Agent()` под конкретную задачу по
-таблице ниже, опускаясь до `haiku` на механике. Диспатч кодера без `model=` на задаче, подпадающей под строку
-haiku, — переплата и находка при приёмке.
+**The static `model:` is a CEILING by default, not an assignment to a task.** `model: sonnet` on `coder`
+means "do not go above sonnet without a reason", not "all coding goes on sonnet". Master (orchestrator)
+**MUST** pass `model=` (and effort, where the harness permits) into `Agent()` per the concrete task by
+the table below, dropping to `haiku` on mechanics. Dispatching a coder without `model=` on a task falling under the
+haiku row is overpayment and a finding at acceptance.
 
-## Ревьюеры — минимальный тир, НЕ топ-модель (фидбек владельца 2026-10-04)
+## Reviewers — the minimal tier, NOT the top model (owner feedback 2026-10-04)
 
-Прежняя редакция держала `copy-reviewer` и `security-reviewer` на **opus**. Это породило перерасход:
-дорогие модели уходили на ревью текста, которое их не оправдывает. Дословно от владельца: «копирайт-задача
-— не уровень таких моделей». Пересмотрено:
+The prior edition kept `copy-reviewer` and `security-reviewer` on **opus**. This bred overspend:
+expensive models went to text review that does not justify them. Verbatim from the owner: "a copywriting task
+is not the level of such models". Reconsidered:
 
-- **copy-reviewer → `haiku`** для простого каталога (uk/en строки ошибок): детект русизмов `ыэъё` +
-  сверка со списком `_Избегать_` в `CONTEXT.md` — это по сути механика по списку. **`sonnet` — только** для
-  объёмного/нюансного текста (5-язычный лендинг, «читается как перевод»). **НЕ opus.**
-- **code-reviewer / spec-reviewer → `haiku`** для text-only / механических диффов (статусы не поехали,
-  строки uk, тесты обновлены); **`sonnet`** — для диффов с реальной логикой.
-- **security-reviewer → `haiku`** для text-only/low-logic миграций (проверка по чеклисту: логика/статусы
-  не менялись, нет утечки в params); **`sonnet`/`opus` — только** для реально рискованной поверхности
-  (новая auth-логика, движение денег, крипто-контракты), не для «текст→код».
-- Оркестратор верифицирует агрегат сам: дешёвый ревьюер + сверка оркестратором дешевле дорогого ревьюера.
-- **Авторинг vs ревью:** генерить качественный двуязычный каталог — `sonnet` (haiku спотыкался,
-  инцидент #761). Но **ревью/верификация** (проверить по списку, что русизмов нет) — механика, тянет `haiku`.
+- **copy-reviewer → `haiku`** for a simple catalog (uk/en error strings): detecting Russianisms (the Russian-only Cyrillic letters absent from Ukrainian, per the guard) +
+  checking against the `_Avoid_` list in `CONTEXT.md` — this is essentially mechanical list-work. **`sonnet` — only** for
+  bulky/nuanced text (a 5-language landing, "reads like a translation"). **NOT opus.**
+- **code-reviewer / spec-reviewer → `haiku`** for text-only / mechanical diffs (statuses did not shift,
+  uk strings, tests updated); **`sonnet`** — for diffs with real logic.
+- **security-reviewer → `haiku`** for text-only/low-logic migrations (a checklist check: logic/statuses
+  unchanged, no leak into params); **`sonnet`/`opus` — only** for a really risky surface
+  (new auth logic, money movement, crypto contracts), not for "text→code".
+- The orchestrator verifies the aggregate itself: a cheap reviewer + orchestrator reconciliation is cheaper than an expensive reviewer.
+- **Authoring vs review:** generating a quality bilingual catalog — `sonnet` (haiku stumbled,
+  incident #761). But **review/verification** (checking against the list that there are no Russianisms) is mechanics, carried by `haiku`.
 
-## Версии моделей — младшие по умолчанию (фидбек владельца 2026-10-04)
+## Model versions — the lower ones by default (owner feedback 2026-10-04)
 
-**Для агентов использовать младшие версии: Opus 4.8 / Sonnet 4.6 / Haiku 4.5. Sonnet 5+, Opus 5+, Fable —
-ТОЛЬКО для реально сложных задач, не по умолчанию** (они «слишком много токенов»).
+**For agents use the lower versions: Opus 4.8 / Sonnet 4.6 / Haiku 4.5. Sonnet 5+, Opus 5+, Fable —
+ONLY for really complex tasks, not by default** (they are "too many tokens").
 
-Подвох: алиасы тира (`sonnet`/`opus` в `Agent()` и во frontmatter) в текущем харнессе резолвятся на
-**новейшую** версию (5.x), а не на 4.x, под которые писалась таблица цен выше. То есть `model="opus"` на
-ревьюере уходил в Opus 5.x, а не 4.8. Рычаги:
+The catch: the tier aliases (`sonnet`/`opus` in `Agent()` and in frontmatter) in the current harness resolve to
+the **newest** version (5.x), not the 4.x for which the price table above was written. I.e. `model="opus"` on
+a reviewer went to Opus 5.x, not 4.8. The levers:
 
-- **Тир** (haiku < sonnet < opus < fable) — им управляем из `Agent(model=)`; это ГЛАВНАЯ экономия:
-  бери минимальный достаточный тир (haiku везде, где можно), fable не использовать.
-- **Минорная версия** (4.x vs 5.x за алиасом) — задаётся конфигом Claude Code (дефолт модели / субагентов),
-  НЕ параметром диспатча (enum принимает только тир-алиасы). Держать дефолт на 4.x; 5+/fable — осознанно и редко.
+- **The tier** (haiku < sonnet < opus < fable) — we control it from `Agent(model=)`; this is the MAIN saving:
+  take the minimal sufficient tier (haiku wherever possible), do not use fable.
+- **The minor version** (4.x vs 5.x behind the alias) — set by the Claude Code config (the default model / subagents),
+  NOT by a dispatch parameter (the enum accepts only tier aliases). Keep the default on 4.x; 5+/fable — deliberately and rarely.
 
-## Тип задачи → тир (кодер и исполнители правок)
+## Task type → tier (coder and edit executors)
 
-| Тип задачи                                                                                                                                                                                                                                                                                     | Тир + effort           |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
-| **Механика:** замена строк / литералов; `i18n:extract`-синк каталогов; rebase / merge без семантики; правка комментариев и доков; конфиги без рантайм-эффекта; test-only правки без новой логики; добивание выживших мутантов по готовому списку; перенос по карте (rename / перенос импортов) | **haiku** + effort low |
-| Обычная фича / логика в пределах одного модуля                                                                                                                                                                                                                                                 | **sonnet** + medium    |
-| Кросс-зонные контракты (api ↔ web ↔ shared); финансы / RBAC / безопасность / деньги; Drizzle-миграции и прод-данные; архитектура. **Или** fix-задача после провала младшего тира                                                                                                               | **opus** + high        |
+| Task type                                                                                                                                                                                                                                                                                              | Tier + effort          |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------- |
+| **Mechanics:** string / literal replacement; `i18n:extract` catalog sync; rebase / merge without semantics; editing comments and docs; configs without a runtime effect; test-only edits without new logic; finishing off surviving mutants by a ready list; moving by a map (rename / moving imports) | **haiku** + effort low |
+| An ordinary feature / logic within a single module                                                                                                                                                                                                                                                     | **sonnet** + medium    |
+| Cross-zone contracts (api ↔ web ↔ shared); finance / RBAC / security / money; Drizzle migrations and prod data; architecture. **Or** a fix task after a lower tier failed                                                                                                                              | **opus** + high        |
 
-Ограничения haiku из раздела «Даунгрейд» ниже действуют и здесь: нужен автоматический гейт (typecheck + тесты),
-нулевая бизнес-логика, ничего из critical-path zones. Строка «test-only правки» — это правки существующих
-спек без новой логики (зона AutoTest); написание новых спек — sonnet.
+The haiku limits from the "Downgrade" section below apply here too: an automatic gate (typecheck + tests) is needed,
+zero business logic, nothing from critical-path zones. The "test-only edits" row means edits to existing
+specs without new logic (AutoTest zone); writing new specs — sonnet.
 
-**Effort** — вторая ось к тиру: **low** — механика; **medium** — дефолт, обычная логика; **high** — hard /
-critical. Для `Agent()`-диспатча effort передаётся там, где harness это поддерживает; где нет (субагент
-выбирается типом и `model=`) — эффект достигается выбором тира, отдельный параметр не выдумываем.
+**Effort** — a second axis to the tier: **low** — mechanics; **medium** — the default, ordinary logic; **high** — hard /
+critical. For `Agent()` dispatch, effort is passed where the harness supports it; where it does not (a subagent
+is chosen by type and `model=`) — the effect is achieved by choosing the tier, we do not invent a separate parameter.
 
-## Динамические override — Master передаёт `model=` в `Agent()`
+## Dynamic overrides — Master passes `model=` into `Agent()`
 
-### Эскалация: haiku → sonnet → opus
+### Escalation: haiku → sonnet → opus
 
-Лестница одна, шаг вверх делается **по триггеру**, не «на всякий случай»:
+The ladder is one, a step up is taken **by trigger**, not "just in case":
 
-| Шаг            | Триггер                                                                                                                          |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| haiku → sonnet | Агент застрял / зациклился на механике, автогейт не проходит со второй попытки                                                   |
-| → opus         | Второй `Verdict: BLOCK` подряд либо проваленный прогон (см. таблицу ниже)                                                        |
-| сразу opus     | Заведомо critical-path zone (деньги / RBAC / безопасность / миграции / кросс-зонный контракт / архитектура) — без пробы младшего |
+| Step             | Trigger                                                                                                                                     |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| haiku → sonnet   | The agent is stuck / looped on mechanics, the auto-gate does not pass on the second attempt                                                 |
+| → opus           | A second `Verdict: BLOCK` in a row or a failed run (see the table below)                                                                    |
+| straight to opus | A knowingly critical-path zone (money / RBAC / security / migrations / a cross-zone contract / architecture) — without trying the lower one |
 
-### Эскалация → `opus`
+### Escalation → `opus`
 
-| Триггер                                                                                             | Действие                                      |
-| --------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Второй `Verdict: BLOCK` подряд по одной задаче (`review_rounds == 2`)                               | Fix-task re-dispatch Coder с `model="opus"`   |
-| Task-файл: Drizzle-миграция + cross-module рефактор / финансовая расчётная логика / company-account | Сразу `## Модель: opus` в task-файле          |
-| Flaky Режим 4: sonnet-AutoTest не нашёл root cause с первого прохода                                | Re-dispatch с `model="opus"`                  |
-| Агент дважды обрезался/заблудился на одной и той же multi-step задаче                               | Re-dispatch верхним тиром + уменьшенный scope |
+| Trigger                                                                                                | Action                                          |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| A second `Verdict: BLOCK` in a row on one task (`review_rounds == 2`)                                  | Fix-task re-dispatch Coder with `model="opus"`  |
+| Task file: a Drizzle migration + a cross-module refactor / finance calculation logic / company-account | Straight to `## Model: opus` in the task file   |
+| Flaky Mode 4: sonnet-AutoTest did not find the root cause on the first pass                            | Re-dispatch with `model="opus"`                 |
+| An agent cut off / got lost twice on the same multi-step task                                          | Re-dispatch with the top tier + a reduced scope |
 
-### Даунгрейд → `haiku` (только с автоматическим верифицирующим гейтом)
+### Downgrade → `haiku` (only with an automatic verifying gate)
 
-Разрешено:
+Allowed:
 
-- Read-only разведка / поиск по кодовой базе (Explore-style fan-out, сбор списков файлов/вхождений)
-- Триаж CI-логов, суммаризация длинных выводов прогонов для Master
-- Механические батчи по точному списку (rename по карте, перенос импортов, однотипные правки) — ТОЛЬКО при наличии автогейта (typecheck + тесты) и нулевой бизнес-логике
-- Merge `origin/main` в ветку PR с аддитивными конфликтами (`.po`, барреллы) + уборка worktree/портов — при тех же автогейтах (см. «Диета токенов оркестратора»)
+- Read-only reconnaissance / search over the codebase (Explore-style fan-out, collecting lists of files/occurrences)
+- Triage of CI logs, summarizing long run outputs for Master
+- Mechanical batches by an exact list (rename by a map, moving imports, uniform edits) — ONLY with an auto-gate present (typecheck + tests) and zero business logic
+- Merge `origin/main` into a PR branch with additive conflicts (`.po`, barrels) + worktree/port cleanup — under the same auto-gates (see "The orchestrator's token diet")
 
-ЗАПРЕЩЕНО для haiku: quality-гейты (code/security review, manual-qa, designer), бизнес-логика, миграции, `*.spec.ts` **с новой логикой**, всё в critical-path zones.
+FORBIDDEN for haiku: quality gates (code/security review, manual-qa, designer), business logic, migrations, `*.spec.ts` **with new logic**, everything in critical-path zones.
 
-### Ревьюеры
+### Reviewers
 
-| Ревьюер                              | Тир        | Почему                                                                                                                             |
-| ------------------------------------ | ---------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `security-reviewer`, `copy-reviewer` | **opus**   | Безопасность и качество текста на пяти языках — суждение, не механика; дефект не ловится никакой проверкой                         |
-| `code-reviewer`, `spec-reviewer`     | **sonnet** | Дифф ↔ код / дифф ↔ задание — рабочее ревью                                                                                        |
-| **Механическая ре-проверка**         | **haiku**  | «Строка заменена», «дифф тривиален», «находка N закрыта буквально по тексту» — сверка факта, не суждение. Вердикт-гейт не заменяет |
+| Reviewer                             | Tier       | Why                                                                                                                                                                            |
+| ------------------------------------ | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `security-reviewer`, `copy-reviewer` | **opus**   | Security and text quality in five languages — judgment, not mechanics; the defect is caught by no check                                                                        |
+| `code-reviewer`, `spec-reviewer`     | **sonnet** | Diff ↔ code / diff ↔ task — working review                                                                                                                                     |
+| **Mechanical re-check**              | **haiku**  | "The string is replaced", "the diff is trivial", "finding N is closed literally per the text" — a reconciliation of a fact, not judgment. It does not replace the verdict gate |
 
-Haiku в строке ре-проверки сверяет **выполнение конкретного пункта**; вердикт `APPROVE` / `BLOCK` по PR он не
-выдаёт — это остаётся за ревьюерами выше (запрет haiku на quality-гейты сохраняется).
+Haiku in the re-check row reconciles **the execution of a concrete item**; it does not issue the `APPROVE` / `BLOCK` verdict on a PR —
+that stays with the reviewers above (the haiku ban on quality gates is preserved).
 
-## Учёт (иначе политика не проверяема)
+## Accounting (otherwise the policy is not verifiable)
 
-1. Task-файл: поле `## Модель:` — тир по таблице «Тип задачи → тир» (`haiku` на механике, `sonnet` на обычной
-   логике, `opus` — с одной строкой обоснования по таблице триггеров). Поле отсутствует → `sonnet` как потолок,
-   но Master всё равно сверяет тип задачи с таблицей перед диспатчем.
-2. Master фиксирует выбранный тир в поле `## Модель:` task-файла (и в dispatch-промпте).
-3. Диспатч без `model=` → Master добавляет параметр сам по этой таблице.
+1. Task file: the `## Model:` field — the tier per the "Task type → tier" table (`haiku` on mechanics, `sonnet` on ordinary
+   logic, `opus` — with one line of rationale per the trigger table). The field absent → `sonnet` as the ceiling,
+   but Master still reconciles the task type against the table before dispatch.
+2. Master records the chosen tier in the `## Model:` field of the task file (and in the dispatch prompt).
+3. Dispatch without `model=` → Master adds the parameter itself per this table.
 
-## USER main-сессия (рекомендация; выбирается через `/model`)
+## USER main session (recommendation; chosen via `/model`)
 
-- **Fable 5** — системные аудиты, архитектурные решения, сложный кросс-модульный дебаг, мета-оптимизации процессов.
-- **Opus 4.8** — обычные оркестрационные дни (можно с `/fast`). **Loop-режим (мерж по готовности, fix-раунды,
-  мониторы CI) — это оркестрационный день по определению**, не аудит: сессия переключается на Opus до старта цикла.
-- **Sonnet 4.6** — лёгкий трек: доки, мелкие правки, рутинные операции.
+- **Fable 5** — system audits, architectural decisions, complex cross-module debugging, meta-optimizations of processes.
+- **Opus 4.8** — ordinary orchestration days (may use `/fast`). **Loop mode (merge on readiness, fix rounds,
+  CI monitors) is an orchestration day by definition**, not an audit: the session switches to Opus before the cycle starts.
+- **Sonnet 4.6** — the light track: docs, small edits, routine operations.
 
-## Диета токенов оркестратора (замер 2026-09-21)
+## The orchestrator's token diet (measurement 2026-09-21)
 
-**Откуда правило.** Разбор одной loop-сессии интернационализации (с начала, через все компакты): оркестратор на
-Fable сделал **10 937 ходов**, output 14M токенов, чтение кэша **5.86 млрд**. В эквиваленте API-цен output — ~8%
-суммы, остальное — перечитывание контекста 300–500k токенов на каждом ходу. Сотни ходов были ответом «жду» на
-событие монитора («CI: success», «Deploy: success»). Кодеры (Sonnet, 156 запусков) — 33.8 млрд чтения кэша:
-fix-раунды на 26 находок и ~1000 tool-вызовов. Вывод владельца и разбора совпали: **дорогой не интеллект, а
-число ходов × размер контекста.** Каскад «дешёвая модель по умолчанию, дорогая по необходимости» здесь уже есть
-(таблица выше); утечка — в механике оркестратора и в длине задач.
+**Where the rule comes from.** An analysis of one internationalization loop session (from the start, through all compacts): the orchestrator on
+Fable made **10,937 turns**, output 14M tokens, cache reads **5.86 billion**. In the equivalent of API prices the output is ~8%
+of the sum, the rest is re-reading 300–500k tokens of context on every turn. Hundreds of turns were an "I'm waiting" answer to a
+monitor event ("CI: success", "Deploy: success"). The coders (Sonnet, 156 runs) — 33.8 billion cache reads:
+fix rounds on 26 findings and ~1000 tool calls. The owner's and the analysis's conclusion coincided: **the expensive thing is not the intellect, but the
+number of turns × the context size.** The cascade "cheap model by default, expensive by necessity" already exists here
+(the table above); the leak is in the orchestrator's mechanics and in the length of tasks.
 
-| Что                    | Правило                                                                                                                            | Почему                                                                      |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Модель оркестратора    | Loop/оркестрационный день — **Opus**; Fable — аудит/архитектура/сложный дебаг                                                      | 2× цена за токен при ~90% механических ходов                                |
-| Мониторы CI/деплоя     | **Только терминальные события**: один вывод при завершении (итог + head + `mergeStateStatus`), не на каждый чек                    | Каждое событие = ход с полным контекстом                                    |
-| Нетерминальное событие | **Не отвечать текстом.** Ход «жду» — ошибка, а не вежливость                                                                       | Тот же ход, нулевая информация                                              |
-| Fix-раунд кодеру       | **≤ ~10 находок**; больше — 2–3 кодера по группам файлов (disjoint)                                                                | 26 находок = 1000 tool-вызовов и 20+ млрд токенов кэша на одного            |
-| Механика агентов       | **haiku** + автогейт: merge `origin/main`, уборка, правки по точному списку                                                        | Уже разрешено таблицей даунгрейда — теперь обязательно                      |
-| Дельта-раунды ревью    | copy-reviewer на **дельте** (проверка закрытия своих же находок) — `model="sonnet"`; первый круг copy и любой круг security — Opus | Дельта проверяет соответствие тексту ревью, суждения о качестве уже сделаны |
-| Постоянный контекст    | Индекс памяти оркестратора — компактный: закрытые проекты старше квартала в архивный файл, не загружаемый в сессию                 | 55k токенов индекса × каждый ход                                            |
+| What                     | Rule                                                                                                                                         | Why                                                                                     |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| The orchestrator's model | A loop/orchestration day — **Opus**; Fable — audit/architecture/complex debug                                                                | 2× the price per token at ~90% mechanical turns                                         |
+| CI/deploy monitors       | **Only terminal events**: one output on completion (result + head + `mergeStateStatus`), not on every check                                  | Every event = a turn with the full context                                              |
+| A non-terminal event     | **Do not answer with text.** An "I'm waiting" turn is an error, not politeness                                                               | The same turn, zero information                                                         |
+| A fix round for a coder  | **≤ ~10 findings**; more — 2–3 coders by file groups (disjoint)                                                                              | 26 findings = 1000 tool calls and 20+ billion cache tokens on one                       |
+| Agent mechanics          | **haiku** + an auto-gate: merge `origin/main`, cleanup, edits by an exact list                                                               | Already allowed by the downgrade table — now mandatory                                  |
+| Delta review rounds      | copy-reviewer on the **delta** (checking its own findings are closed) — `model="sonnet"`; the first copy round and any security round — Opus | The delta checks conformance to the review text, the quality judgments are already made |
+| Permanent context        | The orchestrator's memory index — compact: closed projects older than a quarter into an archive file not loaded into the session             | 55k tokens of index × every turn                                                        |
 
-**Как узнаем, что нарушено.** Ход оркестратора, тело которого — одно предложение «жду …» после события монитора;
-монитор с `echo` на каждый чек; fix-task с контрольной строкой `(N)` при N > 12 без разбиения; сессия loop-режима на
-Fable (видно в меню модели). Всё это проверяется глазами по транскрипту, гейта нет — и не нужен: цена нарушения
-считается в токенах после факта, а не ловится до.
+**How we know it is violated.** A turn of the orchestrator whose body is one sentence "waiting for …" after a monitor event;
+a monitor with an `echo` on every check; a fix-task with a control line `(N)` at N > 12 without splitting; a loop-mode session on
+Fable (visible in the model menu). All of this is checked by eye over the transcript, there is no gate — and none is needed: the cost of a violation is
+counted in tokens after the fact, not caught before.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/light-track.md` — лёгкий трек master-сессии.
-- `.claude/agents/contracts.md` §3 — dispatch-матрицы (кого диспатчить); это правило — каким тиром.
+- `.claude/rules/common/light-track.md` — the master session's light track.
+- `.claude/agents/contracts.md` §3 — dispatch matrices (whom to dispatch); this rule — with which tier.

@@ -1,171 +1,171 @@
 # Rule: Zone-of-write contract per agent
 
 **Status:** Always-on (enforced by hook + Reviewer)
-**Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (оркестратор). `code-reviewer` / `security-reviewer` — read-only к коду.
+**Applies to:** All write-agents (Coder, AutoTest, DevOps, Architect, ui-ux-designer, manual-qa, legal) + Master (orchestrator). `code-reviewer` / `security-reviewer` — read-only to code.
 **Source:** Project hard requirement (CLAUDE.md zones + `.claude/agents/architect.md` Zone-of-write) + Phase 2.5 hook activation (`pre-edit-write-zone-of-write.sh` live).
 
 ---
 
 ## The rule
 
-Каждый агент может писать ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на diff где агент перетоптал чужие файлы.
+Each agent may write ONLY in its own zone. The reviewer issues `Verdict: BLOCK` on a diff where an agent trampled someone else's files.
 
-| Агент                    | Может писать                                                                                                                                                                                                                                                                                                                                                                                            | НЕ может                                                                                                                                                                             |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Coder**                | `apps/api/**`, `apps/web/**`, `apps/landing/**`, `apps/e2e/**`, `packages/**`, `.claude/tasks/<my-task>.progress.md`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                              | `scripts/pm/**`, `scripts/devops/**`, `.claude/agents/**`, `docs/business/**`, `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`, `.gitmessage`, чужие task-файлы |
-| **AutoTest**             | **Любой тестовый файл в репозитории**, где бы он ни лежал: `**/*.spec.ts(x)`, `**/*.test.ts(x)`, каталоги `__tests__/`, `__test-helpers__/`, `apps/e2e/**` целиком (включая `fixtures/`), тестовые конфиги (`playwright.config.ts`, `vitest.config.*`), `.claude/tasks/<my-task>.blocked.md`                                                                                                            | **Продуктовый код** — любой не-тестовый файл в `apps/**` / `packages/**`. Также `docs/business/**`, `.claude/agents/**`, `.github/workflows/**`, `scripts/**`                        |
-| **DevOps**               | `.github/workflows/`, `docker-compose.yml`, `.env.example`, root `package.json` scripts (`dev:start`, etc.), `scripts/devops/**`                                                                                                                                                                                                                                                                        | `apps/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `scripts/pm/**`                                                                                                   |
-| **code-reviewer**        | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                                                                                                                          | Любые файлы в репо                                                                                                                                                                   |
-| **security-reviewer**    | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                                                                                                                          | Любые файлы в репо                                                                                                                                                                   |
-| **spec-reviewer**        | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                                                                                                                          | Любые файлы в репо — вторая ось ревью не правит ни дифф, ни задание                                                                                                                  |
-| **copy-reviewer**        | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                                                                                                                          | Любые файлы в репо — правки текста вносит автор задачи, не ревьюер                                                                                                                   |
-| **Master (оркестратор)** | `.claude/tasks/`, `.claude/briefs/`, `docs/business/` (при резолве блокеров), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`                                                                                                                                                                                                                                                      | `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (кроме memory)                                                                              |
-| **Architect**            | `docs/architecture/**`, `.claude/rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules), `.claude/RULES.md`, `.claude/settings*.json` (регистрация хуков), `scripts/architect/**`, `.github/workflows/**` (additive process-гейты), `scripts/devops/check-guard-tests-exist.sh` + `scripts/devops/tests/test-pre-*.sh` (тесты на хуки — см. ниже) | `apps/**`, `packages/**`, `docs/business/**`, `.claude/briefs/**`, `.claude/knowledge/legal/**`, `.claude/tasks/<чужие активные>` (Master owns)                                      |
-| **ui-ux-designer**       | `apps/web/**` + `apps/landing/**` (cosmetic: classNames / tokens / layout / motion), `docs/design/**`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                                             | `apps/api/**`, `packages/**`, бизнес-логика в `.tsx`, `.github/workflows/**`, `.claude/agents/**`                                                                                    |
-| **manual-qa**            | `apps/web/**` + `apps/landing/**` (ТОЛЬКО cosmetic-фиксы: текст / отступ / класс), `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                                                                 | `apps/api/**`, `packages/**`, бизнес-логика, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/**`                                                                              |
-| **legal**                | `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`                                                                                                                                                                                                                                                                                                                             | `apps/**`, `packages/**`, `.claude/agents/**`, прод-код, `.github/workflows/**`                                                                                                      |
+| Agent                     | May write                                                                                                                                                                                                                                                                                                                                                                                                 | May NOT                                                                                                                                                                                |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Coder**                 | `apps/api/**`, `apps/web/**`, `apps/landing/**`, `apps/e2e/**`, `packages/**`, `.claude/tasks/<my-task>.progress.md`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                                | `scripts/pm/**`, `scripts/devops/**`, `.claude/agents/**`, `docs/business/**`, `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`, `.gitmessage`, others' task files |
+| **AutoTest**              | **Any test file in the repository**, wherever it lies: `**/*.spec.ts(x)`, `**/*.test.ts(x)`, `__tests__/` directories, `__test-helpers__/`, all of `apps/e2e/**` (including `fixtures/`), test configs (`playwright.config.ts`, `vitest.config.*`), `.claude/tasks/<my-task>.blocked.md`                                                                                                                  | **Product code** — any non-test file in `apps/**` / `packages/**`. Also `docs/business/**`, `.claude/agents/**`, `.github/workflows/**`, `scripts/**`                                  |
+| **DevOps**                | `.github/workflows/`, `docker-compose.yml`, `.env.example`, root `package.json` scripts (`dev:start`, etc.), `scripts/devops/**`                                                                                                                                                                                                                                                                          | `apps/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `scripts/pm/**`                                                                                                     |
+| **code-reviewer**         | `mcp__github__create_pull_request_review` / inline comments (read-only to code)                                                                                                                                                                                                                                                                                                                           | Any files in the repo                                                                                                                                                                  |
+| **security-reviewer**     | `mcp__github__create_pull_request_review` / inline comments (read-only to code)                                                                                                                                                                                                                                                                                                                           | Any files in the repo                                                                                                                                                                  |
+| **spec-reviewer**         | `mcp__github__create_pull_request_review` / inline comments (read-only to code)                                                                                                                                                                                                                                                                                                                           | Any files in the repo — the second review axis edits neither the diff nor the task                                                                                                     |
+| **copy-reviewer**         | `mcp__github__create_pull_request_review` / inline comments (read-only to code)                                                                                                                                                                                                                                                                                                                           | Any files in the repo — text edits are made by the task author, not the reviewer                                                                                                       |
+| **Master (orchestrator)** | `.claude/tasks/`, `.claude/briefs/`, `docs/business/` (when resolving blockers), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`                                                                                                                                                                                                                                                     | `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (except memory)                                                                               |
+| **Architect**             | `docs/architecture/**`, `.claude/rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules), `.claude/RULES.md`, `.claude/settings*.json` (hook registration), `scripts/architect/**`, `.github/workflows/**` (additive process gates), `scripts/devops/check-guard-tests-exist.sh` + `scripts/devops/tests/test-pre-*.sh` (tests on hooks — see below) | `apps/**`, `packages/**`, `docs/business/**`, `.claude/briefs/**`, `.claude/knowledge/legal/**`, `.claude/tasks/<others' active>` (Master owns)                                        |
+| **ui-ux-designer**        | `apps/web/**` + `apps/landing/**` (cosmetic: classNames / tokens / layout / motion), `docs/design/**`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                                               | `apps/api/**`, `packages/**`, business logic in `.tsx`, `.github/workflows/**`, `.claude/agents/**`                                                                                    |
+| **manual-qa**             | `apps/web/**` + `apps/landing/**` (ONLY cosmetic fixes: text / padding / class), `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                                                                                                                     | `apps/api/**`, `packages/**`, business logic, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/**`                                                                               |
+| **legal**                 | `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`                                                                                                                                                                                                                                                                                                                               | `apps/**`, `packages/**`, `.claude/agents/**`, prod code, `.github/workflows/**`                                                                                                       |
 
-> **Зона AutoTest — по природе файла, а не по каталогу (решение владельца 2026-08-22).** Прежняя
-> формулировка отдавала ему только `apps/e2e/**` и **явно запрещала** `apps/api/**`, `apps/web/**`,
-> `packages/**` — то есть 452 тестовых файла из 566 были вне его зоны, хотя писать их некому
-> больше. Расхождение вскрылось на PR #588, когда интеграционная Vitest-спека под
-> `apps/api/src/**` была назначена AutoTest вопреки букве правила (пункт бэклога 165).
-> **Граница проходит между тестом и продуктовым кодом, а не между каталогами.** Опасность
-> никогда не была в том, что AutoTest правит спеки — она в том, что он правит **продуктовый код**,
-> чтобы тест позеленел. Именно это и запрещено.
+> **The AutoTest zone — by the nature of the file, not by directory (owner decision 2026-08-22).** The prior
+> wording gave it only `apps/e2e/**` and **explicitly forbade** `apps/api/**`, `apps/web/**`,
+> `packages/**` — i.e. 452 of 566 test files were outside its zone, though there is no one else to
+> write them. The divergence surfaced on PR #588, when an integration Vitest spec under
+> `apps/api/src/**` was assigned to AutoTest against the letter of the rule (backlog item 165).
+> **The boundary runs between the test and the product code, not between directories.** The danger
+> was never that AutoTest edits specs — it is that it edits **product code**
+> to make a test go green. That is exactly what is forbidden.
 >
-> **Заметки по зонам:** `ui-ux-designer` ↔ `manual-qa` оба пишут cosmetic в `apps/web/**` / `apps/landing/**` — designer по дизайн-spec (Mode B/D conformance/полиш), manual-qa фиксит найденное на live-проходе; разграничение в `contracts.md §3.1/§3.2`. `architect` и `legal` запускаются **USER / Master ad-hoc** — интенционально (стратегические / по-запросу роли), не пробел.
+> **Notes on zones:** `ui-ux-designer` ↔ `manual-qa` both write cosmetic in `apps/web/**` / `apps/landing/**` — the designer per the design spec (Mode B/D conformance/polish), manual-qa fixes what is found on a live pass; the delineation is in `contracts.md §3.1/§3.2`. `architect` and `legal` are launched **USER / Master ad-hoc** — intentionally (strategic / on-request roles), not a gap.
 
 ## Enforcement
 
 ### Active hook
 
-`.claude/hooks/pre-edit-write-zone-of-write.sh` (live с Phase 2.5) блокирует Coder из main repo при попытке `Edit` / `Write` / `MultiEdit` / `NotebookEdit` в `apps/**` / `packages/**` если Master не разрешил.
+`.claude/hooks/pre-edit-write-zone-of-write.sh` (live since Phase 2.5) blocks a Coder from the main repo on an attempt to `Edit` / `Write` / `MultiEdit` / `NotebookEdit` in `apps/**` / `packages/**` if Master did not allow it.
 
 ### Worktree caveat
 
-В worktree блокировка снимается — Coder _технически_ может перезаписать что угодно. Но это нарушение zone-of-write → Reviewer выдаст `Verdict: BLOCK`.
+In a worktree the block is lifted — the Coder _technically_ can overwrite anything. But this is a zone-of-write violation → the reviewer will issue `Verdict: BLOCK`.
 
-### Верифицируй MAIN чист после каждого Coder (MANDATORY)
+### Verify MAIN is clean after each Coder (MANDATORY)
 
-**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-2).
+**Status:** added 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-2).
 
-Coder в `isolation=worktree` при первом Write иногда пишет в MAIN-repo по абсолютному пути
-(копирует main-repo-пути из codegraph / task-файла). `pre-edit-write-zone-of-write.sh` НЕ ловит этот кейс.
-Поэтому Master ОБЯЗАН после КАЖДОГО завершившегося Coder'а проверить, что MAIN-чекаут чист:
+A Coder in `isolation=worktree` on the first Write sometimes writes into the MAIN repo by an absolute path
+(it copies main-repo paths from codegraph / the task file). `pre-edit-write-zone-of-write.sh` does NOT catch this case.
+So Master MUST, after EACH finished Coder, verify that the MAIN checkout is clean:
 
 ```bash
-git -C <main-repo> status --porcelain apps/ packages/   # пусто = OK; есть строки = контаминация, откатить
+git -C <main-repo> status --porcelain apps/ packages/   # empty = OK; lines present = contamination, roll back
 ```
 
-В dispatch-промпт Coder'а — явный блок: «ВСЕ Edit/Write ВНУТРИ своего worktree; после первого edit
-проверь `git -C <worktree> status`; НЕ писать по main-repo абсолютным путям».
+In the Coder's dispatch prompt — an explicit block: "ALL Edit/Write INSIDE your own worktree; after the first edit
+check `git -C <worktree> status`; do NOT write to main-repo absolute paths".
 
-### Если задача требует выйти за зону
+### If the task requires leaving the zone
 
-1. Создать `<task>.blocked.md` с описанием почему.
-2. НЕ делать самовольно.
-3. Исключение: Master явно указал в task-файле «обнови `docs/business/modules/<X>.md`» — допустимо.
+1. Create `<task>.blocked.md` describing why.
+2. Do NOT do it unilaterally.
+3. Exception: Master explicitly stated in the task file "update `docs/business/modules/<X>.md`" — allowed.
 
 ## Architect-specific notes
 
-**Ревизия 2026-08-17 (PR #553, находка CR-L-1).** Прежняя редакция разрешала
-Architect'у трогать `.claude/agents/<agent>.md` **только** в рамках ECC-миграции
-(добавление frontmatter, skill-таблицы, trimming references), а `.claude/RULES.md`
-и `.claude/settings*.json` не упоминала вовсе. ECC-миграция завершилась 2026-06-03 —
-и с тех пор правило описывало не то, что происходит. Прецеденты (проверены
-`gh pr view` / `git log`, а не по памяти):
+**Revision 2026-08-17 (PR #553, finding CR-L-1).** The prior edition allowed
+the Architect to touch `.claude/agents/<agent>.md` **only** within the ECC migration
+(adding frontmatter, the skill table, trimming references), and did not mention `.claude/RULES.md`
+and `.claude/settings*.json` at all. The ECC migration finished 2026-06-03 —
+and since then the rule described not what happens. Precedents (verified with
+`gh pr view` / `git log`, not from memory):
 
-- **`.claude/settings*.json` — 4 из 4:** #89, #264, #403, #487, каждый добавлял
-  регистрацию хука. Ни один не был отклонён.
+- **`.claude/settings*.json` — 4 of 4:** #89, #264, #403, #487, each added
+  a hook registration. None was rejected.
 - **`.claude/RULES.md`:** #165, #281, #283, #317, #320, #321, #448.
-- **Golden rules в агентских доках:** #271 (запрет ревьюерам ставить
-  `merge-approved`), #366 (P0 «никаких фоновых ожиданий»), #530, #538 — то есть
-  ровно то, что старая формулировка разрешала «только при ECC migration».
-- **агентские сниппеты + `rules/common/**`:\*\* #403.
+- **Golden rules in agent docs:** #271 (forbidding reviewers to set
+  `merge-approved`), #366 (P0 "no background waits"), #530, #538 — i.e.
+  exactly what the old wording allowed "only during the ECC migration".
+- **agent snippets + `rules/common/**`:\*\* #403.
 
-Правило разошлось с практикой систематически, во всех четырёх категориях.
+The rule diverged from practice systematically, across all four categories.
 
-Приведено в согласие в пользу практики, а не буквы: **пятнадцать «исключений» —
-это норма, которую не записали.** Ровно тот класс дефекта, который этот PR чинит в
-рабочих механиках; оставить его в собственных правилах было бы непоследовательно.
+Reconciled in favour of practice, not the letter: **fifteen "exceptions" are
+a norm that was not written down.** Exactly the class of defect this PR fixes in
+the working mechanics; leaving it in our own rules would be inconsistent.
 
-Попутно снято внутреннее противоречие: `.claude/hooks/**` стояло в строке
-Architect'а **одновременно** в «можно» и в «нельзя» (`legacy, до cleanup`).
-Cleanup давно прошёл — колонка «нельзя» вычищена.
+Along the way an internal contradiction was removed: `.claude/hooks/**` stood in the Architect's
+row **simultaneously** in "may" and "may not" (`legacy, until cleanup`).
+The cleanup is long done — the "may not" column has been cleaned out.
 
-Границы новой формулировки:
+Boundaries of the new wording:
 
-- **Golden rules и `RULES.md`** — Architect правит, когда меняется межагентная
-  механика (новый хук, новое always-on правило, новый обязательный шаг на старте).
-  Это не «business logic агента», а контракт среды, в которой агент работает.
-- **`.claude/settings*.json`** — зона Architect **по необходимости**: хук,
-  который не зарегистрирован, не существует. Писать туда можно **только**
-  регистрацию хуков; `permissions`, `enabledPlugins`, `env` — не его.
-- **`.github/workflows/**`** — только **additive\*\* процессные гейты. Всё, что
-  трогает деплой, сборку или прод-секреты, остаётся DevOps.
-- **Architect по-прежнему НЕ переписывает** постановку задач / бизнес-логику задачи
-  (зона Master через `.claude/tasks/`).
-- **Диффы Architect'а по-прежнему проходят review** — расширение зоны меняет то,
-  что не требует `.blocked.md`, а не то, что не требует проверки.
+- **Golden rules and `RULES.md`** — the Architect edits them when the inter-agent
+  mechanics change (a new hook, a new always-on rule, a new mandatory startup step).
+  This is not "the agent's business logic" but the contract of the environment in which the agent works.
+- **`.claude/settings*.json`** — the Architect's zone **by necessity**: a hook
+  that is not registered does not exist. Writing there is allowed **only**
+  for hook registration; `permissions`, `enabledPlugins`, `env` — not his.
+- **`.github/workflows/**`** — only **additive\*\* process gates. Everything that
+  touches deploy, build, or prod secrets stays DevOps.
+- **The Architect still does NOT rewrite** task setup / a task's business logic
+  (Master's zone via `.claude/tasks/`).
+- **The Architect's diffs still go through review** — a zone extension changes what
+  does not require `.blocked.md`, not what does not require review.
 
-Если правка выходит и за эти границы — `.blocked.md`, как у всех.
+If an edit goes beyond these boundaries too — `.blocked.md`, like everyone.
 
-### Тесты на хуки живут в каталоге DevOps — и это не «так вышло»
+### Tests on hooks live in the DevOps directory — and this is not "how it turned out"
 
-**Ревизия 2026-09-01 (PR #625, находка CR-M-2).** Хуки — зона Architect, а тесты
-на них лежат в `scripts/devops/tests/`, то есть формально в зоне DevOps. Правило
-об этом молчало, PR #625 записал в него шесть файлов оттуда, и без этой заметки
-следующий будет решать заново — и решит иначе.
+**Revision 2026-09-01 (PR #625, finding CR-M-2).** Hooks are the Architect's zone, while the tests
+on them lie in `scripts/devops/tests/`, i.e. formally in the DevOps zone. The rule
+was silent on this, PR #625 recorded six files from there into it, and without this note
+the next one will decide anew — and will decide differently.
 
-Приведено в согласие тем же приёмом, что и в августе: **не констатацией практики,
-а разбором, почему альтернатива хуже.**
+Reconciled by the same device as in August: **not a statement of practice,
+but an analysis of why the alternative is worse.**
 
-Альтернатива ровно одна — держать тесты на хуки в `.claude/hooks/tests/`, внутри
-своей зоны. Она проигрывает по трём проверяемым пунктам:
+There is exactly one alternative — keep the tests on hooks in `.claude/hooks/tests/`, inside
+their own zone. It loses on three verifiable points:
 
-1. **Тот каталог не запускает никто.** `run-guard-tests.sh` подметает
-   `scripts/devops/tests/test-*.sh`, и CI гоняет этот раннер **шагом внутри
-   required-чека**. На `.claude/hooks/tests/` не ссылался ни один воркфлоу
-   (`grep -rn cross-agent-hooks-smoke .github` — пусто): 42 настоящих кейса,
-   которые CI не выполнил ни разу. Положить туда новые тесты значило бы написать
-   их и не запускать.
-2. **Там нет харнесса.** `assert_red` / `assert_green` / `guard_test_workspace`
-   живут в `scripts/devops/tests/lib/harness.sh`. Второй набор ассертов в другом
-   каталоге — второй словарь для одного и того же, и мета-страж, который ищет
-   негативный кейс, должен был бы понимать оба. Один из них он бы понимал хуже.
-3. **Мета-страж всё равно пришлось бы трогать.** `check-guard-tests-exist.sh` —
-   тоже `scripts/devops/`. Пересечение зон не исчезает при переносе тестов, оно
-   только становится меньше и при этом ломает пункты 1–2.
+1. **Nobody runs that directory.** `run-guard-tests.sh` sweeps
+   `scripts/devops/tests/test-*.sh`, and CI runs this runner **as a step inside
+   a required check**. No workflow referenced `.claude/hooks/tests/`
+   (`grep -rn cross-agent-hooks-smoke .github` — empty): 42 real cases
+   CI never executed once. Putting new tests there would mean writing
+   them and not running them.
+2. **There is no harness there.** `assert_red` / `assert_green` / `guard_test_workspace`
+   live in `scripts/devops/tests/lib/harness.sh`. A second set of assertions in another
+   directory — a second vocabulary for the same thing, and the meta-guard that looks for
+   a negative case would have to understand both. One of them it would understand worse.
+3. **The meta-guard would have to be touched anyway.** `check-guard-tests-exist.sh` is
+   also `scripts/devops/`. The zone overlap does not vanish on moving the tests, it
+   only becomes smaller while breaking points 1–2.
 
-**Границы исключения — узкие, и это часть исключения:**
+**The boundaries of the exception are narrow, and that is part of the exception:**
 
-- Architect пишет в `scripts/devops/` **только** `check-guard-tests-exist.sh`
-  (мета-страж над его собственными хуками) и `tests/test-pre-*.sh` (тесты на
-  хуки, которые он и владеет). Всё остальное в `scripts/devops/**` — DevOps:
-  `mutation-gate.mjs`, `deploy`-обвязка, `check-*` про прод.
-- Обратное **не** действует: DevOps не правит `.claude/hooks/**`.
-- Дифф всё равно проходит ревью. Исключение меняет то, что не требует
-  `.blocked.md`, а не то, что не требует проверки.
+- The Architect writes in `scripts/devops/` **only** `check-guard-tests-exist.sh`
+  (the meta-guard over his own hooks) and `tests/test-pre-*.sh` (the tests on
+  the hooks he owns). Everything else in `scripts/devops/**` — DevOps:
+  `mutation-gate.mjs`, the `deploy` plumbing, `check-*` about prod.
+- The reverse does **not** hold: DevOps does not edit `.claude/hooks/**`.
+- The diff still goes through review. The exception changes what does not require
+  `.blocked.md`, not what does not require review.
 
-Почему это вообще безопасно записать: нарушение здесь **громкое**. Файл в чужом
-каталоге виден в диффе с первого взгляда — в отличие от того класса дефектов,
-ради которого зоны заведены (агент правит продовый код, чтобы тест позеленел).
+Why it is safe to write this down at all: a violation here is **loud**. A file in someone else's
+directory is visible in the diff at first glance — unlike the class of defects
+for which the zones were created (an agent edits prod code to make a test go green).
 
-**Источник расхождения, чтобы не повторилось.** `.claude/agents/architect.md`
-§Zone-of-write **уже** перечислял `.claude/settings*.json (hook registration)` и
-golden rules — то есть агентский док был точен, а канонический rule-файл (этот)
-отставал. Расходились два описания одной зоны, и агент читает оба. Теперь они
-синхронизированы явной пометкой в обоих; **правишь одно — правь второе.**
+**The source of the divergence, so it does not recur.** `.claude/agents/architect.md`
+§Zone-of-write **already** listed `.claude/settings*.json (hook registration)` and
+golden rules — i.e. the agent doc was accurate, while the canonical rule file (this one)
+lagged. Two descriptions of one zone diverged, and the agent reads both. Now they are
+synchronized by an explicit note in both; **edit one — edit the second.**
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/git-policy.md` — `git add .` zero-tolerance защищает от accidental cross-zone commits.
-- `.claude/rules/common/skills-invocation.md` — какие skills чей зоне.
+- `.claude/rules/common/git-policy.md` — `git add .` zero-tolerance protects against accidental cross-zone commits.
+- `.claude/rules/common/skills-invocation.md` — which skills belong to whose zone.
 
-## Источники
+## Sources
 
-- CLAUDE.md "Multi-Agent команда" + zone hints в каждом agent doc.
+- CLAUDE.md "Multi-Agent team" + zone hints in each agent doc.
 - `.claude/agents/architect.md` Zone-of-write section.
 - Phase 2.5 deliverable: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `pre-edit-write-zone-of-write.sh`).
 - ADR `docs/architecture/2026-05-31-ecc-migration-design.md` §2.2.2 (zone-of-write hook).

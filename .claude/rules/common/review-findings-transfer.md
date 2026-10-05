@@ -1,32 +1,32 @@
-# Rule: Перенос находок ревью в задание — по идентификаторам, с отчётом по каждой
+# Rule: Transferring review findings into the task — by identifier, with a report on each
 
-**Status:** Always-on (процедурный гейт; наблюдаемость — сверка идентификаторов, см. ниже)
-**Applies to:** code-reviewer, security-reviewer, spec-reviewer, copy-reviewer, ui-ux-designer (Mode B), manual-qa — все нумеруют; Master / оркестратор переносят; Coder / любой исполнитель fix-задачи отчитывается
-**Source:** PR #504, 2026-08-11 — при составлении списка «что доделать» оркестратор потерял находку безопасности (обход проверки глифов). Не отклонил как несущественную — просто не перенёс. Кодер её закономерно не сделал; поймалось только сверкой отчёта с исходным ревью, на девятом раунде.
+**Status:** Always-on (procedural gate; observability — identifier reconciliation, see below)
+**Applies to:** code-reviewer, security-reviewer, spec-reviewer, copy-reviewer, ui-ux-designer (Mode B), manual-qa — all number; Master / orchestrator transfer; Coder / any executor of a fix task reports
+**Source:** PR #504, 2026-08-11 — while compiling the "what to finish" list the orchestrator lost a security finding (a glyph-check bypass). Did not reject it as insignificant — simply did not transfer it. The coder naturally did not do it; it was caught only by reconciling the report against the original review, on the ninth round.
 
 ---
 
-## Зачем
+## Why
 
-У нас есть гейты на код, тесты, стражей, измерения — и ни одного на «все находки
-ревью доехали до задания». Канал ревью → fix-задача держался на внимательности,
-и она подвела ровно там, где раунд был девятым.
+We have gates on code, tests, guards, measurements — and not one on "all review
+findings reached the task". The review → fix-task channel rested on attentiveness,
+and it failed exactly where the round was the ninth.
 
-Существующее правило «все находки H/M/L резолвятся до мержа»
-(`feedback_reviewer_findings`, aggregate verdict в `contracts.md`) **не дублируется** здесь: оно про
-_итог_ (ничего не осталось незакрытым), а этот файл — про _канал_ (ничего не
-потерялось по дороге). Потерянная находка проходит первое правило незамеченной,
-потому что её просто нет в списке, который сверяют.
+The existing rule "all H/M/L findings are resolved before merge"
+(`feedback_reviewer_findings`, aggregate verdict in `contracts.md`) is **not duplicated** here: it is about
+the _result_ (nothing left unclosed), while this file is about the _channel_ (nothing
+lost along the way). A lost finding passes the first rule unnoticed,
+because it is simply not in the list that gets reconciled.
 
-## Правило
+## The rule
 
-### 1. Ревьюер нумерует находки
+### 1. The reviewer numbers the findings
 
-Каждая находка в теле review получает **стабильный идентификатор** вида
+Each finding in the review body gets a **stable identifier** of the form
 `<ROLE>-<SEV>-<N>`:
 
 ```
-CR-H-1   code-reviewer, HIGH, первая
+CR-H-1   code-reviewer, HIGH, first
 CR-M-2   code-reviewer, MED
 SR-H-1   security-reviewer, HIGH
 SPEC-H-1 spec-reviewer, HIGH
@@ -35,98 +35,98 @@ QA-H-1   manual-qa, HIGH
 COPY-L-3 copy-reviewer, LOW
 ```
 
-**Полный список префиксов — по одному на ось агрегата.** UI-PR собирает до шести вердиктов, и
-пока у оси нет префикса, арифметическая сверка ниже на неё не работает: находка теряется ровно
-тем каналом, ради которого правило заведено.
+**The full list of prefixes — one per aggregate axis.** A UI PR collects up to six verdicts, and
+until an axis has a prefix, the arithmetic reconciliation below does not work for it: a finding is lost by exactly
+the channel for which the rule was created.
 
-| Ось                  | Префикс | Вердикт-строка                         |
+| Axis                 | Prefix  | Verdict line                           |
 | -------------------- | ------- | -------------------------------------- |
 | `code-reviewer`      | `CR-`   | `Verdict: APPROVE \| BLOCK`            |
 | `security-reviewer`  | `SR-`   | `Security Review: APPROVE \| BLOCK`    |
 | `spec-reviewer`      | `SPEC-` | `Spec Review: PASS \| ISSUES \| BLOCK` |
 | `ui-ux-designer` (B) | `UX-`   | `Design Review:` + `Fidelity:`         |
-| `manual-qa`          | `QA-`   | severity-табличка отчёта               |
+| `manual-qa`          | `QA-`   | the report's severity table            |
 | `copy-reviewer`      | `COPY-` | `Copy Review: PASS \| ISSUES \| BLOCK` |
 
-**Добавлено 2026-08-22** (`SPEC-`, `UX-`, `QA-`): правило заводилось после потерянной находки
-безопасности, но две оси из четырёх в UI-агрегате оставались вне его защиты, а `spec-reviewer` —
-новая ось. Расширение существующего правила, не новое правило.
+**Added 2026-08-22** (`SPEC-`, `UX-`, `QA-`): the rule was created after a lost security
+finding, but two of the four axes in the UI aggregate remained outside its protection, and `spec-reviewer` is
+a new axis. An extension of the existing rule, not a new rule.
 
-Идентификатор ставится **в момент написания review** — не задним числом при
-переносе. Иначе нумерует тот же, кто и теряет.
+The identifier is set **at the moment of writing the review** — not retroactively during
+transfer. Otherwise the one numbering is the same one who loses.
 
-В конце тела review — контрольная строка:
+At the end of the review body — a control line:
 
 ```
 Findings: CR-H-1, CR-H-2, CR-M-1, CR-M-2 (4)
 ```
 
-### 2. Оркестратор переносит списком, а не пересказом
+### 2. The orchestrator transfers as a list, not a retelling
 
-Fix-задача содержит **все** идентификаторы из контрольной строки — включая те,
-что решено не делать. Решение «не делать» — законное; молчаливое исчезновение —
-нет.
+The fix task contains **all** identifiers from the control line — including those
+it was decided not to do. A "do not do" decision is legitimate; a silent disappearance is
+not.
 
-### 3. Исполнитель отчитывается по каждому
+### 3. The executor reports on each one
 
-В отчёте и в теле PR — строка на **каждый** идентификатор, включая отказы:
+In the report and in the PR body — a line for **each** identifier, including refusals:
 
 ```
-CR-H-1  done   — <что сделано>
-CR-H-2  done   — <что сделано>
-CR-M-1  not done — <причина: не воспроизводится / вне scope / отдельная задача #N>
+CR-H-1  done   — <what was done>
+CR-H-2  done   — <what was done>
+CR-M-1  not done — <reason: not reproducible / out of scope / separate task #N>
 ```
 
-«Не делал, потому что…» — валидный ответ. Отсутствие строки — нет.
+"Did not do it, because…" is a valid answer. The absence of a line is not.
 
-## Как узнаем, что нарушено
+## How we know it is violated
 
-Пропуск виден **арифметикой**, а не внимательностью:
+A miss is visible by **arithmetic**, not attentiveness:
 
-| Что сверяем                                                      | Кто                        |
-| ---------------------------------------------------------------- | -------------------------- |
-| число идентификаторов в `Findings:` review == число в fix-задаче | Master при создании задачи |
-| число строк отчёта исполнителя == число идентификаторов в задаче | Master при приёмке         |
-| каждый идентификатор из review встречается в отчёте              | Master при приёмке         |
+| What is reconciled                                                                    | Who                           |
+| ------------------------------------------------------------------------------------- | ----------------------------- |
+| the number of identifiers in the review's `Findings:` == the number in the fix task   | Master when creating the task |
+| the number of lines in the executor's report == the number of identifiers in the task | Master at acceptance          |
+| every identifier from the review appears in the report                                | Master at acceptance          |
 
-Несовпадение — не «наверное, мелочь», а незакрытая находка до доказательства
-обратного. Именно эта сверка (отчёт против исходного review) и поймала пропажу на
-#504 — правило лишь делает её обязательной и дешёвой вместо случайной и поздней.
+A mismatch is not "probably a trifle" but an unclosed finding until proof
+to the contrary. It was exactly this reconciliation (report against the original review) that caught the loss on
+#504 — the rule merely makes it mandatory and cheap instead of accidental and late.
 
-## Механический чек: решение и обоснование (AC9)
+## Mechanical check: decision and rationale (AC9)
 
-**Решение: полностью механический CI-гейт НЕ вводим. Вводим арифметическую
-сверку в аггрегате Master (выше) + контрольную строку `Findings:`, которая делает эту
-сверку однострочной.**
+**Decision: we do NOT introduce a fully mechanical CI gate. We introduce the arithmetic
+reconciliation in the Master aggregate (above) + the `Findings:` control line, which makes this
+reconciliation a one-liner.**
 
-Обоснование — почему не CI:
+Rationale — why not CI:
 
-1. **Сравнивать нечего с чем.** Отчёт исполнителя живёт в чате агента и в теле
-   PR, review — в GitHub. CI видит только PR. Гейт пришлось бы кормить телом
-   review через API и парсить свободный markdown двух разных агентов — то есть
-   гейт на форматирование текста, а не на суть.
-2. **Он ловил бы форматирование, а не пропажу.** Ревьюер, забывший поставить
-   `Findings:`, красит PR; оркестратор, потерявший находку, но переписавший
-   строку — нет. Это отрицательная выборка: шумит на безобидном, молчит на
-   опасном. Ровно тот класс проверок, который мы весь месяц вычищаем.
-3. **Дешёвая часть уже даёт ~весь эффект.** Контрольная строка `Findings: … (N)`
-   превращает сверку в сравнение двух чисел. Стоимость — одна строка на review;
-   стоимость CI-гейта — парсер плюс его собственные ложные срабатывания.
+1. **There is nothing to compare against.** The executor's report lives in the agent chat and in the PR
+   body, the review — in GitHub. CI sees only the PR. The gate would have to be fed the review
+   body via the API and parse the free markdown of two different agents — i.e. a
+   gate on text formatting, not on substance.
+2. **It would catch formatting, not the loss.** A reviewer who forgot to put
+   `Findings:` reddens the PR; an orchestrator who lost a finding but rewrote the
+   line — does not. This is a negative sample: it is noisy on the harmless, silent on the
+   dangerous. Exactly the class of checks we have been cleaning out all month.
+3. **The cheap part already gives ~the whole effect.** The control line `Findings: … (N)`
+   turns the reconciliation into a comparison of two numbers. The cost — one line per review;
+   the cost of a CI gate — a parser plus its own false positives.
 
-Что сделало бы механический чек оправданным (пересмотреть, если случится):
-повторная потеря находки **при наличии** контрольной строки — то есть
-доказательство, что арифметику тоже не делают. Тогда чек ставить не на текст, а
-на структуру: ревьюер постит находки машиночитаемым блоком (JSON в
-`<!-- findings: [...] -->`), и CI сравнивает множества идентификаторов
-review ↔ PR body. Дешевле это станет только после того, как формат уже соблюдают.
+What would make a mechanical check justified (reconsider if it happens):
+a repeated loss of a finding **with** the control line present — i.e.
+proof that the arithmetic is not done either. Then the check would be placed not on text but
+on structure: the reviewer posts findings as a machine-readable block (JSON in
+`<!-- findings: [...] -->`), and CI compares the identifier sets
+review ↔ PR body. That becomes cheaper only after the format is already observed.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/agent-isolation.md` — соседний канал без гейта (та же семья дефектов).
-- `.claude/skills/code-review-discipline/SKILL.md` §7 — как нумеровать при написании review.
-- `.claude/agents/contracts.md` §4 — aggregate verdict; «все H/M/L закрыты до мержа» (итог, не канал).
+- `.claude/rules/common/agent-isolation.md` — an adjacent channel without a gate (the same family of defects).
+- `.claude/skills/code-review-discipline/SKILL.md` §7 — how to number when writing a review.
+- `.claude/agents/contracts.md` §4 — aggregate verdict; "all H/M/L closed before merge" (the result, not the channel).
 
-## Источники
+## Sources
 
-- PR #504 (2026-08-11) — потерянная находка обхода проверки глифов.
+- PR #504 (2026-08-11) — the lost glyph-check bypass finding.
 - `docs/architecture/2026-08-17-agent-collision-mechanics.md` §AC7–AC9.

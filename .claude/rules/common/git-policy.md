@@ -6,29 +6,29 @@
 
 ---
 
-## Zero-tolerance patterns — сначала целевое действие, потом запрет
+## Zero-tolerance patterns — the target action first, the prohibition second
 
-> **Почему в таком порядке (2026-08-22).** Управление через запрет затаскивает запрещённое
-> поведение в контекст и делает его **доступнее**: отрицание — слабый модификатор, сильно
-> активированный концепт его перебивает. Поэтому первая колонка — то, что **делать**, а запрет
-> идёт следом как жёсткий guardrail, а не как единственная формулировка. Прежняя редакция ставила
-> «Альтернативу» третьей колонкой, то есть последней из прочитанного. Рецидивы (`--no-verify`
-> трижды за сессию 2026-06-02, `git add .` на PR #22) — ровно тот класс, где формулировка могла
-> быть частью причины. Источник приёма — `mattpocock/skills`, `writing-for-agents` §Negation.
+> **Why in this order (2026-08-22).** Managing via prohibition drags the forbidden
+> behaviour into context and makes it **more available**: negation is a weak modifier, a strongly
+> activated concept overrides it. So the first column is what to **do**, and the prohibition
+> follows as a hard guardrail, not as the only wording. The prior edition put
+> the "Alternative" in the third column, i.e. the last thing read. Recurrences (`--no-verify`
+> three times in the 2026-06-02 session, `git add .` on PR #22) are exactly the class where wording could
+> have been part of the cause. The source of the device — `mattpocock/skills`, `writing-for-agents` §Negation.
 
-| Делай так                                                             | Не так                                                           | Почему                                                                                                                              |
-| --------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| Доделать AC → честный commit с `ac_verified:`                         | `git push --no-verify`                                           | Обходит pre-push hook, который проверяет `ac_verified:`. Реальные инциденты 2026-06-02: 3× за сессию.                               |
-| То же                                                                 | `git commit -n` / `git commit --no-verify`                       | То же.                                                                                                                              |
-| То же                                                                 | `git -c core.hooksPath=/dev/null` (любая форма bypass'а hook'ов) | То же.                                                                                                                              |
-| Спросить USER                                                         | `--no-gpg-sign` без явного запроса USER                          | Обходит signing.                                                                                                                    |
-| Перечислить файлы явным списком из task-секции «Конкретные изменения» | `git add .` / `git add -A` / `git add *` / `git add apps/`       | Подметает чужие debug-артефакты из worktree (PR #22 round4 incident, см. `.claude/agents/memory/coder/lessons.md` 2026-05-20 [P0]). |
-| PR + label `merge-approved` → CI auto-merge                           | Push в `main` напрямую                                           | Branch protection — только через PR.                                                                                                |
-| На своих ветках `--force-with-lease`                                  | `git push --force` в `main` / `master`                           | Уничтожает историю.                                                                                                                 |
-| `git stash` → restore                                                 | `git reset --hard origin/main` без warning                       | Уничтожает локальную работу.                                                                                                        |
-| Дождаться зелёных checks → squash через label `merge-approved`        | `gh pr merge --admin`                                            | Обходит branch protection (required checks).                                                                                        |
+| Do it this way                                                     | Not this way                                                | Why                                                                                                                                                |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Finish the AC → an honest commit with `ac_verified:`               | `git push --no-verify`                                      | Bypasses the pre-push hook that checks `ac_verified:`. Real incidents 2026-06-02: 3× in a session.                                                 |
+| Same                                                               | `git commit -n` / `git commit --no-verify`                  | Same.                                                                                                                                              |
+| Same                                                               | `git -c core.hooksPath=/dev/null` (any form of hook bypass) | Same.                                                                                                                                              |
+| Ask USER                                                           | `--no-gpg-sign` without an explicit USER request            | Bypasses signing.                                                                                                                                  |
+| List the files explicitly from the task section "Concrete changes" | `git add .` / `git add -A` / `git add *` / `git add apps/`  | Sweeps up someone else's debug artifacts from the worktree (PR #22 round4 incident, see `.claude/agents/memory/coder/lessons.md` 2026-05-20 [P0]). |
+| PR + label `merge-approved` → CI auto-merge                        | Push to `main` directly                                     | Branch protection — only via a PR.                                                                                                                 |
+| On your own branches `--force-with-lease`                          | `git push --force` to `main` / `master`                     | Destroys history.                                                                                                                                  |
+| `git stash` → restore                                              | `git reset --hard origin/main` without a warning            | Destroys local work.                                                                                                                               |
+| Wait for green checks → squash via the label `merge-approved`      | `gh pr merge --admin`                                       | Bypasses branch protection (required checks).                                                                                                      |
 
-CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на PR если в diff появилась строка `--no-verify`. Reviewer выдаёт `Verdict: BLOCK`. `merge-approved` ставит только Master/owner — и только по явному «мерджим» владельца.
+CI hard block: `.github/workflows/check-no-skip-hooks.yml` fails on a PR if the string `--no-verify` appears in the diff. The reviewer issues `Verdict: BLOCK`. `merge-approved` is set only by Master/owner — and only on the owner's explicit "merge".
 
 ## Commit message format
 
@@ -37,94 +37,94 @@ CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на 
 
 <optional body>
 
-ac_verified: 1,2,3,4,5        # номера AC из task-файла, разделённые запятой
-vision: ✓ /team, /team/$teamId    # ТОЛЬКО для UI задач — затронутые роуты
+ac_verified: 1,2,3,4,5        # AC numbers from the task file, comma-separated
+vision: ✓ /team, /team/$teamId    # ONLY for UI tasks — affected routes
 ```
 
-- Если все AC выполнены — перечислить все номера: `ac_verified: 1,2,3,4,5`
-- Если часть не сделана — указать сделанные + комментарий: `ac_verified: 1,2,4 (3,5 — blocked, см. .blocked.md)`
-- Если задача без UI — `vision:` строку опустить, `ac_verified:` обязательна.
+- If all AC are done — list all numbers: `ac_verified: 1,2,3,4,5`
+- If some are not done — list the done ones + a comment: `ac_verified: 1,2,4 (3,5 — blocked, see .blocked.md)`
+- If the task has no UI — omit the `vision:` line, `ac_verified:` is mandatory.
 
-Pre-push gate (Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh`, id `pre:bash:coder-push-gate`) блокирует `git push`, если последний commit **на любой ветке** не содержит строки `ac_verified:`. Не обходить — доделать AC. Энфорс на harness-уровне (PreToolUse), а не через husky: в свежем `isolation=worktree` worktree husky-хуки молча пропускаются (`.husky/_/` gitignored, генерируется только при `pnpm install`).
+Pre-push gate (Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-coder-push-gate.sh`, id `pre:bash:coder-push-gate`) blocks `git push` if the last commit **on any branch** does not contain an `ac_verified:` line. Do not bypass — finish the AC. Enforced at the harness level (PreToolUse), not via husky: in a fresh `isolation=worktree` worktree the husky hooks are silently skipped (`.husky/_/` gitignored, generated only on `pnpm install`).
 
-**Гейт закрывает всё, кроме трёх исключений (правка 2026-09-01).** Раньше он перечислял «ловимые» префиксы — `feature|fix|infra|test` — и `feat/` в этот список не попал: 15 смёрженных PR прошли мимо гейта молча, и заметил это кодер, а не гейт. Тот же аудит показал код на `perf/` (#474), `ci/` (#433) и `docs/` (#613 — 24 файла под `apps/`, включая финансовый диалог). Перечисление ломается тихо, исключение — громко, поэтому список перевёрнут.
+**The gate closes everything but three exceptions (edit 2026-09-01).** Previously it listed the "catchable" prefixes — `feature|fix|infra|test` — and `feat/` did not make the list: 15 merged PRs passed the gate silently, and a coder noticed it, not the gate. The same audit found code on `perf/` (#474), `ci/` (#433) and `docs/` (#613 — 24 files under `apps/`, including the finance dialog). Enumeration breaks quietly, an exception breaks loudly, so the list was inverted.
 
-Свободны от отметки только: `main`/`master` (не рабочая ветка), `architect/*` и `legal/*` (у их задач нет AC-списка в task-файле; перенесено из старой формулировки хука, не выдано заново). Цена каждого исключения расписана в шапке хука — читать её **до** добавления четвёртого.
+Free from the mark are only: `main`/`master` (not a work branch), `architect/*` and `legal/*` (their tasks have no AC list in the task file; carried over from the old hook wording, not issued anew). The cost of each exception is spelled out in the hook's header — read it **before** adding a fourth.
 
-Ветке, у которой честно нечего верифицировать (скриншоты, заметки), доступны два ответа, и оба — утверждение, а не обход: `wip:` в теме коммита либо `ac_verified: n/a (<почему>)`.
+A branch that honestly has nothing to verify (screenshots, notes) has two answers available, and both are an assertion, not a bypass: `wip:` in the commit subject or `ac_verified: n/a (<why>)`.
 
-Тест: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 кейсов, исполнением). До 2026-09-01 у хука не было теста вообще, и мета-страж `scripts/devops/check-guard-tests-exist.sh` не мог этого сообщить — он читал только `scripts/devops/check-*`. Теперь он берёт список хуков из `.claude/settings.json` и требует тест с негативным кейсом от каждого, кто умеет отказывать.
+Test: `scripts/devops/tests/test-pre-bash-coder-push-gate.sh` (28 cases, by execution). Before 2026-09-01 the hook had no test at all, and the meta-guard `scripts/devops/check-guard-tests-exist.sh` could not report it — it read only `scripts/devops/check-*`. Now it takes the list of hooks from `.claude/settings.json` and requires a test with a negative case from every one that can refuse.
 
-## Prettier pre-push gate (формат ловим ДО push)
+## Prettier pre-push gate (catch formatting BEFORE push)
 
-**Status:** добавлено 2026-06-21 (PR `fix(hooks): enforce prettier on pre-push`).
+**Status:** added 2026-06-21 (PR `fix(hooks): enforce prettier on pre-push`).
 
 Claude PreToolUse:Bash hook `.claude/hooks/pre-bash-prettier-gate.sh` (id `pre:bash:prettier-gate`)
-блокирует `git push`, если изменённые vs `origin/main` файлы (`ts/tsx/js/jsx/json/md/yml`) не
-прошли `prettier --check` — локальное зеркало CI-гейта `check-no-skip-hooks.yml`. Причина: в свежем
-worktree pre-commit hook (lint-staged → `prettier --write`) молча пропускается (нет husky/node_modules),
-неформатированный код раньше уходил в CI и краснил PR (#259/#261/#263). Hook резолвит prettier
-worktree-safe (локальный `.bin` → MAIN-repo `.bin` через git-common-dir → `pnpm exec`); если prettier
-недостижим — **fail-loud BLOCK** с инструкцией `pnpm install`, а не silent-skip. При блоке выводит точную
-команду фикса `prettier --write <файлы>`.
+blocks `git push` if the files changed vs `origin/main` (`ts/tsx/js/jsx/json/md/yml`) did not
+pass `prettier --check` — a local mirror of the CI gate `check-no-skip-hooks.yml`. Reason: in a fresh
+worktree the pre-commit hook (lint-staged → `prettier --write`) is silently skipped (no husky/node_modules),
+and unformatted code used to go to CI and redden the PR (#259/#261/#263). The hook resolves prettier
+worktree-safe (local `.bin` → MAIN-repo `.bin` via git-common-dir → `pnpm exec`); if prettier
+is unreachable — **fail-loud BLOCK** with the instruction `pnpm install`, not a silent skip. On a block it outputs the exact
+fix command `prettier --write <files>`.
 
 ## WIP commits & chunking
 
-`wip:` префикс — маркер незавершённости. Pre-push hook НЕ требует `ac_verified:` на `wip:` коммитах (только на финальном).
+The `wip:` prefix is a marker of incompleteness. The pre-push hook does NOT require `ac_verified:` on `wip:` commits (only on the final one).
 
-- **`wip:` push после каждых 2 файлов** ИЛИ
-- **`wip:` push после каждых 5 минут** ИЛИ
-- **`wip:` push перед любой операцией > 1 мин** (билд, тесты, миграция)
+- **`wip:` push after every 2 files** OR
+- **`wip:` push after every 5 minutes** OR
+- **`wip:` push before any operation > 1 min** (build, tests, migration)
 
-Финальный коммит — без `wip:`, с `ac_verified:`.
+The final commit — without `wip:`, with `ac_verified:`.
 
-## Push feature-веток: `DATABASE_URL=` пустой (data-safety)
+## Pushing feature branches: `DATABASE_URL=` empty (data-safety)
 
-**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-6/FM-7).
+**Status:** added 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-6/FM-7).
 
-ВСЕГДА пушить локальные feature-ветки как `DATABASE_URL= git push` (переменная пустая).
-Pre-push hook гоняет тесты; без скоупа integration-спеки коннектятся в libpq-дефолт (живая `crm_db`!)
-и могут (а) упасть на отсутствующей QA-фикстуре, (б) теоретически тронуть UT-данные USER'а, (в) словить
-CPU-timeout под нагрузкой. Пустой `DATABASE_URL` -> integration-спеки graceful-skip, push безопасен.
+ALWAYS push local feature branches as `DATABASE_URL= git push` (the variable empty).
+The pre-push hook runs tests; without a scope the integration specs connect to the libpq default (the live `crm_db`!)
+and may (a) fail on a missing QA fixture, (b) theoretically touch USER's UT data, (c) catch a
+CPU timeout under load. An empty `DATABASE_URL` -> integration specs graceful-skip, the push is safe.
 
-## Conventional commits scopes (для проекта)
+## Conventional commits scopes (for the project)
 
-**Тип** — из набора Conventional Commits (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`,
-`perf`, `ci`, `style`, `build`) плюс два наших: `wip` (см. раздел выше — маркер незавершённости,
-освобождающий от `ac_verified:`) и `infra` (изменения окружения и обвязки, не попадающие в
-продукт).
+**Type** — from the Conventional Commits set (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`,
+`perf`, `ci`, `style`, `build`) plus two of ours: `wip` (see the section above — a marker of incompleteness,
+freeing from `ac_verified:`) and `infra` (changes to environment and plumbing that do not land in
+the product).
 
-**Scope** — область, которую трогает коммит: пакет (`api`, `web`, `shared`, `e2e`, `landing`),
-предметная область (`finance`, `documents`, `auth`, `projects`, `teams`, `contracts`) либо
-инфраструктурная зона (`infra`, `deploy`, `ci`, `hooks`, `agents`). Список **не закрытый** —
-берётся то, что точнее описывает область.
+**Scope** — the area the commit touches: a package (`api`, `web`, `shared`, `e2e`, `landing`),
+a domain area (`finance`, `documents`, `auth`, `projects`, `teams`, `contracts`) or
+an infrastructure zone (`infra`, `deploy`, `ci`, `hooks`, `agents`). The list is **not closed** —
+take what describes the area more precisely.
 
-Commit message body — на английском (Conventional Commits standard). Assistant / agent output —
-также английский (см. `.claude/rules/common/russian-language.md`); русский — только в личном чате
-владельца с Claude.
+The commit message body is in English (Conventional Commits standard). Assistant / agent output is
+also English (see `.claude/rules/common/russian-language.md`); Russian — only in the owner's personal chat
+with Claude.
 
-> **Почему перечисление снято (2026-09-02).** Здесь стоял закрытый список из восьми типов и
-> десяти scope'ов. Перепись истории показала, что он описывал не эту кодовую базу:
-> `(reviewer)` не был использован **ни разу**, `(legal)` — один раз, а четыре самых частых
-> scope'а (`finance` 277, `landing` 155, `infra` 139, `e2e` 119) в списке отсутствовали. Из
-> типов не были перечислены `wip` — при том, что соседний раздел этого же файла его требует —
-> а также `infra` (15) и `style` (16).
+> **Why the enumeration was removed (2026-09-02).** Here stood a closed list of eight types and
+> ten scopes. A history rewrite showed it did not describe this codebase:
+> `(reviewer)` was used **not once**, `(legal)` — once, while the four most frequent
+> scopes (`finance` 277, `landing` 155, `infra` 139, `e2e` 119) were absent from the list. Of
+> the types, `wip` was not listed — even though an adjacent section of this very file requires it —
+> and neither were `infra` (15) and `style` (16).
 >
-> Список никто не энфорсил (ни `commitlint`, ни `commit-msg`-хука в репозитории нет), поэтому
-> расхождение росло молча полтора года и всплыло только при ревью PR #623, где DevOps заметил,
-> что `infra(deploy):` формально «вне списка», имея десять прецедентов начиная с PR #51.
+> Nobody enforced the list (there is no `commitlint`, no `commit-msg` hook in the repository), so the
+> divergence grew quietly for a year and a half and surfaced only at the review of PR #623, where DevOps noticed
+> that `infra(deploy):` was formally "off the list", having ten precedents starting from PR #51.
 >
-> Урок тот же, что этот файл уже усвоил на pre-push гейте абзацем выше: **перечисление ломается
-> тихо**. Правило, которое перечисляет разрешённое, устаревает при каждом новом случае и не
-> сообщает об этом; правило, которое называет признак, — нет.
+> The lesson is the same one this file already learned on the pre-push gate a paragraph above: **enumeration breaks
+> quietly**. A rule that enumerates the allowed goes stale with every new case and does not
+> announce it; a rule that names a trait does not.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/zone-of-write.md` — какой агент может писать какие пути (Reviewer выдаёт BLOCK на нарушения).
+- `.claude/rules/common/zone-of-write.md` — which agent may write which paths (the reviewer issues BLOCK on violations).
 - `.claude/rules/common/russian-language.md` — English in repo + agent output, commits English; Russian only in the owner chat.
 - Phase 2.5 hook activation: `docs/architecture/2026-06-03-phase2.5-deliverable.md` (live `pre-bash-coder-push-gate.sh`).
 
-## Источники
+## Sources
 
 - CLAUDE.md + `.clauderules`
 - `.claude/agents/memory/coder/lessons.md` 2026-05-20 [P0] git-add zero-tolerance
