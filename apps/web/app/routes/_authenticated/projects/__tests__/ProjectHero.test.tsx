@@ -276,17 +276,26 @@ describe('ProjectHero — stat chips', () => {
     expect(screen.getByText('15.03.2024')).toBeInTheDocument()
   })
 
-  it('dates render in UTC (short style) regardless of the viewer timezone', () => {
-    const prevTz = process.env.TZ
-    // UTC+14: 23:30Z on the 15th is already the 16th locally; the UTC style must keep the 15th.
-    process.env.TZ = 'Pacific/Kiritimati'
+  it('both date chips are formatted with the UTC-pinned short style', () => {
+    // Rendered text cannot tell the UTC-pinned style from the host-timezone default on a UTC
+    // host (CI), so pin the formatter contract itself: each chip builds its Intl formatter with
+    // exactly `{ timeZone: 'UTC' }` (the 'short' style), never with no options.
+    const RealDateTimeFormat = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      locales?: string | string[],
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      return new RealDateTimeFormat(locales, options)
+    } as unknown as typeof Intl.DateTimeFormat)
     try {
       setup({}, { startDate: '2024-03-15T23:30:00.000Z', archivedAt: '2024-05-01T23:30:00.000Z' })
+      const optionArgs = spy.mock.calls.map((call) => call[1])
+      expect(optionArgs.filter((o) => o?.timeZone === 'UTC')).toHaveLength(2)
+      expect(optionArgs.filter((o) => o === undefined)).toHaveLength(0)
       expect(screen.getByText('15.03.2024')).toBeInTheDocument()
       expect(screen.getByText('01.05.2024')).toBeInTheDocument()
     } finally {
-      if (prevTz === undefined) delete process.env.TZ
-      else process.env.TZ = prevTz
+      spy.mockRestore()
     }
   })
 
