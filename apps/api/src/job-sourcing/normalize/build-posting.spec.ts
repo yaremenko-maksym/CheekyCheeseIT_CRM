@@ -129,6 +129,17 @@ describe('buildNormalizedPosting', () => {
     expect(p.descriptionMd).toContain('!\\[\\]')
   })
 
+  it('text kind: a leading backslash cannot cancel our escaping (SR-H-2)', () => {
+    const md = (description: string) =>
+      buildNormalizedPosting('HN_HIRING', { ...ok, description, descriptionKind: 'text' })!
+        .descriptionMd
+    // Input `\` becomes a literal `\\`, and the next char keeps OUR escaping backslash.
+    expect(md('\\<https://evil>')).toBe('\\\\\\<https://evil>') // \<https://evil> -> \\\<https://evil>
+    expect(md('\\[a\\](https://evil)')).toBe('\\\\\\[a\\\\\\](https://evil)')
+    expect(md('\\![](https://evil)')).toBe('\\\\!\\[\\](https://evil)')
+    expect(md('a \\ b')).toBe('a \\\\ b') // plain text with a backslash stays intact (escaped once)
+  })
+
   it('text kind trims', () => {
     const p = buildNormalizedPosting('HN_HIRING', {
       ...ok,

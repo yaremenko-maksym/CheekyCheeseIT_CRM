@@ -64,7 +64,10 @@ function cleanLine(value: unknown, max: number): string {
  * does not depend on the web renderer.
  */
 function neutralizeMarkdown(text: string): string {
-  return text.replace(/[[\]]/g, '\\$&').replace(/<(?=[A-Za-z/!?])/g, '\\<')
+  // The backslash itself is escaped in the SAME first pass as `[`/`]` (before `<`). Otherwise an
+  // input `\<` / `\[` would pair our added escape into a literal backslash and leave the next
+  // character active. The `<` pass runs after, so it never re-escapes an escaped backslash.
+  return text.replace(/[\\[\]]/g, '\\$&').replace(/<(?=[A-Za-z/!?])/g, '\\<')
 }
 
 export function parseDateish(value: Date | string | number | null | undefined): Date | null {
