@@ -171,19 +171,19 @@ grep '\[P0\]' .claude/agents/memory/coder/lessons.md
 
 ## Anti-patterns
 
-| ❌ Don't                                                                | ✅ Do                                                                          |
+| ❌ Don't | ✅ Do |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------ |
-| Long Coder work without a wip-push (> 5 min / > 2 files)                | wip: push after each threshold                                                 |
-| An MCP call without a prior `Write` of the body file                    | Write → MCP → gh fallback → Master recovery (chain)                            |
-| `ScheduleWakeup(delay > 1800)` for cross-session waits                  | `mcp__scheduled-tasks__create_scheduled_task` + self-contained prompt template |
-| `git add .` / `git add -A` in the Coder workflow                        | An explicit list of files from the task spec                                   |
-| A reference to a label in .md without adding it to `.github/labels.yml` | First labels.yml + sync workflow, then the reference                           |
-| An AutoTest skip without a recorded reason                              | Skip + reason (reason code) in the task file / PR body                         |
-| Appending a lesson without a priority tag                               | `[P0                                                                           | P1                                                                            | P2] [<task-id>] (#tag) <lesson>` mandatory |
-| An intent marker on every Edit                                          | Only before an operation > 30 sec / a milestone / a risky moment               |
-| `pkill -f vite` for cleanup                                             | `lsof -ti :PORT                                                                | xargs -r kill -TERM` (by port, not by pattern name) — for macOS compatibility |
-| `git checkout BRANCH` without a pre-flight worktree check               | `git worktree list --porcelain` → if there is a worktree → `cd` into it        |
-| GNU `timeout`/`mktemp` without a macOS shim                             | `_timeout` with a perl fallback / `/tmp/<prefix>-$$-$RANDOM.<ext>`             |
+| Long Coder work without a wip-push (> 5 min / > 2 files) | wip: push after each threshold |
+| An MCP call without a prior `Write` of the body file | Write → MCP → gh fallback → Master recovery (chain) |
+| `ScheduleWakeup(delay > 1800)` for cross-session waits | `mcp__scheduled-tasks__create_scheduled_task` + self-contained prompt template |
+| `git add .` / `git add -A` in the Coder workflow | An explicit list of files from the task spec |
+| A reference to a label in .md without adding it to `.github/labels.yml` | First labels.yml + sync workflow, then the reference |
+| An AutoTest skip without a recorded reason | Skip + reason (reason code) in the task file / PR body |
+| Appending a lesson without a priority tag | `[P0                                                                           | P1                                                                            | P2] [<task-id>] (#tag) <lesson>` mandatory |
+| An intent marker on every Edit | Only before an operation > 30 sec / a milestone / a risky moment |
+| `pkill -f vite` for cleanup | `lsof -ti :PORT                                                                | xargs -r kill -TERM` (by port, not by pattern name) — for macOS compatibility |
+| `git checkout BRANCH` without a pre-flight worktree check | `git worktree list --porcelain` → if there is a worktree → `cd` into it |
+| GNU `timeout`/`mktemp` without a macOS shim | `_timeout` with a perl fallback / `/tmp/<prefix>-$$-$RANDOM.<ext>` |
 
 ## References
 
