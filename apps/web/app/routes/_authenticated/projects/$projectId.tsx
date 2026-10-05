@@ -63,6 +63,7 @@ import { InfoRow, ProjectShareInfo, ProjectDropShareInfo } from './ProjectInfoRo
 import { PendingShareApprovalBanner, ProjectHeaderApprovalNote } from './ProjectApprovalBanners'
 import { ProjectEffectiveTeamCard, MemberRow } from './ProjectTeamCards'
 import { ProjectTransactions } from './ProjectTransactions'
+import { useProjectPermissions } from './use-project-permissions'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -98,20 +99,6 @@ function ProjectDetailPage() {
   const { user } = useAuth()
   const qc = useQueryClient()
 
-  const isAdmin = user?.role === 'ADMIN'
-  const canManage = user?.role === 'ADMIN' || user?.role === 'HR'
-  // ACCOUNTANT can also open the edit dialog so they can change
-  // `seniorSharePercentOverride` (backend enforces field-scoped RBAC).
-  const canOpenEdit = canManage || user?.role === 'ACCOUNTANT'
-  const canRemoveMembers = isAdmin
-  // ut-fix-round2 (PR #39 round 2): HR не видит финансовую информацию по
-  // проекту — табу «Финансы», info-row «Доля синьора» в Обзоре и секцию
-  // ShareSlider в edit-форме.
-  // Junior finance-masking: JUNIOR тоже не видит финансы — backend уже
-  // эмитит rate/currency/share-поля как null, UI не должен пытаться их рендерить.
-  // ADMIN/ACCOUNTANT/SENIOR видят всё (SENIOR — read-only).
-  const canSeeProjectFinance = user?.role !== 'HR' && user?.role !== 'JUNIOR'
-
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
@@ -137,23 +124,18 @@ function ProjectDetailPage() {
     enabled: !!user,
   })
 
-  const canEditOverride = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
-
-  // Legend access: RBAC enforced server-side. Client-side guard:
-  // subject (seniorId / dropId) excluded; ADMIN/HR/JUNIOR get access.
-  // The hook silently returns null on 403/404 for all other roles.
-  const isSubject =
-    user?.id === project?.seniorId || (project?.dropId != null && user?.id === project?.dropId)
-  const canAccessLegend =
-    !!project &&
-    !isSubject &&
-    (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'JUNIOR')
-
-  // Credentials section on the project-detail page is for ADMIN/HR managers.
-  // (JUNIOR manages credentials from their «Мой проект» hub, not here.)
-  // The component self-hides on a 403 from the backend (e.g. an HR with no
-  // shared team), so the client guard only needs the role gate.
-  const canManageCredentials = !!project && (user?.role === 'ADMIN' || user?.role === 'HR')
+  // RBAC/visibility flags (see use-project-permissions.ts). Called before the
+  // `denied` early-return below, like every other hook on this page.
+  const {
+    isAdmin,
+    canManage,
+    canOpenEdit,
+    canRemoveMembers,
+    canSeeProjectFinance,
+    canEditOverride,
+    canAccessLegend,
+    canManageCredentials,
+  } = useProjectPermissions(user, project)
 
   const editForm = useForm({
     defaultValues: {

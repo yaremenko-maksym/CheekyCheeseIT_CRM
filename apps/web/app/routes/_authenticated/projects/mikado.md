@@ -29,7 +29,10 @@
   `AnyField`/`AnyForm` переехали в `ProjectEditFields.tsx` (нужны только ему); `coerceDomain` остаётся в странице
   (используется только ею)
 - [done] `ProjectEditFields` -> `ProjectEditFields.tsx` (лист 5)
-- [todo] хук `useProjectPermissions(user, project)` (7 производных RBAC-флагов; риск-зона `canSeeProjectFinance`)
+- [done] хук `useProjectPermissions(user, project)` -> `use-project-permissions.ts` (лист 7; 8 флагов:
+  `isAdmin`, `canManage`, `canOpenEdit`, `canRemoveMembers`, `canSeeProjectFinance`, `canEditOverride`,
+  `canAccessLegend`, `canManageCredentials`; `isSubject` внутренний; characterization:
+  `__tests__/use-project-permissions.test.ts`, роли x состояния проекта)
 - [todo] хук `useProjectDropMutations`
 
 Уровень 2 — нужен дизайн интерфейса (предпосылки: уровень 1):
