@@ -583,7 +583,7 @@ ECC is comprehensive but not omniscient. Below: explicit gaps where ECC patterns
 - **Gap:** ECC primary language is English. All agent prompts, skill descriptions, hook messages, RULES.md, AGENTS.md content are English. Our CLAUDE.md hard requirement: "All agents communicate with the user exclusively in Russian. No Ukrainian."
 - **Why ECC doesn't cover this:** ECC is upstream English-first. Author Affaan Mustafa operates in English.
 - **Adaptation plan:**
-  1. Phase 3 — When porting each agent to ECC format, prepend `**IMPORTANT: Always respond in Russian.**` to each agent's role section (immediately after YAML frontmatter).
+  1. Phase 3 — When porting each agent to ECC format, prepend `**ВАЖНО: Всегда отвечай на русском языке.**` (the per-agent "always answer in Russian" prepend) to each agent's role section (immediately after YAML frontmatter).
   2. Phase 3 — Strip any "respond in English" directives if present in ECC source agent.
   3. Phase 5 — Add a project-level rule `rules/common/russian-language.md` referenced by all our ported agents. (Cite our `feedback_*` memory items showing this is hard requirement.)
   4. Code comments and commit messages stay English (international future-proof). Lessons.md and `docs/business/` stay Russian. Git commit messages use Conventional Commits in English.
@@ -1265,7 +1265,7 @@ These are decisions the Architect cannot make alone and require User input befor
 
 **Options:**
 
-- **A. Per-agent prepend** (architect.md current pattern) — every ported agent has `**IMPORTANT: Always respond in Russian.**` at top of role section
+- **A. Per-agent prepend** (architect.md current pattern) — every ported agent has `**ВАЖНО: Всегда отвечай на русском языке.**` (the per-agent "always answer in Russian" prepend) at top of role section
 - **B. Single shared rule** — `rules/common/russian-language.md`, agents reference via `@rule` syntax
 - **C. Both** (belt-and-suspenders) — prepend in agent + shared rule
 
