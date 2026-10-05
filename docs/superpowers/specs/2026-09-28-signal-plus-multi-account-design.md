@@ -103,7 +103,7 @@ Single-account behavior identical (list of one). Existing tests unaffected.
 ## 5. Docs
 
 `.env.example`: document `SIGNAL_ACCOUNTS` and that per-account state files are
-derived automatically. `README.md`: a "Добавить участника" section — append
+derived automatically. `README.md`: an "Add a participant" section — append
 the number to `SIGNAL_ACCOUNTS`, redeploy, then link that number once by QR in
 the same container (`signal-cli -a <number> link ...`; one data dir holds
 several linked devices).

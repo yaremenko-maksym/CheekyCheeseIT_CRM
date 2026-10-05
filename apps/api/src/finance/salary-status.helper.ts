@@ -2,7 +2,7 @@
  * getOwnSalaryStatus — shared helper (DRY: replaces private duplicates in
  * TransactionsService and InterviewsService).
  *
- * Returns the caller's own SALARY transaction for `salaryMonth` (YYYY-MM) as
+ * Returns the caller's SALARY parts for `salaryMonth` (YYYY-MM) as
  * one of FOUR explicit states (task-salary-month-gap-and-status, E-6 — see
  * the module comment on `mySalaryStateSchema` in @crm/shared for the full
  * rationale): `NOT_CONFIGURED` (no `monthlySalary` set), `NOT_CRON_ELIGIBLE`
@@ -33,7 +33,12 @@
  */
 
 import { and, eq } from 'drizzle-orm'
-import type { MySalaryStateDto, SalaryStatus } from '@crm/shared'
+import type {
+  MultipartSalaryStatus,
+  MySalaryAggregateStateDto,
+  MySalaryStateDto,
+  SalaryStatus,
+} from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW —
 // a deleted SALARY reminder cannot resurface here no matter what, see
@@ -47,13 +52,18 @@ import { nonDeletedTransactions } from '../database/schema'
  * function stays free of NestJS DI and is trivially testable with a plain
  * mock.
  */
-export async function getOwnSalaryStatus(
+export interface OwnSalaryStates {
+  legacy: MySalaryStateDto
+  aggregate: MySalaryAggregateStateDto
+}
+
+export async function getOwnSalaryStates(
   db: DatabaseService['db'],
   userId: string,
   salaryMonth: string,
   salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
-): Promise<MySalaryStateDto> {
-  const [salaryRow] = await db
+): Promise<OwnSalaryStates> {
+  const salaryRows = await db
     .select()
     .from(nonDeletedTransactions)
     .where(
@@ -63,19 +73,88 @@ export async function getOwnSalaryStatus(
         eq(nonDeletedTransactions.salaryMonth, salaryMonth),
       ),
     )
-    .limit(1)
 
   const validStatuses: SalaryStatus[] = ['PENDING', 'PAID', 'LOCKED']
-  if (!salaryRow || !validStatuses.includes(salaryRow.status as SalaryStatus)) {
-    if (!salaryConfig.hasMonthlySalary) return { state: 'NOT_CONFIGURED' }
-    if (!salaryConfig.isCronEligibleRole) return { state: 'NOT_CRON_ELIGIBLE' }
-    return { state: 'AWAITING_CREATION' }
+  const validRows = salaryRows.filter((row) => validStatuses.includes(row.status as SalaryStatus))
+  if (validRows.length === 0) {
+    const state: MySalaryStateDto = !salaryConfig.hasMonthlySalary
+      ? { state: 'NOT_CONFIGURED' }
+      : !salaryConfig.isCronEligibleRole
+        ? { state: 'NOT_CRON_ELIGIBLE' }
+        : { state: 'AWAITING_CREATION' }
+    return { legacy: state, aggregate: state }
   }
 
-  return {
+  // Preserve the pre-multipart wire contract exactly. Before this feature the
+  // database guaranteed one row per receiver/month and the helper selected one
+  // row. A stale browser bundle still parses this shape strictly, so this field
+  // remains a representative single part while the additive aggregate field
+  // below carries the complete multipart truth.
+  const legacyRow = validRows[0]!
+  const legacy: MySalaryStateDto = {
     state: 'EXISTS',
-    amount: Number(salaryRow.amount),
-    currency: salaryRow.currency,
-    status: salaryRow.status as SalaryStatus,
+    amount: Number(legacyRow.amount),
+    currency: legacyRow.currency,
+    status: legacyRow.status as SalaryStatus,
   }
+
+  const byCurrency = new Map<
+    'USDT' | 'USD' | 'EUR' | 'UAH',
+    {
+      currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      amount: number
+      paidAmount: number
+      pendingAmount: number
+      lockedAmount: number
+    }
+  >()
+  for (const row of validRows) {
+    const currency = row.currency
+    const current = byCurrency.get(currency) ?? {
+      currency,
+      amount: 0,
+      paidAmount: 0,
+      pendingAmount: 0,
+      lockedAmount: 0,
+    }
+    const amount = Number(row.amount)
+    current.amount += amount
+    if (row.status === 'PAID') current.paidAmount += amount
+    else if (row.status === 'LOCKED') current.lockedAmount += amount
+    else current.pendingAmount += amount
+    byCurrency.set(currency, current)
+  }
+  const totals = [...byCurrency.values()].sort((a, b) => a.currency.localeCompare(b.currency))
+
+  const paidCount = validRows.filter((row) => row.status === 'PAID').length
+  const allPaid = paidCount === validRows.length
+  const allLocked = validRows.every((row) => row.status === 'LOCKED')
+  const status: MultipartSalaryStatus = allPaid
+    ? 'PAID'
+    : paidCount > 0
+      ? 'PARTIALLY_PAID'
+      : allLocked
+        ? 'LOCKED'
+        : 'PENDING'
+  const singleCurrency = totals.length === 1 ? totals[0]! : null
+
+  const aggregate: MySalaryAggregateStateDto = {
+    state: 'EXISTS',
+    amount: singleCurrency?.amount ?? null,
+    currency: singleCurrency?.currency ?? null,
+    status,
+    transactionCount: validRows.length,
+    totals,
+  }
+  return { legacy, aggregate }
+}
+
+/** Backward-compatible projection used by pre-multipart call sites. */
+export async function getOwnSalaryStatus(
+  db: DatabaseService['db'],
+  userId: string,
+  salaryMonth: string,
+  salaryConfig: { hasMonthlySalary: boolean; isCronEligibleRole: boolean },
+): Promise<MySalaryStateDto> {
+  return (await getOwnSalaryStates(db, userId, salaryMonth, salaryConfig)).legacy
 }

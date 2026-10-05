@@ -1,5 +1,6 @@
 import { randomBytes } from 'crypto'
 import {
+  BadRequestException,
   ForbiddenException,
   HttpStatus,
   Injectable,
@@ -64,6 +65,7 @@ import {
   projectMembers,
   payoutRequests,
   projects,
+  salaryMonthInitializations,
   teamMembers,
   transactions,
   transactionAuditLog,
@@ -95,7 +97,7 @@ import { EtherscanService } from './etherscan.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
-import { getOwnSalaryStatus } from './salary-status.helper'
+import { getOwnSalaryStates } from './salary-status.helper'
 import { previousSalaryMonthKey } from './salary-month.util'
 import {
   computeCompanyAccountBalanceFromLedger,
@@ -260,9 +262,9 @@ export class TransactionsService {
    * registry, or something else entirely?
    *
    * Mapping any 23505 to «хеш уже использован» hands the user a confident,
-   * wrong explanation: an admin edit that also sets a salary month trips
-   * `uq_transactions_salary_receiver_month` and gets told about a tx hash they
-   * never touched. Same failure the payout cascade already avoids with an
+   * wrong explanation: an unrelated unique constraint can fail in the same
+   * transaction and must not be reported as a tx hash the operator never
+   * touched. Same failure the payout cascade already avoids with an
    * allow-list of index names — the receipt entrances now share it.
    */
   private isRegistryConflict(err: unknown): boolean {
@@ -1775,10 +1777,7 @@ export class TransactionsService {
           // task-team-senior-share-override. Propagate the source from the
           // originating SENIOR_INCOME so PayoutContent renders the badge.
           seniorSharePercentSource: (firstIncomeSource ?? null) as
-            | 'PROJECT'
-            | 'TEAM'
-            | 'USER_DEFAULT'
-            | null,
+            'PROJECT' | 'TEAM' | 'USER_DEFAULT' | null,
         }
       }
     }
@@ -3118,10 +3117,9 @@ export class TransactionsService {
     //    createDividend). Every payout in the system stops until the row is
     //    fixed. A currency mistake is corrected by a reversing entry plus a
     //    new row, never in place (ADR AC5 §3).
-    //  - SALARY MONTH: it keys monthly aggregates and a unique index
-    //    (`uq_transactions_salary_receiver_month`); moving a paid salary
-    //    between months is a separate, unrelated defect (L11), deliberately
-    //    not opened here.
+    //  - SALARY MONTH: it keys historical monthly aggregates and invoice/reporting
+    //    context; moving a paid salary between months rewrites history and is a
+    //    separate, unrelated defect (L11), deliberately not opened here.
     //
     // Lifting all three "заодно" is exactly the failure ADR AC5 §3 predicts:
     // they sit in one condition, so the easy edit takes all three.
@@ -3453,6 +3451,79 @@ export class TransactionsService {
           throw apiError('FINANCE_ROW_STATE_CHANGED_WHILE_EDITING', HttpStatus.BAD_REQUEST)
         }
 
+        // Multipart salary: before this feature, the receiver/month unique
+        // index itself was cron idempotency. Moving an unpaid salary row to
+        // another month therefore automatically freed the old month. The
+        // durable marker must preserve that behaviour for legacy/CRON rows or
+        // an admin correction would leave a stale marker behind and cron would
+        // silently skip the now-empty old month forever.
+        //
+        // MANUAL parts never own a cron marker, so moving one must not disturb
+        // a marker that may belong to an automatic part in the same month.
+        if (
+          salaryMonthChanged &&
+          tx.type === 'SALARY' &&
+          tx.receiverId &&
+          tx.salaryMonth &&
+          data.salaryMonth &&
+          tx.salaryOrigin !== 'MANUAL'
+        ) {
+          const claimedTarget = await dbtx
+            .insert(salaryMonthInitializations)
+            .values({
+              receiverId: tx.receiverId,
+              salaryMonth: data.salaryMonth,
+              initializedBy: currentUser.impersonatorId ?? currentUser.id,
+            })
+            .onConflictDoNothing({
+              target: [
+                salaryMonthInitializations.receiverId,
+                salaryMonthInitializations.salaryMonth,
+              ],
+            })
+            .returning({ id: salaryMonthInitializations.id })
+
+          // If the destination was already initialized, another automatic or
+          // legacy salary already owns that month. The moved row is now an
+          // explicit operator-created extra part; reclassifying it as MANUAL
+          // prevents two rows from claiming automatic origin semantics.
+          if (claimedTarget.length === 0) {
+            await dbtx
+              .update(transactions)
+              .set({ salaryOrigin: 'MANUAL' })
+              .where(eq(transactions.id, id))
+          }
+
+          // Keep the old marker only when another raw legacy/CRON row still
+          // proves that month was initialized. Deliberately include
+          // soft-deleted rows: deleting an automatic salary is an audit event,
+          // not permission for cron to resurrect it (same invariant as
+          // createMonthlySalaries).
+          const [oldAutomaticEvidence] = await dbtx
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.type, 'SALARY'),
+                eq(transactions.receiverId, tx.receiverId),
+                eq(transactions.salaryMonth, tx.salaryMonth),
+                or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+              ),
+            )
+            .limit(1)
+
+          if (!oldAutomaticEvidence) {
+            await dbtx
+              .delete(salaryMonthInitializations)
+              .where(
+                and(
+                  eq(salaryMonthInitializations.receiverId, tx.receiverId),
+                  eq(salaryMonthInitializations.salaryMonth, tx.salaryMonth),
+                ),
+              )
+          }
+        }
+
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
         // — the money-defining fields this endpoint can mutate. Only written
         // when one of them actually changed (mirrors TeamAuditLogService's
@@ -3546,10 +3617,9 @@ export class TransactionsService {
     } catch (err) {
       // MED-L (round 5): same as the sibling receipt entrance — a racing claim
       // must surface as a 400, not a 500.
-      // MED-Q (round 6): and ONLY a registry conflict may say so. This handler
-      // is the reviewer's counterexample: an admin edit carrying `salaryMonth`
-      // can trip `uq_transactions_salary_receiver_month`, which has nothing to
-      // do with a tx hash.
+      // MED-Q (round 6): and ONLY a registry conflict may say so. Any unrelated
+      // unique violation from the same transaction has nothing to do with a tx
+      // hash and must pass through unchanged.
       if (this.isRegistryConflict(err)) {
         throw apiError('FINANCE_TX_HASH_ALREADY_CONSUMED', HttpStatus.BAD_REQUEST)
       }
@@ -5417,6 +5487,7 @@ export class TransactionsService {
       amount: number
       currency?: string
       salaryMonth: string
+      idempotencyKey: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
     },
@@ -5431,6 +5502,22 @@ export class TransactionsService {
     // receive a flat salary). Self-pay for ACCOUNTANT remains allowed.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
+
+    if (!data.idempotencyKey) {
+      throw new BadRequestException('idempotencyKey is required for manual salary creation')
+    }
+
+    // One key represents one manual salary-part intent. The public schema
+    // requires it, and the DB CHECK below rejects any MANUAL SALARY write that
+    // bypasses the controller without one. This read handles sequential replay;
+    // the partial unique index closes the concurrent race.
+    const replay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'SALARY'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (replay) return this.findOne(replay.id, currentUser)
 
     const receiver = await this.db.db.query.users.findFirst({
       where: eq(users.id, data.receiverId),
@@ -5500,21 +5587,14 @@ export class TransactionsService {
     // (paySalary). senderId/fundingSource stay null until then; the currency is
     // the nominal of the reminder (default USD). No advisory lock / balance gate.
     const currency: 'USDT' | 'USD' | 'EUR' | 'UAH' = (data.currency ?? 'USD') as
-      | 'USDT'
-      | 'USD'
-      | 'EUR'
-      | 'UAH'
+      'USDT' | 'USD' | 'EUR' | 'UAH'
 
-    // Audit 2026-06-27 (LOW #5 side-effect): the partial unique index
-    // `uq_transactions_salary_receiver_month` now enforces ONE SALARY per
-    // (receiver, month) for the manual endpoint too — a legitimate invariant (an
-    // employee is never paid two salaries for the same month). A duplicate raises
-    // SQLSTATE 23505; translate it into a clean 400 instead of a raw 500 so the
-    // UI shows a friendly message. (The cron uses ON CONFLICT DO NOTHING; the
-    // manual path surfaces the conflict to the operator who explicitly asked.)
-    let tx: typeof transactions.$inferSelect | undefined
+    // A SALARY transaction is one concrete salary part. Operators may record
+    // several parts for the same employee/month; only the automatic monthly
+    // component is idempotent (via salary_month_initializations).
+    let tx: typeof transactions.$inferSelect
     try {
-      ;[tx] = await this.db.db
+      const [created] = await this.db.db
         .insert(transactions)
         .values({
           type: 'SALARY' as const,
@@ -5525,21 +5605,30 @@ export class TransactionsService {
           senderLabel: 'CheekyCheeseIT',
           receiverId: data.receiverId,
           salaryMonth: data.salaryMonth,
+          salaryOrigin: 'MANUAL',
+          idempotencyKey: data.idempotencyKey,
           notes: data.notes ?? null,
           fundingSource: null,
           txDate: this.resolveTxDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
+      tx = created!
     } catch (err) {
-      if (isUniqueViolation(err)) {
-        throw apiError('FINANCE_SALARY_ALREADY_CREATED_FOR_MONTH', HttpStatus.BAD_REQUEST)
+      if (uniqueViolationConstraint(err) === 'uq_transactions_salary_idempotency_key') {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
       }
       throw err
     }
 
-    await this.afterTransactionCreated(tx!.id, tx!, currentUser)
-    return this.findOne(tx!.id, currentUser)
+    await this.afterTransactionCreated(tx.id, tx, currentUser)
+    return this.findOne(tx.id, currentUser)
   }
 
   // ── Create ADMIN_TRANSFER ─────────────────────────────────────────────────
@@ -7629,10 +7718,12 @@ export class TransactionsService {
     // here; written as a real role check (not hardcoded `false`) so the
     // shared helper stays correct if a future HR-summary re-add calls it for
     // a cron-eligible role.
-    const mySalaryState = await getOwnSalaryStatus(this.db.db, selfId, salaryMonth, {
+    const salaryStates = await getOwnSalaryStates(this.db.db, selfId, salaryMonth, {
       hasMonthlySalary: Boolean(selfUser?.monthlySalary),
       isCronEligibleRole: CRON_ELIGIBLE_SALARY_ROLES.has(currentUser.role),
     })
+    const mySalaryState = salaryStates.legacy
+    const mySalaryAggregateState = salaryStates.aggregate
     // DEPRECATED field — see the module comment on `mySalaryStatusSchema` in
     // @crm/shared (security-review MED-3): derived from `mySalaryState` so
     // there is exactly ONE computation, not two that could drift.
@@ -7661,6 +7752,7 @@ export class TransactionsService {
       },
       mySalaryStatus,
       mySalaryState,
+      mySalaryAggregateState,
       // task-senior-stats-block — «Статистика заработка». No money "expected"
       // figure (USER): only the per-company arrival PROGRESS for this month.
       earningsStats: {
@@ -8565,6 +8657,11 @@ export class TransactionsService {
           .where(
             and(
               eq(transactions.id, id),
+              // Mixed-source race: ADMIN_PERSONAL does not take the company
+              // advisory lock. It can flip this same row after the in-lock
+              // SELECT above but before this UPDATE. Re-assert PENDING in the
+              // write itself so exactly one funding source can win.
+              eq(transactions.status, 'PENDING'),
               isNull(transactions.deletedAt),
               // MED-3: archival re-asserted in the write, not only pre-read.
               this.salaryReceiverNotArchivedFilter(),
@@ -8892,56 +8989,72 @@ export class TransactionsService {
       actorId = admin.id
     }
 
-    const hrAccountantFailures: string[] = []
-    for (const emp of hrAccountantReceivers) {
-      // task-salary-pay-flow: monthly salaries are NEUTRAL PENDING reminders —
-      // no funding source, no currency lock, no balance impact at creation. The
-      // funding source (company account vs admin personal) and the actual
-      // payment currency are chosen at pay time (paySalary). `monthlySalary` is
-      // the USD nominal of the reminder.
-      //
-      // Audit 2026-06-27 (LOW #5): the previous find-then-insert "skip if exists"
-      // had a TOCTOU gap — a concurrent / re-run cron could insert a duplicate
-      // salary for the same (receiver, month). The DB is now the single source of
-      // truth: INSERT … ON CONFLICT DO NOTHING against the partial unique index
-      // `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND
-      // salary_month IS NOT NULL). A duplicate is silently ignored — idempotent,
-      // race-free, no read round-trip per employee (also kills the N+1).
-      //
-      // MED-1: per-employee try/catch — a DB error on one employee (e.g. transient
-      // lock or network issue) must NOT abort the loop; remaining employees still
-      // get their salary reminder. Failures are collected and logged after the loop
-      // so the cron does not silently skip employees.
-      try {
-        const inserted = await this.db.db
+    const createAutomaticSalary = async (values: {
+      receiverId: string
+      amount: string
+      projectId?: string
+    }): Promise<string | null> =>
+      this.db.db.transaction(async (dbtx) => {
+        // Claim the automatic component independently from the salary ledger.
+        // Manual parts never touch this marker, so they can coexist with cron.
+        const claimed = await dbtx
+          .insert(salaryMonthInitializations)
+          .values({
+            receiverId: values.receiverId,
+            salaryMonth: month,
+            initializedBy: actorId,
+          })
+          .onConflictDoNothing({
+            target: [salaryMonthInitializations.receiverId, salaryMonthInitializations.salaryMonth],
+          })
+          .returning({ id: salaryMonthInitializations.id })
+        if (!claimed[0]) return null
+
+        // Before this feature salary_origin did not exist. A legacy row for the
+        // receiver/month is therefore the automatic component already created.
+        // Read the raw table intentionally: a soft-deleted automatic salary must
+        // not be resurrected by a later cron run.
+        const existingAutomatic = await dbtx.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.receiverId, values.receiverId),
+            eq(transactions.salaryMonth, month),
+            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+          ),
+          columns: { id: true },
+        })
+        if (existingAutomatic) return null
+
+        const [inserted] = await dbtx
           .insert(transactions)
           .values({
             type: 'SALARY',
             status: 'PENDING',
-            amount: emp.monthlySalary,
+            amount: values.amount,
             currency: 'USD',
             senderId: null,
             senderLabel: 'CheekyCheeseIT',
-            receiverId: emp.id,
+            receiverId: values.receiverId,
+            ...(values.projectId ? { projectId: values.projectId } : {}),
             salaryMonth: month,
+            salaryOrigin: 'CRON',
             fundingSource: null,
             createdBy: actorId,
           })
-          .onConflictDoNothing({
-            target: [transactions.receiverId, transactions.salaryMonth],
-            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-            // this as the conflict-target predicate, matching the partial index's
-            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-          })
-          // security-review HIGH-1: RETURNING is empty when ON CONFLICT DO
-          // NOTHING actually did nothing — the only way to tell "this call
-          // really created a row" from "it already existed" for the audit
-          // entry below.
           .returning({ id: transactions.id })
-        if (inserted[0]) {
+        return inserted?.id ?? null
+      })
+
+    const hrAccountantFailures: string[] = []
+    for (const emp of hrAccountantReceivers) {
+      try {
+        const insertedId = await createAutomaticSalary({
+          receiverId: emp.id,
+          amount: emp.monthlySalary,
+        })
+        if (insertedId) {
           await this.afterTransactionCreated(
-            inserted[0].id,
+            insertedId,
             { type: 'SALARY', amount: emp.monthlySalary, currency: 'USD' },
             actor ?? null,
           )
@@ -8966,38 +9079,15 @@ export class TransactionsService {
 
     const juniorFailures: string[] = []
     for (const jr of juniorReceivers) {
-      // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
-      // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
-      // unique index replaces the find-then-insert TOCTOU + N+1 read.
-      //
-      // MED-1: per-member try/catch — see HR/ACCOUNTANT loop above for rationale.
       try {
-        const inserted = await this.db.db
-          .insert(transactions)
-          .values({
-            type: 'SALARY',
-            status: 'PENDING',
-            amount: jr.monthlySalary,
-            currency: 'USD',
-            senderId: null,
-            senderLabel: 'CheekyCheeseIT',
-            receiverId: jr.id,
-            projectId: jr.projectId,
-            salaryMonth: month,
-            fundingSource: null,
-            createdBy: actorId,
-          })
-          .onConflictDoNothing({
-            target: [transactions.receiverId, transactions.salaryMonth],
-            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-            // this as the conflict-target predicate, matching the partial index's
-            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-          })
-          .returning({ id: transactions.id })
-        if (inserted[0]) {
+        const insertedId = await createAutomaticSalary({
+          receiverId: jr.id,
+          amount: jr.monthlySalary,
+          projectId: jr.projectId,
+        })
+        if (insertedId) {
           await this.afterTransactionCreated(
-            inserted[0].id,
+            insertedId,
             { type: 'SALARY', amount: jr.monthlySalary, currency: 'USD' },
             actor ?? null,
           )
@@ -9022,7 +9112,8 @@ export class TransactionsService {
    * task-salary-month-gap-and-status (E-5) — «who was the cron supposed to
    * accrue this month, and didn't». Pure read: resolves the SAME two
    * populations `createMonthlySalaries` targets (see the resolvers above),
-   * then subtracts whoever already has a non-deleted SALARY row for `month`.
+   * then subtracts whoever already has an automatic/legacy salary component
+   * or a durable initialization marker for `month`.
    * No RBAC here — both public callers below gate first, this is shared,
    * unauthenticated-by-itself plumbing.
    */
@@ -9053,37 +9144,40 @@ export class TransactionsService {
 
     if (expected.length === 0) return { month, missing: [] }
 
-    // security-review MED-1: the partial unique index
-    // `uq_transactions_salary_receiver_month` has NO `deleted_at IS NULL`
-    // term (see the migration's own comment — deliberate, not an oversight
-    // elsewhere) — so a SOFT-DELETED SALARY row still occupies the
-    // (receiver_id, salary_month) slot: `ON CONFLICT DO NOTHING` blocks a
-    // fresh insert for that person even though the row is invisible
-    // everywhere else. Checking existence through `nonDeletedTransactions`
-    // ALONE would report that person as "missing" forever, and clicking
-    // Backfill would silently do nothing (`INSERT 0 0`) forever — reproduced
-    // against real Postgres. Deliberately reading the RAW `transactions`
-    // table here, not the view: this is an ADMIN/ACCOUNTANT-only EXISTENCE
-    // check (does ANY row occupy this slot), never surfacing a deleted row's
-    // content to the caller — matches the view doc's own carve-out for
-    // privileged single-row reads. Anyone with ANY row (deleted or not) for
-    // this receiver+month is excluded from `missing`: the report never
-    // advertises a backfill it cannot actually perform. (A separate,
-    // legitimate question — "an ADMIN should be told a SALARY was voided" —
-    // is already served by the existing `includeDeleted` toggle on the
-    // ordinary transactions list; not this report's job.)
+    // A manual salary part is intentionally NOT evidence that cron has run:
+    // manual and automatic parts may coexist. Markers are authoritative after
+    // this feature ships. Legacy rows (salary_origin IS NULL) and existing CRON
+    // rows are also accepted so the first post-upgrade gap check/backfill does
+    // not falsely advertise an already-accrued salary. Raw transactions are
+    // deliberate here: a soft-deleted automatic component must not be
+    // resurrected by backfill.
     const receiverIds = expected.map((r) => r.userId)
-    const existingRows = await this.db.db
-      .select({ receiverId: transactions.receiverId })
-      .from(transactions)
-      .where(
-        and(
-          eq(transactions.type, 'SALARY'),
-          eq(transactions.salaryMonth, month),
-          inArray(transactions.receiverId, receiverIds),
+    const [markers, automaticRows] = await Promise.all([
+      this.db.db
+        .select({ receiverId: salaryMonthInitializations.receiverId })
+        .from(salaryMonthInitializations)
+        .where(
+          and(
+            eq(salaryMonthInitializations.salaryMonth, month),
+            inArray(salaryMonthInitializations.receiverId, receiverIds),
+          ),
         ),
-      )
-    const existingReceiverIds = new Set(existingRows.map((r) => r.receiverId))
+      this.db.db
+        .select({ receiverId: transactions.receiverId })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.salaryMonth, month),
+            inArray(transactions.receiverId, receiverIds),
+            or(isNull(transactions.salaryOrigin), eq(transactions.salaryOrigin, 'CRON')),
+          ),
+        ),
+    ])
+    const existingReceiverIds = new Set([
+      ...markers.map((r) => r.receiverId),
+      ...automaticRows.map((r) => r.receiverId),
+    ])
 
     return {
       month,
@@ -9112,7 +9206,7 @@ export class TransactionsService {
    * this month's gap for whoever `resolveSalaryMonthGap` (== the cron's own
    * eligibility) says is missing, by re-invoking `createMonthlySalaries` for
    * the EXACT SAME month — no separate insert logic, so the idempotency
-   * guarantee (unique index + ON CONFLICT DO NOTHING) is inherited verbatim,
+   * guarantee (initialization marker + ON CONFLICT DO NOTHING) is inherited verbatim,
    * not re-implemented. Returns the POST-backfill gap so the caller sees
    * immediately whether anything is still missing (e.g. a per-employee DB
    * error the cron's own try/catch already logged).

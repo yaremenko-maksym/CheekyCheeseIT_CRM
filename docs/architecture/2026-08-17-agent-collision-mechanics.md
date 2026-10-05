@@ -1,364 +1,363 @@
-# ADR: Механики разведения агентов в общей среде
+# ADR: Mechanics for keeping agents apart in a shared environment
 
-**Дата:** 2026-08-17
-**Автор:** Architect (dispatch)
-**Пункты бэклога:** 27, 36, 45, 72, 75, 85, 100 (+ 97 как факт о среде)
+**Date:** 2026-08-17
+**Author:** Architect (dispatch)
+**Backlog items:** 27, 36, 45, 72, 75, 85, 100 (+ 97 as a fact about the environment)
 
 ## Status
 
-Proposed — ждёт review и явного «мерджим» владельца.
+Proposed — awaits review and the owner's explicit "merge it".
 
 ---
 
 ## Context
 
-За две сессии накопилось **семь** случаев пересечения агентов и **два** случая,
-когда врало самопредставление окружения. Каждый уже стоил либо испорченного
-измерения, либо потерянной находки, либо хода агента.
+Over two sessions **seven** cases of agent collision and **two** cases
+where the environment's self-representation lied have accumulated. Each has already cost either a spoiled
+measurement, or a lost finding, or an agent's turn.
 
-| #   | Дата / PR    | Что произошло                                                                                           |
-| --- | ------------ | ------------------------------------------------------------------------------------------------------- |
-| 27  | 08-07 / #493 | Два ревьюера в **общем каталоге**; чужая мутация появилась в дереве посреди замера                      |
-| 36  | 08-08 / #497 | Пишущий кодер **без изоляции** перевёл каталог оркестратора на `feature/resume-base`                    |
-| 45  | 08-11 / #504 | При переносе находок ревью в задание **потеряна находка безопасности** (обход проверки глифов)          |
-| 72  | 08-17 / #547 | `pkill -f "apps/api/dist/main"` погасил dev-API **параллельного кодера**                                |
-| 75  | 08-17 / #544 | Кодер снёс worktree **ревьюера**; тот начал работать в общем чекауте и отцепил его HEAD                 |
-| 85  | / #545, #551 | Агенты делят одну scratch-БД `crm_qa`; чужие данные читаются как дефект правки                          |
-| 100 | 08-17 / #551 | Ревьюер **откатывал файл в живом worktree работающего кодера** ради проверки красноты                   |
-| 97  | 08-17        | Харнесс сообщал агенту путь worktree, **которого нет на диске**, а чтение по нему возвращало содержимое |
-| —   | 07-xx / #545 | Кэш turbo отдал зелёный результат из чужого дерева                                                      |
+| #   | Date / PR    | What happened                                                                                                        |
+| --- | ------------ | -------------------------------------------------------------------------------------------------------------------- |
+| 27  | 08-07 / #493 | Two reviewers in a **shared directory**; a foreign mutation appeared in the tree in the middle of a measurement      |
+| 36  | 08-08 / #497 | A writing coder **without isolation** switched the orchestrator's directory to `feature/resume-base`                 |
+| 45  | 08-11 / #504 | When transferring review findings to the task **a security finding was lost** (a glyph-check bypass)                 |
+| 72  | 08-17 / #547 | `pkill -f "apps/api/dist/main"` killed the dev-API of a **parallel coder**                                           |
+| 75  | 08-17 / #544 | A coder deleted a **reviewer's** worktree; the reviewer started working in the shared checkout and detached its HEAD |
+| 85  | / #545, #551 | Agents share one scratch DB `crm_qa`; foreign data is read as an edit defect                                         |
+| 100 | 08-17 / #551 | A reviewer **rolled back a file in the live worktree of a working coder** for the sake of a redness check            |
+| 97  | 08-17        | The harness reported to an agent a worktree path **that does not exist on disk**, and reading by it returned content |
+| —   | 07-xx / #545 | The turbo cache returned a green result from a foreign tree                                                          |
 
-Общее для всех: **агенты живут в общей среде, а механик, разводящих их, нет.**
-Чинить по одному случаю значит чинить семь раз — и получить семь гейтов, каждый
-со своим профилем ложных срабатываний.
+Common to all: **agents live in a shared environment, and there are no mechanics keeping them apart.**
+Fixing one case at a time means fixing seven times — and getting seven gates, each
+with its own false-positive profile.
 
 ---
 
 ## Decision
 
-### D0. Общее лечение вместо семи точечных (confidence: HIGH)
+### D0. A common cure instead of seven pinpoint ones (confidence: HIGH)
 
-Разбор показал, что шесть из семи случаев — **следствия одной причины**:
+The breakdown showed that six of the seven cases are **consequences of one cause**:
 
-> Агент работает в каталоге, который принадлежит не ему, потому что рабочий
-> каталог ему **не выдали** — он его **унаследовал** от оркестратора.
+> An agent works in a directory that does not belong to it, because its working
+> directory was **not issued** to it — it **inherited** it from the orchestrator.
 
-Вторая половина механизма — не ошибка, а свойство среды:
-**рабочий каталог сбрасывается на каталог сессии между вызовами Bash.**
+The second half of the mechanism is not an error but a property of the environment:
+**the working directory is reset to the session directory between Bash calls.**
 
-Проверено запуском (2026-08-17, из изолированного агента):
+Verified by a run (2026-08-17, from an isolated agent):
 
 ```
 $ cd /Users/.../worktrees/agent-a19187064c6215514 && pwd && ls | head -3
-/Users/.../worktrees/agent-a19187064c6215514     ← cd внутри одного вызова работает
+/Users/.../worktrees/agent-a19187064c6215514     ← cd within one call works
 AGENTS.md ...
 
-$ pwd                                            ← СЛЕДУЮЩИЙ вызов
-/Users/.../worktrees/agent-a8f3d9397eb798ac3     ← вернулся в свой
+$ pwd                                            ← the NEXT call
+/Users/.../worktrees/agent-a8f3d9397eb798ac3     ← returned to its own
 ```
 
-Харнесс говорит это и прямым текстом в системном промпте субагента:
-_«Agent threads always have their cwd reset between bash calls»_.
+The harness says this in plain text in the subagent's system prompt too:
+_"Agent threads always have their cwd reset between bash calls"_.
 
-**Ключевой вывод: сброс cwd безвреден сам по себе.** Он вреден ровно тогда, когда
-каталог сессии — **общий**. Тогда `cd` в безопасное место не удерживается, и агент
-на каждом следующем вызове возвращается в чужое дерево — ровно сценарий #551.
+**Key conclusion: the cwd reset is harmless in itself.** It is harmful exactly when
+the session directory is **shared**. Then a `cd` to a safe place is not held, and the agent
+on each next call returns to a foreign tree — exactly the #551 scenario.
 
-Отсюда общее лечение:
+Hence the common cure:
 
-> **Каталог сессии агента выводится из идентификатора самого агента и никогда не
-> наследуется от оркестратора.**
+> **An agent's session directory is derived from the identifier of the agent itself and is never
+> inherited from the orchestrator.**
 
-Оно закрывает 27 (общий каталог ревьюеров), 36 (кодер в каталоге оркестратора),
-75-последствие (ревьюер, выброшенный в общий чекаут), 100 (ревьюер в чужом дереве)
-и обесценивает 97 (сверка фактом вместо доверия самопредставлению). Отдельных
-механик требуют только 72 (процессы — не файлы), 75-причина (снос чужого worktree)
-и 85 (общая БД).
+It closes 27 (the shared reviewer directory), 36 (the coder in the orchestrator's directory),
+the 75-consequence (the reviewer thrown into the shared checkout), 100 (the reviewer in a foreign tree)
+and devalues 97 (verify by fact instead of trusting the self-representation). Separate
+mechanics are required only by 72 (processes are not files), the 75-cause (the deletion of a foreign worktree)
+and 85 (the shared DB).
 
-Записано: `.claude/rules/common/agent-isolation.md`.
+Recorded: `.claude/rules/common/agent-isolation.md`.
 
-### D1. Что уже делает харнесс — и где у него дыры (confidence: HIGH, проверено запуском)
+### D1. What the harness already does — and where its holes are (confidence: HIGH, verified by a run)
 
-Прежде чем писать хук, проверено, что харнесс делает сам. Он **уже** содержит
-worktree-containment для изолированных агентов — и это открытие изменило дизайн:
+Before writing a hook, it was verified what the harness does itself. It **already** contains
+worktree-containment for isolated agents — and this discovery changed the design:
 
-| Проба (из изолированного агента)              | Результат                    |
-| --------------------------------------------- | ---------------------------- |
-| `git -C <главный чекаут> status --porcelain`  | **отказ харнесса**           |
-| `git -C <чужой worktree> status --porcelain`  | **отказ харнесса**           |
-| `cd <чужой worktree> && git rev-parse ...`    | **отказ харнесса**           |
-| `cd <чужой worktree> && pwd && ls \| head -3` | **выполнилось** — дыра       |
-| `git worktree remove <чужой путь>`            | **выполнилось** (ошибка git) |
-| `pkill -f <шаблон>`                           | **выполнилось**              |
+| Probe (from an isolated agent)                  | Result                     |
+| ----------------------------------------------- | -------------------------- |
+| `git -C <main checkout> status --porcelain`     | **harness refusal**        |
+| `git -C <foreign worktree> status --porcelain`  | **harness refusal**        |
+| `cd <foreign worktree> && git rev-parse ...`    | **harness refusal**        |
+| `cd <foreign worktree> && pwd && ls \| head -3` | **executed** — a hole      |
+| `git worktree remove <foreign path>`            | **executed** (a git error) |
+| `pkill -f <pattern>`                            | **executed**               |
 
-Текст отказа: _«This agent is isolated in the worktree …, but this command
-redirects git to the shared checkout via -C. Refusing to run it»_.
+The refusal text: _"This agent is isolated in the worktree …, but this command
+redirects git to the shared checkout via -C. Refusing to run it"_.
 
-**Вывод:** встроенная защита (а) только **git-специфична**, (б) только для
-**изолированных** агентов. Неизолированный агент (#497, #551) не защищён ничем,
-а файловые и процессные операции не покрыты вообще. Наши хуки закрывают ровно
-эти дыры и **не дублируют** то, что харнесс уже делает.
+**Conclusion:** the built-in protection is (a) only **git-specific**, (b) only for
+**isolated** agents. A non-isolated agent (#497, #551) is not protected by anything,
+and file and process operations are not covered at all. Our hooks close exactly
+these holes and do **not** duplicate what the harness already does.
 
-Побочно зафиксирован профиль ложных срабатываний самого харнесса: он отказывает
-и на безобидном `comm -12 a <(sort b)` (git в команде нет вовсе) с формулировкой
-«too complex to verify». Это цена его консервативности, и она подтверждает, что
-свои гейты надо строить на разборе команды, а не на «выглядит сложно».
+As a side note, the false-positive profile of the harness itself is fixed: it refuses
+even on a harmless `comm -12 a <(sort b)` (there is no git in the command at all) with the wording
+"too complex to verify". This is the price of its conservatism, and it confirms that
+one's own gates must be built on a parse of the command, not on "looks complex".
 
-### D2. Хук `pre:bash:cross-agent-blast` (confidence: HIGH, проверен запуском)
+### D2. The hook `pre:bash:cross-agent-blast` (confidence: HIGH, verified by a run)
 
 `.claude/hooks/pre-bash-cross-agent-blast.sh`, PreToolUse matcher `Bash`.
-Срабатывает **только** в агентском контексте (cwd внутри `.claude/worktrees/**`
-или claude-scratchpad, либо непустой `agent_id`); сессия владельца не трогается.
+Fires **only** in an agent context (cwd inside `.claude/worktrees/**`
+or a claude-scratchpad, or a non-empty `agent_id`); the owner's session is not touched.
 
-Предикаты:
+Predicates:
 
-| Код                | Что блокирует                                                   | Инцидент   |
-| ------------------ | --------------------------------------------------------------- | ---------- |
-| `BROADCAST-KILL`   | `pkill` / `killall` в позиции команды                           | #547       |
-| `WORKTREE-REMOVE`  | `git worktree remove <путь>`, где путь — **не мой** worktree    | #544       |
-| `WORKTREE-PRUNE`   | `git worktree prune` (снимает регистрацию **чужих** живых)      | #544       |
-| `FOREIGN-WORKTREE` | мутирующая команда, ссылающаяся на `.claude/worktrees/<не-мой>` | #551, #493 |
-| `SHARED-CHECKOUT`  | мутация общего чекаута по абсолютному пути                      | FM-2       |
+| Code               | What it blocks                                                      | Incident   |
+| ------------------ | ------------------------------------------------------------------- | ---------- |
+| `BROADCAST-KILL`   | `pkill` / `killall` in the command position                         | #547       |
+| `WORKTREE-REMOVE`  | `git worktree remove <path>`, where the path is **not my** worktree | #544       |
+| `WORKTREE-PRUNE`   | `git worktree prune` (de-registers **foreign** live ones)           | #544       |
+| `FOREIGN-WORKTREE` | a mutating command referencing `.claude/worktrees/<not-mine>`       | #551, #493 |
+| `SHARED-CHECKOUT`  | a mutation of the shared checkout by an absolute path               | FM-2       |
 
-**Как избегаются ложные срабатывания.** Решение принимается по **первому токену
-сегмента команды** (сегменты режутся по `;`, `&&`, `||`, `|`, переводу строки), а
-не по подстроке всей строки. Поэтому проходят:
+**How false positives are avoided.** The decision is made by the **first token
+of the command segment** (segments are split by `;`, `&&`, `||`, `|`, a newline), not
+by a substring of the whole string. Therefore the following pass:
 
-- `grep -rn "pkill" .claude/hooks/` и `echo "не запускай pkill"` — слово в
-  **аргументе**, а не команда;
-- `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — документированный sweep
-  владельца (`light-track.md`);
-- `kill <PID>` / `kill -TERM <PID>` — предписанная замена;
-- чтение чужого дерева (`cat`, `grep`, `git log`) — гейтится только мутация;
-- удаление **своего** worktree.
+- `grep -rn "pkill" .claude/hooks/` and `echo "do not run pkill"` — the word in
+  an **argument**, not a command;
+- `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — the owner's documented sweep
+  (`light-track.md`);
+- `kill <PID>` / `kill -TERM <PID>` — the prescribed replacement;
+- reading a foreign tree (`cat`, `grep`, `git log`) — only a mutation is gated;
+- deleting **one's own** worktree.
 
-Это осознанное отличие от соседнего `pre:bash:safety`, который грепает сырую
-строку и потому блокирует обычный `echo`, упоминающий `DROP DATABASE crm_db`
-(воспроизведено 2026-08-17 при работе над этой задачей). Такие срабатывания и
-вырабатывают рефлекс обходить гейт — бэклог 63, `live-db-guard` против `grep`.
+This is a deliberate difference from the neighboring `pre:bash:safety`, which greps the raw
+string and therefore blocks an ordinary `echo` mentioning `DROP DATABASE crm_db`
+(reproduced 2026-08-17 while working on this task). Such firings are what
+develop the reflex to bypass the gate — backlog 63, `live-db-guard` against `grep`.
 
-### D3. Хук `pre:agent:dispatch-isolation` (confidence: MED — см. «не проверено»)
+### D3. The hook `pre:agent:dispatch-isolation` (confidence: MED — see "not verified")
 
 `.claude/hooks/pre-agent-dispatch-isolation.sh`, PreToolUse matcher `Agent|Task`.
-Отказывает, если субагент из списка **пишущих** (`coder`, `autotest`, `devops`,
-`ui-ux-designer`, `manual-qa`, `legal`, `pm`, `architect`) диспатчится **без**
-`isolation` и **без** `cwd`; плюс отказывает, если в промпте задан общий рабочий
-каталог абсолютным путём вида `/tmp/rev<PR>` (пункт 27).
+Refuses if a subagent from the list of **writing** ones (`coder`, `autotest`, `devops`,
+`ui-ux-designer`, `manual-qa`, `legal`, `pm`, `architect`) is dispatched **without**
+`isolation` and **without** `cwd`; plus refuses if a shared working directory is specified
+in the prompt by an absolute path of the form `/tmp/rev<PR>` (item 27).
 
-**Выполнимость механики (AC4) — установлена фактом, а не рассуждением:**
+**The mechanics' feasibility (AC4) — established by a fact, not by reasoning:**
 
-1. PreToolUse диспатчится **обобщённо по имени инструмента**: в исходнике Claude
-   Code `services/tools/toolExecution.ts` вызывает `runPreToolUseHooks()` для
-   любого инструмента, та — `executePreToolHooks(tool.name, …)` с
-   `matchQuery = tool.name` и `tool_input` = разобранный вход инструмента.
-   Allow-list инструментов нет, то есть `Agent` включён.
-2. Инструмент называется `Agent`, алиас `Task` сохранён **именно ради хуков**:
+1. PreToolUse is dispatched **generically by the tool name**: in the Claude
+   Code source `services/tools/toolExecution.ts` calls `runPreToolUseHooks()` for
+   any tool, which calls `executePreToolHooks(tool.name, …)` with
+   `matchQuery = tool.name` and `tool_input` = the parsed tool input.
+   There is no tool allow-list, that is, `Agent` is included.
+2. The tool is called `Agent`, the alias `Task` is kept **precisely for the sake of hooks**:
    `// Legacy wire name for backward compat (permission rules, hooks, resumed
-sessions)` — `tools/AgentTool/constants.ts`. `matchesPattern()` нормализует
-   legacy-имена, поэтому matcher `Agent|Task` покрывает оба.
-3. `isolation` и `cwd` — реальные необязательные поля входной схемы Agent-tool
-   (`tools/AgentTool/AgentTool.tsx`), рядом с `subagent_type`; значит приходят
-   внутрь `tool_input` и читаемы хуком.
-4. **Проектные хуки действительно срабатывают на вызовах субагента в этом
-   рантайме** — проверено запуском: из субагента выполнен `echo`, содержащий
-   строку `DROP DATABASE crm_db`, и получен отказ `pre:bash:safety`.
+sessions)` — `tools/AgentTool/constants.ts`. `matchesPattern()` normalizes
+   legacy names, so the matcher `Agent|Task` covers both.
+3. `isolation` and `cwd` are real optional fields of the Agent-tool input schema
+   (`tools/AgentTool/AgentTool.tsx`), next to `subagent_type`; so they come
+   inside `tool_input` and are readable by the hook.
+4. **Project hooks do fire on subagent calls in this runtime** — verified by a run: from a subagent an `echo` was executed containing
+   the string `DROP DATABASE crm_db`, and a refusal `pre:bash:safety` was received.
 
-**Что НЕ проверено и почему (честно):** субагент не может сам диспатчить
-`Agent`, поэтому автор этого ADR не мог выполнить реальный вызов Agent-tool и
-увидеть, как хук его блокирует. Пункты 1–3 взяты из утёкшего снапшота исходника,
-который **старше** работающего приложения: строка живого worktree-гварда
-(D1) в снапшоте **отсутствует**. Поэтому:
+**What is NOT verified and why (honestly):** a subagent cannot itself dispatch
+`Agent`, so the author of this ADR could not perform a real Agent-tool call and
+see the hook block it. Items 1–3 are taken from the leaked source snapshot,
+which is **older** than the running application: the line of the live worktree-guard
+(D1) is **absent** from the snapshot. Therefore:
 
-> Хук — **пояс**, а отчётная строка (D4) — **подтяжки**. Пункт AC5 именно этой
-> пары и требует, а не ставки на один из двух слоёв.
+> The hook is a **belt**, and the report line (D4) are the **suspenders**. The AC5 item requires exactly this
+> pair, not a bet on one of the two layers.
 
-**Read-only агентам изоляция не навязывается (AC6).** `code-reviewer`,
-`security-reviewer`, `copy-reviewer`, `Explore`, `Plan`, фан-аут `codebase-audit`
-проходят гейт молча — worktree стоит дисковых операций, а diff читается через
-`gh` / GitHub MCP. Неизвестные типы субагентов тоже проходят: **default-allow**,
-потому что неизвестность — не улика, а гейт, срабатывающий на сюрпризах, учит
-себя обходить.
+**Read-only agents are not forced into isolation (AC6).** `code-reviewer`,
+`security-reviewer`, `copy-reviewer`, `Explore`, `Plan`, the `codebase-audit` fan-out
+pass the gate silently — a worktree costs disk operations, and the diff is read via
+`gh` / GitHub MCP. Unknown subagent types also pass: **default-allow**,
+because the unknown is not evidence, and a gate firing on surprises teaches
+itself to be bypassed.
 
-### D4. Наблюдаемость там, где механики нет (confidence: HIGH)
+### D4. Observability where there is no mechanics (confidence: HIGH)
 
-Требование «не добавлять правил, исполнение которых нельзя наблюдать» дало три
-места, где механика невозможна, и для каждого — способ сделать нарушение видимым
-**в отчёте**, а не в последствиях:
+The requirement "do not add rules whose execution cannot be observed" gave three
+places where mechanics are impossible, and for each — a way to make a violation visible
+**in the report**, not in the consequences:
 
-| Правило                                        | Почему нет механики                                                    | Наблюдаемость                                                     |
-| ---------------------------------------------- | ---------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| Сверить `--show-toplevel` перед первой правкой | Bash-хук не знает, какой путь выдали агенту при диспатче               | Строка `Worktree: <path> (verified)` в отчёте; нет → на доработку |
-| Остановиться, если worktree исчез              | Пропажу видит только сам агент; хук не отличит «исчез» от «не заходил» | Та же строка + явный «стоп и сообщи» в правиле                    |
-| Не работать в общем каталоге замеров           | Ревьюеру каталог не выдают, он его создаёт                             | Строка `Checkout: <path> @ <sha> (clean)` в теле review           |
+| Rule                                           | Why there is no mechanics                                                                                    | Observability                                                                |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| Verify `--show-toplevel` before the first edit | The Bash hook does not know which path was issued to the agent at dispatch                                   | The line `Worktree: <path> (verified)` in the report; none → back for rework |
+| Stop if the worktree disappeared               | Only the agent itself sees the disappearance; the hook cannot distinguish "disappeared" from "never entered" | The same line + an explicit "stop and report" in the rule                    |
+| Do not work in a shared measurement directory  | The directory is not issued to the reviewer, it creates it                                                   | The line `Checkout: <path> @ <sha> (clean)` in the review body               |
 
-Две одинаковые строки `Checkout:` у двух ревьюеров одного PR = коллизия
-каталогов, видна PM в аггрегате. Это и есть замена невозможному хуку.
+Two identical `Checkout:` lines from two reviewers of one PR = a directory collision,
+visible to PM in the aggregate. This is the replacement for the impossible hook.
 
-### D5. Перенос находок ревью (пункт 45; confidence: HIGH)
+### D5. Transfer of review findings (item 45; confidence: HIGH)
 
-Правило: `.claude/rules/common/review-findings-transfer.md`. Ревьюер нумерует
-находки (`CR-H-1`, `SR-M-2`, …) **в момент написания review** и закрывает тело
-контрольной строкой `Findings: … (N)`; оркестратор переносит **весь** список,
-включая то, что решено не делать; исполнитель отчитывается **по каждому**
-идентификатору, включая «не делал, потому что…».
+Rule: `.claude/rules/common/review-findings-transfer.md`. The reviewer numbers
+the findings (`CR-H-1`, `SR-M-2`, …) **at the moment of writing the review** and closes the body
+with the control line `Findings: … (N)`; the orchestrator transfers the **whole** list,
+including what is decided not to do; the executor reports **on each**
+identifier, including "did not do, because…".
 
-**Механический чек (AC9) — решение принято явно: CI-гейт НЕ вводим.** Причины:
-(1) сравнивать нечего с чем — отчёт исполнителя живёт в чате и теле PR, review в
-GitHub, CI видит только PR; (2) гейт ловил бы форматирование, а не пропажу —
-ревьюер, забывший строку `Findings:`, красит PR, а оркестратор, потерявший находку
-и переписавший строку, — нет; это отрицательная выборка, ровно тот класс проверок,
-который мы весь месяц вычищаем; (3) дешёвая часть даёт почти весь эффект —
-контрольная строка превращает сверку в сравнение двух чисел. Условие пересмотра
-записано в правиле.
+**The mechanical check (AC9) — the decision is made explicitly: a CI gate is NOT introduced.** Reasons:
+(1) there is nothing to compare with what — the executor's report lives in the chat and the PR body, the review in
+GitHub, CI sees only the PR; (2) the gate would catch formatting, not the loss —
+a reviewer who forgot the `Findings:` line reddens the PR, while the orchestrator who lost a finding
+and rewrote the line does not; this is a negative sample, exactly the class of checks
+we have been cleaning out all month; (3) the cheap part gives almost the whole effect —
+the control line turns the reconciliation into a comparison of two numbers. The revision condition is
+recorded in the rule.
 
-### D6. Sweep стухших worktree (пункт 75 / AC14; confidence: HIGH по данным, MED по срокам)
+### D6. Sweep of stale worktrees (item 75 / AC14; confidence: HIGH on data, MED on timing)
 
-**Замер на 2026-08-17:** 44 worktree, 37 с ветками. Из них:
+**Measurement as of 2026-08-17:** 44 worktrees, 37 with branches. Of them:
 
-- **20** соответствуют веткам с **уже смерженным PR** — кандидаты на уборку;
-- **17** веток вообще не имеют remote (`no-remote`) — то есть содержат **только
-  локальные, не запушенные** коммиты;
-- **2** имеют по 1 неотправленному коммиту сверх remote;
-- **1** залочен (`locked`) — мой собственный.
+- **20** correspond to branches with an **already-merged PR** — candidates for cleanup;
+- **17** branches have no remote at all (`no-remote`) — that is, they contain **only
+  local, unpushed** commits;
+- **2** have 1 unsent commit each over the remote;
+- **1** is locked (`locked`) — my own.
 
-Два вывода, оба контринтуитивные и оба обязательны для любого будущего скрипта:
+Two conclusions, both counterintuitive and both mandatory for any future script:
 
-1. **Предок-тест не работает.** Мы мержим squash-ом, поэтому коммиты ветки не
-   становятся предками `main`: `git merge-base --is-ancestor` вернул «не смержено»
-   для **всех** веток, включая давно смерженные. Наивный sweep по ancestry либо
-   не удалит ничего, либо (если инвертировать) удалит всё. Достоверный признак —
-   только состояние PR через `gh pr list --state merged --head <branch>`.
-2. **«Смерженный PR» ≠ «worktree брошен».** В список из 20 попал
-   `claude/cheekycheeseit-crm-backlog-6e44ec` — это worktree **живого
-   оркестратора** этой самой сессии. И он **не залочен**: залочен на весь репозиторий
-   ровно один worktree (мой). То есть **надёжного флага «жив» не существует** —
-   именно поэтому кодер в #544 ошибся, и именно поэтому агенту такое решение
-   принимать нельзя в принципе.
+1. **The ancestor test does not work.** We merge by squash, so a branch's commits do not
+   become ancestors of `main`: `git merge-base --is-ancestor` returned "not merged"
+   for **all** branches, including long-merged ones. A naive sweep by ancestry either
+   deletes nothing, or (if inverted) deletes everything. A reliable sign is
+   only the PR state via `gh pr list --state merged --head <branch>`.
+2. **"A merged PR" ≠ "the worktree is abandoned".** The list of 20 included
+   `claude/cheekycheeseit-crm-backlog-6e44ec` — this is the worktree of the **live
+   orchestrator** of this very session. And it is **not locked**: exactly one worktree is locked
+   across the whole repository (mine). That is, **there is no reliable "alive" flag** —
+   that is exactly why the coder in #544 erred, and exactly why such a decision
+   must not be made by an agent in principle.
 
-**Решение:**
+**Decision:**
 
-- **Агенты worktree не убирают вообще** — ни свои чужие, ни «явно стухшие».
-  Свой — можно (и нужно) удалить за собой; чужой — только сообщить оркестратору.
-  Это уже энфорсится `pre:bash:cross-agent-blast` (`WORKTREE-REMOVE` / `PRUNE`).
-- **Убирает владелец**, скриптом, по образцу `scripts/devops/reap-zombie-devservers.sh`
-  (dry-run по умолчанию, launchd опционально). Скрипт живёт в `scripts/devops/**`
-  — **это зона DevOps, не Architect**, поэтому здесь он специфицируется, а не
-  пишется. Отдельная DevOps-задача.
-- **Обязательные условия — worktree убирается, только если выполнено ВСЁ:**
-  1. PR ветки в состоянии `merged` (через `gh`, не через ancestry);
-  2. рабочее дерево чистое (`status --porcelain` пусто);
-  3. нет коммитов, отсутствующих на remote (`rev-list --count origin/<b>..<b>` = 0;
-     ветка без remote — **не** кандидат);
-  4. worktree не залочен и не является текущим;
-  5. нет процесса, чей путь указывает внутрь этого worktree (`pgrep -f <path>`);
-  6. возраст mtime каталога > 24 ч.
-- Дефолт — `DRY_RUN=1`, вывод списка кандидатов; реальное удаление — явным флагом.
+- **Agents do not clean up worktrees at all** — neither foreign ones nor "clearly stale" ones.
+  One's own — can (and should) be deleted after oneself; a foreign one — only report to the orchestrator.
+  This is already enforced by `pre:bash:cross-agent-blast` (`WORKTREE-REMOVE` / `PRUNE`).
+- **The owner cleans up**, by a script, modeled on `scripts/devops/reap-zombie-devservers.sh`
+  (dry-run by default, launchd optional). The script lives in `scripts/devops/**`
+  — **this is the DevOps zone, not Architect**, so here it is specified, not
+  written. A separate DevOps task.
+- **Mandatory conditions — a worktree is cleaned up only if ALL is satisfied:**
+  1. the branch's PR is in the `merged` state (via `gh`, not via ancestry);
+  2. the working tree is clean (`status --porcelain` empty);
+  3. there are no commits missing from the remote (`rev-list --count origin/<b>..<b>` = 0;
+     a branch without a remote is **not** a candidate);
+  4. the worktree is not locked and is not the current one;
+  5. there is no process whose path points inside this worktree (`pgrep -f <path>`);
+  6. the directory mtime age > 24 h.
+- The default is `DRY_RUN=1`, outputting a list of candidates; the real deletion — by an explicit flag.
 
-### D7. Общая scratch-БД (пункт 85 / AC15; confidence: MED)
+### D7. The shared scratch DB (item 85 / AC15; confidence: MED)
 
-**Оценка «база на агента».** Цена: `createdb` + `drizzle-kit push` + `db:seed` на
-каждый прогон — это десятки секунд на прогон против сегодняшних «одно падение из
-48». Плюс сборка мусора: агент, умерший на лимите (сегодня это случилось дважды),
-базу за собой не снесёт, и мы получим ту же свалку, что с 44 worktree, только в
-Postgres. Плюс `DATABASE_URL` придётся вычислять в каждом дисптач-промпте, а не
-брать из `.env` — то есть новая поверхность для ошибки, которую мы только что
-закрывали `live-db-guard`.
+**Assessment of "a DB per agent".** The cost: `createdb` + `drizzle-kit push` + `db:seed` on
+each run — this is tens of seconds per run against today's "one failure out of
+48". Plus garbage collection: an agent that died on a limit (today it happened twice)
+will not delete the DB after itself, and we will get the same dump as with 44 worktrees, only in
+Postgres. Plus `DATABASE_URL` will have to be computed in each dispatch prompt, rather than
+taken from `.env` — that is, a new surface for the error we were just
+closing with `live-db-guard`.
 
-**Решение: базу-на-агента НЕ вводим сейчас.** Вместо неё — две дешёвые меры:
+**Decision: we do NOT introduce a DB-per-agent now.** Instead — two cheap measures:
 
-1. **Пространство имён в фикстурах — там, где гвард это позволяет.** Инфраструктура
-   уже наполовину есть: `assertNoForeignUnstampedRows()` и
-   `assertNoForeignPathBRows()` фильтруют по `TEST_OWN_USER_IDS`, то есть спека уже
-   умеет отличать своё от чужого. Достаточно распространить этот приём (собственный
-   префикс/владелец у всех вставляемых строк) на новые интеграционные спеки.
-   Именно этого не сделали на #551, где новый кейс сам стал источником загрязнения.
-2. **Сериализация спек, которые сканируют таблицу целиком.** Гварды выше по
-   конструкции читают всю таблицу и потому несовместимы с параллельным прогоном
-   чужих фикстур. Такие спеки должны идти в один поток
-   (`describe.sequential` / отдельный проект vitest), а не полагаться на удачу.
+1. **A namespace in the fixtures — where the guard allows it.** The infrastructure
+   is already half there: `assertNoForeignUnstampedRows()` and
+   `assertNoForeignPathBRows()` filter by `TEST_OWN_USER_IDS`, that is, the spec already
+   knows how to tell its own from foreign. It is enough to extend this technique (one's own
+   prefix/owner on all inserted rows) to the new integration specs.
+   This is exactly what was not done on #551, where the new case itself became a source of contamination.
+2. **Serialization of specs that scan the whole table.** The guards above by
+   construction read the whole table and are therefore incompatible with a parallel run
+   of foreign fixtures. Such specs must go single-threaded
+   (`describe.sequential` / a separate vitest project), rather than rely on luck.
 
-**Условие пересмотра:** если после (1)+(2) ложные падения от чужих данных
-повторятся, вводить базу-на-агента с именем из идентификатора агента
-(`crm_qa_<agent-id>`) **вместе** с reaper-ом по образцу D6 — без reaper-а это
-обмен одной свалки на другую.
+**Revision condition:** if after (1)+(2) false failures from foreign data
+recur, introduce a DB-per-agent with a name from the agent identifier
+(`crm_qa_<agent-id>`) **together** with a reaper modeled on D6 — without the reaper this is
+an exchange of one dump for another.
 
-Смежное: зелёный результат turbo-кэша из чужого дерева (#545) — та же семья
-(общий кэш поверх разных деревьев). Отдельной механики здесь не вводим, но при
-измерении красноты/зелени обязателен `--force` / отключённый кэш; записано в
-`code-review-discipline` §6 как часть требования «дерево == ревьюируемому коммиту».
+Adjacent: a green turbo-cache result from a foreign tree (#545) — the same family
+(a shared cache over different trees). We do not introduce separate mechanics here, but when
+measuring redness/greenness `--force` / a disabled cache is mandatory; recorded in
+`code-review-discipline` §6 as part of the requirement "the tree == the reviewed commit".
 
 ---
 
 ## Consequences
 
-**Плюсы.**
+**Pros.**
 
-- Шесть случаев закрываются одним принципом (D0), а не шестью гейтами.
-- Два новых гейта проверены запуском на **обе** стороны — 33 кейса, из них 21
-  «должен молчать».
-- Ложные срабатывания минимизированы конструктивно (разбор по первому токену), а
-  не обещанием.
-- Там, где механика невозможна, нарушение стало **видно в отчёте** (D4).
-- Явно зафиксировано, что харнесс уже умеет (D1) — мы не дублируем и не спорим с ним.
+- Six cases are closed by one principle (D0), not by six gates.
+- Two new gates are verified by a run on **both** sides — 33 cases, of which 21
+  "must stay silent".
+- False positives are minimized constructively (a parse by the first token), not
+  by a promise.
+- Where mechanics are impossible, a violation has become **visible in the report** (D4).
+- It is explicitly fixed what the harness already can do (D1) — we do not duplicate or argue with it.
 
-**Минусы и риски.**
+**Cons and risks.**
 
-- `pre:agent:dispatch-isolation` не проверен end-to-end (D3). Если рантайм не
-  диспатчит PreToolUse на `Agent`, гейт молча не сработает — **отсюда
-  обязательный второй слой** (строка в диспатче + проверка чистоты главного
-  чекаута после каждого агента). Первый же реальный диспатч пишущего агента без
-  изоляции покажет, работает ли хук; это стоит проверить сознательно.
-- Два новых always-on правила — это контекст в каждой сессии. Оба намеренно
-  короткие и ссылаются друг на друга, а не дублируют.
-- D6 и D7 — решения, а не реализации: sweep-скрипт и namespace-фикстуры уходят
-  отдельными задачами (DevOps / Coder), потому что лежат вне зоны Architect.
+- `pre:agent:dispatch-isolation` is not verified end-to-end (D3). If the runtime does not
+  dispatch PreToolUse on `Agent`, the gate silently does not fire — **hence the
+  mandatory second layer** (the line in the dispatch + a cleanliness check of the main
+  checkout after each agent). The very first real dispatch of a writing agent without
+  isolation will show whether the hook works; this is worth checking deliberately.
+- Two new always-on rules are context in each session. Both are deliberately
+  short and reference each other rather than duplicate.
+- D6 and D7 are decisions, not implementations: the sweep-script and the namespace-fixtures go off
+  as separate tasks (DevOps / Coder), because they lie outside the Architect zone.
 
-**Что осталось за скобками сознательно.**
+**What was left out deliberately.**
 
-- Чтение чужого дерева не блокируется (только мутация) — блокировать чтение
-  значило бы ловить легитимную сверку и множить ложные срабатывания.
-- Sweep worktree не автоматизирован в этом PR (чужая зона записи).
+- Reading a foreign tree is not blocked (only a mutation) — blocking reading
+  would mean catching a legitimate reconciliation and multiplying false positives.
+- The worktree sweep is not automated in this PR (a foreign write zone).
 
 ---
 
 ## Rollback
 
-Гранулярность — от одного файла к полному откату.
+Granularity — from one file to a full rollback.
 
 ```bash
-# 1. Отключить один хук, оставив файлы (самый частый случай: ложные срабатывания)
-#    — убрать блок с "id": "pre:bash:cross-agent-blast" (или "pre:agent:dispatch-isolation")
-#    из .claude/settings.json.
-git checkout origin/main -- .claude/settings.json      # вернуть регистрацию хуков как было
+# 1. Disable one hook, keeping the files (the most frequent case: false positives)
+#    — remove the block with "id": "pre:bash:cross-agent-blast" (or "pre:agent:dispatch-isolation")
+#    from .claude/settings.json.
+git checkout origin/main -- .claude/settings.json      # restore the hook registration as it was
 
-# 2. Откатить отдельный файл
+# 2. Roll back a single file
 git checkout origin/main -- .claude/rules/common/agent-isolation.md
 
-# 3. Откатить весь PR после мержа
+# 3. Roll back the whole PR after the merge
 git revert -m 1 <merge-sha>
 
-# 4. До мержа — просто закрыть PR; ветка ничего не меняет в main.
+# 4. Before the merge — just close the PR; the branch changes nothing in main.
 ```
 
-**Ожидаемое состояние после отката (1):** `git -C <repo> diff origin/main -- .claude/settings.json`
-пусто; хуки на диске остаются, но не вызываются.
-**Верификация:** `python3 -c "import json;print([h['id'] for h in json.load(open('.claude/settings.json'))['hooks']['PreToolUse']])"`
-не содержит откатанного id; `bash .claude/hooks/tests/cross-agent-hooks-smoke.sh`
-продолжает проходить (тест дёргает скрипты напрямую и от регистрации не зависит).
+**Expected state after rollback (1):** `git -C <repo> diff origin/main -- .claude/settings.json`
+empty; the hooks remain on disk but are not invoked.
+**Verification:** `python3 -c "import json;print([h['id'] for h in json.load(open('.claude/settings.json'))['hooks']['PreToolUse']])"`
+does not contain the rolled-back id; `bash .claude/hooks/tests/cross-agent-hooks-smoke.sh`
+continues to pass (the test calls the scripts directly and does not depend on the registration).
 
 ---
 
 ## Sources
 
-- Инциденты: PR #493, #497, #504, #544, #545, #547, #551 (даты в таблице Context).
-- Проверочные прогоны харнесса и хуков — 2026-08-17, вывод в теле PR
+- Incidents: PR #493, #497, #504, #544, #545, #547, #551 (dates in the Context table).
+- Verification runs of the harness and the hooks — 2026-08-17, output in the PR body
   `infra/agent-infra-mechanics`.
-- Исходник Claude Code (утёкший снапшот, `~/Desktop/programming/claude-code/`,
-  память `reference_cc_leak_source`): `services/tools/toolExecution.ts`,
+- Claude Code source (leaked snapshot, `~/Desktop/programming/claude-code/`,
+  memory `reference_cc_leak_source`): `services/tools/toolExecution.ts`,
   `services/tools/toolHooks.ts`, `utils/hooks.ts`, `tools/AgentTool/constants.ts`,
-  `tools/AgentTool/AgentTool.tsx`. **Снапшот старше работающего приложения** —
-  см. оговорку в D3.
-- Системный промпт субагента (этот рантайм): «Agent threads always have their cwd
-  reset between bash calls».
-- Существующие прецеденты: `scripts/devops/reap-zombie-devservers.sh`,
+  `tools/AgentTool/AgentTool.tsx`. **The snapshot is older than the running application** —
+  see the caveat in D3.
+- The subagent's system prompt (this runtime): "Agent threads always have their cwd
+  reset between bash calls".
+- Existing precedents: `scripts/devops/reap-zombie-devservers.sh`,
   `.claude/hooks/pre-bash-live-db-guard.sh`, `.claude/rules/common/light-track.md`.

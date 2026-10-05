@@ -9,7 +9,7 @@
 
 ## 1. Goal
 
-Make the onboarding **contract step** operate on the new-employee's **personal** `employee_contract` (DRAFT → READY_TO_SIGN → SIGNED) instead of the legacy role-template flow, and add a **"Контракт готовится"** wait state when no `READY_TO_SIGN` contract exists yet. This finishes the A3 series: ADMIN prepares the personal contract (A3-2/A3-3) → the employee reviews & signs it during onboarding (A3-4).
+Make the onboarding **contract step** operate on the new-employee's **personal** `employee_contract` (DRAFT → READY_TO_SIGN → SIGNED) instead of the legacy role-template flow, and add a **"Contract is being prepared"** wait state when no `READY_TO_SIGN` contract exists yet. This finishes the A3 series: ADMIN prepares the personal contract (A3-2/A3-3) → the employee reviews & signs it during onboarding (A3-4).
 
 ## 2. Background — current state (what's broken / misaligned)
 
@@ -17,10 +17,10 @@ The **backend sign path already uses the personal contract**: `POST /api/contrac
 
 The **onboarding frontend lagged behind**:
 
-1. **Broken PDF preview.** `SignContractStep` fetches `GET /api/contracts/preview-pdf`, an endpoint **deleted in A3-1**. On a real stack this 404s → the step shows "Не удалось загрузить предварительный просмотр контракта" and signing is blocked. The breakage is masked by route-mocked E2E (the `feedback_mocked_e2e_guards` lesson — mocks return 200 for a route the real backend no longer serves).
+1. **Broken PDF preview.** `SignContractStep` fetches `GET /api/contracts/preview-pdf`, an endpoint **deleted in A3-1**. On a real stack this 404s → the step shows "Failed to load the contract preview" and signing is blocked. The breakage is masked by route-mocked E2E (the `feedback_mocked_e2e_guards` lesson — mocks return 200 for a route the real backend no longer serves).
 2. **Wrong gate.** `OnboardingService.getStatus.requiresContract` is computed from the **role template** (active template exists AND no `signed_contracts` row for it), not from the personal contract. So the step shows/hides based on the template, while signing acts on the personal contract — a mismatch.
 3. **No wait state.** If a contract-role user has no `READY_TO_SIGN` personal contract (ADMIN hasn't prepared/marked it), the UI would push them at a sign action that 409s. There is no "contract being prepared" screen.
-4. **Stale copy.** The step says "MSA-контракт"; it should reference the personal contract + its number (CHK-…).
+4. **Stale copy.** The step says "MSA contract"; it should reference the personal contract + its number (CHK-…).
 
 ## 3. Approach (decided)
 
@@ -29,7 +29,7 @@ Align the onboarding contract step end-to-end with the **personal** `employee_co
 Decided in brainstorming:
 
 - **Scope:** sign the personal contract in onboarding (not just preview; not the broader profile-fields gating).
-- **No ready contract → block** with a "Контракт готовится" wait screen (do not enter CRM, do not fall back to the role template).
+- **No ready contract → block** with a "Contract is being prepared" wait screen (do not enter CRM, do not fall back to the role template).
 
 ## 4. Backend — `OnboardingService.getStatus`
 
@@ -40,11 +40,11 @@ Redefine the contract requirement around the personal contract:
 
 This yields three derivable states for any non-ADMIN contract-role user:
 
-| `requiresContract` | `contractReady` | Meaning                                           | UI                                   |
-| ------------------ | --------------- | ------------------------------------------------- | ------------------------------------ |
-| `true`             | `false`         | personal contract not yet ready (ADMIN preparing) | **Wait screen** «Контракт готовится» |
-| `true`             | `true`          | personal contract READY_TO_SIGN                   | **Sign step** (preview + sign)       |
-| `false`            | —               | personal contract already SIGNED                  | contract step **done** → ToS         |
+| `requiresContract` | `contractReady` | Meaning                                           | UI                                           |
+| ------------------ | --------------- | ------------------------------------------------- | -------------------------------------------- |
+| `true`             | `false`         | personal contract not yet ready (ADMIN preparing) | **Wait screen** "Contract is being prepared" |
+| `true`             | `true`          | personal contract READY_TO_SIGN                   | **Sign step** (preview + sign)               |
+| `false`            | —               | personal contract already SIGNED                  | contract step **done** → ToS                 |
 
 **Backward compatibility:** the 17 already-onboarded users have `SIGNED` personal contracts (A3-1 migration) → `requiresContract=false` → unaffected.
 
@@ -64,7 +64,7 @@ Replace the deleted `GET /api/contracts/preview-pdf` with **`GET /api/onboarding
 
 Driven by `status.requiresContract` + `status.contractReady`:
 
-- **Wait — «Контракт готовится»** (`requiresContract && !contractReady`): a dedicated screen (icon + heading + explanation that ADMIN is preparing the contract), **no sign button** (so no 409), and a background refetch of `/onboarding/status` (interval poll, e.g. 15s, or refetch-on-focus) so the user advances automatically once ADMIN marks it READY.
+- **Wait — "Contract is being prepared"** (`requiresContract && !contractReady`): a dedicated screen (icon + heading + explanation that ADMIN is preparing the contract), **no sign button** (so no 409), and a background refetch of `/onboarding/status` (interval poll, e.g. 15s, or refetch-on-focus) so the user advances automatically once ADMIN marks it READY.
 - **Sign** (`requiresContract && contractReady`): the current sign UI but with the personal PDF, the existing confirm-checkbox + read-only signature block + `legalFullName` guard, and `POST /api/contracts/sign`.
 - **Done** (`!requiresContract`): skip contract → ToS step (existing orchestration in `index.tsx`).
 
@@ -72,7 +72,7 @@ Driven by `status.requiresContract` + `status.contractReady`:
 
 ### 5.3 Copy
 
-Replace "MSA-контракт" wording with "персональный контракт"; on success keep the toast with the contract number (`CHK-…`, already returned by `sign()`).
+Replace "MSA contract" wording with "personal contract"; on success keep the toast with the contract number (`CHK-…`, already returned by `sign()`).
 
 ## 6. Data flow
 
@@ -89,7 +89,7 @@ Replace "MSA-контракт" wording with "персональный контр
 - **`legalFullName` missing** → keep the existing destructive alert + disabled sign (sign would 422 `LEGAL_NAME_REQUIRED`).
 - **Already SIGNED (re-entry)** → `requiresContract=false` → contract step skipped → ToS/done.
 - **ADMIN** → guard bypass; onboarding never shown.
-- **PDF fetch fails** (network) → existing error state ("обратитесь к администратору").
+- **PDF fetch fails** (network) → existing error state ("contact the administrator").
 - **ADMIN reverts SIGNED→DRAFT after onboarding** (A3-2 revert) → deletes ToS acceptances + clears link → `requiresContract` true again → user re-onboards (Wait until re-marked READY). Confirm this path still coheres.
 
 ## 8. Testing
@@ -97,7 +97,7 @@ Replace "MSA-контракт" wording with "персональный контр
 - **Unit (api):** `getStatus` — `requiresContract` true/false by personal-contract SIGNED state; `contractReady` passthrough; ADMIN bypass; the three-state matrix.
 - **Integration (api, real backend — not mocked):** un-onboarded contract-role user → status reflects wait vs ready vs signed; `/api/onboarding/contract/pdf` returns PDF for self mid-onboarding (guard bypass); `POST /contracts/sign` from READY_TO_SIGN → SIGNED → status flips. Explicitly covers the guard (the `feedback_mocked_e2e_guards` gap).
 - **Unit (web):** SignContractStep renders Wait vs Sign vs nothing by `requiresContract`/`contractReady`; preview hits `/onboarding/contract/pdf`; sign posts `/contracts/sign`; `legalFullName`-missing disables sign.
-- **E2E (real endpoints, not stale mocks):** full onboarding — ready → preview loads (real `/onboarding/contract/pdf`) → sign → ToS → dashboard; wait-state path (no READY contract) shows «Контракт готовится» and no sign button. Update `onboarding-flow.spec.ts` + `onboarding-regression-pr110.spec.ts` to the real endpoints.
+- **E2E (real endpoints, not stale mocks):** full onboarding — ready → preview loads (real `/onboarding/contract/pdf`) → sign → ToS → dashboard; wait-state path (no READY contract) shows "Contract is being prepared" and no sign button. Update `onboarding-flow.spec.ts` + `onboarding-regression-pr110.spec.ts` to the real endpoints.
 - **Manual QA (live stack, mandatory):** all three states on a real backend (per `feedback_mandatory_user_testing` + `feedback_mocked_e2e_guards`); revert→re-onboard path.
 
 ## 9. Files (high-level)

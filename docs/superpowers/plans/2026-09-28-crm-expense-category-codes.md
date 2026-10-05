@@ -11,7 +11,7 @@
 **Spec / decision source:**
 
 - Owner decision 2026-09-27 (recorded in `.claude/tasks/` task-plan-expense-codes): a separate api+shared+DDL change, precondition for i18n stage 3d PR3, security-reviewer + DDL-review mandatory.
-- Wave format reference: `docs/superpowers/plans/2026-09-27-crm-i18n-stage3d-web-finance.md` («Спорное решение 1» + «Task 3»).
+- Wave format reference: `docs/superpowers/plans/2026-09-27-crm-i18n-stage3d-web-finance.md` («Contested decision 1» + «Task 3»).
 - Term canon: `CONTEXT.md` (finance-category row, COPY-L-fin-17) — «Комиссия» expense category → uk «Банківський збір» / en «Bank fee» («Комісія» is reserved in the glossary for the drop share).
 
 ---
@@ -47,7 +47,7 @@ These were verified read-only against the code and a scratch DB; they are the fa
 
 ---
 
-## Спорное решение 1 — Reuse `receiver_label` vs a new `expense_category` column
+## Contested decision 1 — Reuse `receiver_label` vs a new `expense_category` column
 
 **Recommendation: REUSE `receiver_label`.** Store the code in the existing column; do not add a column.
 
@@ -55,14 +55,14 @@ These were verified read-only against the code and a scratch DB; they are the fa
 
 - For `EXPENSE` rows, `receiver_label` already IS the category storage (finding 1). It is not a description with a separate meaning being clobbered — the dropdown value has always been the only thing written there for expenses.
 - No backend logic branches on the value (finding 5), so replacing Russian strings with codes changes nothing except the bytes displayed. The read resolver + catalog turn those bytes back into a localized label at render time.
-- A new column would mean: a new enum type, a new Drizzle column, dual-write, a read that falls back across two columns, and a data backfill anyway — strictly more surface for zero data-safety benefit, because the reuse path is made non-destructive by the fail-loud DDL (Спорное решение 3) rather than by hoarding the old value in a second column.
+- A new column would mean: a new enum type, a new Drizzle column, dual-write, a read that falls back across two columns, and a data backfill anyway — strictly more surface for zero data-safety benefit, because the reuse path is made non-destructive by the fail-loud DDL (Contested decision 3) rather than by hoarding the old value in a second column.
 - Owner framed the task as "migrate the Russian values" (an in-place rewrite), which is the reuse shape.
 
 **When to switch to a new column instead (decision gate):** if Task 0's prod SELECT reveals that `EXPENSE` `receiver_label` holds free-form _descriptions_ that carry information beyond the category (e.g. genuine per-vendor names an operator typed and relies on), then rewriting them to a 3-value code destroys data. In that case, add a nullable `transactions.expense_category` enum column, keep `receiver_label` as the free-form description, and dual-read (`expense_category ?? resolveLegacy(receiver_label)`). **This branch is contingent on Task 0's finding and must be escalated to the owner (A3) before proceeding, because it changes the schema and the read path.** The reconnaissance suggests prod expenses came through the 3-value dropdown, but the actual distinct set is unverified from here (finding 7).
 
 ---
 
-## Спорное решение 2 — Write-side back-compat during the cross-PR window
+## Contested decision 2 — Write-side back-compat during the cross-PR window
 
 This change is a precondition for PR3 (the web finance i18n), which ships LATER. Between this deploy and PR3's deploy, the OLD web bundle is still live and still sends the three Russian dropdown values. If the API tightened `category` to codes-only, every expense create/edit from the still-deployed old UI would 400 until PR3 ships.
 
@@ -70,7 +70,7 @@ This change is a precondition for PR3 (the web finance i18n), which ships LATER.
 
 ---
 
-## Спорное решение 3 — DDL handling of unexpected values (fact-finding-gated + fail-loud)
+## Contested decision 3 — DDL handling of unexpected values (fact-finding-gated + fail-loud)
 
 The DDL rewrites `EXPENSE` `receiver_label` Russian→code. The three known mappings are fixed. The risk is a value the map does not cover (finding 7: prod actuals unknown from here).
 
@@ -86,12 +86,12 @@ The DDL rewrites `EXPENSE` `receiver_label` Russian→code. The three known mapp
 
 ---
 
-## Спорное решение 4 — One PR or two, and deploy order
+## Contested decision 4 — One PR or two, and deploy order
 
 **Recommendation: ONE PR**, containing both zones (Coder: shared + api + the `.sql` file + specs; DevOps: `deploy.yml` wiring), because:
 
 - The repo invariant (`check-prod-ddl-wiring.py`) requires a manual `.sql` file to be wired into `deploy.yml` in the SAME PR it is added — a DDL-only second PR cannot exist without its wiring, and splitting code from wiring buys nothing.
-- The write-side back-compat (Спорное решение 2) and the read resolver make the single-deploy window non-breaking: even in the brief in-deploy moment where data has flipped to codes but a request hits an old process, the value is display-only and the old UI simply shows the raw code or defaults the dropdown — no crash, no data corruption (unlike a required-column migration such as `2026-09-20_user_locale.sql`, which MUST ship with its image).
+- The write-side back-compat (Contested decision 2) and the read resolver make the single-deploy window non-breaking: even in the brief in-deploy moment where data has flipped to codes but a request hits an old process, the value is display-only and the old UI simply shows the raw code or defaults the dropdown — no crash, no data corruption (unlike a required-column migration such as `2026-09-20_user_locale.sql`, which MUST ship with its image).
 - Owner phrased it as "a separate api+shared+DDL PR" (singular).
 
 **Deploy order (within the one deploy run):** the new image (with the read resolver + write normalization) becomes the live process and the idempotent DDL applies as part of the same deploy; after the run completes, the new code is live AND the data is codes, so all steady-state reads are correct. The task's "code-with-back-compat before DDL" requirement is satisfied in substance by the back-compat read (the code understands both shapes regardless of apply order).
@@ -152,7 +152,7 @@ Fill this table from Step 2 (this is the ONLY source of the DDL's UPDATE list). 
 | `Прочее`                                 | ?     | OTHER                                |
 | _(any unexpected value found in Step 2)_ | ?     | **escalate to owner — do not guess** |
 
-If Step 2 returns ONLY the three known strings (± whitespace/case variants that Step 2 exposes), proceed with reuse + fail-loud (Спорное решение 1/3). If it returns free-form descriptions, invoke the new-column branch of Спорное решение 1 and escalate (A3).
+If Step 2 returns ONLY the three known strings (± whitespace/case variants that Step 2 exposes), proceed with reuse + fail-loud (Contested decision 1/3). If it returns free-form descriptions, invoke the new-column branch of Contested decision 1 and escalate (A3).
 
 ---
 
@@ -174,7 +174,7 @@ If Step 2 returns ONLY the three known strings (± whitespace/case variants that
   - `export const EXPENSE_CATEGORY_MESSAGES: Record<ExpenseCategoryCode, MessageDescriptor>` (uk canon text, extracted for Lingui)
   - `export const LEGACY_EXPENSE_LABEL_TO_CODE: Record<string, ExpenseCategoryCode>` — the exact map from Task 0 (`'Оплата сервиса' → 'SERVICE'`, `'Комиссия' → 'BANK_FEE'`, `'Прочее' → 'OTHER'`)
   - `export function resolveExpenseCategoryCode(stored: string | null | undefined): ExpenseCategoryCode` — read resolver: a code → itself; a legacy Russian label → its code; anything else (incl. null) → `'OTHER'` (display-only, never throws)
-  - `export const expenseCategoryWriteSchema` — accepts a code OR a legacy Russian string and `.transform`s to `ExpenseCategoryCode` (Спорное решение 2)
+  - `export const expenseCategoryWriteSchema` — accepts a code OR a legacy Russian string and `.transform`s to `ExpenseCategoryCode` (Contested decision 2)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -391,7 +391,7 @@ non-EXPENSE row: receiver_label still 'CheekyCheeseIT' (untouched — scope guar
 ```
 
 Apply the file a SECOND time and assert nothing changes (same counts) and it does not raise.
-Add a negative case: seed an EXPENSE row with an unmapped `receiver_label` and assert the fail-loud branch RAISES on apply (if the fail-loud variant is chosen per Спорное решение 3).
+Add a negative case: seed an EXPENSE row with an unmapped `receiver_label` and assert the fail-loud branch RAISES on apply (if the fail-loud variant is chosen per Contested decision 3).
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm --filter @crm/api test expense-category-migration` → FAIL (no SQL yet).
 
@@ -478,7 +478,7 @@ COMMIT;
 -- =============================================================================
 ```
 
-> If the owner chooses the non-blocking variant (Спорное решение 3 alternative), replace the `DO $$ … RAISE EXCEPTION` block with an `UPDATE … SET receiver_label='OTHER' WHERE … NOT IN (…)` plus `RAISE NOTICE`. Keep the choice consistent with the negative case in Task 3.
+> If the owner chooses the non-blocking variant (Contested decision 3 alternative), replace the `DO $$ … RAISE EXCEPTION` block with an `UPDATE … SET receiver_label='OTHER' WHERE … NOT IN (…)` plus `RAISE NOTICE`. Keep the choice consistent with the negative case in Task 3.
 
 - [ ] **Step 2:** Return to Task 3 Step 4 and make the integration spec green (apply twice).
 
@@ -519,7 +519,7 @@ git commit -m "infra(deploy): wire 2026-09-28 expense-category-codes DDL (prefli
 - [ ] **Step 3: `i18n:extract` drift check** — no uncommitted `.po` changes after extract; en filled.
 - [ ] **Step 4: Confirm guard-test-gate N/A** — `git diff --name-only origin/main` shows no `apps/api/src/finance/*.controller.ts`. If it does, add the 403 spec.
 - [ ] **Step 5: PR** — one PR, English body, label `ai-review-ready`. Body states: reuse-vs-column decision, one-vs-two-PR decision + deploy order, the frozen Task 0 map, and that security-reviewer + a DDL review are required (critical-path finance + irreversible migration). End with the 🤖 attribution line.
-- [ ] **Step 6: Review** — security-reviewer + DDL review MANDATORY; resolve all H/M/L before merge; merge only on owner's explicit "мерджим".
+- [ ] **Step 6: Review** — security-reviewer + DDL review MANDATORY; resolve all H/M/L before merge; merge only on owner's explicit "merge it".
 
 ---
 
@@ -539,7 +539,7 @@ git commit -m "infra(deploy): wire 2026-09-28 expense-category-codes DDL (prefli
 
 ## Self-review
 
-- **Spec coverage:** fact-finding (Task 0), shared enum+catalog+Zod (Task 1), api write/read back-compat (Task 2, resolver for PR3), idempotent fail-loud DDL + spec (Tasks 3–4), deploy wiring (Task 5), decomposition + one/two-PR + deploy order (Спорные решения 4). All task-file bullets mapped.
+- **Spec coverage:** fact-finding (Task 0), shared enum+catalog+Zod (Task 1), api write/read back-compat (Task 2, resolver for PR3), idempotent fail-loud DDL + spec (Tasks 3–4), deploy wiring (Task 5), decomposition + one/two-PR + deploy order (Contested decisions 4). All task-file bullets mapped.
 - **Placeholder scan:** the only intentional "fill from Task 0" is the DDL map + the `LEGACY_EXPENSE_LABEL_TO_CODE` extension, which is a data fact that cannot be invented from this workspace (prod unreachable, finding 7) and is gated by the fail-loud assert.
 - **Type consistency:** `ExpenseCategoryCode`, `EXPENSE_CATEGORY_CODES`, `EXPENSE_CATEGORY_MESSAGES`, `LEGACY_EXPENSE_LABEL_TO_CODE`, `resolveExpenseCategoryCode`, `expenseCategoryWriteSchema` used consistently across Tasks 1–3 and the PR3 note.
 

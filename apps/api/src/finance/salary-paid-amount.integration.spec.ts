@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -242,7 +243,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('closes the obligation in full and keeps BOTH the fact and the obligation', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
 
@@ -282,7 +289,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('re-reading the transaction later still returns the obligation (AC4, read path)', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await svc.paySalary(
@@ -309,7 +322,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('a wildly implausible amount still closes the obligation (no server-side plausibility gate)', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       // 300 instead of 30 000 — the client WARNS about this; the server, by
@@ -337,7 +356,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('a call WITHOUT paidAmount leaves `amount` untouched (legacy contract)', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 750, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 750,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       const before = (await rawRow(pending.id))!.amount
@@ -405,7 +430,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('refuses an amount too small to be stored, instead of closing the obligation with zero', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await expect(
@@ -431,7 +462,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('accepts exactly the smallest storable amount, and it survives the round-trip', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       const paid = await svc.paySalary(
@@ -471,7 +508,13 @@ describe.skipIf(!HAS_DB_URL)(
       // cannot happen at all.
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 0.00001, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 0.00001,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       const paid = await svc.paySalary(
@@ -498,7 +541,13 @@ describe.skipIf(!HAS_DB_URL)(
     it('rejects a non-positive paid amount at the service boundary (defense in depth)', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 500, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await expect(
@@ -527,7 +576,13 @@ describe.skipIf(!HAS_DB_URL)(
       // balance. Gating on the obligation (the pre-task behaviour) would have let
       // this through and driven the company account negative.
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 100,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       // fix-round 1 (bonus, task-i18n-stage4-lessons-701 lesson 2): assert
@@ -559,7 +614,13 @@ describe.skipIf(!HAS_DB_URL)(
       const before = await myContribution()
 
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-08' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 100,
+          currency: 'USD',
+          salaryMonth: '2026-08',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       const paid = await svc.paySalary(

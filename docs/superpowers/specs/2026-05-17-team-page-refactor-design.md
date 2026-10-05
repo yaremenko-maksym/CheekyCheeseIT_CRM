@@ -2,52 +2,55 @@
 
 ## Overview
 
-Полный рефактор страниц команды: список (index.tsx) и детальная ($teamId.tsx).
+A full refactor of the team pages: the list (index.tsx) and the detail page ($teamId.tsx).
 
-**Цели:**
-- Починить нерабочие кнопки на detail-странице (Add/Remove member)
-- Добавить поле `telegramGroupUrl` на команду (JUNIOR не видит)
-- Скрыть дату создания команды от JUNIOR
-- Перенести управление участниками с list-карточек на detail-страницу
-- Вынести диалоги и константы в отдельные компоненты
+**Goals:**
+
+- Fix the broken buttons on the detail page (Add/Remove member)
+- Add a `telegramGroupUrl` field to the team (JUNIOR does not see it)
+- Hide the team creation date from JUNIOR
+- Move member management from the list cards to the detail page
+- Extract dialogs and constants into separate components
 
 ---
 
-## Файловая структура
+## File structure
 
-### Новые файлы
+### New files
+
 ```
 apps/web/app/routes/crm/team/components/
-  TeamCard.tsx            ← карточка списка (только просмотр + delete для ADMIN)
-  MemberRow.tsx           ← строка участника на detail-странице
-  CreateSeniorDialog.tsx  ← HR создаёт синьора (перенесено из index.tsx)
-  AddMemberDialog.tsx     ← добавить участника в команду (починено)
-  EditTeamDialog.tsx      ← редактировать команду: имя + telegramGroupUrl
-  DeleteTeamDialog.tsx    ← удалить команду (перенесено из index.tsx)
+  TeamCard.tsx            ← list card (view-only + delete for ADMIN)
+  MemberRow.tsx           ← member row on the detail page
+  CreateSeniorDialog.tsx  ← HR creates a senior (moved from index.tsx)
+  AddMemberDialog.tsx     ← add a member to the team (fixed)
+  EditTeamDialog.tsx      ← edit the team: name + telegramGroupUrl
+  DeleteTeamDialog.tsx    ← delete the team (moved from index.tsx)
 
 apps/web/app/lib/
-  team-constants.ts       ← ROLE_LABELS, ROLE_VARIANT, getInitials (дедупликация)
+  team-constants.ts       ← ROLE_LABELS, ROLE_VARIANT, getInitials (deduplication)
 ```
 
-### Изменённые файлы
+### Changed files
+
 ```
-apps/web/app/routes/crm/team/index.tsx     ← тонкий: grid + CreateSenior + DeleteTeam
-apps/web/app/routes/crm/team/$teamId.tsx   ← тонкий: layout + монтирование диалогов
-packages/shared/src/schemas/teams.ts       ← telegramGroupUrl в схемах
-apps/api/src/teams/teams.service.ts        ← telegramGroupUrl в CRUD
-apps/api/src/teams/teams.controller.ts     ← GET /teams/:id открыт всем ролям (уже есть)
+apps/web/app/routes/crm/team/index.tsx     ← thin: grid + CreateSenior + DeleteTeam
+apps/web/app/routes/crm/team/$teamId.tsx   ← thin: layout + mounting the dialogs
+packages/shared/src/schemas/teams.ts       ← telegramGroupUrl in the schemas
+apps/api/src/teams/teams.service.ts        ← telegramGroupUrl in CRUD
+apps/api/src/teams/teams.controller.ts     ← GET /teams/:id open to all roles (already present)
 apps/api/drizzle/migrations/0012_*.sql    ← ALTER TABLE teams ADD COLUMN
 ```
 
 ---
 
-## DB — миграция 0012
+## DB — migration 0012
 
 ```sql
 ALTER TABLE teams ADD COLUMN telegram_group_url TEXT;
 ```
 
-Опциональное поле, без NOT NULL, без дефолта.
+Optional field, no NOT NULL, no default.
 
 ---
 
@@ -56,7 +59,7 @@ ALTER TABLE teams ADD COLUMN telegram_group_url TEXT;
 ### Shared schemas (`packages/shared/src/schemas/teams.ts`)
 
 ```ts
-// createTeamSchema и updateTeamSchema:
+// createTeamSchema and updateTeamSchema:
 telegramGroupUrl: z.string().url().optional().nullable()
 
 // TeamDto:
@@ -65,87 +68,89 @@ telegramGroupUrl: string | null
 
 ### teams.service.ts
 
-- `createTeam`: сохранять `telegramGroupUrl` если передан
-- `updateTeam`: обновлять `telegramGroupUrl`
-- `findAll` / `findOne`: включать `telegramGroupUrl` в ответ
+- `createTeam`: save `telegramGroupUrl` if provided
+- `updateTeam`: update `telegramGroupUrl`
+- `findAll` / `findOne`: include `telegramGroupUrl` in the response
 
-### Endpoints — без изменений
+### Endpoints — no changes
 
-`GET /api/teams/:id` уже открыт всем аутентифицированным ролям (реализовано в PR #11).
+`GET /api/teams/:id` is already open to all authenticated roles (implemented in PR #11).
 
 ---
 
-## Frontend — Список команд (index.tsx)
+## Frontend — Team list (index.tsx)
 
-**Что остаётся:**
-- Заголовок "Команда" + кнопка HR "Создать синьора"
-- Grid из `<TeamCard>` компонентов
-- Авто-редирект SENIOR/JUNIOR → `/crm/team/:id`
-- Монтирование `<CreateSeniorDialog>` и `<DeleteTeamDialog>`
+**What stays:**
 
-**Что уходит:**
-- Inline кнопки Edit/AddMember на карточках (переезжают на detail)
-- `EditTeamDialog` из index.tsx
-- `AddMemberDialog` из index.tsx
-- Дублирующиеся константы
+- The "Team" heading + the HR "Create a senior" button
+- A grid of `<TeamCard>` components
+- Auto-redirect SENIOR/JUNIOR → `/crm/team/:id`
+- Mounting `<CreateSeniorDialog>` and `<DeleteTeamDialog>`
+
+**What goes:**
+
+- Inline Edit/AddMember buttons on the cards (move to detail)
+- `EditTeamDialog` from index.tsx
+- `AddMemberDialog` from index.tsx
+- Duplicated constants
 
 ### TeamCard.tsx
 
 ```
 ┌─────────────────────────────────────┐
-│  Команда Alpha                 [🗑]  │  ← [🗑] только ADMIN
-│  HR: Мария Иванова                   │
+│  Team Alpha                    [🗑]  │  ← [🗑] ADMIN only
+│  HR: Maria Ivanova                   │
 ├─────────────────────────────────────┤
-│  ●●●●+2          3 участника         │
-│  Активные проекты: 2                 │
+│  ●●●●+2          3 members           │
+│  Active projects: 2                  │
 └─────────────────────────────────────┘
 ```
 
-- Вся карточка — кликабельный Link → `/crm/team/:id`
-- Кнопка Delete ADMIN: `e.preventDefault()` + `e.stopPropagation()`, z-index выше Link
-- Нет кнопок Edit/AddMember
+- The whole card — a clickable Link → `/crm/team/:id`
+- The ADMIN Delete button: `e.preventDefault()` + `e.stopPropagation()`, z-index above the Link
+- No Edit/AddMember buttons
 
 ---
 
-## Frontend — Детальная страница ($teamId.tsx)
+## Frontend — Detail page ($teamId.tsx)
 
 ### Layout
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│  ← Назад    Команда Alpha          [✏ Редактировать] │  ← ADMIN/HR
-│             Создана 12 мая 2025  · 🔗 Telegram        │  ← скрыто от JUNIOR
-│                                    [🗑 Удалить]       │  ← только ADMIN
+│  ← Back     Team Alpha                  [✏ Edit]     │  ← ADMIN/HR
+│             Created 12 May 2025  · 🔗 Telegram        │  ← hidden from JUNIOR
+│                                    [🗑 Delete]        │  ← ADMIN only
 ├──────────────────────────────────────────────────────┤
-│  Участники (3)                     [+ Добавить]       │  ← ADMIN/HR
+│  Members (3)                       [+ Add]            │  ← ADMIN/HR
 │                                                      │
 │  ┌─────────────────────────────────────────────────┐ │
-│  │ ● Иван Иванов   [Синьор]          → профиль    │ │
+│  │ ● Ivan Ivanov   [Senior]          → profile    │ │
 │  │   ivan@email.com · TypeScript BE               │ │
 │  └─────────────────────────────────────────────────┘ │
 │  ┌─────────────────────────────────────────────────┐ │
-│  │ ● Мария HR      [HR]              → профиль [✕]│ │  ← [✕] ADMIN/HR
+│  │ ● Maria HR      [HR]              → profile [✕]│ │  ← [✕] ADMIN/HR
 │  │   maria@email.com                              │ │
 │  └─────────────────────────────────────────────────┘ │
 │                                                      │
-│  Активные проекты: 2                                 │
+│  Active projects: 2                                  │
 └──────────────────────────────────────────────────────┘
 ```
 
-### Поведение
+### Behavior
 
-- **Список участников**: плоский, без заголовков по ролям. Порядок: SENIOR → HR → ACCOUNTANT → JUNIOR.
-- **Badge роли**: на каждой карточке участника (badge variant по роли).
-- **Дата создания**: скрыта если `user.role === 'JUNIOR'`.
-- **Telegram ссылка**: скрыта если `user.role === 'JUNIOR'`. Если `team.telegramGroupUrl` не задан — не показываем ничего. Если задан — иконка + ссылка `target="_blank"`.
-- **Кнопка "Редактировать"**: открывает `EditTeamDialog` с полями Название + Telegram URL.
-- **Кнопка "Удалить"**: только ADMIN, открывает `DeleteTeamDialog`.
-- **Кнопка "+ Добавить"**: ADMIN + HR-owner, открывает `AddMemberDialog`.
-- **Кнопка [✕] на участнике**: ADMIN + HR-owner. НЕ рендерится если:
-  - `member.role === 'SENIOR'` (нельзя удалить — нужно удалять команду)
-  - `member.role === 'JUNIOR'` (производное состояние)
-  - Последний HR в команде
-  - Последний ACCOUNTANT в команде
+- **Member list**: flat, no per-role headings. Order: SENIOR → HR → ACCOUNTANT → JUNIOR.
+- **Role badge**: on each member card (badge variant by role).
+- **Creation date**: hidden if `user.role === 'JUNIOR'`.
+- **Telegram link**: hidden if `user.role === 'JUNIOR'`. If `team.telegramGroupUrl` is not set — show nothing. If set — an icon + a `target="_blank"` link.
+- **"Edit" button**: opens `EditTeamDialog` with the Name + Telegram URL fields.
+- **"Delete" button**: ADMIN only, opens `DeleteTeamDialog`.
+- **"+ Add" button**: ADMIN + HR owner, opens `AddMemberDialog`.
+- **The [✕] button on a member**: ADMIN + HR owner. NOT rendered if:
+  - `member.role === 'SENIOR'` (cannot be removed — the team must be deleted instead)
+  - `member.role === 'JUNIOR'` (a derived state)
+  - The last HR in the team
+  - The last ACCOUNTANT in the team
 
 ### MemberRow.tsx
 
@@ -153,43 +158,43 @@ Props: `member`, `canManage`, `canRemove`, `onRemove`
 
 ---
 
-## RBAC — сводная таблица
+## RBAC — summary table
 
-| Действие | ADMIN | HR (owner) | SENIOR | JUNIOR | ACCOUNTANT |
-|----------|-------|------------|--------|--------|------------|
-| Видеть список | ✅ все | ✅ свои | → redirect | → redirect | ✅ все |
-| Видеть detail | ✅ | ✅ | ✅ свою | ✅ свою (без др. джунов) | ✅ |
-| Видеть дату | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Видеть Telegram | ✅ | ✅ | ✅ | ❌ | ✅ |
-| Создать синьора | ❌ | ✅ | ❌ | ❌ | ❌ |
-| Редактировать команду | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Удалить команду | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Добавить участника | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Удалить участника | ✅ | ✅ (с правилами) | ❌ | ❌ | ❌ |
-| Delete на list-карточке | ✅ | ❌ | — | — | ❌ |
+| Action                  | ADMIN  | HR (owner)      | SENIOR     | JUNIOR                         | ACCOUNTANT |
+| ----------------------- | ------ | --------------- | ---------- | ------------------------------ | ---------- |
+| See the list            | ✅ all | ✅ own          | → redirect | → redirect                     | ✅ all     |
+| See detail              | ✅     | ✅              | ✅ own     | ✅ own (without other juniors) | ✅         |
+| See the date            | ✅     | ✅              | ✅         | ❌                             | ✅         |
+| See Telegram            | ✅     | ✅              | ✅         | ❌                             | ✅         |
+| Create a senior         | ❌     | ✅              | ❌         | ❌                             | ❌         |
+| Edit the team           | ✅     | ✅              | ❌         | ❌                             | ❌         |
+| Delete the team         | ✅     | ❌              | ❌         | ❌                             | ❌         |
+| Add a member            | ✅     | ✅              | ❌         | ❌                             | ❌         |
+| Remove a member         | ✅     | ✅ (with rules) | ❌         | ❌                             | ❌         |
+| Delete on the list card | ✅     | ❌              | —          | —                              | ❌         |
 
 ---
 
 ## Acceptance Criteria
 
-- [ ] `pnpm typecheck` и `pnpm lint` проходят
-- [ ] SENIOR/JUNIOR при открытии `/crm/team` → редирект на `/crm/team/:id`
-- [ ] JUNIOR на detail-странице не видит других JUNIOR (server-side)
-- [ ] JUNIOR не видит дату создания и Telegram-ссылку
-- [ ] Кнопка "+ Добавить участника" на detail-странице открывает диалог и добавляет
-- [ ] Кнопка [✕] на участнике открывает подтверждение и удаляет
-- [ ] "Редактировать" открывает диалог с полями Название + Telegram URL
-- [ ] PATCH /api/teams/:id сохраняет `telegramGroupUrl`
-- [ ] Telegram-ссылка отображается на detail-странице (если задана), открывается в новой вкладке
-- [ ] Карточки на list-странице кликабельны, нет inline-кнопок Edit/AddMember
-- [ ] ADMIN видит кнопку Delete на list-карточке
-- [ ] Дублирование ROLE_LABELS/ROLE_VARIANT/getInitials устранено (один файл `team-constants.ts`)
-- [ ] Диалоги в отдельных компонентах, index.tsx < 250 строк, $teamId.tsx < 200 строк
+- [ ] `pnpm typecheck` and `pnpm lint` pass
+- [ ] SENIOR/JUNIOR opening `/crm/team` → redirect to `/crm/team/:id`
+- [ ] JUNIOR on the detail page does not see other JUNIORs (server-side)
+- [ ] JUNIOR does not see the creation date and the Telegram link
+- [ ] The "+ Add member" button on the detail page opens the dialog and adds
+- [ ] The [✕] button on a member opens a confirmation and removes
+- [ ] "Edit" opens the dialog with the Name + Telegram URL fields
+- [ ] PATCH /api/teams/:id saves `telegramGroupUrl`
+- [ ] The Telegram link is shown on the detail page (if set), opens in a new tab
+- [ ] The cards on the list page are clickable, no inline Edit/AddMember buttons
+- [ ] ADMIN sees the Delete button on the list card
+- [ ] Duplication of ROLE_LABELS/ROLE_VARIANT/getInitials eliminated (one file `team-constants.ts`)
+- [ ] Dialogs in separate components, index.tsx < 250 lines, $teamId.tsx < 200 lines
 
 ---
 
-## Не входит в скоуп
+## Out of scope
 
-- Изменение бэкенд RBAC (уже реализовано)
-- Загрузка фото/файлов для команды
-- История изменений участников
+- Changing backend RBAC (already implemented)
+- Uploading photos/files for the team
+- Member change history

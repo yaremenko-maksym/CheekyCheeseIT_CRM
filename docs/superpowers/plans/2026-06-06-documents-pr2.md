@@ -14,9 +14,9 @@
 
 ## Data sources (grounded against live schema)
 
-- **Contract badge:** `employee_contracts.status` → `DRAFT`→«Драфт», `READY_TO_SIGN`→«Готово к подписи», `SIGNED`→«Подписано»; `CANCELLED` → entry hidden.
-- **Invoice badge:** a `transactions` row with `invoice_document_id`; signatures in `invoice_signatures` (signer roles COMPANY + COUNTERPARTY). Both present → «Подписано»; any missing → «Готово к подписи». (`DocumentDto.invoicePendingSignature` already exists — reuse/align.)
-- **Receipt badge:** the `transactions` row linked via `receipt_document_id`; `status` PENDING→«Требует подтверждения», VALIDATED→«Подтверждено», REJECTED→«Требует подтверждения».
+- **Contract badge:** `employee_contracts.status` → `DRAFT`→"Draft", `READY_TO_SIGN`→"Ready to sign", `SIGNED`→"Signed"; `CANCELLED` → entry hidden.
+- **Invoice badge:** a `transactions` row with `invoice_document_id`; signatures in `invoice_signatures` (signer roles COMPANY + COUNTERPARTY). Both present → "Signed"; any missing → "Ready to sign". (`DocumentDto.invoicePendingSignature` already exists — reuse/align.)
+- **Receipt badge:** the `transactions` row linked via `receipt_document_id`; `status` PENDING→"Requires confirmation", VALIDATED→"Confirmed", REJECTED→"Requires confirmation".
 - **Uploaded file (RESUME/SCAN, plain CONTRACT upload):** no badge.
 
 > Read first: `apps/api/src/documents/documents.service.ts` (`list()`, `buildListWhere()`, the DTO mapping incl. the existing INVOICE `CASE` + `invoicePendingSignature`), `packages/shared/src/schemas/documents.ts`, `packages/shared/src/schemas/invoices.ts`, `apps/api/src/contracts/employee-contracts.service.ts`.
@@ -83,4 +83,4 @@
 
 - Spec §4 coverage: aggregation+RBAC→Task 2-3; badges→Task 1/2/4; type filter→Task 4; PR-1 skeleton MED→Task 4. PR-3 (receipt lifecycle/replace) explicitly NOT here.
 - Consistency: `statusBadge {kind,state}` semantic from backend, Russian labels in frontend; `source` discriminator separates uploaded CONTRACT files from the employee_contract virtual entry (no double-count).
-- Risk: RBAC for employee_contract virtual entries must match A3 (ADMIN + owner) — verify against `buildListWhere`/A3 rules. Invoice signature completeness query — confirm both COMPANY+COUNTERPARTY semantics before deriving «Подписано».
+- Risk: RBAC for employee_contract virtual entries must match A3 (ADMIN + owner) — verify against `buildListWhere`/A3 rules. Invoice signature completeness query — confirm both COMPANY+COUNTERPARTY semantics before deriving "Signed".

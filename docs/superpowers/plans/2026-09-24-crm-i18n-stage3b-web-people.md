@@ -1,78 +1,78 @@
-# CRM i18n — этап 3, волна (b) «web-people» — план реализации
+# CRM i18n — stage 3, wave (b) "web-people" — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Перевести на `uk`/`en` всё, что в CRM касается людей: онбординг, профиль (оболочка, вкладки, админ-действия, самоправка, контракт сотрудника), список пользователей и мастер создания, команды, архивацию пользователя и резюме сеньйора. Три PR, продуктовые файлы не пересекаются, в мигрированных файлах не остаётся русского текста, а оба легаси-словаря ролей (`ROLE_LABELS` в `role-select.tsx` и в `components/users/constants.ts`) удаляются, потому что после волны у них не остаётся потребителей.
+**Goal:** Translate to `uk`/`en` everything in the CRM that concerns people: onboarding, the profile (shell, tabs, admin actions, self-edit, the employee contract), the user list and the creation wizard, teams, user archival and the senior résumé. Three PRs, the product files do not overlap, no Russian text remains in the migrated files, and both legacy role dictionaries (`ROLE_LABELS` in `role-select.tsx` and in `components/users/constants.ts`) are removed, because after the wave they have no consumers left.
 
-**Architecture:** Тот же единственный каталог `packages/shared/src/i18n/locales/{uk,en}/messages.po` и те же шаблоны A–F, что в волне (a) (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, раздел «Шаблоны миграции»). Нового в этой волне три вещи. Первое — **переход потребителей со старых словарей на каноны**, которые уже лежат в `main`: роли через `ROLE_LABEL_MESSAGES`/`useRoleLabel` (3a PR1), ошибки сервера и тексты «войти как» через `API_ERROR_MESSAGES` (этап 4), Zod-сообщения через `translateZodCode`/`translateZodMessage` (этап 4). Второе — **один текст влияния архивации на пользователя** вместо двух: блок пользователя из `components/archive/ArchiveConfirmDialog.tsx` выносится в `components/archive/UserArchiveImpact.tsx`, и его рендерят оба диалога. Третье — **таблица канонических форм терминов волны (b)** (раздел ниже). PR1 и PR2 идут параллельно, поэтому оба берут слова из неё, а не придумывают каждый свои.
+**Architecture:** The same single catalog `packages/shared/src/i18n/locales/{uk,en}/messages.po` and the same templates A–F as in wave (a) (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, the "Migration templates" section). Three things are new in this wave. First — **moving consumers from the old dictionaries to the canons** that are already in `main`: roles via `ROLE_LABEL_MESSAGES`/`useRoleLabel` (3a PR1), server errors and "log in as" texts via `API_ERROR_MESSAGES` (stage 4), Zod messages via `translateZodCode`/`translateZodMessage` (stage 4). Second — **one text for the impact of a user archival** instead of two: the user block from `components/archive/ArchiveConfirmDialog.tsx` is moved out to `components/archive/UserArchiveImpact.tsx`, and both dialogs render it. Third — **the table of canonical term forms of wave (b)** (the section below). PR1 and PR2 go in parallel, so both take the words from it, not invent their own.
 
-**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), уже настроен этапом 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
+**Tech Stack:** Lingui **5.9.5** EXACT (`@lingui/core`, `@lingui/react`, `@lingui/core/macro`, `@lingui/react/macro`), already set up in stage 2. React 18, Vite 6, Vitest 4, TanStack Router, Tailwind v4, shadcn/ui, `eslint-plugin-lingui` 0.16.0 (`warn`), Playwright, Node 22 LTS, pnpm 7.32.4.
 
-**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (гейты), §7 п.3 (волна b: «команда, пользователи, профиль, онбординг»), §8 (тесты). Аудит: `docs/architecture/2026-09-19-crm-i18n-audit.md`, срез `web-people` (30 находок, `Findings:` в конце среза) и сквозные темы §1–§2. Образец формата и шаблоны A–F: план волны (a) `docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`.
+**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` §4.6, §5 (gates), §7 item 3 (wave b: "team, users, profile, onboarding"), §8 (tests). Audit: `docs/architecture/2026-09-19-crm-i18n-audit.md`, the `web-people` slice (30 findings, `Findings:` at the end of the slice) and the cross-cutting themes §1–§2. A format sample and templates A–F: the wave (a) plan `docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`.
 
-**Замер:** все числа ниже сняты командами на `origin/main` `062af6f8` (#707) 2026-09-24. Перед стартом каждого PR исполнитель повторяет замер (шаг 0 каждой задачи), потому что между планом и исполнением смёржится #706.
+**Measurement:** all the numbers below were taken by commands on `origin/main` `062af6f8` (#707) 2026-09-24. Before starting each PR the implementer repeats the measurement (step 0 of each task), because #706 will merge between the plan and execution.
 
 ## Global Constraints
 
-Действуют на каждую задачу. Пункты с пометкой «урок» взяты из разборов PR #700–#707, и каждый из них уже однажды стоил отдельного раунда ревью.
+Apply to each task. Items marked "lesson" are taken from the reviews of PR #700–#707, and each of them already cost a separate review round once.
 
-**Версии и механика Lingui**
+**Lingui versions and mechanics**
 
-- `@lingui/*` — **5.9.5 EXACT**, одной версией (`version-pins.md`). Этот план ничего не апгрейдит.
-- Исходный текст в коде — **украинский** (`sourceLocale: 'uk'`). Английский пишет тот же кодер в том же PR как второй оригинал (скилл `copywriting` §5, решение владельца №7). Интерфейс по умолчанию `uk`, второй язык `en`.
-- На уровне модуля — только `msg`. `t`, `plural` и `select` на уровне модуля запрещены: строка замёрзнет при импорте. В компоненте `t`/`i18n` берутся из `useLingui()` (`@lingui/react/macro`).
-- **Урок (#700): макрос `plural()` несовместим со Stryker.** Под инструментированием `#` не подставляется. Для чисел в JSX — компонент `<Plural>`; вне JSX — `msg` с ICU-строкой и `i18n._(descriptor, { count })`. Вызов `t\`${plural(...)}\`` не использовать.
-- **Урок (#707): `as const satisfies Record<…, MessageDescriptor>` на карте `msg`-шаблонов отключает Stryker для всего блока** (0 мутантов). Пишется `satisfies Record<…>` без `as const`. Если гейт показывает 0 мутантов в файле, где точно есть `msg`, причина в этом.
-- `i18n._()` принимает только **выражение**: `i18n._(API_ERROR_MESSAGES.X)` или `i18n._(MAP[key])`. Объектный литерал со spread (`i18n._({ ...d, values })`) роняет `lingui extract` (подробности в комментарии к `translateApiError` в `apps/web/app/lib/axios-utils.ts`).
-- **Урок (#707): у записей с явным id (`api-error.*`, `zod-error.*`) `msgstr` правится руками в обоих `.po`.** `i18n:extract` существующий `msgstr` не перезаписывает. Эта волна тексты с явным id не меняет. Если такая правка понадобится, это отдельная строка в «Допущениях» PR и ручная правка обоих `.po`.
+- `@lingui/*` — **5.9.5 EXACT**, a single version (`version-pins.md`). This plan upgrades nothing.
+- Source text in the code — **Ukrainian** (`sourceLocale: 'uk'`). English is written by the same coder in the same PR as a second original (skill `copywriting` §5, owner decision #7). The default interface is `uk`, the second language is `en`.
+- At the module level — only `msg`. `t`, `plural` and `select` at the module level are forbidden: the string freezes on import. In a component `t`/`i18n` are taken from `useLingui()` (`@lingui/react/macro`).
+- **Lesson (#700): the `plural()` macro is incompatible with Stryker.** Under instrumentation `#` is not substituted. For numbers in JSX — the `<Plural>` component; outside JSX — `msg` with an ICU string and `i18n._(descriptor, { count })`. Do not use the call `t\`${plural(...)}\``.
+- **Lesson (#707): `as const satisfies Record<…, MessageDescriptor>` on a map of `msg` templates disables Stryker for the whole block** (0 mutants). Write `satisfies Record<…>` without `as const`. If the gate shows 0 mutants in a file that definitely has `msg`, the cause is this.
+- `i18n._()` accepts only an **expression**: `i18n._(API_ERROR_MESSAGES.X)` or `i18n._(MAP[key])`. An object literal with a spread (`i18n._({ ...d, values })`) breaks `lingui extract` (details in the comment to `translateApiError` in `apps/web/app/lib/axios-utils.ts`).
+- **Lesson (#707): for records with an explicit id (`api-error.*`, `zod-error.*`) the `msgstr` is edited by hand in both `.po`.** `i18n:extract` does not overwrite an existing `msgstr`. This wave does not change texts with an explicit id. If such an edit is needed, it is a separate line in the PR's "Assumptions" and a manual edit of both `.po`.
 
-**Тексты (`CONTEXT.md` → «Формы `uk`/`en`» + таблица канона ниже)**
+**Texts (`CONTEXT.md` → "`uk`/`en` forms" + the canon table below)**
 
-- Апостроф — `’` (U+2019), не `'` и не `ʼ`. Многоточие — `…` (U+2026), не `...` (аудит COPY-L-ppl-1: в срезе 23 строки с `...` против 21 с `…`). Кавычки: в `uk` ёлочки `«…»`, в `en` типографские `“…”`.
-- Роли пишутся словами из глоссария: `uk` — «адміністратор», «сеньйор», «джуніор», «HR», «бухгалтер», «дроп»; `en` — «admin», «senior», «junior», «HR», «accountant», «drop». **`en` для ADMIN — «admin»** (глоссарий `CONTEXT.md` и каталог `Адміністратор → Admin`). Если на урок #701 п.4 («administrator») ссылается ревьюер, отвечать глоссарием: он канон.
-- **Урок (#702, п.13): сырой enum роли в видимом тексте — находка.** После замены литерала сканировать **весь** файл: `grep -nE '\b(ADMIN|SENIOR|JUNIOR|HR|ACCOUNTANT|DROP)\b'` по JSX-тексту, `aria-label`, `title` и `placeholder`. На каждый экран с ролью — тест «в отрендеренном экране нет сырого enum». Исключение одно: `HR` — это и enum, и слово глоссария.
-- **Урок (#702, п.9): подстановка роли в косвенный падеж ломает `uk`.** Роль подставляется только в именительном («для ролі «Сеньйор»»). Если нужен другой падеж — `select` по роли с готовыми формами, набор веток которого совпадает со значениями enum, реально доходящими до места (урок п.8), плюс тест, что `other` недостижим.
-- Тост и отказ — **одно предложение, без точки в конце**, с глаголом, и там, где есть действие, сказано «что делать». Телеграфный стиль («Аватар: документ видалено») запрещён. Одна ситуация — один текст: одинаковые состояния в PR1 и PR2 берут текст из таблицы канона дословно, тогда в каталоге будет один ключ.
-- Имена полей, пути API, `teamMode=…`, `senior+team`, `cascade` в тексте для человека запрещены (аудит COPY-H-ppl-6).
-- **Урок (#701, п.5): русизмы проверять по юникоду, не байтовым `grep`.** Перед каждым push:
+- The apostrophe — `’` (U+2019), not `'` and not `ʼ`. The ellipsis — `…` (U+2026), not `...` (audit COPY-L-ppl-1: in the slice 23 lines with `...` against 21 with `…`). Quotes: in `uk` guillemets `«…»`, in `en` typographic `“…”`.
+- Roles are written in words from the glossary: `uk` — «адміністратор», «сеньйор», «джуніор», «HR», «бухгалтер», «дроп»; `en` — «admin», «senior», «junior», «HR», «accountant», «drop». **`en` for ADMIN — «admin»** (the `CONTEXT.md` glossary and the catalog `Адміністратор → Admin`). If a reviewer references lesson #701 item 4 ("administrator"), answer with the glossary: it is the canon.
+- **Lesson (#702, item 13): a raw role enum in visible text is a finding.** After replacing a literal, scan the **whole** file: `grep -nE '\b(ADMIN|SENIOR|JUNIOR|HR|ACCOUNTANT|DROP)\b'` over JSX text, `aria-label`, `title` and `placeholder`. For each screen with a role — a test "no raw enum in the rendered screen". The one exception: `HR` — it is both an enum and a glossary word.
+- **Lesson (#702, item 9): substitution of a role into an oblique case breaks `uk`.** A role is substituted only in the nominative («для ролі «Сеньйор»»). If another case is needed — `select` by the role with ready forms, the set of branches of which matches the enum values that actually reach the place (lesson item 8), plus a test that `other` is unreachable.
+- A toast and a refusal — **one sentence, no period at the end**, with a verb, and where there is an action, it says "what to do". Telegraphic style («Аватар: документ видалено») is forbidden. One situation — one text: identical states in PR1 and PR2 take the text from the canon table verbatim, then there will be one key in the catalog.
+- Field names, API paths, `teamMode=…`, `senior+team`, `cascade` in human-facing text are forbidden (audit COPY-H-ppl-6).
+- **Lesson (#701, item 5): check russisms by unicode, not a byte `grep`.** Before each push:
 
 ```bash
 python3 -c "import re,sys,subprocess;fs=subprocess.run(['git','diff','--name-only','origin/main','--','apps/web/app'],capture_output=True,text=True).stdout.split();[print(f,i,l.strip()) for f in fs if f.endswith(('.ts','.tsx')) for i,l in enumerate(open(f,encoding='utf8'),1) if re.search('[ыЫэЭъЪёЁ]',l) and not re.match(r'\s*(//|\*|\{/\*)',l)]"
 ```
 
-Строки из этого вывода в файлах **своего** PR — недоделка. Исключения — тестовые фикстуры с русскими данными (имена людей из сида) и комментарии.
+Strings from this output in files of **your** PR are an incomplete migration. Exceptions — test fixtures with Russian data (people's names from the seed) and comments.
 
-**Тесты**
+**Tests**
 
-- Якоря — `data-testid` и роли. Текст в ассертах берётся из **каталога `uk`**, не литералом:
-  - Vitest — `loadCatalog(locale)` и `I18nTestProvider` из `apps/web/app/test/i18n.tsx` (уже в `main`);
-  - E2E — `loadMessages('uk')` и `assertInCatalog(uk, '<текст>')` из `apps/e2e/fixtures/catalog.ts` (уже в `main`).
-- **Урок (#700, п.2): E2E-свип по всему `apps/e2e`, а не по спекам из диффа.** Регрессия — любой литерал мигрированного компонента в любой спеке. Процедура и скрипт — «Общий шаг: E2E-свип» ниже. «Pre-existing» допустимо только если CI на `origin/main` красный на той же спеке. Если `main` зелёный, это регрессия.
-- **Урок (#700, п.3): мутационный гейт на полном диффе — обязательный AC**, `survived 0`. Если у `NoCoverage` нет integration-hint, его закрывает unit-тест (`mutation-gate-integration-specs.md`). Локальный SKIP по таймауту — не PASS: тогда `stryker run` напрямую с `dryRunTimeoutMinutes: 20` и тем же конфигом, что у гейта.
-- **Урок (#699, п.12): каждое подавление Stryker — с причиной на той же строке директивы**, не короче 12 символов (`// Stryker disable next-line <Mutator>: <причина>`). Перед push — `node scripts/devops/check-mutation-suppressions.mjs`: локальный `pnpm mutation:changed` его не вызывает, а CI с ним валит все Mutation Gate джобы ещё до старта.
-- Тесты правит тот же кодер в том же PR (зона AutoTest по природе файла, но правка ассертов внутри мигрируемого модуля — часть той же задачи, как в волне a). Новых `*.spec.ts`-сценариев E2E волна не заводит.
+- Anchors — `data-testid` and roles. Text in assertions is taken from the **`uk` catalog**, not a literal:
+  - Vitest — `loadCatalog(locale)` and `I18nTestProvider` from `apps/web/app/test/i18n.tsx` (already in `main`);
+  - E2E — `loadMessages('uk')` and `assertInCatalog(uk, '<text>')` from `apps/e2e/fixtures/catalog.ts` (already in `main`).
+- **Lesson (#700, item 2): the E2E sweep is over the whole `apps/e2e`, not over the specs in the diff.** A regression — any literal of a migrated component in any spec. The procedure and script — "Common step: E2E sweep" below. "Pre-existing" is allowed only if CI on `origin/main` is red on the same spec. If `main` is green, it is a regression.
+- **Lesson (#700, item 3): the mutation gate on the full diff is a mandatory AC**, `survived 0`. If a `NoCoverage` has no integration-hint, a unit test closes it (`mutation-gate-integration-specs.md`). A local SKIP on timeout is not a PASS: then `stryker run` directly with `dryRunTimeoutMinutes: 20` and the same config as the gate.
+- **Lesson (#699, item 12): each Stryker suppression — with a reason on the same directive line**, no shorter than 12 characters (`// Stryker disable next-line <Mutator>: <reason>`). Before push — `node scripts/devops/check-mutation-suppressions.mjs`: a local `pnpm mutation:changed` does not call it, and CI with it fails all Mutation Gate jobs before even starting.
+- Tests are edited by the same coder in the same PR (the AutoTest zone by the file's nature, but editing assertions inside the migrated module is part of the same task, as in wave a). The wave does not introduce new `*.spec.ts` E2E scenarios.
 
-**Процесс**
+**Process**
 
-- `git add` явным списком (в каждой задаче он есть). Push — `DATABASE_URL= git push`, без `--no-verify`. Каждый коммит несёт `ac_verified:` с номерами из раздела «Acceptance criteria» своей задачи.
-- **Урок (#700, п.6): каденс для 30+ файлов** — `wip:`-коммиты локально, в конце **один** push. Pre-push под нагрузкой флакает, каждый push занимает 5–12 минут.
-- **Урок (#700, п.5): скриншоты и живые проходы делаются скриптом `npx playwright` в своём scratchpad**, не через `mcp__playwright__*`: браузер MCP общий у всех параллельных агентов.
-- **Урок (#704/#707, п.6 и п.18): конфликт `.po` при параллельных PR аддитивен.** Берутся обе стороны, затем `pnpm i18n:extract` дважды, и второй прогон должен дать пустой дифф. Проверка числами: число `msgid` равно `main` плюс новые записи PR, а fuzzy, `#-#-#` и пустых `msgstr` в `en` — 0. Merge `.po` не отдаётся haiku.
-- **Урок (#700, п.9): task-файл — единственный канал требований.** В промпт кодера оркестратор пишет: «все разделы "Дополнение оркестратора" в task-файле — часть задания».
-- После каждого Edit/Write `.ts`/`.tsx` — `mcp__eslint__lint-files`. На строках, которые волна трогает, новых warning `lingui/no-unlocalized-strings` быть не должно.
-- `pnpm i18n:extract` идемпотентен: второй прогон подряд не меняет `.po`. CI-гейт «i18n catalogs are in sync» это проверяет, перед push то же воспроизводится локально.
-- **Урок (#705, п.15): FM-5 guard-test gate.** Волна **не трогает** `apps/api`. Если исполнитель всё же решит править контроллер из списка `guard-test-gate.yml`, в том же PR нужен изменённый `apps/api/**/*.spec.ts` с ассертом 403 (или строка `guard-test-na: <причина>` в теле PR до push). Лучше такую правку вынести отдельным PR.
-- Каждый PR проходит design-gate **Tier 2** (правка существующих экранов: conformance-проверка ui-ux-designer, без генерации в Claude Design) и fidelity Mode B на всех классах устройств. Вердикт `copy-reviewer` — по `uk` и по `en` **отдельно**. `security-reviewer` обязателен для всех трёх PR: они трогают формы реквизитов и USDT-кошелька, доли, создание пользователя с ролью, архивацию и маскировку состава команды (critical-path zones `pm.md`). Логика там не меняется, но проверить это должен ревьюер, а не автор.
-- **Responsive AC для каждого PR:** экраны из задачи проверяются на 320 и 375 (мобайл), 768 (планшет), 1024 и 1280 (ноутбук), 1440 и 1920 (большой) на **обоих** языках. Нет горизонтального скролла (`document.scrollWidth <= clientWidth`), ни одна подпись не обрезана без `truncate` с `title`, тач-таргеты на мобайле не меньше 44×44. Скриншоты 320 и 1440 × `uk` и `en` прикладываются к PR. Украинский длиннее английского на 15–30 %, поэтому 320 на `uk` — главный риск.
+- `git add` by an explicit list (each task has one). Push — `DATABASE_URL= git push`, without `--no-verify`. Each commit carries `ac_verified:` with the numbers from the "Acceptance criteria" section of its task.
+- **Lesson (#700, item 6): a cadence for 30+ files** — `wip:` commits locally, one push at the end. Pre-push under load flakes, each push takes 5–12 minutes.
+- **Lesson (#700, item 5): screenshots and live passes are done with the `npx playwright` script in your own scratchpad**, not via `mcp__playwright__*`: the MCP browser is shared across all parallel agents.
+- **Lesson (#704/#707, items 6 and 18): the `.po` conflict on parallel PRs is additive.** Take both sides, then `pnpm i18n:extract` twice, and the second run must give an empty diff. Check by numbers: the number of `msgid` equals `main` plus the PR's new records, and fuzzy, `#-#-#` and empty `msgstr` in `en` — 0. The `.po` merge is not given to haiku.
+- **Lesson (#700, item 9): the task file is the only channel of requirements.** In the coder's prompt the orchestrator writes: "all the 'Orchestrator addendum' sections in the task file are part of the assignment".
+- After each Edit/Write of `.ts`/`.tsx` — `mcp__eslint__lint-files`. On the lines the wave touches there must be no new `lingui/no-unlocalized-strings` warnings.
+- `pnpm i18n:extract` is idempotent: a second consecutive run does not change `.po`. The CI gate "i18n catalogs are in sync" checks this, before push the same is reproduced locally.
+- **Lesson (#705, item 15): FM-5 guard-test gate.** The wave **does not touch** `apps/api`. If the implementer still decides to edit a controller from the `guard-test-gate.yml` list, the same PR needs a changed `apps/api/**/*.spec.ts` with a 403 assertion (or the line `guard-test-na: <reason>` in the PR body before push). It is better to carry out such an edit as a separate PR.
+- Each PR passes design-gate **Tier 2** (editing existing screens: a ui-ux-designer conformance check, without generation in Claude Design) and fidelity Mode B on all device classes. The `copy-reviewer` verdict — on `uk` and on `en` **separately**. `security-reviewer` is mandatory for all three PRs: they touch the credentials and USDT-wallet forms, shares, user creation with a role, archival and team composition masking (critical-path zones of `pm.md`). The logic there does not change, but the reviewer must verify this, not the author.
+- **Responsive AC for each PR:** the screens from the task are checked at 320 and 375 (mobile), 768 (tablet), 1024 and 1280 (laptop), 1440 and 1920 (large) in **both** languages. No horizontal scroll (`document.scrollWidth <= clientWidth`), no label is truncated without `truncate` with `title`, touch targets on mobile are no less than 44×44. Screenshots 320 and 1440 × `uk` and `en` are attached to the PR. Ukrainian is 15–30% longer than English, so 320 in `uk` is the main risk.
 
 ---
 
-## Тестовый доступ к каталогу (хелперы уже в `main`)
+## Test access to the catalog (helpers already in `main`)
 
-Раздел волны (a) «Тестовый доступ к каталогу» реализован и смёржен. Здесь — только как пользоваться.
+The wave (a) section "Test access to the catalog" is implemented and merged. Here — only how to use it.
 
 ```tsx
-// Vitest (apps/web) — реальный каталог через тот же путь, что в продакшене
+// Vitest (apps/web) — the real catalog via the same path as in production
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 await loadCatalog('uk')
@@ -85,7 +85,7 @@ expect(screen.getByText('Senior')).toBeInTheDocument()
 ```
 
 ```ts
-// E2E (apps/e2e) — перед прогоном обязателен `pnpm i18n:compile`
+// E2E (apps/e2e) — `pnpm i18n:compile` is mandatory before a run
 import { loadMessages, assertInCatalog } from '../fixtures/catalog'
 
 const uk = await loadMessages('uk')
@@ -93,13 +93,13 @@ await page.getByTestId('user-dialog-role-trigger').click()
 await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 ```
 
-`assertInCatalog` падает с понятной ошибкой, если текста нет в каталоге: так устаревший литерал не превращается в таймаут Playwright. Относительный путь импорта зависит от глубины спеки: `'../fixtures/catalog'` для `tests/*.spec.ts`, `'../../../fixtures/catalog'` для `tests/crm/<раздел>/*.spec.ts` (образец — `crm/team/team-archive.spec.ts`).
+`assertInCatalog` fails with a clear error if the text is not in the catalog: so an outdated literal does not turn into a Playwright timeout. The relative import path depends on the spec's depth: `'../fixtures/catalog'` for `tests/*.spec.ts`, `'../../../fixtures/catalog'` for `tests/crm/<section>/*.spec.ts` (a sample — `crm/team/team-archive.spec.ts`).
 
 ---
 
-## Периметр волны (b) — как получен
+## Perimeter of wave (b) — how it was obtained
 
-Команда (зона среза аудита `web-people`):
+Command (the zone of the `web-people` audit slice):
 
 ```bash
 git ls-files apps/web/app/components/{users,user-profile,onboarding,job-sourcing} \
@@ -107,101 +107,101 @@ git ls-files apps/web/app/components/{users,user-profile,onboarding,job-sourcing
   | grep -vE '__tests__|\.(spec|test)\.'
 ```
 
-Результат на `062af6f8` — **60 продуктовых файлов** (аудит на `3990a584` насчитал 59: с тех пор этап 2 добавил `LanguageSection.tsx`). Кириллица — 1045 строк, из них вне комментариев 880.
+Result on `062af6f8` — **60 product files** (the audit on `3990a584` counted 59: since then stage 2 added `LanguageSection.tsx`). Cyrillic — 1045 lines, of which 880 outside comments.
 
-Дальше периметр корректируется. Каждое отклонение — строка в «Допущениях» ниже.
+Further the perimeter is adjusted. Each deviation — a line in "Assumptions" below.
 
-| Что                                                                                                                                                      | Решение            | Почему                                                                                                                                                   |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/job-sourcing/**` (3 файла, 47 строк вне комментариев)                                                                                        | **исключить**      | Автоподача резюме на паузе по решению владельца: «код job-sourcing не трогать, новых задач не заводить». Что с модулем делать к этапу 6 — вопрос A2 ниже |
-| `components/user-profile/LanguageSection.tsx`                                                                                                            | **не мигрировать** | Этап 2 уже написал его на `uk` (6 строк с кириллицей — украинские исходники `msg`/`Trans`)                                                               |
-| `components/user-profile/contract/ContractEditor.tsx`, `users/{ProfileNameLink,UnarchiveButton,UserAvatar,section}.tsx`, `job-sourcing/open-original.ts` | **не трогать**     | Кириллицы 0                                                                                                                                              |
-| `routes/_authenticated/profile/{index,$userId}.tsx`                                                                                                      | **не мигрировать** | По 1 строке кириллицы, обе — комментарии                                                                                                                 |
-| `components/archive/ArchiveConfirmDialog.tsx`                                                                                                            | **добавить** (PR2) | Отложенные COPY-L-31/L-32 из #700 живут в нём; блок пользователя выносится в общий компонент                                                             |
-| `components/archive/UserArchiveImpact.tsx`                                                                                                               | **создать** (PR2)  | Отложенный пункт 3: один текст влияния архивации вместо двух                                                                                             |
-| `components/ui/role-select.tsx`                                                                                                                          | **добавить** (PR3) | Удаление легаси `ROLE_LABELS` после миграции последнего потребителя (урок #700, п.8)                                                                     |
-| `packages/shared/src/schemas/{contracts,tos,notification-preferences}.ts`                                                                                | **добавить** (PR1) | Удаление трёх русских `*_IMPERSONATION_MESSAGE`: после PR1 у них не остаётся потребителей                                                                |
-| `packages/shared/src/i18n/format.ts`                                                                                                                     | **добавить** (PR3) | Стиль `'dateTime'` для `formatResetTime` (время сброса квоты — нужны часы и минуты в локальной зоне; все существующие стили — даты в UTC)                |
-| `CONTEXT.md`                                                                                                                                             | **добавить** (PR1) | Урок #700, п.1: формы терминов волны заводятся в глоссарий до миграции файлов                                                                            |
+| What                                                                                                                                                     | Decision           | Why                                                                                                                                                                                   |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/job-sourcing/**` (3 files, 47 lines outside comments)                                                                                        | **exclude**        | Résumé auto-submit is paused by the owner's decision: "do not touch the job-sourcing code, do not introduce new tasks". What to do with the module by stage 6 — the A2 question below |
+| `components/user-profile/LanguageSection.tsx`                                                                                                            | **do not migrate** | Stage 2 already wrote it in `uk` (6 lines with Cyrillic — Ukrainian `msg`/`Trans` sources)                                                                                            |
+| `components/user-profile/contract/ContractEditor.tsx`, `users/{ProfileNameLink,UnarchiveButton,UserAvatar,section}.tsx`, `job-sourcing/open-original.ts` | **do not touch**   | 0 Cyrillic                                                                                                                                                                            |
+| `routes/_authenticated/profile/{index,$userId}.tsx`                                                                                                      | **do not migrate** | 1 Cyrillic line each, both — comments                                                                                                                                                 |
+| `components/archive/ArchiveConfirmDialog.tsx`                                                                                                            | **add** (PR2)      | The deferred COPY-L-31/L-32 from #700 live in it; the user block is moved out to a shared component                                                                                   |
+| `components/archive/UserArchiveImpact.tsx`                                                                                                               | **create** (PR2)   | The deferred item 3: one archival-impact text instead of two                                                                                                                          |
+| `components/ui/role-select.tsx`                                                                                                                          | **add** (PR3)      | Removal of the legacy `ROLE_LABELS` after the last consumer is migrated (lesson #700, item 8)                                                                                         |
+| `packages/shared/src/schemas/{contracts,tos,notification-preferences}.ts`                                                                                | **add** (PR1)      | Removal of three Russian `*_IMPERSONATION_MESSAGE`: after PR1 they have no consumers left                                                                                             |
+| `packages/shared/src/i18n/format.ts`                                                                                                                     | **add** (PR3)      | The `'dateTime'` style for `formatResetTime` (the quota reset time — hours and minutes in the local zone are needed; all existing styles — dates in UTC)                              |
+| `CONTEXT.md`                                                                                                                                             | **add** (PR1)      | Lesson #700, item 1: the wave's term forms are entered into the glossary before migrating the files                                                                                   |
 
-Итог по PR:
+Summary by PR:
 
-| PR      | Что                                                                                                                                         | Продуктовых файлов (мигрирует / разобрано) | Строк кириллицы вне комментариев |
-| ------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------- |
-| **PR1** | Онбординг и профиль (оболочка, вкладки, админ-действия, самоправка, контракт сотрудника)                                                    | 30 / 30 + 3 shared-схемы + `CONTEXT.md`    | 362                              |
-| **PR2** | Список пользователей, команды, архивация пользователя (оба диалога и общий текст влияния)                                                   | 11 / 11 + 1 новый                          | 221                              |
-| **PR3** | Мастер пользователя (`UserDialog.tsx`), резюме сеньйора, удаление обоих легаси `ROLE_LABELS`, стиль `'dateTime'`, 17 E2E-кликов по «Синьор» | 10 / 10 + `format.ts`                      | 244                              |
+| PR      | What                                                                                                                                         | Product files (migrates / analyzed)       | Cyrillic lines outside comments |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- | ------------------------------- |
+| **PR1** | Onboarding and profile (shell, tabs, admin actions, self-edit, the employee contract)                                                        | 30 / 30 + 3 shared schemas + `CONTEXT.md` | 362                             |
+| **PR2** | User list, teams, user archival (both dialogs and the shared impact text)                                                                    | 11 / 11 + 1 new                           | 221                             |
+| **PR3** | The user wizard (`UserDialog.tsx`), the senior résumé, removing both legacy `ROLE_LABELS`, the `'dateTime'` style, 17 E2E clicks on «Синьор» | 10 / 10 + `format.ts`                     | 244                             |
 
-Сумма мигрируемых строк — 827 из 880. Оставшиеся 53 — `job-sourcing` (47) и `LanguageSection.tsx` (6, уже украинские исходники). Столбец «строк» считает строки с кириллицей вне комментариев (`uk`-строки уже мигрированного `components/archive/ArchiveConfirmDialog.tsx` в сумму не входят).
-
----
-
-## Дисциплина параллельности
-
-| Шаг | Что                          | Ждёт               | Почему                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| --- | ---------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0   | #706 (3a PR2, `lib`/`hooks`) | —                  | Открыт. Трогает файлы этой волны: `user-profile/admin-actions/__tests__/{AdminActionsMenu.resend-invite,ArchiveUserDialog}.test.tsx`, `user-profile/tabs/__tests__/{FinanceTab.total-earned,OverviewTab.pending-share}.test.tsx`, E2E `profile-self-edit`, `requisites-warning`, `crm/team/team-archive`, а также `CONTEXT.md`. Кроме того, меняет `formatAmount`/`formatBytes` (параметр `locale`)                                                                                    |
-| 1   | **PR1 ∥ PR2**                | мерж #706          | Продуктовые, тестовые и E2E-файлы PR1 и PR2 не пересекаются (проверено скриптом по фрагментам текста, уникальным для каждой группы: ни одна спека не ассертит тексты обеих групп). Общее у них только `.po` — конфликт аддитивный (Global Constraints). Одинаковые состояния («нічого не знайдено», «не вказано») оба пишут дословно по таблице канона — один ключ                                                                                                                     |
-| 2   | **PR3**                      | мерж **PR1 и PR2** | (1) Удаление `role-select.ROLE_LABELS` возможно только после PR1 (`UserProfileHeader`, `ContractTab`, `TeamTab`), удаление `constants.ROLE_LABELS` — только после PR2 (`UserRow`, `users/index.tsx`). (2) Спеки `users`, `crm/users/users-refactor`, `drop-add-senior`, `drop-create`, `drop-create-ui-regressions`, `senior-create-default` правит и PR2 (бейджи, фильтр), и PR3 (мастер). То же с `admin-actions` и `requisites-warning` (PR1 и PR3). Последовательно конфликтов нет |
-
-**Распределение E2E-спек** (чей текст ассертит строка, тот PR её и правит; снято скриптом, повторить на шаге свипа):
-
-| PR  | Спеки (строки — на `062af6f8`, для ориентира)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| PR1 | `admin-actions.spec.ts` (пункт меню «Заметка админа»), `crm/contract-editor.spec.ts` («Нет шаблона контракта для роли Синьор», «Вернуть подписанный контракт в черновик?», «Остаться»), `crm/mobile-keyboard-attributes.spec.ts` («Реквизиты для выплат»), `crm/senior-resume.spec.ts` (только «Остаться» — диалог несохранённых изменений `UserProfileShell`), `onboarding-logout.spec.ts` («Выйти»), `profile-self-edit.spec.ts`, `requisites-warning.spec.ts` (кроме строк мастера)                                                                                                                   |
-| PR2 | `crm/team/team-archive.spec.ts`, `crm/users/users-refactor.spec.ts` (бейдж «Синьор» в строке, фильтры), `drop-archive-real.spec.ts`, `drop-archive-user-real.spec.ts`, `drop-archive-cascade.spec.ts`, `drop-rotate-senior.spec.ts`, `polish-regressions.spec.ts`, `team.spec.ts` (31 строка), `users.spec.ts` (бейджи «Администратор»/«Синьор», фильтр «Все роли»/«Джун»), строки команд и HR-чипов в `drop-add-senior`, `drop-create`, `drop-create-ui-regressions`, `senior-create-default`                                                                                                           |
-| PR3 | **17 кликов `getByRole('option', { name: 'Синьор' })` по `user-dialog-role-trigger`** в 5 спеках: `users.spec.ts` ×5, `drop-add-senior.spec.ts` ×6, `senior-create-default.spec.ts` ×3, `crm/users/users-refactor.spec.ts` ×2, `drop-create-ui-regressions.spec.ts` ×1. Плюс `admin-actions.spec.ts` (заголовок «Редактировать пользователя», триггер роли «Джун», тост «Пользователь обновлён»), `drop-duplicate-email.spec.ts` («Дроп создан»), `requisites-warning.spec.ts` (подпись «USDT ERC-20 кошелёк» в мастере), `crm/senior-resume.spec.ts` («Распознаём резюме»), `crm/create-wizard.spec.ts` |
-
-`cache/anti-stale.spec.ts` (`/^Синьор/`) ассертит подпись в диалоге **проекта** (волна c) — в этой волне не трогается.
+The sum of migrated lines — 827 of 880. The remaining 53 — `job-sourcing` (47) and `LanguageSection.tsx` (6, already Ukrainian sources). The "lines" column counts lines with Cyrillic outside comments (the `uk` lines of the already-migrated `components/archive/ArchiveConfirmDialog.tsx` are not in the sum).
 
 ---
 
-## Канон терминов волны (b) — `uk`/`en`
+## Parallelism discipline
 
-PR1 переносит эту таблицу в `CONTEXT.md` (раздел «Формы `uk`/`en`», продолжение волны a) первым коммитом. PR2 и PR3 берут слова отсюда дословно. Колонка «Откуда» ссылается на находку аудита, которая выбор предопределила.
+| Step | What                         | Waits for                | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---- | ---------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | #706 (3a PR2, `lib`/`hooks`) | —                        | Open. Touches this wave's files: `user-profile/admin-actions/__tests__/{AdminActionsMenu.resend-invite,ArchiveUserDialog}.test.tsx`, `user-profile/tabs/__tests__/{FinanceTab.total-earned,OverviewTab.pending-share}.test.tsx`, E2E `profile-self-edit`, `requisites-warning`, `crm/team/team-archive`, and also `CONTEXT.md`. It also changes `formatAmount`/`formatBytes` (the `locale` parameter)                                                                                                                   |
+| 1    | **PR1 ∥ PR2**                | merge of #706            | The product, test and E2E files of PR1 and PR2 do not overlap (checked by a script over text fragments unique to each group: no spec asserts the texts of both groups). The only shared thing — `.po` — an additive conflict (Global Constraints). Identical states («нічого не знайдено», «не вказано») both write verbatim per the canon table — one key                                                                                                                                                              |
+| 2    | **PR3**                      | merge of **PR1 and PR2** | (1) Removal of `role-select.ROLE_LABELS` is possible only after PR1 (`UserProfileHeader`, `ContractTab`, `TeamTab`), removal of `constants.ROLE_LABELS` — only after PR2 (`UserRow`, `users/index.tsx`). (2) The specs `users`, `crm/users/users-refactor`, `drop-add-senior`, `drop-create`, `drop-create-ui-regressions`, `senior-create-default` are edited by both PR2 (badges, filter) and PR3 (wizard). The same with `admin-actions` and `requisites-warning` (PR1 and PR3). Sequentially there are no conflicts |
 
-| Термин (рус., для справки)           | `uk`                                                                             | `en`                                                                   | `_Избегать_` в продукте                                                                                       | Откуда                                                                                        |
-| ------------------------------------ | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| Пользователь (учётная запись в CRM)  | користувач                                                                       | user                                                                   | «юзер»                                                                                                        | —                                                                                             |
-| Сотрудник (человек в компании)       | співробітник                                                                     | employee                                                               | «працівник» (в каталоге уже 21 запись со «співробітник»)                                                      | каталог `main`                                                                                |
-| Профиль                              | профіль                                                                          | profile                                                                | —                                                                                                             | —                                                                                             |
-| Онбординг                            | онбординг                                                                        | onboarding                                                             | «адаптація», «введення в посаду»                                                                              | —                                                                                             |
-| Пользовательское соглашение (ToS)    | Умови використання                                                               | Terms of Service                                                       | латиница «Terms of Service» в `uk`; «Умови користування», «Користувацька угода»                               | COPY-H-ppl-2; каталог уже говорит «умови використання» (`api-error.TOS_ACCEPT_IMPERSONATION`) |
-| Юридическое имя                      | юридичне ПІБ                                                                     | legal name                                                             | «ФІО», «display name»                                                                                         | глоссарий **Юридическое имя**; COPY-H-ppl-7                                                   |
-| Имя в CRM (отображаемое)             | ім’я та прізвище                                                                 | full name                                                              | «display name» в тексте                                                                                       | —                                                                                             |
-| Реквизиты                            | реквізити для виплат                                                             | payout details                                                         | «платіжні реквізити», «payment requisites»                                                                    | COPY-M-ppl-10                                                                                 |
-| Способ выплаты (`paymentMethodEnum`) | спосіб виплати                                                                   | payout method                                                          | «спосіб оплати», «метод оплати», «payment method»                                                             | глоссарий **Способ выплаты**; COPY-M-ppl-10                                                   |
-| Кошелёк USDT                         | гаманець USDT (ERC-20)                                                           | USDT wallet (ERC-20)                                                   | «USDT кошельок»                                                                                               | каталог `main` («Гаманець USDT ERC-20»)                                                       |
-| РНОКПП                               | РНОКПП                                                                           | tax ID (RNOKPP)                                                        | «ІПН», «ИНН ФОП»                                                                                              | —                                                                                             |
-| Архивировать / восстановить          | архівувати / відновити                                                           | archive / restore                                                      | «видалити», «deleted» про архівацію                                                                           | COPY-H-ppl-8                                                                                  |
-| Архив (фильтр)                       | в архіві                                                                         | archived                                                               | —                                                                                                             | —                                                                                             |
-| Заметка администратора               | нотатка адміністратора                                                           | admin note                                                             | «заметка админа», «коментар»                                                                                  | COPY-H-ppl-3                                                                                  |
-| Личная почта                         | особистий email                                                                  | personal email                                                         | «особиста адреса» (читается как поштова адреса; в каталоге сейчас оба варианта — PR1 выравнивает свои строки) | каталог `main`                                                                                |
-| Статус контракта `DRAFT`             | чернетка                                                                         | draft                                                                  | —                                                                                                             | глоссарий **Контракт сотрудника**                                                             |
-| Статус контракта `READY_TO_SIGN`     | готовий до підписання                                                            | ready to sign                                                          | «передано на підпис» как название статуса                                                                     | аудит §1 п.3 (две формулировки)                                                               |
-| Статус контракта `SIGNED`            | підписаний                                                                       | signed                                                                 | —                                                                                                             | —                                                                                             |
-| Статус контракта `CANCELLED`         | скасований                                                                       | cancelled                                                              | —                                                                                                             | —                                                                                             |
-| Резюме сеньйора                      | резюме                                                                           | CV                                                                     | «resume» (в `en`-интерфейсе совпадает с глаголом «продолжить»)                                                | локаль `en-GB` (`INTL_TAG` в `format.ts`)                                                     |
-| Пустое значение поля                 | не вказано                                                                       | not set                                                                | «—» без текста, «Не указано»/«не указано» вперемешку, «Заметок нет»                                           | COPY-L-ppl-4                                                                                  |
-| Фильтр ничего не нашёл               | Нічого не знайдено — скиньте фільтри                                             | No matches — clear the filters                                         | «Нет данных», «Пользователи не найдены», «Нет доступных пользователей»                                        | COPY-M-ppl-14                                                                                 |
-| Нет доступа к профилю                | Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору | No access to this profile — if you need it for work, write to an admin | два текста на один случай                                                                                     | COPY-M-ppl-7                                                                                  |
-| Пример ФИО (placeholder)             | Іваненко Іван Іванович                                                           | Ivan Ivanenko                                                          | «Иванов Иван Иванович»                                                                                        | COPY-M-ppl-13                                                                                 |
-| Пример адреса регистрации ФОП        | м. Київ, вул. Хрещатик, 1                                                        | 1 Khreshchatyk St, Kyiv                                                | «г. Киев, ул. Крещатик, 1»                                                                                    | COPY-M-ppl-13                                                                                 |
-| Пример банка                         | ПриватБанк                                                                       | PrivatBank                                                             | —                                                                                                             | COPY-M-ppl-13                                                                                 |
-| Подсказка поля технологий            | Почніть вводити: React, Node.js…                                                 | Start typing: React, Node.js…                                          | «Начните вводить, например: Re...»                                                                            | COPY-M-ppl-13                                                                                 |
+**E2E spec distribution** (whichever's text a line asserts, that PR edits it; taken with a script, repeat at the sweep step):
+
+| PR  | Specs (lines — on `062af6f8`, for a guide)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PR1 | `admin-actions.spec.ts` (the menu item «Заметка админа»), `crm/contract-editor.spec.ts` («Нет шаблона контракта для роли Синьор», «Вернуть подписанный контракт в черновик?», «Остаться»), `crm/mobile-keyboard-attributes.spec.ts` («Реквизиты для выплат»), `crm/senior-resume.spec.ts` (only «Остаться» — the unsaved-changes dialog of `UserProfileShell`), `onboarding-logout.spec.ts` («Выйти»), `profile-self-edit.spec.ts`, `requisites-warning.spec.ts` (except the wizard lines)                                                                                                                                |
+| PR2 | `crm/team/team-archive.spec.ts`, `crm/users/users-refactor.spec.ts` (the «Синьор» badge in the row, filters), `drop-archive-real.spec.ts`, `drop-archive-user-real.spec.ts`, `drop-archive-cascade.spec.ts`, `drop-rotate-senior.spec.ts`, `polish-regressions.spec.ts`, `team.spec.ts` (31 lines), `users.spec.ts` (the badges «Администратор»/«Синьор», the filter «Все роли»/«Джун»), team and HR-chip lines in `drop-add-senior`, `drop-create`, `drop-create-ui-regressions`, `senior-create-default`                                                                                                                |
+| PR3 | **17 clicks `getByRole('option', { name: 'Синьор' })` on `user-dialog-role-trigger`** in 5 specs: `users.spec.ts` ×5, `drop-add-senior.spec.ts` ×6, `senior-create-default.spec.ts` ×3, `crm/users/users-refactor.spec.ts` ×2, `drop-create-ui-regressions.spec.ts` ×1. Plus `admin-actions.spec.ts` (the title «Редактировать пользователя», the role trigger «Джун», the toast «Пользователь обновлён»), `drop-duplicate-email.spec.ts` («Дроп создан»), `requisites-warning.spec.ts` (the caption «USDT ERC-20 кошелёк» in the wizard), `crm/senior-resume.spec.ts` («Распознаём резюме»), `crm/create-wizard.spec.ts` |
+
+`cache/anti-stale.spec.ts` (`/^Синьор/`) asserts the caption in the **project** dialog (wave c) — not touched in this wave.
 
 ---
 
-## Шаблоны миграции
+## Wave (b) term canon — `uk`/`en`
 
-**A–F — те же, что в волне (a)** (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, раздел «Шаблоны миграции»): A — модульная константа → `msg` + `i18n._()` в рендере; B — JSX-текст → `<Trans>`; C — атрибут или императивная строка → `t` из `useLingui()`; D — число → `<Plural>` (в этой волне **только компонент**, см. урок про Stryker); E — родовая форма по роли → `select`; F — дата, деньги, число → `@crm/shared` `format.ts`.
+PR1 moves this table into `CONTEXT.md` (the "`uk`/`en` forms" section, a continuation of wave a) in the first commit. PR2 and PR3 take the words from here verbatim. The "Source" column refers to the audit finding that predetermined the choice.
 
-Новые в этой волне:
+| Term (rus., for reference)          | `uk`                                                                             | `en`                                                                   | `_Избегать_` in the product                                                                                     | Source                                                                                             |
+| ----------------------------------- | -------------------------------------------------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| User (an account in the CRM)        | користувач                                                                       | user                                                                   | «юзер»                                                                                                          | —                                                                                                  |
+| Employee (a person in the company)  | співробітник                                                                     | employee                                                               | «працівник» (the catalog already has 21 records with «співробітник»)                                            | catalog `main`                                                                                     |
+| Profile                             | профіль                                                                          | profile                                                                | —                                                                                                               | —                                                                                                  |
+| Onboarding                          | онбординг                                                                        | onboarding                                                             | «адаптація», «введення в посаду»                                                                                | —                                                                                                  |
+| Terms of Service (ToS)              | Умови використання                                                               | Terms of Service                                                       | Latin «Terms of Service» in `uk`; «Умови користування», «Користувацька угода»                                   | COPY-H-ppl-2; the catalog already says «умови використання» (`api-error.TOS_ACCEPT_IMPERSONATION`) |
+| Legal name                          | юридичне ПІБ                                                                     | legal name                                                             | «ФІО», «display name»                                                                                           | glossary **Legal name**; COPY-H-ppl-7                                                              |
+| Name in the CRM (displayed)         | ім’я та прізвище                                                                 | full name                                                              | «display name» in the text                                                                                      | —                                                                                                  |
+| Payout details                      | реквізити для виплат                                                             | payout details                                                         | «платіжні реквізити», «payment requisites»                                                                      | COPY-M-ppl-10                                                                                      |
+| Payout method (`paymentMethodEnum`) | спосіб виплати                                                                   | payout method                                                          | «спосіб оплати», «метод оплати», «payment method»                                                               | glossary **Payout method**; COPY-M-ppl-10                                                          |
+| USDT wallet                         | гаманець USDT (ERC-20)                                                           | USDT wallet (ERC-20)                                                   | «USDT кошельок»                                                                                                 | catalog `main` («Гаманець USDT ERC-20»)                                                            |
+| RNOKPP                              | РНОКПП                                                                           | tax ID (RNOKPP)                                                        | «ІПН», «ИНН ФОП»                                                                                                | —                                                                                                  |
+| Archive / restore                   | архівувати / відновити                                                           | archive / restore                                                      | «видалити», «deleted» about archival                                                                            | COPY-H-ppl-8                                                                                       |
+| Archive (filter)                    | в архіві                                                                         | archived                                                               | —                                                                                                               | —                                                                                                  |
+| Admin note                          | нотатка адміністратора                                                           | admin note                                                             | «заметка админа», «коментар»                                                                                    | COPY-H-ppl-3                                                                                       |
+| Personal email                      | особистий email                                                                  | personal email                                                         | «особиста адреса» (reads as a postal address; the catalog currently has both variants — PR1 aligns its strings) | catalog `main`                                                                                     |
+| Contract status `DRAFT`             | чернетка                                                                         | draft                                                                  | —                                                                                                               | glossary **Employee contract**                                                                     |
+| Contract status `READY_TO_SIGN`     | готовий до підписання                                                            | ready to sign                                                          | «передано на підпис» as a status name                                                                           | audit §1 item 3 (two wordings)                                                                     |
+| Contract status `SIGNED`            | підписаний                                                                       | signed                                                                 | —                                                                                                               | —                                                                                                  |
+| Contract status `CANCELLED`         | скасований                                                                       | cancelled                                                              | —                                                                                                               | —                                                                                                  |
+| Senior résumé                       | резюме                                                                           | CV                                                                     | «resume» (in the `en` interface coincides with the verb "continue")                                             | locale `en-GB` (`INTL_TAG` in `format.ts`)                                                         |
+| Empty field value                   | не вказано                                                                       | not set                                                                | «—» without text, «Не указано»/«не указано» intermixed, «Заметок нет»                                           | COPY-L-ppl-4                                                                                       |
+| A filter found nothing              | Нічого не знайдено — скиньте фільтри                                             | No matches — clear the filters                                         | «Нет данных», «Пользователи не найдены», «Нет доступных пользователей»                                          | COPY-M-ppl-14                                                                                      |
+| No access to a profile              | Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору | No access to this profile — if you need it for work, write to an admin | two texts for one case                                                                                          | COPY-M-ppl-7                                                                                       |
+| Full-name example (placeholder)     | Іваненко Іван Іванович                                                           | Ivan Ivanenko                                                          | «Иванов Иван Иванович»                                                                                          | COPY-M-ppl-13                                                                                      |
+| FOP registration address example    | м. Київ, вул. Хрещатик, 1                                                        | 1 Khreshchatyk St, Kyiv                                                | «г. Киев, ул. Крещатик, 1»                                                                                      | COPY-M-ppl-13                                                                                      |
+| Bank example                        | ПриватБанк                                                                       | PrivatBank                                                             | —                                                                                                               | COPY-M-ppl-13                                                                                      |
+| Technologies field hint             | Почніть вводити: React, Node.js…                                                 | Start typing: React, Node.js…                                          | «Начните вводить, например: Re...»                                                                              | COPY-M-ppl-13                                                                                      |
 
-**G. Текст, который уже есть в каталоге по коду, — через каталог, а не через русскую константу из `@crm/shared`.**
+---
+
+## Migration templates
+
+**A–F — the same as in wave (a)** (`docs/superpowers/plans/2026-09-20-crm-i18n-stage3a-web-core.md`, the "Migration templates" section): A — module constant → `msg` + `i18n._()` in the render; B — JSX text → `<Trans>`; C — attribute or imperative string → `t` from `useLingui()`; D — number → `<Plural>` (in this wave **component only**, see the Stryker lesson); E — gender form by role → `select`; F — date, money, number → `@crm/shared` `format.ts`.
+
+New in this wave:
+
+**G. Text that already exists in the catalog by code — via the catalog, not via a Russian constant from `@crm/shared`.**
 
 ```tsx
-// было (SignContractStep.tsx; то же в AcceptTosStep.tsx и NotificationSettingsTab.tsx)
+// was (SignContractStep.tsx; same in AcceptTosStep.tsx and NotificationSettingsTab.tsx)
 import { CONTRACT_SIGN_IMPERSONATION_MESSAGE } from '@crm/shared'
 const IMPERSONATION_EXPLANATION = `${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`
 // …
@@ -209,8 +209,8 @@ const IMPERSONATION_EXPLANATION = `${CONTRACT_SIGN_IMPERSONATION_MESSAGE}.`
   IMPERSONATION_EXPLANATION
 }
 
-// стало — тот же текст, что сервер отдаёт кодом CONTRACT_SIGN_IMPERSONATION;
-// одно предложение без точки, точку снаружи не приклеиваем (аудит, B «Кросс-срезовые импорты»)
+// became — the same text the server returns by the code CONTRACT_SIGN_IMPERSONATION;
+// one sentence without a period, the period is not glued on outside (audit, B "Cross-slice imports")
 import { API_ERROR_MESSAGES } from '@crm/shared'
 import { useLingui } from '@lingui/react/macro'
 const { i18n } = useLingui()
@@ -220,21 +220,21 @@ const { i18n } = useLingui()
 }
 ```
 
-Zod-сообщения клиентских схем — код `'zod.<CODE>'` из реестра `ZOD_ERROR_CODES` и `translateZodMessage`/`translateZodCode` из `@/lib/axios-utils` (эталон — `ChangePersonalEmailDialog.tsx` и `RejoinTeamDialog.tsx`, которые этап 4 уже перевёл). Нового кода в реестре волна не заводит: всё нужное есть (`EMAIL_INVALID`, `EMAIL_TOO_LONG`, `DISPLAY_NAME_MIN`, `LEGAL_FULL_NAME_MIN`, `RECIPIENT_NAME_MIN`, `VALIDATION_FAILED_FORM`, `RESUME_TEXT_TOO_SHORT`). Если код всё-таки нужен, это правка `packages/shared/src/schemas/zod-errors.ts` с ручной правкой обоих `.po` (Global Constraints).
+Zod messages of client schemas — the code `'zod.<CODE>'` from the `ZOD_ERROR_CODES` registry and `translateZodMessage`/`translateZodCode` from `@/lib/axios-utils` (the reference — `ChangePersonalEmailDialog.tsx` and `RejoinTeamDialog.tsx`, which stage 4 already translated). The wave does not introduce a new code into the registry: everything needed exists (`EMAIL_INVALID`, `EMAIL_TOO_LONG`, `DISPLAY_NAME_MIN`, `LEGAL_FULL_NAME_MIN`, `RECIPIENT_NAME_MIN`, `VALIDATION_FAILED_FORM`, `RESUME_TEXT_TOO_SHORT`). If a code is nevertheless needed, it is an edit of `packages/shared/src/schemas/zod-errors.ts` with a manual edit of both `.po` (Global Constraints).
 
-**H. Потребитель легаси-словаря ролей → `ROLE_LABEL_MESSAGES`.** Одиночное значение — хук, список — один `useLingui()` на компонент и `i18n._()` внутри `.map()` (хук в `.map()` вызывать нельзя). Образец — `routes/_authenticated/admin/login-as.tsx`.
+**H. A legacy role-dictionary consumer → `ROLE_LABEL_MESSAGES`.** A single value — the hook, a list — one `useLingui()` per component and `i18n._()` inside `.map()` (a hook cannot be called in `.map()`). The reference — `routes/_authenticated/admin/login-as.tsx`.
 
 ```tsx
-// было (UserRow.tsx)
+// was (UserRow.tsx)
 import { ROLE_LABELS } from './constants'
 <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{ROLE_LABELS[user.role]}</Badge>
 
-// стало — одно значение
+// became — a single value
 import { useRoleLabel } from '@/components/ui/role-select'
 const roleLabel = useRoleLabel(user.role)
 <Badge variant={ROLE_VARIANT[user.role] ?? 'outline'}>{roleLabel}</Badge>
 
-// стало — список (TeamTab, $teamId, users/index, UserDialog)
+// became — a list (TeamTab, $teamId, users/index, UserDialog)
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 const { i18n } = useLingui()
 {members.map((m) => (
@@ -242,28 +242,28 @@ const { i18n } = useLingui()
 ))}
 ```
 
-Фоллбэк `?? user.role` удаляется: `Role` — закрытый union, а `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` покрывает все шесть значений. Фоллбэк печатал бы enum (COPY-H-ppl-4).
+The `?? user.role` fallback is removed: `Role` is a closed union, and `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` covers all six values. The fallback would print the enum (COPY-H-ppl-4).
 
-**I. E2E-ассерт по мигрированному тексту → `assertInCatalog`.**
+**I. E2E assert on migrated text → `assertInCatalog`.**
 
 ```ts
-// было
+// was
 await expect(seniorRow.getByText('Синьор')).toBeVisible()
-// стало
+// became
 const uk = await loadMessages('uk')
 await expect(seniorRow.getByText(assertInCatalog(uk, 'Сеньйор'))).toBeVisible()
 ```
 
-Если у элемента есть `data-testid` и текст не является предметом проверки, лучше якорь по testid без текста.
+If the element has a `data-testid` and the text is not the subject of the check, better anchor by testid without text.
 
 ---
 
-## Общий шаг: E2E-свип (выполняется в каждом PR перед push)
+## Common step: E2E sweep (performed in each PR before push)
 
-Скрипт собирает русские фрагменты, которые **удалил этот PR**, и ищет их во всём `apps/e2e`. Каждая находка — строка, которую надо проверить. Если фрагмент остался в другом, ещё не мигрированном компоненте и спека ассертит именно его, строку не трогают. Если спека ассертит мигрированный экран, строку переводят на шаблон I.
+The script collects the Russian fragments that **this PR removed** and searches for them across the whole `apps/e2e`. Each hit — a line to check. If the fragment remained in another not-yet-migrated component and a spec asserts exactly it, do not touch the line. If the spec asserts a migrated screen, move the line to template I.
 
 ```bash
-SCRATCH="${TMPDIR:-/tmp}/wave-b-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # свой каталог: имя из своей ветки, не общий путь
+SCRATCH="${TMPDIR:-/tmp}/wave-b-$(git rev-parse --abbrev-ref HEAD | tr / -)"   # own directory: name from your branch, not a shared path
 mkdir -p "$SCRATCH"
 git diff origin/main -- apps/web/app > "$SCRATCH/wave-b.diff"
 ```
@@ -292,129 +292,129 @@ for spec in sorted(pathlib.Path('apps/e2e').rglob('*.ts')):
 
 ```bash
 python3 "$SCRATCH/e2e_sweep.py" "$SCRATCH/wave-b.diff" > "$SCRATCH/sweep.txt"
-cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # список для git add
+cut -d: -f1 "$SCRATCH/sweep.txt" | sort -u > "$SCRATCH/sweep-specs.txt"   # list for git add
 ```
 
-Вывод целиком идёт в тело PR (раздел «E2E-свип») с отметкой по каждой строке: «переведена на каталог», «testid» или «не наш текст — <какой компонент вне волны его рендерит>». Строка без отметки — незакрытая. В коммит спеки попадают через `git add $(cat "$SCRATCH/sweep-specs.txt")`: для файлов без изменений это пустая операция.
+The whole output goes into the PR body (the "E2E sweep" section) with a mark on each line: "moved to the catalog", "testid" or "not our text — <which component outside the wave renders it>". A line without a mark is unclosed. The specs enter the commit via `git add $(cat "$SCRATCH/sweep-specs.txt")`: for files without changes this is a no-op.
 
 ---
 
-## Task 1 (PR1): онбординг и профиль
+## Task 1 (PR1): onboarding and profile
 
 **Files:**
 
-Продуктовые (`apps/web/app/`, кириллица на `062af6f8`: всего / вне комментариев):
+Product (`apps/web/app/`, Cyrillic on `062af6f8`: total / outside comments):
 
-| Файл                                                                  | Кир. строк | Паттерн(ы) | Находки аудита / примечание                                                                                                                               |
-| --------------------------------------------------------------------- | ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/user-profile/tabs/OverviewTab.tsx`                        | 55 / 51    | B, C, D, F | COPY-H-ppl-2 (карточка ToS), H-3 («Заметка администратора», «Админ увидит причину»), M-10, M-12, L-4; дата принятия ToS — `formatDate(…, 'short')`        |
-| `components/onboarding/SignContractStep.tsx`                          | 30 / 23    | B, C, G    | COPY-H-ppl-7 (подсказка), L-2 (`PREVIEW`), L-5 (имя файла), родовое «ознакомился»; **отложенный пункт 4** — плашки COPY-M-15/16 из #702 (Step 4)          |
-| `components/user-profile/AvatarUploadDialog.tsx`                      | 29 / 29    | B, C, F    | COPY-M-ppl-8 (KB против MB) — `formatBytes(bytes, locale)` после #706                                                                                     |
-| `components/user-profile/UserProfileShell.tsx`                        | 28 / 24    | B, C       | COPY-H-ppl-8 («был удалён»), M-7 (два текста 403), диалог «Остаться»                                                                                      |
-| `components/user-profile/self-edit/RequisitesEditForm.tsx`            | 26 / 26    | B, C, G    | COPY-M-ppl-10, M-11 («SENIOR и ADMIN» ×2), M-13 (пример ФИО)                                                                                              |
-| `components/user-profile/tabs/NotificationSettingsTab.tsx`            | 78 / 26    | A, B, C, G | Плашка «войти как» — `API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION`; `'Новый тип'`; заголовки типов — см. «Опасность: `NOTIFICATION_TITLES`» |
-| `components/user-profile/tabs/FinanceTab.tsx`                         | 25 / 22    | B, C, F    | COPY-H-ppl-9 (карточка «Всего заработано»), M-5 (недостижимая ветка), M-14; `TYPE_OPTIONS`/`STATUS_OPTIONS` — см. «Опасность: карты финансов»             |
-| `components/user-profile/contract/ContractPdfPreview.tsx`             | 16 / 15    | B, C       | COPY-L-ppl-5 (имя файла)                                                                                                                                  |
-| `components/user-profile/contract/ContractFillForm.tsx`               | 15 / 15    | B, C       | —                                                                                                                                                         |
-| `components/user-profile/contract/ContractActionBar.tsx`              | 14 / 14    | B, C       | Статусы — канон таблицы                                                                                                                                   |
-| `components/user-profile/contract/ContractTab.tsx`                    | 14 / 14    | A, B, H    | COPY-H-ppl-5 — `ROLE_LABELS[targetRole]` → `useRoleLabel`; `STATUS_LABELS`, `FROZEN_BANNERS` → `msg`                                                      |
-| `components/onboarding/AcceptTosStep.tsx`                             | 14 / 9     | B, C, G    | COPY-H-ppl-2 («Terms of Service» ×7 → «Умови використання»), L-1 («Принятие...»)                                                                          |
-| `components/user-profile/tabs/RequisitesTab.tsx`                      | 13 / 13    | B          | COPY-M-ppl-10, L-4                                                                                                                                        |
-| `components/user-profile/UserProfileHeader.tsx`                       | 10 / 6     | B, F, H    | `ROLE_LABELS` → `useRoleLabel`; «Зарегистрирован» (род) → «Дата реєстрації»; `toLocaleDateString('ru-RU')` → `formatDate(…, 'long')`                      |
-| `routes/_authenticated/onboarding/index.tsx`                          | 9 / 9      | B, C       | —                                                                                                                                                         |
-| `components/user-profile/admin-actions/AdminActionsMenu.tsx`          | 11 / 7     | A, B       | COPY-H-ppl-3 («Заметка админа»)                                                                                                                           |
-| `components/user-profile/contract/useEmployeeContract.ts`             | 9 / 5      | C          | Пять склеек `` `Не удалось сохранить контракт: ${msg}` `` — склейка с серверным текстом уходит, серверный текст берётся из `getApiErrorMessage`           |
-| `components/user-profile/ProfileCredentialsSection.tsx`               | 8 / 8      | B, C       | «Нет доступа» — канон таблицы                                                                                                                             |
-| `components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx` | 22 / 8     | C, G       | Zod уже на кодах (этап 4); остаток — подписи и тосты                                                                                                      |
-| `components/user-profile/tabs/ProjectsTab.tsx`                        | 7 / 7      | B, F       | Две `toLocaleDateString('ru-RU')` → `formatDate`                                                                                                          |
-| `components/user-profile/admin-actions/AdminNoteDialog.tsx`           | 6 / 6      | B, C       | COPY-H-ppl-3                                                                                                                                              |
-| `components/onboarding/ContractWaitScreen.tsx`                        | 5 / 4      | B          | COPY-M-ppl-15 («15 секунд»), H-3 («Администратор заполнит»)                                                                                               |
-| `components/user-profile/self-edit/ProfileEditFields.tsx`             | 5 / 5      | B, C       | COPY-M-ppl-13 (подсказка технологий)                                                                                                                      |
-| `components/user-profile/contract/MissingFieldsBanner.tsx`            | 5 / 4      | B          | —                                                                                                                                                         |
-| `components/user-profile/tabs/DocumentsTab.tsx`                       | 3 / 3      | B          | Заглушка «(Phase 6)» — внутреннее название этапа в тексте для человека, убрать                                                                            |
-| `components/onboarding/TosUpdateBanner.tsx`                           | 2 / 2      | B          | COPY-H-ppl-2                                                                                                                                              |
-| `components/user-profile/tabs/InterviewsTab.tsx`                      | 2 / 2      | B          | «синьора» → роль по глоссарию                                                                                                                             |
-| `components/user-profile/cropImage.ts`                                | 2 / 2      | —          | Не UI-текст: `Error('…')` для разработчика. Сообщения → английские; `AvatarUploadDialog` показывает **свой** текст, а не `err.message` (Step 9)           |
-| `routes/_authenticated/onboarding/route.tsx`                          | 2 / 2      | B          | «Выйти», «Все права защищены»                                                                                                                             |
-| `components/user-profile/tabs/TeamTab.tsx`                            | 1 / 1      | B, F, H    | `ROLE_LABELS` → шаблон H; `localeCompare` → `compareNames(locale)`; пустое состояние — см. «Опасность: маскировка»                                        |
+| File                                                                  | Cyr. lines | Pattern(s) | Audit findings / note                                                                                                                                                 |
+| --------------------------------------------------------------------- | ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/user-profile/tabs/OverviewTab.tsx`                        | 55 / 51    | B, C, D, F | COPY-H-ppl-2 (the ToS card), H-3 («Заметка администратора», «Админ увидит причину»), M-10, M-12, L-4; the ToS acceptance date — `formatDate(…, 'short')`              |
+| `components/onboarding/SignContractStep.tsx`                          | 30 / 23    | B, C, G    | COPY-H-ppl-7 (the hint), L-2 (`PREVIEW`), L-5 (the file name), gendered «ознакомился»; **the deferred item 4** — the COPY-M-15/16 banners from #702 (Step 4)          |
+| `components/user-profile/AvatarUploadDialog.tsx`                      | 29 / 29    | B, C, F    | COPY-M-ppl-8 (KB vs MB) — `formatBytes(bytes, locale)` after #706                                                                                                     |
+| `components/user-profile/UserProfileShell.tsx`                        | 28 / 24    | B, C       | COPY-H-ppl-8 («был удалён»), M-7 (two 403 texts), the «Остаться» dialog                                                                                               |
+| `components/user-profile/self-edit/RequisitesEditForm.tsx`            | 26 / 26    | B, C, G    | COPY-M-ppl-10, M-11 («SENIOR и ADMIN» ×2), M-13 (the full-name example)                                                                                               |
+| `components/user-profile/tabs/NotificationSettingsTab.tsx`            | 78 / 26    | A, B, C, G | The "log in as" banner — `API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION`; `'Новый тип'`; type titles — see "Danger: `NOTIFICATION_TITLES`"                |
+| `components/user-profile/tabs/FinanceTab.tsx`                         | 25 / 22    | B, C, F    | COPY-H-ppl-9 (the «Всего заработано» card), M-5 (an unreachable branch), M-14; `TYPE_OPTIONS`/`STATUS_OPTIONS` — see "Danger: finance maps"                           |
+| `components/user-profile/contract/ContractPdfPreview.tsx`             | 16 / 15    | B, C       | COPY-L-ppl-5 (the file name)                                                                                                                                          |
+| `components/user-profile/contract/ContractFillForm.tsx`               | 15 / 15    | B, C       | —                                                                                                                                                                     |
+| `components/user-profile/contract/ContractActionBar.tsx`              | 14 / 14    | B, C       | Statuses — the canon table                                                                                                                                            |
+| `components/user-profile/contract/ContractTab.tsx`                    | 14 / 14    | A, B, H    | COPY-H-ppl-5 — `ROLE_LABELS[targetRole]` → `useRoleLabel`; `STATUS_LABELS`, `FROZEN_BANNERS` → `msg`                                                                  |
+| `components/onboarding/AcceptTosStep.tsx`                             | 14 / 9     | B, C, G    | COPY-H-ppl-2 («Terms of Service» ×7 → «Умови використання»), L-1 («Принятие...»)                                                                                      |
+| `components/user-profile/tabs/RequisitesTab.tsx`                      | 13 / 13    | B          | COPY-M-ppl-10, L-4                                                                                                                                                    |
+| `components/user-profile/UserProfileHeader.tsx`                       | 10 / 6     | B, F, H    | `ROLE_LABELS` → `useRoleLabel`; «Зарегистрирован» (gender) → «Дата реєстрації»; `toLocaleDateString('ru-RU')` → `formatDate(…, 'long')`                               |
+| `routes/_authenticated/onboarding/index.tsx`                          | 9 / 9      | B, C       | —                                                                                                                                                                     |
+| `components/user-profile/admin-actions/AdminActionsMenu.tsx`          | 11 / 7     | A, B       | COPY-H-ppl-3 («Заметка админа»)                                                                                                                                       |
+| `components/user-profile/contract/useEmployeeContract.ts`             | 9 / 5      | C          | Five concatenations `` `Не удалось сохранить контракт: ${msg}` `` — the concatenation with the server text goes away, the server text comes from `getApiErrorMessage` |
+| `components/user-profile/ProfileCredentialsSection.tsx`               | 8 / 8      | B, C       | «Нет доступа» — the canon table                                                                                                                                       |
+| `components/user-profile/admin-actions/ChangePersonalEmailDialog.tsx` | 22 / 8     | C, G       | Zod already on codes (stage 4); the remainder — captions and toasts                                                                                                   |
+| `components/user-profile/tabs/ProjectsTab.tsx`                        | 7 / 7      | B, F       | Two `toLocaleDateString('ru-RU')` → `formatDate`                                                                                                                      |
+| `components/user-profile/admin-actions/AdminNoteDialog.tsx`           | 6 / 6      | B, C       | COPY-H-ppl-3                                                                                                                                                          |
+| `components/onboarding/ContractWaitScreen.tsx`                        | 5 / 4      | B          | COPY-M-ppl-15 («15 секунд»), H-3 («Администратор заполнит»)                                                                                                           |
+| `components/user-profile/self-edit/ProfileEditFields.tsx`             | 5 / 5      | B, C       | COPY-M-ppl-13 (the technologies hint)                                                                                                                                 |
+| `components/user-profile/contract/MissingFieldsBanner.tsx`            | 5 / 4      | B          | —                                                                                                                                                                     |
+| `components/user-profile/tabs/DocumentsTab.tsx`                       | 3 / 3      | B          | The stub «(Phase 6)» — an internal stage name in human-facing text, remove                                                                                            |
+| `components/onboarding/TosUpdateBanner.tsx`                           | 2 / 2      | B          | COPY-H-ppl-2                                                                                                                                                          |
+| `components/user-profile/tabs/InterviewsTab.tsx`                      | 2 / 2      | B          | «синьора» → the role per the glossary                                                                                                                                 |
+| `components/user-profile/cropImage.ts`                                | 2 / 2      | —          | Not UI text: `Error('…')` for the developer. Messages → English; `AvatarUploadDialog` shows **its own** text, not `err.message` (Step 9)                              |
+| `routes/_authenticated/onboarding/route.tsx`                          | 2 / 2      | B          | «Выйти», «Все права защищены»                                                                                                                                         |
+| `components/user-profile/tabs/TeamTab.tsx`                            | 1 / 1      | B, F, H    | `ROLE_LABELS` → template H; `localeCompare` → `compareNames(locale)`; the empty state — see "Danger: masking"                                                         |
 
-Не мигрировать (проверено): `components/user-profile/LanguageSection.tsx` (уже `uk`, этап 2), `components/user-profile/contract/ContractEditor.tsx` (0), `routes/_authenticated/profile/{index,$userId}.tsx` (только комментарии).
+Do not migrate (checked): `components/user-profile/LanguageSection.tsx` (already `uk`, stage 2), `components/user-profile/contract/ContractEditor.tsx` (0), `routes/_authenticated/profile/{index,$userId}.tsx` (comments only).
 
-Вне `apps/web/app`:
+Outside `apps/web/app`:
 
-- `CONTEXT.md` — раздел канона (Step 1).
-- `packages/shared/src/schemas/contracts.ts`, `tos.ts`, `notification-preferences.ts` — удалить `CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `TOS_ACCEPT_IMPERSONATION_MESSAGE`, `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` и их кейсы в `contracts.spec.ts`, `tos.spec.ts`, `notification-preferences.spec.ts` (Step 3). `INVOICE_SIGN_IMPERSONATION_MESSAGE` **не трогать**: его потребитель `invoice-detail-dialog.tsx` — волна (d).
+- `CONTEXT.md` — the canon section (Step 1).
+- `packages/shared/src/schemas/contracts.ts`, `tos.ts`, `notification-preferences.ts` — remove `CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `TOS_ACCEPT_IMPERSONATION_MESSAGE`, `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` and their cases in `contracts.spec.ts`, `tos.spec.ts`, `notification-preferences.spec.ts` (Step 3). `INVOICE_SIGN_IMPERSONATION_MESSAGE` **do not touch**: its consumer `invoice-detail-dialog.tsx` — wave (d).
 - `packages/shared/src/i18n/locales/{uk,en}/messages.po`.
 
-Тесты (обновить ассерты на каталог; число строк с кириллицей в скобках):
+Tests (update the assertions to the catalog; the number of lines with Cyrillic in parentheses):
 
-`components/onboarding/{AcceptTosStep.spec.tsx (0), SignContractStep.spec.tsx (7)}`, `components/user-profile/__tests__/{UserProfileHeader.test.tsx (5), UserProfileShell.drop-redirect.test.tsx (10), UserProfileShell.notifications-tab.test.tsx (12)}`, `components/user-profile/admin-actions/__tests__/{AdminActionsMenu.change-personal-email.test.tsx (8), AdminActionsMenu.resend-invite.test.tsx (3), ChangePersonalEmailDialog.test.tsx (32)}`, `components/user-profile/contract/__tests__/{ContractActionBar.test.tsx (5), ContractEditor.test.tsx (3), ContractFillForm.test.tsx (12), ContractPdfPreview.test.tsx (5), ContractTab.test.tsx (3)}`, `components/user-profile/tabs/__tests__/{FinanceTab.total-earned.test.tsx (2), NotificationSettingsTab.grouping.test.ts (10), NotificationSettingsTab.test.tsx (30), OverviewTab.pending-share.test.tsx (48), OverviewTab.share-card.test.tsx (6), OverviewTab.tos.test.tsx (1), TeamTab.empty-state.test.tsx (4)}`. Новые кейсы (Step 2) — внутри существующих файлов, новых тест-файлов PR1 не заводит.
+`components/onboarding/{AcceptTosStep.spec.tsx (0), SignContractStep.spec.tsx (7)}`, `components/user-profile/__tests__/{UserProfileHeader.test.tsx (5), UserProfileShell.drop-redirect.test.tsx (10), UserProfileShell.notifications-tab.test.tsx (12)}`, `components/user-profile/admin-actions/__tests__/{AdminActionsMenu.change-personal-email.test.tsx (8), AdminActionsMenu.resend-invite.test.tsx (3), ChangePersonalEmailDialog.test.tsx (32)}`, `components/user-profile/contract/__tests__/{ContractActionBar.test.tsx (5), ContractEditor.test.tsx (3), ContractFillForm.test.tsx (12), ContractPdfPreview.test.tsx (5), ContractTab.test.tsx (3)}`, `components/user-profile/tabs/__tests__/{FinanceTab.total-earned.test.tsx (2), NotificationSettingsTab.grouping.test.ts (10), NotificationSettingsTab.test.tsx (30), OverviewTab.pending-share.test.tsx (48), OverviewTab.share-card.test.tsx (6), OverviewTab.tos.test.tsx (1), TeamTab.empty-state.test.tsx (4)}`. New cases (Step 2) — inside the existing files, PR1 does not introduce new test files.
 
-E2E: см. «Распределение E2E-спек», строка PR1, плюс вывод свипа.
+E2E: see "E2E spec distribution", the PR1 row, plus the sweep output.
 
 **Interfaces:**
 
-- Consumes: `useRoleLabel(role: Role): string`, `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` (`@/components/ui/role-select`, 3a PR1); `API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor>` (`@crm/shared`, этап 4); `getApiErrorMessage(err, fallback?)`, `getApiErrorCode(err)`, `translateZodCode(code)`, `translateZodMessage(message)` (`@/lib/axios-utils`); `formatDate(value, locale, style)`, `compareNames(locale)` (`@crm/shared`); `useLocale(): Locale` (`@/lib/i18n`); `formatBytes(bytes, locale)` и `formatAmount` — **в той сигнатуре, которую оставит #706** (перед Step 7 и Step 9 проверить `git show origin/main:apps/web/app/lib/format-amount.ts` и `format-bytes.ts`); `loadCatalog`, `I18nTestProvider`, `loadMessages`, `assertInCatalog`.
-- Produces: раздел канона волны (b) в `CONTEXT.md` — его читают PR2 и PR3. Из `@crm/shared` удаляются три экспорта `*_IMPERSONATION_MESSAGE` (перечислены выше). Новых экспортов нет. `components/user-profile/tabs/TeamTab.tsx`, `UserProfileHeader.tsx` и `contract/ContractTab.tsx` перестают импортировать `ROLE_LABELS` — это предусловие удаления легаси в PR3.
+- Consumes: `useRoleLabel(role: Role): string`, `ROLE_LABEL_MESSAGES: Record<Role, MessageDescriptor>` (`@/components/ui/role-select`, 3a PR1); `API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor>` (`@crm/shared`, stage 4); `getApiErrorMessage(err, fallback?)`, `getApiErrorCode(err)`, `translateZodCode(code)`, `translateZodMessage(message)` (`@/lib/axios-utils`); `formatDate(value, locale, style)`, `compareNames(locale)` (`@crm/shared`); `useLocale(): Locale` (`@/lib/i18n`); `formatBytes(bytes, locale)` and `formatAmount` — **in the signature #706 will leave** (before Step 7 and Step 9 check `git show origin/main:apps/web/app/lib/format-amount.ts` and `format-bytes.ts`); `loadCatalog`, `I18nTestProvider`, `loadMessages`, `assertInCatalog`.
+- Produces: the wave (b) canon section in `CONTEXT.md` — read by PR2 and PR3. Three `*_IMPERSONATION_MESSAGE` exports are removed from `@crm/shared` (listed above). No new exports. `components/user-profile/tabs/TeamTab.tsx`, `UserProfileHeader.tsx` and `contract/ContractTab.tsx` stop importing `ROLE_LABELS` — this is a precondition for removing the legacy in PR3.
 
-### Опасность: маскировка состава команды (`TeamTab`)
+### Danger: team composition masking (`TeamTab`)
 
-Аудит (COPY-M-ppl-6) предлагает для `TeamTab` текст «Состав команды пока пуст — добавьте участников кнопкой выше». **Здесь это применять нельзя.** Комментарий над пустым состоянием `TeamTab` фиксирует решение от 2026-08-17: маскировка прячет состав одинаково для всех зрителей, и текст обязан оставаться правдой в обоих случаях, то есть не говорить ни «команда пуста», ни «что-то скрыто». Легенда джуниора построена как список разрешённого (глоссарий **Легенда**). Текст, который подсказывает причину пустоты, раскрывает маскировку.
+The audit (COPY-M-ppl-6) proposes for `TeamTab` the text «Состав команды пока пуст — добавьте участников кнопкой выше». **This cannot be applied here.** The comment above the `TeamTab` empty state records the decision from 2026-08-17: the masking hides the composition identically for all viewers, and the text must remain true in both cases, i.e. say neither «команда пуста» nor «что-то скрыто». The junior legend is built as an allow-list (glossary **Legend**). Text that hints at the reason for the emptiness reveals the masking.
 
-Перевод сохраняет нейтральность дословно: `uk` «Немає даних про склад команди», `en` "No team composition data". В теле PR — строка «COPY-M-ppl-6 для `TeamTab` не применён: инвариант маскировки», для `security-reviewer` отдельно.
+The translation keeps the neutrality verbatim: `uk` «Немає даних про склад команди», `en` "No team composition data". In the PR body — a line "COPY-M-ppl-6 not applied to `TeamTab`: the masking invariant", separately for `security-reviewer`.
 
 ### Acceptance criteria (PR1)
 
-1. В `CONTEXT.md` есть подраздел «Волна b — `web-people`» с формами из таблицы канона.
-2. `UserProfileHeader`, `ContractTab`, `TeamTab` не импортируют `ROLE_LABELS`; роли в них — из `ROLE_LABEL_MESSAGES` на `uk` и `en`; тесты «нет сырого enum» зелёные.
-3. Плашки «войти как» в `SignContractStep`, `AcceptTosStep`, `NotificationSettingsTab` берут текст из `API_ERROR_MESSAGES`; `CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `TOS_ACCEPT_IMPERSONATION_MESSAGE`, `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` удалены из `@crm/shared`.
-4. Онбординг на `uk`/`en`, смысл исправлений COPY-M-15/16 из #702 сохранён; закрыты COPY-H-ppl-2, H-7, M-15, L-2, L-5 (онбординг и контракт).
-5. Профиль на `uk`/`en`; закрыты COPY-H-ppl-3 (в файлах PR1), H-5, H-8, H-9, M-5, M-7, M-8, M-10, M-11, M-12, M-13 (в файлах PR1), M-14 (`FinanceTab`), L-4; пустое состояние `TeamTab` осталось нейтральным (маскировка).
-6. В файлах PR1 нет `toLocale*String('ru-RU')` и `date-fns/locale`; даты, размеры и сортировка идут через `format.ts`/`formatBytes`.
-7. Проверка Step 10: ни одной строки `RU`, строки `ENUM` разобраны.
-8. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR1 зелёные.
-9. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-11. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`; `security-reviewer` APPROVE.
+1. In `CONTEXT.md` there is a subsection "Wave b — `web-people`" with the forms from the canon table.
+2. `UserProfileHeader`, `ContractTab`, `TeamTab` do not import `ROLE_LABELS`; roles in them — from `ROLE_LABEL_MESSAGES` in `uk` and `en`; the "no raw enum" tests are green.
+3. The "log in as" banners in `SignContractStep`, `AcceptTosStep`, `NotificationSettingsTab` take the text from `API_ERROR_MESSAGES`; `CONTRACT_SIGN_IMPERSONATION_MESSAGE`, `TOS_ACCEPT_IMPERSONATION_MESSAGE`, `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` removed from `@crm/shared`.
+4. Onboarding in `uk`/`en`, the meaning of the COPY-M-15/16 fixes from #702 preserved; COPY-H-ppl-2, H-7, M-15, L-2, L-5 (onboarding and contract) closed.
+5. The profile in `uk`/`en`; COPY-H-ppl-3 (in the PR1 files), H-5, H-8, H-9, M-5, M-7, M-8, M-10, M-11, M-12, M-13 (in the PR1 files), M-14 (`FinanceTab`), L-4 closed; the `TeamTab` empty state stayed neutral (masking).
+6. In the PR1 files there is no `toLocale*String('ru-RU')` and no `date-fns/locale`; dates, sizes and sorting go via `format.ts`/`formatBytes`.
+7. Step 10 check: not a single `RU` line, the `ENUM` lines parsed.
+8. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR1 E2E specs are green.
+9. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+10. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+11. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`; `security-reviewer` APPROVE.
 
-### Опасность: карты финансов в `FinanceTab` (кросс-срезовый импорт)
+### Danger: finance maps in `FinanceTab` (a cross-slice import)
 
-`FinanceTab.tsx` импортирует `TYPE_LABELS`/`STATUS_LABELS` из `@/routes/_authenticated/finance/constants` — это волна (d), и там они ещё русские. Эта волна **не трогает** `finance/constants.ts`. Производные массивы `TYPE_OPTIONS`/`STATUS_OPTIONS` переезжают с уровня модуля внутрь компонента (`useMemo`) и продолжают читать легаси-карты. Тогда волне (d) хватит поменять один источник, а заморозки при импорте здесь не останется. Русские подписи типов и статусов в фильтре `FinanceTab` доживают до волны (d) — это строка в «Допущениях» PR, а не недоделка.
+`FinanceTab.tsx` imports `TYPE_LABELS`/`STATUS_LABELS` from `@/routes/_authenticated/finance/constants` — this is wave (d), and there they are still Russian. This wave **does not touch** `finance/constants.ts`. The derived arrays `TYPE_OPTIONS`/`STATUS_OPTIONS` move from the module level into the component (`useMemo`) and keep reading the legacy maps. Then wave (d) only needs to change one source, and there is no freeze-on-import left here. The Russian type and status captions in the `FinanceTab` filter live until wave (d) — this is a line in the PR's "Assumptions", not an incomplete migration.
 
-### Опасность: `NOTIFICATION_TITLES` (этап 4, Task 6)
+### Danger: `NOTIFICATION_TITLES` (stage 4, Task 6)
 
-`NotificationSettingsTab.rowTitle` показывает `NOTIFICATION_TITLES[type]` — это `Record<NewNotificationType, string>` на русском в `packages/shared/src/schemas/notification-registry.ts`. Переводом занимается этап 4, Task 6: он вводит `NOTIFICATION_TITLE_MESSAGES` и оставляет легаси без изменений. На Step 10 проверить `git grep -n NOTIFICATION_TITLE_MESSAGES origin/main -- packages/shared`:
+`NotificationSettingsTab.rowTitle` shows `NOTIFICATION_TITLES[type]` — this is `Record<NewNotificationType, string>` in Russian in `packages/shared/src/schemas/notification-registry.ts`. Its translation is handled by stage 4, Task 6: it introduces `NOTIFICATION_TITLE_MESSAGES` and leaves the legacy unchanged. At Step 10 check `git grep -n NOTIFICATION_TITLE_MESSAGES origin/main -- packages/shared`:
 
-- **есть** — `rowTitle` переходит на `i18n._(NOTIFICATION_TITLE_MESSAGES[type])`, и функция получает параметр `i18n: I18n`;
-- **нет** — `rowTitle` остаётся на легаси, в теле PR пишется строка «заголовки типов уведомлений — после этапа 4 Task 6», в `NotificationSettingsTab.tsx` ставится комментарий с тем же текстом. Остальной текст файла мигрирует в любом случае.
+- **present** — `rowTitle` moves to `i18n._(NOTIFICATION_TITLE_MESSAGES[type])`, and the function gets a parameter `i18n: I18n`;
+- **absent** — `rowTitle` stays on the legacy, a line "notification type titles — after stage 4 Task 6" is written in the PR body, a comment with the same text is placed in `NotificationSettingsTab.tsx`. The rest of the file's text migrates in any case.
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
-git rev-parse --show-toplevel                       # == выданный worktree
+git rev-parse --show-toplevel                       # == the assigned worktree
 git fetch origin main && git log --oneline -1 origin/main
-gh pr view 706 --json state -q .state               # MERGED, иначе стоп: старт после мержа #706
+gh pr view 706 --json state -q .state               # MERGED, otherwise stop: start after the merge of #706
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/components/onboarding apps/web/app/components/user-profile apps/web/app/routes/_authenticated/onboarding
 ```
 
-Если числа отличаются от таблицы больше чем на 10 %, обновить таблицу в task-файле до начала работы.
+If the numbers differ from the table by more than 10%, update the table in the task file before starting.
 
-- [ ] **Step 1: Канон терминов → `CONTEXT.md`**
+- [ ] **Step 1: Term canon → `CONTEXT.md`**
 
-Добавить в `CONTEXT.md` сразу после таблицы «Формы `uk`/`en` (этап 3, волна a …)» подраздел:
+Add to `CONTEXT.md` right after the table "`uk`/`en` forms (stage 3, wave a …)" a subsection:
 
 ```markdown
-### Волна b — `web-people` (добавлено PR <N>)
+### Wave b — `web-people` (added by PR <N>)
 
-| Термин (русский, для справки) | `uk` | `en` | `_Избегать_` в продукте (`uk`/`en`) |
-| ----------------------------- | ---- | ---- | ----------------------------------- |
+| Term (Russian, for reference) | `uk` | `en` | `_Избегать_` in the product (`uk`/`en`) |
+| ----------------------------- | ---- | ---- | --------------------------------------- |
 ```
 
-Строки — из таблицы «Канон терминов волны (b)» этого плана, колонки «Термин», `uk`, `en`, «_Избегать_» дословно (колонка «Откуда» в глоссарий не переносится). Отдельный коммит `docs(context): wave b uk/en term forms`, `ac_verified: 1`.
+The rows — from the "Wave (b) term canon" table of this plan, the columns "Term", `uk`, `en`, "_Избегать_" verbatim (the "Source" column is not carried into the glossary). A separate commit `docs(context): wave b uk/en term forms`, `ac_verified: 1`.
 
-- [ ] **Step 2: Тест на роли в профиле (падает)**
+- [ ] **Step 2: Test for roles in the profile (fails)**
 
-В существующий `components/user-profile/__tests__/UserProfileHeader.test.tsx` (там уже есть фабрика `makeUser(overrides)`) добавить:
+In the existing `components/user-profile/__tests__/UserProfileHeader.test.tsx` (it already has the factory `makeUser(overrides)`) add:
 
 ```tsx
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
@@ -438,19 +438,19 @@ describe('role badge comes from ROLE_LABEL_MESSAGES', () => {
 })
 ```
 
-Существующие `render(<UserProfileHeader …/>)` этого файла получают `{ wrapper: I18nTestProvider }` и `beforeEach(() => loadCatalog('uk'))`: после Step 3 компонент зовёт `useLingui()`.
+The existing `render(<UserProfileHeader …/>)` of this file get `{ wrapper: I18nTestProvider }` and `beforeEach(() => loadCatalog('uk'))`: after Step 3 the component calls `useLingui()`.
 
-Для `TeamTab` и `ContractTab` — такие же `it.each` в их тест-файлах: `TeamTab.empty-state.test.tsx` получает кейс со списком участников (роли `SENIOR`, `JUNIOR`, `HR` → «Сеньйор», «Джуніор», «HR» на `uk`; «Senior», «Junior», «HR» на `en`), `ContractTab.test.tsx` — пустое состояние без шаблона для `SENIOR` (на `uk` в тексте «Сеньйор», `SENIOR` нет).
+For `TeamTab` and `ContractTab` — the same `it.each` in their test files: `TeamTab.empty-state.test.tsx` gets a case with a member list (roles `SENIOR`, `JUNIOR`, `HR` → «Сеньйор», «Джуніор», «HR» in `uk`; «Senior», «Junior», «HR» in `en`), `ContractTab.test.tsx` — an empty state without a template for `SENIOR` (in `uk` the text «Сеньйор», no `SENIOR`).
 
-Run: `pnpm --filter @crm/web test -- UserProfileHeader ContractTab TeamTab` → FAIL (сейчас «Синьор» из легаси).
+Run: `pnpm --filter @crm/web test -- UserProfileHeader ContractTab TeamTab` → FAIL (currently «Синьор» from the legacy).
 
-- [ ] **Step 3: Легаси-роли и плашки «войти как» (шаблоны H и G) → PASS**
+- [ ] **Step 3: Legacy roles and "log in as" banners (templates H and G) → PASS**
 
-`UserProfileHeader.tsx`: `ROLE_LABELS[user.role]` → `useRoleLabel(user.role)`; «Зарегистрирован {дата}» → `<Trans>Дата реєстрації: {createdAt}</Trans>`, где `createdAt = formatDate(user.createdAt, locale, 'long')`, `locale = useLocale()` (форма без рода — COPY «родовые окончания»).
+`UserProfileHeader.tsx`: `ROLE_LABELS[user.role]` → `useRoleLabel(user.role)`; «Зарегистрирован {дата}» → `<Trans>Дата реєстрації: {createdAt}</Trans>`, where `createdAt = formatDate(user.createdAt, locale, 'long')`, `locale = useLocale()` (a form without gender — COPY "gender endings").
 
-`TeamTab.tsx`: шаблон H для списка; сортировка — `ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || compareNames(locale)(a.displayName, b.displayName)` (коллатор создать один раз: `const cmp = useMemo(() => compareNames(locale), [locale])`).
+`TeamTab.tsx`: template H for the list; sorting — `ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || compareNames(locale)(a.displayName, b.displayName)` (create the collator once: `const cmp = useMemo(() => compareNames(locale), [locale])`).
 
-`ContractTab.tsx`: пустое состояние без шаблона.
+`ContractTab.tsx`: an empty state without a template.
 
 ```tsx
 const roleLabel = useRoleLabel(targetRole as Role)
@@ -458,47 +458,47 @@ const roleLabel = useRoleLabel(targetRole as Role)
 <Trans>Немає шаблону контракту для ролі «{roleLabel}»</Trans>
 ```
 
-`STATUS_LABELS`, `FROZEN_BANNERS` — шаблон A (`Record<ContractStatus, MessageDescriptor>`, `satisfies` без `as const`), статусы — по канону («Чернетка», «Готовий до підписання», «Підписаний», «Скасований»).
+`STATUS_LABELS`, `FROZEN_BANNERS` — template A (`Record<ContractStatus, MessageDescriptor>`, `satisfies` without `as const`), statuses — per the canon («Чернетка», «Готовий до підписання», «Підписаний», «Скасований»).
 
-Плашки «войти как» (шаблон G):
+The "log in as" banners (template G):
 
 - `SignContractStep.tsx` → `i18n._(API_ERROR_MESSAGES.CONTRACT_SIGN_IMPERSONATION)`;
 - `AcceptTosStep.tsx` → `i18n._(API_ERROR_MESSAGES.TOS_ACCEPT_IMPERSONATION)`;
 - `NotificationSettingsTab.tsx` → `i18n._(API_ERROR_MESSAGES.NOTIFICATION_PREFERENCES_IMPERSONATION)`.
 
-Модульная константа `IMPERSONATION_EXPLANATION` в трёх файлах удаляется. Точка снаружи больше не приклеивается: каталожный текст — одно предложение без точки.
+The module constant `IMPERSONATION_EXPLANATION` in the three files is removed. The period is no longer glued on outside: the catalog text is one sentence without a period.
 
-Затем удалить из `@crm/shared` три константы: `CONTRACT_SIGN_IMPERSONATION_MESSAGE` (`schemas/contracts.ts`), `TOS_ACCEPT_IMPERSONATION_MESSAGE` (`schemas/tos.ts`), `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` (`schemas/notification-preferences.ts`) и их кейсы в соседних `*.spec.ts`. Перед удалением: `git grep -n '<ИМЯ>' -- apps packages` — вхождений вне этих файлов и мигрируемых тестов быть не должно. Тесты `AcceptTosStep.spec.tsx`, `SignContractStep.spec.tsx`, `NotificationSettingsTab.test.tsx`, которые ассертили `` `${…_MESSAGE}.` ``, переходят на `i18n._(API_ERROR_MESSAGES.<CODE>)` после `loadCatalog('uk')`.
+Then remove three constants from `@crm/shared`: `CONTRACT_SIGN_IMPERSONATION_MESSAGE` (`schemas/contracts.ts`), `TOS_ACCEPT_IMPERSONATION_MESSAGE` (`schemas/tos.ts`), `NOTIFICATION_PREFERENCES_IMPERSONATION_MESSAGE` (`schemas/notification-preferences.ts`) and their cases in the neighboring `*.spec.ts`. Before removing: `git grep -n '<NAME>' -- apps packages` — there must be no occurrences outside these files and the migrated tests. The tests `AcceptTosStep.spec.tsx`, `SignContractStep.spec.tsx`, `NotificationSettingsTab.test.tsx` that asserted `` `${…_MESSAGE}.` `` move to `i18n._(API_ERROR_MESSAGES.<CODE>)` after `loadCatalog('uk')`.
 
 Run: `pnpm --filter @crm/web test -- UserProfileHeader ContractTab TeamTab AcceptTosStep SignContractStep NotificationSettingsTab && pnpm --filter @crm/shared test` → PASS.
 
-- [ ] **Step 4: Онбординг — `SignContractStep`, `AcceptTosStep`, `TosUpdateBanner`, `ContractWaitScreen`, `routes/onboarding/*` (отложенный пункт 4)**
+- [ ] **Step 4: Onboarding — `SignContractStep`, `AcceptTosStep`, `TosUpdateBanner`, `ContractWaitScreen`, `routes/onboarding/*` (the deferred item 4)**
 
-`SignContractStep.tsx` — плашки, которые #702 оставил на русском (COPY-M-15/16 **уже исправлены по смыслу**, переносится именно исправленный смысл, не исходный):
+`SignContractStep.tsx` — the banners that #702 left in Russian (COPY-M-15/16 are **already fixed by meaning**, exactly the fixed meaning is carried over, not the original):
 
-| Место                                                  | `uk`                                                                                                                                  | `en`                                                                                                          |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Безусловный абзац «Данные в контракте…» (COPY-M-16)    | Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому                                     | The contract data — name, email and payout details — is set by an admin; if something is wrong, write to them |
-| Плашка `legalNameMissing` (COPY-M-15)                  | Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор                                                | Your legal name is not filled in yet — signing opens as soon as an admin adds it                              |
-| Подсказка кнопки при `legalNameMissing` (COPY-H-ppl-7) | Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу після цього                                      | An admin fills in your legal name — write to them and signing opens right after                               |
-| Чекбокс «Я ознакомился…» (родовое окончание, аудит B)  | Умови персонального контракту прочитано — підтверджую                                                                                 | I have read and accept the terms of my personal contract                                                      |
-| `<Badge>PREVIEW</Badge>` (COPY-L-ppl-2)                | Попередній перегляд                                                                                                                   | Preview                                                                                                       |
-| Тост успеха                                            | Контракт підписано, номер {contractNumber}                                                                                            | Contract signed, number {contractNumber}                                                                      |
-| Тост общей ошибки                                      | `getApiErrorMessage(err)` — без клиентского литерала; ветки по кодам `LEGAL_NAME_REQUIRED`/`ADMIN_DOES_NOT_SIGN_CONTRACTS` не трогать | —                                                                                                             |
-| `download="contract-preview.pdf"` (COPY-L-ppl-5)       | `download={t\`Контракт — попередній перегляд.pdf\`}`                                                                                  | Contract — preview.pdf                                                                                        |
+| Place                                                         | `uk`                                                                                                                                           | `en`                                                                                                          |
+| ------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| The unconditional paragraph «Данные в контракте…» (COPY-M-16) | Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому                                              | The contract data — name, email and payout details — is set by an admin; if something is wrong, write to them |
+| The `legalNameMissing` banner (COPY-M-15)                     | Юридичне ПІБ не заповнено — підписання відкриється, щойно його заповнить адміністратор                                                         | Your legal name is not filled in yet — signing opens as soon as an admin adds it                              |
+| The button hint on `legalNameMissing` (COPY-H-ppl-7)          | Юридичне ПІБ заповнює адміністратор — напишіть йому, і підписання відкриється одразу після цього                                               | An admin fills in your legal name — write to them and signing opens right after                               |
+| The «Я ознакомился…» checkbox (gender ending, audit B)        | Умови персонального контракту прочитано — підтверджую                                                                                          | I have read and accept the terms of my personal contract                                                      |
+| `<Badge>PREVIEW</Badge>` (COPY-L-ppl-2)                       | Попередній перегляд                                                                                                                            | Preview                                                                                                       |
+| The success toast                                             | Контракт підписано, номер {contractNumber}                                                                                                     | Contract signed, number {contractNumber}                                                                      |
+| The generic error toast                                       | `getApiErrorMessage(err)` — without a client literal; the branches by codes `LEGAL_NAME_REQUIRED`/`ADMIN_DOES_NOT_SIGN_CONTRACTS` do not touch | —                                                                                                             |
+| `download="contract-preview.pdf"` (COPY-L-ppl-5)              | `download={t\`Контракт — попередній перегляд.pdf\`}`                                                                                           | Contract — preview.pdf                                                                                        |
 
-Тексты выше — черновик для `copy-reviewer`, правится по его вердикту. Существующий тест из #702 «в экране нет `\bADMIN\b`» **сохраняется** и прогоняется на `uk` и `en` (`it.each(['uk','en'])`). Им же дополнительно проверяется `SENIOR|JUNIOR|ACCOUNTANT|DROP` — урок п.13.
+The texts above — a draft for `copy-reviewer`, edited per his verdict. The existing test from #702 "no `\bADMIN\b` in the screen" is **kept** and run in `uk` and `en` (`it.each(['uk','en'])`). It also additionally checks `SENIOR|JUNIOR|ACCOUNTANT|DROP` — lesson item 13.
 
-`AcceptTosStep.tsx` и `TosUpdateBanner.tsx` — «Terms of Service» → «Умови використання» (COPY-H-ppl-2): «Завантажуємо Умови використання…», «Приймаю Умови використання», «Умови використання не знайдено — зверніться до адміністратора» (у множественного числа в `uk` нет рода, проблема «не найден» уходит), «Умови використання — версія {version}», кнопка «Прийняти Умови використання» / «Приймаємо…». `en` — "Terms of Service" с артиклем по месту: "Loading the Terms of Service…", "I accept the Terms of Service", "The Terms of Service could not be found — contact an admin". Тост ошибки — `getApiErrorMessage(err, t\`Не вдалося прийняти Умови використання\`)`вместо`err.message`.
+`AcceptTosStep.tsx` and `TosUpdateBanner.tsx` — «Terms of Service» → «Умови використання» (COPY-H-ppl-2): «Завантажуємо Умови використання…», «Приймаю Умови використання», «Умови використання не знайдено — зверніться до адміністратора» (the plural in `uk` has no gender, the «не найден» problem goes away), «Умови використання — версія {version}», the button «Прийняти Умови використання» / «Приймаємо…». `en` — "Terms of Service" with an article by context: "Loading the Terms of Service…", "I accept the Terms of Service", "The Terms of Service could not be found — contact an admin". The error toast — `getApiErrorMessage(err, t\`Не вдалося прийняти Умови використання\`)`instead of`err.message`.
 
-`ContractWaitScreen.tsx` (COPY-M-ppl-15, H-3): «Контракт готується», «Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом», «Сторінка оновиться сама, щойно контракт буде готовий». Числа в тексте нет — `refetchInterval` родителя может меняться.
+`ContractWaitScreen.tsx` (COPY-M-ppl-15, H-3): «Контракт готується», «Ваш персональний контракт ще не готовий до підписання — адміністратор заповнить його найближчим часом», «Сторінка оновиться сама, щойно контракт буде готовий». There is no number in the text — the parent's `refetchInterval` may change.
 
-`routes/_authenticated/onboarding/route.tsx`: «Выйти» → `<Trans>Вийти</Trans>` (E2E `onboarding-logout.spec.ts` ассертит `toContainText('Выйти')` — переводится на шаблон I). «© {year} Cheeky Cheese IT. Все права защищены.» → `<Trans>© {year} Cheeky Cheese IT. Усі права захищено.</Trans>`.
+`routes/_authenticated/onboarding/route.tsx`: «Выйти» → `<Trans>Вийти</Trans>` (E2E `onboarding-logout.spec.ts` asserts `toContainText('Выйти')` — moved to template I). «© {year} Cheeky Cheese IT. Все права защищены.» → `<Trans>© {year} Cheeky Cheese IT. Усі права захищено.</Trans>`.
 
 - [ ] **Step 5: `UserProfileShell.tsx` (COPY-H-ppl-8, M-7)**
 
 ```tsx
-// ветка ошибки загрузки
+// the load-error branch
 <h2 className="text-xl font-semibold">
   {is403 ? <Trans>Немає доступу до профілю</Trans> : <Trans>Профіль не знайдено</Trans>}
 </h2>
@@ -510,18 +510,18 @@ Run: `pnpm --filter @crm/web test -- UserProfileHeader ContractTab TeamTab Accep
   )}
 </p>
 
-// data-testid="profile-no-access" — тот же текст, что и для 403 (одна ситуация — один текст, M-7)
+// data-testid="profile-no-access" — the same text as for 403 (one situation — one text, M-7)
 <p className="text-sm text-muted-foreground">
   <Trans>Немає доступу до профілю — якщо він потрібен для роботи, напишіть адміністратору</Trans>
 </p>
 ```
 
-Диалог несохранённых изменений: «Остаться» → `<Trans>Залишитися</Trans>` и остальные строки диалога — шаблон B/C. E2E `crm/contract-editor.spec.ts` и `crm/senior-resume.spec.ts` кликают `name: 'Остаться'` → шаблон I (строка «Остаться» в `senior-resume.spec.ts` — единственная правка PR1 в этой спеке).
+The unsaved-changes dialog: «Остаться» → `<Trans>Залишитися</Trans>` and the rest of the dialog's strings — template B/C. E2E `crm/contract-editor.spec.ts` and `crm/senior-resume.spec.ts` click `name: 'Остаться'` → template I (the «Остаться» line in `senior-resume.spec.ts` — PR1's only edit in that spec).
 
-- [ ] **Step 6: Реквизиты — `OverviewTab`, `RequisitesTab`, `RequisitesEditForm`, `ProfileEditFields` (COPY-M-ppl-10…13, L-4, H-2, H-3)**
+- [ ] **Step 6: Credentials — `OverviewTab`, `RequisitesTab`, `RequisitesEditForm`, `ProfileEditFields` (COPY-M-ppl-10…13, L-4, H-2, H-3)**
 
-- «Способ выплат», «Способ выплаты», `aria-label="Способ выплаты"` → везде «Спосіб виплати» / "Payout method" (M-10). «Реквизиты для выплат» → «Реквізити для виплат» / "Payout details".
-- `RequisitesEditForm` — `disabledTooltip` и `TooltipContent`, две копии «SENIOR и ADMIN получают только в USDT ERC-20» (M-11): текст адресован самому человеку, одна `msg`-константа на обе копии:
+- «Способ выплат», «Способ выплаты», `aria-label="Способ выплаты"` → everywhere «Спосіб виплати» / "Payout method" (M-10). «Реквизиты для выплат» → «Реквізити для виплат» / "Payout details".
+- `RequisitesEditForm` — `disabledTooltip` and `TooltipContent`, two copies of «SENIOR и ADMIN получают только в USDT ERC-20» (M-11): the text is addressed to the person themselves, one `msg` constant for both copies:
 
 ```tsx
 const USDT_ONLY_HINT = msg`Ви отримуєте виплати лише в USDT (мережа Ethereum) — змінити спосіб не можна`
@@ -533,17 +533,17 @@ disabledTooltip: i18n._(USDT_ONLY_HINT)
 <TooltipContent side="top">{i18n._(USDT_ONLY_HINT)}</TooltipContent>
 ```
 
-- `OverviewTab` баннер `drop-requisites-missing-banner` (M-12): «Реквізити не заповнено» / «Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок».
-- Пустые значения (L-4): «не указано» ×4, «Не указано», «Заметок нет» → одна `msg`-константа `NOT_SET = msg\`не вказано\`` в каждом из двух файлов (`OverviewTab`, `RequisitesTab`) — текст одинаковый, ключ в каталоге один.
-- Заметка администратора (H-3): «Заметка администратора» → «Нотатка адміністратора»; «Админ увидит причину и сможет предложить другой процент» → «Адміністратор побачить причину і зможе запропонувати іншу частку» (глоссарий: «частка», не «відсоток»).
-- Карточка «Пользовательское соглашение» (H-2) → «Умови використання», дата принятия — `formatDate(tosAcceptedAt, locale, 'short')` вместо `toLocaleDateString('ru-RU')`.
-- Склейка `pendingSeniorShare` («Вашу долю по умолчанию предлагают изменить: сейчас {x}%, предлагают {y}%…», аудит B «сборка фразы из кусков JSX») → одна `<Trans>` со слотами `{current}` и `{proposed}`, без `{' '}`-стыков.
-- Плейсхолдеры (M-13) — строго из таблицы канона: ФИО «Іваненко Іван Іванович», технологии «Почніть вводити: React, Node.js…».
+- `OverviewTab` the `drop-requisites-missing-banner` (M-12): «Реквізити не заповнено» / «Без реквізитів ми не зможемо вам заплатити — вкажіть гаманець USDT або банківський рахунок».
+- Empty values (L-4): «не указано» ×4, «Не указано», «Заметок нет» → one `msg` constant `NOT_SET = msg\`не вказано\`` in each of the two files (`OverviewTab`, `RequisitesTab`) — the text is identical, one key in the catalog.
+- Admin note (H-3): «Заметка администратора» → «Нотатка адміністратора»; «Админ увидит причину и сможет предложить другой процент» → «Адміністратор побачить причину і зможе запропонувати іншу частку» (glossary: «частка», not «відсоток»).
+- The «Пользовательское соглашение» card (H-2) → «Умови використання», the acceptance date — `formatDate(tosAcceptedAt, locale, 'short')` instead of `toLocaleDateString('ru-RU')`.
+- The `pendingSeniorShare` concatenation («Вашу долю по умолчанию предлагают изменить: сейчас {x}%, предлагают {y}%…», audit B "assembling a phrase from JSX parts") → one `<Trans>` with the slots `{current}` and `{proposed}`, without `{' '}` joints.
+- The placeholders (M-13) — strictly from the canon table: full name «Іваненко Іван Іванович», technologies «Почніть вводити: React, Node.js…».
 
 - [ ] **Step 7: `FinanceTab.tsx` (COPY-H-ppl-9, M-5, M-14)**
 
 ```tsx
-// карточка total-earned: ее видят только ADMIN/ACCOUNTANT на ЧУЖОМ профиле
+// the total-earned card: only ADMIN/ACCOUNTANT see it on SOMEONE ELSE's profile
 <p className="text-xs uppercase tracking-wide text-muted-foreground">
   <Trans>Усього виплачено цій людині</Trans>
 </p>
@@ -553,51 +553,51 @@ disabledTooltip: i18n._(USDT_ONLY_HINT)
 // en: "Total paid to this person" / "Sum of all settlements with them, all time"
 ```
 
-`formatAmount(totalEarned.totalEarned, totalEarned.currency)` — привести к сигнатуре после #706 (если функция принимает `locale`, передать `useLocale()`).
+`formatAmount(totalEarned.totalEarned, totalEarned.currency)` — bring to the signature after #706 (if the function accepts `locale`, pass `useLocale()`).
 
-Пустые состояния: «Транзакций пока нет» → «Транзакцій поки немає». Недостижимая ветка `hasActive ? 'Ничего не найдено' : 'Нет данных'` (M-5) удаляется: остаётся только текст канона «Нічого не знайдено — скиньте фільтри» (M-14). Чтобы мутационный гейт не счёл удаление потерей покрытия, добавить тест на ветку «фильтры активны и ничего не найдено».
+Empty states: «Транзакций пока нет» → «Транзакцій поки немає». The unreachable branch `hasActive ? 'Ничего не найдено' : 'Нет данных'` (M-5) is removed: only the canon text «Нічого не знайдено — скиньте фільтри» (M-14) remains. So the mutation gate does not treat the removal as a coverage loss, add a test for the branch "filters active and nothing found".
 
-`TYPE_OPTIONS`/`STATUS_OPTIONS` — внутрь компонента, `useMemo(() => Object.entries(TYPE_LABELS).map(…), [])` (см. «Опасность: карты финансов»).
+`TYPE_OPTIONS`/`STATUS_OPTIONS` — inside the component, `useMemo(() => Object.entries(TYPE_LABELS).map(…), [])` (see "Danger: finance maps").
 
-- [ ] **Step 8: Контракт сотрудника — `ContractActionBar`, `ContractFillForm`, `ContractPdfPreview`, `MissingFieldsBanner`, `useEmployeeContract` (COPY-L-ppl-5)**
+- [ ] **Step 8: Employee contract — `ContractActionBar`, `ContractFillForm`, `ContractPdfPreview`, `MissingFieldsBanner`, `useEmployeeContract` (COPY-L-ppl-5)**
 
-`useEmployeeContract.ts` — пять склеек вида ``toast.error(`Не удалось сохранить контракт: ${msg}`)``. Серверный текст больше не приклеивается к клиентскому (аудит B «шаблонная склейка»):
+`useEmployeeContract.ts` — five concatenations of the form ``toast.error(`Не удалось сохранить контракт: ${msg}`)``. The server text is no longer glued to the client (audit B "template concatenation"):
 
 ```ts
-// было
+// was
 onError: (err) => toast.error(`Не удалось сохранить контракт: ${extractMsg(err)}`)
-// стало — хук вызывается из компонента, `t` берётся из useLingui() внутри хука
+// became — the hook is called from a component, `t` is taken from useLingui() inside the hook
 const { t } = useLingui()
 onError: (err) => toast.error(getApiErrorMessage(err, t`Не вдалося зберегти контракт`))
 ```
 
-Каждое из пяти мест получает свой фоллбэк по действию («зберегти», «позначити готовим до підписання», «скасувати» и т. д.). Серверный код, если есть, побеждает — так текст отказа совпадает с тем, что знает сервер.
+Each of the five places gets its own fallback by action («зберегти», «позначити готовим до підписання», «скасувати», etc.). The server code, if present, wins — so the refusal text matches what the server knows.
 
-`ContractPdfPreview.tsx` — `download` так же, как в `SignContractStep` (Step 4, одна и та же строка → один ключ).
+`ContractPdfPreview.tsx` — the `download` the same as in `SignContractStep` (Step 4, the same string → one key).
 
 - [ ] **Step 9: `AvatarUploadDialog.tsx` + `cropImage.ts` (COPY-M-ppl-8)**
 
 ```tsx
-// было
+// was
 setError(`Файл ${(file.size / 1024).toFixed(0)} KB — максимум 5 MB`)
-// стало — обе величины одной функцией (formatBytes из @/lib/format-bytes после #706)
+// became — both values with one function (formatBytes from @/lib/format-bytes after #706)
 const locale = useLocale()
 const size = formatBytes(file.size, locale)
 const limit = formatBytes(AVATAR_MAX_BYTES, locale)
 setError(t`Файл ${size} — максимум ${limit}, виберіть менший`)
 ```
 
-`AVATAR_MAX_BYTES` — константа, которой файл сравнивает размер (не хардкодить `5 MB` во второй раз). Если её нет, завести `const AVATAR_MAX_BYTES = 5 * 1024 * 1024` рядом с проверкой и сравнивать с ней же.
+`AVATAR_MAX_BYTES` — the constant against which the file size is compared (do not hardcode `5 MB` a second time). If there is none, introduce `const AVATAR_MAX_BYTES = 5 * 1024 * 1024` next to the check and compare against it.
 
-`cropImage.ts`: `new Error('Не удалось создать canvas context')` → `new Error('canvas 2d context unavailable')`, `'Не удалось загрузить изображение'` → `'image failed to load'` (для разработчика, по-английски). В `AvatarUploadDialog` показ `err instanceof Error ? err.message : …` заменяется на свой текст `t\`Не вдалося обрізати зображення\``: сообщение `Error` пользователю не показывается.
+`cropImage.ts`: `new Error('Не удалось создать canvas context')` → `new Error('canvas 2d context unavailable')`, `'Не удалось загрузить изображение'` → `'image failed to load'` (for the developer, in English). In `AvatarUploadDialog` the display `err instanceof Error ? err.message : …` is replaced with its own text `t\`Не вдалося обрізати зображення\``: the `Error` message is not shown to the user.
 
-Остальные строки файла — шаблоны B/C, многоточия `…`.
+The rest of the file's strings — templates B/C, ellipses `…`.
 
-- [ ] **Step 10: Остальные файлы профиля**
+- [ ] **Step 10: The rest of the profile files**
 
-`AdminActionsMenu.tsx` («Заметка админа» → «Нотатка адміністратора», E2E `admin-actions.spec.ts` — шаблон I), `AdminNoteDialog.tsx`, `ChangePersonalEmailDialog.tsx` (подписи и тосты; «личный email» → «особистий email» по канону), `ProfileCredentialsSection.tsx`, `DocumentsTab.tsx` («Документы появятся здесь (Phase 6)» → «Тут з’являться документи профілю» — без внутреннего названия этапа), `InterviewsTab.tsx` («Доска собеседований этого синьора» → «Дошка співбесід цього сеньйора», «Открыть Канбан» → «Відкрити дошку»), `ProjectsTab.tsx` (две даты → `formatDate(…, 'short')`, диапазон `{start}–{end}` через `<Trans>`), `NotificationSettingsTab.tsx` (`'Новый тип'` → `msg\`Новий тип сповіщень\``; `LOCKED_EXPLANATION`, `UNKNOWN_TYPE_EXPLANATION`— шаблон A; заголовки — «Опасность:`NOTIFICATION_TITLES`»), `routes/\_authenticated/onboarding/index.tsx`, `MissingFieldsBanner.tsx`.
+`AdminActionsMenu.tsx` («Заметка админа» → «Нотатка адміністратора», E2E `admin-actions.spec.ts` — template I), `AdminNoteDialog.tsx`, `ChangePersonalEmailDialog.tsx` (captions and toasts; «личный email» → «особистий email» per the canon), `ProfileCredentialsSection.tsx`, `DocumentsTab.tsx` («Документы появятся здесь (Phase 6)» → «Тут з’являться документи профілю» — without the internal stage name), `InterviewsTab.tsx» («Доска собеседований этого синьора» → «Дошка співбесід цього сеньйора», «Открыть Канбан» → «Відкрити дошку»), `ProjectsTab.tsx`(two dates →`formatDate(…, 'short')`, the range `{start}–{end}`via`<Trans>`), `NotificationSettingsTab.tsx` (`'Новый тип'`→`msg\`Новий тип сповіщень\``; `LOCKED_EXPLANATION`, `UNKNOWN_TYPE_EXPLANATION`— template A; titles — "Danger:`NOTIFICATION_TITLES`"), `routes/_authenticated/onboarding/index.tsx`, `MissingFieldsBanner.tsx`.
 
-Финальная проверка файлов PR1 (продуктовые файлы онбординга и профиля, кроме `resume/` — PR3 — и `ArchiveUserDialog.tsx` — PR2):
+The final check of the PR1 files (the onboarding and profile product files, except `resume/` — PR3 — and `ArchiveUserDialog.tsx` — PR2):
 
 ```bash
 python3 - <<'EOF'
@@ -621,11 +621,11 @@ for root in roots:
 EOF
 ```
 
-Строк `RU` быть не должно. Строки `ENUM` разобрать по одной: видимый текст с enum — недоделка, идентификатор в коде (ключ карты, тип) — норма.
+There must be no `RU` lines. Parse the `ENUM` lines one by one: visible text with an enum — an incomplete migration, an identifier in the code (a map key, a type) — normal.
 
-- [ ] **Step 11: Тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 11: Tests, E2E sweep, gates, commit**
 
-Каждый тест-файл из списка Files: литерал → каталог (`loadCatalog('uk')`, для ключевых экранов — ещё и кейс `en`). E2E-свип (общий шаг) → строки спек из «Распределения» и вывода скрипта.
+Each test file from the Files list: a literal → the catalog (`loadCatalog('uk')`, for key screens — also a `en` case). The E2E sweep (the common step) → the spec lines from the "Distribution" and the script output.
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | grep '^v22' | tail -1)/bin:$PATH"
@@ -711,87 +711,87 @@ EOF
 )"
 ```
 
-Список `git add` — верхняя граница. Файл, который не понадобилось менять (тест без русских ассертов), `git add` просто не затронет.
+The `git add` list — an upper bound. A file that did not need changing (a test without Russian assertions) will simply not be touched by `git add`.
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: онбординг (ToS, ожидание контракта, подписание — обычное, без юр. ПІБ, «войти как»), профиль (шапка, «Огляд», «Фінанси» глазами ADMIN, «Реквізити» с отключённой вкладкой, «Команда», «Контракт» без шаблона, «Сповіщення»), диалоги (аватар с ошибкой размера, заметка, смена личного email, несохранённые изменения). Fidelity Mode B — на всех ширинах из Global Constraints. `copy-reviewer` — вердикт по `uk` и `en` отдельно. `security-reviewer` — обязателен (реквизиты, кошелёк, карточка выплат, маскировка `TeamTab`).
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: onboarding (ToS, contract wait, signing — the ordinary one, without the legal name, "log in as"), the profile (header, «Огляд», «Фінанси» as seen by ADMIN, «Реквізити» with the disabled tab, «Команда», «Контракт» without a template, «Сповіщення»), dialogs (avatar with a size error, note, personal email change, unsaved changes). Fidelity Mode B — on all widths from Global Constraints. `copy-reviewer` — a verdict on `uk` and `en` separately. `security-reviewer` — mandatory (credentials, wallet, the payout card, `TeamTab` masking).
 
 ---
 
-## Task 2 (PR2): список пользователей, команды, архивация пользователя
+## Task 2 (PR2): user list, teams, user archival
 
 **Files:**
 
-| Файл                                                                             | Кир. строк | Паттерн(ы)    | Находки аудита / примечание                                                                                                                                                                                |
-| -------------------------------------------------------------------------------- | ---------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `routes/_authenticated/team/$teamId.tsx`                                         | 78 / 73    | A, B, C, F, H | Локальная копия `ROLE_LABELS` удаляется (шаблон H); COPY-M-ppl-2 («Ошибка добавления», «Не удалось обновить команду»), M-14; дата создания — `formatDate(…, 'long')`; две `localeCompare` → `compareNames` |
-| `routes/_authenticated/team/index.tsx`                                           | 45 / 41    | B, C, D       | COPY-H-ppl-1 (`Сортування` в `uk` правильно, а `en` — "Sort by"), M-2 («Ошибка при создании»), M-13 (подсказка технологий), M-14; `localeCompare` → `compareNames`                                         |
-| `components/users/ArchiveConfirmDialog.tsx` → **`ArchiveUserConfirmDialog.tsx`** | 34 / 33    | B, C          | **Отложенный пункт 3** (переименование); COPY-H-ppl-6 (жаргон `senior+team`, `cascade`, `JUNIOR`), M-2 («Ошибка при архивации»), L-1, «{n} шт.» (аудит B) — уходит вместе с `ImpactWarning`                |
-| `routes/_authenticated/users/index.tsx`                                          | 24 / 22    | B, C, H       | Фильтр ролей — шаблон H; «Пользователи не найдены» (M-14), «Все роли»                                                                                                                                      |
-| `components/users/RejoinTeamDialog.tsx`                                          | 19 / 18    | B, C          | COPY-L-ppl-3 («Готово» / «Сохранение...» → «Зберегти» / «Збереження…»), M-6 («Нет доступных…»)                                                                                                             |
-| `components/users/UserRow.tsx`                                                   | 10 / 9     | B, F, H       | `ROLE_LABELS` → `useRoleLabel`; `date-fns` + `ru` → `formatRelativeTime(createdAt, locale)`                                                                                                                |
-| `components/users/HrChipsField.tsx`                                              | 9 / 8      | B, C          | COPY-M-ppl-6 («Нет доступных HR» → «Немає вільних HR — створіть HR у розділі «Команда»»)                                                                                                                   |
-| `components/users/AccountantChipField.tsx`                                       | 8 / 8      | B, C          | COPY-M-ppl-6 (то же для бухгалтеров)                                                                                                                                                                       |
-| `components/user-profile/admin-actions/ArchiveUserDialog.tsx`                    | 5 / 5      | B, C          | Импорт `ImpactWarning` → `UserArchiveImpact`                                                                                                                                                               |
-| `components/users/CreateWizardStepper.tsx`                                       | 4 / 4      | B             | —                                                                                                                                                                                                          |
-| `components/archive/ArchiveConfirmDialog.tsx`                                    | уже `uk`   | —             | **Отложенный пункт 2**: COPY-L-31, COPY-L-32; ветка пользователя уходит в `UserArchiveImpact`; «інвойси» → «рахунки» (глоссарий **Счёт**) в ветке проекта                                                  |
-| `components/archive/UserArchiveImpact.tsx`                                       | новый      | B, D, E       | Единственный источник текста влияния архивации пользователя                                                                                                                                                |
+| File                                                                             | Cyr. lines   | Pattern(s)    | Audit findings / note                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ------------ | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `routes/_authenticated/team/$teamId.tsx`                                         | 78 / 73      | A, B, C, F, H | The local copy of `ROLE_LABELS` is removed (template H); COPY-M-ppl-2 («Ошибка добавления», «Не удалось обновить команду»), M-14; the creation date — `formatDate(…, 'long')`; two `localeCompare` → `compareNames` |
+| `routes/_authenticated/team/index.tsx`                                           | 45 / 41      | B, C, D       | COPY-H-ppl-1 («Сортування» in `uk` is correct, but `en` — "Sort by"), M-2 («Ошибка при создании»), M-13 (the technologies hint), M-14; `localeCompare` → `compareNames`                                             |
+| `components/users/ArchiveConfirmDialog.tsx` → **`ArchiveUserConfirmDialog.tsx`** | 34 / 33      | B, C          | **The deferred item 3** (rename); COPY-H-ppl-6 (the jargon `senior+team`, `cascade`, `JUNIOR`), M-2 («Ошибка при архивации»), L-1, «{n} шт.» (audit B) — goes away with `ImpactWarning`                             |
+| `routes/_authenticated/users/index.tsx`                                          | 24 / 22      | B, C, H       | The role filter — template H; «Пользователи не найдены» (M-14), «Все роли»                                                                                                                                          |
+| `components/users/RejoinTeamDialog.tsx`                                          | 19 / 18      | B, C          | COPY-L-ppl-3 («Готово» / «Сохранение...» → «Зберегти» / «Збереження…»), M-6 («Нет доступных…»)                                                                                                                      |
+| `components/users/UserRow.tsx`                                                   | 10 / 9       | B, F, H       | `ROLE_LABELS` → `useRoleLabel`; `date-fns` + `ru` → `formatRelativeTime(createdAt, locale)`                                                                                                                         |
+| `components/users/HrChipsField.tsx`                                              | 9 / 8        | B, C          | COPY-M-ppl-6 («Нет доступных HR» → «Немає вільних HR — створіть HR у розділі «Команда»»)                                                                                                                            |
+| `components/users/AccountantChipField.tsx`                                       | 8 / 8        | B, C          | COPY-M-ppl-6 (the same for accountants)                                                                                                                                                                             |
+| `components/user-profile/admin-actions/ArchiveUserDialog.tsx`                    | 5 / 5        | B, C          | Import `ImpactWarning` → `UserArchiveImpact`                                                                                                                                                                        |
+| `components/users/CreateWizardStepper.tsx`                                       | 4 / 4        | B             | —                                                                                                                                                                                                                   |
+| `components/archive/ArchiveConfirmDialog.tsx`                                    | already `uk` | —             | **The deferred item 2**: COPY-L-31, COPY-L-32; the user branch moves to `UserArchiveImpact`; «інвойси» → «рахунки» (glossary **Invoice**) in the project branch                                                     |
+| `components/archive/UserArchiveImpact.tsx`                                       | new          | B, D, E       | The single source of the user-archival impact text                                                                                                                                                                  |
 
-`components/users/constants.ts` в PR2 **не трогается**: его `ROLE_LABELS` ещё читает `UserDialog.tsx` (PR3). После PR2 у легаси остаётся один потребитель.
+`components/users/constants.ts` is **not touched** in PR2: its `ROLE_LABELS` is still read by `UserDialog.tsx` (PR3). After PR2 the legacy has one consumer left.
 
-Тесты: `components/users/__tests__/ArchiveConfirmDialog.test.tsx` (36) → `git mv` в `ArchiveUserConfirmDialog.test.tsx`; `components/user-profile/admin-actions/__tests__/ArchiveUserDialog.test.tsx` (11); `components/users/__tests__/{CreateWizardStepper.test.tsx (3), ProfileNameLink.test.tsx (4), RejoinTeamDialog.schema-translation.test.tsx (2), UserRow.test.tsx (1)}`; `components/archive/__tests__/ArchiveConfirmDialog.test.tsx`. Новый: `components/archive/__tests__/UserArchiveImpact.test.tsx`. `apps/web/app/__tests__/support/mobile-keyboard-registry.ts` ссылается на testid `archive-confirm-name-input` — testid сохраняется, файл не меняется.
+Tests: `components/users/__tests__/ArchiveConfirmDialog.test.tsx` (36) → `git mv` to `ArchiveUserConfirmDialog.test.tsx`; `components/user-profile/admin-actions/__tests__/ArchiveUserDialog.test.tsx` (11); `components/users/__tests__/{CreateWizardStepper.test.tsx (3), ProfileNameLink.test.tsx (4), RejoinTeamDialog.schema-translation.test.tsx (2), UserRow.test.tsx (1)}`; `components/archive/__tests__/ArchiveConfirmDialog.test.tsx`. New: `components/archive/__tests__/UserArchiveImpact.test.tsx`. `apps/web/app/__tests__/support/mobile-keyboard-registry.ts` references the testid `archive-confirm-name-input` — the testid is kept, the file is not changed.
 
-E2E: см. «Распределение E2E-спек», строка PR2, плюс вывод свипа.
+E2E: see "E2E spec distribution", the PR2 row, plus the sweep output.
 
 **Interfaces:**
 
-- Consumes: `useRoleLabel`, `ROLE_LABEL_MESSAGES` (`@/components/ui/role-select`); `formatRelativeTime(value, locale)`, `formatDate`, `compareNames` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); `ArchiveImpact` (`@crm/shared`); тестовые хелперы каталога.
+- Consumes: `useRoleLabel`, `ROLE_LABEL_MESSAGES` (`@/components/ui/role-select`); `formatRelativeTime(value, locale)`, `formatDate`, `compareNames` (`@crm/shared`); `useLocale()`; `getApiErrorMessage`, `translateZodCode`, `translateZodMessage` (`@/lib/axios-utils`); `ArchiveImpact` (`@crm/shared`); the catalog test helpers.
 - Produces:
-  - `export function UserArchiveImpact(props: { entityName: string; impact: Extract<ArchiveImpact, { type: 'user' }> }): JSX.Element` — `components/archive/UserArchiveImpact.tsx`. Рендерит обёртку с `data-testid` по роли (`archive-warning-senior` для `SENIOR` и `DROP`, `archive-warning-hr`, `archive-warning-accountant`, `archive-warning-junior`, `archive-warning-admin`) и имя в `<strong data-testid="archive-confirm-user-name">`. Эти testid уже ассертят 5 E2E-спек и 2 unit-файла — они не меняются.
-  - `export function ArchiveUserConfirmDialog(props: { user: UserProfileDto | null; onClose: () => void }): JSX.Element` — `components/users/ArchiveUserConfirmDialog.tsx` (бывший `components/users/ArchiveConfirmDialog.tsx`, поведение и testid `archive-confirm-dialog`, `archive-confirm-name-input`, `archive-confirm-submit` без изменений).
-  - Удаляются: `components/users/ArchiveConfirmDialog.tsx` (как имя файла) и экспорт `ImpactWarning`.
+  - `export function UserArchiveImpact(props: { entityName: string; impact: Extract<ArchiveImpact, { type: 'user' }> }): JSX.Element` — `components/archive/UserArchiveImpact.tsx`. Renders a wrapper with a `data-testid` by role (`archive-warning-senior` for `SENIOR` and `DROP`, `archive-warning-hr`, `archive-warning-accountant`, `archive-warning-junior`, `archive-warning-admin`) and the name in `<strong data-testid="archive-confirm-user-name">`. These testids are already asserted by 5 E2E specs and 2 unit files — they do not change.
+  - `export function ArchiveUserConfirmDialog(props: { user: UserProfileDto | null; onClose: () => void }): JSX.Element` — `components/users/ArchiveUserConfirmDialog.tsx` (the former `components/users/ArchiveConfirmDialog.tsx`, the behavior and the testids `archive-confirm-dialog`, `archive-confirm-name-input`, `archive-confirm-submit` unchanged).
+  - Removed: `components/users/ArchiveConfirmDialog.tsx` (as a file name) and the export `ImpactWarning`.
 
-### Опасность: два `ArchiveConfirmDialog` — переименовать и поделить текст, но не сливать диалоги
+### Danger: two `ArchiveConfirmDialog` — rename and split the text, but do not merge the dialogs
 
-Слить два диалога в один `components/archive/ArchiveConfirmDialog` (`entityType='user'`) было бы красивее, но это меняет поведение деструктивного действия. Они различаются не только текстом:
+Merging the two dialogs into one `components/archive/ArchiveConfirmDialog` (`entityType='user'`) would be prettier, but it changes the behavior of a destructive action. They differ not only in text:
 
-| Свойство                   | `components/users/…` (список `/users`)                               | `components/archive/…` (`entityType='user'`) |
-| -------------------------- | -------------------------------------------------------------------- | -------------------------------------------- |
-| Мутация и инвалидация кэша | своя: `['users-admin']`, для SENIOR/DROP ещё `teams` и `projects`    | `useArchiveEntity('user', id)`               |
-| Тосты успеха               | по роли («Сеньйор і команда архівовані»…)                            | общий хук                                    |
-| testid                     | `archive-confirm-dialog`, `archive-confirm-name-input`               | `archive-confirm-input`                      |
-| Закрытие во время запроса  | запрещено (Escape, оверлей, «Отмена») — security-review #584 раунд 3 | не запрещено                                 |
-| Enter подтверждает         | да                                                                   | нет                                          |
+| Property                        | `components/users/…` (the `/users` list)                                | `components/archive/…` (`entityType='user'`) |
+| ------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
+| Mutation and cache invalidation | its own: `['users-admin']`, for SENIOR/DROP also `teams` and `projects` | `useArchiveEntity('user', id)`               |
+| Success toasts                  | by role («Сеньйора й команду архівовано»…)                              | the common hook                              |
+| testid                          | `archive-confirm-dialog`, `archive-confirm-name-input`                  | `archive-confirm-input`                      |
+| Closing during a request        | forbidden (Escape, overlay, «Отмена») — security-review #584 round 3    | not forbidden                                |
+| Enter confirms                  | yes                                                                     | no                                           |
 
-Слияние потянуло бы правку 5 E2E-спек и снятие защиты, которую security-review #584 ставил осознанно. Поэтому в этой волне: **общий текст** (`UserArchiveImpact`) плюс **разные имена** (`ArchiveUserConfirmDialog`). Слияние диалогов, если оно нужно, — отдельная задача с `security-reviewer` (строка в «Находках вне периметра»).
+Merging would pull in editing 5 E2E specs and removing a protection that security-review #584 placed consciously. Therefore in this wave: **shared text** (`UserArchiveImpact`) plus **different names** (`ArchiveUserConfirmDialog`). Merging the dialogs, if needed, — a separate task with `security-reviewer` (a line in "Findings outside the perimeter").
 
 ### Acceptance criteria (PR2)
 
-1. `components/archive/UserArchiveImpact.tsx` — единственный источник текста влияния архивации пользователя; его рендерят `components/archive/ArchiveConfirmDialog`, `ArchiveUserConfirmDialog` и `ArchiveUserDialog`; testid `archive-warning-*` и `archive-confirm-user-name` сохранены.
-2. COPY-L-31 и COPY-L-32 закрыты, «з N команд/проєктів» — в родительном падеже, «інвойси» → «рахунки»; тесты `UserArchiveImpact` зелёные на `uk` и `en`.
-3. `components/users/ArchiveConfirmDialog.tsx` переименован в `ArchiveUserConfirmDialog.tsx`, `ImpactWarning` удалён; поведение (инвалидация, запрет закрытия во время запроса, Enter, testid) не изменилось — существующие тесты диалога зелёные без правки логики.
-4. `UserRow`, `users/index.tsx`, `team/$teamId.tsx` показывают роли из `ROLE_LABEL_MESSAGES`; локальная карта `ROLE_LABELS` в `$teamId.tsx` удалена; `date-fns/locale`, `toLocale*('ru-RU')` и `localeCompare` в файлах PR2 заменены на `format.ts`.
-5. Закрыты COPY-H-ppl-1, H-6, M-2 (в файлах PR2), M-6 (чипы), M-13 (`team/index`), M-14 (`users/index`, `team/*`), L-3.
-6. В файлах PR2 0 строк с `[ыэъё]` вне комментариев (проверка в Step 7).
-7. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR2 зелёные.
-8. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-10. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en` (с отдельной строкой по L-31/L-32); `security-reviewer` APPROVE.
+1. `components/archive/UserArchiveImpact.tsx` — the single source of the user-archival impact text; it is rendered by `components/archive/ArchiveConfirmDialog`, `ArchiveUserConfirmDialog` and `ArchiveUserDialog`; the testids `archive-warning-*` and `archive-confirm-user-name` kept.
+2. COPY-L-31 and COPY-L-32 closed, «з N команд/проєктів» — in the genitive case, «інвойси» → «рахунки»; the `UserArchiveImpact` tests are green on `uk` and `en`.
+3. `components/users/ArchiveConfirmDialog.tsx` renamed to `ArchiveUserConfirmDialog.tsx`, `ImpactWarning` removed; the behavior (invalidation, the ban on closing during a request, Enter, testids) did not change — the existing dialog tests are green without editing the logic.
+4. `UserRow`, `users/index.tsx`, `team/$teamId.tsx` show roles from `ROLE_LABEL_MESSAGES`; the local `ROLE_LABELS` map in `$teamId.tsx` removed; `date-fns/locale`, `toLocale*('ru-RU')` and `localeCompare` in the PR2 files replaced with `format.ts`.
+5. COPY-H-ppl-1, H-6, M-2 (in the PR2 files), M-6 (chips), M-13 (`team/index`), M-14 (`users/index`, `team/*`), L-3 closed.
+6. In the PR2 files 0 lines with `[ыэъё]` outside comments (checked in Step 7).
+7. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR2 E2E specs are green.
+8. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+9. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+10. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en` (with a separate line on L-31/L-32); `security-reviewer` APPROVE.
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
 git rev-parse --show-toplevel
 git fetch origin main && gh pr view 706 --json state -q .state     # MERGED
 git grep -c -P '[А-Яа-яЁё]' origin/main -- apps/web/app/components/users apps/web/app/routes/_authenticated/team apps/web/app/routes/_authenticated/users
-git grep -n "ArchiveConfirmDialog'" origin/main -- apps/web/app    # потребители обоих диалогов — сверить с таблицей
+git grep -n "ArchiveConfirmDialog'" origin/main -- apps/web/app    # the consumers of both dialogs — compare with the table
 ```
 
-Канон терминов — из этого плана (PR1 заносит его в `CONTEXT.md` параллельно; если PR1 уже смёржен, читать `CONTEXT.md`).
+The term canon — from this plan (PR1 enters it into `CONTEXT.md` in parallel; if PR1 is already merged, read `CONTEXT.md`).
 
-- [ ] **Step 1: Тест `UserArchiveImpact` (падает)**
+- [ ] **Step 1: Test `UserArchiveImpact` (fails)**
 
 ```tsx
-// apps/web/app/components/archive/__tests__/UserArchiveImpact.test.tsx (новый)
+// apps/web/app/components/archive/__tests__/UserArchiveImpact.test.tsx (new)
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import type { ArchiveImpact } from '@crm/shared'
@@ -887,15 +887,15 @@ describe('UserArchiveImpact', () => {
 })
 ```
 
-Run: `pnpm --filter @crm/web test -- UserArchiveImpact` → FAIL (модуля нет).
+Run: `pnpm --filter @crm/web test -- UserArchiveImpact` → FAIL (no module).
 
-- [ ] **Step 2: `UserArchiveImpact.tsx` + COPY-L-31, COPY-L-32 (отложенный пункт 2) → PASS**
+- [ ] **Step 2: `UserArchiveImpact.tsx` + COPY-L-31, COPY-L-32 (the deferred item 2) → PASS**
 
-Переносится ветка `entityType === 'user'` из `renderImpactText` (`components/archive/ArchiveConfirmDialog.tsx`), с тремя правками текста:
+The branch `entityType === 'user'` is moved out of `renderImpactText` (`components/archive/ArchiveConfirmDialog.tsx`), with three text fixes:
 
-1. **COPY-L-32** — пять строк «<ім’я> буде архівований …» переписываются безродно, по идиоме, которая уже есть в соседней ветке («В архів підуть: …»): «В архів піде профіль <ім’я> …». Подлежащее — «профіль» (мужской род), значит от пола человека текст больше не зависит.
-2. **COPY-L-31** — ветка SENIOR/DROP без команды получает строку об обратимости.
-3. **Родительный падеж после «з»** (найдено при подготовке плана): сейчас `<Plural one="# команда">` стоит после «прибраний з», и выходит «з 1 команда». После предлога нужен родительный: `one="# команди" few="# команд" many="# команд" other="# команди"`; для проектов — `one="# активного проєкту" few="# активних проєктів" many="# активних проєктів" other="# активного проєкту"`.
+1. **COPY-L-32** — five lines «<ім’я> буде архівований …» are rewritten gender-neutrally, by the idiom already present in the neighboring branch («В архів підуть: …»): «В архів піде профіль <ім’я> …». The subject — «профіль» (masculine), so the text no longer depends on the person's gender.
+2. **COPY-L-31** — the SENIOR/DROP branch without a team gets a line about reversibility.
+3. **The genitive case after «з»** (found while preparing the plan): now `<Plural one="# команда">` stands after «прибраний з», and it comes out «з 1 команда». After the preposition the genitive is needed: `one="# команди" few="# команд" many="# команд" other="# команди"`; for projects — `one="# активного проєкту" few="# активних проєктів" many="# активних проєктів" other="# активного проєкту"`.
 
 ```tsx
 // apps/web/app/components/archive/UserArchiveImpact.tsx
@@ -1076,15 +1076,15 @@ function renderBody(entityName: string, impact: UserImpact): React.ReactNode {
 }
 ```
 
-Текст ветки «пара + команда» перенесён из `renderImpactText` дословно, с двумя правками: `other` у `<Plural>` — форма для дробных чисел (родительный единственного: «проєкту», «джуніора»), как требует `uk` CLDR; «команди/проєктів» → «команди й проєктів» вместо `/` в тексте. Если ревью текста #700 закрепило `other` иначе, оставить как в каталоге — это вопрос `copy-reviewer`, а не этого плана.
+The text of the "pair + team" branch is moved from `renderImpactText` verbatim, with two fixes: `other` of `<Plural>` — the form for fractional numbers (genitive singular: «проєкту», «джуніора»), as `uk` CLDR requires; «команди/проєктів» → «команди й проєктів» instead of `/` in the text. If the #700 text review fixed `other` differently, leave it as in the catalog — this is a question for `copy-reviewer`, not for this plan.
 
-`en` (второй оригинал, черновик для `copy-reviewer`): "{name}’s profile will be archived together with all their projects (…)", "Restoring is possible — the profile comes back, but projects must be restored separately.", "{name}’s profile will be archived and removed from {n, plural, one {# team} other {# teams}} (HR role). The teams themselves stay active."
+`en` (the second original, a draft for `copy-reviewer`): "{name}’s profile will be archived together with all their projects (…)", "Restoring is possible — the profile comes back, but projects must be restored separately.", "{name}’s profile will be archived and removed from {n, plural, one {# team} other {# teams}} (HR role). The teams themselves stay active."
 
-Комментарии `// Stryker disable` в новом файле — только с причиной на той же строке (гард). Существующие подавления из `renderImpactText` переносятся вместе с кодом, текст причины не теряется.
+The `// Stryker disable` comments in the new file — only with a reason on the same line (the guard). The existing suppressions from `renderImpactText` are moved together with the code, the reason text is not lost.
 
-Ветки `ACCOUNTANT`, `JUNIOR`, `ADMIN` и продолжение ветки SENIOR/DROP с командой исполнитель пишет полностью по образцу выше. Комментарий `// …далее` в итоговом коде не остаётся — он стоит только в плане.
+The `ACCOUNTANT`, `JUNIOR`, `ADMIN` branches and the continuation of the SENIOR/DROP branch with a team the implementer writes out fully per the sample above. The comment `// …далее` does not remain in the final code — it stands only in the plan.
 
-В `components/archive/ArchiveConfirmDialog.tsx`:
+In `components/archive/ArchiveConfirmDialog.tsx`:
 
 ```tsx
 if (entityType === 'user' && impact.type === 'user') {
@@ -1092,52 +1092,52 @@ if (entityType === 'user' && impact.type === 'user') {
 }
 ```
 
-Там же, в ветке `project`: «Фінансова історія (транзакції, інвойси)» → «(транзакції, рахунки)» — глоссарий **Счёт**, «інвойс» в `_Избегать_`. Существующий `components/archive/__tests__/ArchiveConfirmDialog.test.tsx` для пользовательских веток переходит на testid из `UserArchiveImpact`.
+There too, in the `project` branch: «Фінансова історія (транзакції, інвойси)» → «(транзакції, рахунки)» — glossary **Invoice**, «інвойс» is in `_Избегать_`. The existing `components/archive/__tests__/ArchiveConfirmDialog.test.tsx` for the user branches moves to the testids from `UserArchiveImpact`.
 
 Run: `pnpm --filter @crm/web test -- UserArchiveImpact archive/__tests__/ArchiveConfirmDialog` → PASS.
 
-- [ ] **Step 3: Переименование `components/users/ArchiveConfirmDialog` → `ArchiveUserConfirmDialog` (отложенный пункт 3)**
+- [ ] **Step 3: Renaming `components/users/ArchiveConfirmDialog` → `ArchiveUserConfirmDialog` (the deferred item 3)**
 
 ```bash
 git mv apps/web/app/components/users/ArchiveConfirmDialog.tsx apps/web/app/components/users/ArchiveUserConfirmDialog.tsx
 git mv apps/web/app/components/users/__tests__/ArchiveConfirmDialog.test.tsx apps/web/app/components/users/__tests__/ArchiveUserConfirmDialog.test.tsx
 ```
 
-В файле: `export function ArchiveConfirmDialog` → `export function ArchiveUserConfirmDialog`; тело `ImpactWarning` удаляется целиком (вместе с «{projectsCount} шт.», `senior+team`, `cascade`, `JUNIOR` — COPY-H-ppl-6) и заменяется на `impact?.type === 'user' ? <UserArchiveImpact entityName={user.displayName} impact={impact} /> : null`. Остальной текст — шаблоны B/C:
+In the file: `export function ArchiveConfirmDialog` → `export function ArchiveUserConfirmDialog`; the body of `ImpactWarning` is removed entirely (together with «{projectsCount} шт.», `senior+team`, `cascade`, `JUNIOR` — COPY-H-ppl-6) and replaced with `impact?.type === 'user' ? <UserArchiveImpact entityName={user.displayName} impact={impact} /> : null`. The rest of the text — templates B/C:
 
-| Было                                                           | `uk`                                                                                                                             | `en`                                                                    |
+| Was                                                            | `uk`                                                                                                                             | `en`                                                                    |
 | -------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | «Архивировать пользователя»                                    | Архівувати користувача                                                                                                           | Archive user                                                            |
 | «Для подтверждения введите имя:»                               | Для підтвердження введіть ім’я:                                                                                                  | To confirm, type the name:                                              |
 | «Отмена» / «Архивировать» / «Архивация...»                     | Скасувати / Архівувати / Архівуємо…                                                                                              | Cancel / Archive / Archiving…                                           |
-| Тосты успеха по роли                                           | `select(role, { SENIOR: 'Сеньйора й команду архівовано', DROP: 'Дропа й команду архівовано', other: 'Користувача архівовано' })` | `Senior and team archived` / `Drop and team archived` / `User archived` |
+| Success toasts by role                                         | `select(role, { SENIOR: 'Сеньйора й команду архівовано', DROP: 'Дропа й команду архівовано', other: 'Користувача архівовано' })` | `Senior and team archived` / `Drop and team archived` / `User archived` |
 | `err?.response?.data?.message ?? 'Ошибка при архивации'` (M-2) | `getApiErrorMessage(err, t\`Не вдалося архівувати користувача — спробуйте ще раз\`)`                                             | Could not archive the user — try again                                  |
 
-Тост успеха собран так, что роль стоит в винительном падеже внутри `select` (урок п.9): «Сеньйора й команду архівовано» — безличная форма, от пола не зависит. `select` берёт `user.role`, до которого доходят все шесть значений, поэтому ветка `other` здесь достижима (HR, ACCOUNTANT, JUNIOR, ADMIN) — тест прогоняет все шесть значений.
+The success toast is assembled so the role stands in the accusative case inside `select` (lesson item 9): «Сеньйора й команду архівовано» — an impersonal form, independent of gender. `select` takes `user.role`, which all six values reach, so the `other` branch is reachable here (HR, ACCOUNTANT, JUNIOR, ADMIN) — the test runs all six values.
 
-Импорты: `routes/_authenticated/users/index.tsx` → `import { ArchiveUserConfirmDialog } from '@/components/users/ArchiveUserConfirmDialog'`; `user-profile/admin-actions/ArchiveUserDialog.tsx` → `import { UserArchiveImpact } from '@/components/archive/UserArchiveImpact'` вместо `ImpactWarning`, плюс миграция его пяти строк. Проверка: `git grep -n "components/users/ArchiveConfirmDialog\|ImpactWarning" -- apps/web` → пусто.
+Imports: `routes/_authenticated/users/index.tsx` → `import { ArchiveUserConfirmDialog } from '@/components/users/ArchiveUserConfirmDialog'`; `user-profile/admin-actions/ArchiveUserDialog.tsx` → `import { UserArchiveImpact } from '@/components/archive/UserArchiveImpact'` instead of `ImpactWarning`, plus the migration of its five lines. Check: `git grep -n "components/users/ArchiveConfirmDialog\|ImpactWarning" -- apps/web` → empty.
 
 - [ ] **Step 4: `UserRow.tsx`, `routes/_authenticated/users/index.tsx`**
 
-`UserRow`: шаблон H (одно значение) и `formatRelativeTime(user.createdAt, locale)` вместо `formatDistanceToNow(…, { locale: ru })` (импорты `date-fns` и `date-fns/locale` удаляются). «В архиве» → «В архіві».
+`UserRow`: template H (a single value) and `formatRelativeTime(user.createdAt, locale)` instead of `formatDistanceToNow(…, { locale: ru })` (the `date-fns` and `date-fns/locale` imports are removed). «В архиве» → «В архіві».
 
-`users/index.tsx`: фильтр ролей — шаблон H (список); «Все роли» → «Усі ролі»; «Пользователи не найдены» → текст канона «Нічого не знайдено — скиньте фільтри». Если «Пользователи не найдены» показывается и при пустой базе без фильтров, ветки разделить: без фильтров — «Користувачів поки немає».
+`users/index.tsx`: the role filter — template H (a list); «Все роли» → «Усі ролі»; «Пользователи не найдены» → the canon text «Нічого не знайдено — скиньте фільтри». If «Пользователи не найдены» is shown also for an empty database without filters, split the branches: without filters — «Користувачів поки немає».
 
-- [ ] **Step 5: Команды — `team/index.tsx`, `team/$teamId.tsx`**
+- [ ] **Step 5: Teams — `team/index.tsx`, `team/$teamId.tsx`**
 
-`team/index.tsx`: `placeholder="Сортування"` (COPY-H-ppl-1) → `t\`Сортування\``(слово в`uk`верное,`en`— "Sort by"). «Ошибка при создании» (M-2) →`getApiErrorMessage(err, t\`Не вдалося створити команду — спробуйте ще раз\`)`. «Ничего не найдено» (M-14) → канон. Подсказка технологий (M-13) → канон. `a.name.localeCompare(b.name)`→`compareNames(locale)(a.name, b.name)`.
+`team/index.tsx`: `placeholder="Сортування"` (COPY-H-ppl-1) → `t\`Сортування\``(the word in`uk`is correct,`en`— "Sort by"). «Ошибка при создании» (M-2) →`getApiErrorMessage(err, t\`Не вдалося створити команду — спробуйте ще раз\`)`. «Ничего не найдено» (M-14) → the canon. The technologies hint (M-13) → the canon. `a.name.localeCompare(b.name)`→`compareNames(locale)(a.name, b.name)`.
 
-`team/$teamId.tsx`: локальный `const ROLE_LABELS` удаляется; два места `{ROLE_LABELS[x.role] ?? x.role}` → шаблон H. `ROLE_VARIANT` остаётся (это не текст). «Создана {дата}» → `<Trans>Створено {createdAt}</Trans>` с `formatDate(team.createdAt, locale, 'long')`. «Ошибка добавления» → `getApiErrorMessage(err, t\`Не вдалося додати учасника — спробуйте ще раз\`)`; «Не удалось обновить команду» → `getApiErrorMessage(err, t\`Не вдалося оновити команду — спробуйте ще раз\`)`(M-2). «Нет доступных пользователей» (M-14) — если это результат поиска, то канон «Нічого не знайдено — скиньте фільтри»; если список кандидатов пуст без поиска — «Немає користувачів, яких можна додати». Две`localeCompare`→`compareNames`.
+`team/$teamId.tsx`: the local `const ROLE_LABELS` is removed; two places `{ROLE_LABELS[x.role] ?? x.role}` → template H. `ROLE_VARIANT` stays (it is not text). «Создана {дата}» → `<Trans>Створено {createdAt}</Trans>` with `formatDate(team.createdAt, locale, 'long')`. «Ошибка добавления» → `getApiErrorMessage(err, t\`Не вдалося додати учасника — спробуйте ще раз\`)`; «Не удалось обновить команду» → `getApiErrorMessage(err, t\`Не вдалося оновити команду — спробуйте ще раз\`)`(M-2). «Нет доступных пользователей» (M-14) — if it is a search result, then the canon «Нічого не знайдено — скиньте фільтри»; if the candidate list is empty without a search — «Немає користувачів, яких можна додати». Two`localeCompare`→`compareNames`.
 
-- [ ] **Step 6: Чипы и диалоги — `HrChipsField`, `AccountantChipField`, `RejoinTeamDialog`, `CreateWizardStepper`**
+- [ ] **Step 6: Chips and dialogs — `HrChipsField`, `AccountantChipField`, `RejoinTeamDialog`, `CreateWizardStepper`**
 
-COPY-M-ppl-6: «Нет доступных HR» → «Немає вільних HR — створіть HR у розділі «Команда»» / "No HR available — create one in the Team section"; то же для бухгалтеров. COPY-L-ppl-3 (`RejoinTeamDialog`): `{mutation.isPending ? 'Сохранение...' : 'Готово'}` → `{mutation.isPending ? <Trans>Збереження…</Trans> : <Trans>Зберегти</Trans>}`.
+COPY-M-ppl-6: «Нет доступных HR» → «Немає вільних HR — створіть HR у розділі «Команда»» / "No HR available — create one in the Team section"; the same for accountants. COPY-L-ppl-3 (`RejoinTeamDialog`): `{mutation.isPending ? 'Сохранение...' : 'Готово'}` → `{mutation.isPending ? <Trans>Збереження…</Trans> : <Trans>Зберегти</Trans>}`.
 
-- [ ] **Step 7: Тесты, E2E-свип, гейты, коммит**
+- [ ] **Step 7: Tests, E2E sweep, gates, commit**
 
-E2E: бейджи в строке (`users.spec.ts` «Администратор», «Синьор»; `crm/users/users-refactor.spec.ts` бейдж) → шаблон I с «Адміністратор», «Сеньйор»; фильтр `users.spec.ts` «Все роли»/«Джун» → «Усі ролі»/«Джуніор» через каталог; `team.spec.ts` (31 строка) и архивные спеки — по свипу. Клики `user-dialog-role-trigger` → «Синьор» **не трогать**: это `UserDialog`, PR3.
+E2E: the badges in the row (`users.spec.ts` «Администратор», «Синьор»; `crm/users/users-refactor.spec.ts` the badge) → template I with «Адміністратор», «Сеньйор»; the filter `users.spec.ts` «Все роли»/«Джун» → «Усі ролі»/«Джуніор» via the catalog; `team.spec.ts` (31 lines) and the archive specs — per the sweep. The `user-dialog-role-trigger` clicks → «Синьор» **do not touch**: this is `UserDialog`, PR3.
 
-Проверка файлов PR2 (строк быть не должно):
+The PR2 file check (there must be no lines):
 
 ```bash
 python3 - <<'EOF'
@@ -1210,56 +1210,56 @@ EOF
 )"
 ```
 
-`git mv` уже поставил в индекс удаление старых путей. `git status` перед коммитом покажет `renamed:` для обоих файлов.
+`git mv` has already staged the removal of the old paths. `git status` before the commit will show `renamed:` for both files.
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: `/users` (список, фильтр ролей, пустой результат), `/team` (список, сортировка, пустой результат, создание), `/team/$teamId` (участники, добавление), диалоги архивации для SENIOR с командой, SENIOR без команды, HR (5 команд), JUNIOR — из списка `/users` **и** из меню профиля (оба рендерят `UserArchiveImpact`). `copy-reviewer` — по `uk` и `en` отдельно, отдельной строкой — вердикт по COPY-L-31 и L-32. `security-reviewer` — обязателен (архивация, состав команд).
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: `/users` (the list, the role filter, an empty result), `/team` (the list, sorting, an empty result, creation), `/team/$teamId` (members, adding), the archival dialogs for SENIOR with a team, SENIOR without a team, HR (5 teams), JUNIOR — from the `/users` list **and** from the profile menu (both render `UserArchiveImpact`). `copy-reviewer` — on `uk` and `en` separately, with a separate line — the verdict on COPY-L-31 and L-32. `security-reviewer` — mandatory (archival, team composition).
 
 ---
 
-## Task 3 (PR3): мастер пользователя, резюме, удаление легаси
+## Task 3 (PR3): the user wizard, résumé, removing the legacy
 
 **Files:**
 
-| Файл                                                        | Кир. строк | Паттерн(ы)       | Находки аудита / примечание                                                                                                                                                                                                               |
-| ----------------------------------------------------------- | ---------- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `components/users/UserDialog.tsx`                           | 142 / 119  | A, B, C, D, G, H | COPY-M-ppl-2 (5 фоллбэков), M-3 («переводе контракта»), M-6 («Нет активного шаблона»), M-13 (три примера), H-3 («Нельзя сменить свою роль ADMIN»); ручная форма «команд(ы) доступно» → `<Plural>`; секция «Платёжные реквизиты» по канону |
-| `components/user-profile/resume/ResumeTab.tsx`              | 39 / 36    | B, C             | —                                                                                                                                                                                                                                         |
-| `components/user-profile/resume/ResumeLayoutPanel.tsx`      | 29 / 29    | A, C             | `` `Показать «${SECTION_LABELS[key]}»` ``/`` `Скрыть «…»` `` — вложенная подстановка переводимой строки (аудит B) → `SECTION_LABEL_MESSAGES` + `t\`Показати «${label}»\``, пара `aria-label`/`title` — одна переменная на обе             |
-| `components/user-profile/resume/ResumeStatusPanel.tsx`      | 17 / 15    | A, F             | `formatResetTime` → `formatDate(at, locale, 'dateTime')` (новый стиль); `failureHint` — шаблон A                                                                                                                                          |
-| `components/user-profile/resume/ResumeIntake.tsx`           | 14 / 13    | B, C, G          | COPY-M-ppl-9 → `translateZodCode('RESUME_TEXT_TOO_SHORT')` (текст с числом уже в реестре, этап 4)                                                                                                                                         |
-| `components/user-profile/resume/ResumeExperienceEditor.tsx` | 13 / 13    | C                | Шесть `aria-label` вида `` `Переместить место работы ${index + 1} вверх` `` → `t\`Перемістити місце роботи ${position} вгору\`` (`position = index + 1` до макроса)                                                                       |
-| `components/user-profile/resume/ResumePdfPreview.tsx`       | 8 / 7      | C                | COPY-L-ppl-5: ``filename={`Резюме — ${…}.pdf`}`` → `t\`Резюме — ${name}.pdf\`` (`en`: "CV — {name}.pdf")                                                                                                                                  |
-| `components/user-profile/resume/ResumeSectionCard.tsx`      | 7 / 7      | B                | —                                                                                                                                                                                                                                         |
-| `components/users/constants.ts`                             | 7 / 5      | —                | Удалить `ROLE_LABELS` (5 строк значений и 1 строка комментария внутри блока); оставшаяся строка — пример данных в JSDoc `getInitials` («Иван Иванов» → «ИИ»), не мигрировать                                                              |
-| `components/ui/role-select.tsx`                             | —          | —                | Удалить легаси `ROLE_LABELS` и комментарий над ним; обновить комментарий у `ROLE_BADGE_VARIANT` («See ROLE_LABELS»)                                                                                                                       |
-| `packages/shared/src/i18n/format.ts` + `format.spec.ts`     | —          | F                | Стиль `'dateTime'`                                                                                                                                                                                                                        |
+| File                                                        | Cyr. lines | Pattern(s)       | Audit findings / note                                                                                                                                                                                                                                    |
+| ----------------------------------------------------------- | ---------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `components/users/UserDialog.tsx`                           | 142 / 119  | A, B, C, D, G, H | COPY-M-ppl-2 (5 fallbacks), M-3 («переводе контракта»), M-6 («Нет активного шаблона»), M-13 (three examples), H-3 («Нельзя сменить свою роль ADMIN»); the manual form «команд(ы) доступно» → `<Plural>`; the «Платёжные реквизиты» section per the canon |
+| `components/user-profile/resume/ResumeTab.tsx`              | 39 / 36    | B, C             | —                                                                                                                                                                                                                                                        |
+| `components/user-profile/resume/ResumeLayoutPanel.tsx`      | 29 / 29    | A, C             | `` `Показать «${SECTION_LABELS[key]}»` ``/`` `Скрыть «…»` `` — a nested substitution of a translatable string (audit B) → `SECTION_LABEL_MESSAGES` + `t\`Показати «${label}»\``, the `aria-label`/`title` pair — one variable for both                   |
+| `components/user-profile/resume/ResumeStatusPanel.tsx`      | 17 / 15    | A, F             | `formatResetTime` → `formatDate(at, locale, 'dateTime')` (a new style); `failureHint` — template A                                                                                                                                                       |
+| `components/user-profile/resume/ResumeIntake.tsx`           | 14 / 13    | B, C, G          | COPY-M-ppl-9 → `translateZodCode('RESUME_TEXT_TOO_SHORT')` (the text with the number is already in the registry, stage 4)                                                                                                                                |
+| `components/user-profile/resume/ResumeExperienceEditor.tsx` | 13 / 13    | C                | Six `aria-label` of the form `` `Переместить место работы ${index + 1} вверх` `` → `t\`Перемістити місце роботи ${position} вгору\`` (`position = index + 1` before the macro)                                                                           |
+| `components/user-profile/resume/ResumePdfPreview.tsx`       | 8 / 7      | C                | COPY-L-ppl-5: ``filename={`Резюме — ${…}.pdf`}`` → `t\`Резюме — ${name}.pdf\`` (`en`: "CV — {name}.pdf")                                                                                                                                                 |
+| `components/user-profile/resume/ResumeSectionCard.tsx`      | 7 / 7      | B                | —                                                                                                                                                                                                                                                        |
+| `components/users/constants.ts`                             | 7 / 5      | —                | Remove `ROLE_LABELS` (5 value lines and 1 comment line inside the block); the remaining line — a data example in the JSDoc of `getInitials` («Иван Иванов» → «ИИ»), do not migrate                                                                       |
+| `components/ui/role-select.tsx`                             | —          | —                | Remove the legacy `ROLE_LABELS` and the comment above it; update the comment at `ROLE_BADGE_VARIANT` («See ROLE_LABELS»)                                                                                                                                 |
+| `packages/shared/src/i18n/format.ts` + `format.spec.ts`     | —          | F                | The `'dateTime'` style                                                                                                                                                                                                                                   |
 
-Тесты: `components/users/__tests__/{UserDialog.create-wizard.test.tsx (40), UserDialog.edit-drop-share.test.tsx (4), UserDialog.edit-prefill.test.tsx (8), UserDialog.pending-share-hygiene.test.tsx (21), UserDialog.share-role-scoping.test.tsx (23), UserDialog.test.tsx (4)}`, `components/user-profile/resume/__tests__/{ResumeExperienceEditor.test.tsx (0), ResumeLayoutPanel.test.tsx (7), ResumeTab.test.tsx (39)}`, `components/ui/__tests__/role-select.locale.test.tsx` (кейс «легаси не тронут» → «легаси удалён»), `components/layout/__tests__/ImpersonationBanner.spec.tsx` (комментарий ссылается на `ROLE_LABELS`, поправить текст комментария).
+Tests: `components/users/__tests__/{UserDialog.create-wizard.test.tsx (40), UserDialog.edit-drop-share.test.tsx (4), UserDialog.edit-prefill.test.tsx (8), UserDialog.pending-share-hygiene.test.tsx (21), UserDialog.share-role-scoping.test.tsx (23), UserDialog.test.tsx (4)}`, `components/user-profile/resume/__tests__/{ResumeExperienceEditor.test.tsx (0), ResumeLayoutPanel.test.tsx (7), ResumeTab.test.tsx (39)}`, `components/ui/__tests__/role-select.locale.test.tsx` (the case "legacy not touched" → "legacy removed"), `components/layout/__tests__/ImpersonationBanner.spec.tsx` (the comment references `ROLE_LABELS`, fix the comment text).
 
-E2E: **17 кликов** и остальное из «Распределения», строка PR3, плюс вывод свипа.
+E2E: **17 clicks** and the rest from the "Distribution", the PR3 row, plus the sweep output.
 
 **Interfaces:**
 
-- Consumes: всё, что в PR1/PR2 (`useRoleLabel`, `ROLE_LABEL_MESSAGES`, `translateZodCode`, `translateZodMessage`, `getApiErrorMessage`, `formatDate`, `useLocale`); `ShareSlider`, `RoleSelect` (уже мигрированы в 3a); `ContractEditor`, `ContractActionBar`, `useEmployeeContract` (мигрированы в PR1 — `UserDialog` их только рендерит).
-- Produces: `formatDate(value, locale, style: 'short' | 'long' | 'month' | 'monthYear' | 'dateTime')` — `'dateTime'` = день, месяц словом, часы и минуты, **в локальной зоне браузера** (без `timeZone: 'UTC'`, в отличие от остальных стилей: время сброса квоты человек читает по своим часам). Удаляются `ROLE_LABELS` из `@/components/ui/role-select` и из `@/components/users/constants`. После PR3 `git grep -nP '\bROLE_LABELS\b' apps/web/app` находит только локальные карты **вне** периметра (`projects/$projectId.tsx`, `admin/contracts.{index,$role}.tsx` — волна c; «Находки вне периметра»).
+- Consumes: everything in PR1/PR2 (`useRoleLabel`, `ROLE_LABEL_MESSAGES`, `translateZodCode`, `translateZodMessage`, `getApiErrorMessage`, `formatDate`, `useLocale`); `ShareSlider`, `RoleSelect` (already migrated in 3a); `ContractEditor`, `ContractActionBar`, `useEmployeeContract` (migrated in PR1 — `UserDialog` only renders them).
+- Produces: `formatDate(value, locale, style: 'short' | 'long' | 'month' | 'monthYear' | 'dateTime')` — `'dateTime'` = day, month in words, hours and minutes, **in the browser's local zone** (without `timeZone: 'UTC'`, unlike the other styles: the quota reset time the person reads by their own clock). `ROLE_LABELS` is removed from `@/components/ui/role-select` and from `@/components/users/constants`. After PR3 `git grep -nP '\bROLE_LABELS\b' apps/web/app` finds only local maps **outside** the perimeter (`projects/$projectId.tsx`, `admin/contracts.{index,$role}.tsx` — wave c; "Findings outside the perimeter").
 
-### Опасность: удаление легаси — только после мержа PR1 и PR2
+### Danger: removing the legacy — only after the merge of PR1 and PR2
 
-`role-select.ROLE_LABELS` читают `UserProfileHeader`, `ContractTab`, `TeamTab` (PR1). `constants.ROLE_LABELS` читают `UserRow`, `users/index.tsx` (PR2) и `UserDialog` (этот PR). Если удалить экспорт раньше, typecheck упадёт у всех, кто ещё не переехал. Step 0 проверяет, что оба PR смёржены, а Step 3 — что потребителей ноль.
+`role-select.ROLE_LABELS` is read by `UserProfileHeader`, `ContractTab`, `TeamTab` (PR1). `constants.ROLE_LABELS` is read by `UserRow`, `users/index.tsx` (PR2) and `UserDialog` (this PR). If the export is removed earlier, typecheck falls for everyone who has not migrated yet. Step 0 checks that both PRs are merged, and Step 3 — that there are zero consumers.
 
 ### Acceptance criteria (PR3)
 
-1. `UserDialog.tsx` на `uk`/`en`: роли в выборе и триггере — из `ROLE_LABEL_MESSAGES`; закрыты COPY-M-ppl-2 (в мастере), M-3, M-6 (шаг контракта), M-10 и M-13 (в мастере), H-3 (подсказка про свою роль); «команд(ы) доступно» — `<Plural>`; Zod-сообщения — коды реестра.
-2. `ROLE_LABELS` удалён из `role-select.tsx` и из `components/users/constants.ts`; тесты «легаси удалён» зелёные; в периметре волны `ROLE_LABELS` не встречается.
-3. Резюме на `uk`/`en`; закрыты COPY-M-ppl-9 и L-5 (резюме); `formatDate` получил стиль `'dateTime'` с тестом; `formatResetTime` принимает локаль.
-4. 17 кликов `name: 'Синьор'` в 5 спеках идут через `assertInCatalog(uk, 'Сеньйор')`; `git grep "name: 'Синьор'" -- apps/e2e/tests` пуст.
-5. Финальная сверка волны (три команды Step 6) дала ожидаемый результат, вывод — в теле PR.
-6. Unit-тесты ассертят текст из каталога; E2E-свип выполнен, таблица в теле PR; E2E спек PR3 зелёные.
-7. `pnpm i18n:extract` дважды — пустой дифф; в `en` 0 пустых `msgstr`.
-8. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` зелёный.
-9. Design tier 2, fidelity Mode B на всех ширинах, скриншоты 320/1440 × `uk`/`en`; `copy-reviewer` PASS по `uk` и `en`; `security-reviewer` APPROVE.
+1. `UserDialog.tsx` in `uk`/`en`: the roles in the picker and the trigger — from `ROLE_LABEL_MESSAGES`; COPY-M-ppl-2 (in the wizard), M-3, M-6 (the contract step), M-10 and M-13 (in the wizard), H-3 (the hint about your own role) closed; «команд(ы) доступно» — `<Plural>`; Zod messages — registry codes.
+2. `ROLE_LABELS` removed from `role-select.tsx` and from `components/users/constants.ts`; the "legacy removed" tests are green; `ROLE_LABELS` does not occur in the wave's perimeter.
+3. Résumé in `uk`/`en`; COPY-M-ppl-9 and L-5 (résumé) closed; `formatDate` got the `'dateTime'` style with a test; `formatResetTime` accepts the locale.
+4. 17 clicks `name: 'Синьор'` in 5 specs go through `assertInCatalog(uk, 'Сеньйор')`; `git grep "name: 'Синьор'" -- apps/e2e/tests` empty.
+5. The final wave check (three Step 6 commands) gave the expected result, the output — in the PR body.
+6. Unit tests assert text from the catalog; the E2E sweep is done, a table in the PR body; the PR3 E2E specs are green.
+7. `pnpm i18n:extract` twice — an empty diff; in `en` 0 empty `msgstr`.
+8. `pnpm mutation:changed` — `survived 0`; `check-mutation-suppressions.mjs` green.
+9. Design tier 2, fidelity Mode B on all widths, screenshots 320/1440 × `uk`/`en`; `copy-reviewer` PASS on `uk` and `en`; `security-reviewer` APPROVE.
 
-- [ ] **Step 0: Замер и предусловия**
+- [ ] **Step 0: Measurement and preconditions**
 
 ```bash
 git rev-parse --show-toplevel
@@ -1267,11 +1267,11 @@ git fetch origin main
 git grep -nP "\bROLE_LABELS\b" origin/main -- apps/web/app ':!**/__tests__/**'
 ```
 
-Ожидается: вхождения только в `role-select.tsx` (объявление), `components/users/constants.ts` (объявление), `components/users/UserDialog.tsx` и локальные карты вне периметра (`projects/$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`). Любое другое вхождение — значит PR1 или PR2 не смёржен или что-то пропустил: стоп, `.blocked.md`.
+Expected: occurrences only in `role-select.tsx` (the declaration), `components/users/constants.ts` (the declaration), `components/users/UserDialog.tsx` and the local maps outside the perimeter (`projects/$projectId.tsx`, `admin/contracts.index.tsx`, `admin/contracts.$role.tsx`). Any other occurrence — means PR1 or PR2 is not merged or missed something: stop, `.blocked.md`.
 
-- [ ] **Step 1: Тест — роли в мастере из канона, легаси удалён (падает)**
+- [ ] **Step 1: Test — the roles in the wizard from the canon, the legacy removed (fails)**
 
-В существующий `components/users/__tests__/UserDialog.create-wizard.test.tsx` (в нём уже есть `render` с `I18nTestProvider`, `beforeEach(loadCatalog('uk'))` и моки `@/context/auth`, роутера и `api`) добавить:
+In the existing `components/users/__tests__/UserDialog.create-wizard.test.tsx` (it already has `render` with `I18nTestProvider`, `beforeEach(loadCatalog('uk'))` and mocks of `@/context/auth`, the router and `api`) add:
 
 ```tsx
 import { within } from '@testing-library/react'
@@ -1297,7 +1297,7 @@ describe('role picker reads ROLE_LABEL_MESSAGES', () => {
 })
 ```
 
-В `components/ui/__tests__/role-select.locale.test.tsx` кейс `'leaves the legacy ROLE_LABELS export untouched (type: string) …'` заменить на:
+In `components/ui/__tests__/role-select.locale.test.tsx` replace the case `'leaves the legacy ROLE_LABELS export untouched (type: string) …'` with:
 
 ```tsx
 describe('legacy ROLE_LABELS exports are gone (wave b, PR3)', () => {
@@ -1312,49 +1312,49 @@ describe('legacy ROLE_LABELS exports are gone (wave b, PR3)', () => {
 
 Run: `pnpm --filter @crm/web test -- UserDialog.create-wizard role-select.locale` → FAIL.
 
-- [ ] **Step 2: `UserDialog.tsx` — миграция**
+- [ ] **Step 2: `UserDialog.tsx` — migration**
 
-Файл самый большой в волне (2596 строк), поэтому идти по секциям мастера, по `wip:`-коммиту после каждой: «Ідентичність» → «Роль і мова» → «Дані для контракту» → «Контакти» → «Професія» → «Фінанси» → «Реквізити для виплат» → «Команда» → шаг контракта → диалог смены email → тосты мутаций.
+The file is the largest in the wave (2596 lines), so go by wizard section, with a `wip:` commit after each: «Ідентичність» → «Роль і мова» → «Дані для контракту» → «Контакти» → «Професія» → «Фінанси» → «Реквізити для виплат» → «Команда» → the contract step → the email change dialog → the mutation toasts.
 
-Ключевые места:
+Key places:
 
-- **Выбор роли**: `{ROLE_LABELS[r]}` в `SelectItem` → шаблон H (список); `{ROLE_LABELS[role]}` в триггере — шаблон H (одно значение). Хардкод «Синьор» и «(HR может создавать только синьоров)» → `i18n._(ROLE_LABEL_MESSAGES.SENIOR)` и `<Trans>(HR може створювати лише сеньйорів)</Trans>`. `hint` «Нельзя сменить свою роль ADMIN» (H-3, сырой enum) → `t\`Свою роль змінити не можна\``.
-- **Реквизиты**: «Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20» → `<Trans>Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20</Trans>` (роль в именительном падеже внутри кавычек, урок п.9). «Способ оплаты» (label и `ariaLabel`) → «Спосіб виплати» (канон). «USDT ERC-20 кошелёк» → «Гаманець USDT (ERC-20)» — ровно та строка, что в `RequisitesEditForm` после PR1: один ключ, и `requisites-warning.spec.ts` ассертит одну подпись для обеих форм. «ФИО получателя (ФОП)», «РНОКПП (ИНН ФОП)» → «ПІБ отримувача (ФОП)», «РНОКПП». Плейсхолдеры — канон (M-13): «Іваненко Іван Іванович» (оба ФИО-поля — один пример, сейчас их два разных), «м. Київ, вул. Хрещатик, 1», «ПриватБанк».
-- **Команда дропа**: `'команда доступна' / 'команд(ы) доступно'` → `<Plural value={n} one="# команда доступна" few="# команди доступні" many="# команд доступно" other="# команди доступно" />`.
-- **Тосты мутаций** (M-2, M-3) — `explainUserMutationError(err, <fallback>)`, фоллбэк называет действие и говорит, что данные на месте:
+- **Role picker**: `{ROLE_LABELS[r]}` in `SelectItem` → template H (a list); `{ROLE_LABELS[role]}` in the trigger — template H (a single value). The hardcode «Синьор» and «(HR может создавать только синьоров)» → `i18n._(ROLE_LABEL_MESSAGES.SENIOR)` and `<Trans>(HR може створювати лише сеньйорів)</Trans>`. The `hint` «Нельзя сменить свою роль ADMIN» (H-3, a raw enum) → `t\`Свою роль змінити не можна\``.
+- **Credentials**: «Для роли «{ROLE_LABELS[role]}» доступна только оплата через USDT ERC-20» → `<Trans>Для ролі «{roleLabel}» доступні лише виплати в USDT ERC-20</Trans>` (the role in the nominative case inside quotes, lesson item 9). «Способ оплаты» (the label and `ariaLabel`) → «Спосіб виплати» (the canon). «USDT ERC-20 кошелёк» → «Гаманець USDT (ERC-20)» — exactly the string that is in `RequisitesEditForm` after PR1: one key, and `requisites-warning.spec.ts` asserts one caption for both forms. «ФИО получателя (ФОП)», «РНОКПП (ИНН ФОП)» → «ПІБ отримувача (ФОП)», «РНОКПП». The placeholders — the canon (M-13): «Іваненко Іван Іванович» (both full-name fields — one example, now they are two different), «м. Київ, вул. Хрещатик, 1», «ПриватБанк».
+- **Drop team**: `'команда доступна' / 'команд(ы) доступно'` → `<Plural value={n} one="# команда доступна" few="# команди доступні" many="# команд доступно" other="# команди доступно" />`.
+- **Mutation toasts** (M-2, M-3) — `explainUserMutationError(err, <fallback>)`, the fallback names the action and says the data is in place:
 
-| Было                                  | `uk`                                                                       | `en`                                                             |
+| Was                                   | `uk`                                                                       | `en`                                                             |
 | ------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------- |
 | «Ошибка при создании»                 | Не вдалося створити користувача — дані у формі збережено, спробуйте ще раз | Could not create the user — the form keeps your data, try again  |
 | «Ошибка при создании дропа»           | Не вдалося створити дропа — дані у формі збережено, спробуйте ще раз       | Could not create the drop — the form keeps your data, try again  |
 | «Ошибка при обновлении» (×2)          | Не вдалося зберегти зміни — дані у формі збережено, спробуйте ще раз       | Could not save the changes — the form keeps your data, try again |
 | «Ошибка при переводе контракта» (M-3) | Не вдалося позначити контракт готовим до підписання                        | Could not mark the contract as ready to sign                     |
 
-«Ошибка при переводе» — это смена статуса `DRAFT → READY_TO_SIGN`, а не перевод текста: формулировка берётся словами кнопки («Позначити готовим до підписання»), иначе в `en` получится "translation".
+«Ошибка при переводе» — this is the status change `DRAFT → READY_TO_SIGN`, not a text translation: the wording is taken from the button's words («Позначити готовим до підписання»), otherwise `en` would get "translation".
 
-- **Успехи**: «Пользователь создан, контракт готов к подписанию» → «Користувача створено, контракт готовий до підписання»; «Пользователь обновлён» → «Зміни збережено» (`admin-actions.spec.ts` ассертит тост → шаблон I); многострочный `` `Сохранено. Предложение отправлено синьору: ${pending.percent}%…` `` → `<Trans>` / `t` одним предложением с `{percent}`.
-- **Шаг контракта**: «Нет активного шаблона» (M-6) → «Немає активного шаблону контракту для цієї ролі — контракт можна додати пізніше з профілю користувача; натисніть «Далі», щоб продовжити». «Черновик» / «Отметить готовым к подписи» / «Отправка...» → «Чернетка» / «Позначити готовим до підписання» / «Надсилаємо…». `frozenBanner` → канон статусов.
-- **Диалог смены email**: «Убедись, что пользователь…» (обращение на «ты» в интерфейсе, где везде «вы») → «Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google» («обліковий запис Google» — глоссарий).
-- **Zod** внутри рендера (`z.string().email('Некорректный email')`, «Имя минимум 2 символа», «ФИО минимум 5 символов», «ФИО получателя минимум 3 символа» — три ручные формы слова «символ», аудит B) → `'zod.EMAIL_INVALID'`, `'zod.DISPLAY_NAME_MIN'`, `'zod.LEGAL_FULL_NAME_MIN'`, `'zod.RECIPIENT_NAME_MIN'` + `translateZodMessage` в месте показа ошибки поля. Числа живут в реестре (этап 4), в JSX не дублируются.
-- «Язык интерфейса» (поле, добавленное этапом 2) и его `hint` → «Мова інтерфейсу» / «Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі». Пункты `Українська`/`English` — эндонимы, не переводятся.
+- **Successes**: «Пользователь создан, контракт готов к подписанию» → «Користувача створено, контракт готовий до підписання»; «Пользователь обновлён» → «Зміни збережено» (`admin-actions.spec.ts` asserts the toast → template I); the multiline `` `Сохранено. Предложение отправлено синьору: ${pending.percent}%…` `` → `<Trans>` / `t` as one sentence with `{percent}`.
+- **Contract step**: «Нет активного шаблона» (M-6) → «Немає активного шаблону контракту для цієї ролі — контракт можна додати пізніше з профілю користувача; натисніть «Далі», щоб продовжити». «Черновик» / «Отметить готовым к подписи» / «Отправка...» → «Чернетка» / «Позначити готовим до підписання» / «Надсилаємо…». The `frozenBanner` → the status canon.
+- **Email change dialog**: «Убедись, что пользователь…» (addressing with «ты» in an interface where it is «вы» everywhere) → «Переконайтеся, що користувач знає про зміну і за потреби змінить свій обліковий запис Google» («обліковий запис Google» — the glossary).
+- **Zod** inside the render (`z.string().email('Некорректный email')`, «Имя минимум 2 символа», «ФИО минимум 5 символов», «ФИО получателя минимум 3 символа» — three manual forms of the word «символ», audit B) → `'zod.EMAIL_INVALID'`, `'zod.DISPLAY_NAME_MIN'`, `'zod.LEGAL_FULL_NAME_MIN'`, `'zod.RECIPIENT_NAME_MIN'` + `translateZodMessage` at the field-error display place. The numbers live in the registry (stage 4), they are not duplicated in JSX.
+- «Язык интерфейса» (the field added in stage 2) and its `hint` → «Мова інтерфейсу» / «Мова інтерфейсу співробітника — він зможе змінити її у своєму профілі». The items `Українська`/`English` — endonyms, not translated.
 
-- [ ] **Step 3: Удаление легаси `ROLE_LABELS` (отложенный пункт 1)**
+- [ ] **Step 3: Removing the legacy `ROLE_LABELS` (the deferred item 1)**
 
-`components/users/constants.ts` — удалить `export const ROLE_LABELS` целиком. `components/ui/role-select.tsx` — удалить `export const ROLE_LABELS` и комментарий «task-i18n-stage3a (Task 1), Step 1/2 — legacy export, LEFT UNCHANGED …» над ним; у `ROLE_BADGE_VARIANT` комментарий «See ROLE_LABELS — placeholder …» переписать без ссылки на удалённый экспорт.
+`components/users/constants.ts` — remove `export const ROLE_LABELS` entirely. `components/ui/role-select.tsx` — remove `export const ROLE_LABELS` and the comment «task-i18n-stage3a (Task 1), Step 1/2 — legacy export, LEFT UNCHANGED …» above it; at `ROLE_BADGE_VARIANT` rewrite the comment «See ROLE_LABELS — placeholder …» without the reference to the removed export.
 
 ```bash
 git grep -nP "\bROLE_LABELS\b" -- apps/web/app ':!**/__tests__/**'
-# ожидается: только projects/$projectId.tsx, admin/contracts.index.tsx, admin/contracts.$role.tsx (локальные карты вне периметра)
+# expected: only projects/$projectId.tsx, admin/contracts.index.tsx, admin/contracts.$role.tsx (local maps outside the perimeter)
 git grep -nP "\bROLE_LABELS\b" -- apps/web/app/**/__tests__
-# ожидается: только комментарии — поправить текст в ImpersonationBanner.spec.tsx и UserProfileHeader.test.tsx
+# expected: only comments — fix the text in ImpersonationBanner.spec.tsx and UserProfileHeader.test.tsx
 ```
 
 Run: `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web test -- UserDialog role-select` → PASS.
 
-- [ ] **Step 4: Резюме + стиль `'dateTime'`**
+- [ ] **Step 4: Résumé + the `'dateTime'` style**
 
 ```ts
-// packages/shared/src/i18n/format.spec.ts — добавить
+// packages/shared/src/i18n/format.spec.ts — add
 it("formatDate 'dateTime' keeps the reader's local clock (no UTC shift)", () => {
   const d = new Date(2026, 8, 24, 14, 5) // local 24 Sep 2026 14:05
   expect(formatDate(d, 'en', 'dateTime')).toMatch(/24 September.*14:05/)
@@ -1363,42 +1363,42 @@ it("formatDate 'dateTime' keeps the reader's local clock (no UTC shift)", () => 
 ```
 
 ```ts
-// packages/shared/src/i18n/format.ts — расширить union стилей и STYLE_OPTS
+// packages/shared/src/i18n/format.ts — extend the style union and STYLE_OPTS
 dateTime: { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' },
-// без timeZone: 'UTC' — см. Interfaces
+// without timeZone: 'UTC' — see Interfaces
 ```
 
-`ResumeStatusPanel.formatResetTime(iso)` → `formatResetTime(iso, locale)`: `Number.isNaN` → `msg\`найближчим часом\``, иначе `formatDate(at, locale, 'dateTime')`. Строка входит в «Ліміт оновиться {when}» одной `<Trans>`— без склейки.`failureHint` (`switch`по коду) — шаблон A, по`msg` на ветку.
+`ResumeStatusPanel.formatResetTime(iso)` → `formatResetTime(iso, locale)`: `Number.isNaN` → `msg\`найближчим часом\``, otherwise `formatDate(at, locale, 'dateTime')`. The string goes into «Ліміт оновиться {when}» as one `<Trans>`— without concatenation.`failureHint`(a`switch`by code) — template A, a`msg` per branch.
 
-`ResumeIntake.tsx`: `toast.error('Текст резюме слишком короткий')` (M-9) → `toast.error(translateZodCode('RESUME_TEXT_TOO_SHORT'))` — тот же текст, что у серверной проверки, одна строка на два пакета.
+`ResumeIntake.tsx`: `toast.error('Текст резюме слишком короткий')` (M-9) → `toast.error(translateZodCode('RESUME_TEXT_TOO_SHORT'))` — the same text as the server check, one string for two packages.
 
-`ResumeLayoutPanel.tsx`: `SECTION_LABELS` → `SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor>` (шаблон A); `` `Показать «${…}»` `` / `` `Скрыть «${…}»` `` → `const label = i18n._(SECTION_LABEL_MESSAGES[key])`, затем `t\`Показати «${label}»\`` / `t\`Приховати «${label}»\``. Одна переменная идёт и в `aria-label`, и в `title` (аудит B: пара легко разъедется).
+`ResumeLayoutPanel.tsx`: `SECTION_LABELS` → `SECTION_LABEL_MESSAGES: Record<ResumeSectionKey, MessageDescriptor>` (template A); `` `Показать «${…}»` `` / `` `Скрыть «${…}»` `` → `const label = i18n._(SECTION_LABEL_MESSAGES[key])`, then `t\`Показати «${label}»\``/`t\`Приховати «${label}»\``. One variable goes into both `aria-label`and`title` (audit B: the pair easily diverges).
 
-Остальные файлы `resume/*` — шаблоны B/C, многоточия `…`. E2E `crm/senior-resume.spec.ts` («Распознаём резюме» и остальное из свипа) — шаблон I.
+The rest of the `resume/*` files — templates B/C, ellipses `…`. E2E `crm/senior-resume.spec.ts` («Распознаём резюме» and the rest from the sweep) — template I.
 
-- [ ] **Step 5: 17 E2E-кликов «Синьор» и остальные строки мастера (отложенный пункт 1, COPY-H-8 #707)**
+- [ ] **Step 5: The 17 E2E clicks «Синьор» and the rest of the wizard strings (the deferred item 1, COPY-H-8 #707)**
 
-В каждой из 5 спек — один `const uk = await loadMessages('uk')` в начале теста (или в `beforeEach`, если спека так устроена), затем:
+In each of the 5 specs — one `const uk = await loadMessages('uk')` at the start of the test (or in `beforeEach`, if the spec is arranged that way), then:
 
 ```ts
-// было
+// was
 await page.getByRole('option', { name: 'Синьор' }).click()
-// стало
+// became
 await page.getByRole('option', { name: assertInCatalog(uk, 'Сеньйор') }).click()
 ```
 
-Места: `users.spec.ts` ×5, `drop-add-senior.spec.ts` ×6, `senior-create-default.spec.ts` ×3, `crm/users/users-refactor.spec.ts` ×2, `drop-create-ui-regressions.spec.ts` ×1 — итого 17. В `drop-create-ui-regressions.spec.ts` удаляется комментарий «UserDialog renders the legacy `ROLE_LABELS` map … Flip to assertInCatalog(uk, 'Сеньйор') together with those 17 other call sites» — это ровно та правка. Там же клики `name: 'Дроп'` (×3) → `assertInCatalog(uk, 'Дроп')` (слово то же, но ассерт идёт через каталог — правило спеки §8).
+Places: `users.spec.ts` ×5, `drop-add-senior.spec.ts` ×6, `senior-create-default.spec.ts` ×3, `crm/users/users-refactor.spec.ts` ×2, `drop-create-ui-regressions.spec.ts` ×1 — 17 in total. In `drop-create-ui-regressions.spec.ts` the comment «UserDialog renders the legacy `ROLE_LABELS` map … Flip to assertInCatalog(uk, 'Сеньйор') together with those 17 other call sites» is removed — this is exactly that edit. There too the clicks `name: 'Дроп'` (×3) → `assertInCatalog(uk, 'Дроп')` (the word is the same, but the assert goes through the catalog — the spec rule §8).
 
-Проверка счёта:
+The count check:
 
 ```bash
-git grep -c "name: 'Синьор'" origin/main -- apps/e2e/tests   # до: 17 в 5 файлах
-git grep -c "name: 'Синьор'" -- apps/e2e/tests                # после: пусто
+git grep -c "name: 'Синьор'" origin/main -- apps/e2e/tests   # before: 17 in 5 files
+git grep -c "name: 'Синьор'" -- apps/e2e/tests                # after: empty
 ```
 
-Остальные строки мастера: `admin-actions.spec.ts` (заголовок «Редактировать пользователя» → «Редагувати користувача», триггер роли `toContainText('Джун')` → `assertInCatalog(uk, 'Джуніор')`, тост), `drop-duplicate-email.spec.ts` («Дроп создан»), `requisites-warning.spec.ts` (подпись кошелька в мастере), `crm/create-wizard.spec.ts` — по свипу.
+The rest of the wizard strings: `admin-actions.spec.ts` (the title «Редактировать пользователя» → «Редагувати користувача», the role trigger `toContainText('Джун')` → `assertInCatalog(uk, 'Джуніор')`, the toast), `drop-duplicate-email.spec.ts` («Дроп создан»), `requisites-warning.spec.ts` (the wallet caption in the wizard), `crm/create-wizard.spec.ts` — per the sweep.
 
-- [ ] **Step 6: Тесты, свип, финальная сверка волны, гейты, коммит**
+- [ ] **Step 6: Tests, sweep, the final wave check, gates, commit**
 
 ```bash
 export PATH="$HOME/.nvm/versions/node/$(ls $HOME/.nvm/versions/node | grep '^v22' | tail -1)/bin:$PATH"
@@ -1411,10 +1411,10 @@ pnpm mutation:changed
 node scripts/devops/check-mutation-suppressions.mjs
 ```
 
-Финальная сверка волны (b) — выполняется в PR3 и вставляется в тело PR:
+The final wave (b) check — performed in PR3 and inserted into the PR body:
 
 ```bash
-# 1. русских букв в мигрированных файлах волны нет (исключение — job-sourcing, вне волны)
+# 1. there are no Russian letters in the wave's migrated files (exception — job-sourcing, outside the wave)
 python3 - <<'EOF'
 import re, pathlib, subprocess
 out = subprocess.run(['git', 'ls-files', 'apps/web/app/components/users', 'apps/web/app/components/user-profile',
@@ -1430,13 +1430,13 @@ for f in out:
             print(f, n, l.strip()); bad += 1
 print('violations:', bad)
 EOF
-# 2. ветвлений по тексту ошибки сервера нет (аудит §4)
+# 2. there is no branching by the server error text (audit §4)
 git grep -nE "message\)?\.(toLowerCase\(\)\.)?includes\('" -- apps/web/app/components/users apps/web/app/components/user-profile apps/web/app/components/onboarding
-# 3. легаси ролей нет в периметре
+# 3. there is no role legacy in the perimeter
 git grep -nP "\bROLE_LABELS\b" -- apps/web/app/components apps/web/app/routes/_authenticated/{team,users,onboarding,profile}
 ```
 
-Ожидается: 1 — `violations: 0`; 2 — пусто; 3 — пусто.
+Expected: 1 — `violations: 0`; 2 — empty; 3 — empty.
 
 ```bash
 git add \
@@ -1484,127 +1484,127 @@ EOF
 )"
 ```
 
-**Design tier 2.** Скриншоты 320 и 1440 × `uk` и `en`: мастер создания — каждый шаг для SENIOR, DROP (с выбором команды дропа), JUNIOR и HR; редактирование (включая диалог смены email и подсказку «Свою роль змінити не можна»); шаг контракта без шаблона; вкладка резюме (ввод, распознавание, ошибка квоты со временем сброса, раскладка секций). Главный риск на 320 — длинные украинские подписи полей в двухколоночных секциях мастера. `copy-reviewer` — по `uk` и `en` отдельно. `security-reviewer` — обязателен (создание пользователя с ролью, доли, реквизиты).
+**Design tier 2.** Screenshots 320 and 1440 × `uk` and `en`: the creation wizard — each step for SENIOR, DROP (with the drop team selection), JUNIOR and HR; editing (including the email change dialog and the hint «Свою роль змінити не можна»); the contract step without a template; the résumé tab (intake, recognition, the quota error with the reset time, the section layout). The main risk at 320 — long Ukrainian field captions in the two-column wizard sections. `copy-reviewer` — on `uk` and `en` separately. `security-reviewer` — mandatory (user creation with a role, shares, credentials).
 
 ---
 
-## Отложенные в волну (b) пункты — где закрываются
+## Items deferred into wave (b) — where they are closed
 
-| #   | Пункт                                                                                                                  | Где                                                                                                                                  | Как проверить                                                                                                                               |
-| --- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Легаси `ROLE_LABELS` → канон `ROLE_LABEL_MESSAGES`, удаление легаси; 17 E2E-кликов «Синьор» в 5 спеках (COPY-H-8 #707) | PR1 Step 3 (профиль), PR2 Step 4–5 (список, команды), PR3 Step 2–3 (мастер + удаление обоих экспортов), PR3 Step 5 (17 кликов)       | Тест «легаси удалён» (PR3 Step 1); `git grep -c "name: 'Синьор'" -- apps/e2e/tests` → пусто; финальная сверка PR3 п.3                       |
-| 2   | COPY-L-31 (ветка без команды молчит об обратимости), COPY-L-32 («буде архівований» в 5 строках)                        | PR2 Step 2                                                                                                                           | Тесты `UserArchiveImpact`: «Відновлення можливе» в ветке без команды; нет `архівован(ий\|а)` ни в одной ветке пользователя                  |
-| 3   | Два компонента `ArchiveConfirmDialog`                                                                                  | PR2 Step 2–3: переименование в `ArchiveUserConfirmDialog` + общий `UserArchiveImpact`; полное слияние отклонено («Опасность» Task 2) | `git grep -n "components/users/ArchiveConfirmDialog\|ImpactWarning" -- apps/web` → пусто; имя `ArchiveConfirmDialog` экспортирует один файл |
-| 4   | `SignContractStep.tsx` — русские плашки из #702 (COPY-M-15/16)                                                         | PR1 Step 4                                                                                                                           | Тест «нет сырого enum роли» на `uk` и `en`; в файле 0 строк с `[ыэъё]`                                                                      |
-| 5   | Дубли логики вне периметра (как `$projectId.tsx`) — не расширять периметр, записать                                    | «Находки вне периметра» ниже                                                                                                         | Раздел есть и заполнен                                                                                                                      |
-
----
-
-## Трассировка находок аудита `web-people`
-
-`Findings:` среза — 30. Каждый идентификатор ниже.
-
-| Находка       | Статус на `062af6f8`                                              | Где закрывается                                                                                    |
-| ------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| COPY-H-ppl-1  | открыта (`Сортування` в русском интерфейсе)                       | PR2 Step 5                                                                                         |
-| COPY-H-ppl-2  | открыта                                                           | PR1 Step 4, Step 6                                                                                 |
-| COPY-H-ppl-3  | частично (#702 убрал `ADMIN` в `SignContractStep`)                | PR1 Step 4, 6, 10; PR2 Step 5; PR3 Step 2                                                          |
-| COPY-H-ppl-4  | закрыта этапом 2 (Task 8: канон с `DROP`)                         | PR1 Step 3 переводит на `useRoleLabel`                                                             |
-| COPY-H-ppl-5  | частично (подпись роли есть, но из русского легаси)               | PR1 Step 3                                                                                         |
-| COPY-H-ppl-6  | открыта                                                           | PR2 Step 2–3 (`ImpactWarning` удаляется)                                                           |
-| COPY-H-ppl-7  | открыта                                                           | PR1 Step 4                                                                                         |
-| COPY-H-ppl-8  | открыта                                                           | PR1 Step 5                                                                                         |
-| COPY-H-ppl-9  | открыта                                                           | PR1 Step 7                                                                                         |
-| COPY-H-ppl-10 | закрыта этапом 4 (`CONTRACT_TEMPLATE_MISSING`, `getApiErrorCode`) | проверка: финальная сверка PR3 п.2                                                                 |
-| COPY-M-ppl-1  | закрыта этапом 4 (`VALIDATION_FAILED_FORM`, в срезе 0 вхождений)  | —                                                                                                  |
-| COPY-M-ppl-2  | открыта (7 фоллбэков)                                             | PR2 Step 3, 5; PR3 Step 2                                                                          |
-| COPY-M-ppl-3  | открыта                                                           | PR3 Step 2                                                                                         |
-| COPY-M-ppl-4  | закрыта #702 (`ADMIN_DOES_NOT_SIGN_CONTRACTS`, текст из каталога) | —                                                                                                  |
-| COPY-M-ppl-5  | открыта                                                           | PR1 Step 7                                                                                         |
-| COPY-M-ppl-6  | открыта                                                           | PR2 Step 6 (чипы); PR3 Step 2 (шаблон); **для `TeamTab` не применяется** — «Опасность: маскировка» |
-| COPY-M-ppl-7  | открыта                                                           | PR1 Step 5                                                                                         |
-| COPY-M-ppl-8  | открыта                                                           | PR1 Step 9                                                                                         |
-| COPY-M-ppl-9  | серверная часть закрыта этапом 4 (`RESUME_TEXT_TOO_SHORT`)        | PR3 Step 4 (клиентский тост)                                                                       |
-| COPY-M-ppl-10 | открыта                                                           | PR1 Step 6; PR3 Step 2                                                                             |
-| COPY-M-ppl-11 | открыта                                                           | PR1 Step 6                                                                                         |
-| COPY-M-ppl-12 | открыта                                                           | PR1 Step 6                                                                                         |
-| COPY-M-ppl-13 | открыта                                                           | PR1 Step 6; PR2 Step 5; PR3 Step 2                                                                 |
-| COPY-M-ppl-14 | открыта                                                           | PR1 Step 7; PR2 Step 4, 5                                                                          |
-| COPY-M-ppl-15 | открыта                                                           | PR1 Step 4                                                                                         |
-| COPY-L-ppl-1  | открыта                                                           | Global Constraints (`…`), все три PR                                                               |
-| COPY-L-ppl-2  | открыта                                                           | PR1 Step 4                                                                                         |
-| COPY-L-ppl-3  | открыта                                                           | PR2 Step 6                                                                                         |
-| COPY-L-ppl-4  | открыта                                                           | PR1 Step 6                                                                                         |
-| COPY-L-ppl-5  | открыта                                                           | PR1 Step 4, 8; PR3 Step 4                                                                          |
-
-Findings: COPY-H-ppl-1 … COPY-H-ppl-10, COPY-M-ppl-1 … COPY-M-ppl-15, COPY-L-ppl-1 … COPY-L-ppl-5 (30) — строк в таблице 30.
+| #   | Item                                                                                                                           | Where                                                                                                                        | How to check                                                                                                                                      |
+| --- | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Legacy `ROLE_LABELS` → the canon `ROLE_LABEL_MESSAGES`, removing the legacy; 17 E2E clicks «Синьор» in 5 specs (COPY-H-8 #707) | PR1 Step 3 (profile), PR2 Step 4–5 (list, teams), PR3 Step 2–3 (wizard + removing both exports), PR3 Step 5 (the 17 clicks)  | The "legacy removed" test (PR3 Step 1); `git grep -c "name: 'Синьор'" -- apps/e2e/tests` → empty; the PR3 final check item 3                      |
+| 2   | COPY-L-31 (the branch without a team is silent about reversibility), COPY-L-32 («буде архівований» in 5 lines)                 | PR2 Step 2                                                                                                                   | The `UserArchiveImpact` tests: «Відновлення можливе» in the branch without a team; no `архівован(ий\|а)` in any user branch                       |
+| 3   | Two `ArchiveConfirmDialog` components                                                                                          | PR2 Step 2–3: rename to `ArchiveUserConfirmDialog` + the shared `UserArchiveImpact`; a full merge rejected ("Danger" Task 2) | `git grep -n "components/users/ArchiveConfirmDialog\|ImpactWarning" -- apps/web` → empty; the name `ArchiveConfirmDialog` is exported by one file |
+| 4   | `SignContractStep.tsx` — the Russian banners from #702 (COPY-M-15/16)                                                          | PR1 Step 4                                                                                                                   | The "no raw role enum" test on `uk` and `en`; 0 lines with `[ыэъё]` in the file                                                                   |
+| 5   | Logic duplicates outside the perimeter (like `$projectId.tsx`) — do not expand the perimeter, record                           | "Findings outside the perimeter" below                                                                                       | The section exists and is filled                                                                                                                  |
 
 ---
 
-## Находки вне периметра (не расширяем, записываем)
+## Trace of the `web-people` audit findings
 
-| Что                                                                                                                                                                                                                                                                                                                                                                                                   | Чья волна / куда                                                                                                           |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Локальные карты ролей: `routes/_authenticated/projects/$projectId.tsx` (`ROLE_LABELS`, фоллбэк `?? role` печатает enum), `admin/contracts.index.tsx` и `admin/contracts.$role.tsx` (`ROLE_LABELS: Record<ContractTargetRole, string>`, плюс склейка `` `Шаблон для роли ${…} опубликован` ``), `routes/_authenticated/stats.tsx` (`ROLE_LABEL`), `routes/invoice.v.$transactionId.tsx` (`ROLE_LABEL`) | (c) — проекты и админка контрактов; (d) — статистика и счета. Шаблон H из этого плана                                      |
-| `components/admin-actions/AdminActionsMenu.tsx` + его тест: файл **нигде не импортируется** (`git grep "components/admin-actions" -- apps/web` → пусто) со времён #34, в нём русские «Действия», «Восстановить из архива», «Архивировать»                                                                                                                                                             | Кандидат на удаление, отдельный light-track PR. Если его не удалить, guard этапа 6 на русские буквы упадёт на мёртвом коде |
-| `INVOICE_SIGN_IMPERSONATION_MESSAGE` (`@crm/shared`, русский) — последний потребитель `components/invoices/invoice-detail-dialog.tsx`                                                                                                                                                                                                                                                                 | (d) — перейти на `API_ERROR_MESSAGES.INVOICE_SIGN_IMPERSONATION` и удалить константу (как PR1 Step 3)                      |
-| `TYPE_LABELS`/`STATUS_LABELS` (`routes/_authenticated/finance/constants.ts`) читает `FinanceTab`                                                                                                                                                                                                                                                                                                      | (d)                                                                                                                        |
-| `NOTIFICATION_TITLES` (`@crm/shared`) читает `NotificationSettingsTab`                                                                                                                                                                                                                                                                                                                                | этап 4 Task 6                                                                                                              |
-| Каталог держит два варианта «особиста адреса» / «особистий email» (`api-error.*`, `zod-error.*`)                                                                                                                                                                                                                                                                                                      | Этап 4: выровнять по канону этой волны («особистий email»), `msgstr` правится руками в обоих `.po`                         |
-| Полное слияние двух диалогов архивации пользователя                                                                                                                                                                                                                                                                                                                                                   | Отдельная задача с `security-reviewer`, если понадобится («Опасность» Task 2)                                              |
+The slice's `Findings:` — 30. Each identifier below.
+
+| Finding       | Status on `062af6f8`                                                     | Where it is closed                                                                          |
+| ------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| COPY-H-ppl-1  | open («Сортування» in the Russian interface)                             | PR2 Step 5                                                                                  |
+| COPY-H-ppl-2  | open                                                                     | PR1 Step 4, Step 6                                                                          |
+| COPY-H-ppl-3  | partially (#702 removed `ADMIN` in `SignContractStep`)                   | PR1 Step 4, 6, 10; PR2 Step 5; PR3 Step 2                                                   |
+| COPY-H-ppl-4  | closed in stage 2 (Task 8: the canon with `DROP`)                        | PR1 Step 3 moves to `useRoleLabel`                                                          |
+| COPY-H-ppl-5  | partially (the role caption exists, but from the Russian legacy)         | PR1 Step 3                                                                                  |
+| COPY-H-ppl-6  | open                                                                     | PR2 Step 2–3 (`ImpactWarning` removed)                                                      |
+| COPY-H-ppl-7  | open                                                                     | PR1 Step 4                                                                                  |
+| COPY-H-ppl-8  | open                                                                     | PR1 Step 5                                                                                  |
+| COPY-H-ppl-9  | open                                                                     | PR1 Step 7                                                                                  |
+| COPY-H-ppl-10 | closed in stage 4 (`CONTRACT_TEMPLATE_MISSING`, `getApiErrorCode`)       | check: the PR3 final check item 2                                                           |
+| COPY-M-ppl-1  | closed in stage 4 (`VALIDATION_FAILED_FORM`, 0 occurrences in the slice) | —                                                                                           |
+| COPY-M-ppl-2  | open (7 fallbacks)                                                       | PR2 Step 3, 5; PR3 Step 2                                                                   |
+| COPY-M-ppl-3  | open                                                                     | PR3 Step 2                                                                                  |
+| COPY-M-ppl-4  | closed in #702 (`ADMIN_DOES_NOT_SIGN_CONTRACTS`, text from the catalog)  | —                                                                                           |
+| COPY-M-ppl-5  | open                                                                     | PR1 Step 7                                                                                  |
+| COPY-M-ppl-6  | open                                                                     | PR2 Step 6 (chips); PR3 Step 2 (template); **not applied to `TeamTab`** — "Danger: masking" |
+| COPY-M-ppl-7  | open                                                                     | PR1 Step 5                                                                                  |
+| COPY-M-ppl-8  | open                                                                     | PR1 Step 9                                                                                  |
+| COPY-M-ppl-9  | the server part closed in stage 4 (`RESUME_TEXT_TOO_SHORT`)              | PR3 Step 4 (the client toast)                                                               |
+| COPY-M-ppl-10 | open                                                                     | PR1 Step 6; PR3 Step 2                                                                      |
+| COPY-M-ppl-11 | open                                                                     | PR1 Step 6                                                                                  |
+| COPY-M-ppl-12 | open                                                                     | PR1 Step 6                                                                                  |
+| COPY-M-ppl-13 | open                                                                     | PR1 Step 6; PR2 Step 5; PR3 Step 2                                                          |
+| COPY-M-ppl-14 | open                                                                     | PR1 Step 7; PR2 Step 4, 5                                                                   |
+| COPY-M-ppl-15 | open                                                                     | PR1 Step 4                                                                                  |
+| COPY-L-ppl-1  | open                                                                     | Global Constraints (`…`), all three PRs                                                     |
+| COPY-L-ppl-2  | open                                                                     | PR1 Step 4                                                                                  |
+| COPY-L-ppl-3  | open                                                                     | PR2 Step 6                                                                                  |
+| COPY-L-ppl-4  | open                                                                     | PR1 Step 6                                                                                  |
+| COPY-L-ppl-5  | open                                                                     | PR1 Step 4, 8; PR3 Step 4                                                                   |
+
+Findings: COPY-H-ppl-1 … COPY-H-ppl-10, COPY-M-ppl-1 … COPY-M-ppl-15, COPY-L-ppl-1 … COPY-L-ppl-5 (30) — 30 rows in the table.
 
 ---
 
-## Что НЕ входит
+## Findings outside the perimeter (we do not expand, we record)
 
-- **`components/job-sourcing/**`\*\* — модуль на паузе (решение владельца). Вопрос A2 ниже.
-- **`apps/api`** — волна его не трогает (FM-5 не применяется; если понадобится — Global Constraints).
-- **Волны (c)–(e)**: проекты, собеседования, вакансии, финансы, статистика, счета, документы, уведомления, `/pending`. Их файлы не редактируются, даже когда в них найдены дубли (см. «Находки вне периметра»).
-- **Этап 6**: ESLint `lingui/no-unlocalized-strings` в режиме error, guard на русские буквы, `extract --clean` как хард-гейт.
-- Тексты с явным id (`api-error.*`, `zod-error.*`) волна не меняет, а только использует.
+| What                                                                                                                                                                                                                                                                                                                                                                                                               | Whose wave / where to                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Local role maps: `routes/_authenticated/projects/$projectId.tsx` (`ROLE_LABELS`, the `?? role` fallback prints the enum), `admin/contracts.index.tsx` and `admin/contracts.$role.tsx` (`ROLE_LABELS: Record<ContractTargetRole, string>`, plus the concatenation `` `Шаблон для роли ${…} опубликован` ``), `routes/_authenticated/stats.tsx` (`ROLE_LABEL`), `routes/invoice.v.$transactionId.tsx` (`ROLE_LABEL`) | (c) — projects and the contracts admin; (d) — statistics and invoices. Template H from this plan                                   |
+| `components/admin-actions/AdminActionsMenu.tsx` + its test: the file **is not imported anywhere** (`git grep "components/admin-actions" -- apps/web` → empty) since #34, it has Russian «Действия», «Восстановить из архива», «Архивировать»                                                                                                                                                                       | A candidate for removal, a separate light-track PR. If it is not removed, the stage 6 Russian-letters guard will fail on dead code |
+| `INVOICE_SIGN_IMPERSONATION_MESSAGE` (`@crm/shared`, Russian) — the last consumer `components/invoices/invoice-detail-dialog.tsx`                                                                                                                                                                                                                                                                                  | (d) — move to `API_ERROR_MESSAGES.INVOICE_SIGN_IMPERSONATION` and remove the constant (like PR1 Step 3)                            |
+| `TYPE_LABELS`/`STATUS_LABELS` (`routes/_authenticated/finance/constants.ts`) read by `FinanceTab`                                                                                                                                                                                                                                                                                                                  | (d)                                                                                                                                |
+| `NOTIFICATION_TITLES` (`@crm/shared`) read by `NotificationSettingsTab`                                                                                                                                                                                                                                                                                                                                            | stage 4 Task 6                                                                                                                     |
+| The catalog holds two variants «особиста адреса» / «особистий email» (`api-error.*`, `zod-error.*`)                                                                                                                                                                                                                                                                                                                | Stage 4: align by this wave's canon («особистий email»), the `msgstr` is edited by hand in both `.po`                              |
+| A full merge of the two user-archival dialogs                                                                                                                                                                                                                                                                                                                                                                      | A separate task with `security-reviewer`, if needed ("Danger" Task 2)                                                              |
 
 ---
 
-## Допущения (A1 — обратимые, записаны)
+## What is NOT included
 
-1. **Периметр скорректирован** относительно буквального среза аудита: исключены `job-sourcing` (пауза владельца), `LanguageSection.tsx` (уже `uk`) и файлы без кириллицы или только с комментариями; добавлены `components/archive/ArchiveConfirmDialog.tsx`, новый `UserArchiveImpact.tsx`, `role-select.tsx`, `format.ts`, три shared-схемы и `CONTEXT.md` — каждый по конкретной причине (таблица «Периметр»).
-2. **Резюме — в PR3, а не в PR1**, хотя это вкладка профиля. Так PR1 (362 строки, 30 файлов) и PR3 (244) уравнены. PR3 и так последовательный, дисциплину параллельности это не нарушает. Общая E2E-спека `crm/senior-resume.spec.ts` правится двумя PR последовательно (PR1 — «Остаться», PR3 — тексты резюме).
-3. **Два диалога архивации не сливаются**: общий текст плюс переименование (обоснование — «Опасность» Task 2). Слияние — отдельная задача.
-4. **ToS в `uk` — «Умови використання»**, хотя аудит предлагал «Умови користування». Каталог уже говорит «умови використання» (`api-error.TOS_ACCEPT_IMPERSONATION`), это же форма из украинского интерфейса Google — тот же довод, что у «обліковий запис Google» в глоссарии.
-5. **`en` для «резюме» — «CV»**: локаль `en-GB`, а «resume» в `en`-интерфейсе совпадает с глаголом «продолжить». `copy-reviewer` может пересмотреть — тогда правка одной строки канона и каталога.
-6. **COPY-M-ppl-6 для `TeamTab` не применяется**: инвариант маскировки (легенда джуниора) важнее подсказки. Текст остаётся нейтральным.
-7. **Три русских `*_IMPERSONATION_MESSAGE` удаляются из `@crm/shared` в PR1**: у них не остаётся потребителей (урок #700, п.8). `INVOICE_SIGN_…` остаётся до волны (d).
-8. **Стиль `'dateTime'` в `formatDate` — без `timeZone: 'UTC'`**, в отличие от остальных стилей: время сброса квоты — момент, который человек сверяет со своими часами. Даты без времени по-прежнему в UTC.
-9. **Родительный падеж после «з» в архивном тексте** исправлен по ходу (в каталоге сейчас «з 1 команда»). Находка не из аудита — записана здесь, чтобы `copy-reviewer` видел, откуда правка в уже мигрированном файле.
-10. **Черновики `uk`/`en` в шагах** — ориентир, а не окончательный текст. Окончательный текст утверждает `copy-reviewer` по рубрике «два оригинала»; расхождение с черновиком плана в PR — не нарушение плана.
+- **`components/job-sourcing/**`** — the module is paused (the owner's decision). The A2 question below.
+- **`apps/api`** — the wave does not touch it (FM-5 does not apply; if needed — Global Constraints).
+- **Waves (c)–(e)**: projects, interviews, vacancies, finance, statistics, invoices, documents, notifications, `/pending`. Their files are not edited, even when duplicates are found in them (see "Findings outside the perimeter").
+- **Stage 6**: ESLint `lingui/no-unlocalized-strings` in error mode, the guard for Russian letters, `extract --clean` as a hard gate.
+- Texts with an explicit id (`api-error.*`, `zod-error.*`) the wave does not change, only uses.
 
-## Вопросы владельцу (A2)
+---
+
+## Assumptions (A1 — reversible, recorded)
+
+1. **The perimeter is adjusted** relative to the literal audit slice: `job-sourcing` (owner's pause), `LanguageSection.tsx` (already `uk`) and files without Cyrillic or with comments only are excluded; `components/archive/ArchiveConfirmDialog.tsx`, the new `UserArchiveImpact.tsx`, `role-select.tsx`, `format.ts`, three shared schemas and `CONTEXT.md` are added — each for a specific reason (the "Perimeter" table).
+2. **Résumé — in PR3, not in PR1**, although it is a profile tab. This way PR1 (362 lines, 30 files) and PR3 (244) are balanced. PR3 is sequential anyway, this does not break the parallelism discipline. The shared E2E spec `crm/senior-resume.spec.ts` is edited by two PRs sequentially (PR1 — «Остаться», PR3 — the résumé texts).
+3. **The two archival dialogs are not merged**: shared text plus a rename (rationale — "Danger" Task 2). Merging — a separate task.
+4. **ToS in `uk` — «Умови використання»**, although the audit proposed «Умови користування». The catalog already says «умови використання» (`api-error.TOS_ACCEPT_IMPERSONATION`), the same form from the Ukrainian Google interface — the same argument as «обліковий запис Google» in the glossary.
+5. **`en` for "résumé" — «CV»**: the `en-GB` locale, and «resume» in the `en` interface coincides with the verb "continue". `copy-reviewer` may reconsider — then an edit of one canon line and the catalog.
+6. **COPY-M-ppl-6 not applied to `TeamTab`**: the masking invariant (the junior legend) is more important than the hint. The text stays neutral.
+7. **Three Russian `*_IMPERSONATION_MESSAGE` are removed from `@crm/shared` in PR1**: they have no consumers left (lesson #700, item 8). `INVOICE_SIGN_…` stays until wave (d).
+8. **The `'dateTime'` style in `formatDate` — without `timeZone: 'UTC'`**, unlike the other styles: the quota reset time is a moment the person checks against their own clock. Dates without a time are still in UTC.
+9. **The genitive case after «з» in the archival text** is fixed on the fly (the catalog currently has «з 1 команда»). The finding is not from the audit — recorded here so `copy-reviewer` sees where the edit in the already-migrated file comes from.
+10. **The `uk`/`en` drafts in the steps** — a guide, not the final text. The final text is approved by `copy-reviewer` per the "two originals" rubric; a divergence from the plan's draft in the PR is not a plan violation.
+
+## Questions for the owner (A2)
 
 ```
-🟠 Решения от тебя — 1 шт. · план i18n волны (b)
-Всё остальное в плане решено и записано в «Допущения».
-Продолжают идти: PR1 и PR2 волны (b) после мержа #706, этап 4.
+🟠 Decisions from you — 1 item · the i18n wave (b) plan
+Everything else in the plan is decided and recorded in "Assumptions".
+Continue going: PR1 and PR2 of wave (b) after the merge of #706, stage 4.
 
-❓ 1 — Модуль автоподачи резюме (job-sourcing) — переводить или удалять к этапу 6?
-   Модуль на паузе с 2026-08-23, код не трогаем. В нём 2 экрана и 47 строк русского текста.
-   Этап 6 включает проверку «ни одной русской буквы в продукте» — на этих файлах она упадёт.
-➡️ Рекомендую: решить при планировании этапа 6. Если пауза к тому моменту ещё действует —
-   добавить модуль в исключения проверки с датой пересмотра, а не переводить мёртвый экран.
-🔓 Обратимо · ⏱ молчание до планирования этапа 6 → приму рекомендацию и запишу
-   в «Допущения» плана этапа 6; откат = один перевод двух файлов
+❓ 1 — The résumé auto-submit module (job-sourcing) — translate or remove by stage 6?
+   The module is paused since 2026-08-23, the code is not touched. It has 2 screens and 47 lines of Russian text.
+   Stage 6 includes the check "not a single Russian letter in the product" — on these files it will fail.
+➡️ Recommend: decide during stage 6 planning. If the pause is still in effect by then —
+   add the module to the check's exceptions with a review date, do not translate a dead screen.
+🔓 Reversible · ⏱ silence until the stage 6 planning → I take the recommendation and record it
+   in the "Assumptions" of the stage 6 plan; the rollback = one translation of two files
 ```
 
 ---
 
-## Проверка готовности волны (b)
+## Wave (b) readiness check
 
-- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — зелёные после каждого PR.
-- `DATABASE_URL= pnpm --filter @crm/e2e test` на спеках из «Распределения» и вывода свипа — зелёные; CI на всех шардах зелёный.
-- `pnpm i18n:extract` дважды подряд — второй прогон не меняет `.po`; в `en` 0 пустых `msgstr`.
-- `pnpm mutation:changed` — `survived 0`; `NoCoverage` без integration-hint закрыт unit-тестом; `node scripts/devops/check-mutation-suppressions.mjs` — зелёный.
-- Финальная сверка PR3: 0 строк с `[ыэъё]` вне комментариев в периметре; 0 ветвлений по тексту ошибки; 0 `ROLE_LABELS` в периметре; 0 кликов `name: 'Синьор'` в `apps/e2e/tests`.
-- В `CONTEXT.md` есть подраздел «Волна b — `web-people`».
-- `copy-reviewer`: `PASS` на `uk` и на `en` для каждого из 3 PR.
-- `security-reviewer`: `APPROVE` для каждого из 3 PR.
-- Скриншоты 320/1440 × `uk`/`en` для каждого мигрированного экрана — в теле каждого PR; fidelity Mode B — все ширины.
-- Трассировка: 30 идентификаторов аудита `web-people` — у каждого строка в теле того PR, который его закрывает (`review-findings-transfer.md`).
+- `pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test` — green after each PR.
+- `DATABASE_URL= pnpm --filter @crm/e2e test` on the specs from the "Distribution" and the sweep output — green; CI on all shards green.
+- `pnpm i18n:extract` twice in a row — the second run does not change `.po`; in `en` 0 empty `msgstr`.
+- `pnpm mutation:changed` — `survived 0`; a `NoCoverage` without an integration-hint closed by a unit test; `node scripts/devops/check-mutation-suppressions.mjs` — green.
+- The PR3 final check: 0 lines with `[ыэъё]` outside comments in the perimeter; 0 branchings by the error text; 0 `ROLE_LABELS` in the perimeter; 0 clicks `name: 'Синьор'` in `apps/e2e/tests`.
+- In `CONTEXT.md` there is a subsection "Wave b — `web-people`".
+- `copy-reviewer`: `PASS` on `uk` and on `en` for each of the 3 PRs.
+- `security-reviewer`: `APPROVE` for each of the 3 PRs.
+- Screenshots 320/1440 × `uk`/`en` for each migrated screen — in each PR's body; fidelity Mode B — all widths.
+- Trace: 30 `web-people` audit identifiers — each with a line in the body of the PR that closes it (`review-findings-transfer.md`).

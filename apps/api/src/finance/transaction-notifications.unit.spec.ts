@@ -12,6 +12,7 @@ import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { NotificationsService } from '../notifications/notifications.service'
 import type { TransactionsService } from './transactions.service'
+import { salaryMonthInitializations, transactions } from '../database/schema'
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -540,11 +541,26 @@ describe('«транзакция добавлена» — системное с�
     ;(db['query'] as Record<string, unknown>)['users'] = {
       findFirst: async () => ({ id: 'admin-fallback', role: 'ADMIN' }),
     }
-    db['insert'] = () => ({
-      values: () => ({
-        onConflictDoNothing: () => ({ returning: async () => opts.insertReturns }),
-      }),
-    })
+    db['transaction'] = async (cb: (tx: unknown) => Promise<unknown>) =>
+      cb({
+        query: { transactions: { findFirst: async () => undefined } },
+        insert: (table: unknown) => ({
+          values: () => {
+            if (table === salaryMonthInitializations) {
+              return {
+                onConflictDoNothing: () => ({
+                  returning: async () =>
+                    opts.insertReturns.length > 0 ? [{ id: 'marker-1' }] : [],
+                }),
+              }
+            }
+            if (table === transactions) {
+              return { returning: async () => opts.insertReturns }
+            }
+            throw new Error('unexpected insert table')
+          },
+        }),
+      })
   }
 
   it('кроновый проход зарплат порождает уведомление получателю', async () => {

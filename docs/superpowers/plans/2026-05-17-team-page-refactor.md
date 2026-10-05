@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Полный рефактор страниц команды — добавить `telegramGroupUrl` на команду, вынести диалоги в компоненты, починить нерабочие кнопки на detail-странице, убрать дублирование кода, применить RBAC для JUNIOR.
+**Goal:** A full refactor of the team pages — add `telegramGroupUrl` to the team, extract dialogs into components, fix the broken buttons on the detail page, remove code duplication, apply RBAC for JUNIOR.
 
-**Architecture:** Backend получает новое поле `telegram_group_url` через миграцию + обновлённую shared-схему. Frontend разбивается на thin pages (index.tsx, $teamId.tsx) + 6 отдельных dialog-компонентов + 3 переиспользуемых компонента (TeamCard, MemberRow, team-constants). Управление участниками переезжает с list-карточек на detail-страницу.
+**Architecture:** The backend gets a new field `telegram_group_url` via a migration + an updated shared schema. The frontend is split into thin pages (index.tsx, $teamId.tsx) + 6 separate dialog components + 3 reusable components (TeamCard, MemberRow, team-constants). Member management moves from the list cards to the detail page.
 
 **Tech Stack:** NestJS 11, Drizzle ORM, PostgreSQL, React, TanStack Query, TanStack Form, Zod v4, shadcn/ui, Framer Motion, Vitest.
 
@@ -15,6 +15,7 @@
 ## File Map
 
 ### New Files
+
 ```
 apps/api/drizzle/migrations/0012_<generated_name>.sql
 apps/web/app/lib/team-constants.ts
@@ -27,6 +28,7 @@ apps/web/app/routes/crm/team/components/CreateSeniorDialog.tsx
 ```
 
 ### Modified Files
+
 ```
 apps/api/src/database/schema.ts                  ← add telegramGroupUrl to teams table
 apps/api/src/teams/teams.service.ts              ← mapTeam + update() accept telegramGroupUrl
@@ -43,6 +45,7 @@ apps/web/app/routes/crm/team/$teamId.tsx         ← full detail page using new 
 ### Task 1: DB + Drizzle Schema
 
 **Files:**
+
 - Modify: `apps/api/src/database/schema.ts:89-94`
 - Create: `apps/api/drizzle/migrations/0012_<generated>.sql` (via drizzle-kit)
 
@@ -67,6 +70,7 @@ pnpm --filter @crm/api drizzle-kit generate
 ```
 
 Expected: a new file `apps/api/drizzle/migrations/0012_*.sql` containing:
+
 ```sql
 ALTER TABLE "teams" ADD COLUMN "telegram_group_url" text;
 ```
@@ -102,6 +106,7 @@ git commit -m "feat(teams): add telegram_group_url column (migration 0012)"
 ### Task 2: Shared Schema — telegramGroupUrl
 
 **Files:**
+
 - Modify: `packages/shared/src/schemas/teams.ts`
 - Modify: `packages/shared/src/schemas/teams.spec.ts`
 
@@ -114,7 +119,9 @@ describe('updateTeamSchema — telegramGroupUrl', () => {
   const base = { name: 'My Team' }
 
   it('accepts valid telegram URL', () => {
-    expect(() => updateTeamSchema.parse({ ...base, telegramGroupUrl: 'https://t.me/mygroup' })).not.toThrow()
+    expect(() =>
+      updateTeamSchema.parse({ ...base, telegramGroupUrl: 'https://t.me/mygroup' }),
+    ).not.toThrow()
   })
 
   it('accepts null telegramGroupUrl', () => {
@@ -234,6 +241,7 @@ git commit -m "feat(shared/teams): add telegramGroupUrl to teamSchema + updateTe
 ### Task 3: Backend Service + Controller
 
 **Files:**
+
 - Modify: `apps/api/src/teams/teams.service.ts`
 - Modify: `apps/api/src/teams/teams.service.spec.ts`
 - Modify: `apps/api/src/teams/teams.controller.ts`
@@ -270,12 +278,19 @@ describe('update — telegramGroupUrl', () => {
       }),
     })
     const svc = new TeamsService(db as unknown as DrizzleDb)
-    const result = await svc.update('team-1', { name: 'Team Alpha', telegramGroupUrl: 'https://t.me/grp' }, adminUser)
+    const result = await svc.update(
+      'team-1',
+      { name: 'Team Alpha', telegramGroupUrl: 'https://t.me/grp' },
+      adminUser,
+    )
     expect(result).toMatchObject({ telegramGroupUrl: 'https://t.me/grp' })
   })
 
   it('clears telegramGroupUrl when null is passed', async () => {
-    const team = makeTeam({ members: [makeMember('hr-1', 'HR')], telegramGroupUrl: 'https://t.me/old' })
+    const team = makeTeam({
+      members: [makeMember('hr-1', 'HR')],
+      telegramGroupUrl: 'https://t.me/old',
+    })
     const db = makeDb({ team })
     db.db.update = vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
@@ -285,7 +300,11 @@ describe('update — telegramGroupUrl', () => {
       }),
     })
     const svc = new TeamsService(db as unknown as DrizzleDb)
-    const result = await svc.update('team-1', { name: 'Team Alpha', telegramGroupUrl: null }, adminUser)
+    const result = await svc.update(
+      'team-1',
+      { name: 'Team Alpha', telegramGroupUrl: null },
+      adminUser,
+    )
     expect(result).toMatchObject({ telegramGroupUrl: null })
   })
 })
@@ -402,6 +421,7 @@ git commit -m "feat(teams): telegramGroupUrl in service + controller update"
 ### Task 4: team-constants.ts
 
 **Files:**
+
 - Create: `apps/web/app/lib/team-constants.ts`
 
 - [ ] **Step 1: Create `apps/web/app/lib/team-constants.ts`**
@@ -435,9 +455,22 @@ export function getInitials(name: string): string {
 export const ROLE_ORDER = ['SENIOR', 'HR', 'ACCOUNTANT', 'JUNIOR'] as const
 
 export const TECH_STACK_OPTIONS = [
-  'JavaScript FE', 'JavaScript BE', 'TypeScript FE', 'TypeScript BE',
-  'Python', 'Java', 'Kotlin', 'Swift', 'Go', 'PHP', 'Ruby', 'C#', 'C++',
-  'Rust', 'Flutter/Dart', 'React Native',
+  'JavaScript FE',
+  'JavaScript BE',
+  'TypeScript FE',
+  'TypeScript BE',
+  'Python',
+  'Java',
+  'Kotlin',
+  'Swift',
+  'Go',
+  'PHP',
+  'Ruby',
+  'C#',
+  'C++',
+  'Rust',
+  'Flutter/Dart',
+  'React Native',
 ] as const
 ```
 
@@ -461,6 +494,7 @@ git commit -m "feat(web/team): extract shared team constants to team-constants.t
 ### Task 5: DeleteTeamDialog
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/DeleteTeamDialog.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -479,13 +513,7 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 
-export function DeleteTeamDialog({
-  team,
-  onClose,
-}: {
-  team: TeamDto | null
-  onClose: () => void
-}) {
+export function DeleteTeamDialog({ team, onClose }: { team: TeamDto | null; onClose: () => void }) {
   const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
@@ -505,11 +533,14 @@ export function DeleteTeamDialog({
         </CrmDialogHeader>
         <CrmDialogBody className="pb-2">
           <p className="text-sm text-muted-foreground">
-            Вместе с командой будут удалены её синьор и все его проекты. Это действие нельзя отменить.
+            Вместе с командой будут удалены её синьор и все его проекты. Это действие нельзя
+            отменить.
           </p>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="outline" onClick={onClose}>Отмена</Button>
+          <Button variant="outline" onClick={onClose}>
+            Отмена
+          </Button>
           <Button
             variant="destructive"
             onClick={() => team && deleteMutation.mutate(team.id)}
@@ -544,6 +575,7 @@ git commit -m "feat(web/team): extract DeleteTeamDialog component"
 ### Task 6: EditTeamDialog
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/EditTeamDialog.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -568,24 +600,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 
 const teamNameSchema = z.string().min(1, 'Обязательное поле').max(255, 'Максимум 255 символов')
-const telegramUrlSchema = z
-  .string()
-  .url('Введите корректный URL')
-  .optional()
-  .or(z.literal(''))
+const telegramUrlSchema = z.string().url('Введите корректный URL').optional().or(z.literal(''))
 
-export function EditTeamDialog({
-  team,
-  onClose,
-}: {
-  team: TeamDto | null
-  onClose: () => void
-}) {
+export function EditTeamDialog({ team, onClose }: { team: TeamDto | null; onClose: () => void }) {
   const queryClient = useQueryClient()
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, name, telegramGroupUrl }: { id: string; name: string; telegramGroupUrl: string | null }) =>
-      api.patch(`/teams/${id}`, { name, telegramGroupUrl }),
+    mutationFn: ({
+      id,
+      name,
+      telegramGroupUrl,
+    }: {
+      id: string
+      name: string
+      telegramGroupUrl: string | null
+    }) => api.patch(`/teams/${id}`, { name, telegramGroupUrl }),
     onSuccess: (_, vars) => {
       void queryClient.invalidateQueries({ queryKey: ['teams'] })
       void queryClient.invalidateQueries({ queryKey: ['team', vars.id] })
@@ -620,7 +649,7 @@ export function EditTeamDialog({
     if (!team) return
     form.setFieldValue('name', team.name)
     form.setFieldValue('telegramGroupUrl', team.telegramGroupUrl ?? '')
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [team?.id])
 
   return (
@@ -642,7 +671,9 @@ export function EditTeamDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <div className="grid gap-1.5">
                     <Label className={cn(err && 'text-destructive')}>
@@ -654,7 +685,9 @@ export function EditTeamDialog({
                       onBlur={field.handleBlur}
                       placeholder="Название команды"
                       className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                      onKeyDown={(e) => { if (e.key === 'Enter') void form.handleSubmit() }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') void form.handleSubmit()
+                      }}
                     />
                     {err && <p className="text-xs text-destructive">{err}</p>}
                   </div>
@@ -674,7 +707,9 @@ export function EditTeamDialog({
               }}
             >
               {(field) => {
-                const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
                 return (
                   <div className="grid gap-1.5">
                     <Label className={cn(err && 'text-destructive')}>Telegram группа</Label>
@@ -693,7 +728,15 @@ export function EditTeamDialog({
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="outline" onClick={() => { form.reset(); onClose() }}>Отмена</Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              form.reset()
+              onClose()
+            }}
+          >
+            Отмена
+          </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={updateMutation.isPending}>
             {updateMutation.isPending ? 'Сохранение...' : 'Сохранить'}
           </Button>
@@ -724,6 +767,7 @@ git commit -m "feat(web/team): EditTeamDialog with name + telegramGroupUrl"
 ### Task 7: AddMemberDialog
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/AddMemberDialog.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -748,20 +792,20 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Label } from '@/components/ui/label'
 
-type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
+type UserOption = {
+  id: string
+  displayName: string
+  email: string
+  role: string
+  avatar: string | null
+}
 
 async function fetchAllUsers(): Promise<UserOption[]> {
   const res = await api.get<UserOption[]>('/users')
   return res.data
 }
 
-export function AddMemberDialog({
-  team,
-  onClose,
-}: {
-  team: TeamDto | null
-  onClose: () => void
-}) {
+export function AddMemberDialog({ team, onClose }: { team: TeamDto | null; onClose: () => void }) {
   const queryClient = useQueryClient()
   const [selectedUserId, setSelectedUserId] = useState('')
 
@@ -816,13 +860,18 @@ export function AddMemberDialog({
                 >
                   <Avatar className="h-7 w-7 shrink-0">
                     {u.avatar && <AvatarImage src={u.avatar} />}
-                    <AvatarFallback className="text-[10px]">{getInitials(u.displayName)}</AvatarFallback>
+                    <AvatarFallback className="text-[10px]">
+                      {getInitials(u.displayName)}
+                    </AvatarFallback>
                   </Avatar>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{u.displayName}</p>
                     <p className="truncate text-xs text-muted-foreground">{u.email}</p>
                   </div>
-                  <Badge variant={ROLE_VARIANT[u.role] ?? 'junior'} className="shrink-0 text-[10px]">
+                  <Badge
+                    variant={ROLE_VARIANT[u.role] ?? 'junior'}
+                    className="shrink-0 text-[10px]"
+                  >
                     {ROLE_LABELS[u.role] ?? u.role}
                   </Badge>
                 </button>
@@ -831,7 +880,9 @@ export function AddMemberDialog({
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="outline" onClick={handleClose}>Отмена</Button>
+          <Button variant="outline" onClick={handleClose}>
+            Отмена
+          </Button>
           <Button
             onClick={() => {
               if (team && selectedUserId) {
@@ -869,6 +920,7 @@ git commit -m "feat(web/team): AddMemberDialog with wired mutation"
 ### Task 8: CreateSeniorDialog
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/CreateSeniorDialog.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -911,7 +963,13 @@ import {
 import { toast } from 'sonner'
 import { getInitials } from '@/lib/team-constants'
 
-type UserOption = { id: string; displayName: string; email: string; role: string; avatar: string | null }
+type UserOption = {
+  id: string
+  displayName: string
+  email: string
+  role: string
+  avatar: string | null
+}
 
 async function fetchAllUsers(): Promise<UserOption[]> {
   const res = await api.get<UserOption[]>('/users')
@@ -958,14 +1016,24 @@ function ShareSlider({
       </div>
       <div className="flex items-center gap-3">
         <input
-          type="range" min={1} max={100} step={1} value={value}
+          type="range"
+          min={1}
+          max={100}
+          step={1}
+          value={value}
           onChange={(e) => onChange(Number(e.target.value))}
           onBlur={onBlur}
           className="flex-1 h-2 accent-primary cursor-pointer"
         />
         <input
-          type="number" min={1} max={100} value={value}
-          onChange={(e) => { const n = Math.min(100, Math.max(1, Number(e.target.value))); onChange(n) }}
+          type="number"
+          min={1}
+          max={100}
+          value={value}
+          onChange={(e) => {
+            const n = Math.min(100, Math.max(1, Number(e.target.value)))
+            onChange(n)
+          }}
           onBlur={onBlur}
           className={cn(
             'w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none',
@@ -977,13 +1045,22 @@ function ShareSlider({
   )
 }
 
-function Field({ label, error, required, children }: {
-  label: string; error?: string; required?: boolean; children: React.ReactNode
+function Field({
+  label,
+  error,
+  required,
+  children,
+}: {
+  label: string
+  error?: string
+  required?: boolean
+  children: React.ReactNode
 }) {
   return (
     <div className="grid gap-1.5">
       <Label className={cn(error && 'text-destructive')}>
-        {label}{required && <span className="ml-0.5 text-destructive">*</span>}
+        {label}
+        {required && <span className="ml-0.5 text-destructive">*</span>}
       </Label>
       {children}
       {error && <p className="text-xs text-destructive">{error}</p>}
@@ -1058,12 +1135,19 @@ export function CreateSeniorDialog({
         accountantId: selectedAccountantId || null,
       }
       const result = createUserSchema.safeParse(payload)
-      if (!result.success) { toast.error('Ошибка валидации данных'); return }
+      if (!result.success) {
+        toast.error('Ошибка валидации данных')
+        return
+      }
       mutation.mutate(result.data)
     },
   })
 
-  const handleClose = () => { form.reset(); setSelectedAccountantId(''); onClose() }
+  const handleClose = () => {
+    form.reset()
+    setSelectedAccountantId('')
+    onClose()
+  }
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
@@ -1079,42 +1163,201 @@ export function CreateSeniorDialog({
         </CrmDialogHeader>
         <CrmDialogBody>
           <div className="grid gap-4 py-2">
-            <form.Field name="email" validators={{ onBlur: ({ value }) => { const r = createUserSchema.shape.email.safeParse(value.trim()); return r.success ? undefined : r.error.issues[0]?.message } }}>
-              {(field) => { const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined; return (<Field label="Email" error={err} required><Input placeholder="senior@cheekycheese.dev" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} className={cn(err && 'border-destructive focus-visible:ring-destructive/30')} autoComplete="off" /></Field>) }}
+            <form.Field
+              name="email"
+              validators={{
+                onBlur: ({ value }) => {
+                  const r = createUserSchema.shape.email.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                },
+              }}
+            >
+              {(field) => {
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
+                return (
+                  <Field label="Email" error={err} required>
+                    <Input
+                      placeholder="senior@cheekycheese.dev"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                      autoComplete="off"
+                    />
+                  </Field>
+                )
+              }}
             </form.Field>
-            <form.Field name="displayName" validators={{ onBlur: ({ value }) => { const r = createUserSchema.shape.displayName.safeParse(value.trim()); return r.success ? undefined : r.error.issues[0]?.message } }}>
-              {(field) => { const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined; return (<Field label="Имя и фамилия" error={err} required><Input placeholder="Иван Иванов" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} className={cn(err && 'border-destructive focus-visible:ring-destructive/30')} /></Field>) }}
+            <form.Field
+              name="displayName"
+              validators={{
+                onBlur: ({ value }) => {
+                  const r = createUserSchema.shape.displayName.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                },
+              }}
+            >
+              {(field) => {
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
+                return (
+                  <Field label="Имя и фамилия" error={err} required>
+                    <Input
+                      placeholder="Иван Иванов"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                    />
+                  </Field>
+                )
+              }}
             </form.Field>
             <form.Field name="techStack">
-              {(field) => (<Field label="Технологии"><Input placeholder="JavaScript FE, Java..." value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} list="create-senior-tech-suggestions" /><datalist id="create-senior-tech-suggestions">{TECH_STACK_OPTIONS.map((opt) => (<option key={opt} value={opt} />))}</datalist></Field>)}
+              {(field) => (
+                <Field label="Технологии">
+                  <Input
+                    placeholder="JavaScript FE, Java..."
+                    value={field.state.value}
+                    onChange={(e) => field.handleChange(e.target.value)}
+                    onBlur={field.handleBlur}
+                    list="create-senior-tech-suggestions"
+                  />
+                  <datalist id="create-senior-tech-suggestions">
+                    {TECH_STACK_OPTIONS.map((opt) => (
+                      <option key={opt} value={opt} />
+                    ))}
+                  </datalist>
+                </Field>
+              )}
             </form.Field>
-            <form.Field name="telegram" validators={{ onBlur: ({ value }) => { if (!value.trim()) return undefined; const r = telegramFieldSchema.safeParse(value.trim()); return r.success ? undefined : r.error.issues[0]?.message } }}>
-              {(field) => { const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined; return (<Field label="Telegram" error={err}><Input placeholder="@username" value={field.state.value} onChange={(e) => field.handleChange(e.target.value)} onBlur={field.handleBlur} className={cn(err && 'border-destructive focus-visible:ring-destructive/30')} /></Field>) }}
+            <form.Field
+              name="telegram"
+              validators={{
+                onBlur: ({ value }) => {
+                  if (!value.trim()) return undefined
+                  const r = telegramFieldSchema.safeParse(value.trim())
+                  return r.success ? undefined : r.error.issues[0]?.message
+                },
+              }}
+            >
+              {(field) => {
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
+                return (
+                  <Field label="Telegram" error={err}>
+                    <Input
+                      placeholder="@username"
+                      value={field.state.value}
+                      onChange={(e) => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                    />
+                  </Field>
+                )
+              }}
             </form.Field>
-            <form.Field name="phone" validators={{ onBlur: ({ value }) => { const v = value as string; if (!v) return undefined; const r = phoneFieldSchema.safeParse(v); if (!r.success) return r.error.issues[0]?.message; if (!isValidPhoneNumber(v)) return 'Некорректный номер'; return undefined } }}>
-              {(field) => { const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined; return (<Field label="Телефон" error={err}><PhoneInput value={field.state.value as PhoneValue | undefined} onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')} onBlur={field.handleBlur} className={cn(err && '[&_input]:border-destructive')} /></Field>) }}
+            <form.Field
+              name="phone"
+              validators={{
+                onBlur: ({ value }) => {
+                  const v = value as string
+                  if (!v) return undefined
+                  const r = phoneFieldSchema.safeParse(v)
+                  if (!r.success) return r.error.issues[0]?.message
+                  if (!isValidPhoneNumber(v)) return 'Некорректный номер'
+                  return undefined
+                },
+              }}
+            >
+              {(field) => {
+                const err = field.state.meta.isTouched
+                  ? (field.state.meta.errors[0] as string | undefined)
+                  : undefined
+                return (
+                  <Field label="Телефон" error={err}>
+                    <PhoneInput
+                      value={field.state.value as PhoneValue | undefined}
+                      onChange={(v) => field.handleChange((v ?? '') as PhoneValue | '')}
+                      onBlur={field.handleBlur}
+                      className={cn(err && '[&_input]:border-destructive')}
+                    />
+                  </Field>
+                )
+              }}
             </form.Field>
             <div className="rounded-md border border-border/60 bg-muted/20 p-3 space-y-3">
               <p className="text-xs font-medium text-muted-foreground">Финансы и команда</p>
-              <form.Field name="seniorSharePercent" validators={{ onBlur: ({ value }) => { if (value < 1 || value > 100) return 'Введите от 1 до 100'; return undefined } }}>
-                {(field) => { const val = field.state.value ?? 26; const seniorPct = 100 - val; const err = field.state.meta.isTouched ? (field.state.meta.errors[0] as string | undefined) : undefined; return (<Field label="Доля компании (%)" error={err} required><ShareSlider value={val} onChange={(v) => field.handleChange(v)} onBlur={field.handleBlur} seniorPct={seniorPct} error={!!err} /></Field>) }}
+              <form.Field
+                name="seniorSharePercent"
+                validators={{
+                  onBlur: ({ value }) => {
+                    if (value < 1 || value > 100) return 'Введите от 1 до 100'
+                    return undefined
+                  },
+                }}
+              >
+                {(field) => {
+                  const val = field.state.value ?? 26
+                  const seniorPct = 100 - val
+                  const err = field.state.meta.isTouched
+                    ? (field.state.meta.errors[0] as string | undefined)
+                    : undefined
+                  return (
+                    <Field label="Доля компании (%)" error={err} required>
+                      <ShareSlider
+                        value={val}
+                        onChange={(v) => field.handleChange(v)}
+                        onBlur={field.handleBlur}
+                        seniorPct={seniorPct}
+                        error={!!err}
+                      />
+                    </Field>
+                  )
+                }}
               </form.Field>
               <Field label="HR">
                 <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
-                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" /><span>Вы</span><span className="text-xs text-muted-foreground ml-auto">авто</span>
+                  <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                  <span>Вы</span>
+                  <span className="text-xs text-muted-foreground ml-auto">авто</span>
                 </div>
               </Field>
               <Field label="Бухгалтер">
-                {accountantUsers.length === 0 ? (<p className="text-xs text-muted-foreground italic">Нет доступных бухгалтеров</p>)
-                  : accountantUsers.length === 1 ? (<div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm"><Check className="h-3.5 w-3.5 text-green-500 shrink-0" /><span>{accountantUsers[0]!.displayName}</span><span className="text-xs text-muted-foreground ml-auto">авто</span></div>)
-                  : (<Select value={selectedAccountantId} onValueChange={setSelectedAccountantId}><SelectTrigger><SelectValue placeholder="— выберите бухгалтера —" /></SelectTrigger><SelectContent>{accountantUsers.map((u) => (<SelectItem key={u.id} value={u.id}>{u.displayName}</SelectItem>))}</SelectContent></Select>)
-                }
+                {accountantUsers.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">Нет доступных бухгалтеров</p>
+                ) : accountantUsers.length === 1 ? (
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
+                    <Check className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    <span>{accountantUsers[0]!.displayName}</span>
+                    <span className="text-xs text-muted-foreground ml-auto">авто</span>
+                  </div>
+                ) : (
+                  <Select value={selectedAccountantId} onValueChange={setSelectedAccountantId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="— выберите бухгалтера —" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {accountantUsers.map((u) => (
+                        <SelectItem key={u.id} value={u.id}>
+                          {u.displayName}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </Field>
             </div>
           </div>
         </CrmDialogBody>
         <CrmDialogFooter>
-          <Button variant="ghost" onClick={handleClose}>Отмена</Button>
+          <Button variant="ghost" onClick={handleClose}>
+            Отмена
+          </Button>
           <Button onClick={() => void form.handleSubmit()} disabled={mutation.isPending}>
             {mutation.isPending ? 'Создание...' : 'Создать'}
           </Button>
@@ -1145,6 +1388,7 @@ git commit -m "feat(web/team): extract CreateSeniorDialog component"
 ### Task 9: MemberRow
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/MemberRow.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -1234,6 +1478,7 @@ git commit -m "feat(web/team): MemberRow component"
 ### Task 10: TeamCard
 
 **Files:**
+
 - Create: `apps/web/app/routes/crm/team/components/TeamCard.tsx`
 
 - [ ] **Step 1: Create the component**
@@ -1269,10 +1514,11 @@ export function TeamCard({
     queryFn: fetchProjects,
   })
 
-  const hrNames = team.members
-    .filter((m) => m.role === 'HR')
-    .map((m) => m.displayName)
-    .join(', ') || 'Нет HR'
+  const hrNames =
+    team.members
+      .filter((m) => m.role === 'HR')
+      .map((m) => m.displayName)
+      .join(', ') || 'Нет HR'
 
   const activeProjectCount = projects
     ? projects.filter(
@@ -1304,7 +1550,11 @@ export function TeamCard({
             variant="ghost"
             size="icon"
             className="relative z-30 h-7 w-7 text-muted-foreground hover:text-destructive shrink-0"
-            onClick={(e) => { e.preventDefault(); e.stopPropagation(); onDelete(team) }}
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onDelete(team)
+            }}
             title="Удалить команду"
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -1329,7 +1579,9 @@ export function TeamCard({
                     style={{ zIndex: 4 - index }}
                   >
                     {member.avatar && <AvatarImage src={member.avatar} alt={member.displayName} />}
-                    <AvatarFallback className="text-[10px]">{getInitials(member.displayName)}</AvatarFallback>
+                    <AvatarFallback className="text-[10px]">
+                      {getInitials(member.displayName)}
+                    </AvatarFallback>
                   </Avatar>
                 ))}
                 {team.members.length > 4 && (
@@ -1341,16 +1593,15 @@ export function TeamCard({
                 )}
               </div>
               <Badge variant="outline" className="text-xs">
-                {team.members.length} участник{team.members.length === 1 ? '' : team.members.length < 5 ? 'а' : 'ов'}
+                {team.members.length} участник
+                {team.members.length === 1 ? '' : team.members.length < 5 ? 'а' : 'ов'}
               </Badge>
             </div>
 
             <div className="pt-2 border-t border-border/50">
               <div className="flex items-center justify-between text-xs">
                 <span className="text-muted-foreground">Активные проекты</span>
-                <span className="font-medium text-foreground">
-                  {activeProjectCount ?? '—'}
-                </span>
+                <span className="font-medium text-foreground">{activeProjectCount ?? '—'}</span>
               </div>
             </div>
           </div>
@@ -1381,6 +1632,7 @@ git commit -m "feat(web/team): simplified TeamCard component"
 ### Task 11: index.tsx — Thin Page Refactor
 
 **Files:**
+
 - Modify: `apps/web/app/routes/crm/team/index.tsx`
 
 - [ ] **Step 1: Replace `index.tsx` with thin version**
@@ -1499,11 +1751,7 @@ function TeamPage() {
       >
         {teams?.map((team) => (
           <motion.div key={team.id} variants={item}>
-            <TeamCard
-              team={team}
-              canDelete={isAdmin}
-              onDelete={(t) => setDeleteTeam(t)}
-            />
+            <TeamCard team={team} canDelete={isAdmin} onDelete={(t) => setDeleteTeam(t)} />
           </motion.div>
         ))}
       </motion.div>
@@ -1550,6 +1798,7 @@ git commit -m "refactor(web/team): thin index.tsx using extracted components"
 ### Task 12: $teamId.tsx — Full Detail Page
 
 **Files:**
+
 - Modify: `apps/web/app/routes/crm/team/$teamId.tsx`
 
 - [ ] **Step 1: Replace `$teamId.tsx` with full implementation**
@@ -1603,7 +1852,11 @@ function TeamDetailPage() {
   const queryClient = useQueryClient()
   if (denied) return null
 
-  const { data: team, isLoading, error } = useQuery({
+  const {
+    data: team,
+    isLoading,
+    error,
+  } = useQuery({
     queryKey: ['team', teamId],
     queryFn: () => fetchTeam(teamId),
     enabled: !!user && !!teamId,
@@ -1616,7 +1869,8 @@ function TeamDetailPage() {
   })
 
   const isJunior = user?.role === 'JUNIOR'
-  const canManage = user?.role === 'ADMIN' ||
+  const canManage =
+    user?.role === 'ADMIN' ||
     (user?.role === 'HR' && !!team?.members.some((m) => m.userId === user?.id))
   const isAdmin = user?.role === 'ADMIN'
 
@@ -1653,7 +1907,9 @@ function TeamDetailPage() {
       <div className="flex flex-col items-center justify-center py-24 text-center">
         <Users className="h-10 w-10 text-muted-foreground/30" />
         <p className="mt-4 text-sm font-medium">Команда не найдена</p>
-        <p className="mt-1 text-xs text-muted-foreground">Возможно, у вас нет доступа к этой команде</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Возможно, у вас нет доступа к этой команде
+        </p>
         <Button asChild variant="outline" size="sm" className="mt-4">
           <Link to="/crm/team">
             <ArrowLeft className="h-4 w-4 mr-1.5" />
@@ -1673,15 +1929,20 @@ function TeamDetailPage() {
     : null
 
   const sortedMembers = [...team.members].sort(
-    (a, b) => ROLE_ORDER.indexOf(a.role as typeof ROLE_ORDER[number]) - ROLE_ORDER.indexOf(b.role as typeof ROLE_ORDER[number]),
+    (a, b) =>
+      ROLE_ORDER.indexOf(a.role as (typeof ROLE_ORDER)[number]) -
+      ROLE_ORDER.indexOf(b.role as (typeof ROLE_ORDER)[number]),
   )
 
-  const membersByRole = team.members.reduce((acc, m) => {
-    acc[m.role] = (acc[m.role] ?? 0) + 1
-    return acc
-  }, {} as Record<string, number>)
+  const membersByRole = team.members.reduce(
+    (acc, m) => {
+      acc[m.role] = (acc[m.role] ?? 0) + 1
+      return acc
+    },
+    {} as Record<string, number>,
+  )
 
-  const canRemoveMember = (member: typeof team.members[0]) => {
+  const canRemoveMember = (member: (typeof team.members)[0]) => {
     if (!canManage) return false
     if (member.role === 'SENIOR') return false
     if (member.role === 'JUNIOR') return false
@@ -1731,12 +1992,22 @@ function TeamDetailPage() {
 
         {canManage && (
           <div className="flex shrink-0 gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setEditOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => setEditOpen(true)}
+            >
               <Pencil className="h-3.5 w-3.5" />
               Редактировать
             </Button>
             {isAdmin && (
-              <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive" onClick={() => setDeleteOpen(true)}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setDeleteOpen(true)}
+              >
                 <Trash2 className="h-4 w-4" />
               </Button>
             )}
@@ -1778,7 +2049,9 @@ function TeamDetailPage() {
                 <Users className="h-8 w-8 text-muted-foreground/30" />
                 <p className="mt-3 text-sm font-medium">Нет участников</p>
                 {canManage && (
-                  <p className="mt-1 text-xs text-muted-foreground">Нажмите «Добавить» чтобы добавить первого участника</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Нажмите «Добавить» чтобы добавить первого участника
+                  </p>
                 )}
               </div>
             ) : (
@@ -1839,6 +2112,7 @@ pnpm --filter @crm/web dev
 Open http://localhost:3000, log in, navigate to `/crm/team`.
 
 Verify:
+
 - ADMIN/HR: see team cards, each clickable, delete button on cards
 - Click card → navigate to `/crm/team/:id`
 - Detail page: members listed (no role headers), badges per member

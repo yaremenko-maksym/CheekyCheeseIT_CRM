@@ -1,208 +1,208 @@
-# ADR / Design Spec: интеграция Claude Design в агентную фабрику CRM
+# ADR / Design Spec: integrating Claude Design into the CRM agent factory
 
-**Дата:** 2026-06-22
-**Статус:** Approved (brainstorm) → pending implementation plan
-**Автор:** Master-сессия (PM-оркестратор)
-**Связано:** [[ui-ux-designer.md]], `.claude/rules/common/light-track.md`, `.claude/rules/common/zone-of-write.md`, [[feedback_reviewer_self_merge_incident]]
+**Date:** 2026-06-22
+**Status:** Approved (brainstorm) → pending implementation plan
+**Author:** Master session (PM orchestrator)
+**Related:** [[ui-ux-designer.md]], `.claude/rules/common/light-track.md`, `.claude/rules/common/zone-of-write.md`, [[feedback_reviewer_self_merge_incident]]
 
-> **UPDATE 2026-06-22 (post-upgrade):** CLI обновлён 2.1.143 → **2.1.185**, который **несёт нативные**
-> `/design-login`, `/design-sync`, `/design` (verified в бинаре: design-sync ×262, /design ×67,
-> /design-login ×14). Поэтому §4.3/§4.4 «создать проектные команды» **отменены** — опираемся на
-> нативные команды; проектная ценность = гейт + Mode E reconciliation + skill + энфорсмент.
-> Implementation-план: `docs/superpowers/plans/2026-06-22-claude-design-integration.md`.
+> **UPDATE 2026-06-22 (post-upgrade):** the CLI was updated 2.1.143 → **2.1.185**, which **ships native**
+> `/design-login`, `/design-sync`, `/design` (verified in the binary: design-sync ×262, /design ×67,
+> /design-login ×14). Therefore §4.3/§4.4 "create project commands" are **cancelled** — we rely on
+> the native commands; the project value = the gate + Mode E reconciliation + the skill + enforcement.
+> Implementation plan: `docs/superpowers/plans/2026-06-22-claude-design-integration.md`.
 
 ---
 
-## 1. Цель
+## 1. Goal
 
-Владелец: «любое UI-решение должно задействовать дизайнера, чтобы он всё расположил
-красиво — правильные отступы, грамотный UX». Встроить **Claude Design** (claude.ai/design,
-Anthropic Labs, на Opus 4.8) в pipeline так, чтобы:
+Owner: "any UI decision must involve the designer, so they arrange everything
+beautifully — correct spacing, well-thought-out UX". Embed **Claude Design** (claude.ai/design,
+Anthropic Labs, on Opus 4.8) into the pipeline so that:
 
-1. Оркестратор отдавал задачу на дизайн в Claude Design и получал результат.
-2. Результат дизайна передавался кодеру **без участия владельца**.
-3. Любое изменение в `apps/web` (и `apps/landing`) проходило через дизайн-гейт.
+1. The orchestrator hands the task to Claude Design for design and gets the result.
+2. The design result is passed to the coder **without the owner's involvement**.
+3. Any change in `apps/web` (and `apps/landing`) goes through the design gate.
 
-## 2. Жёсткие ограничения (проверено 2026-06-22)
+## 2. Hard constraints (verified 2026-06-22)
 
-| Факт                                                                                                                               | Источник                                                                                                              | Следствие                                                                                                                                            |
-| ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude Design **интерактивный, браузерный**, research preview, подписка Pro/Max+                                                   | anthropic.com/news/claude-design-anthropic-labs; живая проверка через Chrome MCP (аккаунт владельца «M», на Opus 4.8) | Драйвить может только человек в браузере ИЛИ оркестратор через Chrome MCP. **Headless-субагент (coder/ui-ux-designer через Agent tool) — НЕ может.** |
-| **Нет headless API / MCP-коннектора** к Claude Design                                                                              | claude-code-guide recon                                                                                               | Мост кодеру = **файловый артефакт в репозитории**, не live-сессия.                                                                                   |
-| Нативные **`/design` / `/design-sync` / `/design-login`** в сборке — **есть** (CLI 2.1.185, апгрейд 2026-06-22; verified в бинаре) | локальная проверка + бинарь                                                                                           | Проектные команды-эквиваленты НЕ создаём; ценность = гейт + skill (`claude-design-workflow`) + Mode E.                                               |
-| Есть раздел **«Design systems»** + «Set up design system» (читает кодбейз → генерит в твоих токенах)                               | живая проверка UI                                                                                                     | Высокорычажный фундамент: завести CRM-систему один раз → генерации сразу на-бренд.                                                                   |
-| Экспорт: standalone HTML / ZIP / PDF / PPTX; шаблоны Product prototype / wireframe / Blank canvas                                  | живая проверка UI                                                                                                     | Артефакт = экспортированный HTML + Chrome-MCP скриншот.                                                                                              |
+| Fact                                                                                                                                         | Source                                                                                                          | Consequence                                                                                                                                            |
+| -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Claude Design is **interactive, browser-based**, a research preview, Pro/Max+ subscription                                                   | anthropic.com/news/claude-design-anthropic-labs; a live check via Chrome MCP (owner's account "M", on Opus 4.8) | Only a human in a browser OR the orchestrator via Chrome MCP can drive it. **A headless subagent (coder/ui-ux-designer via the Agent tool) — CANNOT.** |
+| **No headless API / MCP connector** to Claude Design                                                                                         | claude-code-guide recon                                                                                         | The bridge to the coder = a **file artifact in the repository**, not a live session.                                                                   |
+| Native **`/design` / `/design-sync` / `/design-login`** in the build — **present** (CLI 2.1.185, upgrade 2026-06-22; verified in the binary) | a local check + the binary                                                                                      | We do NOT create project command equivalents; the value = the gate + the skill (`claude-design-workflow`) + Mode E.                                    |
+| There is a **"Design systems"** section + "Set up design system" (reads the codebase → generates in your tokens)                             | a live UI check                                                                                                 | A high-leverage foundation: set up the CRM system once → generations immediately on-brand.                                                             |
+| Export: standalone HTML / ZIP / PDF / PPTX; templates Product prototype / wireframe / Blank canvas                                           | a live UI check                                                                                                 | The artifact = the exported HTML + a Chrome-MCP screenshot.                                                                                            |
 
-**Вывод:** «дизайнер» в контуре = claude.ai/design, управляемый оркестратором через Chrome MCP.
-Передача кодеру — через закоммиченный артефакт-референс, который headless-кодер читает.
+**Conclusion:** the "designer" in the loop = claude.ai/design, driven by the orchestrator via Chrome MCP.
+The handoff to the coder — via a committed artifact-reference that the headless coder reads.
 
-## 3. Архитектура (одобрено — Approach 1: design-system-first + artifact handoff + fidelity-аудит)
+## 3. Architecture (approved — Approach 1: design-system-first + artifact handoff + fidelity audit)
 
 ```
-[UI-задача: новый экран / поток / компонент / редизайн / правка]
+[UI task: new screen / flow / component / redesign / edit]
   │
-  (0) design-system CRM в Claude Design уже заведена (разово; поддерживается /design-sync)
+  (0) the CRM design-system in Claude Design is already set up (once; maintained via /design-sync)
   │
-  (1) Оркестратор строит design-brief (purpose / audience / tone / token-constraints / edge-cases)
-  │       — переиспользует frontend-design-direction 5-вопросов
-  (2) Оркестратор → Chrome MCP → claude.ai/design:
-  │       design-system = CRM, шаблон = Product prototype/wireframe, вставляет brief → генерация
-  │       (рефайн через conversation; владелец может вмешаться для эстетики — fallback §6)
-  (3) Экспорт результата В РЕПО  ← SOURCE OF TRUTH:
-  │       docs/design/assets/<slug>/design.html      (экспортированный standalone HTML)
-  │       docs/design/assets/<slug>/design.png       (+ state-скриншоты: empty/loading/error)
+  (1) The orchestrator builds a design-brief (purpose / audience / tone / token-constraints / edge-cases)
+  │       — reuses the frontend-design-direction 5 questions
+  (2) The orchestrator → Chrome MCP → claude.ai/design:
+  │       design-system = CRM, template = Product prototype/wireframe, inserts the brief → generation
+  │       (refine via conversation; the owner may intervene for aesthetics — fallback §6)
+  (3) Export the result INTO THE REPO  ← SOURCE OF TRUTH:
+  │       docs/design/assets/<slug>/design.html      (the exported standalone HTML)
+  │       docs/design/assets/<slug>/design.png       (+ state screenshots: empty/loading/error)
   │       docs/design/<slug>.md                       (brief + Claude Design URL + token-map)
-  (4) ui-ux-designer агент (Mode E — reconciliation):
-  │       сверяет generic-HTML с нашими shadcn/ui компонентами + Tailwind v4 токенами →
-  │       coder-ready spec в docs/design/<slug>.md (какие существующие компоненты, что новое,
-  │       token-map, a11y/responsive, edge-cases). НЕ даёт кодеру слепо копировать чужую разметку.
-  (5) Диспатч coder: строит в apps/web по spec + HTML-референс + скриншот (наши компоненты/токены)
-  (6) ui-ux-designer Mode B (fidelity-аудит): Playwright-скриншот live vs design.png →
-          score; BLOCK при дрейфе отступов/иерархии/токенов. Замыкает контур.
+  (4) The ui-ux-designer agent (Mode E — reconciliation):
+  │       reconciles the generic HTML with our shadcn/ui components + Tailwind v4 tokens →
+  │       a coder-ready spec in docs/design/<slug>.md (which existing components, what is new,
+  │       the token-map, a11y/responsive, edge-cases). Does NOT let the coder blindly copy someone else's markup.
+  (5) Dispatch the coder: builds in apps/web per the spec + the HTML reference + the screenshot (our components/tokens)
+  (6) ui-ux-designer Mode B (fidelity audit): a Playwright screenshot live vs design.png →
+          a score; BLOCK on drift of spacing/hierarchy/tokens. Closes the loop.
 ```
 
-## 4. Компоненты (well-bounded units)
+## 4. Components (well-bounded units)
 
-### 4.1 CRM design system в Claude Design (фундамент, разово + поддержка)
+### 4.1 The CRM design system in Claude Design (the foundation, once + maintenance)
 
-- **Что:** в claude.ai/design → «Set up design system» завести систему «CheekyCheeseIT CRM»
-  из `apps/web/app/styles/globals.css` (Tailwind v4 `@theme inline` — цвета/типографика/spacing/radius)
-  - инвентаря `apps/web/app/components/ui/` (36 shadcn/ui компонентов).
-- **Зачем:** без неё генерация = generic AI-look (purple gradients, oversized hero — то, что
-  ui-ux-designer Mode C ловит как AI-slop). С ней — сразу в наших токенах → handoff высокой точности.
-- **Зависит от:** Chrome MCP + браузер владельца; доступ к репозиторию (импорт из GitHub или paste токенов).
-- **Поддержка:** при изменении токенов — `/design-sync` (§4.4).
+- **What:** in claude.ai/design → "Set up design system" set up the "CheekyCheeseIT CRM" system
+  from `apps/web/app/styles/globals.css` (Tailwind v4 `@theme inline` — colors/typography/spacing/radius)
+  - the inventory of `apps/web/app/components/ui/` (36 shadcn/ui components).
+- **Why:** without it generation = a generic AI-look (purple gradients, oversized hero — what
+  ui-ux-designer Mode C catches as AI-slop). With it — immediately in our tokens → a high-fidelity handoff.
+- **Depends on:** Chrome MCP + the owner's browser; access to the repository (import from GitHub or paste the tokens).
+- **Maintenance:** on a token change — `/design-sync` (§4.4).
 
-### 4.2 Контракт артефакта (интерфейс между дизайнером и кодером)
+### 4.2 The artifact contract (the interface between the designer and the coder)
 
-- `docs/design/<slug>.md` — coder-ready spec (пишет ui-ux-designer Mode E). Содержит: brief,
-  ссылку на Claude Design проект, token-map, список компонентов (существующие + новые),
-  motion/a11y/responsive, edge-cases, путь к референс-скриншотам. **Расширяет существующую
-  конвенцию** (`docs/design/` уже хранит `drop-role-ux.md`, `junior-hub.md` и т.п.).
-- `docs/design/assets/<slug>/` — `design.html` (экспорт) + `*.png` (скриншоты состояний).
-- **Это единственный интерфейс**, который видит headless-кодер. Всё остальное (браузер,
-  Claude Design сессия) — деталь реализации оркестратора.
+- `docs/design/<slug>.md` — a coder-ready spec (written by ui-ux-designer Mode E). Contains: the brief,
+  a link to the Claude Design project, the token-map, a list of components (existing + new),
+  motion/a11y/responsive, edge-cases, the path to the reference screenshots. **Extends the existing
+  convention** (`docs/design/` already stores `drop-role-ux.md`, `junior-hub.md`, etc.).
+- `docs/design/assets/<slug>/` — `design.html` (the export) + `*.png` (state screenshots).
+- **This is the only interface** the headless coder sees. Everything else (the browser, the
+  Claude Design session) — an implementation detail of the orchestrator.
 
-### 4.3 `/design <бриф>` (СУПЕРСЕДЕД нативной командой)
+### 4.3 `/design <brief>` (SUPERSEDED by the native command)
 
-> **2026-06-22:** CLI 2.1.185 несёт **нативную** `/design` → проектную команду НЕ создаём (затенит/
-> сконфликтует с нативной). Проектная ценность вместо команды = гейт (`design-gate.md`) + skill
-> (`claude-design-workflow`) + ui-ux-designer Mode E. Описание ниже — историческое (как мыслился флоу).
+> **2026-06-22:** CLI 2.1.185 ships a **native** `/design` → we do NOT create a project command (it would shadow/
+> conflict with the native one). The project value instead of a command = the gate (`design-gate.md`) + the skill
+> (`claude-design-workflow`) + ui-ux-designer Mode E. The description below is historical (how the flow was conceived).
 
-- **Команда:** ~~`.claude/commands/design.md`~~ → нативная `/design` (CLI ≥ 2.1.185), набирает владелец.
-- **Запускает:** ТОЛЬКО главная сессия / владелец (нужен Chrome MCP + браузер; headless нельзя).
-- **Делает:** шаги (1)→(4) — строит brief, драйвит Claude Design, экспортирует артефакт,
-  диспатчит ui-ux-designer Mode E. На выходе — готовый `docs/design/<slug>.md` для кодера.
-- **Документирует:** cookbook драйва claude.ai/design через Chrome MCP — теперь в skill (§4.6).
+- **Command:** ~~`.claude/commands/design.md`~~ → native `/design` (CLI ≥ 2.1.185), the owner types it.
+- **Launched by:** ONLY the main session / the owner (Chrome MCP + a browser are needed; headless cannot).
+- **Does:** steps (1)→(4) — builds the brief, drives Claude Design, exports the artifact,
+  dispatches ui-ux-designer Mode E. The output — a ready `docs/design/<slug>.md` for the coder.
+- **Documents:** a cookbook for driving claude.ai/design via Chrome MCP — now in the skill (§4.6).
 
-### 4.4 `/design-sync` (СУПЕРСЕДЕД нативной командой)
+### 4.4 `/design-sync` (SUPERSEDED by the native command)
 
-> **2026-06-22:** CLI 2.1.185 несёт **нативную** `/design-sync` (+`/design-login`) — проектную команду
-> НЕ создаём. Sync делает владелец нативной командой в свежей сессии (см. план T1).
+> **2026-06-22:** CLI 2.1.185 ships a **native** `/design-sync` (+`/design-login`) — we do NOT create a project command.
+> The sync is done by the owner with the native command in a fresh session (see plan T1).
 
-- **Команда:** ~~`.claude/commands/design-sync.md`~~ → нативная `/design-sync` (CLI ≥ 2.1.185).
-- **Делает:** (пере)синхронизирует CRM design-system в Claude Design из `globals.css` +
-  component-инвентаря. Запускать при изменении дизайн-токенов / добавлении базовых компонентов.
-- **Запускает:** владелец в свежей `claude`-сессии (своя OAuth). Программный путь через tool `DesignSync`
-  требует design-scope, которого нет у `CLAUDE_CODE_OAUTH_TOKEN`-сессии (см. skill `claude-design-workflow` §0).
+- **Command:** ~~`.claude/commands/design-sync.md`~~ → native `/design-sync` (CLI ≥ 2.1.185).
+- **Does:** (re)synchronizes the CRM design-system in Claude Design from `globals.css` +
+  the component inventory. Run it on a change of design tokens / addition of base components.
+- **Launched by:** the owner in a fresh `claude` session (their own OAuth). The programmatic path via the `DesignSync` tool
+  requires a design-scope that a `CLAUDE_CODE_OAUTH_TOKEN` session does not have (see the skill `claude-design-workflow` §0).
 
-### 4.5 ui-ux-designer — новый Mode E + усиленный Mode B
+### 4.5 ui-ux-designer — a new Mode E + a reinforced Mode B
 
-- **Mode E (reconciliation, новый):** вход = `docs/design/assets/<slug>/` (Claude Design экспорт).
-  Выход = `docs/design/<slug>.md` coder-spec с маппингом на наши компоненты/токены. Headless-агент
-  (читает файлы, не браузер). Добавить в `.claude/agents/ui-ux-designer.md`.
-- **Mode B (fidelity-аудит, усилен):** теперь сверяет live-реализацию против `design.png`
-  референса (а не только 10-dimension эвристики). BLOCK при дрейфе.
+- **Mode E (reconciliation, new):** input = `docs/design/assets/<slug>/` (the Claude Design export).
+  Output = `docs/design/<slug>.md` a coder spec with a mapping to our components/tokens. A headless agent
+  (reads files, not a browser). Add it to `.claude/agents/ui-ux-designer.md`.
+- **Mode B (fidelity audit, reinforced):** now reconciles the live implementation against the `design.png`
+  reference (not only the 10-dimension heuristic). BLOCK on drift.
 
-### 4.6 Skill `claude-design-workflow` (Chrome MCP cookbook)
+### 4.6 The skill `claude-design-workflow` (Chrome MCP cookbook)
 
-- **Файл:** `.claude/skills/claude-design-workflow/SKILL.md`.
-- **Зачем:** надёжный драйв claude.ai/design через Chrome MCP — селекторы шаблонов, выбор
-  design-system, вставка brief, экспорт HTML, снятие скриншотов состояний, recovery при
-  фрагментации UI. Триггерится `/design` и при ручном дизайн-флоу.
+- **File:** `.claude/skills/claude-design-workflow/SKILL.md`.
+- **Why:** a reliable drive of claude.ai/design via Chrome MCP — template selectors, the choice of
+  design-system, inserting the brief, exporting the HTML, taking state screenshots, recovery on
+  UI fragmentation. Triggered by `/design` and on the manual design flow.
 
-### 4.7 Трёхуровневый дизайн-гейт (rule, одобрено)
+### 4.7 The three-tier design gate (rule, approved)
 
-- **Файл:** `.claude/rules/common/design-gate.md`. **Always-on.** Дизайнер вовлечён ВСЕГДА,
-  интенсивность по tier:
+- **File:** `.claude/rules/common/design-gate.md`. **Always-on.** The designer is involved ALWAYS,
+  the intensity by tier:
 
-| Tier  | Триггер                                              | Действие дизайнера                                                                                      |
-| ----- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| **1** | Новый экран / поток / компонент / редизайн           | Полная генерация в Claude Design (`/design`) → артефакт → Mode E spec                                   |
-| **2** | Правка существующего экрана                          | Правка существующего дизайна в Claude Design ИЛИ ui-ux-designer conformance-проверка → обновлённый spec |
-| **3** | Тривиальная косметика (текст, 1 отступ, цвет токена) | ui-ux-designer conformance-проверка против засинхроненной design-system (без браузерного раунда)        |
+| Tier  | Trigger                                           | Designer's action                                                                                       |
+| ----- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| **1** | New screen / flow / component / redesign          | Full generation in Claude Design (`/design`) → artifact → Mode E spec                                   |
+| **2** | An edit of an existing screen                     | An edit of the existing design in Claude Design OR a ui-ux-designer conformance check → an updated spec |
+| **3** | Trivial cosmetics (text, 1 margin, a token color) | A ui-ux-designer conformance check against the synced design-system (without a browser round)           |
 
-- **Tier классифицирует** PM/оркестратор при создании задачи (поле `## Design tier:` в task-файле).
+- **The tier is classified** by PM/the orchestrator when creating the task (the field `## Design tier:` in the task-file).
 
-### 4.8 Энфорсмент (PM + Reviewer)
+### 4.8 Enforcement (PM + Reviewer)
 
-- **PM-dispatch гейт:** PM НЕ диспатчит UI-кодера без `docs/design/<slug>.md` (Tier 1/2) или
-  conformance-отметки (Tier 3). Сниппет в `.claude/agents/pm-snippets.md`.
-- **Reviewer-чек:** на PR, трогающем `apps/web/**` / `apps/landing/**`, code-reviewer проверяет
-  наличие дизайн-артефакта и fidelity-аудита; иначе `Verdict: BLOCK`.
-- **merge-approved** — без изменений: ставит ТОЛЬКО PM/owner (см. [[feedback_reviewer_self_merge_incident]]).
+- **PM-dispatch gate:** PM does NOT dispatch a UI coder without `docs/design/<slug>.md` (Tier 1/2) or
+  a conformance note (Tier 3). A snippet in `.claude/agents/pm-snippets.md`.
+- **Reviewer check:** on a PR touching `apps/web/**` / `apps/landing/**`, code-reviewer checks
+  for the presence of the design artifact and the fidelity audit; otherwise `Verdict: BLOCK`.
+- **merge-approved** — unchanged: set ONLY by PM/owner (see [[feedback_reviewer_self_merge_incident]]).
 
-## 5. Control flow по tier (кратко)
+## 5. Control flow by tier (brief)
 
 - **Tier 1:** `/design` → (1-4) → PM dispatch coder (5) → Mode B (6) → review → UT → merge-gate.
-- **Tier 2:** обновить дизайн (Claude Design edit или conformance) → обновить spec → coder → Mode B.
-- **Tier 3:** ui-ux-designer conformance vs design-system → coder/Mode D правка → Playwright-скриншот.
+- **Tier 2:** update the design (a Claude Design edit or conformance) → update the spec → coder → Mode B.
+- **Tier 3:** ui-ux-designer conformance vs the design-system → coder/Mode D edit → a Playwright screenshot.
 
 ## 6. Failure modes & fallbacks
 
-- **Chrome MCP драйв хрупкий/медленный** (UI Claude Design меняется, селекторы плывут) →
-  fallback: оркестратор формирует brief, владелец рефайнит в браузере 1-2 итерации и жмёт Export;
-  оркестратор подхватывает артефакт из репо/скриншот и продолжает с шага (3). Skill §4.6 описывает
-  обе ветки. Владелец санкционировал автономный драйв, fallback — страховка.
-- **design.html generic-разметка** (divs вместо наших компонентов) → именно для этого Mode E (§4.5):
-  кодер строит по spec, а не копирует HTML. design.html — визуальный референс, не код для вставки.
-- **Token drift** (globals.css изменился, Claude Design отстал) → `/design-sync` перед Tier 1 генерацией.
-- **Claude Design недоступен / лимит** → деградация в текущий flow (ui-ux-designer Mode A текстовая
-  спека); пометить в PR «design-gate: degraded, Claude Design unavailable».
+- **The Chrome MCP drive is fragile/slow** (the Claude Design UI changes, selectors drift) →
+  fallback: the orchestrator forms the brief, the owner refines it in the browser for 1-2 iterations and hits Export;
+  the orchestrator picks up the artifact from the repo/screenshot and continues from step (3). Skill §4.6 describes
+  both branches. The owner sanctioned the autonomous drive, the fallback — a safety net.
+- **design.html generic markup** (divs instead of our components) → this is exactly what Mode E (§4.5) is for:
+  the coder builds per the spec, not by copying the HTML. design.html — a visual reference, not code for insertion.
+- **Token drift** (globals.css changed, Claude Design lagged) → `/design-sync` before a Tier 1 generation.
+- **Claude Design unavailable / limit** → degradation to the current flow (ui-ux-designer Mode A text
+  spec); note in the PR "design-gate: degraded, Claude Design unavailable".
 
-## 7. Вне scope (YAGNI)
+## 7. Out of scope (YAGNI)
 
-- Двусторонний live-sync кода ↔ дизайна (нет headless API; не строим).
-- Автотриггер дизайна в CI/CD (Claude Design интерактивный).
-- Кастомный MCP-сервер к Claude Design (нет официального; самописный — отдельная инициатива).
-- Замена ui-ux-designer агента — он остаётся (reconciliation + audit), не выпиливается.
-- Деплой / public-модуль / прочие открытые треды — не трогаем.
+- Two-way live-sync code ↔ design (no headless API; we do not build it).
+- Auto-triggering design in CI/CD (Claude Design is interactive).
+- A custom MCP server to Claude Design (no official one; a self-written one — a separate initiative).
+- Replacing the ui-ux-designer agent — it stays (reconciliation + audit), not removed.
+- Deploy / public module / other open threads — we do not touch them.
 
-## 8. Открытые вопросы — решены
+## 8. Open questions — resolved
 
-- Где артефакты → `docs/design/<slug>.md` + `docs/design/assets/<slug>/` (расширяет конвенцию).
-- Кто драйвит Claude Design → оркестратор через Chrome MCP (fallback — владелец, §6).
-- Scope гейта → буквально любое UI, трёхуровневая интенсивность (§4.7).
-- Подписка → Max включает Claude Design (проверено: доступ есть).
+- Where the artifacts go → `docs/design/<slug>.md` + `docs/design/assets/<slug>/` (extends the convention).
+- Who drives Claude Design → the orchestrator via Chrome MCP (fallback — the owner, §6).
+- The gate scope → literally any UI, three-tier intensity (§4.7).
+- Subscription → Max includes Claude Design (verified: access is present).
 
-## 9. Deliverables (для implementation plan)
+## 9. Deliverables (for the implementation plan)
 
-1. CRM design-system заведена в Claude Design (§4.1) + pilot-генерация для проверки экспорта.
+1. The CRM design-system set up in Claude Design (§4.1) + a pilot generation to verify the export.
 2. `.claude/rules/common/design-gate.md` (§4.7).
-3. ~~Проектные команды~~ → **нативные** `/design` / `/design-sync` / `/design-login` (CLI ≥ 2.1.185); проектная ценность = skill `claude-design-workflow` (§4.6) + Mode E reconciliation. Реализация — план `docs/superpowers/plans/2026-06-22-claude-design-integration.md` (T1–T7).
+3. ~~Project commands~~ → **native** `/design` / `/design-sync` / `/design-login` (CLI ≥ 2.1.185); the project value = the skill `claude-design-workflow` (§4.6) + Mode E reconciliation. Implementation — the plan `docs/superpowers/plans/2026-06-22-claude-design-integration.md` (T1–T7).
 4. `.claude/skills/claude-design-workflow/SKILL.md` (§4.6).
-5. `.claude/agents/ui-ux-designer.md` — Mode E + усиленный Mode B (§4.5).
-6. `.claude/agents/pm-snippets.md` + reviewer-доки — энфорсмент (§4.8).
-7. Обновить `.claude/rules/common/skills-invocation.md` (trigger → claude-design-workflow) +
-   `CLAUDE.md` карту указателей.
-8. Pilot: прогнать одну реальную UI-задачу end-to-end (Tier 1) для валидации pipeline.
+5. `.claude/agents/ui-ux-designer.md` — Mode E + a reinforced Mode B (§4.5).
+6. `.claude/agents/pm-snippets.md` + the reviewer docs — enforcement (§4.8).
+7. Update `.claude/rules/common/skills-invocation.md` (trigger → claude-design-workflow) +
+   the `CLAUDE.md` pointer map.
+8. Pilot: run one real UI task end-to-end (Tier 1) to validate the pipeline.
 
-**Zone-of-write:** всё в `.claude/**` + `docs/**` — master/architect зона (НЕ apps/packages).
-Реализация — преимущественно главной сессией; ADR-обвязку можно через architect-агента.
+**Zone-of-write:** everything in `.claude/**` + `docs/**` — the master/architect zone (NOT apps/packages).
+The implementation — predominantly by the main session; the ADR wrapping can be via the architect agent.
 
 ---
 
 ## 10. Synced design systems (verified 2026-06-22, Chrome MCP)
 
-| Поле                 | Значение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Имя системы          | `CheekyCheeseIT CRM` (single source — на это имя ссылаются `design-gate.md` + `claude-design-workflow`); **Default + Published**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Проект Claude Design | `https://claude.ai/design/p/89317b4c-60ea-4ff5-832a-231b4ad76c23` (аккаунт владельца «M»)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| Источник             | `apps/web` (`@crm/web@0.0.1`) — токены `app/styles/globals.css` + `app/components/**`; импорт нативным `/design-sync` (**real upstream code**, не generic re-render)                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Дата sync            | 2026-06-22 (владелец, нативный `/design-sync` в design-logged терминале)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Что захвачено        | **218 токенов** verbatim (color 81, spacing 6, typography 15 incl. `--font-sans`, radius 2 = `--radius`/`--radius-2xl`, shadow 8, other 106) + **35 компонентов** (real upstream): core shadcn/ui (Alert, AlertDialog, Avatar, Badge, Button, Calendar, Card, Command, Dialog, DropdownMenu, Input, Label, Popover, RadioGroup, ScrollArea, Select, Separator, Sheet, Skeleton, Table, Tabs, Textarea, Tooltip, Toaster) + CRM-композиты (AmountCurrencyInput, AnimatedTabs, CrmDialogContent, DatePickerField, ImageUploadField, PhoneInput, RoleSelect, SegmentedToggle, ShareSlider, SliderNumberInput, TechAutocompleteInput) |
-| Landing              | По умолчанию пропущен (CRM-first); пере-sync `apps/landing` — при редизайне лендинга                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Пробелы (gaps)       | (1) **Inter brand font** не залит → рендер сабститутом (фикс: «Upload fonts» в Claude Design; не блокер). (2) Page-level композиции (KpiCard, nav-sidebar, finance/profile-диалоги) НЕ в экспорте `@crm/web` library — **ожидаемо**, генерятся on-demand через `/design`. Полный эталон поверхности — `docs/design/assets/_design-system/inventory.md` (22 ui-примитива, 103 композита, 42 диалога).                                                                                                                                                                                                                              |
+| Field                 | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| System name           | `CheekyCheeseIT CRM` (single source — `design-gate.md` + `claude-design-workflow` reference this name); **Default + Published**                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Claude Design project | `https://claude.ai/design/p/89317b4c-60ea-4ff5-832a-231b4ad76c23` (owner's account "M")                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Source                | `apps/web` (`@crm/web@0.0.1`) — tokens `app/styles/globals.css` + `app/components/**`; import via the native `/design-sync` (**real upstream code**, not a generic re-render)                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Sync date             | 2026-06-22 (owner, native `/design-sync` in a design-logged terminal)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| What was captured     | **218 tokens** verbatim (color 81, spacing 6, typography 15 incl. `--font-sans`, radius 2 = `--radius`/`--radius-2xl`, shadow 8, other 106) + **35 components** (real upstream): core shadcn/ui (Alert, AlertDialog, Avatar, Badge, Button, Calendar, Card, Command, Dialog, DropdownMenu, Input, Label, Popover, RadioGroup, ScrollArea, Select, Separator, Sheet, Skeleton, Table, Tabs, Textarea, Tooltip, Toaster) + CRM composites (AmountCurrencyInput, AnimatedTabs, CrmDialogContent, DatePickerField, ImageUploadField, PhoneInput, RoleSelect, SegmentedToggle, ShareSlider, SliderNumberInput, TechAutocompleteInput) |
+| Landing               | Skipped by default (CRM-first); re-sync `apps/landing` — on a landing redesign                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Gaps                  | (1) **Inter brand font** not uploaded → rendered with a substitute (fix: "Upload fonts" in Claude Design; not a blocker). (2) Page-level compositions (KpiCard, nav-sidebar, finance/profile dialogs) are NOT in the `@crm/web` export library — **expected**, generated on-demand via `/design`. The full reference surface — `docs/design/assets/_design-system/inventory.md` (22 ui primitives, 103 composites, 42 dialogs).                                                                                                                                                                                                  |
 
-> Экранные _композиции_ не обязаны существовать как статичные дизайны заранее — они генерятся on-demand
-> через нативный `/design` под этой системой. Этот раздел — то, на что ссылаются per-feature генерации (T7+).
+> Screen _compositions_ do not have to exist as static designs in advance — they are generated on-demand
+> via the native `/design` under this system. This section — what per-feature generations reference (T7+).

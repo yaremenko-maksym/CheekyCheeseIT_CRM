@@ -3277,6 +3277,11 @@ msgstr "Only an administrator can add a senior to a team"
 msgid "Додати учасника"
 msgstr "Add member"
 
+#: apps/web/app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx
+#: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
+msgid "Додати частину зарплати"
+msgstr "Add salary part"
+
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx

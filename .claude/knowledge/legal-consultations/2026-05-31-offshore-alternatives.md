@@ -1,269 +1,269 @@
-# Legal Consultation: Offshore Alternatives — Где Cash + Crypto + Bank Всё Легально?
+# Legal Consultation: Offshore Alternatives — Where Are Cash + Crypto + Bank All Legal?
 
 ## Mode: strategic
 
-## Дата: 2026-05-31
+## Date: 2026-05-31
 
-## Запросил: User direct → PM
+## Requested by: User direct → PM
 
-## Контекст
+## Context
 
-User получил 3 предыдущих strategic консультации (UA-scope):
+The User received 3 previous strategic consultations (UA-scope):
 
-1. [USDT payouts PHASE 8](2026-05-31-usdt-payouts-phase8.md) — UA crypto vacuum до активации 10225-д
-2. [ТОВ + multi-channel revenue](2026-05-31-tov-multi-channel-revenue.md) — рекомендована ТОВ-Дія Сіті, но **cash и crypto channels пришлось исключить** (NBU лимиты + crypto regulation gap)
-3. [Дія Сіті implementation roadmap](2026-05-31-diia-city-implementation-roadmap.md) — 8-12 недель setup, ₴80-150k
+1. [USDT payouts PHASE 8](2026-05-31-usdt-payouts-phase8.md) — the UA crypto vacuum until the activation of 10225-d (original: 10225-д)
+2. [TOV + multi-channel revenue](2026-05-31-tov-multi-channel-revenue.md) — a TOV Diia City was recommended, but **the cash and crypto channels had to be excluded** (NBU limits + the crypto regulation gap)
+3. [Diia City implementation roadmap](2026-05-31-diia-city-implementation-roadmap.md) — 8-12 weeks setup, ₴80-150k
 
-User pivots — спрашивает можно ли **другую страну для регистрации** выбрать так, чтобы **легализовать одновременно** все 3 канала:
+The User pivots — asking whether it is possible to choose **a different country for registration** so as to **legalize simultaneously** all 3 channels:
 
-- Cash приходы от клиентов
-- Crypto (USDT) приходы и распределение
-- Bank приходы (стандартные wire/SEPA/SWIFT)
+- Cash receipts from clients
+- Crypto (USDT) receipts and distribution
+- Bank receipts (standard wire/SEPA/SWIFT)
 
-User личность: UA-резидент по налогам (founder работает из UA, проживает в UA).
+The User's identity: a UA tax resident (the founder works from UA, resides in UA).
 
-## Главный вопрос
+## Main question
 
-**Существует ли единая юрисдикция (НЕ Украина) где зарегистрированная компания может одновременно legitimately принимать cash + crypto + standard banking, всё это считается чистым доходом, и при этом UA-резидент (как UBO) может legitimately владеть и оперировать ею?**
+**Does a single jurisdiction exist (NOT Ukraine) where a registered company can simultaneously legitimately accept cash + crypto + standard banking, all of it counted as clean income, and at the same time a UA resident (as UBO) can legitimately own and operate it?**
 
-Если нет одной страны — какие комбинации (hybrid structures) делают это возможным?
+If there is no single country — what combinations (hybrid structures) make this possible?
 
-## Critical constraints, которые надо явно отработать в ответе
+## Critical constraints that must be explicitly addressed in the answer
 
-### CFC правила Украины — game-changer
+### CFC rules of Ukraine — a game-changer
 
-ЗУ № 466-IX (про КІК) от 01.01.2022 обязывает UA-резидентов:
+Law of Ukraine No. 466-IX (on CFCs) dated 01.01.2022 obliges UA residents to:
 
-- Подавать річний звіт про КІК
-- Платить ПДФО з нерозподіленого прибутку КІК (18% + 1.5% ВЗ если applicable)
-- Risk double taxation если treaty-credit не работает между UA и jurisdiction
+- File an annual CFC report
+- Pay PIT on the undistributed profit of the CFC (18% + 1.5% military levy if applicable)
+- Risk double taxation if a treaty credit does not work between UA and the jurisdiction
 
-**Эта обязанность остаётся независимо от того в какой стране регистрируется компания.** Offshore ≠ no UA tax automatic.
+**This obligation remains regardless of which country the company is registered in.** Offshore ≠ no UA tax automatic.
 
-**Legal должен явно объяснить:**
+**Legal must explicitly explain:**
 
-- В каких ситуациях UA-резидент может legitimately **не платить ПДФО з КІК** (есть исключения в ст. 39²)
-- Какие операции триггерят полную налогооблагаемость
-- Реальная картина — сколько в среднем UA-резидент с offshore структурой платит в UA bюджет (% оборота / % прибыли)
+- In which situations a UA resident can legitimately **not pay PIT on the CFC** (there are exceptions in Art. 39²)
+- Which operations trigger full taxability
+- The real picture — on average how much does a UA resident with an offshore structure pay into the UA budget (% of turnover / % of profit)
 
 ### Substance requirements
 
-Многие jurisdictions требуют **real substance** (office, employees, decisions taken locally) — иначе налоговые льготы не применяются:
+Many jurisdictions require **real substance** (office, employees, decisions taken locally) — otherwise the tax benefits do not apply:
 
-- Эстония — растущие substance requirements для e-Resident компаний
-- Кипр — substance тест для IP-box режима
-- ОАЭ — Economic Substance Regulations (ESR)
-- Гонконг — Place of Effective Management (POEM)
+- Estonia — growing substance requirements for e-Resident companies
+- Cyprus — a substance test for the IP-box regime
+- UAE — Economic Substance Regulations (ESR)
+- Hong Kong — Place of Effective Management (POEM)
 
-**Legal должен оценить** для каждой jurisdiction сколько substance реально требуется + сколько это стоит создать (виртуальный офис / реальный? local director? employees?).
+**Legal must assess** for each jurisdiction how much substance is really required + how much it costs to create (a virtual office / a real one? a local director? employees?).
 
 ### Banking practicality
 
-Зарегистрировать компанию — это одно. **Открыть бизнес-счёт** для UA-резидента сегодня (2026) сложно практически везде из-за compliance/AML overhead. Legal должен оценить **реальную возможность открыть счёт** в каждой jurisdiction.
+Registering a company is one thing. **Opening a business account** for a UA resident today (2026) is practically difficult almost everywhere due to compliance/AML overhead. Legal must assess the **real possibility of opening an account** in each jurisdiction.
 
 ### Reputational / client-facing
 
-US/EU клиенты могут отказаться платить в:
+US/EU clients may refuse to pay to:
 
-- BVI / Cayman / Сейшелы (offshore stigma)
-- Невидимые shell entities
+- BVI / Cayman / Seychelles (offshore stigma)
+- Invisible shell entities
 
-Это **business constraint** — даже если юридически возможно, нет смысла если клиенты не примут invoice.
+This is a **business constraint** — even if legally possible, there is no point if clients will not accept the invoice.
 
 ## Sub-questions
 
-### Q1 — Comparative matrix ~6 jurisdictions
+### Q1 — A comparative matrix of ~6 jurisdictions
 
-Анализ для **каждой** из ~6 jurisdictions:
+Analysis for **each** of ~6 jurisdictions:
 
-1. **Эстония** (e-Residency + OÜ)
-2. **Кипр** (Limited Company)
-3. **ОАЭ** (Free Zone Company, например IFZA / Meydan)
-4. **Грузия** (LLC / Virtual Zone Person)
-5. **Гонконг** (Limited)
-6. **UK** (Limited / LLP) или **Delaware** (LLC) — на выбор Legal как US/EU optic
+1. **Estonia** (e-Residency + OÜ)
+2. **Cyprus** (Limited Company)
+3. **UAE** (Free Zone Company, e.g. IFZA / Meydan)
+4. **Georgia** (LLC / Virtual Zone Person)
+5. **Hong Kong** (Limited)
+6. **UK** (Limited / LLP) or **Delaware** (LLC) — at Legal's choice as a US/EU optic
 
-Параметры:
+Parameters:
 
-| Jurisdiction | Setup time / cost | Annual cost | Cash legal?        | Crypto legal? | Banking практично UA-резиденту? | Substance required | UA CFC impact | Reputation     |
-| ------------ | ----------------- | ----------- | ------------------ | ------------- | ------------------------------- | ------------------ | ------------- | -------------- |
-| ...          | ...               | ...         | yes/no/conditional | ...           | ...                             | ...                | ...           | clean/grey/red |
+| Jurisdiction | Setup time / cost | Annual cost | Cash legal?        | Crypto legal? | Banking practical for a UA resident? | Substance required | UA CFC impact | Reputation     |
+| ------------ | ----------------- | ----------- | ------------------ | ------------- | ------------------------------------ | ------------------ | ------------- | -------------- |
+| ...          | ...               | ...         | yes/no/conditional | ...           | ...                                  | ...                | ...           | clean/grey/red |
 
-### Q2 — CFC implications для UA-резидента
+### Q2 — CFC implications for a UA resident
 
-Для каждой jurisdiction:
+For each jurisdiction:
 
-- Какой % прибыли реально облагается в UA через КІК
-- Какие исключения (active income / "освобождённые юрисдикции" / passive income threshold)
-- Total tax burden (% оборота) для UA-резидента с offshore структурой
+- What % of the profit is actually taxed in UA through the CFC
+- Which exceptions (active income / "exempt jurisdictions" / passive income threshold)
+- Total tax burden (% of turnover) for a UA resident with an offshore structure
 
 ### Q3 — Hybrid structures
 
-Если single jurisdiction не покрывает все 3 канала — какие комбинации работают:
+If a single jurisdiction does not cover all 3 channels — which combinations work:
 
-- UA ТОВ Дія Сіті + offshore subsidiary?
-- Offshore parent + UA ТОВ?
-- Двойная структура (operations + holding)?
+- UA TOV Diia City + offshore subsidiary?
+- Offshore parent + UA TOV?
+- A double structure (operations + holding)?
 
-Опиши **2-3 hybrid patterns**, для каждого — pros/cons + total cost + complexity.
+Describe **2-3 hybrid patterns**, for each — pros/cons + total cost + complexity.
 
-### Q4 — Cash treatment в каждой jurisdiction
+### Q4 — Cash treatment in each jurisdiction
 
-Где cash от клиентов:
+Where cash from clients:
 
-- Legitimately принимается (без РРО/КУО overhead)
-- Audit-proof документируется
-- Не требует repatriation в UA cash-form
+- Is legitimately accepted (without the RRO/KUO overhead)
+- Is documented audit-proof
+- Does not require repatriation to UA in cash form
 
-### Q5 — Crypto treatment в каждой jurisdiction
+### Q5 — Crypto treatment in each jurisdiction
 
-Где crypto:
+Where crypto:
 
-- Является legal tender / legal asset
-- Можно принимать как payment без VASP license overhead
-- Можно конвертировать в fiat без massive AML overhead
+- Is legal tender / a legal asset
+- Can be accepted as payment without the VASP license overhead
+- Can be converted into fiat without massive AML overhead
 
-### Q6 — Banking practicality в 2026
+### Q6 — Banking practicality in 2026
 
-Для каждой:
+For each:
 
-- Какие банки реально открывают счета UA-резидентам сейчас (2026)
-- Что нужно для KYC (residency? business plan? minimum deposit?)
-- Альтернативы (EMI типа Wise / Revolut Business — где принимают UA-резидентов)
+- Which banks actually open accounts for UA residents now (2026)
+- What is needed for KYC (residency? business plan? minimum deposit?)
+- Alternatives (EMIs like Wise / Revolut Business — where they accept UA residents)
 
 ### Q7 — Recommendation
 
-**Конкретный winner** для нашего профиля (IT-outsource, founders UA-резиденты, clients US/EU, обороты до 5-10M грн/год eqv в первые 12 месяцев).
+**A concrete winner** for our profile (IT outsource, UA-resident founders, US/EU clients, turnovers up to 5-10M UAH/year equivalent in the first 12 months).
 
-С обоснованием почему. Plus **realistic total tax burden** (% оборота) при этой структуре.
+With a rationale for why. Plus **a realistic total tax burden** (% of turnover) under this structure.
 
-## Что важно для решения
+## What matters for the decision
 
-- **Realistic** — не «по идее можно», а «в практике 2026 кто этим пользуется»
-- **Honest about CFC** — если все равно платим в UA ПДФО — sage user
-- **Bookkeeping/admin overhead** — не уйдём ли мы из 14-40k ₴/мес UA-режима в 200-500k ₴/мес complex offshore
-- **Bank-account reality** — не сделаем ли мы регистрацию которую не сможем использовать
-- **Audit-proof** — выдержит украинскую налоговую проверку (которая придёт **обязательно** при offshore структуре)
+- **Realistic** — not "in principle it's possible", but "in the practice of 2026, who uses this"
+- **Honest about CFC** — if we pay UA PIT anyway — say so to the user
+- **Bookkeeping/admin overhead** — won't we move from a 14-40k ₴/month UA regime to a 200-500k ₴/month complex offshore
+- **Bank-account reality** — won't we do a registration that we won't be able to use
+- **Audit-proof** — will withstand a Ukrainian tax audit (which will come **inevitably** with an offshore structure)
 
-## Что НЕ обсуждать
+## What NOT to discuss
 
-- Чисто illegal схемы (BVI shell с украденными номиналами и т.п.)
-- Юрисдикции в sanction lists (Россия, Беларусь, КНДР, Иран)
-- Mauritius / Seychelles / Belize — too high reputational stigma для tech business
-- Schemes требующие физического relocation founder'а (это другая консультация — про emigration, не business setup)
+- Purely illegal schemes (a BVI shell with stolen nominees, etc.)
+- Jurisdictions on sanction lists (Russia, Belarus, North Korea, Iran)
+- Mauritius / Seychelles / Belize — too high a reputational stigma for a tech business
+- Schemes requiring physical relocation of the founder (this is a different consultation — about emigration, not business setup)
 
-## Что важно при формате ответа
+## What matters for the format of the answer
 
-- **Comparative tables** там где можно — easier для user'а сравнить
-- **Не углубляться в legal theory** — давать practical reality
-- **Бюджеты в ₴** или USD eqv — сравнимо с предыдущими консультациями
+- **Comparative tables** where possible — easier for the user to compare
+- **Do not go deep into legal theory** — give the practical reality
+- **Budgets in ₴** or USD eqv — comparable with previous consultations
 
 ---
 
-<!-- Legal-агент добавит секцию `## Ответ юриста` ниже -->
+<!-- The Legal agent will add the `## Lawyer answer` section below -->
 
-## Ответ юриста
+## Lawyer answer
 
 **Confidence:** MED (overall)
 **Per-question confidence:**
 
-- Q1 (comparative matrix): **MED** — static knowledge + WebSearch покрывают, но регуляции меняются 2025-2026
-- Q2 (CFC math): **MED** — норма ст. 39² ПКУ чёткая, но конкретный effective rate для нашего профиля зависит от реализации
-- Q3 (hybrid): **MED→LOW** — много вариаций, конкретное решение требует international tax советника
-- Q4 (cash в jurisdictions): **LOW** — пересечение banking + tax + AML слишком многомерно для general AI ответа
-- Q5 (crypto): **MED** — VARA (UAE), MiCA (EU) есть чёткие источники, но «бизнес-практика» не всегда отражает регуляции
-- Q6 (banking 2026): **LOW** — banking policies меняются ежемесячно, особенно для UA-граждан из-за FATF/EU compliance
-- Q7 (recommendation): **MED** — основано на собранных факторах, но финальный выбор требует калькуляции конкретных цифр User'а
+- Q1 (comparative matrix): **MED** — static knowledge + WebSearch cover it, but the regulations are changing in 2025-2026
+- Q2 (CFC math): **MED** — the norm of Art. 39² of the Tax Code of Ukraine is clear, but the specific effective rate for our profile depends on execution
+- Q3 (hybrid): **MED→LOW** — many variations, a specific solution requires an international tax adviser
+- Q4 (cash in jurisdictions): **LOW** — the intersection of banking + tax + AML is too multidimensional for a general AI answer
+- Q5 (crypto): **MED** — VARA (UAE), MiCA (EU) have clear sources, but "business practice" does not always reflect the regulations
+- Q6 (banking 2026): **LOW** — banking policies change monthly, especially for UA citizens due to FATF/EU compliance
+- Q7 (recommendation): **MED** — based on the collected factors, but the final choice requires calculation of the User's specific figures
 
 **Mode:** strategic
-**Дата:** 2026-05-31
+**Date:** 2026-05-31
 
 ### TL;DR
 
-**Единой страны где cash + crypto + bank всё легально для одной компании UA-резидента — не существует в 2026.** Даже если такая страна была бы (она не существует, потому что cash B2B legitimately ≠ existed anywhere для размеров вашего бизнеса), CFC-правила Украины (ст. 39² ПКУ, ЗУ № 466-IX) **всё равно делают доходы offshore компании облагаемыми ПДФО 18% + 1.5% ВЗ на уровне UA-резидента-controller'а**, кроме узкого active income exception (≤50% passive income + treaty + effective rate ≥13%). **Реалистичный путь — hybrid UA Дія Сіті ТОВ (основа) + опц. UAE Free Zone или Эстония OÜ (для клиентских invoicing предпочтений)**, с total tax burden ~9-15% (vs UA-only 9% PnVK Дія Сіті). Сэкономить на налогах через offshore — миф; реальная цель offshore = client banking preferences / FX flexibility / brand reputation, но не tax arbitrage для UA-резидента.
+**A single country where cash + crypto + bank are all legal for one company of a UA resident does not exist in 2026.** Even if such a country existed (it does not, because legitimate B2B cash ≠ existed anywhere for the size of your business), the CFC rules of Ukraine (Art. 39² of the Tax Code of Ukraine, Law of Ukraine No. 466-IX) **still make the income of an offshore company taxable with PIT 18% + 1.5% military levy at the level of the UA-resident controller**, except for the narrow active income exception (≤50% passive income + a treaty + an effective rate ≥13%). **The realistic path is a hybrid UA Diia City TOV (base) + optionally a UAE Free Zone or an Estonia OÜ (for client invoicing preferences)**, with a total tax burden of ~9-15% (vs UA-only 9% exit-capital tax of Diia City). Saving on taxes through offshore is a myth; the real goal of offshore = client banking preferences / FX flexibility / brand reputation, but not tax arbitrage for a UA resident.
 
-### Анализ
+### Analysis
 
 ---
 
-#### 0. CFC Fundamentals — ключевое для понимания всего ниже
+#### 0. CFC Fundamentals — key to understanding everything below
 
-**Это самый важный блок ответа.** Если пропустите — все цифры ниже бесполезны.
+**This is the most important block of the answer.** If you skip it — all the figures below are useless.
 
-**UA закон про КІК (ЗУ № 466-IX, статья 39² ПКУ):**
+**UA CFC law (Law of Ukraine No. 466-IX, Article 39² of the Tax Code of Ukraine):**
 
-Любой UA-резидент (фізособа з податковою резидентністю UA), который владеет >50% долей в иностранной компании ИЛИ имеет фактический контроль (signing authority, контроль над банковским счетом, право назначать директоров), **обязан**:
+Any UA resident (an individual with UA tax residency) who owns >50% of a share in a foreign company OR has actual control (signing authority, control over the bank account, the right to appoint directors) **is obliged** to:
 
-1. **Подавать річний Звіт про КІК** до 1 травня року наступного за звітним (як додаток до декларації про майновий стан і доходи) ([WebSearch: yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/](https://yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/) — дата сбора: 2026-05-31)
-2. **Подавати Повідомлення про набуття/відчуження частки в КІК** в течение 60 дней після події
-3. **Платити ПДФО 18% + ВЗ 1.5% (=19.5%) с нерозподіленого прибутку КІК** — приписується controller'у даже если company не distributed dividends ([WebSearch: pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) — дата сбора: 2026-05-31)
+1. **File an annual CFC Report** by 1 May of the year following the reporting one (as an annex to the declaration of property status and income) ([WebSearch: yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/](https://yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/) — collection date: 2026-05-31)
+2. **File a Notification of acquisition/disposal of a share in a CFC** within 60 days after the event
+3. **Pay PIT 18% + military levy 1.5% (=19.5%) on the undistributed profit of the CFC** — attributed to the controller even if the company has not distributed dividends ([WebSearch: pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) — collection date: 2026-05-31)
 
-**Виключення (ст. 39².4 ПКУ) — коли НЕ платимо ПДФО з КІК прибутку:**
+**Exceptions (Art. 39².4 of the Tax Code of Ukraine) — when we do NOT pay PIT on CFC profit:**
 
-Прибыль КІК **не включається** в загальний оподатковуваний дохід controller'а если **виконуються обидві умови**:
+The profit of a CFC is **not included** in the total taxable income of the controller if **both conditions are met**:
 
-(a) **Між Україною та юрисдикцією КІК є чинна Угода про уникнення подвійного оподаткування (DTT)** ИЛИ Угода про обмін податковою інформацією; **И**
+(a) **Between Ukraine and the CFC's jurisdiction there is a valid Double Taxation Treaty (DTT)** OR an agreement on the exchange of tax information; **AND**
 
-(b) **Виконується хоча б одна з умов:**
+(b) **At least one of the conditions is met:**
 
-- **Ефективна ставка податку на прибуток** в юрисдикції КІК **≥13%** (тобто не менш ніж на 5 п.п. нижче UA базової ставки 18%); ИЛИ
-- **Частка пасивних доходів** КІК **≤50%** від загальної суми доходів КІК (active income test) ([WebSearch: pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) — дата сбора: 2026-05-31, та [WebSearch: kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/](https://kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/) — дата сбора: 2026-05-31)
+- The **effective corporate profit tax rate** in the CFC's jurisdiction is **≥13%** (i.e., no more than 5 p.p. below the UA base rate of 18%); OR
+- The **share of passive income** of the CFC is **≤50%** of the total amount of the CFC's income (the active income test) ([WebSearch: pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) — collection date: 2026-05-31, and [WebSearch: kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/](https://kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/) — collection date: 2026-05-31)
 
-**Що означає «пасивний» дохід (важливо для IT-outsource):**
+**What "passive" income means (important for IT outsource):**
 
-Пасивний дохід — це **дивіденди, проценти, роялті, прибуток від продажу цінних паперів, нерухомості** (ст. 14.1.268 ПКУ). **Дохід від надання IT-послуг — активний дохід.** Тобто типовий IT-outsource business **passes active income test автоматично** (95-100% доходу — active).
+Passive income is **dividends, interest, royalties, profit from the sale of securities, real estate** (Art. 14.1.268 of the Tax Code of Ukraine). **Income from providing IT services is active income.** That is, a typical IT-outsource business **passes the active income test automatically** (95-100% of income is active).
 
-**Що означає 13% effective rate:**
+**What the 13% effective rate means:**
 
-- Estonia OÜ: corporate tax 22% (но **тільки при distribution** — retained earnings 0%). Чи це 13%? **MЕD risk** — якщо нічого не distributing, effective = 0%, FAIL. Якщо distributing — 22%, PASS. ДПС може спорити.
-- Cyprus Ltd: 12.5% базова + IP Box може знижувати до 2.5%. **12.5% < 13% — FAIL!** Cyprus НЕ проходить test через ставку.
-- UAE Free Zone: 0% qualifying / 9% non-qualifying. **0% — FAIL.** 9% non-qualifying — теж FAIL.
+- Estonia OÜ: corporate tax 22% (but **only on distribution** — retained earnings 0%). Is this 13%? **MED risk** — if nothing is distributed, effective = 0%, FAIL. If distributing — 22%, PASS. The DPS may dispute.
+- Cyprus Ltd: 12.5% base + IP Box may lower it to 2.5%. **12.5% < 13% — FAIL!** Cyprus does NOT pass the test through the rate.
+- UAE Free Zone: 0% qualifying / 9% non-qualifying. **0% — FAIL.** 9% non-qualifying — also FAIL.
 - Georgia VZP: 0% corporate tax for IT. **FAIL.**
-- Georgia стандартна LLC: 15% — PASS.
-- Hong Kong: 16.5% (8.25% перші 2M HKD). 16.5% PASS, 8.25% FAIL.
+- Georgia standard LLC: 15% — PASS.
+- Hong Kong: 16.5% (8.25% first 2M HKD). 16.5% PASS, 8.25% FAIL.
 - UK Ltd: 19-25% — PASS.
-- Delaware LLC: 0% federal (pass-through to UBO). **FAIL** як «company tax» — але іпо суті treated як прозора структура, що теж окремий аналіз.
+- Delaware LLC: 0% federal (pass-through to the UBO). **FAIL** as "company tax" — but in essence treated as a transparent structure, which is also a separate analysis.
 
-**Висновок critical: для більшості «привабливих» offshore юрисдикцій 13% effective test НЕ проходить → controller платить 18%+1.5% ПДФО в Україні в будь-якому випадку.**
+**Critical conclusion: for most "attractive" offshore jurisdictions the 13% effective test does NOT pass → the controller pays 18%+1.5% PIT in Ukraine in any case.**
 
-**Active income test — це наш спасатель.** Для IT-outsource (де ~100% доходу — active) **переважна більшість юрисдикцій проходять exemption через active income**, але:
+**The active income test is our savior.** For IT outsource (where ~100% of income is active) **the vast majority of jurisdictions pass the exemption through active income**, but:
 
-- **Treaty з Україною обов'язковий** (Cyprus, Estonia, UAE, UK, Georgia мають; Delaware/USA — є treaty, але для LLC pass-through specifics складніше)
-- **Substance не повинен бути sham** — інакше ДПС може реквалифицировать як «фіктивну юрисдикцію»
-- **Документація** — повинна бути аудиторська/financial statement, що показує >50% active income
+- **A treaty with Ukraine is mandatory** (Cyprus, Estonia, UAE, UK, Georgia have one; Delaware/USA — there is a treaty, but for an LLC pass-through the specifics are more complex)
+- **Substance must not be a sham** — otherwise the DPS may reclassify it as a "fictitious jurisdiction"
+- **Documentation** — there must be an auditor's/financial statement showing >50% active income
 
-**Штрафи за порушення КІК reporting (2025 рівень):**
+**Penalties for violating CFC reporting (2025 level):**
 
-| Порушення                      | Штраф 2025                                                                                                                                                                                                                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Неподання Звіту про КІК        | **302,800 ₴** (100 прожиткових мінімумів) ([WebSearch: victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html](https://www.victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html) — дата сбора: 2026-05-31) |
-| Прострочка подання             | 3,028 ₴/день, max 151,400 ₴                                                                                                                                                                                                                                                          |
-| Неподання Повідомлення про КІК | **908,400 ₴** (300 ПМ)                                                                                                                                                                                                                                                               |
+| Violation                            | Penalty 2025                                                                                                                                                                                                                                                                             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Failure to file the CFC Report       | **302,800 ₴** (100 subsistence minimums) ([WebSearch: victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html](https://www.victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html) — collection date: 2026-05-31) |
+| Late filing                          | 3,028 ₴/day, max 151,400 ₴                                                                                                                                                                                                                                                               |
+| Failure to file the CFC Notification | **908,400 ₴** (300 subsistence minimums)                                                                                                                                                                                                                                                 |
 
-**ВАЖЛИВО — мораторій під час воєнного стану:** Зараз (травень 2026) штрафи **формально не накладаються**, але порушення **фіксуються** и можуть бути sanctioned **через 6 місяців після завершення воєнного стану**. Іншими словами, «не подавав з 2022» = можливі сумарні штрафи від ~1.5M до 5M+ ₴ за 3-4 роки, накопичені after war.
+**IMPORTANT — the moratorium during martial law:** Right now (May 2026) the penalties are **formally not imposed**, but violations **are recorded** and may be sanctioned **6 months after the end of martial law**. In other words, "did not file since 2022" = possible cumulative penalties from ~1.5M to 5M+ ₴ for 3-4 years, accumulated after the war.
 
-**Звідси випливає головне правило:**
+**From this the main rule follows:**
 
-> Offshore структура для UA-резидента **НЕ означає «не платити в Україну»**. Це означає «платити в Україну меншу/іншу ставку через active income exemption + платити local corporate tax + платити reporting overhead». Якщо бажаєте zero UA tax — це **податкове резидентство за межами України** (тобто founder фізично виїжджає, втрачає UA податкове резидентство), а не offshore структура.
+> An offshore structure for a UA resident **does NOT mean "do not pay into Ukraine"**. It means "pay Ukraine a lower/different rate through the active income exemption + pay the local corporate tax + pay the reporting overhead". If you wish for zero UA tax — this is **tax residency outside Ukraine** (i.e., the founder physically leaves, loses UA tax residency), not an offshore structure.
 
 ---
 
 #### 1. Comparative Matrix — 6 Jurisdictions
 
-| Юрисдикція                     | Setup time               | Setup cost                    | Annual cost                           | Cash B2B legal?                                      | Crypto legal?                                                                                                   | Banking для UA-резидента                                                                                                          | Substance required                                                                   | UA CFC: passes active test?                                               | Reputation                            |
-| ------------------------------ | ------------------------ | ----------------------------- | ------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- | ------------------------------------- |
-| **Estonia (OÜ + e-Residency)** | 1-2 тиж                  | €260-500                      | €100-300                              | Так, без ліміту ЄС                                   | З Jul 2026 — повний MiCA license €100k+ capital для CASP                                                        | **Дуже складно для UA citizens** — банки відмовляють через high-risk policies (FATF/EU); fintechs (Wise, Revolut) — теж жорсткіше | Low-moderate (e-Residency дозволяє virtual operation, але substance тести зростають) | Так, treaty є, active income ≥50% PASS                                    | Clean (EU member)                     |
-| **Cyprus (Ltd)**               | 3-6 тиж                  | €2,000-4,000                  | €2,500-5,000 (audit, secretary, fees) | Так, без ліміту ЄС                                   | Cyprus VASP framework (CySEC), MiCA з 2025                                                                      | Moderate-hard — 6-10 тижнів для non-resident UA UBO; merge Hellenic→Eurobank ускладнило ландшафт                                  | Moderate — IP Box потребує реальний staff + R&D                                      | Так (12.5%<13% FAIL, але active test PASS)                                | Clean (EU member)                     |
-| **UAE (IFZA/Meydan FZ)**       | 1-2 тиж                  | $5,000-8,000 (~₴200k)         | $4,000-7,000 + visa $2,500/year       | Так, але AML reporting >150k AED ($40k) обов'язковий | VARA (Dubai) license потрібен для VASP services; payment в crypto = OK, але якщо це business — license required | Moderate — IFZA має партнерства з Emirates NBD/Mashreq/RAK, 2-4 тижні compliance, требує visit/visa                               | High — MD 229/230 of 2025 жорсткіше: real office, employees, board meetings в ОАЕ    | Так (0%/9% FAIL по ставці, active test PASS; але substance — risk)        | Clean to grey (depends on operations) |
-| **Georgia (LLC + VZP)**        | 1 тиж                    | $500-1,500                    | $1,000-3,000                          | Так, ліміт відсутній для B2B (LARI/USD)              | **Крипто легально, ДОХОД від продажу 0% податок** (для фізосіб)                                                 | **Easy for UA citizens** — TBC/Bank of Georgia традиційно відкривають UA passport accounts; для business — bureaucratic 50/50     | Low (VZP) — не вимагає physical office                                               | VZP 0% — **FAIL** по 13% ставці; LLC standard 15% — PASS                  | Clean-moderate (smaller country)      |
-| **Hong Kong (Ltd)**            | 1-2 тиж                  | $1,500-3,000                  | $3,000-6,000                          | Так, без ліміту, але AML на >120k HKD ($15k)         | VASP licensing з 2023 — потрібен license для services, але приймати crypto як payment — OK                      | **Extremely hard for UA non-residents** — banks practically не відкривають з 2020                                                 | High (substance + POEM test)                                                         | Treaty Ukraine-HK немає → FAIL exemption по treaty test                   | Clean                                 |
-| **UK Ltd / Delaware LLC**      | 1 тиж (UK), 1-2 тиж (DE) | £100-500 (UK) / $300-700 (DE) | £200-1,000 (UK) / $300-600 (DE)       | Так, AML >10k EUR/GBP B2B reporting                  | UK FCA crypto registration; Delaware — federal SEC + state                                                      | UK — moderate; Delaware — easy через Mercury/Wise (якщо kept clean)                                                               | Low for Delaware LLC; Medium для UK Ltd                                              | UK 19-25% PASS; Delaware 0% federal — pass-through до UBO, technical FAIL | Clean (UK), Clean (Delaware)          |
+| Jurisdiction                   | Setup time                  | Setup cost                    | Annual cost                           | Cash B2B legal?                                   | Crypto legal?                                                                                                               | Banking for a UA resident                                                                                                  | Substance required                                                                      | UA CFC: passes active test?                                                   | Reputation                            |
+| ------------------------------ | --------------------------- | ----------------------------- | ------------------------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- | ------------------------------------- |
+| **Estonia (OÜ + e-Residency)** | 1-2 weeks                   | €260-500                      | €100-300                              | Yes, no limit in the EU                           | From Jul 2026 — a full MiCA license, €100k+ capital for a CASP                                                              | **Very hard for UA citizens** — banks refuse due to high-risk policies (FATF/EU); fintechs (Wise, Revolut) — also stricter | Low-moderate (e-Residency allows virtual operation, but substance tests are growing)    | Yes, there is a treaty, active income ≥50% PASS                               | Clean (EU member)                     |
+| **Cyprus (Ltd)**               | 3-6 weeks                   | €2,000-4,000                  | €2,500-5,000 (audit, secretary, fees) | Yes, no limit in the EU                           | Cyprus VASP framework (CySEC), MiCA from 2025                                                                               | Moderate-hard — 6-10 weeks for a non-resident UA UBO; the Hellenic→Eurobank merge complicated the landscape                | Moderate — IP Box requires real staff + R&D                                             | Yes (12.5%<13% FAIL, but active test PASS)                                    | Clean (EU member)                     |
+| **UAE (IFZA/Meydan FZ)**       | 1-2 weeks                   | $5,000-8,000 (~₴200k)         | $4,000-7,000 + visa $2,500/year       | Yes, but AML reporting >150k AED ($40k) mandatory | A VARA (Dubai) license is needed for VASP services; payment in crypto = OK, but if it is a business — a license is required | Moderate — IFZA has partnerships with Emirates NBD/Mashreq/RAK, 2-4 weeks compliance, requires a visit/visa                | High — MD 229/230 of 2025 stricter: a real office, employees, board meetings in the UAE | Yes (0%/9% FAIL by rate, active test PASS; but substance — risk)              | Clean to grey (depends on operations) |
+| **Georgia (LLC + VZP)**        | 1 week                      | $500-1,500                    | $1,000-3,000                          | Yes, no limit for B2B (LARI/USD)                  | **Crypto is legal, income from the sale is 0% tax** (for individuals)                                                       | **Easy for UA citizens** — TBC/Bank of Georgia traditionally open UA passport accounts; for business — bureaucratic 50/50  | Low (VZP) — does not require a physical office                                          | VZP 0% — **FAIL** by the 13% rate; LLC standard 15% — PASS                    | Clean-moderate (a smaller country)    |
+| **Hong Kong (Ltd)**            | 1-2 weeks                   | $1,500-3,000                  | $3,000-6,000                          | Yes, no limit, but AML on >120k HKD ($15k)        | VASP licensing from 2023 — a license is needed for services, but accepting crypto as payment — OK                           | **Extremely hard for UA non-residents** — banks practically do not open since 2020                                         | High (substance + POEM test)                                                            | No treaty Ukraine-HK → FAIL exemption by the treaty test                      | Clean                                 |
+| **UK Ltd / Delaware LLC**      | 1 week (UK), 1-2 weeks (DE) | £100-500 (UK) / $300-700 (DE) | £200-1,000 (UK) / $300-600 (DE)       | Yes, AML >10k EUR/GBP B2B reporting               | UK FCA crypto registration; Delaware — federal SEC + state                                                                  | UK — moderate; Delaware — easy via Mercury/Wise (if kept clean)                                                            | Low for a Delaware LLC; Medium for a UK Ltd                                             | UK 19-25% PASS; Delaware 0% federal — pass-through to the UBO, technical FAIL | Clean (UK), Clean (Delaware)          |
 
-**Ключові спостереження з матриці:**
+**Key observations from the matrix:**
 
-1. **Жодна юрисдикція не дає легально cash B2B + crypto «без всякого AML overhead» + банк для UA founder одночасно.** Crypto скрізь під регуляцією (VARA/MiCA/VASP).
-2. **Banking — найбільший практичний bottleneck.** Для UA citizens сьогодні: Estonia/Cyprus — складно, Hong Kong — практично неможливо, UAE/Georgia — досяжно, Delaware через fintech — досяжно.
-3. **UAE — найбільш «cash-friendly» через відсутність USD/EUR-cash обмежень + крипто-friendly (VARA),** але substance requirements зростають (MD 229/230).
+1. **No jurisdiction gives legal cash B2B + crypto "without any AML overhead" + a bank for a UA founder simultaneously.** Crypto is under regulation everywhere (VARA/MiCA/VASP).
+2. **Banking is the biggest practical bottleneck.** For UA citizens today: Estonia/Cyprus — hard, Hong Kong — practically impossible, UAE/Georgia — achievable, Delaware via fintech — achievable.
+3. **UAE is the most "cash-friendly" due to the absence of USD/EUR cash limits + crypto-friendly (VARA),** but the substance requirements are growing (MD 229/230).
 
 ---
 
@@ -271,189 +271,189 @@ US/EU клиенты могут отказаться платить в:
 
 ##### Estonia (OÜ)
 
-**Плюси:**
+**Pros:**
 
-- Corporate tax 22% **тільки при distribution** — retained = 0% ([WebSearch: e-resident.gov.ee/taxes-in-estonia/](https://www.e-resident.gov.ee/taxes-in-estonia/) — дата сбора: 2026-05-31). Це нічого не дасть для UA controller'а (CFC test FAIL по effective rate), але корисно якщо reinvest назад в company
-- e-Residency — швидко (1-2 тиж), віддалено
-- EU member — clean reputation для US/EU клієнтів
+- Corporate tax 22% **only on distribution** — retained = 0% ([WebSearch: e-resident.gov.ee/taxes-in-estonia/](https://www.e-resident.gov.ee/taxes-in-estonia/) — collection date: 2026-05-31). This will give nothing to the UA controller (CFC test FAIL by effective rate), but is useful if you reinvest back into the company
+- e-Residency — fast (1-2 weeks), remote
+- EU member — a clean reputation for US/EU clients
 
-**Мінуси:**
+**Cons:**
 
-- **Banking для UA citizens — критичний bottleneck.** LHV вимагає face-to-face визит в Estonia, fintechs (Wise, Revolut) у 2025 жорсткіше обходять UA citizens compliance check ([WebSearch: nomadgate.com/banking-estonian-e-residents/](https://nomadgate.com/banking-estonian-e-residents/) — дата сбора: 2026-05-31)
-- Revolut **повністю звертається з ринку України** в грудні 2025 ([WebSearch: en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/](https://en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/) — дата сбора: 2026-05-31) — це впливає і на EU customers UA-резидентів
-- Crypto: з Jul 2026 потрібен повний MiCA CASP license (€100-250k capital) — **прийняти USDT як payment в business — потенційно потрібен license** якщо це «exchange service» ([WebSearch: hacken.io/discover/estonia-crypto-license/](https://hacken.io/discover/estonia-crypto-license/) — дата сбора: 2026-05-31)
+- **Banking for UA citizens — a critical bottleneck.** LHV requires a face-to-face visit to Estonia, fintechs (Wise, Revolut) in 2025 more strictly go around the UA citizens compliance check ([WebSearch: nomadgate.com/banking-estonian-e-residents/](https://nomadgate.com/banking-estonian-e-residents/) — collection date: 2026-05-31)
+- Revolut is **fully withdrawing from the Ukrainian market** in December 2025 ([WebSearch: en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/](https://en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/) — collection date: 2026-05-31) — this affects EU customers who are UA residents too
+- Crypto: from Jul 2026 a full MiCA CASP license (€100-250k capital) is needed — **accepting USDT as payment in a business — potentially a license is needed** if it is an "exchange service" ([WebSearch: hacken.io/discover/estonia-crypto-license/](https://hacken.io/discover/estonia-crypto-license/) — collection date: 2026-05-31)
 
-**Для кого:** Founder хто планує relocation в EU або вже там, бо banking практичний.
+**For whom:** A founder who plans relocation to the EU or is already there, because banking is practical.
 
 ##### Cyprus (Ltd)
 
-**Плюси:**
+**Pros:**
 
-- 12.5% corporate tax — низько серед EU
-- **IP Box: effective rate 2.5% на IP-related income** ([WebSearch: lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies](https://www.lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies) — дата сбора: 2026-05-31)
+- 12.5% corporate tax — low among the EU
+- **IP Box: effective rate 2.5% on IP-related income** ([WebSearch: lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies](https://www.lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies) — collection date: 2026-05-31)
 - EU clean reputation
 
-**Мінуси:**
+**Cons:**
 
-- **Substance requirements серйозні** — IP Box vimagaye real R&D staff, decision-making в Cyprus ([WebSearch: doviandi.com/cyprus-economic-substance-guide/](https://www.doviandi.com/cyprus-economic-substance-guide/) — дата сбора: 2026-05-31). Sham office не пройде
-- **Banking compliance 6-10 тижнів** для non-resident UA UBO. Eurobank (acquired Hellenic в May 2025) — тепер найбільший player, але enhanced due diligence для UA UBO стандарт
-- **12.5% < 13% UA CFC test → FAIL** по effective rate (active income test ще працює)
-- Annual costs €2,500-5,000 (audit обов'язковий навіть для маленьких компаній)
+- **Substance requirements are serious** — IP Box requires real R&D staff, decision-making in Cyprus ([WebSearch: doviandi.com/cyprus-economic-substance-guide/](https://www.doviandi.com/cyprus-economic-substance-guide/) — collection date: 2026-05-31). A sham office will not pass
+- **Banking compliance 6-10 weeks** for a non-resident UA UBO. Eurobank (acquired Hellenic in May 2025) — now the largest player, but enhanced due diligence for a UA UBO is standard
+- **12.5% < 13% UA CFC test → FAIL** by effective rate (the active income test still works)
+- Annual costs €2,500-5,000 (an audit is mandatory even for small companies)
 
-**Для кого:** Скейл-апи з IP (SaaS, software) які можуть створити substance.
+**For whom:** Scale-ups with IP (SaaS, software) that can create substance.
 
 ##### UAE (IFZA/Meydan Free Zone)
 
-**Плюси:**
+**Pros:**
 
-- **0% corporate tax для qualifying free zone activities** (ст. 4 Federal Decree-Law No. 47 of 2022, MD 229 of 2025)
-- **VARA Dubai = world's first dedicated virtual assets regulator** — clear path для крипто-business, якщо отримуєш license
-- Setup швидкий (1-2 тиж), no minimum capital
-- Banking з Emirates NBD/Mashreq досяжний через IFZA partnerships
-- Немає cash B2B обмежень для USD/EUR, AED
+- **0% corporate tax for qualifying free zone activities** (Art. 4 of Federal Decree-Law No. 47 of 2022, MD 229 of 2025)
+- **VARA Dubai = the world's first dedicated virtual assets regulator** — a clear path for a crypto business, if you get a license
+- Setup is fast (1-2 weeks), no minimum capital
+- Banking with Emirates NBD/Mashreq is achievable via IFZA partnerships
+- No cash B2B limits for USD/EUR, AED
 
-**Мінуси:**
+**Cons:**
 
-- **9% non-qualifying** rate якщо не вкладається в QFZP test (e.g., деяку частину доходу робиш з mainland UAE)
-- **Substance requirements з 2025 жорсткіше**: real office (не flex-desk!), full-time qualified employees, board meetings в ОАЕ, adequate operating expenditure ([WebSearch: china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations](https://www.china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations) — дата сбора: 2026-05-31)
-- **Visa для founder ($2,500/year)** + якщо substance test не пройдено → 9% tax + втрата free zone benefits
-- **Treaty Ukraine-UAE підписаний** (МLI applies), але деталі CFC mapping складні
-- **Reputational mixed** для US/EU enterprise клієнтів (perceived як tax-driven choice)
+- **9% non-qualifying** rate if you do not fit the QFZP test (e.g., you do some part of the income with the UAE mainland)
+- **Substance requirements stricter from 2025**: a real office (not a flex-desk!), full-time qualified employees, board meetings in the UAE, adequate operating expenditure ([WebSearch: china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations](https://www.china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations) — collection date: 2026-05-31)
+- **A visa for the founder ($2,500/year)** + if the substance test is not passed → a 9% tax + loss of free zone benefits
+- **The Ukraine-UAE treaty is signed** (MLI applies), but the details of CFC mapping are complex
+- **Reputationally mixed** for US/EU enterprise clients (perceived as a tax-driven choice)
 
-**Для кого:** Founder з реальними планами хоча б part-time presence в Dubai (2+ trips/year) + clients open до UAE invoicing.
+**For whom:** A founder with real plans for at least a part-time presence in Dubai (2+ trips/year) + clients open to UAE invoicing.
 
 ##### Georgia (LLC + VZP/Individual Entrepreneur)
 
-**Плюси:**
+**Pros:**
 
-- **Individual Entrepreneur з 1% оборот до 500,000 GEL/year** (~$180k) ([WebSearch: ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status](https://www.ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status) — дата сбора: 2026-05-31)
-- **VZP — 0% corporate tax для IT services to foreign clients** ([WebSearch: ge.andersen.com/virtual-zone-person-georgia/](https://ge.andersen.com/virtual-zone-person-georgia/) — дата сбора: 2026-05-31)
-- **Crypto income = 0% tax for individuals** (Georgian Tax Code) — повна свобода
-- **Banking найдоступніший для UA citizens** з TBC/Bank of Georgia
-- Setup дешевий ($500-1,500)
+- **Individual Entrepreneur with 1% of turnover up to 500,000 GEL/year** (~$180k) ([WebSearch: ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status](https://www.ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status) — collection date: 2026-05-31)
+- **VZP — 0% corporate tax for IT services to foreign clients** ([WebSearch: ge.andersen.com/virtual-zone-person-georgia/](https://ge.andersen.com/virtual-zone-person-georgia/) — collection date: 2026-05-31)
+- **Crypto income = 0% tax for individuals** (the Georgian Tax Code) — full freedom
+- **Banking is the most accessible for UA citizens** with TBC/Bank of Georgia
+- Setup is cheap ($500-1,500)
 
-**Мінуси:**
+**Cons:**
 
-- **0% — UA CFC test FAIL по effective rate**. Active income test для IT — PASS, але потрібна documenting trail
-- **Business banking для non-resident-owned company — bureaucratic** (50/50 success rate, банки часто відмовляють) ([WebSearch: pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/](https://pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/) — дата сбора: 2026-05-31)
-- **VZP substance test зростає** — потрібен Georgia-based employee для IT activities
-- **Reputational risk** — менш recognizable juгисдикция; US/EU enterprise клієнти можуть запитати
-- IE 1% — **тільки для фізособи, не для CRM-моделі з кількома founder'ами**
+- **0% — UA CFC test FAIL by effective rate**. The active income test for IT — PASS, but a documenting trail is needed
+- **Business banking for a non-resident-owned company is bureaucratic** (a 50/50 success rate, banks often refuse) ([WebSearch: pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/](https://pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/) — collection date: 2026-05-31)
+- **The VZP substance test is growing** — a Georgia-based employee is needed for IT activities
+- **Reputational risk** — a less recognizable jurisdiction; US/EU enterprise clients may ask
+- IE 1% — **only for an individual, not for a CRM model with several founders**
 
-**Для кого:** Solo founder або pair-founders готові relocate в Tbilisi (substance + banking легше з residency).
+**For whom:** A solo founder or pair-founders ready to relocate to Tbilisi (substance + banking are easier with residency).
 
 ##### Hong Kong (Ltd)
 
-**Не рекомендую для нашого профілю.**
+**I do not recommend it for our profile.**
 
-- **Banking практично closed для UA non-residents** з 2020-2022
-- **Немає treaty з Ukraine** → CFC exemption неможлива через treaty test
-- 16.5%/8.25% tax може здаватись OK, але offshore claim вимагає proof — складно для IT outsource
-- Reputational neutral, але client onboarding в US/EU сповільнюється через HK-related compliance checks
+- **Banking is practically closed for UA non-residents** since 2020-2022
+- **No treaty with Ukraine** → the CFC exemption is impossible through the treaty test
+- 16.5%/8.25% tax may seem OK, but an offshore claim requires proof — hard for IT outsource
+- Reputationally neutral, but client onboarding in the US/EU is slowed down due to HK-related compliance checks
 
 ##### UK Ltd / Delaware LLC
 
 **UK Ltd:**
 
-- Corporate tax 19-25% (марginal: 19% до £50k profit, 25% above) — PASS UA CFC effective rate
-- Banking moderate складність для UA UBO
-- Reputational excellent
-- Annual costs низькі (£200-1,000)
+- Corporate tax 19-25% (marginal: 19% up to £50k profit, 25% above) — PASS the UA CFC effective rate
+- Banking moderate difficulty for a UA UBO
+- Reputationally excellent
+- Annual costs low (£200-1,000)
 
 **Delaware LLC:**
 
-- 0% federal corporate tax (pass-through до UBO) — **technical CFC complexity**: Delaware LLC treated як disregarded entity → income атрибутується безпосередньо UA controller'у як personal income (18% ПДФО + 1.5% ВЗ + потенційно US withholding tax 30% якщо немає treaty rate)
-- **Banking через Mercury/Wise — найшвидший шлях** для non-resident foreign owners, але:
-  - Mercury не має specifics для UA passport holders 2025-2026
-  - Wise — приймає UA passport ([WebSearch: buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine](https://buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine) — дата сбора: 2026-05-31)
-- **BOI filing з 2024**: Delaware-formed LLC exempt під March 2025 interim rule, але foreign-reporting (UK Ltd registered in US) — must file
-- Reputational excellent для US clients
+- 0% federal corporate tax (pass-through to the UBO) — **a technical CFC complexity**: a Delaware LLC is treated as a disregarded entity → income is attributed directly to the UA controller as personal income (18% PIT + 1.5% military levy + potentially US withholding tax 30% if there is no treaty rate)
+- **Banking via Mercury/Wise — the fastest path** for non-resident foreign owners, but:
+  - Mercury has no specifics for UA passport holders in 2025-2026
+  - Wise — accepts a UA passport ([WebSearch: buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine](https://buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine) — collection date: 2026-05-31)
+- **BOI filing from 2024**: a Delaware-formed LLC is exempt under the March 2025 interim rule, but foreign reporting (a UK Ltd registered in the US) — must file
+- Reputationally excellent for US clients
 
-**Для кого:** US clients-focused operations де US tax treatment окремо керуєте.
-
----
-
-#### 3. Cash Treatment — Реальність
-
-Я повинен бути чесним: **legitimate B2B cash для outsource при наших оборотах НЕ існує практично в жодній developed jurisdiction.**
-
-| Юрисдикція     | Cash B2B легально?  | Реальна практика                                                                                                                                                          |
-| -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Estonia/Cyprus | Так (EU не обмежив) | Банки сигналізуть AML on cash deposits >€10k. Готівка >€10k corporate — призведе до closing account. **Тобто формально OK, практично — ні**                               |
-| UAE            | Так                 | AED cash легально, USD cash — обмеження невелике. Але deposits >150k AED (~$40k) → enhanced AML reporting. **Практично можна для retail/F&B, для IT outsource — outlier** |
-| Georgia        | Так                 | Lari cash freely. USD cash — банки приймають з reporting. **Single-country operations можливі, але крос-кордонне з US/EU client — practically не**                        |
-| Hong Kong      | Так                 | HKD cash легально. USD — AML с $15k. **Те ж саме що EU**                                                                                                                  |
-| UK/USA         | Так формально       | UK: AML reporting >€10k. USA: IRS Form 8300 for cash >$10k. **Жодна юрисдикція не вирішує проблему «прийняти готівку від US enterprise клієнта без AML паперів»**         |
-
-**Висновок: вимога «cash як один з трьох каналів» не може бути виконана legitimately в IT outsource context ні в одній юрисдикції.** Cash для outsource на наших обсягах = AML risk завжди. Це не наша проблема Україна-specific — це global standard з 2018 (FATF Recommendations updated).
-
-**Якщо User приймає окремо невеликі cash payments від local UA клієнтів — це окрема ФОП-схема в Україні** (1-я група ЕН з лімітом 1.6M ₴/year, готівка дозволена). Але не «cash channel для US/EU enterprise клієнтів» в offshore структурі.
+**For whom:** US-clients-focused operations where you manage the US tax treatment separately.
 
 ---
 
-#### 4. Crypto Treatment — Реальність 2026
+#### 3. Cash Treatment — The Reality
 
-| Юрисдикція | Crypto статус                                               | VASP license потрібен?                                                                                                           | Конвертація в fiat                                           |
-| ---------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| Estonia    | Регульований як CASP під MiCA з 30.12.2024                  | **Так** для exchange services, capital €100-250k. Приймати як payment for own goods/services — OK без license якщо не "exchange" | Через licensed CASP — стандартна                             |
-| Cyprus     | CySEC + MiCA з 2025                                         | Так, MiCA applies                                                                                                                | Через regulated VASP                                         |
-| UAE        | **VARA Dubai = найбільш crypto-friendly major hub**         | Так для services, але payment acceptance ≠ services якщо < threshold                                                             | Свобода через licensed exchanges (Binance UAE, Bitget local) |
-| Georgia    | Legal (Law on Virtual Assets, 2023)                         | Сертифіковані operators, але free для individuals                                                                                | **Найвільніша** з нашого набору                              |
-| Hong Kong  | VASP licensing з 2023 (SFC)                                 | Так для services                                                                                                                 | Через licensed VASPs                                         |
-| UK/USA     | UK FCA registration; USA — state-level (NY BitLicense etc.) | Так для services                                                                                                                 | Через licensed exchanges                                     |
+I must be honest: **legitimate B2B cash for outsource at our turnovers does NOT exist in practice in any developed jurisdiction.**
 
-**Ключовий нюанс:** "Crypto channel" в нашому контексті означає **прийняти USDT як payment від client + потім конвертувати в fiat**. У більшості юрисдикцій:
+| Jurisdiction   | Cash B2B legal?            | The real practice                                                                                                                                                                 |
+| -------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Estonia/Cyprus | Yes (the EU did not limit) | Banks signal AML on cash deposits >€10k. Cash >€10k corporate — will lead to closing the account. **That is, formally OK, practically — no**                                      |
+| UAE            | Yes                        | AED cash is legal, USD cash — the limit is small. But deposits >150k AED (~$40k) → enhanced AML reporting. **Practically possible for retail/F&B, for IT outsource — an outlier** |
+| Georgia        | Yes                        | Lari cash freely. USD cash — banks accept it with reporting. **Single-country operations are possible, but cross-border with a US/EU client — practically not**                   |
+| Hong Kong      | Yes                        | HKD cash is legal. USD — AML at $15k. **The same as the EU**                                                                                                                      |
+| UK/USA         | Yes formally               | UK: AML reporting >€10k. USA: IRS Form 8300 for cash >$10k. **No jurisdiction solves the problem of "accept cash from a US enterprise client without AML papers"**                |
 
-1. **Прийняти USDT як payment for goods/services** — OK без license якщо це не «exchange»
-2. **Конвертувати USDT → fiat через licensed exchange + перевести на bank** — OK
-3. **Тобто crypto channel legitimately можливий в Estonia, UAE, Georgia, UK** без VASP license **для нашої моделі**
+**Conclusion: the requirement of "cash as one of the three channels" cannot be fulfilled legitimately in an IT outsource context in any jurisdiction.** Cash for outsource at our volumes = always an AML risk. This is not our Ukraine-specific problem — it is a global standard since 2018 (FATF Recommendations updated).
 
-**Але:** UA crypto vacuum (поки 10225-д не активований) робить **перерахунок прибутку від crypto operations** в UA-таx terms нечітким. Це окрема консультація ([2026-05-31-usdt-payouts-phase8.md](2026-05-31-usdt-payouts-phase8.md)).
+**If the User separately accepts small cash payments from local UA clients — this is a separate FOP scheme in Ukraine** (group 1 single tax with a limit of 1.6M ₴/year, cash is allowed). But not a "cash channel for US/EU enterprise clients" in an offshore structure.
 
 ---
 
-#### 5. Banking Reality 2026 для UA-резидентів
+#### 4. Crypto Treatment — The Reality of 2026
 
-**Hierarchy сложности (від легкого до неможливого):**
+| Jurisdiction | Crypto status                                               | Is a VASP license needed?                                                                                                                       | Conversion into fiat                                           |
+| ------------ | ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| Estonia      | Regulated as a CASP under MiCA from 30.12.2024              | **Yes** for exchange services, capital €100-250k. Accepting as payment for one's own goods/services — OK without a license if not an "exchange" | Through a licensed CASP — standard                             |
+| Cyprus       | CySEC + MiCA from 2025                                      | Yes, MiCA applies                                                                                                                               | Through a regulated VASP                                       |
+| UAE          | **VARA Dubai = the most crypto-friendly major hub**         | Yes for services, but payment acceptance ≠ services if < threshold                                                                              | Freedom through licensed exchanges (Binance UAE, Bitget local) |
+| Georgia      | Legal (the Law on Virtual Assets, 2023)                     | Certified operators, but free for individuals                                                                                                   | **The freest** of our set                                      |
+| Hong Kong    | VASP licensing from 2023 (SFC)                              | Yes for services                                                                                                                                | Through licensed VASPs                                         |
+| UK/USA       | UK FCA registration; USA — state-level (NY BitLicense etc.) | Yes for services                                                                                                                                | Through licensed exchanges                                     |
 
-| Jurisdiction + Bank                         | Складність для UA citizen | Реалістично?                                                                          |
-| ------------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------- |
-| **Georgia + TBC/BoG (personal)**            | Easy                      | Так, з паспортом on-site                                                              |
-| **Georgia + business account**              | Medium                    | 50/50, залежить від substance                                                         |
-| **Wise Business (для будь-якої company)**   | Easy-medium               | Так, приймають UA passport, але потрібна registered company in supported jurisdiction |
-| **Delaware LLC + Mercury**                  | Medium                    | Так historically, але 2025 stricter; не публічна policy для UA                        |
-| **UAE + Emirates NBD/Mashreq (через IFZA)** | Medium-hard               | 2-4 тижні, можливе якщо документи в порядку                                           |
-| **Estonia + LHV**                           | Hard                      | Потрібен face-to-face visit, для UA citizens posypled                                 |
-| **Estonia + Wise/Payoneer EMI**             | Medium                    | Альтернатива to LHV, але обмеження на high-risk countries                             |
-| **Cyprus + Eurobank (ex-Hellenic)**         | Hard                      | 6-10 тижнів enhanced DD; merge ускладнив                                              |
-| **UK + Revolut Business / Wise**            | Easy-medium               | Так, але Revolut closing UA market                                                    |
-| **Hong Kong + будь-який**                   | Practically impossible    | 2025 — банки масово відмовляють non-residents                                         |
+**The key nuance:** "Crypto channel" in our context means **accepting USDT as payment from a client + then converting into fiat**. In most jurisdictions:
 
-**Ключове правило 2025-2026:** Якщо банк відмовив — це не bug, це feature. AML compliance officers сьогодні мають quota по reject rate. UA passport — automatic enhanced screening.
+1. **Accepting USDT as payment for goods/services** — OK without a license if it is not an "exchange"
+2. **Converting USDT → fiat through a licensed exchange + transferring to a bank** — OK
+3. **That is, a crypto channel is legitimately possible in Estonia, UAE, Georgia, UK** without a VASP license **for our model**
 
-**Висновок:** Не реєструйте company в jurisdiction де ви не маєте plan B для banking. Спочатку — verify with EMI/bank that they will open для вашого UBO профілю; **потім** реєструйте entity.
+**But:** the UA crypto vacuum (while 10225-d is not activated) makes the **recalculation of profit from crypto operations** in UA tax terms unclear. This is a separate consultation ([2026-05-31-usdt-payouts-phase8.md](2026-05-31-usdt-payouts-phase8.md)).
 
 ---
 
-#### 6. Hybrid Structures — 3 Реалістичних Patterns
+#### 5. Banking Reality 2026 for UA residents
 
-##### Pattern A: UA Дія Сіті ТОВ (single-entity, recommended baseline)
+**A hierarchy of difficulty (from easy to impossible):**
+
+| Jurisdiction + Bank                       | Difficulty for a UA citizen | Realistic?                                                                                     |
+| ----------------------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------- |
+| **Georgia + TBC/BoG (personal)**          | Easy                        | Yes, with a passport on-site                                                                   |
+| **Georgia + business account**            | Medium                      | 50/50, depends on substance                                                                    |
+| **Wise Business (for any company)**       | Easy-medium                 | Yes, they accept a UA passport, but a registered company in a supported jurisdiction is needed |
+| **Delaware LLC + Mercury**                | Medium                      | Yes historically, but 2025 stricter; not a public policy for UA                                |
+| **UAE + Emirates NBD/Mashreq (via IFZA)** | Medium-hard                 | 2-4 weeks, possible if the documents are in order                                              |
+| **Estonia + LHV**                         | Hard                        | A face-to-face visit is needed, for UA citizens tightened                                      |
+| **Estonia + Wise/Payoneer EMI**           | Medium                      | An alternative to LHV, but with limits on high-risk countries                                  |
+| **Cyprus + Eurobank (ex-Hellenic)**       | Hard                        | 6-10 weeks enhanced DD; the merge complicated it                                               |
+| **UK + Revolut Business / Wise**          | Easy-medium                 | Yes, but Revolut is closing the UA market                                                      |
+| **Hong Kong + any**                       | Practically impossible      | 2025 — banks massively refuse non-residents                                                    |
+
+**The key rule of 2025-2026:** If a bank refused — it is not a bug, it is a feature. AML compliance officers today have a quota on reject rate. A UA passport — automatic enhanced screening.
+
+**Conclusion:** Do not register a company in a jurisdiction where you do not have a plan B for banking. First — verify with an EMI/bank that they will open for your UBO profile; **then** register the entity.
+
+---
+
+#### 6. Hybrid Structures — 3 Realistic Patterns
+
+##### Pattern A: UA Diia City TOV (single-entity, recommended baseline)
 
 ```
-[UA Дія Сіті ТОВ] ← all clients invoice here
+[UA Diia City TOV] ← all clients invoice here
    ↓
    ↓ Service provision contracts (gig)
    ↓
 [UA founders/employees]
 ```
 
-- **Pros:** найпростіше, без CFC, без offshore overhead, all in UA
-- **Cons:** non-USD clients may вагатися. Cash, crypto — обмеження як рекомендовано в попередніх консультаціях
-- **Tax burden:** 9% ПнВК Дія Сіті + 5% ПДФО на гіг-зарплатню = effective 14% від обороту (припускаючи звичайну margin)
+- **Pros:** the simplest, without CFC, without offshore overhead, all in UA
+- **Cons:** non-USD clients may hesitate. Cash, crypto — limitations as recommended in the previous consultations
+- **Tax burden:** 9% exit-capital tax of Diia City + 5% PIT on the gig salary = effective 14% of turnover (assuming the usual margin)
 - **Setup:** ₴80-150k (per consultation 2026-05-31-diia-city-implementation-roadmap.md)
 - **Annual:** ~₴100k support
 
-##### Pattern B: UA Дія Сіті ТОВ + UAE Free Zone (для cash-equivalents + premium client invoicing)
+##### Pattern B: UA Diia City TOV + UAE Free Zone (for cash-equivalents + premium client invoicing)
 
 ```
 [UAE Free Zone Co.] ← Crypto-focused clients invoice here (premium)
@@ -461,209 +461,209 @@ US/EU клиенты могут отказаться платить в:
                     ↓
                     ↓ Service contract (cross-border, arm's length)
                     ↓
-[UA Дія Сіті ТОВ] ← Main operations, hires devs
+[UA Diia City TOV] ← Main operations, hires devs
    ↓
 [UA founders]
 ```
 
 - **Pros:**
-  - UAE entity дає crypto-friendly invoicing для clients що віддають перевагу crypto
-  - Cash через UAE можливий (з reporting)
-  - Reputation: legitimate Dubai presence (founder visits, real office)
+  - The UAE entity gives crypto-friendly invoicing for clients that prefer crypto
+  - Cash via UAE is possible (with reporting)
+  - Reputation: a legitimate Dubai presence (founder visits, a real office)
 - **Cons:**
-  - **Transfer pricing — критичний.** Inter-company contract UAE↔UA must be arm's length. Diia City **не звільняє від TP rules** ([WebSearch: en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/](https://en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/) — дата сбора: 2026-05-31). Потрібна TP documentation.
-  - **CFC reporting** на UAE Co. (0%/9% не проходить ставку test, active income test PASS якщо IT-services)
-  - Substance UAE: real office (~$8-15k/year), visa ($2,500/year), 1-2 trips/year (~$3-5k)
-- **Total tax burden:** UAE 0-9% (на UAE entity profit) + UA 14% (на UA entity profit). При transfer pricing 70/30 split (UA більшість operations): **effective ~10-12% blended**
-- **Setup:** UA $0 (вже є) + UAE ~$8k = ~$10-12k initial
+  - **Transfer pricing — critical.** An inter-company contract UAE↔UA must be arm's length. Diia City **does not exempt from TP rules** ([WebSearch: en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/](https://en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/) — collection date: 2026-05-31). TP documentation is needed.
+  - **CFC reporting** on the UAE Co. (0%/9% does not pass the rate test, the active income test PASS if IT services)
+  - UAE substance: a real office (~$8-15k/year), a visa ($2,500/year), 1-2 trips/year (~$3-5k)
+- **Total tax burden:** UAE 0-9% (on the UAE entity profit) + UA 14% (on the UA entity profit). At a transfer pricing 70/30 split (UA the majority of operations): **effective ~10-12% blended**
+- **Setup:** UA $0 (already have) + UAE ~$8k = ~$10-12k initial
 - **Annual:** UA ~₴100k + UAE ~$15-20k = **~$20-25k/year**
 
-##### Pattern C: Delaware LLC (passthrough) + UA ФОП (для US client-facing simplicity)
+##### Pattern C: Delaware LLC (passthrough) + UA FOP (for US client-facing simplicity)
 
 ```
-[Delaware LLC] ← US clients invoice here (LLC має EIN, registered US presence)
+[Delaware LLC] ← US clients invoice here (the LLC has an EIN, a registered US presence)
    ↓
-   ↓ Personal income flow-through до UBO (Delaware LLC = disregarded entity tax-wise)
+   ↓ Personal income flow-through to the UBO (a Delaware LLC = a disregarded entity tax-wise)
    ↓
-[UA ФОП] ← Service provision by individual contractor, paid from Delaware LLC
+[UA FOP] ← Service provision by an individual contractor, paid from the Delaware LLC
    ↓
-[UA founder як ФОП 3-я група]
+[UA founder as a FOP group 3]
 ```
 
-- **Pros:** Delaware brand → US clients comfort, fast Mercury/Wise banking
+- **Pros:** the Delaware brand → US clients' comfort, fast Mercury/Wise banking
 - **Cons:**
-  - **Pass-through до UBO** = 18%+1.5% UA ПДФО на Delaware LLC income (NOT 5% ФОП!). Дуже погана comparison vs ФОП-only.
-  - ФОП доходи від ФОП-діяльності окремо мати 5% — це не консолідовано з Delaware income
-  - **Doesn't solve cash чи crypto.** Delaware — не tax haven для UA-residents.
-- **Total tax burden:** Lower bound ~19.5% (если все через LLC), upper bound ~25% (з US Form 5472 reporting + потенційний withholding)
+  - **Pass-through to the UBO** = 18%+1.5% UA PIT on the Delaware LLC income (NOT 5% FOP!). A very bad comparison vs FOP-only.
+  - FOP income from FOP activity separately has 5% — this is not consolidated with the Delaware income
+  - **Doesn't solve cash or crypto.** Delaware — not a tax haven for UA residents.
+- **Total tax burden:** Lower bound ~19.5% (if everything via the LLC), upper bound ~25% (with US Form 5472 reporting + potential withholding)
 - **Setup:** $300-700 + bank ~$0 (Mercury free)
 - **Annual:** ~$1,500 (registered agent, Form 5472)
 
-**Recommendation:** Pattern A (UA only) для більшості. Pattern B (UA + UAE) якщо є real cross-border ambition і founder реально приїжджає в Dubai. Pattern C — НЕ рекомендую (overhead без меж юрисдичних переваг).
+**Recommendation:** Pattern A (UA only) for most. Pattern B (UA + UAE) if there is a real cross-border ambition and the founder actually visits Dubai. Pattern C — I do NOT recommend it (overhead without the limits of jurisdictional advantages).
 
-### Риски
+### Risks
 
-| Risk                                                                                     | Severity | Probability                                                                       | Mitigation                                                                                          |
-| ---------------------------------------------------------------------------------------- | -------- | --------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| **CFC reporting failure → 302,800-908,400 ₴ штрафи (after war moratorium ends)**         | Critical | High (если ignor)                                                                 | Подавати Звіт про КІК до 1 травня щороку. Включити в annual compliance budget.                      |
-| **Substance test fail → втрата всіх tax benefits + потенційно tax avoidance accusation** | Critical | Medium-High (з 2025 substance tests жорсткіше скрізь)                             | Real office, real employees, real board meetings, документація. Не sham.                            |
-| **Banking refusal після setup → паніка**                                                 | High     | High (особливо Cyprus, HK для UA)                                                 | **Спочатку verify banking access, потім реєструвати company.** Email-запити до банку pre-setup.     |
-| **Transfer pricing audit (ДПС) на UA↔offshore inter-co contracts**                       | High     | Medium-High (75% revenue criterion з 2025 робить нас prima facie related parties) | TP documentation з самого початку, professional appraisal arm's length, regular updates.            |
-| **Reputational risk з US/EU enterprise clients (UAE/HK invoicing)**                      | Medium   | Medium (depends on client tier)                                                   | Pre-sales conversation з first clients; UK or EU entity safer reputation                            |
-| **Crypto regulatory shift (MiCA/VARA tightening)**                                       | Medium   | High (regulations actively expanding)                                             | Не вкладати всю стратегію в crypto channel; mainline = fiat                                         |
-| **Delaware LLC pass-through CFC trap**                                                   | High     | Low (тільки якщо обрати Pattern C)                                                | Не йти Pattern C. Якщо все одно — international tax advisor спецialist обов'язково                  |
-| **Personal tax residency Ukraine maintenance — exit threshold**                          | Critical | Low (тільки якщо founder фізично спробує relocate)                                | Окрема консультація. Якщо founder перетинає 183 дні поза UA — tax residency analysis обов'язкова    |
-| **AML reporting на cross-border crypto > 30k ₴/transaction (UA Закон 361-IX)**           | High     | High (наші обороти точно перевищують)                                             | KYC procedures для всіх crypto-related counterparties. Phase 8 implementation з urls compliance.    |
-| **Sanctions screening drift (особливо UAE banks щодо UA UBO)**                           | Medium   | Low (UA не sanctioned), але EU/UK банки FATF heavy                                | Verify upfront. Документ source of funds для перших wire transfers.                                 |
-| **«Effective management» test переваги UA податкового резидентства offshore Co**         | Critical | Medium-High (якщо founder фізично оперує з UA, ДПС може посилатись на POEM)       | Реальна management presence в реальній юрисдикції. Sham management = переquification до UA company. |
-| **Sham/POEM accusation (ДПС reclassifies offshore Co як UA-resident)**                   | Critical | Medium                                                                            | Documented board minutes в jurisdiction, qualified local directors                                  |
+| Risk                                                                                        | Severity | Probability                                                                            | Mitigation                                                                                                  |
+| ------------------------------------------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **CFC reporting failure → 302,800-908,400 ₴ penalties (after the war moratorium ends)**     | Critical | High (if ignored)                                                                      | File the CFC Report by 1 May each year. Include it in the annual compliance budget.                         |
+| **Substance test fail → loss of all tax benefits + potentially a tax avoidance accusation** | Critical | Medium-High (from 2025 substance tests are stricter everywhere)                        | A real office, real employees, real board meetings, documentation. Not a sham.                              |
+| **Banking refusal after setup → panic**                                                     | High     | High (especially Cyprus, HK for UA)                                                    | **First verify banking access, then register the company.** Email requests to the bank pre-setup.           |
+| **Transfer pricing audit (DPS) on UA↔offshore inter-co contracts**                          | High     | Medium-High (the 75% revenue criterion from 2025 makes us prima facie related parties) | TP documentation from the very start, a professional arm's-length appraisal, regular updates.               |
+| **Reputational risk with US/EU enterprise clients (UAE/HK invoicing)**                      | Medium   | Medium (depends on client tier)                                                        | A pre-sales conversation with the first clients; a UK or EU entity is a safer reputation                    |
+| **Crypto regulatory shift (MiCA/VARA tightening)**                                          | Medium   | High (regulations are actively expanding)                                              | Do not put the whole strategy into the crypto channel; the mainline = fiat                                  |
+| **Delaware LLC pass-through CFC trap**                                                      | High     | Low (only if you choose Pattern C)                                                     | Do not go Pattern C. If anyway — an international tax advisor specialist is mandatory                       |
+| **Personal tax residency Ukraine maintenance — exit threshold**                             | Critical | Low (only if the founder physically tries to relocate)                                 | A separate consultation. If the founder crosses 183 days outside UA — a tax residency analysis is mandatory |
+| **AML reporting on cross-border crypto > 30k ₴/transaction (UA Law 361-IX)**                | High     | High (our turnovers definitely exceed it)                                              | KYC procedures for all crypto-related counterparties. Phase 8 implementation with compliance.               |
+| **Sanctions screening drift (especially UAE banks regarding a UA UBO)**                     | Medium   | Low (UA is not sanctioned), but EU/UK banks are FATF heavy                             | Verify upfront. Document the source of funds for the first wire transfers.                                  |
+| **The "effective management" test overrides UA tax residency of the offshore Co**           | Critical | Medium-High (if the founder physically operates from UA, the DPS may invoke POEM)      | Real management presence in the real jurisdiction. Sham management = reclassification to a UA company.      |
+| **Sham/POEM accusation (the DPS reclassifies the offshore Co as a UA resident)**            | Critical | Medium                                                                                 | Documented board minutes in the jurisdiction, qualified local directors                                     |
 
-### Рекомендація — Top 3 Ranked Options для CheekyCheeseIT
+### Recommendation — Top 3 Ranked Options for CheekyCheeseIT
 
-Ваш профіль: IT outsource Україна → US/EU clients, founders UA-резиденти, обороти до 5-10M ₴/рік eqv в перші 12 місяців.
+Your profile: IT outsource Ukraine → US/EU clients, UA-resident founders, turnovers up to 5-10M ₴/year eqv in the first 12 months.
 
-#### #1 RECOMMENDED: UA Дія Сіті ТОВ (single-entity, Pattern A)
+#### #1 RECOMMENDED: UA Diia City TOV (single-entity, Pattern A)
 
-**Чому:**
+**Why:**
 
-- **Найнижчий total tax burden для UA-resident founder'ів: ~9-14% від обороту**
-- Жодного CFC reporting, sham risk, substance challenges
-- Banking — простий, UA bank рахунок Дія Сіті ТОВ
-- Setup vs offshore (₴80-150k vs $10-20k+) — **значно дешевше**
-- **Reality check:** Жоден offshore не покращить tax burden vs Дія Сіті, тому що CFC «з'їсть» all benefit
+- **The lowest total tax burden for UA-resident founders: ~9-14% of turnover**
+- No CFC reporting, sham risk, substance challenges
+- Banking — simple, a UA bank account of the Diia City TOV
+- Setup vs offshore (₴80-150k vs $10-20k+) — **significantly cheaper**
+- **Reality check:** No offshore will improve the tax burden vs Diia City, because CFC will "eat" all the benefit
 
 **Trade-offs:**
 
-- Cash channel — обмежений (як в попередній консультації)
-- Crypto channel — паркінг до активації 10225-д, потім запуск з proper feature_flag
+- Cash channel — limited (as in the previous consultation)
+- Crypto channel — parked until the activation of 10225-d, then launched with a proper feature_flag
 
-**Total tax burden expected:** ~14% від обороту (9% ПнВК на TOV profit + 5% ПДФО на гіг)
+**Total tax burden expected:** ~14% of turnover (9% exit-capital tax on the TOV profit + 5% PIT on the gig)
 **Setup:** ₴80-150k (~$2-4k)
 **Annual:** ~₴100-200k support (~$2-5k)
 
-**Critical risks:** Дія Сіті requirements compliance (9 employees, €1,200/month wage min) — критично slipper if growth slower than expected
+**Critical risks:** Diia City requirements compliance (9 employees, €1,200/month wage min) — critically slippery if growth is slower than expected
 
-#### #2 ALTERNATIVE: UA Дія Сіті ТОВ + UAE Free Zone (Pattern B)
+#### #2 ALTERNATIVE: UA Diia City TOV + UAE Free Zone (Pattern B)
 
-**Чому:**
+**Why:**
 
-- Якщо founder **готовий до Dubai 2-3 trips/year + reality presence**
-- Якщо потрібен dedicated crypto-friendly invoicing entity
-- Якщо є US/EU clients що prefer UAE invoicing (rarely, but happens)
+- If the founder is **ready for Dubai 2-3 trips/year + a reality presence**
+- If a dedicated crypto-friendly invoicing entity is needed
+- If there are US/EU clients that prefer UAE invoicing (rarely, but it happens)
 
 **Trade-offs:**
 
-- +$15-25k/year ongoing overhead vs single UA entity
-- Transfer pricing documentation обов'язкова
-- Substance test на UAE — постійний challenge
-- CFC reporting на UAE Co. — додаткові ₴30-50k/year accountant fees
+- +$15-25k/year ongoing overhead vs a single UA entity
+- Transfer pricing documentation is mandatory
+- The substance test on UAE — a constant challenge
+- CFC reporting on the UAE Co. — an additional ₴30-50k/year in accountant fees
 
-**Total tax burden expected:** ~10-12% blended (залежить від transfer pricing split)
+**Total tax burden expected:** ~10-12% blended (depends on the transfer pricing split)
 **Setup:** ~$10-15k initial
 **Annual:** ~$25-30k
 
-**Critical risks:** Substance fail (втрата 0% UAE benefit + переquification, можливо до 25% effective rate). Banking refusal на UAE side.
+**Critical risks:** Substance fail (loss of the 0% UAE benefit + reclassification, possibly up to a 25% effective rate). Banking refusal on the UAE side.
 
-#### #3 PLAN B: UA ФОП 3-я група + Wise Business / Payoneer
+#### #3 PLAN B: UA FOP group 3 + Wise Business / Payoneer
 
-**Чому:**
+**Why:**
 
-- Якщо Дія Сіті requirements (9 employees, €1,200/month) **не можна виконати рік 1**
-- Якщо потрібен мінімальний overhead на старті
-- Якщо growth неstable і слід тримати оптимальність
+- If the Diia City requirements (9 employees, €1,200/month) **cannot be met in year 1**
+- If a minimal overhead at the start is needed
+- If growth is unstable and it is worth keeping optimality
 
 **Trade-offs:**
 
-- ФОП 3-я група ліміт 7-8M ₴/рік (~$200k) — швидко переростете
-- Тільки 1 founder per ФОП (не масштабується)
-- Не вирішує cash/crypto channels
+- A FOP group 3 limit of 7-8M ₴/year (~$200k) — you will outgrow it quickly
+- Only 1 founder per FOP (does not scale)
+- Does not solve cash/crypto channels
 
-**Total tax burden expected:** 5% ЕН + 1% ВЗ + ~22% ЄСВ (з min wage base) = ~6-8% від обороту
+**Total tax burden expected:** 5% single tax + 1% military levy + ~22% USC (from the min wage base) = ~6-8% of turnover
 **Setup:** ~₴5-10k
 **Annual:** ~₴30-50k support
 
-**Critical risks:** Hit 7M limit → forced switch to common tax (18% + 22% ESV + 1.5% VZ = ~40%). Or move to Diia City TOV but with delay/migration overhead.
+**Critical risks:** Hit the 7M limit → forced switch to the common tax (18% + 22% USC + 1.5% military levy = ~40%). Or move to a Diia City TOV but with a delay/migration overhead.
 
-### Загальний висновок (важливо)
+### General conclusion (important)
 
-User питав: «чи є країна де cash + crypto + bank всі легально для UA-резидента-founder'а?». **Чесна відповідь: ні.**
+The User asked: "is there a country where cash + crypto + bank are all legal for a UA-resident founder?". **The honest answer: no.**
 
-Чотири причини чому:
+Four reasons why:
 
-1. **Cash B2B на наших обсягах = AML reporting триггер everywhere.** Це global standard з 2018.
-2. **Crypto = регульований скрізь** (MiCA, VARA, FCA, SCC) — payment acceptance можливо без license, але «crypto channel» як основа бізнесу — license required.
-3. **Banking для UA citizens 2025-2026 — критичний bottleneck.** Естонія, Cyprus, HK — практично закриті. UAE, Georgia, US-via-Mercury — досяжно з overhead.
-4. **CFC правила України роблять offshore-tax-arbitrage міфом** для UA-residents. Active income exemption — реальна, але потребує дуже чіткою документації.
+1. **Cash B2B at our volumes = an AML reporting trigger everywhere.** This is a global standard since 2018.
+2. **Crypto = regulated everywhere** (MiCA, VARA, FCA, SCC) — payment acceptance is possible without a license, but a "crypto channel" as the basis of a business — a license is required.
+3. **Banking for UA citizens in 2025-2026 — a critical bottleneck.** Estonia, Cyprus, HK — practically closed. UAE, Georgia, US-via-Mercury — achievable with overhead.
+4. **The CFC rules of Ukraine make offshore-tax-arbitrage a myth** for UA residents. The active income exemption is real, but requires very clear documentation.
 
-Реалістична target: **9-15% total tax burden через UA Дія Сіті ТОВ. Якщо потрібна додаткова flexibility — Pattern B (UA + UAE) з +$20-30k/year overhead.** Більше economy через offshore не отримаєте без реального relocation founder'а поза UA (це окрема консультація — emigration legal/tax).
+A realistic target: **9-15% total tax burden through a UA Diia City TOV. If additional flexibility is needed — Pattern B (UA + UAE) with +$20-30k/year overhead.** You will not get more economy through offshore without a real relocation of the founder outside UA (this is a separate consultation — emigration legal/tax).
 
-### Источники
+### Sources
 
-**UA Законодавство:**
+**UA Legislation:**
 
-- [Стаття 39² ПКУ — оподаткування КІК](https://zakon.rada.gov.ua/laws/show/2755-17) — ПКУ повний текст
-- [ЗУ № 466-IX про внесення змін до ПКУ (КІК-режим)](https://zakon.rada.gov.ua/laws/show/466-20)
-- [ЗУ № 361-IX про запобігання та протидію легалізації — AML 30k ₴ threshold](https://zakon.rada.gov.ua/laws/show/361-20)
-- WebSearch: [yankiv.com — КІК 2025 controller'у](https://yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/) (дата сбора: 2026-05-31)
-- WebSearch: [PwC Ukraine — КІК правила оподаткування](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) (дата сбора: 2026-05-31)
-- WebSearch: [Victorija — штрафи за порушення КІК 2025](https://www.victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html) (дата сбора: 2026-05-31)
-- WebSearch: [KMP Law — Active passive income of CFCs](https://kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/) (дата сбора: 2026-05-31)
-- WebSearch: [TPC Group — Diia City + Transfer Pricing rules confirmation](https://en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/) (дата сбора: 2026-05-31)
-- WebSearch: [PwC — Ukraine Corporate Group Taxation](https://taxsummaries.pwc.com/ukraine/corporate/group-taxation) (дата сбора: 2026-05-31)
+- [Article 39² of the Tax Code of Ukraine — taxation of CFCs](https://zakon.rada.gov.ua/laws/show/2755-17) — the full text of the Tax Code of Ukraine
+- [Law of Ukraine No. 466-IX on amendments to the Tax Code of Ukraine (the CFC regime)](https://zakon.rada.gov.ua/laws/show/466-20)
+- [Law of Ukraine No. 361-IX on prevention and counteraction of legalization — the AML 30k ₴ threshold](https://zakon.rada.gov.ua/laws/show/361-20)
+- WebSearch: [yankiv.com — CFC 2025 for the controller](https://yankiv.com/kontrolovani-inozemni-kompaniyi-kik-ukrayina-kontrollery-2025/) (collection date: 2026-05-31)
+- WebSearch: [PwC Ukraine — CFC taxation rules](https://www.pwc.com/ua/uk/services/tax/publications/tax-code-updates/controlled-foreign-company.html) (collection date: 2026-05-31)
+- WebSearch: [Victorija — penalties for violating CFC rules 2025](https://www.victorija.ua/ofitsiyno/shtrafy-za-porushennia-pravyl-kik-v-ukraini-stanom-na-2025-rik.html) (collection date: 2026-05-31)
+- WebSearch: [KMP Law — Active passive income of CFCs](https://kmp.ua/en/analytics/exclusive/active-passive-income-of-controlled-foreign-companies/) (collection date: 2026-05-31)
+- WebSearch: [TPC Group — Diia City + Transfer Pricing rules confirmation](https://en.tpcgroup-int.com/news/special-regimes-in-ukraine-defense-city-and-diia-city-confirmation-from-the-tax-authority-on-the-mandatory-application-of-transfer-pricing-rules/) (collection date: 2026-05-31)
+- WebSearch: [PwC — Ukraine Corporate Group Taxation](https://taxsummaries.pwc.com/ukraine/corporate/group-taxation) (collection date: 2026-05-31)
 
 **Estonia:**
 
-- WebSearch: [e-Residency — Estonian Corporate Taxes](https://www.e-resident.gov.ee/taxes-in-estonia/) (дата сбора: 2026-05-31)
-- WebSearch: [Hacken — Estonia Crypto License Requirements 2025](https://hacken.io/discover/estonia-crypto-license/) (дата сбора: 2026-05-31)
-- WebSearch: [Nomad Gate — Banking for Estonian E-residents](https://nomadgate.com/banking-estonian-e-residents/) (дата сбора: 2026-05-31)
-- WebSearch: [AIN — Revolut closing Ukrainian accounts Dec 2025](https://en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/) (дата сбора: 2026-05-31)
+- WebSearch: [e-Residency — Estonian Corporate Taxes](https://www.e-resident.gov.ee/taxes-in-estonia/) (collection date: 2026-05-31)
+- WebSearch: [Hacken — Estonia Crypto License Requirements 2025](https://hacken.io/discover/estonia-crypto-license/) (collection date: 2026-05-31)
+- WebSearch: [Nomad Gate — Banking for Estonian E-residents](https://nomadgate.com/banking-estonian-e-residents/) (collection date: 2026-05-31)
+- WebSearch: [AIN — Revolut closing Ukrainian accounts Dec 2025](https://en.ain.ua/2025/12/22/revolut-closes-ukrainian-accounts/) (collection date: 2026-05-31)
 
 **Cyprus:**
 
-- WebSearch: [LCK — Cyprus IP Box 3% Tax Rate Guide](https://www.lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies) (дата сбора: 2026-05-31)
-- WebSearch: [Doviandi — Cyprus Economic Substance Guide 2025/2026](https://www.doviandi.com/cyprus-economic-substance-guide/) (дата сбора: 2026-05-31)
-- WebSearch: [Savva Cyprus — Corporate Banking Guide](https://www.savvacyprus.com/cyprus-business-bank-account-opening-guide/) (дата сбора: 2026-05-31)
+- WebSearch: [LCK — Cyprus IP Box 3% Tax Rate Guide](https://www.lckfs.com/post/the-cyprus-ip-box-regime-a-practical-guide-for-tech-founders-and-saas-companies) (collection date: 2026-05-31)
+- WebSearch: [Doviandi — Cyprus Economic Substance Guide 2025/2026](https://www.doviandi.com/cyprus-economic-substance-guide/) (collection date: 2026-05-31)
+- WebSearch: [Savva Cyprus — Corporate Banking Guide](https://www.savvacyprus.com/cyprus-business-bank-account-opening-guide/) (collection date: 2026-05-31)
 
 **UAE:**
 
-- WebSearch: [China Briefing — UAE Free Zone Tax MD 229/230 of 2025](https://www.china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations) (дата сбора: 2026-05-31)
-- WebSearch: [The National — UAE Updates Corporate Tax Rules Sep 2025](https://www.thenationalnews.com/business/2025/09/03/uae-updates-corporate-tax-rules-for-certain-free-zone-companies/) (дата сбора: 2026-05-31)
-- WebSearch: [VARA — Virtual Assets Regulatory Authority](https://www.vara.ae/en/) (дата сбора: 2026-05-31)
-- WebSearch: [IFZA Setup Guide 2025](https://startbusinessinifza.com/2025/10/23/ifza-free-zone-business-setup-guide-2025-complete-step-by-step-process/) (дата сбора: 2026-05-31)
+- WebSearch: [China Briefing — UAE Free Zone Tax MD 229/230 of 2025](https://www.china-briefing.com/china-outbound-news/understanding-uaes-new-free-zone-tax-regulations) (collection date: 2026-05-31)
+- WebSearch: [The National — UAE Updates Corporate Tax Rules Sep 2025](https://www.thenationalnews.com/business/2025/09/03/uae-updates-corporate-tax-rules-for-certain-free-zone-companies/) (collection date: 2026-05-31)
+- WebSearch: [VARA — Virtual Assets Regulatory Authority](https://www.vara.ae/en/) (collection date: 2026-05-31)
+- WebSearch: [IFZA Setup Guide 2025](https://startbusinessinifza.com/2025/10/23/ifza-free-zone-business-setup-guide-2025-complete-step-by-step-process/) (collection date: 2026-05-31)
 
 **Georgia:**
 
-- WebSearch: [Andersen Georgia — Virtual Zone Person Status](https://ge.andersen.com/virtual-zone-person-georgia/) (дата сбора: 2026-05-31)
-- WebSearch: [IBCCS Georgia — 1% Tax Regime Guide](https://www.ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status) (дата сбора: 2026-05-31)
-- WebSearch: [PB Services — Reasons Georgian Banks Refuse Foreign Nationals](https://pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/) (дата сбора: 2026-05-31)
+- WebSearch: [Andersen Georgia — Virtual Zone Person Status](https://ge.andersen.com/virtual-zone-person-georgia/) (collection date: 2026-05-31)
+- WebSearch: [IBCCS Georgia — 1% Tax Regime Guide](https://www.ibccs.ge/post/georgia-s-1-tax-regime-a-guide-to-individual-entrepreneur-and-small-business-status) (collection date: 2026-05-31)
+- WebSearch: [PB Services — Reasons Georgian Banks Refuse Foreign Nationals](https://pbservices.ge/blog/common-reasons-georgian-banks-refuse-to-open-accounts-for-foreign-nationals/) (collection date: 2026-05-31)
 
 **Hong Kong:**
 
-- WebSearch: [Statrys — HK Corporate Tax 2026](https://statrys.com/guides/hong-kong/tax-system-and-rates/hong-kong-corporate-tax) (дата сбора: 2026-05-31)
-- WebSearch: [BBCIncorp — HK Offshore Tax Exemption](https://bbcincorp.com/hk/articles/hong-kong-offshore-tax-exemption) (дата сбора: 2026-05-31)
+- WebSearch: [Statrys — HK Corporate Tax 2026](https://statrys.com/guides/hong-kong/tax-system-and-rates/hong-kong-corporate-tax) (collection date: 2026-05-31)
+- WebSearch: [BBCIncorp — HK Offshore Tax Exemption](https://bbcincorp.com/hk/articles/hong-kong-offshore-tax-exemption) (collection date: 2026-05-31)
 
 **UK/Delaware:**
 
-- WebSearch: [Terms.Law — Delaware LLCs for Foreign Owners](https://terms.law/2025/10/26/delaware-llcs-for-foreign-owners-structure-taxes-and-compliance/) (дата сбора: 2026-05-31)
-- WebSearch: [Wise — Wise for Ukrainian Freelancers](https://buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine) (дата сбора: 2026-05-31)
+- WebSearch: [Terms.Law — Delaware LLCs for Foreign Owners](https://terms.law/2025/10/26/delaware-llcs-for-foreign-owners-structure-taxes-and-compliance/) (collection date: 2026-05-31)
+- WebSearch: [Wise — Wise for Ukrainian Freelancers](https://buh.ua/en/how-to-open-wise-and-withdraw-funds-in-ukraine) (collection date: 2026-05-31)
 
 **Internal:**
 
 - [docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md](2026-05-31-usdt-payouts-phase8.md) — UA crypto vacuum context
-- [docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md](2026-05-31-tov-multi-channel-revenue.md) — multi-channel limits в UA
-- [docs/specs/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md](2026-05-31-diia-city-implementation-roadmap.md) — Дія Сіті deep-dive
+- [docs/specs/legal-consultations/2026-05-31-tov-multi-channel-revenue.md](2026-05-31-tov-multi-channel-revenue.md) — multi-channel limits in UA
+- [docs/specs/legal-consultations/2026-05-31-diia-city-implementation-roadmap.md](2026-05-31-diia-city-implementation-roadmap.md) — Diia City deep-dive
 
 ### Disclaimer
 
-- **Confidence: MED overall.** Це AI preliminary check, не binding legal advice. Регуляції 2025-2026 активно змінюються (MiCA, MD 229/230, BEPS Pillar Two).
-- **CFC compliance — обов'язково human UA tax advisor спеціalізований на international structures.** AI не може gjarantirovати correct CFC reporting для конкретної структури — це область де штраф 302,800+ ₴ за помилку.
-- **Substance test — area where AI може помилитись.** Each jurisdiction applies test differently; локальний tax адвокат в обраній юрисдикції обов'язковий перед setup.
-- **Banking refusal не є legally compensable.** AI не може гарантувати яку юрисдикцію оберуть для KYC clearance на UA UBO. Verify upfront.
-- **Personal tax residency** — це окрема консультація. Якщо ви ескалюєте до relocation founder'а — повна emigration tax planning consultation у spec'a.
-- **Crypto regulation moving target.** MiCA транзишен до 1 July 2026 в Estonia. VARA framework expansion в UAE. Будь-яке рішення з crypto channel — pending актуалізації за 6-12 місяців.
+- **Confidence: MED overall.** This is an AI preliminary check, not binding legal advice. The 2025-2026 regulations are actively changing (MiCA, MD 229/230, BEPS Pillar Two).
+- **CFC compliance — a human UA tax advisor specialized in international structures is mandatory.** AI cannot guarantee correct CFC reporting for a specific structure — this is an area where the penalty is 302,800+ ₴ for an error.
+- **The substance test — an area where AI may be wrong.** Each jurisdiction applies the test differently; a local tax lawyer in the chosen jurisdiction is mandatory before setup.
+- **Banking refusal is not legally compensable.** AI cannot guarantee which jurisdiction will clear KYC for a UA UBO. Verify upfront.
+- **Personal tax residency** — this is a separate consultation. If you escalate to a relocation of the founder — a full emigration tax planning consultation with a specialist.
+- **Crypto regulation is a moving target.** The MiCA transition until 1 July 2026 in Estonia. VARA framework expansion in the UAE. Any decision with a crypto channel — pending an update in 6-12 months.
 
-**Для критичних дій (реєстрація company, opening offshore bank account, переведення operations) — escalate до:**
+**For critical actions (company registration, opening an offshore bank account, transferring operations) — escalate to:**
 
-1. UA-tax advisor specialized in international (КІК compliance, transfer pricing)
-2. Local tax/corporate lawyer in target jurisdiction
-3. AML compliance consultant if crypto involved
+1. A UA tax advisor specialized in international (CFC compliance, transfer pricing)
+2. A local tax/corporate lawyer in the target jurisdiction
+3. An AML compliance consultant if crypto is involved

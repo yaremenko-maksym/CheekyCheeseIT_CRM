@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Backend infrastructure для онбординг-флоу — миграция БД (4 таблицы + sequence), три NestJS модуля (`contracts/`, `tos/`, `onboarding/`), `OnboardingGuard`, shared Zod-схемы и seed-данные.
+**Goal:** Backend infrastructure for the onboarding flow — DB migration (4 tables + sequence), three NestJS modules (`contracts/`, `tos/`, `onboarding/`), `OnboardingGuard`, shared Zod schemas and seed data.
 
-**Architecture:** Drizzle ORM + NestJS modules с standalone Controller/Service pairs. Global `OnboardingGuard` зарегистрирован через `APP_GUARD` after JwtAuthGuard (which is applied at controller level via `@UseGuards`). Guard использует path-prefix bypass для `/api/auth/*`, `/api/onboarding/*`, `/api/tos/current`, `/api/tos/accept`, `/api/contracts/templates/current/*`, `/api/contracts/sign`.
+**Architecture:** Drizzle ORM + NestJS modules with standalone Controller/Service pairs. The global `OnboardingGuard` is registered via `APP_GUARD` after JwtAuthGuard (which is applied at controller level via `@UseGuards`). The guard uses a path-prefix bypass for `/api/auth/*`, `/api/onboarding/*`, `/api/tos/current`, `/api/tos/accept`, `/api/contracts/templates/current/*`, `/api/contracts/sign`.
 
-**Tech Stack:** NestJS 11 + Fastify, Drizzle ORM (postgres), Zod v4 для shared schemas, Vitest для unit tests.
+**Tech Stack:** NestJS 11 + Fastify, Drizzle ORM (postgres), Zod v4 for shared schemas, Vitest for unit tests.
 
 ---
 
@@ -17,7 +17,7 @@
 **Migration & schema:**
 
 - `apps/api/drizzle/migrations/0027_onboarding.sql` — 4 tables + sequence
-- `apps/api/src/database/schema.ts` _(modify)_ — добавить `contractTemplates`, `signedContracts`, `tosVersions`, `tosAcceptances` pgTables + relations
+- `apps/api/src/database/schema.ts` _(modify)_ — add `contractTemplates`, `signedContracts`, `tosVersions`, `tosAcceptances` pgTables + relations
 
 **Shared schemas:**
 
@@ -175,7 +175,7 @@ CREATE INDEX "tos_acceptances_user_id_idx" ON "tos_acceptances" ("user_id");
 
 - [ ] **Step 1.2: Add Drizzle pgTable definitions to `apps/api/src/database/schema.ts`**
 
-Add after `notifications` table (~ line 642) — 4 new pgTable + 4 relations.
+Add after the `notifications` table (~ line 642) — 4 new pgTable + 4 relations.
 
 - [ ] **Step 1.3: Run typecheck**
 
@@ -205,9 +205,9 @@ git push origin feature/onboarding-data-backend
 - Create: `packages/shared/src/schemas/onboarding.ts`
 - Modify: `packages/shared/src/schemas/index.ts`
 
-- [ ] **Step 2.1: contracts.ts** — `contractTargetRoleSchema`, `contractTemplateSchema`, `createContractTemplateSchema`, `signedContractSchema`, `signContractSchema` + типы
-- [ ] **Step 2.2: tos.ts** — `tosVersionSchema`, `createTosVersionSchema`, `tosAcceptanceSchema` + типы
-- [ ] **Step 2.3: onboarding.ts** — `onboardingStatusSchema` + тип
+- [ ] **Step 2.1: contracts.ts** — `contractTargetRoleSchema`, `contractTemplateSchema`, `createContractTemplateSchema`, `signedContractSchema`, `signContractSchema` + types
+- [ ] **Step 2.2: tos.ts** — `tosVersionSchema`, `createTosVersionSchema`, `tosAcceptanceSchema` + types
+- [ ] **Step 2.3: onboarding.ts** — `onboardingStatusSchema` + type
 - [ ] **Step 2.4: index.ts** — `export * from './contracts'`, `export * from './tos'`, `export * from './onboarding'`
 - [ ] **Step 2.5: typecheck shared**
 
@@ -280,18 +280,18 @@ git push origin feature/onboarding-data-backend
 
 - [ ] **Step 4.1: Write signed-contracts.service.spec.ts** (TDD)
   - `sign` happy path — resolves variables, generates `contract_number` matching `^CHK-\d+-\d{4}$`, captures IP/UA, atomic
-  - `sign` idempotency — повтор signing того же template_id у того же user_id возвращает existing row
+  - `sign` idempotency — a repeat signing of the same template_id by the same user_id returns the existing row
   - `sign` ADMIN throws BadRequestException `'ADMIN_DOES_NOT_SIGN_CONTRACTS'`
-  - `interpolateVariables` — все placeholder подставлены (employeeName, employeeEmail, role, onboardingDate, companyName, walletUsdt, bankUahFop, preferredMethod); missing values → `'не указано'`
+  - `interpolateVariables` — all placeholders substituted (employeeName, employeeEmail, role, onboardingDate, companyName, walletUsdt, bankUahFop, preferredMethod); missing values → `'не указано'`
   - `findById` RBAC — owner ✓, ADMIN ✓, ACCOUNTANT ✓, other SENIOR throws Forbidden
   - `findMine(userId)` returns array
 
 - [ ] **Step 4.2: Implement signed-contracts.service.ts**
-  - `interpolateVariables` static helper — пуристичная функция от template body + user object → snapshot
+  - `interpolateVariables` static helper — a pure function of template body + user object → snapshot
   - `sign({userId, userRole, typedName, ip, userAgent})` — wraps in `db.transaction`:
-    1. Fetch active template для role (если ADMIN → throw)
-    2. Check существующий signed_contract (idempotent return)
-    3. Resolve variables через interpolateVariables
+    1. Fetch active template for the role (if ADMIN → throw)
+    2. Check the existing signed_contract (idempotent return)
+    3. Resolve variables via interpolateVariables
     4. INSERT row; contract_number gen via `SELECT 'CHK-' || nextval('contract_number_seq') || '-' || EXTRACT(YEAR FROM NOW() AT TIME ZONE 'UTC')::text` query
     5. Return row
   - `findById(id, requester)` — fetch + RBAC check
@@ -300,9 +300,9 @@ git push origin feature/onboarding-data-backend
 - [ ] **Step 4.3: Update contracts.module.ts** — add signed controller + service to controllers/providers
 
 - [ ] **Step 4.4: Implement signed-contracts.controller.ts**
-  - `POST /api/contracts/sign` — body `{typedName}` через `signContractSchema.parse(body)`, IP/UA из `req.ip` + `req.headers['user-agent']`
+  - `POST /api/contracts/sign` — body `{typedName}` via `signContractSchema.parse(body)`, IP/UA from `req.ip` + `req.headers['user-agent']`
   - `GET /api/contracts/me` — service.findMine
-  - `GET /api/contracts/:id` — service.findById с RBAC
+  - `GET /api/contracts/:id` — service.findById with RBAC
 
 - [ ] **Step 4.5: Run signed contracts tests**
 
@@ -332,10 +332,10 @@ git push origin feature/onboarding-data-backend
 - Create: `apps/api/src/tos/tos.service.spec.ts`
 
 - [ ] **Step 5.1: Write tos.service.spec.ts** (TDD)
-  - `getCurrent()` — returns active version или null
-  - `listAll()` — все versions для admin (с sort)
+  - `getCurrent()` — returns the active version or null
+  - `listAll()` — all versions for admin (with sort)
   - `publish({bodyMarkdown, createdByUserId})` — atomic: deactivate previous, insert new with version=max+1, is_active=true
-  - `accept({userId, ip, userAgent})` — atomic idempotent; повтор возвращает existing acceptance
+  - `accept({userId, ip, userAgent})` — atomic idempotent; a repeat returns the existing acceptance
 
 - [ ] **Step 5.2: Implement tos.service.ts**
 - [ ] **Step 5.3: Implement tos.controller.ts**
@@ -412,7 +412,7 @@ git push origin feature/onboarding-data-backend
 
 - [ ] **Step 7.1: Write onboarding.guard.spec.ts** (TDD)
   - Bypass paths returned true (each of: `/api/auth/me`, `/api/auth/google`, `/api/onboarding/status`, `/api/tos/current`, `/api/tos/accept`, `/api/contracts/templates/current/SENIOR`, `/api/contracts/sign`)
-  - No `req.user` (unauthenticated, JWT guard not yet matched) — returns true (path-prefix bypass for /api/auth/\* and onboarding endpoints) OR returns true когда `req.user` is undefined and path is bypass; throws if path not bypass and no user (но это shouldn't happen — JwtAuthGuard handles that)
+  - No `req.user` (unauthenticated, JWT guard not yet matched) — returns true (path-prefix bypass for /api/auth/\* and onboarding endpoints) OR returns true when `req.user` is undefined and path is bypass; throws if path not bypass and no user (but this shouldn't happen — JwtAuthGuard handles that)
   - `req.user.role === 'ADMIN'` returns true (no service call)
   - Non-admin with `requiresContract=true` throws `ForbiddenException` with payload `{error:'ONBOARDING_REQUIRED', missing:['contract']}`
   - Non-admin with `requiresTos=true` only → missing:['tos']
@@ -422,7 +422,7 @@ git push origin feature/onboarding-data-backend
 - [ ] **Step 7.2: Implement onboarding.guard.ts**
   - Use `Reflector.get('skipOnboardingGuard', context.getHandler())` AS WELL AS path-prefix check
   - Inject `OnboardingService` to call `getStatus`
-  - Path matching через `request.url.split('?')[0]` + startsWith checks
+  - Path matching via `request.url.split('?')[0]` + startsWith checks
   - Bypass list:
     - `/api/auth/`
     - `/api/onboarding/status`
@@ -430,9 +430,9 @@ git push origin feature/onboarding-data-backend
     - `/api/tos/accept`
     - `/api/contracts/templates/current/`
     - `/api/contracts/sign`
-  - Если bypass или нет `req.user` → return true (JwtAuthGuard уже отбросил unauthenticated)
-  - Если ADMIN → return true
-  - Иначе — вызвать service.getStatus → проверить requiresContract / requiresTos → throw ForbiddenException
+  - If bypass or no `req.user` → return true (JwtAuthGuard already dropped unauthenticated)
+  - If ADMIN → return true
+  - Otherwise — call service.getStatus → check requiresContract / requiresTos → throw ForbiddenException
 
 - [ ] **Step 7.3: Run guard tests**
 
@@ -460,9 +460,9 @@ git push origin feature/onboarding-data-backend
 
 - [ ] **Step 8.1: Update app.module.ts**
   - Import `ContractsModule`, `TosModule`, `OnboardingModule`
-  - В `providers` добавить `{ provide: APP_GUARD, useClass: OnboardingGuard }`
-  - В imports добавить новые модули
-  - Импортировать `APP_GUARD` из `@nestjs/core`
+  - In `providers` add `{ provide: APP_GUARD, useClass: OnboardingGuard }`
+  - In imports add the new modules
+  - Import `APP_GUARD` from `@nestjs/core`
 
 - [ ] **Step 8.2: typecheck**
 
@@ -489,12 +489,12 @@ git push origin feature/onboarding-data-backend
 - Modify: `apps/api/src/database/seed.ts`
 
 - [ ] **Step 9.1: Add seed function for 5 contract templates + 1 ToS**
-  - После seed users + teams + projects + interviews
-  - Получить admin (MAKSYM_ID) как createdByUserId
-  - Для каждой роли HR/SENIOR/JUNIOR/DROP/ACCOUNTANT: создать template с version=1, is_active=true, body= тематичный markdown с `{{переменные}}`
-  - Skip если row уже есть (`SELECT count() FROM contract_templates WHERE target_role = ...`)
-  - 1 ToS row с version=1, is_active=true, ~5 параграфов placeholder Markdown
-  - Skip если уже есть
+  - After seeding users + teams + projects + interviews
+  - Get the admin (MAKSYM_ID) as createdByUserId
+  - For each role HR/SENIOR/JUNIOR/DROP/ACCOUNTANT: create a template with version=1, is_active=true, body= themed markdown with `{{variables}}`
+  - Skip if the row already exists (`SELECT count() FROM contract_templates WHERE target_role = ...`)
+  - 1 ToS row with version=1, is_active=true, ~5 paragraphs of placeholder Markdown
+  - Skip if it already exists
 
 - [ ] **Step 9.2: Test migration + seed locally**
 
@@ -503,7 +503,7 @@ pnpm --filter @crm/api db:migrate
 pnpm --filter @crm/api db:seed
 ```
 
-Expected: success без ошибок
+Expected: success without errors
 
 - [ ] **Step 9.3: Verify via mcp**postgres**query**
 
@@ -541,11 +541,11 @@ Expected: all green
 
 - [ ] **Step 10.2: Manual smoke test (curl)**
 
-Используя `pnpm --filter @crm/api dev` (если PM ещё не запустил) — НО НЕТ, по правилам не запускать. Использовать `tsx` скрипт или просто проверить через postgres queries + интеграционные тесты в spec.
+Using `pnpm --filter @crm/api dev` (if PM has not started it yet) — BUT NO, by the rules do not run it. Use a `tsx` script or just check via postgres queries + integration tests in the spec.
 
-Альтернатива: написать минимальный integration test inline в одном из spec через `Test.createTestingModule` + `app.inject` (Fastify) — но это раздувает scope. Достаточно unit-level coverage spec'ов.
+Alternative: write a minimal integration test inline in one of the specs via `Test.createTestingModule` + `app.inject` (Fastify) — but this bloats the scope. Unit-level coverage of the specs is enough.
 
-Manual smoke документировать в .progress.md как ожидаемый результат, NOT actually run.
+Document the manual smoke in .progress.md as the expected result, NOT actually run.
 
 - [ ] **Step 10.3: Skill `superpowers:security-review`** — review auth/onboarding.guard.ts + signed-contracts (IP/UA capture, idempotency, RBAC)
 
@@ -557,31 +557,31 @@ Manual smoke документировать в .progress.md как ожидае�
 git diff main --name-only
 ```
 
-Verify AC1..AC10 cover каждый touched file.
+Verify AC1..AC10 cover each touched file.
 
 - [ ] **Step 10.6: Final commit (without `wip:` prefix)**
 
-Если есть только wip-commits — последний коммит должен быть финальным.
+If there are only wip-commits — the last commit must be the final one.
 
 ```bash
-# Empty diff status (clean working tree)? Если — финальный коммит не нужен, push последнего wip → переименовать сообщение в фин коммит
-# Иначе:
+# Empty diff status (clean working tree)? If so — a final commit is not needed, push the last wip → rename the message to the final commit
+# Otherwise:
 git add <pending files>
 git commit -m "feat(onboarding): Phase 6A backend — contracts/tos/onboarding modules + guard
 
-Implements MSA + ToS infrastructure для onboarding flow:
+Implements MSA + ToS infrastructure for the onboarding flow:
 - 4 new tables (contract_templates, signed_contracts, tos_versions, tos_acceptances)
-- contract_number_seq для CHK-N-YEAR identifiers
-- 3 NestJS modules с RBAC controllers
-- OnboardingGuard (global) с path-prefix bypass
+- contract_number_seq for CHK-N-YEAR identifiers
+- 3 NestJS modules with RBAC controllers
+- OnboardingGuard (global) with path-prefix bypass
 - Seed: 5 contract templates per role + ToS v1
-- Unit tests Vitest для всех services + guard
+- Unit tests Vitest for all services + guard
 
 ac_verified: 1,2,3,4,5,6,7,8,9,10"
 git push origin feature/onboarding-data-backend
 ```
 
-Альтернативно — если все 10 milestone wip-push'ов уже хватает с AC trail в финальном, последний wip-push amend'ить НЕЛЬЗЯ (RULES — no amend). Нужен дополнительный финальный коммит. План: M10 step делает финальный commit с empty changes? Нет, тогда git refuses. Решение: последний M9 step делается БЕЗ wip-prefix с `ac_verified:` строкой — тогда это финальный коммит. Скорректируем выше.
+Alternatively — if all 10 milestone wip-pushes are already enough with an AC trail in the final one, the last wip-push MUST NOT be amended (RULES — no amend). An additional final commit is needed. Plan: does the M10 step make a final commit with empty changes? No, then git refuses. Solution: the last M9 step is done WITHOUT a wip prefix with an `ac_verified:` line — then it is the final commit. We'll adjust above.
 
 - [ ] **Step 10.7: Create PR**
 
@@ -608,29 +608,29 @@ gh pr view <PR_NUM> --json number,headRefName,state
 
 **Spec coverage check:**
 
-- AC1 (migration 0027 с 4 tables + sequence) → M1
+- AC1 (migration 0027 with 4 tables + sequence) → M1
 - AC2 (Drizzle schema 4 pgTable) → M1
 - AC3 (shared schemas + index export) → M2
 - AC4 (contracts module 2 controllers + 2 services) → M3 + M4
 - AC5 (tos module 1+1) → M5
 - AC6 (onboarding module 1+1) → M6
-- AC7 (OnboardingGuard + APP_GUARD после JwtGuard) → M7 + M8
+- AC7 (OnboardingGuard + APP_GUARD after JwtGuard) → M7 + M8
 - AC8 (seed 5 contract_templates + 1 ToS v1) → M9
 - AC9 (unit tests 5 specs all green) → M3/M4/M5/M6/M7
-- AC10 (manual smoke test) → M10 step 10.2 (документирован как expected behavior; полный integration test не нужен — unit coverage достаточно)
+- AC10 (manual smoke test) → M10 step 10.2 (documented as expected behavior; a full integration test is not needed — unit coverage is enough)
 
-**Placeholders:** не использовать TBD/TODO в коде — все placeholders в seed body Markdown явно прописаны как «Заглушка обновляемая через UI».
+**Placeholders:** do not use TBD/TODO in the code — all placeholders in the seed body Markdown are explicitly written as "A stub updatable via the UI".
 
-**Type consistency:** `signContractSchema.parse(body)` — `{typedName: string}`, controller передаёт в service.sign({...typedName...}). `createContractTemplateSchema` — `{targetRole, bodyMarkdown}`. Имена методов сервисов согласованы.
+**Type consistency:** `signContractSchema.parse(body)` — `{typedName: string}`, the controller passes it to service.sign({...typedName...}). `createContractTemplateSchema` — `{targetRole, bodyMarkdown}`. Service method names are consistent.
 
 ---
 
 ## Risks / known unknowns
 
-1. **Drizzle pgTable одинаковый with sql tag для уникального WHERE индекса**: `tos_versions_one_active ON tos_versions((TRUE)) WHERE is_active = TRUE` — это PostgreSQL-specific. Возможно generate сделает иной syntax. План: написать SQL вручную, в Drizzle schema создать пустой index hint (комментарий), как другие миграции делают.
+1. **Drizzle pgTable identical with an sql tag for a unique WHERE index**: `tos_versions_one_active ON tos_versions((TRUE)) WHERE is_active = TRUE` — this is PostgreSQL-specific. `generate` may produce a different syntax. Plan: write the SQL by hand, create an empty index hint (a comment) in the Drizzle schema, as the other migrations do.
 
-2. **Idempotency для повторного sign**: Brief требует «return existing». Service должен FIRST query existing → return without INSERT. Race condition мала (один пользователь signs за раз), `UNIQUE (user_id, template_id)` не указан в spec → НЕ добавлять без явного запроса (могут быть legitimate re-signs новых versions).
+2. **Idempotency for a repeat sign**: the Brief requires "return existing". The service must FIRST query the existing one → return without INSERT. The race condition is small (one user signs at a time), `UNIQUE (user_id, template_id)` is not specified in the spec → do NOT add it without an explicit request (there may be legitimate re-signs of new versions).
 
-3. **`req.ip` в Fastify**: По default trust proxy = false. IP будет `127.0.0.1` за proxy. Это acceptable для MVP — улучшение в backlog.
+3. **`req.ip` in Fastify**: by default trust proxy = false. The IP will be `127.0.0.1` behind a proxy. This is acceptable for the MVP — an improvement in the backlog.
 
-4. **JwtAuthGuard глобально или нет**: текущий project — JwtAuthGuard на уровне controller через `@UseGuards`. OnboardingGuard глобально (APP_GUARD) — будет вызываться ДО controller-level guard. Это означает что в guard НЕЛЬЗЯ полагаться на `req.user` существующего. Решение: если path bypass → true; если no `req.user` → true (JwtAuthGuard потом отбросит). Это безопасно потому что OnboardingGuard не предоставляет access к чему-либо без JwtAuthGuard.
+4. **JwtAuthGuard global or not**: the current project — JwtAuthGuard at the controller level via `@UseGuards`. OnboardingGuard globally (APP_GUARD) — will be called BEFORE the controller-level guard. This means the guard MUST NOT rely on an existing `req.user`. Solution: if path bypass → true; if no `req.user` → true (JwtAuthGuard will drop it later). This is safe because OnboardingGuard does not grant access to anything without JwtAuthGuard.

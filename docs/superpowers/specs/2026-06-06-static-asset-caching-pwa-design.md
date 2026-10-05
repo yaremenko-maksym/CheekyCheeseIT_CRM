@@ -6,105 +6,105 @@
 
 ---
 
-## Цель
+## Goal
 
-Добавить Service Worker кеширование статических ассетов фронта чтобы:
+Add Service Worker caching of the frontend's static assets so that:
 
-- Ускорить повторные загрузки (статика из кеша — 0ms latency)
-- Обеспечить базовую offline-resilience для shell приложения
-- Не сломать существующий auth/data/media флоу
-
----
-
-## Аудит-выводы (pre-implementation)
-
-### Что уже кешируется — НЕ трогать
-
-- **Медиа (аватары/чеки/документы):** S3 immutable + presigned URLs + TanStack Query `staleTime: 4h`. SW по presigned-URL медиа бесполезен (URL меняется каждый запрос) и небезопасен для приватных чеков.
-- **Генерируемые PDF (контракты/инвойсы):** `Cache-Control: no-store, private` — намеренно не кешируются, SW не должен трогать.
-
-### Что не кешируется — наш таргет
-
-Prod-фронт отдаётся `vite preview`. Статика хеширована (`assets/index-[hash].js`) — готова к immutable caching. Service Worker отсутствует.
+- Repeat loads are faster (static from cache — 0ms latency)
+- Provide basic offline resilience for the application shell
+- Do not break the existing auth/data/media flow
 
 ---
 
-## Выбранный подход
+## Audit findings (pre-implementation)
 
-**`vite-plugin-pwa@1.3.0` с `generateSW` стратегией (Workbox)**
+### What is already cached — do NOT touch
 
-### Решения
+- **Media (avatars/receipts/documents):** S3 immutable + presigned URLs + TanStack Query `staleTime: 4h`. An SW over presigned-URL media is useless (the URL changes every request) and unsafe for private receipts.
+- **Generated PDFs (contracts/invoices):** `Cache-Control: no-store, private` — deliberately not cached, the SW must not touch them.
 
-| Решение        | Выбор                       | Обоснование                                                                                                    |
+### What is not cached — our target
+
+The prod frontend is served by `vite preview`. Static assets are hashed (`assets/index-[hash].js`) — ready for immutable caching. There is no Service Worker.
+
+---
+
+## Chosen approach
+
+**`vite-plugin-pwa@1.3.0` with the `generateSW` strategy (Workbox)**
+
+### Decisions
+
+| Decision | Choice | Rationale |
 | -------------- | --------------------------- | -------------------------------------------------------------------------------------------------------------- | --- | --- | --- | --- | --- | ---- |
-| Плагин         | `vite-plugin-pwa`           | Zero-config, Vite 6 compatible (`^3.1                                                                          |     | ^4  |     | ^5  |     | ^6`) |
-| Стратегия SW   | `generateSW`                | Нет кастомного SW кода, Workbox генерирует автоматически                                                       |
-| Регистрация SW | `injectRegister: 'inline'`  | Избегает `virtual:pwa-register` в Rollup module graph (pnpm workspace: `zod` не hoisted в root `node_modules`) |
-| `registerType` | `autoUpdate`                | SW обновляется автоматически в фоне без промпта пользователя                                                   |
-| dev-режим      | `devOptions.enabled: false` | SW в dev = stale-кеш, ломает hot-reload                                                                        |
-| Манифест       | `manifest: false`           | Существующий `public/site.webmanifest` самодостаточен                                                          |
+| Plugin | `vite-plugin-pwa` | Zero-config, Vite 6 compatible (`^3.1                                                                          |     | ^4  |     | ^5  |     | ^6`) |
+| SW strategy | `generateSW` | No custom SW code, Workbox generates it automatically |
+| SW registration | `injectRegister: 'inline'` | Avoids `virtual:pwa-register` in the Rollup module graph (pnpm workspace: `zod` not hoisted into root `node_modules`) |
+| `registerType` | `autoUpdate` | The SW updates automatically in the background without a user prompt |
+| dev mode | `devOptions.enabled: false` | An SW in dev = stale cache, breaks hot-reload |
+| Manifest | `manifest: false` | The existing `public/site.webmanifest` is self-sufficient |
 
-### Что precache'ится
+### What gets precached
 
 ```
 **/*.{js,css,html,ico,png,svg,woff2,webmanifest}
 ```
 
-Хешированные JS/CSS бандлы (`revision: null` — immutable, cache-forever) + статика из `public/` с revision hash.
+Hashed JS/CSS bundles (`revision: null` — immutable, cache-forever) + static from `public/` with a revision hash.
 
 ### SPA routing
 
-`navigateFallback: '/index.html'` — все навигационные запросы получают shell приложения. TanStack Router разруливает маршруты на клиенте.
+`navigateFallback: '/index.html'` — all navigation requests get the application shell. TanStack Router resolves routes on the client.
 
 ---
 
-## Исключения (что SW НЕ трогает)
+## Exclusions (what the SW does NOT touch)
 
-| Тип                   | Почему исключён                                                           |
-| --------------------- | ------------------------------------------------------------------------- |
-| `/api/*`              | Auth/данные — кешировать опасно. `navigateFallbackDenylist: [/^\/api\//]` |
-| S3 presigned-URL      | URL меняется каждый запрос — кеш бесполезен; медиа приватные              |
-| PDF инвойсы/контракты | `Cache-Control: no-store, private` — намеренно не кешируются              |
-| runtimeCaching        | Не добавляем — только precache статики                                    |
-
----
-
-## Стратегия обновления SW
-
-- `skipWaiting: true` — новый SW активируется немедленно без ожидания закрытия вкладок
-- `clientsClaim: true` — SW берёт контроль над всеми открытыми клиентами
-- `cleanupOutdatedCaches: true` — устаревшие кеши удаляются при обновлении
-- `registerType: 'autoUpdate'` — плагин автоматически инжектирует логику обновления
-
-Эффект: при деплое нового бандла SW обновляется в фоне, страница перезагружается автоматически.
+| Type                   | Why excluded                                                               |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `/api/*`               | Auth/data — caching is dangerous. `navigateFallbackDenylist: [/^\/api\//]` |
+| S3 presigned URL       | The URL changes every request — caching is useless; media is private       |
+| PDF invoices/contracts | `Cache-Control: no-store, private` — deliberately not cached               |
+| runtimeCaching         | Not added — only static precache                                           |
 
 ---
 
-## Риски и митигации
+## SW update strategy
 
-| Риск                       | Митигация                                                                   |
-| -------------------------- | --------------------------------------------------------------------------- |
-| Stale SW в production      | `autoUpdate` + `skipWaiting` + `cleanupOutdatedCaches`                      |
-| Stale кеш в dev            | `devOptions.enabled: false` — SW не активен в dev                           |
-| `/api` в precache          | `navigateFallbackDenylist` исключает, `runtimeCaching` отсутствует          |
-| Приватные медиа в кеше     | S3 URL не в globPatterns; runtimeCaching не добавлен                        |
-| pnpm workspace zod resolve | `injectRegister: 'inline'` вместо `virtual:pwa-register` — обходит проблему |
+- `skipWaiting: true` — the new SW activates immediately without waiting for tabs to close
+- `clientsClaim: true` — the SW takes control of all open clients
+- `cleanupOutdatedCaches: true` — outdated caches are removed on update
+- `registerType: 'autoUpdate'` — the plugin automatically injects the update logic
+
+Effect: on a new bundle deploy the SW updates in the background, the page reloads automatically.
+
+---
+
+## Risks and mitigations
+
+| Risk                       | Mitigation                                                                          |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| Stale SW in production     | `autoUpdate` + `skipWaiting` + `cleanupOutdatedCaches`                              |
+| Stale cache in dev         | `devOptions.enabled: false` — the SW is not active in dev                           |
+| `/api` in precache         | `navigateFallbackDenylist` excludes it, `runtimeCaching` is absent                  |
+| Private media in the cache | The S3 URL is not in globPatterns; runtimeCaching is not added                      |
+| pnpm workspace zod resolve | `injectRegister: 'inline'` instead of `virtual:pwa-register` — bypasses the problem |
 
 ---
 
 ## Out-of-scope (follow-up)
 
-- **Глубокий кеш медиа через стабильные URL** — нужны постоянные URL (не presigned) для S3 публичных ассетов. Отдельная задача Phase 7+.
-- **Offline-first data** — полноценный offline режим с background sync. Не нужен для CRM.
-- **Push notifications** — отдельная задача для notifications module.
+- **Deep media cache via stable URLs** — permanent URLs (not presigned) are needed for public S3 assets. A separate Phase 7+ task.
+- **Offline-first data** — a full offline mode with background sync. Not needed for the CRM.
+- **Push notifications** — a separate task for the notifications module.
 
 ---
 
-## Артефакты реализации
+## Implementation artifacts
 
-- `apps/web/vite.config.ts` — `VitePWA({...})` плагин
-- `apps/web/app/client.tsx` — комментарий (registerSW через inline script)
+- `apps/web/vite.config.ts` — the `VitePWA({...})` plugin
+- `apps/web/app/client.tsx` — a comment (registerSW via an inline script)
 - `apps/web/package.json` — `vite-plugin-pwa: ^1.3.0` devDependency
-- `dist/sw.js` — генерируется при каждом `vite build`
+- `dist/sw.js` — generated on every `vite build`
 - `dist/workbox-*.js` — Workbox runtime (precache/routing)
-- `dist/index.html` — содержит `<script id="vite-plugin-pwa:inline-sw">` для регистрации SW
+- `dist/index.html` — contains `<script id="vite-plugin-pwa:inline-sw">` to register the SW

@@ -7,142 +7,152 @@
 
 ## Scope
 
-Редизайн двох сторінок: список команд (`/crm/team`) і сторінка команди (`/crm/team/$teamId`).  
-Також: нова міграція БД для полів `telegram` і `notes` на таблиці `teams`.
+Redesign of two pages: the team list (`/crm/team`) and the team page (`/crm/team/$teamId`).  
+Also: a new DB migration for the `telegram` and `notes` fields on the `teams` table.
 
 ---
 
 ## 1. DB Migration
 
-Новий файл: `apps/api/drizzle/migrations/0002_team_telegram_notes.sql`
+New file: `apps/api/drizzle/migrations/0002_team_telegram_notes.sql`
 
 ```sql
 ALTER TABLE "teams" ADD COLUMN "telegram" varchar(500);
 ALTER TABLE "teams" ADD COLUMN "notes" text;
 ```
 
-Оновити `apps/api/src/database/schema.ts` — додати поля `telegram` і `notes` до таблиці `teams`.  
-Оновити `packages/shared/src/schemas/teams.ts` — додати опціональні поля у `teamSchema` та `updateTeamSchema`.  
-Оновити `apps/api/src/teams/teams.service.ts` — прийняти `telegram` і `notes` у `update()`.
+Update `apps/api/src/database/schema.ts` — add the `telegram` and `notes` fields to the `teams` table.  
+Update `packages/shared/src/schemas/teams.ts` — add optional fields to `teamSchema` and `updateTeamSchema`.  
+Update `apps/api/src/teams/teams.service.ts` — accept `telegram` and `notes` in `update()`.
 
 ---
 
-## 2. Список команд (`/crm/team/index.tsx`)
+## 2. Team list (`/crm/team/index.tsx`)
 
-### Що прибрати
-- Підзаголовок сторінки (`<p>Состав и роли сотрудников</p>`)
-- Кнопки `UserPlus` (добавити учасника) і `Trash2` (видалити команду) з карточок
+### What to remove
 
-### Тулбар (новий)
-Над списком: пошук по назві + фільтр (Всі / Senior / HR / Junior) + сортировка (Ім'я ↑/↓ / Учасники / Проекти).
+- The page subtitle (`<p>Team members and roles</p>`)
+- The `UserPlus` (add member) and `Trash2` (delete team) buttons from the cards
 
-### Вид списку
-Замість сітки карточок — вертикальний список рядків. Кожен рядок фіксована висота `56px`:
+### Toolbar (new)
+
+Above the list: search by name + filter (All / Senior / HR / Junior) + sorting (Name ↑/↓ / Members / Projects).
+
+### List view
+
+Instead of a grid of cards — a vertical list of rows. Each row a fixed height of `56px`:
 
 ```
-[аватарки -space-x] | [Назва команди / HR: Ім'я, Ім'я…] | [N уч.] [N проекти] [✏]
+[avatars -space-x] | [Team name / HR: Name, Name…] | [N mem.] [N projects] [✏]
 ```
 
-- Аватарки: перші 4 з `-space-x-2`, потім `+N`
-- HR-підзаголовок: `text-ellipsis overflow-hidden whitespace-nowrap` → ніколи не впливає на висоту
-- Пілюля проектів: зелена якщо > 0, сіра якщо 0
-- Кнопка ✏ (rename): тільки для `canManage` (ADMIN або HR-власник команди)
-- Анімація: staggered motion як зараз
+- Avatars: the first 4 with `-space-x-2`, then `+N`
+- HR subtitle: `text-ellipsis overflow-hidden whitespace-nowrap` → never affects the height
+- Projects pill: green if > 0, gray if 0
+- The ✏ (rename) button: only for `canManage` (ADMIN or the team's HR owner)
+- Animation: staggered motion as now
 
-### RBAC на список
-- ADMIN: бачить всі команди, кнопка ✏
-- HR: бачить свої команди, кнопка ✏
-- SENIOR / JUNIOR / ACCOUNTANT: view-only, без ✏
+### RBAC on the list
+
+- ADMIN: sees all teams, the ✏ button
+- HR: sees their own teams, the ✏ button
+- SENIOR / JUNIOR / ACCOUNTANT: view-only, no ✏
 
 ---
 
-## 3. Сторінка команди (`/crm/team/$teamId.tsx`)
+## 3. Team page (`/crm/team/$teamId.tsx`)
 
-### Що прибрати
-- Весь сайдбар "Статистика" (member counts by role)
-- Картка "Активність" (active projects count у сайдбарі)
-- Кнопка `UserPlus` "Добавить участника" що була без onClick
+### What to remove
 
-### Нова структура сторінки (single column)
+- The entire "Statistics" sidebar (member counts by role)
+- The "Activity" card (active projects count in the sidebar)
+- The `UserPlus` "Add member" button that had no onClick
+
+### New page structure (single column)
 
 **Header:**
+
 ```
-[← Назад] [Назва команди]    [👤+ Додати]  [✏ Редагувати]   ← тільки canManage
+[← Back] [Team name]    [👤+ Add]  [✏ Edit]   ← only canManage
 ```
 
-**Секція "Учасники"** — існуючий список по ролях (SENIOR → HR → ACCOUNTANT → JUNIOR)
+**"Members" section** — the existing list by role (SENIOR → HR → ACCOUNTANT → JUNIOR)
 
-**Секція "Активні проекти"** з лічильником-badge:
+**"Active projects" section** with a counter badge:
+
 ```
-Активні проекти  [2]
+Active projects  [2]
 ─────────────────────
-[logo] Назва проекту    Active  →  /crm/projects/:id
-[logo] Назва проекту    Active
+[logo] Project name    Active  →  /crm/projects/:id
+[logo] Project name    Active
 ```
 
-Логотип: `project.logoUrl` якщо є, інакше emoji-placeholder 🏢.  
-Кожен рядок — клікабельний Link до `/crm/projects/:id`.
+Logo: `project.logoUrl` if present, otherwise an emoji placeholder 🏢.  
+Each row — a clickable Link to `/crm/projects/:id`.
 
 ---
 
-## 4. RBAC на сторінці команди
+## 4. RBAC on the team page
 
-| Роль | Учасники | Проекти | Кнопки |
-|------|----------|---------|--------|
-| ADMIN | Всі | Всі активні команди | ✏ Редагувати + 👤+ Додати |
-| HR | Всі | Всі активні команди | ✏ Редагувати + 👤+ Додати |
-| SENIOR | Всі (включно з усіма джунами) | Всі активні команди | — |
-| JUNIOR | Тільки Senior + HR + Accountant (інші джуни приховані) | Тільки **свій** проект | — |
-| ACCOUNTANT | Всі | Всі активні команди | — |
-
----
-
-## 5. Діалог «Редагувати команду»
-
-Поля:
-- **Назва** (required) — `Input`
-- **Telegram** (optional) — `Input`, placeholder `https://t.me/...`, hint "Посилання на чат команди"
-- **Нотатки** (optional) — `Textarea`, placeholder "Внутрішні нотатки…"
-
-Дії: Зберегти → `PATCH /api/teams/:id` з `{ name, telegram, notes }`.
+| Role       | Members                                              | Projects                   | Buttons          |
+| ---------- | ---------------------------------------------------- | -------------------------- | ---------------- |
+| ADMIN      | All                                                  | All active teams           | ✏ Edit + 👤+ Add |
+| HR         | All                                                  | All active teams           | ✏ Edit + 👤+ Add |
+| SENIOR     | All (including all juniors)                          | All active teams           | —                |
+| JUNIOR     | Only Senior + HR + Accountant (other juniors hidden) | Only **their own** project | —                |
+| ACCOUNTANT | All                                                  | All active teams           | —                |
 
 ---
 
-## 6. Діалог «Додати учасника»
+## 5. "Edit team" dialog
 
-**Без рядка пошуку.**
+Fields:
 
-Список відсортований за алфавітом (`displayName`), розділений на дві групи:
+- **Name** (required) — `Input`
+- **Telegram** (optional) — `Input`, placeholder `https://t.me/...`, hint "Link to the team chat"
+- **Notes** (optional) — `Textarea`, placeholder "Internal notes…"
 
-**Доступні (checkbox):**
-- HR, ACCOUNTANT — якщо не в команді
-- JUNIOR — якщо не в команді І немає активного проекту (`project_members.leftAt IS NULL`)
-
-**Недоступні (сірі, без checkbox, з поясненням праворуч):**
-- ADMIN → "адмін"
-- Вже в команді → "в команді"
-- SENIOR (якщо в команді вже є SENIOR) → "вже є синьор"
-- JUNIOR з активним проектом → "має проект"
-
-Кнопка "Додати вибраних (N)" — активна якщо є хоча б один вибраний.
+Actions: Save → `PATCH /api/teams/:id` with `{ name, telegram, notes }`.
 
 ---
 
-## 7. Файли що змінюються
+## 6. "Add member" dialog
 
-| Файл | Зміни |
-|------|-------|
-| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | NEW — нова міграція |
-| `apps/api/src/database/schema.ts` | `+telegram`, `+notes` на таблиці teams |
-| `packages/shared/src/schemas/teams.ts` | `+telegram?`, `+notes?` у teamSchema / updateTeamSchema |
-| `apps/api/src/teams/teams.service.ts` | `update()` приймає telegram, notes |
-| `apps/web/app/routes/crm/team/index.tsx` | Повний редизайн списку + тулбар |
-| `apps/web/app/routes/crm/team/$teamId.tsx` | Новий layout + діалоги + RBAC |
+**No search row.**
+
+The list is sorted alphabetically (`displayName`), split into two groups:
+
+**Available (checkbox):**
+
+- HR, ACCOUNTANT — if not in the team
+- JUNIOR — if not in the team AND has no active project (`project_members.leftAt IS NULL`)
+
+**Unavailable (gray, no checkbox, with an explanation on the right):**
+
+- ADMIN → "admin"
+- Already in the team → "in the team"
+- SENIOR (if the team already has a SENIOR) → "already has a senior"
+- JUNIOR with an active project → "has a project"
+
+The "Add selected (N)" button — active if at least one is selected.
+
+---
+
+## 7. Files that change
+
+| File                                                       | Changes                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------- |
+| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | NEW — a new migration                                    |
+| `apps/api/src/database/schema.ts`                          | `+telegram`, `+notes` on the teams table                 |
+| `packages/shared/src/schemas/teams.ts`                     | `+telegram?`, `+notes?` in teamSchema / updateTeamSchema |
+| `apps/api/src/teams/teams.service.ts`                      | `update()` accepts telegram, notes                       |
+| `apps/web/app/routes/crm/team/index.tsx`                   | Full redesign of the list + toolbar                      |
+| `apps/web/app/routes/crm/team/$teamId.tsx`                 | New layout + dialogs + RBAC                              |
 
 ---
 
 ## 8. Out of scope
 
-- Видалення команди (лишається тільки через список — наразі кнопка прибрана, логіка не видаляється з backend)
-- Notifications при додаванні учасника
-- Пагінація списку команд
+- Deleting a team (remains only via the list — for now the button is removed, the logic is not removed from the backend)
+- Notifications on adding a member
+- Pagination of the team list

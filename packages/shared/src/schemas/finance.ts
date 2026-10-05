@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { mySalaryStatusSchema, mySalaryStateSchema } from './interviews'
+import {
+  mySalaryAggregateStateSchema,
+  mySalaryStatusSchema,
+  mySalaryStateSchema,
+} from './interviews'
 import { moneyFloorAndPrecisionError, withMoneyFloor, withSalaryFloor } from './money'
 import { kyivToday } from '../utils/kyiv-day'
 
@@ -1102,6 +1106,10 @@ export const createSalarySchema = z.object({
   amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
+  // One UUID = one manual salary-part intent. Required so a stale/custom
+  // client cannot create an unprotected financial write that is impossible to
+  // distinguish from an intentional second, identical salary part.
+  idempotencyKey: z.string().uuid(),
   notes: z.string().max(1000).optional().nullable(),
   txDate: z
     .string()
@@ -2165,6 +2173,10 @@ export const seniorSummarySchema = z.object({
   // task-salary-month-gap-and-status (E-6) — the actual, disambiguated field.
   // See the module comment on `mySalaryStateSchema` in interviews.ts.
   mySalaryState: mySalaryStateSchema,
+  // Multipart details are additive so stale pre-multipart clients can keep
+  // parsing the byte-compatible mySalaryState field above. Optional on the
+  // client schema also tolerates a rollback to an older API during deployment.
+  mySalaryAggregateState: mySalaryAggregateStateSchema.optional(),
   // task-senior-stats-block — earnings statistics ("Earnings statistics").
   earningsStats: seniorEarningsStatsSchema,
 })

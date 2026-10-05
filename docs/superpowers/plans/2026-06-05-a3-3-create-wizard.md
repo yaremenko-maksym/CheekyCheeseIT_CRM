@@ -2,7 +2,7 @@
 
 > **For agentic workers:** Implement task-by-task with TDD (test first → fail → implement → pass → commit). Checkbox (`- [ ]`) steps. Spec: `docs/superpowers/specs/2026-06-05-a3-3-create-user-wizard-design.md`.
 
-**Goal:** Refactor create-mode UserDialog into a 3-step wizard (Данные → Контракт → Подтверждение) that creates a user then their contract, reusing the A3-2 editor; make legalFullName required at creation.
+**Goal:** Refactor create-mode UserDialog into a 3-step wizard (Data → Contract → Confirmation) that creates a user then their contract, reusing the A3-2 editor; make legalFullName required at creation.
 
 **Architecture:** Create-on-step-1 (POST /users → id), then A3-2 contract editor on that id in step 2, finalize in step 3. Mostly frontend + one shared-schema change. Edit-mode UserDialog unchanged.
 
@@ -29,7 +29,7 @@
 
 - [ ] **Step 1 — failing test:** `createUserSchema.safeParse` fails when `role` ∈ {SENIOR,HR,JUNIOR,ACCOUNTANT,DROP} and `legalFullName` is missing/blank; passes when present; (ADMIN can't be created — already forbidden). Assert the issue path = `legalFullName`.
 - [ ] **Step 2 — run, expect FAIL.**
-- [ ] **Step 3 — implement:** add `.superRefine((val, ctx) => { if (CONTRACT_ROLES.has(val.role) && !val.legalFullName?.trim()) ctx.addIssue({ path:['legalFullName'], code:'custom', message:'ФИО обязательно для контракта' }) })` to `createUserSchema`. Keep field `.optional()` at type level; superRefine enforces conditionally.
+- [ ] **Step 3 — implement:** add `.superRefine((val, ctx) => { if (CONTRACT_ROLES.has(val.role) && !val.legalFullName?.trim()) ctx.addIssue({ path:['legalFullName'], code:'custom', message:'Full name is required for the contract' }) })` to `createUserSchema`. Keep field `.optional()` at type level; superRefine enforces conditionally.
 - [ ] **Step 4 — run, expect PASS.** `pnpm --filter @crm/shared test` green.
 - [ ] **Step 5 — commit** `feat(shared): require legalFullName at create for contract roles (A2c)`.
 
@@ -37,7 +37,7 @@
 
 **Files:** Create `apps/web/app/components/users/CreateWizardStepper.tsx` + `__tests__/CreateWizardStepper.test.tsx`.
 
-- [ ] **Step 1 — failing test:** renders 3 labelled steps (Данные/Контракт/Подтверждение); marks current as active, earlier as done; `data-testid="wizard-step-{n}"` with `data-state` = done|active|upcoming.
+- [ ] **Step 1 — failing test:** renders 3 labelled steps (Data/Contract/Confirmation); marks current as active, earlier as done; `data-testid="wizard-step-{n}"` with `data-state` = done|active|upcoming.
 - [ ] **Step 2 — run, expect FAIL** (`pnpm --filter @crm/web test -- CreateWizardStepper`).
 - [ ] **Step 3 — implement** the stepper (props: `current: 1|2|3`); shadcn/Tailwind tokens; Russian labels; use `frontend-design` skill for polish.
 - [ ] **Step 4 — run, expect PASS** + `mcp__eslint__lint-files`.
@@ -47,9 +47,9 @@
 
 **Files:** Modify `apps/web/app/components/users/UserDialog.tsx`; Test `__tests__/UserDialog.create-wizard.test.tsx`.
 
-- [ ] **Step 1 — failing test:** in create-mode, dialog shows the Stepper at step 1 + the existing form; «Далее» with valid data calls `POST /api/users` (mock) and on success advances to step 2 storing the returned id; on error stays at step 1 showing the error; legalFullName-missing (contract role) blocks. Edit-mode renders the single form (no wizard).
+- [ ] **Step 1 — failing test:** in create-mode, dialog shows the Stepper at step 1 + the existing form; "Next" with valid data calls `POST /api/users` (mock) and on success advances to step 2 storing the returned id; on error stays at step 1 showing the error; legalFullName-missing (contract role) blocks. Edit-mode renders the single form (no wizard).
 - [ ] **Step 2 — run, expect FAIL.**
-- [ ] **Step 3 — implement:** add `currentStep` + `createdUserId` state (create-mode only); render Stepper; step 1 = existing form; «Далее» button submits the create mutation; onSuccess → store `id` + `setCurrentStep(2)` (do NOT close); onError → stay. Edit-mode bypasses wizard.
+- [ ] **Step 3 — implement:** add `currentStep` + `createdUserId` state (create-mode only); render Stepper; step 1 = existing form; "Next" button submits the create mutation; onSuccess → store `id` + `setCurrentStep(2)` (do NOT close); onError → stay. Edit-mode bypasses wizard.
 - [ ] **Step 4 — run, expect PASS** + eslint.
 - [ ] **Step 5 — commit** `feat(web): create wizard shell + step 1 (data → POST /users → advance)`.
 
@@ -57,9 +57,9 @@
 
 **Files:** Modify `UserDialog.tsx`; Test same/new spec.
 
-- [ ] **Step 1 — failing test:** at step 2, renders the A3-2 contract editor for `createdUserId` (mock `GET /api/users/:id/contract` → DRAFT); «Назад» returns to step 1 (edit mode), «Далее» → step 3; when `GET /contract` is 404 (no template), shows the no-template empty state and «Далее» still advances (skippable).
+- [ ] **Step 1 — failing test:** at step 2, renders the A3-2 contract editor for `createdUserId` (mock `GET /api/users/:id/contract` → DRAFT); "Back" returns to step 1 (edit mode), "Next" → step 3; when `GET /contract` is 404 (no template), shows the no-template empty state and "Next" still advances (skippable).
 - [ ] **Step 2 — run, expect FAIL.**
-- [ ] **Step 3 — implement:** step 2 mounts `ContractEditor`/`ContractActionBar` (from `components/user-profile/contract/`) with `userId={createdUserId}`; reuse `useEmployeeContract`; auto-save PATCH on edit; handle 404 → empty state + allow skip; «Назад» → step 1 where the form now PATCHes (`/api/users/:id`) instead of POST.
+- [ ] **Step 3 — implement:** step 2 mounts `ContractEditor`/`ContractActionBar` (from `components/user-profile/contract/`) with `userId={createdUserId}`; reuse `useEmployeeContract`; auto-save PATCH on edit; handle 404 → empty state + allow skip; "Back" → step 1 where the form now PATCHes (`/api/users/:id`) instead of POST.
 - [ ] **Step 4 — run, expect PASS** + eslint.
 - [ ] **Step 5 — commit** `feat(web): wizard step 2 — contract editor on created user`.
 
@@ -67,9 +67,9 @@
 
 **Files:** Modify `UserDialog.tsx`; Test same/new spec.
 
-- [ ] **Step 1 — failing test:** step 3 shows a summary + two buttons. «Сохранить как черновик» closes (no extra call) + fires onClose/refresh; «Сохранить и отметить готовым к подписи» calls `POST /api/users/:id/contract/ready` (mock) then closes; the ready button is disabled when there is no contract (no-template case); «Назад» → step 2.
+- [ ] **Step 1 — failing test:** step 3 shows a summary + two buttons. "Save as draft" closes (no extra call) + fires onClose/refresh; "Save and mark ready to sign" calls `POST /api/users/:id/contract/ready` (mock) then closes; the ready button is disabled when there is no contract (no-template case); "Back" → step 2.
 - [ ] **Step 2 — run, expect FAIL.**
-- [ ] **Step 3 — implement:** step 3 summary (created user + contract status); wire the two finalize buttons (draft = close+toast+invalidate users; ready = POST /ready then close+toast+invalidate); disable ready when no contract; «Назад».
+- [ ] **Step 3 — implement:** step 3 summary (created user + contract status); wire the two finalize buttons (draft = close+toast+invalidate users; ready = POST /ready then close+toast+invalidate); disable ready when no contract; "Back".
 - [ ] **Step 4 — run, expect PASS** + eslint.
 - [ ] **Step 5 — commit** `feat(web): wizard step 3 — confirm (save draft / mark ready)`.
 
@@ -77,7 +77,7 @@
 
 **Files:** Create `apps/e2e/tests/crm/create-wizard.spec.ts`.
 
-- [ ] **Step 1 — E2E (route-mocked, per existing pattern):** ADMIN opens «Новый пользователь» → step 1 fill (incl legalFullName) → «Далее» (mock POST /users → id) → step 2 editor loads (mock GET/PATCH contract) → «Далее» → step 3 → «Сохранить и отметить готовым» (mock POST /ready) → dialog closes, success toast. Plus: legalFullName-missing blocks step 1; no-template path skips step 2.
+- [ ] **Step 1 — E2E (route-mocked, per existing pattern):** ADMIN opens "New user" → step 1 fill (incl legalFullName) → "Next" (mock POST /users → id) → step 2 editor loads (mock GET/PATCH contract) → "Next" → step 3 → "Save and mark ready" (mock POST /ready) → dialog closes, success toast. Plus: legalFullName-missing blocks step 1; no-template path skips step 2.
 - [ ] **Step 2 — RUN E2E LOCALLY (mandatory — start web first):** `pnpm --filter @crm/web start` (:3000) in background, then `pnpm --filter @crm/e2e exec playwright test tests/crm/create-wizard.spec.ts` → all green, run 2×, zero-flaky. (playwright.config has NO webServer — start :3000 yourself.)
 - [ ] **Step 3 — full verification:** `pnpm typecheck` + `pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test` + the new E2E all green. `mcp__eslint__lint-files` on all changed.
 - [ ] **Step 4 — commit** `test(e2e): create-user wizard happy path` with `ac_verified:`.
@@ -89,12 +89,12 @@
 
 ## Acceptance Criteria
 
-1. Create-mode UserDialog is a 3-step wizard (Данные → Контракт → Подтверждение) with a Stepper; edit-mode unchanged.
-2. Step 1 «Далее» creates the user (POST /users) and advances with the new id; errors keep you on step 1.
+1. Create-mode UserDialog is a 3-step wizard (Data → Contract → Confirmation) with a Stepper; edit-mode unchanged.
+2. Step 1 "Next" creates the user (POST /users) and advances with the new id; errors keep you on step 1.
 3. legalFullName required at create for contract roles (shared superRefine, enforced api+web).
 4. Step 2 reuses the A3-2 editor on the new id (lazy DRAFT, auto-save); no-template → skippable empty state.
-5. Step 3 «Сохранить как черновик» finishes (DRAFT); «Сохранить и отметить готовым» → POST /ready; ready disabled when no contract.
-6. «Назад» after creation edits via PATCH (no duplicate POST).
+5. Step 3 "Save as draft" finishes (DRAFT); "Save and mark ready" → POST /ready; ready disabled when no contract.
+6. "Back" after creation edits via PATCH (no duplicate POST).
 7. Unit (shared + web) + E2E green; E2E run locally; manual QA passed live.
 
 ## Self-review notes

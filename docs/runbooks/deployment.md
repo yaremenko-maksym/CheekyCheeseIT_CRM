@@ -936,6 +936,8 @@ CORRESPONDS to the requested image tag. The practical consequence:
     apps/api/drizzle/manual/2026-09-19_notification_email_skip_stale.sql \
     apps/api/drizzle/manual/2026-09-20_user_locale.sql \
     apps/api/drizzle/manual/2026-10-03_company_account_label_code.sql \
+    apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_prepare.sql \
+    apps/api/drizzle/manual/2026-10-04_multiple_salary_transactions_activate.sql \
     apps/api/drizzle/manual/2026-10-05_vacancy_sourcing_schema.sql \
     apps/api/drizzle/manual/2026-10-05_vacancy_sources_seed.sql \
     scripts/devops/check-security-headers.sh \

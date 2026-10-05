@@ -1,366 +1,366 @@
-# 2026-08-23 — Триплет факта платежа на строке, закрытой двумя платежами (задача 3b)
+# 2026-08-23 — The payment-fact triplet on a row closed by two payments (task 3b)
 
 ## Status
 
-Proposed. Аддендум к `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` (основной ADR)
-и к `docs/architecture/2026-08-23-cascade-apply-ledger-term.md` (аддендум задачи 3). **Ни тот, ни
-другой не изменяется** — здесь достраивается ровно одно место, которое аддендум задачи 3 оставил
-отсроченным (§1.11, ветка DROP).
+Proposed. An addendum to `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` (the main ADR)
+and to `docs/architecture/2026-08-23-cascade-apply-ledger-term.md` (the task 3 addendum). **Neither
+is changed** — here exactly one place is built out that the task 3 addendum left
+deferred (§1.11, the DROP branch).
 
-Зона: только `docs/architecture/**` + `.claude/tasks/task-drop-topup.md`. `apps/**` и `packages/**`
-не трогались.
+Zone: only `docs/architecture/**` + `.claude/tasks/task-drop-topup.md`. `apps/**` and `packages/**`
+were not touched.
 
-> **Про номера строк.** Их здесь нет намеренно (`.claude/rules/common/doc-durability.md`) — всё
-> адресуется именем символа. Прочитано в рабочем дереве на `main` = `0e43ce41`.
+> **On line numbers.** There are deliberately none here (`.claude/rules/common/doc-durability.md`) — everything is
+> addressed by the symbol name. Read in the working tree on `main` = `0e43ce41`.
 
 ## Context
 
-Задачи 0/1/2/3/4 в `main` (#598, #599, #603, #607, #600). Доплата по дропу отказывает вслух в двух
-местах, и оба отказа намеренные:
+Tasks 0/1/2/3/4 are in `main` (#598, #599, #603, #607, #600). The drop top-up refuses out loud in two
+places, and both refusals are deliberate:
 
-- `PendingSettlementService.settleByCompany` — гвард `isDropObligation && priorSettledAmount > 0`;
+- `PendingSettlementService.settleByCompany` — the guard `isDropObligation && priorSettledAmount > 0`;
 - `TransactionsService.applyEditCascade` — AC15(a), `snap.type === 'PAYOUT_DROP' && (snap.settledAmount ?? 0) > 0`.
 
-Второй появился позже первого и по закону AC15 («каскад не откатывает то, что не сможет закрыть»)
-переехал на **момент правки**. Практическое следствие, названное в §1.11 аддендума задачи 3 прямо:
-**доход, у которого доля дропа уже выплачена, сегодня нередактируем вовсе.** Это обычный сценарий,
-а не край, и 3b снимает именно его.
+The second appeared later than the first and by the AC15 law ("the cascade does not roll back what it cannot close")
+moved to the **moment of the edit**. A practical consequence, named in §1.11 of the task 3 addendum directly:
+**an income whose drop share is already paid out is non-editable at all today.** This is an ordinary scenario,
+not an edge case, and 3b removes exactly it.
 
-Вопрос, который надо закрыть до реализации, один: **чем становится триплет
-`originalAmount`/`originalCurrency`/`exchangeRate` на дроп-строке, закрытой двумя и более платежами,
-и какой механизм это фиксирует.**
+The one question that must be closed before the implementation: **what the triplet
+`originalAmount`/`originalCurrency`/`exchangeRate` becomes on a drop-row closed by two or more payments,
+and what mechanism records it.**
 
 ---
 
-## Ответ 0. Проверка посылки: арифметических потребителей у триплета нет — подтверждено, с поправкой
+## Answer 0. Checking the premise: the triplet has no arithmetic consumers — confirmed, with a correction
 
-Посылка была задана мне как установленный факт с просьбой перепроверить. **Перепроверено, вывод
-подтверждается, но с существенной поправкой, меняющей его вес.**
+The premise was given to me as an established fact with a request to re-check. **Re-checked, the conclusion
+is confirmed, but with a substantial correction that changes its weight.**
 
-Все не-спековые вхождения `originalAmount` / `original_amount` / `originalCurrency` /
-`exchangeRate` / `exchange_rate` в `apps/**` и `packages/**` (грепом по обоим именам каждой из трёх
-колонок, отфильтрованы `nbu`-курсы, таблица `exchange_rate` из сида и одноимённые локальные
-переменные фронтенда):
+All non-spec occurrences of `originalAmount` / `original_amount` / `originalCurrency` /
+`exchangeRate` / `exchange_rate` in `apps/**` and `packages/**` (by a grep of both names of each of the three
+columns, filtering out the `nbu` rates, the `exchange_rate` table from the seed and the same-named local
+frontend variables):
 
-| Место                                                                    | Что делает                                                            |
-| ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
-| `TransactionsService.paySalary`                                          | **пишет** (в строку и в metadata аудита `PAY`)                        |
-| `PendingSettlementService.settleByCompany`, ветка `isDropObligation`     | **пишет**                                                             |
-| `TransactionsService.mapTx`                                              | сквозной проброс в DTO                                                |
-| `PendingSettlementService.toTransactionDto`                              | сквозной проброс в DTO                                                |
-| `TransactionsService.loadCascadeSnapshot`                                | читает **только у источника** → `CascadeSourceSnapshot`               |
-| `classifyEditedRowLedgerFact` (`@crm/shared`)                            | предикат `!== null` (AC13), число не используется                     |
-| `resolveSourceWarnings` (`@crm/shared`)                                  | печатает значение в текст предупреждения                              |
-| `exchange-rate.util.ts` — `isStorableExchangeRate`, `settledAmountError` | валидаторы диапазона, не считают деньги                               |
-| `schema.ts`, `finance.ts`, `edit-cascade.ts`                             | схема и документация                                                  |
-| `apps/web`                                                               | **ни одного чтения** — только два комментария в `PaySalaryDialog.tsx` |
+| Place                                                                     | What it does                                                   |
+| ------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `TransactionsService.paySalary`                                           | **writes** (into the row and into the audit metadata of `PAY`) |
+| `PendingSettlementService.settleByCompany`, the `isDropObligation` branch | **writes**                                                     |
+| `TransactionsService.mapTx`                                               | a pass-through to the DTO                                      |
+| `PendingSettlementService.toTransactionDto`                               | a pass-through to the DTO                                      |
+| `TransactionsService.loadCascadeSnapshot`                                 | reads **only at the source** → `CascadeSourceSnapshot`         |
+| `classifyEditedRowLedgerFact` (`@crm/shared`)                             | the predicate `!== null` (AC13), the number is not used        |
+| `resolveSourceWarnings` (`@crm/shared`)                                   | prints the value into the warning text                         |
+| `exchange-rate.util.ts` — `isStorableExchangeRate`, `settledAmountError`  | range validators, do not count money                           |
+| `schema.ts`, `finance.ts`, `edit-cascade.ts`                              | the schema and the documentation                               |
+| `apps/web`                                                                | **no reads** — only two comments in `PaySalaryDialog.tsx`      |
 
-**Ни один потребитель не производит из триплета денежную величину.** Пункт 3 постановки верен.
+**No consumer produces a monetary value from the triplet.** Item 3 of the statement is correct.
 
-**Поправка, которая важнее самого вывода: арифметический потребитель существовал и был удалён
-решением владельца.** `TransactionsService.computeDropAggregate` в одной из редакций **пиннил**
-конвертированную drop-выплату к её снимку `original_amount`/`original_currency`, чтобы уже закрытое
-обязательство не «плыло» вслед за курсом НБУ. Комментарий в коде фиксирует отмену дословно: «Per the
-owner's explicit decision (“везде по сегодняшнему курсу”), that pinning is reverted… `original_amount`/
+**A correction that is more important than the conclusion itself: an arithmetic consumer existed and was removed
+by the owner's decision.** `TransactionsService.computeDropAggregate` in one of its editions **pinned**
+a converted drop payout to its snapshot `original_amount`/`original_currency`, so that an already-closed
+obligation would not "drift" after the NBU rate. A comment in the code records the cancellation verbatim: "Per the
+owner's explicit decision ("everywhere at today's rate"), that pinning is reverted… `original_amount`/
 `original_currency` stay on the schema as a fact record of what was actually paid — just no longer
-consulted by aggregation» (security-review PR #521 round 3, MED-B).
+consulted by aggregation" (security-review PR #521 round 3, MED-B).
 
-Из этого следует не «триплет неважен», а ровно обратное по смыслу:
+From this follows not "the triplet is unimportant", but exactly the opposite in meaning:
 
-> **Пустота арифметических потребителей — принятое решение, а не случайность. Единственная работа
-> триплета — быть верной записью. Значит цена неверной записи здесь равна цене лжи в бухгалтерской
-> книге: она не всплывёт нигде, потому что её никто не считает.**
+> **The emptiness of the arithmetic consumers is an adopted decision, not an accident. The only job
+> of the triplet is to be a correct record. So the price of a wrong record here equals the price of a lie in an accounting
+> ledger: it will not surface anywhere, because no one counts it.**
 
-Практическое следствие для 3b: **свобода в выборе формы есть, свободы записать неправду нет.** И
-проверять эту запись придётся собственным тестом — ни один существующий потребитель не покраснеет.
+The practical consequence for 3b: **there is freedom in the choice of form, there is no freedom to write an untruth.** And
+this record will have to be checked by one's own test — no existing consumer will turn red.
 
 ---
 
-## Ответ 1. Чем становится триплет — предикат
+## Answer 1. What the triplet becomes — the predicate
 
-### 1.1. Что три колонки утверждают сегодня
+### 1.1. What the three columns assert today
 
-Из doc-комментария `transactions.originalAmount` в `schema.ts`, дословно:
+From the doc-comment of `transactions.originalAmount` in `schema.ts`, verbatim:
 
-- `original_amount` — `amount` **как он стоял непосредственно ПЕРЕД платежом**;
-- `original_currency` — `currency` там же;
-- `exchange_rate` — **эффективный применённый курс**, `paid / original`.
+- `original_amount` — `amount` **as it stood immediately BEFORE the payment**;
+- `original_currency` — `currency` there too;
+- `exchange_rate` — the **effective applied rate**, `paid / original`.
 
-Отсюда тождество, на которое ссылается сам гвард-отказ в `settleByCompany`:
+Hence the identity referenced by the guard-refusal in `settleByCompany` itself:
 
 ```
 amount == original_amount × exchange_rate
 ```
 
-Плюс контракт NULL: «NULL reads as “this row was never paid through the amount-aware flow”» — и
-drop-ветка штампует триплет **на каждом** settle именно ради того, чтобы NULL нельзя было спутать
-с «платили, но до этого потока».
+Plus the NULL contract: "NULL reads as "this row was never paid through the amount-aware flow"" — and
+the drop branch stamps the triplet **on every** settle precisely so that NULL cannot be confused
+with "paid, but before this flow".
 
-### 1.2. Тождество ломает не доплата, а откат — и это меняет форму задачи
+### 1.2. The identity is broken not by the top-up but by the rollback — and this changes the form of the task
 
-Разбор по коду `applyEditCascade`, ветка `isSettled` (откат):
+A breakdown by the code of `applyEditCascade`, the `isSettled` branch (the rollback):
 
 ```
 type   := DROP_PENDING_PAYOUT
 status := PENDING_PAYMENT
-amount := новая полная доля
-dropSharePercent := снимок
+amount := the new full share
+dropSharePercent := the snapshot
 ```
 
-Триплет **не трогается**. Значит сразу после отката, ещё до всякой доплаты:
+The triplet is **not touched**. So immediately after the rollback, even before any top-up:
 
-- `amount` = 130 (долг), `original_amount` = 100, `exchange_rate` = 1 → **тождество ложно**;
-- `original_amount IS NOT NULL` на строке со `status = 'PENDING_PAYMENT'` утверждает «эта строка была
-  оплачена через amount-aware поток», хотя строка в этот момент **не оплачена**;
-- эту строку можно править напрямую: `isCascadeAmountEdit` требует `status === 'PAID'`, поэтому AC13
-  до неё не доходит вовсе, а `floorAmountAtAccumulator` пускает любую сумму **вверх** от накопителя —
-  и каждая такая правка снова расходится с триплетом.
+- `amount` = 130 (the debt), `original_amount` = 100, `exchange_rate` = 1 → **the identity is false**;
+- `original_amount IS NOT NULL` on a row with `status = 'PENDING_PAYMENT'` asserts "this row was
+  paid through the amount-aware flow", although the row at this moment is **not paid**;
+- this row can be edited directly: `isCascadeAmountEdit` requires `status === 'PAID'`, so AC13
+  does not reach it at all, and `floorAmountAtAccumulator` lets any amount through **upward** from the accumulator —
+  and every such edit again diverges from the triplet.
 
-Сегодня это недостижимо: AC15(a) отказывает раньше, поэтому `PAYOUT_DROP` никогда не возвращается в
-`DROP_PENDING_PAYOUT`. **3b делает эту ветку живой первым же коммитом.** Поэтому вопрос «чем
-становится триплет после доплаты» на самом деле состоит из двух, и первый — про откат.
+Today this is unreachable: AC15(a) refuses earlier, so `PAYOUT_DROP` never returns to
+`DROP_PENDING_PAYOUT`. **3b makes this branch live with the very first commit.** Therefore the question "what
+the triplet becomes after the top-up" actually consists of two, and the first is about the rollback.
 
-### 1.3. Население, которое 3b способна тронуть: «два платежа по разным курсам» структурно пусто
+### 1.3. The population that 3b can touch: "two payments at different rates" is structurally empty
 
-Отсроченное решение §1.11 сформулировано как «что должен означать триплет на строке, закрытой двумя
-платежами **по разным курсам**». Проверка показывает, что у этой формулировки **пустая область
-определения** в том населении, куда 3b вообще может дотянуться. Цепочка — по коду, каждое звено
-проверяемо грепом по имени символа:
+The deferred decision §1.11 is formulated as "what the triplet should mean on a row closed by two
+payments **at different rates**". A check shows that this formulation has an **empty domain**
+in the population that 3b can reach at all. The chain — by the code, each link
+verifiable by a grep of the symbol name:
 
-1. **Обязательство дропа всегда USDT.** `settleByCompany`, ветка `isDropObligation`, бросает
-   `BadRequestException` при `obligationCurrency !== 'USDT'` (гвард MED-1 из #521).
-2. **Каскад отказывает, если валюта обязательства ≠ валюте источника.** `applyEditCascade`, фаза 1,
-   предупреждение `OBLIGATION_CURRENCY_MISMATCH` → 400. Значит у откаченной строки
+1. **A drop obligation is always USDT.** `settleByCompany`, the `isDropObligation` branch, throws
+   `BadRequestException` when `obligationCurrency !== 'USDT'` (the MED-1 guard from #521).
+2. **The cascade refuses if the obligation currency ≠ the source currency.** `applyEditCascade`, phase 1,
+   the warning `OBLIGATION_CURRENCY_MISMATCH` → 400. So on a rolled-back row
    `obligation.currency == source.currency`.
-3. **Каскад отказывает, если накопитель учтён не в валюте источника.** AC15(b): предупреждение
+3. **The cascade refuses if the accumulator is accounted not in the source currency.** AC15(b): the warning
    `NON_USDT_CURRENCY` (`currencyMismatch = settledAmount > 0 && settledCurrency !== sourceCurrency`)
-   → 400. Значит `settled_currency == source.currency`.
-4. Из (2) и (3): **`settled_currency == obligation.currency == 'USDT'`.**
-5. **Доплата обязана идти в валюте накопителя.** Гвард MED-1 из #599 в `settleByCompany`:
-   `sourceSettledCurrency && sourceSettledCurrency !== currency` → 400. Значит валюта доплаты — USDT.
-6. **USDT→USDT — пег-пара.** `isUsdPegPair` (`c === 'USD' || c === 'USDT'` с обеих сторон) → ветка
-   `paidAmount = <вход конверсии>` без обращения к НБУ. **Курс каждого платежа ровно 1.**
+   → 400. So `settled_currency == source.currency`.
+4. From (2) and (3): **`settled_currency == obligation.currency == 'USDT'`.**
+5. **The top-up is obliged to go in the accumulator currency.** The MED-1 guard from #599 in `settleByCompany`:
+   `sourceSettledCurrency && sourceSettledCurrency !== currency` → 400. So the top-up currency is USDT.
+6. **USDT→USDT is a peg pair.** `isUsdPegPair` (`c === 'USD' || c === 'USDT'` on both sides) → the branch
+   `paidAmount = <the conversion input>` without an appeal to NBU. **The rate of each payment is exactly 1.**
 
-Первый платёж прошёл при тех же условиях (его валюта и есть `settled_currency` из шага 4), значит
-его курс тоже 1. **Оба платежа — по курсу 1; средневзвешенного не бывает.**
+The first payment went under the same conditions (its currency is the `settled_currency` from step 4), so
+its rate is also 1. **Both payments — at rate 1; there is no weighted average.**
 
-Это не «повезло»: пять из шести звеньев — существующие отказы, поставленные предыдущими раундами
-ревью. Но они стоят в **трёх разных файлах**, и триплет опирается на их совокупность молча. По
-механизму §3.1 аддендума задачи 3 («опора выражается исполняемой проверкой в точке опоры») 3b обязана
-выразить эту опору **одной проверкой там, где триплет штампуется** — см. 2.6.
+This is not "luck": five of the six links are existing refusals placed by previous rounds
+of review. But they stand in **three different files**, and the triplet relies on their totality silently. By the
+mechanism §3.1 of the task 3 addendum ("the dependency is expressed by an executable check at the point of support") 3b is obliged
+to express this dependency in **one check where the triplet is stamped** — see 2.6.
 
-### 1.4. Предикат: что лежит в трёх колонках после доплаты
+### 1.4. The predicate: what lies in the three columns after the top-up
 
-> **Триплет — свойство ЗАКРЫТОЙ формы строки, а не отдельного платежа. Он непуст тогда и только
-> тогда, когда строка стоит в закрытой форме, и описывает закрытие целиком.**
+> **The triplet is a property of the CLOSED form of the row, not of a separate payment. It is non-empty if and only
+> if the row stands in the closed form, and it describes the closing as a whole.**
 >
-> Формально, для дроп-строки:
+> Formally, for a drop-row:
 >
-> | Колонка             | Значение                                                                                  |
-> | ------------------- | ----------------------------------------------------------------------------------------- |
-> | `original_amount`   | `pending_obligations.amount` этого закрытия — обязательство, каким оно окончательно стало |
-> | `original_currency` | валюта этого обязательства (`'USDT'`, проверяется)                                        |
-> | `exchange_rate`     | `amount / original_amount`, где `amount` — накопленная сумма всех платежей по строке      |
+> | Column              | Value                                                                                        |
+> | ------------------- | -------------------------------------------------------------------------------------------- |
+> | `original_amount`   | the `pending_obligations.amount` of this closing — the obligation as it finally became       |
+> | `original_currency` | the currency of this obligation (`'USDT'`, checked)                                          |
+> | `exchange_rate`     | `amount / original_amount`, where `amount` is the accumulated sum of all payments on the row |
 >
-> и держатся два тождества:
+> and two identities hold:
 >
 > ```
-> (T1)  amount == original_amount × exchange_rate          — прежнее, сохранено
-> (T2)  original_amount IS NOT NULL  ⟺  строка в закрытой форме (status = 'PAID')
+> (T1)  amount == original_amount × exchange_rate          — the former, preserved
+> (T2)  original_amount IS NOT NULL  ⟺  the row is in the closed form (status = 'PAID')
 > ```
 >
-> В населении из 1.3 `exchange_rate` при этом равен **точно** 1, а `original_amount == amount ==
-settled_amount`. То есть T1 держится не приближённо, а тождественно.
+> In the population from 1.3 `exchange_rate` is at that point equal to **exactly** 1, and `original_amount == amount ==
+settled_amount`. That is, T1 holds not approximately but identically.
 
-**Определение колонок при этом не меняется ни на слово.** Приложите формулировку схемы («`amount` как
-он стоял непосредственно ПЕРЕД платежом») к доплате: перед доплатой откат уже записал в `amount`
-новую полную долю, равную `obligation.amount`. Значит `original_amount := obligation.amount` — это
-**буквальное исполнение существующего определения**, а не новая семантика. Меняется не смысл, а
-момент: триплет должен **переставляться на каждом закрытии**, а не оставаться от первого.
+**The definition of the columns does not change by a word in doing so.** Apply the schema's wording ("`amount` as
+it stood immediately BEFORE the payment") to the top-up: before the top-up the rollback already wrote into `amount`
+the new full share, equal to `obligation.amount`. So `original_amount := obligation.amount` is a
+**literal execution of the existing definition**, not a new semantics. What changes is not the meaning but the
+moment: the triplet must be **re-set on each closing**, not left over from the first.
 
-Что теряется: «это было два платежа, а не один» из строки не читается. Это приемлемо и записано
-явно — см. 1.6 и раздел «Семья однозначных колонок»; провенанс уходит в журнал, который на этом пути
-пишется **внутри** денежной транзакции, а не best-effort.
+What is lost: "this was two payments, not one" is not read from the row. This is acceptable and recorded
+explicitly — see 1.6 and the section "The family of unambiguous columns"; the provenance goes into the journal, which on this path
+is written **inside** the money transaction, not best-effort.
 
-### 1.5. Механизм, который это фиксирует
+### 1.5. The mechanism that records this
 
-Один критерий, из которого следуют обе половины:
+One criterion from which both halves follow:
 
-> **Откат переписывает `amount`. Поэтому он обязан обнулить ровно те колонки, чья истинность
-> сформулирована ОТНОСИТЕЛЬНО `amount`, и не трогать те, которые являются самостоятельными записями
-> о состоявшемся платеже.**
+> **The rollback rewrites `amount`. Therefore it is obliged to zero exactly those columns whose truth
+> is formulated RELATIVE to `amount`, and not to touch those that are independent records
+> of a payment that happened.**
 
-Разложение всех «однозначных» колонок дроп-строки по этому критерию:
+A decomposition of all the "unambiguous" columns of a drop-row by this criterion:
 
-| Колонка                                                 | Сформулирована относительно `amount`? | Что делает откат                    |
-| ------------------------------------------------------- | ------------------------------------- | ----------------------------------- |
-| `original_amount`, `original_currency`, `exchange_rate` | **да** (T1)                           | **обнуляет**                        |
-| `settled_amount`, `settled_currency`                    | нет — «сколько реально ушло»          | сохраняет (монотонность)            |
-| `settled_share_percent`                                 | нет — процент последнего закрытия     | сохраняет                           |
-| `funding_source`, `sender_id`, `sender_label`           | нет — «из какого пота и кто»          | сохраняет (требование AC6 задачи 3) |
-| `receipt_document_id`, `receipt_external_url`           | нет — доказательство платежа          | сохраняет                           |
-| `tx_date`                                               | нет — день платежа                    | сохраняет                           |
-| `currency`                                              | нет — валюта платежа                  | сохраняет                           |
+| Column                                                  | Formulated relative to `amount`?     | What the rollback does                   |
+| ------------------------------------------------------- | ------------------------------------ | ---------------------------------------- |
+| `original_amount`, `original_currency`, `exchange_rate` | **yes** (T1)                         | **zeroes**                               |
+| `settled_amount`, `settled_currency`                    | no — "how much really left"          | preserves (monotonicity)                 |
+| `settled_share_percent`                                 | no — the percent of the last closing | preserves                                |
+| `funding_source`, `sender_id`, `sender_label`           | no — "from which pot and who"        | preserves (an AC6 requirement of task 3) |
+| `receipt_document_id`, `receipt_external_url`           | no — proof of the payment            | preserves                                |
+| `tx_date`                                               | no — the day of the payment          | preserves                                |
+| `currency`                                              | no — the payment currency            | preserves                                |
 
-Обнуление — **безусловное**, без ветки по типу: на senior-строке все три колонки уже `NULL` по
-построению (`bookCompanyObligations` их не пишет, senior-ветка флипа их не пишет — объект с
-триплетом раскрывается только под `isDropObligation`), поэтому запись `null` там доказуемо no-op.
-Ветка, срабатывание которой ни один тест не отличит от несрабатывания, дороже её отсутствия — тот же
-довод, которым в `settleByCompany` сняли гейт `!isDropObligation` с `settledAmountError`.
+Zeroing is **unconditional**, without a branch by type: on a senior-row all three columns are already `NULL` by
+construction (`bookCompanyObligations` does not write them, the senior branch of the flip does not write them — the object with the
+triplet is spread only under `isDropObligation`), so writing `null` there is a provable no-op.
+A branch whose firing no test can distinguish from non-firing is more expensive than its absence — the same
+argument by which in `settleByCompany` the gate `!isDropObligation` was removed from `settledAmountError`.
 
-Ретрактируемые значения уходят в `CASCADE_REOPEN.metadata.before`. Это **надёжный** носитель, в
-отличие от `PAY`: запись `CASCADE_REOPEN` делается `dbtx.insert(...)` **внутри** той же транзакции,
-что и сам откат (в отличие от best-effort `PAY` после коммита, из-за которого AC5 п.9 запрещает
-считать деньги из журнала). Мы и не считаем из него деньги — только храним провенанс.
+The retractable values go into `CASCADE_REOPEN.metadata.before`. This is a **reliable** carrier, in
+contrast to `PAY`: the `CASCADE_REOPEN` record is made by a `dbtx.insert(...)` **inside** the same transaction
+as the rollback itself (unlike the best-effort `PAY` after the commit, because of which AC5 item 9 forbids
+counting money from the journal). We do not count money from it — we only store the provenance.
 
-Вторая половина механизма — на закрытии: `settleByCompany` уже штампует триплет **на каждом** drop-settle;
-менять надо не «когда», а **из чего** он считается (2.3).
+The second half of the mechanism — at the closing: `settleByCompany` already stamps the triplet **on every** drop-settle;
+what needs to change is not "when", but **from what** it is computed (2.3).
 
-### 1.6. Что становится ложным утверждением, если оставить как есть
+### 1.6. What becomes a false assertion if left as is
 
-Четыре разных лжи, в порядке убывания ущерба. Первая — деньги, остальные — записи.
+Four different lies, in descending order of damage. The first — money, the rest — records.
 
-**(Л1) Снять только гвард `settleByCompany` и больше ничего.** Ветка конверсии считает `paidAmount`
-из **полного** `obligation.amount`, а не из остатка:
+**(L1) Remove only the `settleByCompany` guard and nothing else.** The conversion branch computes `paidAmount`
+from the **full** `obligation.amount`, not from the remainder:
 
 ```
-обязательство 130, уже выплачено 100
-→ paidAmount = 130          (платим полную сумму второй раз)
+obligation 130, already paid out 100
+→ paidAmount = 130          (paying the full amount a second time)
 → amount = 130, settled_amount = coalesce(100,0) + 130 = 230
 ```
 
-Дропу физически ушло 230 за долг в 130 — **переплата на 100**. Плюс `amount(130) ≠ settled_amount(230)`,
-то есть ломается инвариант §1.2 аддендума задачи 3, на котором стоит терм 9 леджера: следующий каскад
-по этой строке начнёт отказывать навсегда (проверка `amountsDiffer(snap.amount, snap.settledAmount)`
-в `applyEditCascade`). Это единственная из четырёх, где ложь стоит реальных денег.
+The drop was physically paid 230 for a debt of 130 — an **overpayment of 100**. Plus `amount(130) ≠ settled_amount(230)`,
+that is, the invariant §1.2 of the task 3 addendum breaks, on which the ledger's term 9 stands: the next cascade
+on this row will start refusing forever (the check `amountsDiffer(snap.amount, snap.settledAmount)`
+in `applyEditCascade`). This is the only one of the four where the lie costs real money.
 
-**(Л2) Сделать `amount` накопительным, но оставить формулу курса как есть.** `rawExchangeRate =
-paidAmount / obligationAmount` посчитает `30 / 130 = 0.2307…`, и строка заявит курс 0.23 для
-конверсии USDT→USDT, которой не было. T1 нарушено: `130 ≠ 130 × 0.2307`. Ровно форма пункта 86
-бэклога — «валюта лежит рядом со значением, но в арифметику не входит», только здесь наоборот: в
-арифметику вошло число из другого платежа.
+**(L2) Make `amount` cumulative but leave the rate formula as is.** `rawExchangeRate =
+paidAmount / obligationAmount` will compute `30 / 130 = 0.2307…`, and the row will declare a rate of 0.23 for
+a USDT→USDT conversion that did not happen. T1 is violated: `130 ≠ 130 × 0.2307`. Exactly the form of backlog
+item 86 — "the currency lies next to the value but does not enter the arithmetic", only here the reverse: a
+number from another payment entered the arithmetic.
 
-**(Л3) Не переставлять триплет вовсе.** Строка утверждает: «обязательство было 100, его закрыл платёж
-130 по курсу 1». Три ложных утверждения в трёх колонках: обязательство было 130; платёж был не один;
+**(L3) Do not re-set the triplet at all.** The row asserts: "the obligation was 100, it was closed by a payment of
+130 at rate 1". Three false assertions in three columns: the obligation was 130; the payment was not one;
 `130 ≠ 100 × 1`.
 
-**(Л4) Не чистить триплет на откате.** Строка в статусе `PENDING_PAYMENT` утверждает, что была
-оплачена, и её `amount` (долг) сопоставлен с курсом платежа. Плюс дыра из 1.2: такую строку можно
-править напрямую мимо AC13, и каждая правка добавляет расхождение. Ложь живёт всё время между
-правкой дохода и доплатой — то есть ровно столько, сколько владелец смотрит на экран «сколько
-доплатить».
+**(L4) Do not clean the triplet on the rollback.** A row in the status `PENDING_PAYMENT` asserts that it was
+paid, and its `amount` (the debt) is matched with the payment rate. Plus the hole from 1.2: such a row can be
+edited directly bypassing AC13, and each edit adds a discrepancy. The lie lives the whole time between
+the income edit and the top-up — that is, exactly as long as the owner looks at the "how much to top up"
+screen.
 
-Ни одну из четырёх не поймает ни один существующий потребитель (Ответ 0). Поэтому по каждой в
-задании стоит собственный тест с указанием, что именно покраснеет.
+Not one of the four will be caught by any existing consumer (Answer 0). Therefore each in the
+task has its own test with a note of what exactly will turn red.
 
 ---
 
-## Ответ 2. Что обязано измениться в арифметике доплаты, чтобы предикат стал правдой
+## Answer 2. What is obliged to change in the top-up arithmetic for the predicate to become true
 
-Всё ниже — внутри `PendingSettlementService.settleByCompany`, ветка `isDropObligation`. Термы
-леджера 1–8 не трогаются; терм 9 не трогается.
+Everything below — inside `PendingSettlementService.settleByCompany`, the `isDropObligation` branch. The ledger
+terms 1–8 are not touched; term 9 is not touched.
 
-### 2.1. Вход конверсии — остаток, а не полное обязательство
+### 2.1. The conversion input — the remainder, not the full obligation
 
-`remainingOwed` уже существует (введён задачей 3 для senior-ветки, «ONE description, two call sites»).
-Drop-ветка обязана считать конверсию **от него**:
+`remainingOwed` already exists (introduced by task 3 for the senior branch, "ONE description, two call sites").
+The drop branch is obliged to compute the conversion **from it**:
 
 ```
-owedNow = remainingOwed(obligation.amount)      // = obligation.amount, когда накопитель пуст
+owedNow = remainingOwed(obligation.amount)      // = obligation.amount when the accumulator is empty
 ```
 
-На первом settle `priorSettledAmount === 0`, значит `owedNow === obligationAmount`, и поведение
-**байт-в-байт прежнее**. Это позволяет заменить вход конверсии без ветки — одно описание вместо двух.
+On the first settle `priorSettledAmount === 0`, so `owedNow === obligationAmount`, and the behavior is
+**byte-for-byte the former**. This allows replacing the conversion input without a branch — one description instead of two.
 
-### 2.2. `amount` становится накопительным — и тем же выражением, что накопитель
+### 2.2. `amount` becomes cumulative — and by the same expression as the accumulator
 
 ```
 amount:        sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`
 settledAmount: sql`coalesce(${transactions.settledAmount}, 0) + ${settledAmountThisSettle}`
 ```
 
-Одно и то же выражение в обеих колонках делает инвариант §1.2 (`amount == settled_amount`)
-**структурным**, а не утверждаемым: он не может разойтись, потому что источник у обоих чисел один.
-Это ровно тот довод, которым MED-3 (#599) потребовал DB-native инкремент вместо JS-вычисленного:
-корректность не зависит от того, что между чтением и записью никто не вмешался. TOCTOU-условие
-`settled_amount IS NOT DISTINCT FROM <прочитанное>` в `WHERE` флипа уже стоит и пиннит предыдущее
-значение.
+The same expression in both columns makes the invariant §1.2 (`amount == settled_amount`)
+**structural**, not asserted: it cannot diverge, because the source of both numbers is one.
+This is exactly the argument by which MED-3 (#599) required a DB-native increment instead of a JS-computed one:
+the correctness does not depend on nobody interfering between the read and the write. The TOCTOU condition
+`settled_amount IS NOT DISTINCT FROM <the read>` in the `WHERE` of the flip already stands and pins the previous
+value.
 
-На первом settle: `coalesce(NULL,0) + paidAmount = paidAmount` — прежнее поведение.
+On the first settle: `coalesce(NULL,0) + paidAmount = paidAmount` — the former behavior.
 
-**`amount` пишется по-прежнему только на drop-ветке.** Senior-ветка не трогает `amount` — так и
-остаётся (там инвариант §1.2 держат внешние держатели плюс проверка каскада, см. §1.2 аддендума
-задачи 3).
+**`amount` is still written only on the drop branch.** The senior branch does not touch `amount` — so it
+remains (there the invariant §1.2 is held by external holders plus the cascade check, see §1.2 of the task 3
+addendum).
 
-### 2.3. Числитель курса — накопленное, знаменатель — обязательство
+### 2.3. The rate numerator — the accumulated, the denominator — the obligation
 
 ```
-cumulativePaid  = priorSettledAmount + paidAmount        // округлить до 6 знаков
-originalAmount  = obligation.amount                      // полное обязательство, НЕ owedNow
+cumulativePaid  = priorSettledAmount + paidAmount        // round to 6 digits
+originalAmount  = obligation.amount                      // the full obligation, NOT owedNow
 originalCurrency = obligationCurrency
 rawExchangeRate = obligationAmount > 0 ? cumulativePaid / obligationAmount : null
 ```
 
-Дальше — существующий `isStorableExchangeRate` без изменений (`null`, когда отношение непредставимо).
-На первом settle `cumulativePaid === paidAmount` — прежняя формула.
+Further — the existing `isStorableExchangeRate` without changes (`null` when the ratio is unrepresentable).
+On the first settle `cumulativePaid === paidAmount` — the former formula.
 
-T1 при этом держится по построению: `amount` (2.2) и `cumulativePaid` — одно и то же число, а
-`exchange_rate` — его отношение к `original_amount`.
+T1 at that point holds by construction: `amount` (2.2) and `cumulativePaid` are one and the same number, and
+`exchange_rate` is its ratio to `original_amount`.
 
-### 2.4. Dust-проверка перекючается на остаток — иначе тупик
+### 2.4. The dust check switches to the remainder — otherwise a deadlock
 
-Существующая проверка `paidAmount === 0 && obligationAmount > 0` («после округления сумма выплаты
-получилась нулевой, хотя обязательство не нулевое») **должна** сравнивать с `owedNow`, а не с
-`obligationAmount`. Иначе законное идемпотентное закрытие с `owedNow === 0` — состояние, которое
-аддендум задачи 3 §1.11 специально сделал законным ради выхода из SR-M-4, — на drop-ветке будет
-отвергнуто, и получится тот же тупик, который §1.14 закрывала.
+The existing check `paidAmount === 0 && obligationAmount > 0` ("after rounding the payout amount
+came out zero, although the obligation is not zero") **must** compare with `owedNow`, not with
+`obligationAmount`. Otherwise a lawful idempotent closing with `owedNow === 0` — a state that
+the task 3 addendum §1.11 specially made lawful for the sake of exiting SR-M-4 — on the drop branch will be
+rejected, and the same deadlock that §1.14 closed will result.
 
-Достижимость проверена по коду: правка дохода вверх → откат (обязательство 130, накопитель 100) →
-правка обратно вниз → ветка AC5 пишет `flooredAmount = max(100, 100) = 100` в обе копии → следующий
-settle даёт `owedNow = 100 − 100 = 0`. Без этой правки — `BadRequestException` на строке, которую
-больше нечем закрыть.
+Reachability verified by the code: an income edit upward → rollback (obligation 130, accumulator 100) →
+an edit back downward → the AC5 branch writes `flooredAmount = max(100, 100) = 100` into both copies → the next
+settle gives `owedNow = 100 − 100 = 0`. Without this fix — a `BadRequestException` on a row that there is
+nothing left to close with.
 
-### 2.5. Money-гейт: ветка схлопывается в одно описание
+### 2.5. The money-gate: the branch collapses into one description
 
-Сейчас: `const amount = isDropObligation ? parseFloat(claimedAmount) : remainingOwed(claimedAmount)`.
-После 2.1 обе половины — это `remainingOwed(claimedAmount)`:
+Now: `const amount = isDropObligation ? parseFloat(claimedAmount) : remainingOwed(claimedAmount)`.
+After 2.1 both halves are `remainingOwed(claimedAmount)`:
 
-- для company-funded drop-settle валюта принудительно `'USDT'` (`debitsCompanyAccount ⇒ currency = 'USDT'`,
-  §1.5 аддендума задачи 3), обязательство тоже USDT, значит `paidAmount === owedNow` без конверсии;
-- на первом settle `remainingOwed(claimedAmount) === parseFloat(claimedAmount)` — прежнее поведение.
+- for a company-funded drop-settle the currency is forced `'USDT'` (`debitsCompanyAccount ⇒ currency = 'USDT'`,
+  §1.5 of the task 3 addendum), the obligation is also USDT, so `paidAmount === owedNow` without a conversion;
+- on the first settle `remainingOwed(claimedAmount) === parseFloat(claimedAmount)` — the former behavior.
 
-Тернарник убирается. Меньше веток — меньше неубиваемых мутантов, и «сколько ещё должны» остаётся
-описанным один раз.
+The ternary is removed. Fewer branches — fewer un-killable mutants, and "how much is still owed" remains
+described once.
 
-### 2.6. Новый отказ вслух — в точке штампа (механизм §3.1)
+### 2.6. A new refusal out loud — at the point of the stamp (the §3.1 mechanism)
 
-Цепочка 1.3 держится на пяти отказах в трёх файлах. Триплет обязан **сам** проверить то, на что
-опирается:
+The chain 1.3 rests on five refusals in three files. The triplet is obliged to **itself** check what it
+relies on:
 
 ```
-если priorSettledAmount > 0 и targetCurrency !== obligationCurrency → 400
+if priorSettledAmount > 0 and targetCurrency !== obligationCurrency → 400
 ```
 
-Ставится внутри `isDropObligation`, сразу после существующего ассерта `obligationCurrency !== 'USDT'`,
-то есть ровно там, где триплет считается. Текст обязан называть инвариант: доплата возможна только в
-валюте обязательства, потому что в противном случае записанный курс стал бы средним, которого не было
-ни у одного платежа.
+Placed inside `isDropObligation`, right after the existing assert `obligationCurrency !== 'USDT'`,
+that is, exactly where the triplet is computed. The text is obliged to name the invariant: the top-up is possible only in
+the obligation currency, because otherwise the recorded rate would become an average that not one payment
+had.
 
-Что это даёт: удали любой из пяти удалённых отказов — и система начнёт отказывать **громко, на живых
-данных**, вместо того чтобы записать средневзвешенный курс, которого никто не считает. Ровно та
-разница, ради которой §3.1 писалась.
+What this gives: remove any of the five removed refusals — and the system will start refusing **loudly, on live
+data**, instead of recording a weighted-average rate that no one counts. Exactly that
+difference for which §3.1 was written.
 
-Дублированием это не является: пять отказов защищают **другие** утверждения (валюту обязательства,
-единицу накопителя, единицу записи в `pending_obligations`), и ни один из них не сформулирован про
-триплет.
+It is not a duplication: the five refusals protect **other** assertions (the obligation currency,
+the accumulator unit, the unit of the record in `pending_obligations`), and none of them is formulated about
+the triplet.
 
 ---
 
-## Ответ 3. AC13 в обе стороны
+## Answer 3. AC13 in both directions
 
-Требование постановки — проверить, не откроет ли обнуление триплета правку строк, которые обязаны
-остаться закрытыми, и не заблокирует ли лишнего. Проверено по `classifyEditedRowLedgerFact`
-(`@crm/shared`), где предикаты возвращают **первый** сработавший:
+The statement's requirement — check whether zeroing the triplet will open editing of rows that are obliged
+to remain closed, and whether it will block anything extra. Verified by `classifyEditedRowLedgerFact`
+(`@crm/shared`), where the predicates return the **first** that fired:
 
 ```
 originalAmount !== null      → PAYMENT_FACT_RECORDED
@@ -369,227 +369,227 @@ hasClosedObligation          → CLOSES_OBLIGATION
 type === 'COMPANY_DEPOSIT'   → ONCHAIN_DEPOSIT
 ```
 
-**Ничего не открывается.** Отказ — дизъюнкция, а на любой дроп-строке, у которой есть триплет, второй
-и третий предикаты истинны независимо от первого:
+**Nothing is opened.** The refusal is a disjunction, and on any drop-row that has a triplet the second
+and third predicates are true independently of the first:
 
-| Состояние строки                 | `originalAmount` | `settledAmount` | `hasClosedObligation` | Итог AC13                     |
-| -------------------------------- | ---------------- | --------------- | --------------------- | ----------------------------- |
-| `PAYOUT_DROP` PAID (сегодня)     | ≠ null           | ≠ null          | true                  | отказ (по первому)            |
-| `PAYOUT_DROP` PAID (после 3b)    | ≠ null           | ≠ null          | true                  | отказ — **не изменилось**     |
-| `DROP_PENDING_PAYOUT` откаченная | **null** (3b)    | ≠ null          | false¹                | **AC13 не спрашивают вовсе**² |
+| Row state                         | `originalAmount` | `settledAmount` | `hasClosedObligation` | AC13 result                   |
+| --------------------------------- | ---------------- | --------------- | --------------------- | ----------------------------- |
+| `PAYOUT_DROP` PAID (today)        | ≠ null           | ≠ null          | true                  | refusal (by the first)        |
+| `PAYOUT_DROP` PAID (after 3b)     | ≠ null           | ≠ null          | true                  | refusal — **unchanged**       |
+| `DROP_PENDING_PAYOUT` rolled back | **null** (3b)    | ≠ null          | false¹                | **AC13 is not asked at all**² |
 
-¹ `hasClosedObligation` ищет `pending_obligations` со `status = 'PAID'`; откат переводит обязательство
-в `PENDING`, поэтому предикат честно становится ложным — это не потеря защиты, а верное описание.
-² `isCascadeAmountEdit` требует `status === 'PAID'`; у откаченной строки статус `PENDING_PAYMENT`,
-поэтому весь блок AC13 (и обязательный предпросмотр) не выполняется. Такую строку удерживает **не**
-AC13, а `floorAmountAtAccumulator`: её `amount` нельзя записать ниже накопителя ни одним из трёх
-писателей (SR-M-6, зафиксировано в `@crm/shared` одним хелпером).
+¹ `hasClosedObligation` looks for a `pending_obligations` with `status = 'PAID'`; the rollback moves the obligation
+to `PENDING`, so the predicate honestly becomes false — this is not a loss of protection, but a correct description.
+² `isCascadeAmountEdit` requires `status === 'PAID'`; a rolled-back row has the status `PENDING_PAYMENT`,
+so the whole AC13 block (and the mandatory preview) is not executed. Such a row is held **not** by
+AC13, but by `floorAmountAtAccumulator`: its `amount` cannot be written below the accumulator by any of the three
+writers (SR-M-6, locked in `@crm/shared` by one helper).
 
-**И лишнего не блокируется.** `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN` не получают ни одного
-нового предиката: 3b не добавляет в `classifyEditedRowLedgerFact` ничего. Явный запрет «не дозакрывать
-их за компанию» стоит в doc-комментарии этой функции и остаётся в силе.
+**And nothing extra is blocked.** `ADMIN_INCOME`, `EXPENSE`, `DIVIDEND_TO_ADMIN` do not get a single
+new predicate: 3b adds nothing to `classifyEditedRowLedgerFact`. The explicit prohibition "do not finish closing
+them for the company" stands in the doc-comment of this function and remains in force.
 
-**Что всё-таки меняется в наблюдаемом поведении:** у откаченной дроп-строки пропадает
-`SOURCE_ORIGINAL_AMOUNT_SET` в `resolveSourceWarnings`, если эту строку открыть в предпросмотре.
-Это верно (платежа на ней больше не зафиксировано) и безопасно (предупреждение информационное, не
-блокирующее; блокирует `classifyEditedRowLedgerFact`, у которого остаётся `settledAmount`).
-
----
-
-## Ответ 4. Инвариант §1.2 сохранён, а не обойдён
-
-`amount == settled_amount` после company-funded settle — единственная причина, по которой термы 7/8
-можно не трогать.
-
-- **На drop-ветке 3b делает его структурным** (2.2): обе колонки пишутся одним выражением.
-  Сегодня он держится тем, что `amount: String(paidAmount)` и `settledAmountThisSettle = paidAmount!`
-  — одна переменная; после 3b — одно выражение. Форма аргумента не ослабляется, а усиливается.
-- **Проверка каскада перед откатом не трогается.** `applyEditCascade` продолжает сверять
-  `amountsDiffer(snap.amount, snap.settledAmount ?? 0)` для company-funded производной и отказывать
-  вслух. 3b не расширяет и не сужает её.
-- **Терм 9 продолжает возвращать ровно исчезнувший дебет.** После доплаты: строка уходит из терма 9
-  на `settled_amount` (= старый дебет) и приходит в терм 8 на `amount` (= накопленное). Разница
-  дебета равна `owedNow` — ровно тому, что физически ушло. При `owedNow === 0` переход
-  леджер-нейтрален, поскольку оба числа равны.
+**What does change in the observable behavior:** a rolled-back drop-row loses
+`SOURCE_ORIGINAL_AMOUNT_SET` in `resolveSourceWarnings`, if this row is opened in the preview.
+This is correct (a payment is no longer recorded on it) and safe (the warning is informational, not
+blocking; `classifyEditedRowLedgerFact`, which still has `settledAmount`, blocks).
 
 ---
 
-## Ответ 5. Что 3b НЕ делает — отказ вслух остаётся законным ответом
+## Answer 4. The invariant §1.2 is preserved, not bypassed
 
-| Случай                                                        | Поведение после 3b                | Почему                                                                                       |
-| ------------------------------------------------------------- | --------------------------------- | -------------------------------------------------------------------------------------------- |
-| Доплата в валюте, отличной от валюты обязательства            | **отказ** (2.6)                   | курс стал бы средневзвешенным; для этого нужна запись по-платёжно, то есть отдельная таблица |
-| Откат дроп-строки, чей накопитель учтён не в валюте источника | **отказ**, существующий AC15(b)   | остаток невычислим — вычитание из разных единиц (пункт 86 бэклога)                           |
-| Откат производной с `settled_amount IS NULL` (легаси до #599) | **новый отказ**, см. ниже         | «сколько выплачено» неизвестно; молчаливый `?? 0` означал бы выплату полной суммы второй раз |
-| Правка `amount` на закрытой дроп-строке                       | отказ AC13, без изменений         | второй носитель числа не двигается правкой                                                   |
-| Переплата (`новая доля ≤ накопителя`)                         | ветка AC7 задачи 3, без изменений | ничего не пишется, строка остаётся `PAID`                                                    |
+`amount == settled_amount` after a company-funded settle — the only reason terms 7/8
+can be left untouched.
 
-### Отдельно: `settled_amount IS NULL` на закрытой производной
-
-Сегодня `resolveDerivative` берёт `settledAmount = derivative.settledAmount ?? 0`, и AC15(a) ключуется
-на `> 0`. Легаси-строка (settle до #599) проходит оба условия как «ноль выплачено».
-
-**Сегодня это не дыра — по теореме, а не по удаче.** `settled_amount` и `settled_share_percent`
-добавлены одной задачей (#599) и пишутся одним `.set()` флипа, причём `settledAmount` пишется
-`sql`-выражением и не бывает `NULL` после неё. Значит `settled_amount IS NULL` ⟹ settle был до #599
-⟹ `settled_share_percent IS NULL` ⟹ `resolveDerivative` отдаёт `sharePercent: null` и
-`newAmount: null` ⟹ `applyEditCascade` отказывает первым же условием фазы 1 («нет снимка процента
-доли»). Проверено по коду обеих функций.
-
-**3b обязана превратить эту теорему в исполняемую проверку** — по тому же механизму §3.1, и по той же
-причине, по которой §1.2 стала проверкой: у теоремы четыре звена в трёх файлах, а цена её отказа —
-повторная выплата полной суммы. Проверка: **производная с `obligation.status === 'PAID'` и
-`settledAmount === null` → 400, ни одной записи.** Сегодня недостижима (это и доказано выше),
-юнит-тестируема руками собранным снимком, стоит одну строку.
-
-### Что происходит с AC15(a)
-
-Существующий отказ `snap.type === 'PAYOUT_DROP' && (snap.settledAmount ?? 0) > 0` **снимается** — это
-и есть содержание 3b. Снимается он не «потому что теперь можно», а потому что закон AC15 («не
-откатывать то, что не сможет закрыть») после 2.1–2.6 выполняется для drop-ветки другими,
-перечисленными выше отказами:
-
-- валюта: (2)+(3) из цепочки 1.3 дают `settled_currency == obligation.currency`, а гвард накопителя
-  в `settleByCompany` требует от доплаты той же валюты ⇒ новый отказ 2.6 никогда не сработает на
-  строке, которую каскад откатил;
-- остаток: правило `max` (AC5/AC7 задачи 3) держит `owedNow ≥ 0`, а `owedNow === 0` — законное
-  закрытие;
-- источник финансирования и плательщик: гвард AC14 (#607) — отказ на доплате, не тупик (оператор
-  может заплатить из того же пота);
-- неизвестный накопитель: новый отказ выше.
-
-**Замена одного отказа на четыре — это не расширение, а перенос: раньше отказывали всей ветке, теперь
-отказывают её незакрываемым подмножествам.**
+- **On the drop branch 3b makes it structural** (2.2): both columns are written by one expression.
+  Today it is held by the fact that `amount: String(paidAmount)` and `settledAmountThisSettle = paidAmount!`
+  — one variable; after 3b — one expression. The form of the argument is not weakened but strengthened.
+- **The cascade check before the rollback is not touched.** `applyEditCascade` continues to reconcile
+  `amountsDiffer(snap.amount, snap.settledAmount ?? 0)` for a company-funded derivative and to refuse
+  out loud. 3b neither extends nor narrows it.
+- **Term 9 continues to return exactly the disappeared debit.** After the top-up: the row leaves term 9
+  by `settled_amount` (= the old debit) and comes into term 8 by `amount` (= the accumulated). The debit difference
+  equals `owedNow` — exactly what physically left. When `owedNow === 0` the transition is
+  ledger-neutral, since both numbers are equal.
 
 ---
 
-## Семья однозначных колонок: почему чистится только триплет
+## Answer 5. What 3b does NOT do — a refusal out loud remains a lawful answer
 
-Строка, закрытая двумя платежами, имеет по одному экземпляру каждой «фактовой» колонки, а платежей
-два. Полный разбор (критерий — 1.5):
+| Case                                                                               | Behavior after 3b                   | Why                                                                                                      |
+| ---------------------------------------------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| A top-up in a currency different from the obligation currency                      | **refusal** (2.6)                   | the rate would become a weighted average; for that a per-payment record is needed, i.e. a separate table |
+| A rollback of a drop-row whose accumulator is accounted not in the source currency | **refusal**, the existing AC15(b)   | the remainder is incomputable — subtraction from different units (backlog item 86)                       |
+| A rollback of a derivative with `settled_amount IS NULL` (legacy before #599)      | **a new refusal**, see below        | "how much was paid out" is unknown; a silent `?? 0` would mean paying the full amount a second time      |
+| An edit of `amount` on a closed drop-row                                           | the AC13 refusal, unchanged         | the second carrier of the number is not moved by the edit                                                |
+| An overpayment (`new share ≤ the accumulator`)                                     | the AC7 branch of task 3, unchanged | nothing is written, the row remains `PAID`                                                               |
 
-| Колонка                                        | После двух платежей              | Приемлемо?                                                            |
-| ---------------------------------------------- | -------------------------------- | --------------------------------------------------------------------- |
-| `funding_source`, `sender_id`, `sender_label`  | одинаковы у обоих                | да — **принудительно**, гвард AC14 отказывает при смене               |
-| `currency`, `settled_currency`                 | одинаковы у обоих                | да — принудительно, гвард накопителя #599                             |
-| `settled_amount`                               | сумма обоих                      | да — колонка накопительная по определению                             |
-| `settled_share_percent`                        | процент последнего закрытия      | да — так и задумано (#599: «only the latest percent is meaningful»)   |
-| `amount`                                       | сумма обоих (2.2)                | да — этого требуют терм 8 и §1.2                                      |
-| триплет                                        | описывает закрытие целиком (1.4) | да — при условии курса 1 у обоих (2.6)                                |
-| `tx_date`                                      | **день последнего платежа**      | да, с оговоркой: читается как «день, когда обязательство закрыто»     |
-| `receipt_document_id` / `receipt_external_url` | **чек последнего платежа**       | **только** при условии, что чек первого сохранён в журнале — см. ниже |
+### Separately: `settled_amount IS NULL` on a closed derivative
 
-Два последних — единственные, где однозначность что-то теряет.
+Today `resolveDerivative` takes `settledAmount = derivative.settledAmount ?? 0`, and AC15(a) keys
+on `> 0`. A legacy row (a settle before #599) passes both conditions as "zero paid out".
 
-- **`tx_date`** — не деньги и не доказательство; «день закрытия» — осмысленное прочтение. Нижняя
-  граница даты (не раньше `obligation.createdAt`) продолжает работать. Ничего не делаем, фиксируем
-  прочтение здесь.
-- **`receipt_*`** — доказательство платежа, и `receiptMandatoryError` требует его на каждом settle из
-  пользовательского диалога. Флип пишет `funding?.receiptDocumentId ?? null`, то есть доплата
-  **перезатирает** чек первого платежа, а доплата легаси-маршрутом (без `funding`) обнуляет его.
-  Молчаливая потеря доказательства — тот же класс, что пункт 168 («не видно на экране ≠ не отдано
-  клиенту»). Лечится тем же механизмом, что и триплет: **`CASCADE_REOPEN.metadata.before` фиксирует
-  ссылки на чек ретрактируемого платежа** внутри денежной транзакции. Сама колонка не чистится
-  (критерий 1.5: чек — самостоятельная запись, она была и остаётся правдой), а после доплаты несёт
-  чек последнего платежа. Провенанс полный, потери нет.
+**Today this is not a hole — by a theorem, not by luck.** `settled_amount` and `settled_share_percent`
+were added by one task (#599) and are written by one `.set()` of the flip, moreover `settledAmount` is written
+by an `sql` expression and is never `NULL` after it. So `settled_amount IS NULL` ⟹ the settle was before #599
+⟹ `settled_share_percent IS NULL` ⟹ `resolveDerivative` gives `sharePercent: null` and
+`newAmount: null` ⟹ `applyEditCascade` refuses on the very first condition of phase 1 ("no share-percent
+snapshot"). Verified by the code of both functions.
+
+**3b is obliged to turn this theorem into an executable check** — by the same mechanism §3.1, and for the same
+reason for which §1.2 became a check: the theorem has four links in three files, and the price of its failure —
+a repeated payout of the full amount. The check: **a derivative with `obligation.status === 'PAID'` and
+`settledAmount === null` → 400, not a single record.** Today unreachable (this is just proven above),
+unit-testable with a hand-built snapshot, costs one line.
+
+### What happens to AC15(a)
+
+The existing refusal `snap.type === 'PAYOUT_DROP' && (snap.settledAmount ?? 0) > 0` is **removed** — this
+is the very content of 3b. It is removed not "because now it is allowed", but because the AC15 law ("do not
+roll back what it cannot close") after 2.1–2.6 holds for the drop branch by other,
+enumerated above refusals:
+
+- currency: (2)+(3) of the chain 1.3 give `settled_currency == obligation.currency`, and the accumulator guard
+  in `settleByCompany` requires the top-up in the same currency ⇒ the new refusal 2.6 will never fire on a
+  row that the cascade rolled back;
+- the remainder: the `max` rule (AC5/AC7 of task 3) holds `owedNow ≥ 0`, and `owedNow === 0` is a lawful
+  closing;
+- the funding source and the payer: the AC14 guard (#607) — a refusal on the top-up, not a deadlock (the operator
+  can pay from the same pot);
+- an unknown accumulator: the new refusal above.
+
+**Replacing one refusal with four is not an extension but a transfer: previously the whole branch was refused, now
+its uncloseable subsets are refused.**
 
 ---
 
-## Найденное попутно — не чинить в 3b
+## The family of unambiguous columns: why only the triplet is cleaned
 
-По AC5 п.10 основного ADR: смешивать — значит получить PR без одного внятного критерия приёмки.
+A row closed by two payments has one instance of each "fact" column, while there are two
+payments. The full breakdown (the criterion — 1.5):
 
-1. **Триплет не отображается нигде во фронтенде.** Он есть в `transactionSchema`, `mapTx` его
-   пробрасывает, `apps/web` не читает его ни разу (грепом по `.originalAmount` / `.exchangeRate` /
-   `originalCurrency` — только два комментария в `PaySalaryDialog.tsx`). То есть «сколько было
-   должно и по какому курсу закрыли» оператор сегодня не видит вообще, включая зарплаты. Кандидат
-   в задачу 5 (UI) либо в бэклог; на 3b не влияет.
-2. **`resolveSourceWarnings` печатает `originalAmount` без валюты.** Текст «уже зафиксирован факт
-   платежа (originalAmount = 800)» не называет `originalCurrency` — форма пункта 86, пока
-   безобидная (текст, не арифметика). Одна строка, но это чужой PR.
-3. **Комментарий `paySalary` называет несуществующих потребителей.** «Without that snapshot the USD
-   reporting, balances and the «projects unpaid this month» metric … would silently lose their
-   input» — ни один из трёх сегодня триплет не читает (Ответ 0), а пиннинг в `computeDropAggregate`
-   был снят решением владельца. Тот же класс, что уже исправленный `CORRECTED (task-finance-fix-wave1,
-D-3)` комментарий рядом: неверное утверждение в комментарии стоит времени следующего аудита.
-   Кандидат в бэклог.
+| Column                                         | After two payments                     | Acceptable?                                                                             |
+| ---------------------------------------------- | -------------------------------------- | --------------------------------------------------------------------------------------- |
+| `funding_source`, `sender_id`, `sender_label`  | the same for both                      | yes — **forcibly**, the AC14 guard refuses on a change                                  |
+| `currency`, `settled_currency`                 | the same for both                      | yes — forcibly, the accumulator guard #599                                              |
+| `settled_amount`                               | the sum of both                        | yes — the column is cumulative by definition                                            |
+| `settled_share_percent`                        | the percent of the last closing        | yes — so intended (#599: "only the latest percent is meaningful")                       |
+| `amount`                                       | the sum of both (2.2)                  | yes — term 8 and §1.2 require this                                                      |
+| the triplet                                    | describes the closing as a whole (1.4) | yes — provided the rate is 1 for both (2.6)                                             |
+| `tx_date`                                      | **the day of the last payment**        | yes, with a caveat: read as "the day the obligation was closed"                         |
+| `receipt_document_id` / `receipt_external_url` | **the receipt of the last payment**    | **only** on condition that the receipt of the first is saved in the journal — see below |
+
+The last two are the only ones where the unambiguity loses something.
+
+- **`tx_date`** — not money and not proof; "the closing day" is a meaningful reading. The lower
+  bound of the date (not earlier than `obligation.createdAt`) continues to work. We do nothing, we fix the
+  reading here.
+- **`receipt_*`** — proof of a payment, and `receiptMandatoryError` requires it on every settle from
+  the user dialog. The flip writes `funding?.receiptDocumentId ?? null`, that is, the top-up
+  **overwrites** the first payment's receipt, and a legacy-route top-up (without `funding`) zeroes it.
+  A silent loss of proof is the same class as item 168 ("not visible on the screen ≠ not handed to the
+  client"). Cured by the same mechanism as the triplet: **`CASCADE_REOPEN.metadata.before` records
+  the references to the retractable payment's receipt** inside the money transaction. The column itself is not cleaned
+  (criterion 1.5: a receipt is an independent record, it was and remains true), and after the top-up it carries
+  the receipt of the last payment. The provenance is complete, there is no loss.
+
+---
+
+## Found along the way — do not fix in 3b
+
+By AC5 item 10 of the main ADR: to mix means to get a PR without one clear acceptance criterion.
+
+1. **The triplet is not displayed anywhere in the frontend.** It is in `transactionSchema`, `mapTx`
+   passes it through, `apps/web` does not read it once (by a grep of `.originalAmount` / `.exchangeRate` /
+   `originalCurrency` — only two comments in `PaySalaryDialog.tsx`). That is, "how much was
+   owed and at what rate it was closed" the operator does not see at all today, including salaries. A candidate
+   for task 5 (UI) or the backlog; does not affect 3b.
+2. **`resolveSourceWarnings` prints `originalAmount` without a currency.** The text "a payment
+   fact is already recorded (originalAmount = 800)" does not name `originalCurrency` — the form of item 86, so far
+   harmless (text, not arithmetic). One line, but it is someone else's PR.
+3. **The `paySalary` comment names non-existent consumers.** "Without that snapshot the USD
+   reporting, balances and the "projects unpaid this month" metric … would silently lose their
+   input" — none of the three today reads the triplet (Answer 0), and the pinning in `computeDropAggregate`
+   was removed by the owner's decision. The same class as the already-fixed `CORRECTED (task-finance-fix-wave1,
+D-3)` comment nearby: a wrong assertion in a comment costs the next audit's time.
+   A candidate for the backlog.
 
 ---
 
 ## Consequences
 
-- Доплата по дропу закрывается **в валюте обязательства**; кросс-валютная остаётся отказом, и теперь
-  отказом, который называет причину в точке штампа, а не в трёх файлах поодаль.
-- Триплет получает записанный предикат (T1 + T2) и перестаёт быть колонками, чья истинность
-  подразумевается. Определение колонок в `schema.ts` не меняется — добавляется абзац про повторное
-  закрытие.
-- `amount` дроп-строки становится накопительным, а инвариант §1.2 на этой ветке — структурным.
-  Термы 1–8 не тронуты, терм 9 не тронут.
-- Каскад перестаёт откатывать производную с неизвестным накопителем. Сегодня это множество пусто по
-  теореме; проверка делает теорему falsifiable.
-- Откаченная дроп-строка перестаёт нести триплет. Единственное наблюдаемое следствие вовне —
-  исчезновение информационного предупреждения `SOURCE_ORIGINAL_AMOUNT_SET` на такой строке.
-- **Что по-прежнему нередактируемо и почему:** доход, чья доля дропа закрыта в валюте, отличной от
-  валюты дохода, и доход, чья производная закрыта до #599. Оба — отказ вслух с ручной сверкой.
-  Полнота фичи, обещанная §1.14 аддендума задачи 3, достигается для основного населения (закрытие в
-  USDT), но не для всего.
+- The drop top-up is closed **in the obligation currency**; a cross-currency one remains a refusal, and now
+  a refusal that names the reason at the point of the stamp, not in three files far off.
+- The triplet gets a written predicate (T1 + T2) and stops being columns whose truth
+  is implied. The definition of the columns in `schema.ts` does not change — a paragraph about a repeat
+  closing is added.
+- The `amount` of a drop-row becomes cumulative, and the invariant §1.2 on this branch — structural.
+  Terms 1–8 are not touched, term 9 is not touched.
+- The cascade stops rolling back a derivative with an unknown accumulator. Today this set is empty by
+  a theorem; the check makes the theorem falsifiable.
+- A rolled-back drop-row stops carrying the triplet. The only observable consequence outward —
+  the disappearance of the informational warning `SOURCE_ORIGINAL_AMOUNT_SET` on such a row.
+- **What is still non-editable and why:** an income whose drop share is closed in a currency different from
+  the income currency, and an income whose derivative is closed before #599. Both — a refusal out loud with a manual
+  reconciliation. The feature completeness promised by §1.14 of the task 3 addendum is achieved for the main population
+  (closing in USDT), but not for all.
 
 ## Rollback
 
-Документ ничего не исполняет.
+The document executes nothing.
 
 ```bash
 git -C <repo> revert <commit>
-# ожидаемое состояние: docs/architecture/2026-08-23-drop-topup-triplet.md отсутствует,
-#                      .claude/tasks/task-drop-topup.md отсутствует
-git -C <repo> status --porcelain apps/ packages/   # ДОЛЖНО быть пусто — код не трогался
+# expected state: docs/architecture/2026-08-23-drop-topup-triplet.md absent,
+#                 .claude/tasks/task-drop-topup.md absent
+git -C <repo> status --porcelain apps/ packages/   # MUST be empty — the code was not touched
 ```
 
-Откат реализации 3b — по её собственному PR. Порядок отката, если он понадобится после выката:
-сначала вернуть отказ AC15(a) в `applyEditCascade` (одна строка — доплата снова недостижима), потом
-всё остальное. Обратный порядок оставит откаченные дроп-строки, которые нечем закрыть.
+The rollback of the 3b implementation — by its own PR. The order of rollback, if it becomes needed after the rollout:
+first return the AC15(a) refusal in `applyEditCascade` (one line — the top-up is unreachable again), then
+everything else. The reverse order would leave rolled-back drop-rows that there is nothing to close with.
 
 ## Sources
 
-Прочитано в рабочем дереве на `main` = `0e43ce41`, по именам символов.
+Read in the working tree on `main` = `0e43ce41`, by symbol names.
 
-- `apps/api/src/finance/pending-settlement.service.ts` — `isUsdPegPair`; `settleByCompany` целиком:
-  `remainingOwed`/`priorSettledAmount`, гвард `isDropObligation && priorSettledAmount > 0`, блок
-  конверсии DROP (ассерт `obligationCurrency !== 'USDT'`, `isUsdPegPair`-fast-path, гейт свежести
-  курса НБУ, `settledAmountError`, dust-проверка, `originalAmount`/`originalCurrency`/`exchangeRate`),
-  `settledAmountThisSettle`, гвард `sourceSettledCurrency !== currency`, гвард источника/плательщика,
-  условный claim и сверка `claimedAmount`, money-гейт, `.set()` флипа (включая обнуление
-  `*SharePercent`, `settledSharePercent`, DB-native `settledAmount`), best-effort журнал `PAY`,
+- `apps/api/src/finance/pending-settlement.service.ts` — `isUsdPegPair`; `settleByCompany` in full:
+  `remainingOwed`/`priorSettledAmount`, the guard `isDropObligation && priorSettledAmount > 0`, the
+  DROP conversion block (the assert `obligationCurrency !== 'USDT'`, the `isUsdPegPair` fast-path, the NBU-rate
+  freshness gate, `settledAmountError`, the dust check, `originalAmount`/`originalCurrency`/`exchangeRate`),
+  `settledAmountThisSettle`, the guard `sourceSettledCurrency !== currency`, the source/payer guard,
+  the conditional claim and the `claimedAmount` reconciliation, the money-gate, the `.set()` of the flip (including the zeroing of
+  `*SharePercent`, `settledSharePercent`, the DB-native `settledAmount`), the best-effort journal `PAY`,
   `resolveSource`, `settleByCompanySourceTransaction`, `toTransactionDto`.
 - `apps/api/src/finance/transactions.service.ts` — `adminUpdateTransaction` (BIZ-18, `isCascadeEdit`,
-  `floorAmountAtAccumulator`, порядок блокировок), `lockCascadeRows`, `loadCascadeSnapshot`
-  (маппинг производных и источника), `assertEditedRowAmountIsOwnRecord`, `applyEditCascade`
-  (фаза 1: `newAmount === null`, `OBLIGATION_CURRENCY_MISMATCH`, проверка §1.2, AC15(a)/(b);
-  фаза 2: ветки AC7/AC6/AC5, `CASCADE_OVERPAYMENT`/`CASCADE_REOPEN`/`CASCADE_AMOUNT_UPDATE`),
-  `computeDropAggregate` (комментарий MED-B про снятый пиннинг к `original_amount`),
-  `paySalary` (`paidSet`, вывод `exchangeRate`, metadata `PAY`), `bookCompanyObligations`
+  `floorAmountAtAccumulator`, the lock order), `lockCascadeRows`, `loadCascadeSnapshot`
+  (the mapping of the derivatives and the source), `assertEditedRowAmountIsOwnRecord`, `applyEditCascade`
+  (phase 1: `newAmount === null`, `OBLIGATION_CURRENCY_MISMATCH`, the §1.2 check, AC15(a)/(b);
+  phase 2: the AC7/AC6/AC5 branches, `CASCADE_OVERPAYMENT`/`CASCADE_REOPEN`/`CASCADE_AMOUNT_UPDATE`),
+  `computeDropAggregate` (the MED-B comment about the removed pinning to `original_amount`),
+  `paySalary` (`paidSet`, the derivation of `exchangeRate`, the `PAY` metadata), `bookCompanyObligations`
   (`dropCascadeOrigin: payoutRequestId != null`), `mapTx`.
 - `packages/shared/src/schemas/edit-cascade.ts` — `CascadeSourceSnapshot` / `CascadeDerivativeSnapshot`
   / `CascadeObligationSnapshot`, `resolveDerivative` (`isSettled`, `currencyMismatch`, `overpaid`,
   `needsReconfirm`, `NON_USDT_CURRENCY`, `OBLIGATION_CURRENCY_MISMATCH`), `resolveSourceWarnings`,
   `classifyEditedRowLedgerFact`, `CASCADE_LEDGER_FACT_MESSAGES`, `floorAmountAtAccumulator`,
   `isCascadeAmountEdit`, `amountsDiffer`.
-- `apps/api/src/finance/company-account-balance.ts` — `sumLedgerTerms` (термы 7, 8 и девятый),
-  `COMPANY_TERM_TYPES_PENDING_SETTLED`, `assertNoOffCurrencyCompanyRows` (в т.ч. OR-ветка про
+- `apps/api/src/finance/company-account-balance.ts` — `sumLedgerTerms` (terms 7, 8 and the ninth),
+  `COMPANY_TERM_TYPES_PENDING_SETTLED`, `assertNoOffCurrencyCompanyRows` (incl. the OR branch about
   `PENDING_PAYMENT`), `lockCompanyAccount`.
-- `apps/api/src/database/schema.ts` — doc-комментарий `transactions.originalAmount` /
-  `originalCurrency` / `exchangeRate` (определения трёх колонок и контракт NULL),
+- `apps/api/src/database/schema.ts` — the doc-comment of `transactions.originalAmount` /
+  `originalCurrency` / `exchangeRate` (the definitions of the three columns and the NULL contract),
   `settledAmount` / `settledCurrency` / `settledSharePercent`, `fundingSource`, `txDate`,
-  `receiptDocumentId` / `receiptExternalUrl` (все nullable).
+  `receiptDocumentId` / `receiptExternalUrl` (all nullable).
 - `apps/api/src/finance/exchange-rate.util.ts` — `isStorableExchangeRate`, `settledAmountError`.
-- `apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx` — единственные
-  упоминания триплета во фронтенде (оба — комментарии).
-- ADR `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` — AC3 (механика возврата),
-  AC5 п.5/п.10, AC6 (риск-лист), C2.
-- Аддендум `docs/architecture/2026-08-23-cascade-apply-ledger-term.md` — §1.2 (инвариант и его
-  держатели), §1.3–1.5 (терм 9), §1.7 (`max`), §1.11 (отсрочка drop-доплаты), §1.12 (AC13),
-  §1.13 (источник финансирования), §1.14 (AC15), §3.1 (опора = проверка).
-- Бэклог `.claude/tasks/BACKLOG-followups.md` — пункты 70, 75, 82, 86, 87, 96.
-- `gh api repos/:owner/:repo/branches/main/protection` — required checks на `main`:
-  `Typecheck · Lint · Unit Tests`, `E2E Tests`, **`Integration Tests (Postgres)`** (проверено
-  2026-08-23; интеграционный прогон теперь блокирует слияние).
+- `apps/web/app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx` — the only
+  mentions of the triplet in the frontend (both — comments).
+- ADR `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` — AC3 (the rollback mechanics),
+  AC5 item 5/item 10, AC6 (the risk-list), C2.
+- Addendum `docs/architecture/2026-08-23-cascade-apply-ledger-term.md` — §1.2 (the invariant and its
+  holders), §1.3–1.5 (term 9), §1.7 (`max`), §1.11 (the deferral of the drop top-up), §1.12 (AC13),
+  §1.13 (the funding source), §1.14 (AC15), §3.1 (a support = a check).
+- Backlog `.claude/tasks/BACKLOG-followups.md` — items 70, 75, 82, 86, 87, 96.
+- `gh api repos/:owner/:repo/branches/main/protection` — the required checks on `main`:
+  `Typecheck · Lint · Unit Tests`, `E2E Tests`, **`Integration Tests (Postgres)`** (verified
+  2026-08-23; the integration run now blocks the merge).

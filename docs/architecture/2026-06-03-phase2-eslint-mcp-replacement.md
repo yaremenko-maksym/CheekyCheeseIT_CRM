@@ -41,14 +41,14 @@ The legacy hook hard-codes per-package eslint binaries
 
 The `eslint` MCP server resolves the right config via
 `apps/{web,api}/eslint.config.mjs` automatically (see `CLAUDE.md`
-"eslint — линтинг в реальном времени"), independent of file path tricks.
+"eslint — real-time linting"), independent of file path tricks.
 
 ### 3. Existing project policy
 
-Project `CLAUDE.md` (section "MCP серверы") already states:
+Project `CLAUDE.md` (section "MCP servers") already states:
 
-> **eslint** — Запускает правила из `apps/web/eslint.config.mjs` и
-> `apps/api/eslint.config.mjs`. **Используй перед тем как предложить код**.
+> **eslint** — Runs the rules from `apps/web/eslint.config.mjs` and
+> `apps/api/eslint.config.mjs`. **Use it before you suggest code**.
 
 So MCP-first is **already the documented preferred path**. The PostToolUse
 hook is redundant overhead that bypasses the documented contract.
@@ -81,12 +81,12 @@ existing CI `pnpm lint`) catches anything that slipped through.
 
 ## CLAUDE.md update (Phase 5 — separate PR — DO NOT do in this PR)
 
-Append the following note under the "eslint — линтинг в реальном времени"
+Append the following note under the "eslint — real-time linting"
 bullet:
 
-> **PostToolUse hook removed (Phase 2 ECC migration).** Используй MCP `eslint`
-> до Edit/Write, а не после. Старый `.claude/hooks/eslint-feedback.sh`
-> удалён в Phase 5 cleanup; обратной совместимости нет.
+> **PostToolUse hook removed (Phase 2 ECC migration).** Use the `eslint` MCP
+> before Edit/Write, not after. The old `.claude/hooks/eslint-feedback.sh`
+> was removed in the Phase 5 cleanup; there is no backward compatibility.
 
 Tracking checklist item for the Phase 5 PM/Architect:
 

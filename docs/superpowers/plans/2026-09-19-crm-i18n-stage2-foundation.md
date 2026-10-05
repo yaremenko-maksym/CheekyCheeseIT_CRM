@@ -1,74 +1,74 @@
-# CRM i18n — этап 2 «Фундамент» — план реализации
+# CRM i18n — stage 2 "Foundation" — implementation plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Собрать всё, что нужно, чтобы любой модуль CRM мог мигрировать на `uk`/`en` одним PR: Lingui, общий каталог в `packages/shared`, локаль пользователя и запроса, конверт кодов ошибок с переводом на клиенте, ESLint-предупреждение о необёрнутых строках, обновлённые правила проекта и четыре правки «до извлечения строк» из аудита.
+**Goal:** Assemble everything needed for any CRM module to migrate to `uk`/`en` in a single PR: Lingui, the shared catalog in `packages/shared`, the user and request locale, an error-code envelope with translation on the client, an ESLint warning about unwrapped strings, updated project rules and the four "before string extraction" fixes from the audit.
 
-**Architecture:** Один каталог `packages/shared/src/i18n/locales/{uk,en}/messages.po` на трёх потребителей: веб (React, макросы через Babel-плагин в Vite и Vitest), API и shared (CommonJS, без макросов — дескрипторы с `/* i18n */` и явными id, отдельный экземпляр `i18n` на запрос/получателя). Ошибки API — `{ statusCode, code, params, message }`; клиент переводит по `code`. Локаль: `users.locale` (enum `uk|en`, дефолт `uk`) → `/auth/me` → `I18nProvider`; до входа — cookie `pref_locale` → `navigator.language` → `uk`.
+**Architecture:** One catalog `packages/shared/src/i18n/locales/{uk,en}/messages.po` for three consumers: web (React, macros via the Babel plugin in Vite and Vitest), API and shared (CommonJS, without macros — descriptors with `/* i18n */` and explicit ids, a separate `i18n` instance per request/recipient). API errors — `{ statusCode, code, params, message }`; the client translates by `code`. The locale: `users.locale` (enum `uk|en`, default `uk`) → `/auth/me` → `I18nProvider`; before login — cookie `pref_locale` → `navigator.language` → `uk`.
 
-**Tech Stack:** Lingui **5.9.5** (решение владельца 2026-09-19 после спайков 0b/0c; 6.x — см. Global Constraints) (`@lingui/core`, `@lingui/react`, `@lingui/cli`, `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro`) + `eslint-plugin-lingui` 0.16.0, React 18 + Vite 6 + Vitest 4, NestJS 11 + Fastify, Drizzle, Zod 4, pnpm 7.32.4, **Node 22 LTS** (Task 0).
+**Tech Stack:** Lingui **5.9.5** (owner decision 2026-09-19 after spikes 0b/0c; 6.x — see Global Constraints) (`@lingui/core`, `@lingui/react`, `@lingui/cli`, `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro`) + `eslint-plugin-lingui` 0.16.0, React 18 + Vite 6 + Vitest 4, NestJS 11 + Fastify, Drizzle, Zod 4, pnpm 7.32.4, **Node 22 LTS** (Task 0).
 
-**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` (этап 1 выполнен: `docs/architecture/2026-09-19-crm-i18n-audit.md`).
+**Spec:** `docs/superpowers/specs/2026-09-19-crm-i18n-design.md` (stage 1 done: `docs/architecture/2026-09-19-crm-i18n-audit.md`).
 
 ## Global Constraints
 
-- **Итог спайков 0b/0c (2026-09-19):** Lingui 6 — ESM-only; рантайм `require(esm)` под Node 22 работает в shared и api, но `tsc` с `moduleResolution: Node` не видит его типы (TS2307), а перевод api/shared на `node16` блокирован dual-package типами `drizzle-orm@0.45.2` (57 ошибок в 10 файлах реляционного query-builder). **Решение владельца: Lingui 5.9.5 сейчас** (`main: index.cjs`, `require`-условие, Node ≥ 20 — совместим без правок конфигов; те же макросы `@lingui/core/macro`/`@lingui/react/macro`); апгрейд на 6 — отдельный пункт бэклога с условием «Drizzle публикует единые типы либо api/shared на node16». Node 22 (Task 0) остаётся — он нужен рантайму и будущему апгрейду.
-- Все пакеты `@lingui/*` — **одной версией 5.9.5**, EXACT-пин; строка в `version-pins.md` (Task 10, добавить уже в Task 1).
-- Языки: `uk` (дефолт, `sourceLocale`) и `en`. Исходный текст в коде — украинский; id — хеш от текста (дефолт Lingui), явные id только у кодов ошибок и модульных дескрипторов в shared/api.
-- Русский из продукта убирается **по модулям на этапе 3** — в этом этапе новые/изменённые строки пишутся сразу `uk` + `en`, существующие русские не трогаются, кроме перечисленных в задачах.
-- Ошибки API — коды + `params` без PII; `message` — английский fallback.
-- Тесты: якоря `data-testid`/роли, текст в ассертах — из каталога `uk` через `i18n._()` / импорт дескриптора, не литералом.
-- DDL — только `apps/api/drizzle/manual/*.sql`, идемпотентно, три места в `deploy.yml`, `scripts/devops/check-prod-ddl-wiring.py` → `BROKEN WIRING: 0`.
-- `git add` явным списком; `DATABASE_URL= git push`; без `--no-verify`; коммиты с `ac_verified:`.
-- Зоны: `.github/workflows/**` — DevOps (Task 9b); `.claude/rules/**`, `.claude/agents/**`, `CONTEXT.md` — Architect/Master (Task 10); остальное — Coder.
+- **Outcome of spikes 0b/0c (2026-09-19):** Lingui 6 is ESM-only; the runtime `require(esm)` under Node 22 works in shared and api, but `tsc` with `moduleResolution: Node` does not see its types (TS2307), and moving api/shared to `node16` is blocked by the dual-package types of `drizzle-orm@0.45.2` (57 errors in 10 files of the relational query-builder). **Owner decision: Lingui 5.9.5 for now** (`main: index.cjs`, the `require` condition, Node ≥ 20 — compatible without config edits; the same macros `@lingui/core/macro`/`@lingui/react/macro`); the upgrade to 6 — a separate backlog item with the condition "Drizzle publishes unified types, or api/shared on node16". Node 22 (Task 0) stays — the runtime and the future upgrade need it.
+- All `@lingui/*` packages — **one version 5.9.5**, EXACT-pinned; a line in `version-pins.md` (Task 10, add it already in Task 1).
+- Languages: `uk` (default, `sourceLocale`) and `en`. The source text in the code — Ukrainian; the id — a hash of the text (the Lingui default), explicit ids only for error codes and module descriptors in shared/api.
+- Russian is removed from the product **by modules in stage 3** — in this stage new/changed strings are written in `uk` + `en` right away, existing Russian is not touched, except the ones listed in the tasks.
+- API errors — codes + `params` without PII; `message` — an English fallback.
+- Tests: anchors `data-testid`/roles, the text in assertions — from the `uk` catalog via `i18n._()` / a descriptor import, not a literal.
+- DDL — only `apps/api/drizzle/manual/*.sql`, idempotent, three places in `deploy.yml`, `scripts/devops/check-prod-ddl-wiring.py` → `BROKEN WIRING: 0`.
+- `git add` by an explicit list; `DATABASE_URL= git push`; without `--no-verify`; commits with `ac_verified:`.
+- Zones: `.github/workflows/**` — DevOps (Task 9b); `.claude/rules/**`, `.claude/agents/**`, `CONTEXT.md` — Architect/Master (Task 10); everything else — Coder.
 
 ---
 
-## Карта файлов
+## File map
 
-| Файл                                                                                                                                                                                             | Ответственность                                                          | Задача |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------ |
-| `lingui.config.ts` (корень)                                                                                                                                                                      | Локали, каталоги трёх пакетов, формат `po`                               | 1      |
-| `apps/web/vite.config.ts`, `apps/web/vitest.config.ts`                                                                                                                                           | Babel-макро-плагин + `lingui()`                                          | 1      |
-| `packages/shared/src/i18n/locales.ts`                                                                                                                                                            | `LOCALES`, `Locale`, `DEFAULT_LOCALE`, `localeSchema`, `resolveLocale()` | 2      |
-| `packages/shared/src/i18n/format.ts`                                                                                                                                                             | `formatDate`, `formatMoney`, `formatNumber`, `compareNames`              | 2      |
-| `packages/shared/src/i18n/catalog.ts`                                                                                                                                                            | `createI18n(locale)` — экземпляр на запрос/получателя (Node, CJS)        | 2      |
-| `packages/shared/src/i18n/locales/{uk,en}/messages.po`                                                                                                                                           | Единственный источник переводов (коммитится)                             | 1, 2   |
-| `packages/shared/src/schemas/api-errors.ts`                                                                                                                                                      | `API_ERROR_CODES`, `apiErrorEnvelopeSchema`, `API_ERROR_MESSAGES`        | 5      |
-| `apps/api/src/common/api-error.ts`                                                                                                                                                               | `apiError(code, status, params?)` → `HttpException` с конвертом          | 5      |
-| `apps/api/src/i18n/request-locale.ts`                                                                                                                                                            | `resolveRequestLocale(req)`, `@RequestLocale()`                          | 4      |
-| `apps/api/drizzle/manual/2026-09-20_user_locale.sql`                                                                                                                                             | enum `user_locale` + колонка `users.locale`                              | 3      |
-| `apps/web/app/lib/i18n.ts`                                                                                                                                                                       | `i18n`, `activateLocale()`, `readPreLoginLocale()`, `useLocale()`        | 6      |
-| `apps/web/app/components/user-profile/LanguageSection.tsx`                                                                                                                                       | Переключатель в профиле (self-mode)                                      | 7      |
-| `apps/web/app/lib/axios-utils.ts`                                                                                                                                                                | `getApiErrorMessage` — сначала `code`                                    | 5      |
-| `apps/web/app/components/pending/PendingKindSection.tsx`                                                                                                                                         | `data-testid` из `kind`                                                  | 8      |
-| `apps/web/app/lib/documents-filter-sort.ts`                                                                                                                                                      | `compareNames(locale)` вместо `localeCompare(…, 'ru')`                   | 8      |
-| `apps/web/app/components/{layout/ImpersonationBanner,user-profile/UserProfileHeader,user-profile/tabs/TeamTab}.tsx`                                                                              | Одна карта ролей `ROLE_LABELS` из `ui/role-select`                       | 8      |
-| `apps/web/eslint.config.mjs`, `packages/shared/eslint.config.mjs`                                                                                                                                | `lingui/no-unlocalized-strings: warn`                                    | 9      |
-| `.github/workflows/ci.yml`                                                                                                                                                                       | Шаг «каталоги синхронны» (`lingui extract --clean` + `git diff`)         | 9b     |
-| `.claude/rules/common/{russian-language,version-pins}.md`, `.claude/agents/copy-reviewer.md`, `.claude/skills/{copywriting,playwright-patterns}/SKILL.md`, `.claude/agents/workflow-registry.md` | Правила под два языка                                                    | 10     |
+| File                                                                                                                                                                                             | Responsibility                                                           | Task |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ---- |
+| `lingui.config.ts` (root)                                                                                                                                                                        | Locales, the catalogs of the three packages, the `po` format             | 1    |
+| `apps/web/vite.config.ts`, `apps/web/vitest.config.ts`                                                                                                                                           | The Babel macro plugin + `lingui()`                                      | 1    |
+| `packages/shared/src/i18n/locales.ts`                                                                                                                                                            | `LOCALES`, `Locale`, `DEFAULT_LOCALE`, `localeSchema`, `resolveLocale()` | 2    |
+| `packages/shared/src/i18n/format.ts`                                                                                                                                                             | `formatDate`, `formatMoney`, `formatNumber`, `compareNames`              | 2    |
+| `packages/shared/src/i18n/catalog.ts`                                                                                                                                                            | `createI18n(locale)` — an instance per request/recipient (Node, CJS)     | 2    |
+| `packages/shared/src/i18n/locales/{uk,en}/messages.po`                                                                                                                                           | The single source of translations (committed)                            | 1, 2 |
+| `packages/shared/src/schemas/api-errors.ts`                                                                                                                                                      | `API_ERROR_CODES`, `apiErrorEnvelopeSchema`, `API_ERROR_MESSAGES`        | 5    |
+| `apps/api/src/common/api-error.ts`                                                                                                                                                               | `apiError(code, status, params?)` → `HttpException` with the envelope    | 5    |
+| `apps/api/src/i18n/request-locale.ts`                                                                                                                                                            | `resolveRequestLocale(req)`, `@RequestLocale()`                          | 4    |
+| `apps/api/drizzle/manual/2026-09-20_user_locale.sql`                                                                                                                                             | enum `user_locale` + the column `users.locale`                           | 3    |
+| `apps/web/app/lib/i18n.ts`                                                                                                                                                                       | `i18n`, `activateLocale()`, `readPreLoginLocale()`, `useLocale()`        | 6    |
+| `apps/web/app/components/user-profile/LanguageSection.tsx`                                                                                                                                       | The switcher in the profile (self-mode)                                  | 7    |
+| `apps/web/app/lib/axios-utils.ts`                                                                                                                                                                | `getApiErrorMessage` — `code` first                                      | 5    |
+| `apps/web/app/components/pending/PendingKindSection.tsx`                                                                                                                                         | `data-testid` from `kind`                                                | 8    |
+| `apps/web/app/lib/documents-filter-sort.ts`                                                                                                                                                      | `compareNames(locale)` instead of `localeCompare(…, 'ru')`               | 8    |
+| `apps/web/app/components/{layout/ImpersonationBanner,user-profile/UserProfileHeader,user-profile/tabs/TeamTab}.tsx`                                                                              | One role map `ROLE_LABELS` from `ui/role-select`                         | 8    |
+| `apps/web/eslint.config.mjs`, `packages/shared/eslint.config.mjs`                                                                                                                                | `lingui/no-unlocalized-strings: warn`                                    | 9    |
+| `.github/workflows/ci.yml`                                                                                                                                                                       | The "catalogs in sync" step (`lingui extract --clean` + `git diff`)      | 9b   |
+| `.claude/rules/common/{russian-language,version-pins}.md`, `.claude/agents/copy-reviewer.md`, `.claude/skills/{copywriting,playwright-patterns}/SKILL.md`, `.claude/agents/workflow-registry.md` | Rules for two languages                                                  | 10   |
 
-Порядок: 0 → 0b → 1 → 2 → (3, 4, 5 параллельно) → 6 → 7 → 8 → 9 → 9b → 10. Каждая задача — свой PR (или 1+2 одним, 3+4 одним).
+Order: 0 → 0b → 1 → 2 → (3, 4, 5 in parallel) → 6 → 7 → 8 → 9 → 9b → 10. Each task — its own PR (or 1+2 as one, 3+4 as one).
 
 ---
 
-### Task 0 (DevOps): Node 22 LTS во всём монорепо
+### Task 0 (DevOps): Node 22 LTS across the whole monorepo
 
 **Files:**
 
-- Modify: `.github/workflows/ci.yml` (все `node-version: '20'` → `'22'`), `.github/workflows/deploy.yml` и остальные воркфлоу с `setup-node` (`grep -rn "node-version" .github/workflows`)
-- Modify: `apps/api/Dockerfile` (`FROM node:20-alpine` → `node:22-alpine`, оба stage), другие Dockerfile (`grep -rln "node:20" .`)
-- Modify/Create: `.nvmrc` (`22`), корневой `package.json` → `"engines": { "node": ">=22.19 <23", "pnpm": "7.32.4" }`
-- Modify: `.claude/rules/common/version-pins.md` — «Node: 22 LTS (строго; поднято 2026-09-19 ради Lingui 6)», `docs/runbooks/deployment.md` — упоминания Node 20
-- Test: CI зелёный на этом PR (все jobs), `docker build -f apps/api/Dockerfile .` локально проходит, `pnpm install --frozen-lockfile` под Node 22 без `EBADENGINE`
+- Modify: `.github/workflows/ci.yml` (all `node-version: '20'` → `'22'`), `.github/workflows/deploy.yml` and the other workflows with `setup-node` (`grep -rn "node-version" .github/workflows`)
+- Modify: `apps/api/Dockerfile` (`FROM node:20-alpine` → `node:22-alpine`, both stages), the other Dockerfiles (`grep -rln "node:20" .`)
+- Modify/Create: `.nvmrc` (`22`), the root `package.json` → `"engines": { "node": ">=22.19 <23", "pnpm": "7.32.4" }`
+- Modify: `.claude/rules/common/version-pins.md` — "Node: 22 LTS (strictly; raised 2026-09-19 for Lingui 6)", `docs/runbooks/deployment.md` — the mentions of Node 20
+- Test: CI green on this PR (all jobs), `docker build -f apps/api/Dockerfile .` passes locally, `pnpm install --frozen-lockfile` under Node 22 without `EBADENGINE`
 
-- [ ] **Step 1: Найти все места**
+- [ ] **Step 1: Find all the places**
 
 ```bash
 grep -rn "node-version\|node:20\|nodejs 20\|Node 20" .github apps/*/Dockerfile Dockerfile* docs/runbooks .claude/rules/common/version-pins.md package.json 2>/dev/null
 ```
 
-- [ ] **Step 2: Заменить на 22, добавить `engines` и `.nvmrc`; проверить локально**
+- [ ] **Step 2: Replace with 22, add `engines` and `.nvmrc`; check locally**
 
 ```bash
 nvm install 22 && nvm use 22 && node -v   # ≥ v22.19
@@ -77,9 +77,9 @@ pnpm typecheck && pnpm test
 docker build -f apps/api/Dockerfile -t crm-api:node22 .
 ```
 
-Если какой-то пакет ломается на Node 22 (сигнал — `pnpm test` красный там, где на 20 зелёный) — это находка задачи, а не повод откатить: записать в PR body и поднять пакет по `version-pins.md`.
+If some package breaks on Node 22 (the signal — `pnpm test` red where it is green on 20) — this is a finding of the task, not a reason to roll back: record it in the PR body and bump the package per `version-pins.md`.
 
-- [ ] **Step 3: Коммит и PR (DevOps-зона: workflows + Dockerfile)**
+- [ ] **Step 3: Commit and PR (the DevOps zone: workflows + Dockerfile)**
 
 ```bash
 git add .github/workflows/ci.yml .github/workflows/deploy.yml apps/api/Dockerfile .nvmrc package.json .claude/rules/common/version-pins.md docs/runbooks/deployment.md
@@ -88,17 +88,17 @@ git commit -m "infra(node): Node 22 LTS in CI, Docker, engines and pins (prerequ
 ac_verified: 0"
 ```
 
-Деплой после мержа проверить как обычно (`gh run list --workflow deploy.yml`, healthcheck) — образ API пересобирается на новой базе.
+Check the deploy after merge as usual (`gh run list --workflow deploy.yml`, healthcheck) — the API image is rebuilt on the new base.
 
 ---
 
-### Task 0b (спайк, throwaway): CJS-сборка API и shared с ESM-only Lingui 6
+### Task 0b (spike, throwaway): the CJS build of API and shared with the ESM-only Lingui 6
 
 **Files:**
 
-- Create (временно, не коммитить): `packages/shared/src/i18n/__spike__/esm-require.spec.ts`
+- Create (temporarily, do not commit): `packages/shared/src/i18n/__spike__/esm-require.spec.ts`
 
-- [ ] **Step 1: Установить `@lingui/core@6.7.0` в `packages/shared` и написать тест, который импортирует его как в продовом коде**
+- [ ] **Step 1: Install `@lingui/core@6.7.0` in `packages/shared` and write a test that imports it as in production code**
 
 ```ts
 // packages/shared/src/i18n/__spike__/esm-require.spec.ts
@@ -113,41 +113,41 @@ describe('spike: @lingui/core 6 from the CommonJS build', () => {
 })
 ```
 
-- [ ] **Step 2: Три проверки, все три должны быть зелёными**
+- [ ] **Step 2: Three checks, all three must be green**
 
 ```bash
-pnpm --filter @crm/shared typecheck          # tsc с module=CommonJS резолвит типы @lingui/core (exports с условием "import")
-pnpm --filter @crm/shared build && node -e "require('./packages/shared/dist/index.js')"   # require(esm) в рантайме Node 22
-pnpm --filter @crm/api typecheck && pnpm --filter @crm/api build && node -e "require('./apps/api/dist/main.js')" 2>&1 | head -3   # то же для API-бандла
+pnpm --filter @crm/shared typecheck          # tsc with module=CommonJS resolves the types of @lingui/core (exports with the "import" condition)
+pnpm --filter @crm/shared build && node -e "require('./packages/shared/dist/index.js')"   # require(esm) at runtime on Node 22
+pnpm --filter @crm/api typecheck && pnpm --filter @crm/api build && node -e "require('./apps/api/dist/main.js')" 2>&1 | head -3   # the same for the API bundle
 ```
 
-Ожидаемо: typecheck чист, оба `require` не падают на `ERR_REQUIRE_ESM`/`ERR_PACKAGE_PATH_NOT_EXPORTED`.
+Expected: typecheck is clean, both `require` calls do not fail on `ERR_REQUIRE_ESM`/`ERR_PACKAGE_PATH_NOT_EXPORTED`.
 
-- [ ] **Step 3: Вывод**
+- [ ] **Step 3: Conclusion**
 
-Все три зелёные → удалить `__spike__`, оставить зависимость, идти в Task 1. Хоть одна красная → `.claude/tasks/task-i18n-stage2.blocked.md` с точным текстом ошибки и двумя вариантами: (a) Lingui 5.9.5 (CJS+ESM, тот же API макросов), (b) `module: node16` + `"type"`-раскладка для `packages/shared`/`apps/api`. Решает оркестратор.
+All three green → delete `__spike__`, keep the dependency, go to Task 1. At least one red → `.claude/tasks/task-i18n-stage2.blocked.md` with the exact error text and two options: (a) Lingui 5.9.5 (CJS+ESM, the same macro API), (b) `module: node16` + the `"type"` layout for `packages/shared`/`apps/api`. The orchestrator decides.
 
 ---
 
-### Task 1: Lingui в монорепо — зависимости, конфиг, сборка, тестовый прогон
+### Task 1: Lingui in the monorepo — dependencies, config, build, a test run
 
 **Files:**
 
-- Modify: `package.json` (корень: devDeps `@lingui/cli`, скрипты `i18n:extract`, `i18n:compile`), `pnpm-workspace.yaml` не трогать
+- Modify: `package.json` (root: devDeps `@lingui/cli`, scripts `i18n:extract`, `i18n:compile`), do not touch `pnpm-workspace.yaml`
 - Modify: `apps/web/package.json` (deps `@lingui/core`, `@lingui/react`; devDeps `@lingui/vite-plugin`, `@lingui/babel-plugin-lingui-macro`)
 - Modify: `packages/shared/package.json`, `apps/api/package.json` (dep `@lingui/core`)
 - Create: `lingui.config.ts`
 - Modify: `apps/web/vite.config.ts`, `apps/web/vitest.config.ts`
-- Create: `packages/shared/src/i18n/locales/uk/messages.po`, `packages/shared/src/i18n/locales/en/messages.po` (пустые заголовки — создаст `lingui extract`)
-- Modify: `.gitignore` (компилированные `messages.ts`), `turbo.json` (задача `i18n:compile`)
-- Modify: `.claude/rules/common/version-pins.md` (строка пинов — см. Task 10, здесь только добавить строку)
+- Create: `packages/shared/src/i18n/locales/uk/messages.po`, `packages/shared/src/i18n/locales/en/messages.po` (empty headers — `lingui extract` will create them)
+- Modify: `.gitignore` (the compiled `messages.ts`), `turbo.json` (the `i18n:compile` task)
+- Modify: `.claude/rules/common/version-pins.md` (the pins line — see Task 10, here just add the line)
 - Test: `apps/web/app/lib/__tests__/i18n-smoke.test.tsx`
 
 **Interfaces:**
 
-- Produces: скрипты `pnpm i18n:extract` (`lingui extract --clean`), `pnpm i18n:compile` (`lingui compile --typescript`); путь каталогов `packages/shared/src/i18n/locales/<locale>/messages.po`; compiled `…/messages.ts` (gitignored, генерируется `i18n:compile`, который turbo запускает перед `build`, `test`, `typecheck`, `dev`).
+- Produces: the scripts `pnpm i18n:extract` (`lingui extract --clean`), `pnpm i18n:compile` (`lingui compile --typescript`); the catalog path `packages/shared/src/i18n/locales/<locale>/messages.po`; the compiled `…/messages.ts` (gitignored, generated by `i18n:compile`, which turbo runs before `build`, `test`, `typecheck`, `dev`).
 
-- [ ] **Step 1: Установить зависимости одной версией**
+- [ ] **Step 1: Install the dependencies at one version**
 
 ```bash
 pnpm add -w -D @lingui/cli@5.9.5 @lingui/babel-plugin-lingui-macro@5.9.5
@@ -157,9 +157,9 @@ pnpm --filter @crm/shared add @lingui/core@5.9.5
 pnpm --filter @crm/api add @lingui/core@5.9.5
 ```
 
-В каждом `package.json` версия должна быть `"5.9.5"` без `^` (EXACT-пин, как у пары TanStack).
+In each `package.json` the version must be `"5.9.5"` without `^` (EXACT-pin, like the TanStack pair).
 
-- [ ] **Step 2: Конфиг Lingui в корне**
+- [ ] **Step 2: The Lingui config in the root**
 
 ```ts
 // lingui.config.ts
@@ -194,49 +194,49 @@ const config: LinguiConfig = {
 export default config
 ```
 
-- [ ] **Step 3: Скрипты и turbo**
+- [ ] **Step 3: Scripts and turbo**
 
-Корневой `package.json` → `scripts`:
+The root `package.json` → `scripts`:
 
 ```json
 "i18n:extract": "lingui extract --clean",
 "i18n:compile": "lingui compile --typescript"
 ```
 
-`turbo.json` → `tasks`: добавить
+`turbo.json` → `tasks`: add
 
 ```json
 "i18n:compile": { "cache": false, "inputs": ["packages/shared/src/i18n/locales/**/*.po", "lingui.config.ts"] }
 ```
 
-и в `build`, `typecheck`, `test`, `dev` добавить `"dependsOn": ["//#i18n:compile", ...существующие]` (синтаксис корневой задачи `//#`). `.gitignore`: `packages/shared/src/i18n/locales/*/messages.ts`.
+and in `build`, `typecheck`, `test`, `dev` add `"dependsOn": ["//#i18n:compile", ...existing]` (the root-task syntax `//#`). `.gitignore`: `packages/shared/src/i18n/locales/*/messages.ts`.
 
-- [ ] **Step 4: Vite и Vitest — макросы через Babel**
+- [ ] **Step 4: Vite and Vitest — macros via Babel**
 
 ```ts
 // apps/web/vite.config.ts — plugins
 import { lingui } from '@lingui/vite-plugin'
 // ...
 plugins: [
-  // TanStackRouterVite(...) как было,
+  // TanStackRouterVite(...) as it was,
   react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } }),
   lingui(),
-  // остальное как было
+  // the rest as it was
 ]
 ```
 
-То же `react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } })` в `apps/web/vitest.config.ts` (там свой `react()`), плюс `lingui()`.
+The same `react({ babel: { plugins: ['@lingui/babel-plugin-lingui-macro'] } })` in `apps/web/vitest.config.ts` (it has its own `react()`), plus `lingui()`.
 
-- [ ] **Step 5: Пустые каталоги и первый прогон**
+- [ ] **Step 5: Empty catalogs and the first run**
 
 ```bash
 pnpm i18n:extract && pnpm i18n:compile
 git status --short packages/shared/src/i18n
 ```
 
-Ожидаемо: два `messages.po` с заголовками (`Language: uk` / `Language: en`), `messages.ts` в `.gitignore`.
+Expected: two `messages.po` with headers (`Language: uk` / `Language: en`), `messages.ts` in `.gitignore`.
 
-- [ ] **Step 6: Смоук-тест макросов в Vitest (падает до конфигурации, проходит после)**
+- [ ] **Step 6: A smoke test of the macros in Vitest (fails before configuration, passes after)**
 
 ```tsx
 // apps/web/app/lib/__tests__/i18n-smoke.test.tsx
@@ -262,9 +262,9 @@ describe('lingui macros are transformed in vitest', () => {
 })
 ```
 
-Run: `pnpm --filter @crm/web test -- app/lib/__tests__/i18n-smoke.test.tsx` → PASS (без Babel-плагина падало бы на `Trans is not a function`/`The macro you imported…`).
+Run: `pnpm --filter @crm/web test -- app/lib/__tests__/i18n-smoke.test.tsx` → PASS (without the Babel plugin it would fail on `Trans is not a function`/`The macro you imported…`).
 
-- [ ] **Step 7: Гейты и коммит**
+- [ ] **Step 7: Gates and commit**
 
 ```bash
 pnpm typecheck && pnpm lint && pnpm --filter @crm/web test
@@ -276,7 +276,7 @@ ac_verified: 1"
 
 ---
 
-### Task 2: `packages/shared/src/i18n` — локали, форматирование, экземпляр `i18n` для Node
+### Task 2: `packages/shared/src/i18n` — locales, formatting, the `i18n` instance for Node
 
 **Files:**
 
@@ -287,11 +287,11 @@ ac_verified: 1"
 **Interfaces:**
 
 - Produces:
-  - `LOCALES = ['uk','en'] as const`, `type Locale`, `DEFAULT_LOCALE: Locale = 'uk'`, `localeSchema = z.enum(LOCALES)`, `resolveLocale(candidates: ReadonlyArray<string | null | undefined>): Locale` — первый валидный по BCP-47-префиксу (`en-US` → `en`, `uk-UA` → `uk`), иначе `uk`.
+  - `LOCALES = ['uk','en'] as const`, `type Locale`, `DEFAULT_LOCALE: Locale = 'uk'`, `localeSchema = z.enum(LOCALES)`, `resolveLocale(candidates: ReadonlyArray<string | null | undefined>): Locale` — the first valid by BCP-47 prefix (`en-US` → `en`, `uk-UA` → `uk`), otherwise `uk`.
   - `formatDate(value: Date | string, locale: Locale, style?: 'short' | 'long'): string`, `formatMoney(amount: number | string, currency: 'USDT'|'USD'|'EUR'|'UAH', locale: Locale): string`, `formatNumber(n: number, locale: Locale): string`, `compareNames(locale: Locale): (a: string, b: string) => number`.
-  - `createI18n(locale: Locale): I18n` — новый экземпляр `setupI18n` с загруженным компилированным каталогом (CJS `require`), для API-письма/PDF на локали получателя и для сервера в целом (никакого глобального `activate` в API).
+  - `createI18n(locale: Locale): I18n` — a new `setupI18n` instance with the compiled catalog loaded (CJS `require`), for API email/PDF in the recipient's locale and for the server in general (no global `activate` in the API).
 
-- [ ] **Step 1: Тесты локалей**
+- [ ] **Step 1: Locale tests**
 
 ```ts
 // packages/shared/src/i18n/locales.spec.ts
@@ -315,7 +315,7 @@ describe('resolveLocale', () => {
 
 Run: `pnpm --filter @crm/shared test -- src/i18n/locales.spec.ts`
 
-- [ ] **Step 3: Реализация**
+- [ ] **Step 3: Implementation**
 
 ```ts
 // packages/shared/src/i18n/locales.ts
@@ -343,7 +343,7 @@ export function resolveLocale(candidates: ReadonlyArray<string | null | undefine
 }
 ```
 
-- [ ] **Step 4: Тесты форматирования (значения — из `Intl`, не из головы)**
+- [ ] **Step 4: Formatting tests (the values — from `Intl`, not from memory)**
 
 ```ts
 // packages/shared/src/i18n/format.spec.ts
@@ -374,7 +374,7 @@ describe('format', () => {
 })
 ```
 
-- [ ] **Step 5: Run → FAIL, затем реализация**
+- [ ] **Step 5: Run → FAIL, then implementation**
 
 ```ts
 // packages/shared/src/i18n/format.ts
@@ -419,9 +419,9 @@ export function compareNames(locale: Locale): (a: string, b: string) => number {
 }
 ```
 
-Замечание для исполнителя: если существующий `apps/web/app/lib/format-amount.ts` форматирует иначе (пробел vs запятая), **не** менять его в этой задаче — модули переедут на `formatMoney` на этапе 3.
+A note for the implementer: if the existing `apps/web/app/lib/format-amount.ts` formats differently (space vs comma), do **not** change it in this task — the modules will move to `formatMoney` in stage 3.
 
-- [ ] **Step 6: `createI18n` и тест**
+- [ ] **Step 6: `createI18n` and a test**
 
 ```ts
 // packages/shared/src/i18n/catalog.ts
@@ -458,11 +458,11 @@ describe('createI18n', () => {
 })
 ```
 
-Run: `pnpm i18n:compile && pnpm --filter @crm/shared test -- src/i18n` → PASS. Примечание: в `packages/shared/vitest.config` (или `tsconfig`) `require` доступен, пакет CommonJS; если Vitest падает на `require` — включить `deps.interopDefault`/оставить `createRequire(import.meta.url)`-вариант — выбрать один и записать в PR body.
+Run: `pnpm i18n:compile && pnpm --filter @crm/shared test -- src/i18n` → PASS. Note: in `packages/shared/vitest.config` (or `tsconfig`) `require` is available, the package is CommonJS; if Vitest fails on `require` — enable `deps.interopDefault`/keep the `createRequire(import.meta.url)` variant — pick one and record it in the PR body.
 
-- [ ] **Step 7: Экспорт и коммит**
+- [ ] **Step 7: Export and commit**
 
-`packages/shared/src/i18n/index.ts`: `export * from './locales'; export * from './format'; export * from './catalog'`; в `packages/shared/src/index.ts` добавить `export * from './i18n'`. Проверить, что `packages/shared/src/public.ts` (публичный бандл лендинга) **не** экспортирует `catalog.ts` (там `require`).
+`packages/shared/src/i18n/index.ts`: `export * from './locales'; export * from './format'; export * from './catalog'`; in `packages/shared/src/index.ts` add `export * from './i18n'`. Check that `packages/shared/src/public.ts` (the public landing bundle) does **not** export `catalog.ts` (it has `require`).
 
 ```bash
 pnpm --filter @crm/shared typecheck && pnpm --filter @crm/shared lint && pnpm --filter @crm/shared test
@@ -474,26 +474,26 @@ ac_verified: 2"
 
 ---
 
-### Task 3: `users.locale` — колонка, DDL, `/auth/me`, `PATCH /users/me`, мастер создания
+### Task 3: `users.locale` — the column, DDL, `/auth/me`, `PATCH /users/me`, the creation wizard
 
 **Files:**
 
-- Modify: `apps/api/src/database/schema.ts` (enum `userLocaleEnum`, колонка `locale`)
+- Modify: `apps/api/src/database/schema.ts` (enum `userLocaleEnum`, the column `locale`)
 - Create: `apps/api/drizzle/manual/2026-09-20_user_locale.sql`
-- Modify: `.github/workflows/deploy.yml` — **зона DevOps**: три места (preflight-список, SCP, psql); coder оставляет `.blocked.md` только если DevOps недоступен; в этом плане шаг выполняет тот же PR с пометкой «DevOps-строки — additive wiring по образцу `2026-09-19_notification_email_skip_stale.sql`»
+- Modify: `.github/workflows/deploy.yml` — **the DevOps zone**: three places (the preflight list, SCP, psql); the coder leaves `.blocked.md` only if DevOps is unavailable; in this plan the step is done by the same PR with the note "the DevOps lines — additive wiring modeled on `2026-09-19_notification_email_skip_stale.sql`"
 - Modify: `packages/shared/src/schemas/auth.ts` (`sessionUserSchema.locale`), `packages/shared/src/schemas/users.ts` (`updateProfileSchema.locale`, `createUserSchema.locale`)
-- Modify: `apps/api/src/auth/auth.controller.ts` (`/me` → `locale`), `apps/api/src/users/users.service.ts` (`updateProfile` пишет `locale`; `create` принимает `locale`), `apps/api/src/users/users.controller.ts` (без изменений, схема расширена)
-- Modify: `apps/web/app/components/users/UserDialog.tsx` — шаг «Данные» мастера: `Select` «Мова інтерфейсу / Interface language» (`uk` по умолчанию)
-- Test: `packages/shared/src/schemas/auth.spec.ts`, `apps/api/src/users/users-locale.integration.spec.ts`, `apps/api/src/database/user-locale-migration.integration.spec.ts` (идемпотентность DDL, по образцу `notification-email-migrations.integration.spec.ts`), `apps/web/app/components/users/__tests__/UserDialog.create-wizard.test.tsx` (поле локали)
+- Modify: `apps/api/src/auth/auth.controller.ts` (`/me` → `locale`), `apps/api/src/users/users.service.ts` (`updateProfile` writes `locale`; `create` accepts `locale`), `apps/api/src/users/users.controller.ts` (no changes, the schema is extended)
+- Modify: `apps/web/app/components/users/UserDialog.tsx` — the "Data" step of the wizard: a `Select` "Мова інтерфейсу / Interface language" (`uk` by default)
+- Test: `packages/shared/src/schemas/auth.spec.ts`, `apps/api/src/users/users-locale.integration.spec.ts`, `apps/api/src/database/user-locale-migration.integration.spec.ts` (DDL idempotency, modeled on `notification-email-migrations.integration.spec.ts`), `apps/web/app/components/users/__tests__/UserDialog.create-wizard.test.tsx` (the locale field)
 
 **Interfaces:**
 
-- Produces: `sessionUserSchema` получает `locale: localeSchema` (обязательно); `SessionUser.locale`; `updateProfileSchema.locale?: Locale`; `createUserSchema.locale?: Locale` (дефолт `uk` в сервисе); DDL `user_locale` enum + `users.locale NOT NULL DEFAULT 'uk'`.
+- Produces: `sessionUserSchema` gets `locale: localeSchema` (required); `SessionUser.locale`; `updateProfileSchema.locale?: Locale`; `createUserSchema.locale?: Locale` (the default `uk` in the service); DDL `user_locale` enum + `users.locale NOT NULL DEFAULT 'uk'`.
 
-- [ ] **Step 1: Тест схемы (падает: поля нет)**
+- [ ] **Step 1: A schema test (fails: the field is absent)**
 
 ```ts
-// packages/shared/src/schemas/auth.spec.ts (добавить)
+// packages/shared/src/schemas/auth.spec.ts (add)
 it('sessionUserSchema requires a supported locale', () => {
   const base = {
     id: '11111111-1111-1111-1111-111111111111',
@@ -511,14 +511,14 @@ it('sessionUserSchema requires a supported locale', () => {
 })
 ```
 
-- [ ] **Step 2: Схемы**
+- [ ] **Step 2: Schemas**
 
 ```ts
-// packages/shared/src/schemas/auth.ts — внутри sessionUserSchema
+// packages/shared/src/schemas/auth.ts — inside sessionUserSchema
 locale: localeSchema,
 // packages/shared/src/schemas/users.ts
-export const updateProfileSchema = z.object({ /* …как было… */ locale: localeSchema.optional() })
-// createUserSchema: добавить locale: localeSchema.optional()
+export const updateProfileSchema = z.object({ /* …as it was… */ locale: localeSchema.optional() })
+// createUserSchema: add locale: localeSchema.optional()
 ```
 
 (`import { localeSchema } from '../i18n/locales'`.)
@@ -526,9 +526,9 @@ export const updateProfileSchema = z.object({ /* …как было… */ locale
 - [ ] **Step 3: Drizzle + DDL**
 
 ```ts
-// apps/api/src/database/schema.ts (рядом с roleEnum)
+// apps/api/src/database/schema.ts (next to roleEnum)
 export const userLocaleEnum = pgEnum('user_locale', ['uk', 'en'])
-// в users: после role
+// in users: after role
 locale: userLocaleEnum('locale').notNull().default('uk'),
 ```
 
@@ -549,16 +549,16 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS locale user_locale NOT NULL DEFAULT '
 --   WHERE table_name = 'users' AND column_name = 'locale';
 ```
 
-`deploy.yml`: добавить файл в три места по образцу предыдущего DDL; `python3 scripts/devops/check-prod-ddl-wiring.py` → `BROKEN WIRING: 0`.
+`deploy.yml`: add the file in three places modeled on the previous DDL; `python3 scripts/devops/check-prod-ddl-wiring.py` → `BROKEN WIRING: 0`.
 
-- [ ] **Step 4: `/auth/me` и `updateProfile`**
+- [ ] **Step 4: `/auth/me` and `updateProfile`**
 
-В обеих ветках `auth.controller.ts` `/me`: `locale: fresh.locale` (в fallback-ветке — `'uk'`). В `users.service.ts` `updateProfile(id, data: { …; locale?: 'uk' | 'en' })` — включить `locale` в `set({...})`. В `create` — `locale: input.locale ?? 'uk'`.
+In both branches of `auth.controller.ts` `/me`: `locale: fresh.locale` (in the fallback branch — `'uk'`). In `users.service.ts` `updateProfile(id, data: { …; locale?: 'uk' | 'en' })` — include `locale` in `set({...})`. In `create` — `locale: input.locale ?? 'uk'`.
 
-- [ ] **Step 5: Интеграционный тест (реальный Postgres, `skipIf(!hasDatabaseUrl())` как у соседей)**
+- [ ] **Step 5: Integration test (a real Postgres, `skipIf(!hasDatabaseUrl())` like the neighbors)**
 
 ```ts
-// apps/api/src/users/users-locale.integration.spec.ts — суть кейсов
+// apps/api/src/users/users-locale.integration.spec.ts — the gist of the cases
 it('PATCH /users/me {locale:"en"} is reflected by GET /auth/me', async () => {
   await request(app).patch('/api/users/me').set(auth(junior)).send({ locale: 'en' }).expect(200)
   const me = await request(app).get('/api/auth/me').set(auth(junior)).expect(200)
@@ -577,16 +577,16 @@ it('new users default to uk', async () => {
 })
 ```
 
-Run на scratch-базе: `DATABASE_URL=postgres://…/crm_scratch_i18n pnpm --filter @crm/api test -- users-locale` → PASS.
+Run on a scratch database: `DATABASE_URL=postgres://…/crm_scratch_i18n pnpm --filter @crm/api test -- users-locale` → PASS.
 
-- [ ] **Step 6: Мастер создания — поле локали**
+- [ ] **Step 6: The creation wizard — the locale field**
 
-В шаге «Данные» `UserDialog.tsx` (create-wizard) — `Select` с двумя опциями (`uk` — «Українська», `en` — «English»), `data-testid="user-locale-select"`, значение по умолчанию `uk`, в payload `locale`. Тест в `UserDialog.create-wizard.test.tsx`: выбор `en` → `api.post` вызван с `locale: 'en'`.
+In the "Data" step of `UserDialog.tsx` (the create wizard) — a `Select` with two options (`uk` — "Українська", `en` — "English"), `data-testid="user-locale-select"`, the default value `uk`, `locale` in the payload. The test in `UserDialog.create-wizard.test.tsx`: picking `en` → `api.post` called with `locale: 'en'`.
 
-- [ ] **Step 7: Гейты и коммит**
+- [ ] **Step 7: Gates and commit**
 
 ```bash
-pnpm typecheck && pnpm lint && pnpm --filter @crm/shared test && pnpm --filter @crm/web test && DATABASE_URL=postgres://postgres:postgres@localhost:5432/crm_scratch_i18n pnpm --filter @crm/api test -- integration   # своя scratch-база, инлайн
+pnpm typecheck && pnpm lint && pnpm --filter @crm/shared test && pnpm --filter @crm/web test && DATABASE_URL=postgres://postgres:postgres@localhost:5432/crm_scratch_i18n pnpm --filter @crm/api test -- integration   # own scratch base, inline
 python3 scripts/devops/check-prod-ddl-wiring.py
 git add apps/api/src/database/schema.ts apps/api/drizzle/manual/2026-09-20_user_locale.sql .github/workflows/deploy.yml packages/shared/src/schemas/auth.ts packages/shared/src/schemas/users.ts packages/shared/src/schemas/auth.spec.ts apps/api/src/auth/auth.controller.ts apps/api/src/users/users.service.ts apps/api/src/users/users-locale.integration.spec.ts apps/api/src/database/user-locale-migration.integration.spec.ts apps/web/app/components/users/UserDialog.tsx apps/web/app/components/users/__tests__/UserDialog.create-wizard.test.tsx
 git commit -m "feat(users): interface locale per user — users.locale (uk|en), /auth/me, PATCH /users/me, create wizard
@@ -596,7 +596,7 @@ ac_verified: 3"
 
 ---
 
-### Task 4: Локаль запроса на API — `resolveRequestLocale` и `@RequestLocale()`
+### Task 4: The request locale on the API — `resolveRequestLocale` and `@RequestLocale()`
 
 **Files:**
 
@@ -605,10 +605,10 @@ ac_verified: 3"
 
 **Interfaces:**
 
-- Consumes: `resolveLocale`, `LOCALE_COOKIE_NAME` из `@crm/shared`; `request.user` (`SessionUser` с `locale`) из `JwtAuthGuard`.
-- Produces: `resolveRequestLocale(req: { user?: { locale?: string }; cookies?: Record<string,string>; headers: { 'accept-language'?: string } }): Locale` — порядок: `user.locale` → cookie `pref_locale` → первый язык `Accept-Language` → `uk`; параметр-декоратор `RequestLocale` (`createParamDecorator`).
+- Consumes: `resolveLocale`, `LOCALE_COOKIE_NAME` from `@crm/shared`; `request.user` (`SessionUser` with `locale`) from `JwtAuthGuard`.
+- Produces: `resolveRequestLocale(req: { user?: { locale?: string }; cookies?: Record<string,string>; headers: { 'accept-language'?: string } }): Locale` — the order: `user.locale` → cookie `pref_locale` → the first language of `Accept-Language` → `uk`; the param decorator `RequestLocale` (`createParamDecorator`).
 
-- [ ] **Step 1: Тест**
+- [ ] **Step 1: Test**
 
 ```ts
 // apps/api/src/i18n/request-locale.spec.ts
@@ -644,7 +644,7 @@ describe('resolveRequestLocale', () => {
 })
 ```
 
-- [ ] **Step 2: Run → FAIL; реализация**
+- [ ] **Step 2: Run → FAIL; implementation**
 
 ```ts
 // apps/api/src/i18n/request-locale.ts
@@ -680,9 +680,9 @@ export const RequestLocale = createParamDecorator(
 )
 ```
 
-Проверить, что Fastify-cookie парсер уже подключён (`@fastify/cookie` — auth-cookie JWT использует его); если `request.cookies` отсутствует — прочитать заголовок `cookie` вручную в `resolveRequestLocale` (добавить кейс в тест).
+Check that the Fastify cookie parser is already connected (`@fastify/cookie` — the JWT auth-cookie uses it); if `request.cookies` is absent — read the `cookie` header manually in `resolveRequestLocale` (add a case to the test).
 
-- [ ] **Step 3: Run → PASS; коммит**
+- [ ] **Step 3: Run → PASS; commit**
 
 ```bash
 pnpm --filter @crm/api typecheck && pnpm --filter @crm/api lint && pnpm --filter @crm/api test -- request-locale
@@ -694,26 +694,26 @@ ac_verified: 4"
 
 ---
 
-### Task 5: Конверт кодов ошибок — реестр в shared, `apiError()` на API, перевод на клиенте, первые шесть кодов
+### Task 5: The error-code envelope — the registry in shared, `apiError()` on the API, translation on the client, the first six codes
 
 **Files:**
 
 - Create: `packages/shared/src/schemas/api-errors.ts`, `apps/api/src/common/api-error.ts`
-- Modify: `apps/web/app/lib/axios-utils.ts` (`getApiErrorMessage`: приоритет 0 — `code`), `apps/web/app/lib/i18n.ts` (см. Task 6 — здесь используется `i18n` из `@lingui/core`; до Task 6 достаточно глобального `i18n` с загруженным `uk`)
-- Modify (первые коды): `apps/api/src/contracts/employee-contracts.service.ts` (2 × `No active contract template` → `CONTRACT_TEMPLATE_MISSING`), `apps/api/src/contracts/signed-contracts.service.ts`, `apps/api/src/tos/tos.service.ts`, `apps/api/src/invoices/invoices.service.ts`, `apps/api/src/notifications/notifications.controller.ts`, `apps/api/src/users/users.service.ts` (approve/reject share), `apps/api/src/projects/projects.service.ts` (approve/reject) — все `*_IMPERSONATION` → `apiError`
-- Modify: `apps/web/app/components/user-profile/contract/ContractTab.tsx`, `apps/web/app/components/users/UserDialog.tsx` — ветвление по `code`
-- Test: `packages/shared/src/schemas/api-errors.spec.ts`, `apps/api/src/common/api-error.spec.ts`, `apps/web/app/lib/__tests__/axios-utils.spec.ts` (расширить), обновить спеки сервисов на форму `{ code }`
+- Modify: `apps/web/app/lib/axios-utils.ts` (`getApiErrorMessage`: priority 0 — `code`), `apps/web/app/lib/i18n.ts` (see Task 6 — here the `i18n` from `@lingui/core` is used; before Task 6 the global `i18n` with `uk` loaded is enough)
+- Modify (the first codes): `apps/api/src/contracts/employee-contracts.service.ts` (2 × `No active contract template` → `CONTRACT_TEMPLATE_MISSING`), `apps/api/src/contracts/signed-contracts.service.ts`, `apps/api/src/tos/tos.service.ts`, `apps/api/src/invoices/invoices.service.ts`, `apps/api/src/notifications/notifications.controller.ts`, `apps/api/src/users/users.service.ts` (approve/reject share), `apps/api/src/projects/projects.service.ts` (approve/reject) — all `*_IMPERSONATION` → `apiError`
+- Modify: `apps/web/app/components/user-profile/contract/ContractTab.tsx`, `apps/web/app/components/users/UserDialog.tsx` — branching by `code`
+- Test: `packages/shared/src/schemas/api-errors.spec.ts`, `apps/api/src/common/api-error.spec.ts`, `apps/web/app/lib/__tests__/axios-utils.spec.ts` (extend), update the service specs to the `{ code }` shape
 
 **Interfaces:**
 
 - Produces:
   - `API_ERROR_CODES = ['GENERIC','CONTRACT_TEMPLATE_MISSING','CONTRACT_SIGN_IMPERSONATION','TOS_ACCEPT_IMPERSONATION','INVOICE_SIGN_IMPERSONATION','NOTIFICATION_PREFERENCES_IMPERSONATION','SHARE_DECISION_IMPERSONATION','PROJECT_DECISION_IMPERSONATION'] as const`, `type ApiErrorCode`.
   - `apiErrorEnvelopeSchema = z.object({ statusCode: z.number().int(), code: z.enum(API_ERROR_CODES), params: z.record(z.string(), z.union([z.string(), z.number()])).optional(), message: z.string() })`.
-  - `API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor>` — украинские тексты с явными id `api-error.<code>`, помечены `/* i18n */`.
-  - `apiError(code: ApiErrorCode, status: HttpStatus, params?: Record<string,string|number>): HttpException` — тело `{ statusCode, code, params, message }`, `message` — английский fallback из `API_ERROR_FALLBACK_EN`.
-  - `getApiErrorMessage(err, fallback?)`: если тело ответа проходит `apiErrorEnvelopeSchema` → `i18n._(API_ERROR_MESSAGES[code], params)`; иначе прежняя логика.
+  - `API_ERROR_MESSAGES: Record<ApiErrorCode, MessageDescriptor>` — Ukrainian texts with explicit ids `api-error.<code>`, marked `/* i18n */`.
+  - `apiError(code: ApiErrorCode, status: HttpStatus, params?: Record<string,string|number>): HttpException` — the body `{ statusCode, code, params, message }`, `message` — an English fallback from `API_ERROR_FALLBACK_EN`.
+  - `getApiErrorMessage(err, fallback?)`: if the response body passes `apiErrorEnvelopeSchema` → `i18n._(API_ERROR_MESSAGES[code], params)`; otherwise the former logic.
 
-- [ ] **Step 1: Тест реестра**
+- [ ] **Step 1: A registry test**
 
 ```ts
 // packages/shared/src/schemas/api-errors.spec.ts
@@ -742,7 +742,7 @@ describe('api-errors', () => {
 })
 ```
 
-- [ ] **Step 2: Реализация реестра**
+- [ ] **Step 2: The registry implementation**
 
 ```ts
 // packages/shared/src/schemas/api-errors.ts
@@ -825,9 +825,9 @@ export const API_ERROR_FALLBACK_EN: Record<ApiErrorCode, string> = {
 }
 ```
 
-Украинские тексты — черновик кодера; `copy-reviewer` проверяет оба языка (en — в `messages.po`). После правки: `pnpm i18n:extract` → в `uk/messages.po` появятся восемь записей; заполнить `en` там же.
+The Ukrainian texts — the coder's draft; `copy-reviewer` checks both languages (en — in `messages.po`). After the edit: `pnpm i18n:extract` → eight records appear in `uk/messages.po`; fill `en` there.
 
-- [ ] **Step 3: `apiError` на API + тест**
+- [ ] **Step 3: `apiError` on the API + a test**
 
 ```ts
 // apps/api/src/common/api-error.ts
@@ -867,14 +867,14 @@ it('builds an HttpException whose body is the envelope', () => {
 })
 ```
 
-- [ ] **Step 4: Первые коды на API**
+- [ ] **Step 4: The first codes on the API**
 
-`employee-contracts.service.ts`: оба `throw new NotFoundException(\`No active contract template for role ${user.role}\`)`→`throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND, { role: user.role })`. Пять `ForbiddenException(<литерал имперсонации>)`→`apiError('<CODE>\_IMPERSONATION', HttpStatus.FORBIDDEN)`. Литералы `\*\_IMPERSONATION_MESSAGE` в shared **остаются** до этапа 3 (их читает клиентский баннер), но серверный текст теперь английский fallback — обновить спеки сервисов/контроллеров и интеграционные (`expect(res.body.code).toBe('…')` вместо текста).
+`employee-contracts.service.ts`: both `throw new NotFoundException(\`No active contract template for role ${user.role}\`)`→`throw apiError('CONTRACT_TEMPLATE_MISSING', HttpStatus.NOT_FOUND, { role: user.role })`. Five `ForbiddenException(<the impersonation literal>)`→`apiError('<CODE>\_IMPERSONATION', HttpStatus.FORBIDDEN)`. The `\*\_IMPERSONATION_MESSAGE` literals in shared **stay** until stage 3 (the client banner reads them), but the server text is now an English fallback — update the service/controller and integration specs (`expect(res.body.code).toBe('…')` instead of the text).
 
-- [ ] **Step 5: Клиент — `getApiErrorMessage` по коду + ветвления**
+- [ ] **Step 5: Client — `getApiErrorMessage` by code + the branchings**
 
 ```ts
-// apps/web/app/lib/axios-utils.ts — в начале getApiErrorMessage после проверок на null/object
+// apps/web/app/lib/axios-utils.ts — at the start of getApiErrorMessage after the null/object checks
 const envelope = apiErrorEnvelopeSchema.safeParse(
   (err as { response?: { data?: unknown } }).response?.data,
 )
@@ -883,11 +883,11 @@ if (envelope.success) {
 }
 ```
 
-(`i18n` — из `@/lib/i18n`, Task 6; до него — `import { i18n } from '@lingui/core'` с `uk`-каталогом, загруженным в `client.tsx`.) Добавить `export function getApiErrorCode(err: unknown): ApiErrorCode | null`.
+(`i18n` — from `@/lib/i18n`, Task 6; before it — `import { i18n } from '@lingui/core'` with the `uk` catalog loaded in `client.tsx`.) Add `export function getApiErrorCode(err: unknown): ApiErrorCode | null`.
 
-`ContractTab.tsx`: `const isNoTemplate = getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'` (удалить `includes('no active contract template')`). `UserDialog.tsx`: `includes('template')` → `getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'`. Тесты обоих компонентов: мок ошибки с телом-конвертом → пустое состояние показано; ошибка с прозой без кода → **не** показано.
+`ContractTab.tsx`: `const isNoTemplate = getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'` (remove `includes('no active contract template')`). `UserDialog.tsx`: `includes('template')` → `getApiErrorCode(error) === 'CONTRACT_TEMPLATE_MISSING'`. The tests of both components: an error mock with an envelope body → the empty state shown; an error with prose and no code → **not** shown.
 
-- [ ] **Step 6: Тесты `axios-utils`**
+- [ ] **Step 6: `axios-utils` tests**
 
 ```ts
 it('translates an API error envelope by code via the catalog', () => {
@@ -915,7 +915,7 @@ it('interpolates params', () => {
 })
 ```
 
-- [ ] **Step 7: Гейты, мутационный гейт, коммит**
+- [ ] **Step 7: Gates, the mutation gate, commit**
 
 ```bash
 pnpm i18n:extract && pnpm i18n:compile && pnpm typecheck && pnpm lint && pnpm test
@@ -926,24 +926,24 @@ git commit -m "feat(api,web,shared): API error envelope with codes translated on
 ac_verified: 5"
 ```
 
-security-reviewer обязателен (auth-пути).
+security-reviewer is mandatory (auth paths).
 
 ---
 
-### Task 6: Веб — `I18nProvider`, активация локали из `/auth/me` и до входа
+### Task 6: Web — `I18nProvider`, activating the locale from `/auth/me` and before login
 
 **Files:**
 
 - Create: `apps/web/app/lib/i18n.ts`
-- Modify: `apps/web/app/routes/__root.tsx` (обернуть в `I18nProvider`), `apps/web/app/context/auth.tsx` (эффект: `user.locale` → `activateLocale`), `apps/web/app/client.tsx` (стартовая активация до рендера), `apps/web/index.html` (`lang="uk"`)
+- Modify: `apps/web/app/routes/__root.tsx` (wrap in `I18nProvider`), `apps/web/app/context/auth.tsx` (an effect: `user.locale` → `activateLocale`), `apps/web/app/client.tsx` (the start activation before the render), `apps/web/index.html` (`lang="uk"`)
 - Test: `apps/web/app/lib/__tests__/i18n.test.tsx`
 
 **Interfaces:**
 
-- Consumes: `LOCALES`, `DEFAULT_LOCALE`, `LOCALE_COOKIE_NAME`, `resolveLocale` из `@crm/shared`.
-- Produces: `i18n` (глобальный экземпляр `@lingui/core` для браузера), `activateLocale(locale: Locale): Promise<void>` (динамический импорт `@crm/shared/src/i18n/locales/${locale}/messages.po` через Vite-плагин → `i18n.loadAndActivate`, `document.documentElement.lang = locale`, cookie `pref_locale` на год), `readPreLoginLocale(): Locale` (cookie → `navigator.language` → `uk`), `useLocale(): Locale` (из `useLingui`).
+- Consumes: `LOCALES`, `DEFAULT_LOCALE`, `LOCALE_COOKIE_NAME`, `resolveLocale` from `@crm/shared`.
+- Produces: `i18n` (the global `@lingui/core` instance for the browser), `activateLocale(locale: Locale): Promise<void>` (a dynamic import of `@crm/shared/src/i18n/locales/${locale}/messages.po` through the Vite plugin → `i18n.loadAndActivate`, `document.documentElement.lang = locale`, the cookie `pref_locale` for a year), `readPreLoginLocale(): Locale` (cookie → `navigator.language` → `uk`), `useLocale(): Locale` (from `useLingui`).
 
-- [ ] **Step 1: Тест**
+- [ ] **Step 1: Test**
 
 ```tsx
 // apps/web/app/lib/__tests__/i18n.test.tsx
@@ -970,7 +970,7 @@ describe('i18n runtime', () => {
 })
 ```
 
-- [ ] **Step 2: Реализация**
+- [ ] **Step 2: Implementation**
 
 ```ts
 // apps/web/app/lib/i18n.ts
@@ -1003,15 +1003,15 @@ export function useLocale(): Locale {
 }
 ```
 
-Путь динамического импорта уточнить по алиасу (`vite-tsconfig-paths` + `@crm/shared` `source` export) — Vite-плагин Lingui компилирует `.po` при импорте; в Vitest тот же плагин подключён в Task 1.
+Refine the dynamic import path by the alias (`vite-tsconfig-paths` + the `@crm/shared` `source` export) — the Lingui Vite plugin compiles `.po` on import; in Vitest the same plugin is connected in Task 1.
 
-`client.tsx`: перед `createRoot(...).render(...)` — `await activateLocale(readPreLoginLocale())`. `__root.tsx`: `<I18nProvider i18n={i18n}>` вокруг `TelemetryProvider`. `auth.tsx`: `useEffect(() => { if (data?.locale && data.locale !== i18n.locale) void activateLocale(data.locale) }, [data?.locale])`.
+`client.tsx`: before `createRoot(...).render(...)` — `await activateLocale(readPreLoginLocale())`. `__root.tsx`: `<I18nProvider i18n={i18n}>` around `TelemetryProvider`. `auth.tsx`: `useEffect(() => { if (data?.locale && data.locale !== i18n.locale) void activateLocale(data.locale) }, [data?.locale])`.
 
-- [ ] **Step 3: Run → PASS; E2E-смоук**
+- [ ] **Step 3: Run → PASS; an E2E smoke**
 
-`apps/e2e`: существующая спека входа проходит; добавить в `auth-nav` шард один кейс: `<html lang>` равен `uk` после входа моком `/auth/me` с `locale: 'uk'` и `en` — с `locale: 'en'` (мок `mockAuthAs` расширить полем `locale`).
+`apps/e2e`: the existing login spec passes; add one case to the `auth-nav` shard: `<html lang>` equals `uk` after login with a `/auth/me` mock of `locale: 'uk'` and `en` — with `locale: 'en'` (extend `mockAuthAs` with a `locale` field).
 
-- [ ] **Step 4: Коммит**
+- [ ] **Step 4: Commit**
 
 ```bash
 pnpm --filter @crm/web typecheck && pnpm --filter @crm/web lint && pnpm --filter @crm/web test && pnpm --filter @crm/e2e test -- auth-nav
@@ -1023,21 +1023,21 @@ ac_verified: 6"
 
 ---
 
-### Task 7: Переключатель языка в профиле (self-mode)
+### Task 7: The language switcher in the profile (self-mode)
 
 **Files:**
 
 - Create: `apps/web/app/components/user-profile/LanguageSection.tsx`
-- Modify: `apps/web/app/components/user-profile/tabs/OverviewTab.tsx` (рендер секции только при `mode === 'self'`)
-- Modify: `apps/web/app/hooks/use-user-profile.ts` (мутация `PATCH /users/me { locale }` + `invalidate` auth-запроса) — или существующий хук обновления профиля
+- Modify: `apps/web/app/components/user-profile/tabs/OverviewTab.tsx` (render the section only when `mode === 'self'`)
+- Modify: `apps/web/app/hooks/use-user-profile.ts` (the mutation `PATCH /users/me { locale }` + `invalidate` of the auth query) — or the existing profile-update hook
 - Test: `apps/web/app/components/user-profile/__tests__/LanguageSection.test.tsx`
 
 **Interfaces:**
 
 - Consumes: `activateLocale`, `useLocale` (Task 6); `updateProfileSchema.locale` (Task 3).
-- Produces: `LanguageSection` — две кнопки-радио `uk`/`en` (`data-testid="locale-option-uk|en"`), заголовок `<Trans>Мова інтерфейсу</Trans>`; при выборе: `PATCH /api/users/me { locale }` → `activateLocale(locale)` → `invalidate()`; ошибка → тост через `getApiErrorMessage`.
+- Produces: `LanguageSection` — two radio buttons `uk`/`en` (`data-testid="locale-option-uk|en"`), the title `<Trans>Мова інтерфейсу</Trans>`; on selection: `PATCH /api/users/me { locale }` → `activateLocale(locale)` → `invalidate()`; an error → a toast via `getApiErrorMessage`.
 
-- [ ] **Step 1: Тест**
+- [ ] **Step 1: Test**
 
 ```tsx
 it('PATCHes the locale and activates it', async () => {
@@ -1053,7 +1053,7 @@ it('is not rendered for another user profile', () => {
 })
 ```
 
-- [ ] **Step 2: Реализация**
+- [ ] **Step 2: Implementation**
 
 ```tsx
 // apps/web/app/components/user-profile/LanguageSection.tsx
@@ -1065,7 +1065,7 @@ import { useAuth } from '@/context/auth'
 import { toast } from 'sonner'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 
-const LABELS: Record<Locale, string> = { uk: 'Українська', en: 'English' } // названия языков — на самих языках, не переводятся
+const LABELS: Record<Locale, string> = { uk: 'Українська', en: 'English' } // language names stay in their own language, not translated
 
 export function LanguageSection({ current }: { current: Locale }) {
   const { invalidate } = useAuth()
@@ -1104,9 +1104,9 @@ export function LanguageSection({ current }: { current: Locale }) {
 }
 ```
 
-Стили — как у соседних секций `OverviewTab` (design-gate Tier 3; conformance дизайнером по скриншотам 320/1440 на обоих языках).
+Styles — like the neighboring sections of `OverviewTab` (design-gate Tier 3; conformance by the designer against the screenshots 320/1440 in both languages).
 
-- [ ] **Step 3: Run → PASS; коммит**
+- [ ] **Step 3: Run → PASS; commit**
 
 ```bash
 git add apps/web/app/components/user-profile/LanguageSection.tsx apps/web/app/components/user-profile/tabs/OverviewTab.tsx apps/web/app/hooks/use-user-profile.ts apps/web/app/components/user-profile/__tests__/LanguageSection.test.tsx
@@ -1117,25 +1117,25 @@ ac_verified: 7"
 
 ---
 
-### Task 8: Правки «до извлечения строк» (аудит §2, сквозные)
+### Task 8: The "before string extraction" fixes (audit §2, cross-cutting)
 
 **Files:**
 
-- Modify: `apps/web/app/components/pending/PendingKindSection.tsx` (проп `kind`, `data-testid` из `kind`), `apps/web/app/routes/_authenticated/pending/index.tsx` (передавать `kind`; селектор фокуса по `kind`), тесты `pending/__tests__/index.test.tsx`, E2E-спека pending (селекторы `pending-kind-heading-<zone>-<KIND>`)
-- Modify: `apps/web/app/lib/documents-filter-sort.ts` (`compareNames(locale)` вместо `localeCompare(…, 'ru')`; локаль — параметр функции сортировки, вызывающий передаёт `useLocale()`), тесты
-- Modify: `apps/web/app/components/layout/ImpersonationBanner.tsx`, `apps/web/app/components/user-profile/UserProfileHeader.tsx`, `apps/web/app/components/user-profile/tabs/TeamTab.tsx` — удалить локальные карты, импортировать `ROLE_LABELS` из `@/components/ui/role-select`
-- Test: обновить тесты трёх компонентов (профиль дропа показывает «Дроп», не `DROP`)
+- Modify: `apps/web/app/components/pending/PendingKindSection.tsx` (the prop `kind`, `data-testid` from `kind`), `apps/web/app/routes/_authenticated/pending/index.tsx` (pass `kind`; the focus selector by `kind`), the tests `pending/__tests__/index.test.tsx`, the pending E2E spec (selectors `pending-kind-heading-<zone>-<KIND>`)
+- Modify: `apps/web/app/lib/documents-filter-sort.ts` (`compareNames(locale)` instead of `localeCompare(…, 'ru')`; the locale — a parameter of the sort function, the caller passes `useLocale()`), the tests
+- Modify: `apps/web/app/components/layout/ImpersonationBanner.tsx`, `apps/web/app/components/user-profile/UserProfileHeader.tsx`, `apps/web/app/components/user-profile/tabs/TeamTab.tsx` — remove the local maps, import `ROLE_LABELS` from `@/components/ui/role-select`
+- Test: update the tests of the three components (a drop's profile shows "Дроп", not `DROP`)
 
 **Interfaces:**
 
-- Produces: `PendingKindSectionProps.kind: PendingItemKind | 'OTHER'`; testid `pending-kind-heading-${zone}-${kind}` и `pending-kind-section-${zone}-${kind}`; `sortDocuments(items, sort, locale: Locale)`.
+- Produces: `PendingKindSectionProps.kind: PendingItemKind | 'OTHER'`; the testid `pending-kind-heading-${zone}-${kind}` and `pending-kind-section-${zone}-${kind}`; `sortDocuments(items, sort, locale: Locale)`.
 
-- [ ] **Step 1: Тесты (падают)**
+- [ ] **Step 1: Tests (fail)**
 
 ```tsx
-// pending/__tests__/index.test.tsx — заменить селекторы
+// pending/__tests__/index.test.tsx — replace the selectors
 '[data-testid="pending-kind-heading-mine-PROJECT_APPROVAL"]'
-// новый кейс
+// a new case
 it('heading testid does not depend on the visible title', () => {
   render(
     <PendingKindSection kind="SHARE_APPROVAL" title="Будь-який текст" zone="mine" items={[]} />,
@@ -1162,11 +1162,11 @@ it('shows the DROP role label from the shared map', () => {
 })
 ```
 
-- [ ] **Step 2: Реализация**
+- [ ] **Step 2: Implementation**
 
-`PendingKindSection.tsx`: добавить `kind` в пропсы, `data-testid={\`pending-kind-heading-${zone}-${kind}\`}`и для`<ul>`. В `pending/index.tsx`: `sectionKindOf(item)`вместо`sectionTitleOf` для селектора фокуса (`OTHER`для незнакомых).`documents-filter-sort.ts`: сигнатура с `locale`, `compareNames(locale)`. Три карты ролей → `import { ROLE_LABELS } from '@/components/ui/role-select'`.
+`PendingKindSection.tsx`: add `kind` to the props, `data-testid={\`pending-kind-heading-${zone}-${kind}\`}`and for the`<ul>`. In `pending/index.tsx`: `sectionKindOf(item)`instead of`sectionTitleOf`for the focus selector (`OTHER`for unknown ones).`documents-filter-sort.ts`: the signature with `locale`, `compareNames(locale)`. The three role maps → `import { ROLE_LABELS } from '@/components/ui/role-select'`.
 
-- [ ] **Step 3: Run → PASS, E2E pending на живом стенде, коммит**
+- [ ] **Step 3: Run → PASS, pending E2E on a live stand, commit**
 
 ```bash
 pnpm --filter @crm/web test && pnpm --filter @crm/e2e test -- pending
@@ -1178,21 +1178,21 @@ ac_verified: 8"
 
 ---
 
-### Task 9: ESLint — `lingui/no-unlocalized-strings` в режиме предупреждения
+### Task 9: ESLint — `lingui/no-unlocalized-strings` in warning mode
 
 **Files:**
 
 - Modify: `apps/web/eslint.config.mjs`, `packages/shared/eslint.config.mjs`, `package.json` (devDep `eslint-plugin-lingui`)
-- Test: `pnpm --filter @crm/web lint` завершается с кодом 0 и печатает предупреждения (не ошибки)
+- Test: `pnpm --filter @crm/web lint` finishes with code 0 and prints warnings (not errors)
 
-- [ ] **Step 1: Установить и включить**
+- [ ] **Step 1: Install and enable**
 
 ```bash
 pnpm add -w -D eslint-plugin-lingui@0.16.0
 ```
 
 ```js
-// apps/web/eslint.config.mjs — новый блок после основного
+// apps/web/eslint.config.mjs — a new block after the main one
 import pluginLingui from 'eslint-plugin-lingui'
 // ...
 {
@@ -1209,17 +1209,17 @@ import pluginLingui from 'eslint-plugin-lingui'
 }
 ```
 
-Третий `ignore` (без кириллицы — молчать) намеренно сужает правило на этом этапе до строк с кириллицей: цель этапа — видеть, сколько русского/украинского текста ещё не обёрнуто, а не шуметь на английских техничесих строках. На этапе 6 `ignore` сужается и режим → `error`.
+The third `ignore` (no Cyrillic — stay silent) deliberately narrows the rule at this stage to strings with Cyrillic: the goal of the stage is to see how much Russian/Ukrainian text is still unwrapped, not to make noise on English technical strings. In stage 6 `ignore` narrows and the mode → `error`.
 
-- [ ] **Step 2: Прогон и число предупреждений в PR body**
+- [ ] **Step 2: A run and the warning count in the PR body**
 
 ```bash
 pnpm --filter @crm/web lint 2>&1 | grep -c 'no-unlocalized-strings'
 ```
 
-Записать число (ожидаемо тысячи) в PR body как baseline для этапа 3.
+Record the number (thousands, expected) in the PR body as a baseline for stage 3.
 
-- [ ] **Step 3: Коммит**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add package.json pnpm-lock.yaml apps/web/eslint.config.mjs packages/shared/eslint.config.mjs
@@ -1230,13 +1230,13 @@ ac_verified: 9"
 
 ---
 
-### Task 9b (DevOps): CI — каталоги синхронны с кодом
+### Task 9b (DevOps): CI — the catalogs are in sync with the code
 
 **Files:**
 
-- Modify: `.github/workflows/ci.yml` — в job `Typecheck · Lint · Unit Tests` после установки зависимостей
+- Modify: `.github/workflows/ci.yml` — in the job `Typecheck · Lint · Unit Tests` after installing the dependencies
 
-- [ ] **Step 1: Шаг**
+- [ ] **Step 1: The step**
 
 ```yaml
 - name: i18n catalogs are in sync (lingui extract --clean)
@@ -1248,13 +1248,13 @@ ac_verified: 9"
   run: pnpm i18n:compile
 ```
 
-Шаг `i18n compile` должен стоять **до** `typecheck`/`test` в этом job и во всех jobs, где собирается web/api (E2E build, mutation gate) — иначе `messages.ts` отсутствует. Проверить `turbo` `dependsOn` из Task 1: если turbo уже запускает `//#i18n:compile`, явный шаг не нужен — оставить только проверку синхронности.
+The `i18n compile` step must stand **before** `typecheck`/`test` in this job and in all jobs where web/api is built (E2E build, the mutation gate) — otherwise `messages.ts` is absent. Check the `turbo` `dependsOn` from Task 1: if turbo already runs `//#i18n:compile`, the explicit step is not needed — leave only the sync check.
 
-- [ ] **Step 2: Проверка**
+- [ ] **Step 2: Check**
 
-Открыть PR с намеренно устаревшим `.po` (локально не запускать `extract`) → job красный с сообщением; исправить → зелёный. `scripts/devops/tests/` — добавить guard-тест не требуется (шаг — не хук).
+Open a PR with a deliberately stale `.po` (don't run `extract` locally) → the job is red with a message; fix → green. `scripts/devops/tests/` — adding a guard test is not required (the step is not a hook).
 
-- [ ] **Step 3: Коммит**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add .github/workflows/ci.yml
@@ -1265,18 +1265,18 @@ ac_verified: 9b"
 
 ---
 
-### Task 10 (Architect/Master, docs-only): правила проекта под два языка
+### Task 10 (Architect/Master, docs-only): project rules for two languages
 
 **Files:**
 
-- Modify: `.claude/rules/common/russian-language.md` — русский остаётся языком общения с владельцем, PR-обсуждений и отчётов агентов; **продукт** (UI `apps/web`, письма, PDF счетов) — `uk` (дефолт) и `en`; запрет украинского в продукте снимается; логи — английский. Правило «Reviewer → BLOCK» переформулировать: BLOCK на русский текст в **мигрированном** модуле и на любой новый видимый текст без обёртки Lingui.
-- Modify: `.claude/rules/common/version-pins.md` — блок «i18n»: `@lingui/*` **5.9.5** EXACT одной версией; `eslint-plugin-lingui 0.16.0`; почему не 6 (ESM-only + `moduleResolution: Node` в api/shared + dual-типы drizzle при node16) и условие апгрейда.
-- Modify: `.claude/agents/copy-reviewer.md`, `.claude/skills/copywriting/SKILL.md` — CRM теперь двуязычна: вердикт по `uk` и `en` отдельно; «два оригинала» действует на CRM; глоссарий `CONTEXT.md` — источник терминов.
-- Modify: `.claude/skills/playwright-patterns/SKILL.md` — правило: текст в ассертах из каталога (`i18n._()` дескриптора) или testid/роль, литералы запрещены для мигрированных модулей.
-- Modify: `.claude/agents/workflow-registry.md` №8 — после этапа 6 воркфлоу становится аудитом покрытия каталогов.
-- Modify: `CONTEXT.md` — в шапке глоссария заметка: термины получают колонки `uk`/`en` в первом PR этапа 3 (`web-core`), пока — русский как язык глоссария.
+- Modify: `.claude/rules/common/russian-language.md` — Russian stays the language of communication with the owner, of PR discussions and agent reports; the **product** (the `apps/web` UI, emails, invoice PDFs) — `uk` (default) and `en`; the ban on Ukrainian in the product is lifted; logs — English. Reword the "Reviewer → BLOCK" rule: BLOCK on Russian text in a **migrated** module and on any new visible text without a Lingui wrapper.
+- Modify: `.claude/rules/common/version-pins.md` — the "i18n" block: `@lingui/*` **5.9.5** EXACT at one version; `eslint-plugin-lingui 0.16.0`; why not 6 (ESM-only + `moduleResolution: Node` in api/shared + the dual types of drizzle on node16) and the upgrade condition.
+- Modify: `.claude/agents/copy-reviewer.md`, `.claude/skills/copywriting/SKILL.md` — the CRM is now bilingual: a verdict on `uk` and `en` separately; "two originals" applies to the CRM; the `CONTEXT.md` glossary — the source of terms.
+- Modify: `.claude/skills/playwright-patterns/SKILL.md` — the rule: the text in assertions from the catalog (`i18n._()` of a descriptor) or a testid/role, literals are forbidden for migrated modules.
+- Modify: `.claude/agents/workflow-registry.md` №8 — after stage 6 the workflow becomes a catalog-coverage audit.
+- Modify: `CONTEXT.md` — a note in the glossary header: the terms get `uk`/`en` columns in the first PR of stage 3 (`web-core`), for now — Russian as the glossary language.
 
-- [ ] **Step 1: Правки по списку, `prettier --write`, docs-only PR**
+- [ ] **Step 1: The fixes by the list, `prettier --write`, a docs-only PR**
 
 ```bash
 git add .claude/rules/common/russian-language.md .claude/rules/common/version-pins.md .claude/agents/copy-reviewer.md .claude/skills/copywriting/SKILL.md .claude/skills/playwright-patterns/SKILL.md .claude/agents/workflow-registry.md CONTEXT.md
@@ -1287,19 +1287,19 @@ ac_verified: n/a (docs-only rules update)"
 
 ---
 
-## Что этот этап НЕ делает (и где это будет)
+## What this stage does NOT do (and where it will be)
 
-- Миграция существующих русских строк по модулям — этап 3 (волны `web-core` → `web-people` → `web-projects` → `web-finance` → `web-docs-notify`).
-- `EXPENSE_CATEGORIES` как ключи в `transactions.receiver_label` — этап 3, волна `web-finance` (+ миграция данных на API).
-- Три legacy-типа уведомлений в `NOTIFICATION_TITLES`, рендер заголовков по `type` + `data`, письма по локали получателя — этап 4.
-- 289 русских + 214 английских исключений → коды — этап 4 (реестр и `apiError` готовы здесь).
-- PDF счетов по локали — этап 5. Guard на русские буквы и `error`-режим ESLint — этап 6.
+- Migrating the existing Russian strings by modules — stage 3 (the waves `web-core` → `web-people` → `web-projects` → `web-finance` → `web-docs-notify`).
+- `EXPENSE_CATEGORIES` as keys in `transactions.receiver_label` — stage 3, the `web-finance` wave (+ a data migration on the API).
+- The three legacy notification types in `NOTIFICATION_TITLES`, rendering the titles by `type` + `data`, emails by the recipient's locale — stage 4.
+- 289 Russian + 214 English exceptions → codes — stage 4 (the registry and `apiError` are ready here).
+- Invoice PDFs by locale — stage 5. The Russian-letters guard and the `error` mode of ESLint — stage 6.
 
-## Проверка готовности этапа
+## Stage readiness check
 
-- `pnpm i18n:extract` и `pnpm i18n:compile` проходят локально и в CI; шаг синхронности красный при устаревшем `.po`.
-- Пользователь с `locale = en` после входа видит `<html lang="en">`, переключатель в профиле меняет язык без перезагрузки, выбор сохраняется в `users.locale`.
-- Ошибка `CONTRACT_TEMPLATE_MISSING` приходит конвертом с кодом; `ContractTab` показывает пустое состояние по коду, а не по тексту.
-- Пять 403 под «войти как» отдают код; клиент показывает украинский текст из каталога.
-- `PendingKindSection` testid не содержит видимого текста; сортировка документов принимает локаль; карта ролей одна.
-- `pnpm --filter @crm/web lint` печатает baseline предупреждений `no-unlocalized-strings`, код возврата 0.
+- `pnpm i18n:extract` and `pnpm i18n:compile` pass locally and in CI; the sync step is red on a stale `.po`.
+- A user with `locale = en` after login sees `<html lang="en">`, the switcher in the profile changes the language without a reload, the choice is saved in `users.locale`.
+- The error `CONTRACT_TEMPLATE_MISSING` arrives as an envelope with a code; `ContractTab` shows the empty state by the code, not by the text.
+- The five 403s under "log in as" return a code; the client shows the Ukrainian text from the catalog.
+- `PendingKindSection` testid does not contain visible text; document sorting accepts a locale; the role map is one.
+- `pnpm --filter @crm/web lint` prints a baseline of `no-unlocalized-strings` warnings, return code 0.

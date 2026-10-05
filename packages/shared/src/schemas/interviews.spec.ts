@@ -14,7 +14,33 @@
  * apps/api's salary-status.helper.spec.ts.
  */
 import { describe, expect, it } from 'vitest'
-import { boardSeniorSchema, mySalaryStateSchema, mySalaryStatusSchema } from './interviews'
+import {
+  boardSeniorSchema,
+  mySalaryAggregateStateSchema,
+  mySalaryStateSchema,
+  mySalaryStatusSchema,
+} from './interviews'
+
+const LEGACY_EXISTS = {
+  state: 'EXISTS' as const,
+  amount: 1500,
+  currency: 'USD' as const,
+  status: 'PENDING' as const,
+}
+
+const AGGREGATE_EXISTS = {
+  ...LEGACY_EXISTS,
+  transactionCount: 1,
+  totals: [
+    {
+      currency: 'USD' as const,
+      amount: 1500,
+      paidAmount: 0,
+      pendingAmount: 1500,
+      lockedAmount: 0,
+    },
+  ],
+}
 
 describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
   it('parses NOT_CONFIGURED (no other fields)', () => {
@@ -32,28 +58,27 @@ describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
     expect(result).toEqual({ state: 'AWAITING_CREATION' })
   })
 
-  it('parses EXISTS with amount/currency/status', () => {
-    const result = mySalaryStateSchema.parse({
-      state: 'EXISTS',
-      amount: 1500,
-      currency: 'USD',
-      status: 'PENDING',
-    })
-    expect(result).toEqual({ state: 'EXISTS', amount: 1500, currency: 'USD', status: 'PENDING' })
+  it('keeps the pre-multipart EXISTS shape byte-compatible', () => {
+    const result = mySalaryStateSchema.parse(LEGACY_EXISTS)
+    expect(result).toEqual(LEGACY_EXISTS)
   })
 
-  it('EXISTS accepts every valid salary status (PENDING / PAID / LOCKED)', () => {
+  it('EXISTS accepts only the legacy salary statuses', () => {
     for (const status of ['PENDING', 'PAID', 'LOCKED'] as const) {
-      expect(() =>
-        mySalaryStateSchema.parse({ state: 'EXISTS', amount: 100, currency: 'USD', status }),
-      ).not.toThrow()
+      expect(() => mySalaryStateSchema.parse({ ...LEGACY_EXISTS, status })).not.toThrow()
     }
+    expect(() =>
+      mySalaryStateSchema.parse({ ...LEGACY_EXISTS, status: 'PARTIALLY_PAID' }),
+    ).toThrow()
   })
 
   it('EXISTS accepts every valid currency', () => {
     for (const currency of ['USDT', 'USD', 'EUR', 'UAH'] as const) {
       expect(() =>
-        mySalaryStateSchema.parse({ state: 'EXISTS', amount: 100, currency, status: 'PAID' }),
+        mySalaryStateSchema.parse({
+          ...LEGACY_EXISTS,
+          currency,
+        }),
       ).not.toThrow()
     }
   })
@@ -73,12 +98,56 @@ describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
   it('rejects an invalid status inside EXISTS (e.g. REJECTED — not a valid SALARY status)', () => {
     expect(() =>
       mySalaryStateSchema.parse({
-        state: 'EXISTS',
-        amount: 100,
-        currency: 'USD',
+        ...LEGACY_EXISTS,
         status: 'REJECTED',
       }),
     ).toThrow()
+  })
+})
+
+describe('mySalaryAggregateStateSchema (additive multipart field)', () => {
+  it('EXISTS accepts every multipart salary status', () => {
+    for (const status of ['PENDING', 'PARTIALLY_PAID', 'PAID', 'LOCKED'] as const) {
+      expect(mySalaryAggregateStateSchema.parse({ ...AGGREGATE_EXISTS, status })).toEqual({
+        ...AGGREGATE_EXISTS,
+        status,
+      })
+    }
+  })
+
+  it('parses aggregate metadata and PARTIALLY_PAID', () => {
+    const result = mySalaryAggregateStateSchema.parse({
+      ...AGGREGATE_EXISTS,
+      status: 'PARTIALLY_PAID',
+    })
+    expect(result).toEqual({ ...AGGREGATE_EXISTS, status: 'PARTIALLY_PAID' })
+  })
+
+  it('permits null convenience amount/currency for a mixed-currency month', () => {
+    expect(() =>
+      mySalaryAggregateStateSchema.parse({
+        ...AGGREGATE_EXISTS,
+        amount: null,
+        currency: null,
+        transactionCount: 2,
+        totals: [
+          AGGREGATE_EXISTS.totals[0],
+          {
+            currency: 'EUR',
+            amount: 400,
+            paidAmount: 400,
+            pendingAmount: 0,
+            lockedAmount: 0,
+          },
+        ],
+      }),
+    ).not.toThrow()
+  })
+
+  it('keeps all three no-row states distinguishable', () => {
+    for (const state of ['NOT_CONFIGURED', 'NOT_CRON_ELIGIBLE', 'AWAITING_CREATION'] as const) {
+      expect(mySalaryAggregateStateSchema.parse({ state })).toEqual({ state })
+    }
   })
 })
 
@@ -106,6 +175,12 @@ describe('mySalaryStatusSchema (DEPRECATED — pins backward compatibility, secu
   it('rejects an invalid status (e.g. REJECTED — not a valid SALARY status)', () => {
     expect(() =>
       mySalaryStatusSchema.parse({ amount: 100, currency: 'USD', status: 'REJECTED' }),
+    ).toThrow()
+  })
+
+  it('rejects PARTIALLY_PAID so the deprecated enum remains byte-compatible with old clients', () => {
+    expect(() =>
+      mySalaryStatusSchema.parse({ amount: 100, currency: 'USD', status: 'PARTIALLY_PAID' }),
     ).toThrow()
   })
 

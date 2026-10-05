@@ -1,64 +1,19 @@
-/**
- * Unit tests for getOwnSalaryStatus (salary-status.helper.ts).
- *
- * The helper is a pure function over a Drizzle db handle — no NestJS DI.
- * We pass a minimal mock that satisfies the `db.select().from(nonDeleted
- * Transactions).where(...).limit(1)` chain the helper now uses (security-
- * review PR #456 round 2 — sources from the `nonDeletedTransactions` VIEW
- * instead of the raw table + a hand-written `isNull(deletedAt)` filter) so
- * the suite is fast and dependency-free.
- *
- * task-salary-month-gap-and-status (E-6): before this task, "no row exists"
- * always returned a bare `null` regardless of whether `monthlySalary` was
- * configured — the two states were indistinguishable. Security-review MED-3
- * (round 2) then found a THIRD collapsed state: a role `monthlySalary` IS
- * configured for but the monthly cron never processes at all (SENIOR/DROP)
- * read back identically to "the cron just hasn't run yet" (AWAITING_CREATION)
- * — permanently and falsely implying an imminent automatic accrual. The
- * helper now takes a `{ hasMonthlySalary, isCronEligibleRole }` config object
- * and returns a 4-state discriminated union. This spec is the RED→GREEN
- * proof: every "no row" case below asserts a SPECIFIC state depending on
- * that input — a plain `null` return (the pre-fix shape), or collapsing
- * NOT_CRON_ELIGIBLE into NOT_CONFIGURED/AWAITING_CREATION, fails these.
- *
- * Covers:
- *   1. No row + not configured → NOT_CONFIGURED.
- *   2. No row + configured but role not cron-eligible → NOT_CRON_ELIGIBLE.
- *   3. No row + configured and role IS cron-eligible → AWAITING_CREATION
- *      (exactly the state a missed cron month produces).
- *   4. Unexpected status (defensive) → same 3-way branching as "no row",
- *      driven by the SAME `salaryConfig` input.
- *   5. Valid row → EXISTS {amount, currency, status} for each valid status,
- *      REGARDLESS of `salaryConfig` (the row's existence is what matters
- *      once it exists).
- *   6. currency is taken from the row (no hard-coded USD).
- */
-
 import { describe, expect, it } from 'vitest'
-import { getOwnSalaryStatus } from './salary-status.helper'
-import type { DatabaseService } from '../database/database.service'
 
-// Minimal type matching what the view-backed select returns.
+import type { DatabaseService } from '../database/database.service'
+import { getOwnSalaryStates, getOwnSalaryStatus } from './salary-status.helper'
+
 type TransactionRow = {
-  type: string
   status: string
   amount: string
-  currency: string
-  receiverId: string
-  salaryMonth: string | null
+  currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
 }
 
-/**
- * Build a minimal DatabaseService['db'] mock. The `.limit(1)` step resolves
- * to `[row]` (or `[]` to simulate "no row found").
- */
-function makeDb(row: TransactionRow | undefined): DatabaseService['db'] {
+function makeDb(rows: TransactionRow[]): DatabaseService['db'] {
   return {
     select: () => ({
       from: () => ({
-        where: () => ({
-          limit: async () => (row ? [row] : []),
-        }),
+        where: async () => rows,
       }),
     }),
   } as unknown as DatabaseService['db']
@@ -68,142 +23,223 @@ const USER_ID = 'aaaaaaaa-0000-4000-0000-000000000001'
 const SALARY_MONTH = '2026-06'
 
 const NOT_CONFIGURED = { hasMonthlySalary: false, isCronEligibleRole: false }
-// A role with `monthlySalary` set but the cron never processes (SENIOR/DROP).
 const NOT_CRON_ELIGIBLE = { hasMonthlySalary: true, isCronEligibleRole: false }
 const AWAITING_CREATION = { hasMonthlySalary: true, isCronEligibleRole: true }
 
+function row(
+  amount: string,
+  status: string,
+  currency: TransactionRow['currency'] = 'USD',
+): TransactionRow {
+  return { amount, status, currency }
+}
+
 describe('getOwnSalaryStatus', () => {
-  describe('no row exists — the E-6 3-way split', () => {
-    it('returns NOT_CONFIGURED when no row exists and monthlySalary is not set', async () => {
-      const db = makeDb(undefined)
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CONFIGURED)
-      expect(result).toEqual({ state: 'NOT_CONFIGURED' })
-    })
-
-    it('returns NOT_CRON_ELIGIBLE when monthlySalary IS set but the role is never cron-processed (security-review MED-3)', async () => {
-      const db = makeDb(undefined)
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CRON_ELIGIBLE)
-      expect(result).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
-    })
-
-    it('returns AWAITING_CREATION when no row exists but monthlySalary IS set AND the role is cron-eligible (the E-5 gap state)', async () => {
-      const db = makeDb(undefined)
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result).toEqual({ state: 'AWAITING_CREATION' })
-    })
-
-    it('all three "no row" states are distinguishable by shape, not just a caller-side reinterpretation of null', async () => {
-      const db = makeDb(undefined)
-      const notConfigured = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CONFIGURED)
-      const notCronEligible = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CRON_ELIGIBLE)
-      const awaiting = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(notConfigured).not.toEqual(notCronEligible)
-      expect(notConfigured).not.toEqual(awaiting)
-      expect(notCronEligible).not.toEqual(awaiting)
-    })
-  })
-
-  describe('row has an unsupported status (defensive)', () => {
-    function unsupportedRow(): TransactionRow {
-      return {
-        type: 'SALARY',
-        status: 'CANCELLED', // not in validStatuses
-        amount: '1000',
-        currency: 'USD',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
-      }
-    }
-
-    it('degrades to NOT_CONFIGURED when not configured', async () => {
-      const db = makeDb(unsupportedRow())
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CONFIGURED)
-      expect(result).toEqual({ state: 'NOT_CONFIGURED' })
-    })
-
-    it('degrades to NOT_CRON_ELIGIBLE when configured but not cron-eligible', async () => {
-      const db = makeDb(unsupportedRow())
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CRON_ELIGIBLE)
-      expect(result).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
-    })
-
-    it('degrades to AWAITING_CREATION when configured and cron-eligible', async () => {
-      const db = makeDb(unsupportedRow())
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result).toEqual({ state: 'AWAITING_CREATION' })
-    })
-  })
-
-  describe('a valid row always wins — EXISTS regardless of salaryConfig', () => {
-    it('returns EXISTS for PENDING status even when NOT_CONFIGURED', async () => {
-      const db = makeDb({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '2500',
-        currency: 'UAH',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
+  describe('no valid salary part exists', () => {
+    it('returns NOT_CONFIGURED when monthly salary is not configured', async () => {
+      expect(await getOwnSalaryStatus(makeDb([]), USER_ID, SALARY_MONTH, NOT_CONFIGURED)).toEqual({
+        state: 'NOT_CONFIGURED',
       })
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CONFIGURED)
-      expect(result).toEqual({ state: 'EXISTS', amount: 2500, currency: 'UAH', status: 'PENDING' })
     })
 
-    it('returns EXISTS for PAID status', async () => {
-      const db = makeDb({
-        type: 'SALARY',
+    it('returns NOT_CRON_ELIGIBLE when configured role is not processed by cron', async () => {
+      expect(
+        await getOwnSalaryStatus(makeDb([]), USER_ID, SALARY_MONTH, NOT_CRON_ELIGIBLE),
+      ).toEqual({ state: 'NOT_CRON_ELIGIBLE' })
+    })
+
+    it('returns AWAITING_CREATION for a configured cron-eligible role', async () => {
+      expect(
+        await getOwnSalaryStatus(makeDb([]), USER_ID, SALARY_MONTH, AWAITING_CREATION),
+      ).toEqual({ state: 'AWAITING_CREATION' })
+    })
+
+    it('ignores unsupported statuses before applying the same state split', async () => {
+      const db = makeDb([row('1000', 'CANCELLED')])
+      expect(await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CONFIGURED)).toEqual({
+        state: 'NOT_CONFIGURED',
+      })
+      expect(await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, NOT_CRON_ELIGIBLE)).toEqual({
+        state: 'NOT_CRON_ELIGIBLE',
+      })
+      expect(await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)).toEqual({
+        state: 'AWAITING_CREATION',
+      })
+    })
+  })
+
+  describe('multipart aggregation', () => {
+    it('keeps single-part values while exposing aggregate metadata', async () => {
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
+        makeDb([row('2500', 'PENDING', 'UAH')]),
+        USER_ID,
+        SALARY_MONTH,
+        NOT_CONFIGURED,
+      )
+
+      expect(result).toEqual({
+        state: 'EXISTS',
+        amount: 2500,
+        currency: 'UAH',
+        status: 'PENDING',
+        transactionCount: 1,
+        totals: [
+          {
+            currency: 'UAH',
+            amount: 2500,
+            paidAmount: 0,
+            pendingAmount: 2500,
+            lockedAmount: 0,
+          },
+        ],
+      })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 2500,
+        currency: 'UAH',
+        status: 'PENDING',
+      })
+    })
+
+    it('aggregates paid and pending parts in one currency as PARTIALLY_PAID', async () => {
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
+        makeDb([row('500', 'PAID'), row('500', 'PENDING')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toEqual({
+        state: 'EXISTS',
+        amount: 1000,
+        currency: 'USD',
+        status: 'PARTIALLY_PAID',
+        transactionCount: 2,
+        totals: [
+          {
+            currency: 'USD',
+            amount: 1000,
+            paidAmount: 500,
+            pendingAmount: 500,
+            lockedAmount: 0,
+          },
+        ],
+      })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
         status: 'PAID',
-        amount: '1200',
+      })
+    })
+
+    it('reports PAID only when every valid part is paid', async () => {
+      const { aggregate: result } = await getOwnSalaryStates(
+        makeDb([row('400', 'PAID'), row('600', 'PAID')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toMatchObject({
+        state: 'EXISTS',
+        amount: 1000,
         currency: 'USD',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
+        status: 'PAID',
+        transactionCount: 2,
       })
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result).toEqual({ state: 'EXISTS', amount: 1200, currency: 'USD', status: 'PAID' })
-    })
-
-    it('returns EXISTS for LOCKED status', async () => {
-      const db = makeDb({
-        type: 'SALARY',
-        status: 'LOCKED',
-        amount: '3000',
-        currency: 'USDT',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
-      })
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result).toEqual({ state: 'EXISTS', amount: 3000, currency: 'USDT', status: 'LOCKED' })
-    })
-
-    it('currency is taken from the row — no hard-coded USD (UAH example)', async () => {
-      // The salary-currency bug fix: a UAH salary must NOT surface as USD.
-      const db = makeDb({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '50000',
-        currency: 'UAH',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
-      })
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result.state).toBe('EXISTS')
-      expect(result).toMatchObject({ currency: 'UAH' })
-      expect(result).not.toMatchObject({ currency: 'USD' })
-    })
-
-    it('converts string amount to number', async () => {
-      const db = makeDb({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '9999.99',
-        currency: 'USD',
-        receiverId: USER_ID,
-        salaryMonth: SALARY_MONTH,
-      })
-      const result = await getOwnSalaryStatus(db, USER_ID, SALARY_MONTH, AWAITING_CREATION)
-      expect(result.state).toBe('EXISTS')
       if (result.state !== 'EXISTS') throw new Error('unreachable')
-      expect(typeof result.amount).toBe('number')
-      expect(result.amount).toBeCloseTo(9999.99, 2)
+      expect(result.totals[0]?.paidAmount).toBe(1000)
+    })
+
+    it('reports LOCKED when every valid part is locked', async () => {
+      const { aggregate: result } = await getOwnSalaryStates(
+        makeDb([row('300', 'LOCKED'), row('200', 'LOCKED')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toMatchObject({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'LOCKED',
+        transactionCount: 2,
+      })
+      if (result.state !== 'EXISTS') throw new Error('unreachable')
+      expect(result.totals[0]?.lockedAmount).toBe(500)
+    })
+
+    it('does not report LOCKED when only some valid parts are locked', async () => {
+      const { aggregate: result } = await getOwnSalaryStates(
+        makeDb([row('300', 'LOCKED'), row('200', 'PENDING')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toMatchObject({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'PENDING',
+        transactionCount: 2,
+      })
+    })
+
+    it('does not collapse mixed currencies into a misleading amount', async () => {
+      const { aggregate: result, legacy } = await getOwnSalaryStates(
+        makeDb([row('500', 'PAID', 'USD'), row('450', 'PENDING', 'EUR')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toEqual({
+        state: 'EXISTS',
+        amount: null,
+        currency: null,
+        status: 'PARTIALLY_PAID',
+        transactionCount: 2,
+        totals: [
+          {
+            currency: 'EUR',
+            amount: 450,
+            paidAmount: 0,
+            pendingAmount: 450,
+            lockedAmount: 0,
+          },
+          {
+            currency: 'USD',
+            amount: 500,
+            paidAmount: 500,
+            pendingAmount: 0,
+            lockedAmount: 0,
+          },
+        ],
+      })
+      expect(legacy).toEqual({
+        state: 'EXISTS',
+        amount: 500,
+        currency: 'USD',
+        status: 'PAID',
+      })
+    })
+
+    it('counts only valid salary parts', async () => {
+      const { aggregate: result } = await getOwnSalaryStates(
+        makeDb([row('100', 'CANCELLED'), row('9999.99', 'PENDING')]),
+        USER_ID,
+        SALARY_MONTH,
+        AWAITING_CREATION,
+      )
+
+      expect(result).toMatchObject({
+        state: 'EXISTS',
+        amount: 9999.99,
+        transactionCount: 1,
+      })
     })
   })
 })

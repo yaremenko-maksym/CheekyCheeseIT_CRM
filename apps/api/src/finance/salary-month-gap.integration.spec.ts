@@ -602,7 +602,8 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(afterFirstIds).not.toContain(HR_MISSING.id)
       expect(afterFirstIds).not.toContain(JUNIOR_MISSING.id)
 
-      // Real DB proof: exactly ONE SALARY row per receiver for this month.
+      // Real DB proof: backfill creates exactly one automatic salary component
+      // per missing receiver for this month.
       const rows = await dbSvc.db.query.transactions.findMany({
         where: (t, { and: andOp, eq: eqOp }) =>
           andOp(eqOp(t.type, 'SALARY'), eqOp(t.salaryMonth, TARGET_MONTH)),
@@ -703,8 +704,7 @@ describe('salary-month-gap — SHIPPING route carries the RBAC gate (production 
 
   it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
     const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-      | unknown[]
-      | undefined
+      unknown[] | undefined
     expect(guards).toBeDefined()
     expect(guards).toContain(RolesGuard)
   })

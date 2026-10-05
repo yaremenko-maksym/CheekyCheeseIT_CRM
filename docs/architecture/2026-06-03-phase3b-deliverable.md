@@ -12,93 +12,93 @@
 
 ## TL;DR
 
-Монолитный `docs/agents/reviewer.md` (262 строки) разделён на два narrow ECC-агента согласно ADR § 2.1.5:
+The monolithic `docs/agents/reviewer.md` (262 lines) is split into two narrow ECC agents per ADR § 2.1.5:
 
 - **`code-reviewer.md`** — code correctness (sonnet, ESLint MCP, write-then-post, zone-of-write)
 - **`security-reviewer.md`** — security depth (opus, OWASP, npm audit, USDT/ETH patterns)
-- **`reviewer.md`** — redirect shim до Phase 3c PM dispatch transition
+- **`reviewer.md`** — a redirect shim until the Phase 3c PM dispatch transition
 
-Все Cheeky-specific паттерны (Verdict: BLOCK / write-then-post / russian / eslint MCP / session-recovery / Pre-Report Gate) сохранены в обоих новых агентах.
+All Cheeky-specific patterns (Verdict: BLOCK / write-then-post / russian / eslint MCP / session-recovery / Pre-Report Gate) are preserved in both new agents.
 
 ---
 
-## Inventory — что создано / изменено
+## Inventory — what was created / changed
 
 ### Created
 
-| File                                                  | Lines       | Назначение                                                                                                   |
+| File                                                  | Lines       | Purpose                                                                                                      |
 | ----------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------ |
-| `docs/agents/code-reviewer.md`                        | ~235        | Narrow code review агент (default для любого PR). YAML frontmatter (sonnet), tools allowlist, golden rules.  |
-| `docs/agents/security-reviewer.md`                    | ~354        | Security-focused агент (auto-dispatched для auth/finance/wallets). YAML frontmatter (opus), tools allowlist. |
-| `docs/architecture/2026-06-03-phase3b-deliverable.md` | (этот файл) | Phase 3b deliverable summary.                                                                                |
+| `docs/agents/code-reviewer.md`                        | ~235        | Narrow code review agent (default for any PR). YAML frontmatter (sonnet), tools allowlist, golden rules.     |
+| `docs/agents/security-reviewer.md`                    | ~354        | Security-focused agent (auto-dispatched for auth/finance/wallets). YAML frontmatter (opus), tools allowlist. |
+| `docs/architecture/2026-06-03-phase3b-deliverable.md` | (this file) | Phase 3b deliverable summary.                                                                                |
 
 ### Modified
 
 | File                             | Change                                                                                                                                            |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/agents/reviewer.md`        | **Deprecated → shim** (262 → ~40 строк). YAML frontmatter `name: reviewer` (deprecated description), redirect body + ADR ссылка.                  |
-| `docs/agents/CLAUDE-reviewer.md` | Trim references: вместо одного `reviewer.md` указано на `code-reviewer.md` + `security-reviewer.md`. Обновлена дата deprecation.                  |
-| `docs/agents/README.md`          | Таблица агентов: Reviewer row заменён на 2 строки (code-reviewer + security-reviewer); добавлены Architect/Legal; reviewer.md в Deprecated stubs. |
+| `docs/agents/reviewer.md`        | **Deprecated → shim** (262 → ~40 lines). YAML frontmatter `name: reviewer` (deprecated description), redirect body + ADR link.                    |
+| `docs/agents/CLAUDE-reviewer.md` | Trim references: instead of a single `reviewer.md`, points to `code-reviewer.md` + `security-reviewer.md`. Deprecation date updated.              |
+| `docs/agents/README.md`          | Agent table: the Reviewer row replaced with 2 rows (code-reviewer + security-reviewer); Architect/Legal added; reviewer.md in Deprecated stubs.   |
 
-### Untouched (intentional — для Phase 3c / Phase 4)
+### Untouched (intentional — for Phase 3c / Phase 4)
 
 | File                                               | Reason                                                                                                                            |
 | -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/agents/memory/reviewer/lessons.md`           | Общий накопленный legacy для обоих агентов до Phase 4 (lessons→skills conversion). Не split на 2 файла сейчас.                    |
-| `docs/agents/pm.md` / `docs/agents/pm-snippets.md` | PM dispatch logic — обновляется в Phase 3c (отдельный deliverable). Сейчас PM продолжает диспетчить `reviewer` (shim проксирует). |
-| `.github/workflows/archive/ai-review.yml`          | Архивный workflow, не активен. Trim не обязателен.                                                                                |
-| `.claude/hooks-ecc/**`                             | Phase 2.5 hooks live, не Phase 3b zone.                                                                                           |
+| `docs/agents/memory/reviewer/lessons.md`           | Shared accumulated legacy for both agents until Phase 4 (lessons→skills conversion). Not split into 2 files now.                   |
+| `docs/agents/pm.md` / `docs/agents/pm-snippets.md` | PM dispatch logic — updated in Phase 3c (separate deliverable). For now PM continues to dispatch `reviewer` (the shim proxies it). |
+| `.github/workflows/archive/ai-review.yml`          | Archived workflow, not active. Trim not required.                                                                                 |
+| `.claude/hooks-ecc/**`                             | Phase 2.5 hooks live, not the Phase 3b zone.                                                                                      |
 
 ---
 
 ## Split rationale
 
-Per ADR § 2.1.5 и ECC `AGENTS.md` "Agent-First orchestration with radical specialization":
+Per ADR § 2.1.5 and ECC `AGENTS.md` "Agent-First orchestration with radical specialization":
 
 | Concern                 | Monolith reviewer.md                                                 | Split rationale                                                                                                                               |
 | ----------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Scope**               | Code correctness + security mixed                                    | Different mental models — code review = pattern matching / arch rules; security = adversarial threat modeling.                                |
-| **Optimal model**       | sonnet (для скорости)                                                | code-reviewer = sonnet (fast). security-reviewer = opus (deep reasoning для OWASP / contract patterns).                                       |
+| **Optimal model**       | sonnet (for speed)                                                   | code-reviewer = sonnet (fast). security-reviewer = opus (deep reasoning for OWASP / contract patterns).                                       |
 | **Tool allowlist**      | Broad (mcp**eslint, mcp**github, ast-grep, WebSearch, WebFetch, ...) | Narrow per concern: code-reviewer = eslint + ast-grep + github MCP; security-reviewer = WebSearch + WebFetch + github + ast-grep (no eslint). |
-| **Parallel invocation** | Один агент = sequential                                              | Финансовые PR — оба запускаются параллельно (code + security), результаты независимы → PM собирает оба verdict.                               |
-| **Token efficiency**    | Каждый review загружает обе зоны проверок                            | code-reviewer не тратит токены на OWASP/secrets scan для обычных PR; security-reviewer не дублирует code review.                              |
+| **Parallel invocation** | One agent = sequential                                               | Financial PRs — both launched in parallel (code + security), results independent → PM collects both verdicts.                                 |
+| **Token efficiency**    | Each review loads both check zones                                   | code-reviewer does not spend tokens on an OWASP/secrets scan for ordinary PRs; security-reviewer does not duplicate code review.              |
 
 ---
 
-## PM dispatch examples (для Phase 3c справки)
+## PM dispatch examples (for Phase 3c reference)
 
-### Обычный PR (не sensitive paths)
+### Ordinary PR (not sensitive paths)
 
 ```
 Agent(
   description="code-reviewer: PR #N review",
-  prompt="Прочитай docs/agents/code-reviewer.md. Review PR #N в yaremenko-maksym/CheekyCheeseIT_CRM. Sensitive paths не задеты."
+  prompt="Read docs/agents/code-reviewer.md. Review PR #N in yaremenko-maksym/CheekyCheeseIT_CRM. Sensitive paths not affected."
 )
 ```
 
-Один dispatch, sequential, reviewer возвращает `Verdict: APPROVE` или `BLOCK`.
+One dispatch, sequential, the reviewer returns `Verdict: APPROVE` or `BLOCK`.
 
-### PR трогает auth/finance/wallets/transactions
+### PR touches auth/finance/wallets/transactions
 
 ```
-# Параллельный dispatch (PM запускает оба сразу)
+# Parallel dispatch (PM launches both at once)
 
 Agent(
   description="code-reviewer: PR #N review",
-  prompt="Прочитай docs/agents/code-reviewer.md. Review PR #N. Sensitive paths: apps/api/src/finance/**, packages/shared/src/schemas/finance.ts. Сигнализируй что security-reviewer параллельно."
+  prompt="Read docs/agents/code-reviewer.md. Review PR #N. Sensitive paths: apps/api/src/finance/**, packages/shared/src/schemas/finance.ts. Signal that security-reviewer runs in parallel."
 )
 
 Agent(
   description="security-reviewer: PR #N security review",
-  prompt="Прочитай docs/agents/security-reviewer.md. Security review PR #N. Sensitive paths: apps/api/src/finance/**, packages/shared/src/schemas/finance.ts. Code-reviewer параллельно."
+  prompt="Read docs/agents/security-reviewer.md. Security review PR #N. Sensitive paths: apps/api/src/finance/**, packages/shared/src/schemas/finance.ts. Code-reviewer runs in parallel."
 )
 ```
 
-PM ждёт оба verdict, объединяет в общую review-round 1 logic. Если оба APPROVE → label `awaiting-pm-review` ставит code-reviewer (default). Если хотя бы один BLOCK → fix-task для Coder с обоими списками findings.
+PM waits for both verdicts, merges them into the shared review-round 1 logic. If both APPROVE → the `awaiting-pm-review` label is set by code-reviewer (default). If at least one BLOCK → a fix-task for the Coder with both lists of findings.
 
 ### Triggers for security-reviewer auto-dispatch
 
-PM проверяет `gh pr files <N>` против списка sensitive paths из `security-reviewer.md` § "Когда тебя диспетчат":
+PM checks `gh pr files <N>` against the list of sensitive paths from `security-reviewer.md` § "When you are dispatched":
 
 - `apps/api/src/auth/**`
 - `apps/api/src/finance/**`
@@ -108,64 +108,64 @@ PM проверяет `gh pr files <N>` против списка sensitive path
 - `packages/shared/src/schemas/finance.ts`
 - `packages/shared/src/schemas/auth.ts`
 - `package.json` / `pnpm-lock.yaml`
-- USDT/ETH контракты (Phase 8: будущая `contracts/`)
+- USDT/ETH contracts (Phase 8: the future `contracts/`)
 
-Если хоть один файл попадает — security-reviewer dispatched параллельно с code-reviewer.
+If even one file matches — security-reviewer is dispatched in parallel with code-reviewer.
 
 ---
 
 ## Preservation note (Cheeky-specific)
 
-Все паттерны из бывшего монолитного reviewer.md **сохранены** в обоих новых агентах:
+All patterns from the former monolithic reviewer.md are **preserved** in both new agents:
 
 | Pattern                                  | code-reviewer.md | security-reviewer.md | Why preserved                                                                                                       |
 | ---------------------------------------- | ---------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Verdict: BLOCK** first-line            | ✓                | ✓                    | GitHub блокирует `REQUEST_CHANGES` когда author==reviewer (один owner `yaremenko-maksym`). PM парсит первую строку. |
-| **Write-then-post pattern**              | ✓                | ✓                    | Real incident 2026-05-23 — MCP hang > 10 мин → review теряется. Body сохраняется в `/tmp/reviewer-output/`.         |
-| **Mandatory `mcp__eslint__lint-files`**  | ✓                | —                    | code-reviewer проверяет lint до review (ESLint = code concern). Security-reviewer не дублирует.                     |
-| **Russian язык вывода**                  | ✓                | ✓                    | CLAUDE.md hard requirement.                                                                                         |
-| **Session-recovery checklist**           | ✓                | ✓                    | Защита от compaction / cold start.                                                                                  |
-| **Pre-Report Gate (HIGH/MED/LOW)**       | ✓                | ✓                    | LOW findings → summary для PM, не в review body (noise reduction).                                                  |
-| **Zone-of-write check**                  | ✓                | —                    | Coder zone violations — code concern. Security-reviewer focuses on app code only.                                   |
-| **NOT REQUEST_CHANGES (owner conflict)** | ✓                | ✓                    | Same author/reviewer = `yaremenko-maksym`. Только `event: COMMENT` или `event: APPROVE`.                            |
+| **Verdict: BLOCK** first-line            | ✓                | ✓                    | GitHub blocks `REQUEST_CHANGES` when author==reviewer (a single owner `yaremenko-maksym`). PM parses the first line. |
+| **Write-then-post pattern**              | ✓                | ✓                    | Real incident 2026-05-23 — MCP hang > 10 min → the review is lost. The body is saved to `/tmp/reviewer-output/`.    |
+| **Mandatory `mcp__eslint__lint-files`**  | ✓                | —                    | code-reviewer checks lint before review (ESLint = a code concern). Security-reviewer does not duplicate it.         |
+| **Russian output language**              | ✓                | ✓                    | CLAUDE.md hard requirement.                                                                                         |
+| **Session-recovery checklist**           | ✓                | ✓                    | Protection against compaction / cold start.                                                                        |
+| **Pre-Report Gate (HIGH/MED/LOW)**       | ✓                | ✓                    | LOW findings → a summary for PM, not in the review body (noise reduction).                                         |
+| **Zone-of-write check**                  | ✓                | —                    | Coder zone violations — a code concern. Security-reviewer focuses on app code only.                                |
+| **NOT REQUEST_CHANGES (owner conflict)** | ✓                | ✓                    | Same author/reviewer = `yaremenko-maksym`. Only `event: COMMENT` or `event: APPROVE`.                              |
 
 ---
 
-## Что осталось для Phase 3c
+## What remains for Phase 3c
 
-1. **PM dispatch logic update** — `docs/agents/pm.md` и `docs/agents/pm-snippets.md`:
-   - Заменить `Agent(reviewer, ...)` на `Agent(code-reviewer, ...)` (default)
-   - Добавить sensitive-path triage логику для auto-dispatch security-reviewer параллельно
-   - Обновить `pm-state.json` schema для tracking двух reviewer dispatches (вместо одного)
-2. **PM Mode 3 (parallel dispatch)** — кодифицировать pattern параллельного запуска двух reviewer-агентов для финансовых PR
-3. **Smoke verification** — реальный test dispatch обоих агентов на open PR, verify что они корректно coordinate
-4. **Lessons split (Phase 4)** — `memory/reviewer/lessons.md` → `memory/code-reviewer/lessons.md` + `memory/security-reviewer/lessons.md` (или skill-based migration per ADR § 2.4.3)
+1. **PM dispatch logic update** — `docs/agents/pm.md` and `docs/agents/pm-snippets.md`:
+   - Replace `Agent(reviewer, ...)` with `Agent(code-reviewer, ...)` (default)
+   - Add sensitive-path triage logic to auto-dispatch security-reviewer in parallel
+   - Update the `pm-state.json` schema to track two reviewer dispatches (instead of one)
+2. **PM Mode 3 (parallel dispatch)** — codify the pattern of launching two reviewer agents in parallel for financial PRs
+3. **Smoke verification** — a real test dispatch of both agents on an open PR, verify that they coordinate correctly
+4. **Lessons split (Phase 4)** — `memory/reviewer/lessons.md` → `memory/code-reviewer/lessons.md` + `memory/security-reviewer/lessons.md` (or a skill-based migration per ADR § 2.4.3)
 
 ---
 
-## Что осталось untouched в этой phase (intentional)
+## What remains untouched in this phase (intentional)
 
-- **PM dispatch code** — не trigger Phase 3b zone (PM остаётся диспетчить `reviewer` через shim до Phase 3c)
-- **memory/reviewer/lessons.md** — split откладывается до Phase 4 (lessons→skills) для cleaner conversion
-- **GHA workflows** — `.github/workflows/ai-review.yml` archived; не trigger в Phase 3b
-- **ECC hooks** (`.claude/hooks-ecc/**`) — Phase 2.5 live, не Phase 3b zone
+- **PM dispatch code** — not a trigger for the Phase 3b zone (PM keeps dispatching `reviewer` through the shim until Phase 3c)
+- **memory/reviewer/lessons.md** — the split is deferred to Phase 4 (lessons→skills) for a cleaner conversion
+- **GHA workflows** — `.github/workflows/ai-review.yml` archived; not a trigger in Phase 3b
+- **ECC hooks** (`.claude/hooks-ecc/**`) — Phase 2.5 live, not the Phase 3b zone
 
 ---
 
 ## Verification (post-push)
 
 ```bash
-# 1. PR checks green (docs-only PR, e2e должен SKIP per Phase 2.5 fix)
+# 1. PR checks green (docs-only PR, e2e should SKIP per the Phase 2.5 fix)
 gh pr checks <PR#>
 
 # 2. YAML frontmatter validity
-head -10 docs/agents/code-reviewer.md       # тройные дефисы, name/description/tools/model
-head -10 docs/agents/security-reviewer.md   # то же
+head -10 docs/agents/code-reviewer.md       # triple dashes, name/description/tools/model
+head -10 docs/agents/security-reviewer.md   # same
 head -10 docs/agents/reviewer.md            # deprecated shim frontmatter
 
 # 3. Diff scope = docs-only
 git diff origin/main...HEAD --stat
-# Ожидается:
+# Expected:
 # docs/agents/code-reviewer.md                  | +235
 # docs/agents/security-reviewer.md              | +354
 # docs/agents/reviewer.md                       | -242 +42 (rewrite as shim)
@@ -178,7 +178,7 @@ git diff origin/main...HEAD --stat
 
 ## Rollback plan
 
-Если split вызывает проблемы в PM dispatch (Phase 3c) — `git revert <merged-commit>` восстанавливает монолитный `reviewer.md`. Новые файлы (`code-reviewer.md`, `security-reviewer.md`, deliverable doc) удаляются, README откатывается. ECC migration возвращается к Phase 3a state.
+If the split causes problems in PM dispatch (Phase 3c) — `git revert <merged-commit>` restores the monolithic `reviewer.md`. The new files (`code-reviewer.md`, `security-reviewer.md`, the deliverable doc) are deleted, the README is rolled back. The ECC migration returns to the Phase 3a state.
 
 Granularity: **Full phase rollback** per ADR § Architect Rollback granularity (single commit revert).
 
@@ -186,11 +186,11 @@ Granularity: **Full phase rollback** per ADR § Architect Rollback granularity (
 
 ## Confidence
 
-**HIGH** на overall split decision (ADR pre-approved § 2.1.5, ECC pattern well-documented).
+**HIGH** on the overall split decision (ADR pre-approved § 2.1.5, the ECC pattern is well-documented).
 
-**MED** на exact distribution paths (sensitive-path триггеры могут потребовать fine-tuning в Phase 3c когда PM dispatch implemented).
+**MED** on the exact distribution paths (sensitive-path triggers may require fine-tuning in Phase 3c when PM dispatch is implemented).
 
-**LOW** на USDT smart-contract section в security-reviewer — PHASE 8 ещё не начался, паттерны written prospectively, будут validated в реальной practice когда контракты появятся.
+**LOW** on the USDT smart-contract section in security-reviewer — PHASE 8 has not started yet, the patterns are written prospectively, and will be validated in real practice when the contracts appear.
 
 ---
 
