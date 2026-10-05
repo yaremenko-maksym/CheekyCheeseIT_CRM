@@ -1450,7 +1450,7 @@ msgid "Вашу частку за замовчуванням пропонуют�
 msgstr "A change to your default share is proposed: currently <0>{currentPercent}%</0>, proposed <1>{0}%</1>. Until you confirm, {currentPercent}% applies"
 
 #. placeholder {0}: pending.percent
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Вашу частку по проєкту пропонують змінити: зараз <0>{currentPercent}%</0>, нова — <1>{0}%</1>. "
 msgstr "A change to your project share is proposed: currently <0>{currentPercent}%</0>, new — <1>{0}%</1>. "
 
@@ -2448,8 +2448,8 @@ msgstr "Rejected: {money}"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхилити"
 msgstr "Reject"
 
@@ -2458,7 +2458,7 @@ msgid "Відхилити проєкт «{companyName}»"
 msgstr "Reject the project “{companyName}”"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхилити пропозицію"
 msgstr "Reject the proposal"
 
@@ -2467,7 +2467,7 @@ msgid "Відхилити пропозицію щодо частки"
 msgstr "Reject the share proposal"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Відхиляємо…"
 msgstr "Rejecting…"
 
@@ -5638,7 +5638,7 @@ msgid "Наприклад: видалено помилково"
 msgstr "E.g.: deleted by mistake"
 
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Наприклад: домовилися про 30%"
 msgstr "e.g. we agreed on 30%"
 
@@ -5796,7 +5796,7 @@ msgstr "Could not restore the user. Try again"
 msgid "Не вдалося відновити. Спробуйте ще раз"
 msgstr "Could not restore. Try again"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Не вдалося відхилити"
 msgstr "Could not reject"
 
@@ -6061,7 +6061,7 @@ msgstr "Could not sign the contract"
 msgid "Не вдалося підписати рахунок. Спробуйте ще раз"
 msgstr "Could not sign the invoice. Try again"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Не вдалося підтвердити"
 msgstr "Could not confirm"
 
@@ -7733,7 +7733,7 @@ msgstr "Confirmation of a manual payout to a partner or a credit to the company 
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Підтвердження…"
 msgstr "Confirming…"
 
@@ -7767,7 +7767,7 @@ msgstr "Awaiting: {drop}, {senior}"
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Підтвердити"
 msgstr "Confirm"
 
@@ -7835,7 +7835,7 @@ msgid "По одній навичці в рядку"
 msgstr "One skill per line"
 
 #. placeholder {0}: pending.effectivePercentAfterApproval
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "По проєкту пропонують зняти індивідуальну частку: зараз <0>{currentPercent}%</0>, стане <1>{0}%</1>. "
 msgstr "It is proposed to clear the project-level share: currently <0>{currentPercent}%</0>, will become <1>{0}%</1>. "
 
@@ -7959,7 +7959,7 @@ msgstr "Show password"
 msgid "api-error.FINANCE_TOTAL_EARNED_FORBIDDEN"
 msgstr "Only an admin or an accountant can see the “total earned” figure"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Поки ви не підтвердите, діє <0>{currentPercent}%</0>."
 msgstr "Until you confirm, <0>{currentPercent}%</0> applies."
 
@@ -8481,7 +8481,7 @@ msgstr "Rejection reason (if rejecting)"
 #: apps/web/app/components/pending/SeniorShareApprovalActions.tsx
 #: apps/web/app/components/projects/ProjectApprovalActions.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Причина відмови *"
 msgstr "Reason for rejection *"
 
@@ -8493,7 +8493,7 @@ msgstr "Rejection reason:"
 msgid "Причина відновлення (обов’язково)"
 msgstr "Restoration reason (required)"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Причина обов’язкова і буде видна адміністратору."
 msgstr "The reason is required and will be visible to the admin."
 
@@ -8660,7 +8660,7 @@ msgid "notification.APPROVAL_REJECTED.title"
 msgstr "Proposal rejected"
 
 #: apps/web/app/hooks/use-user-profile.ts
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Пропозицію відхилено — лишається попередня частка. Адміністратор побачить причину"
 msgstr "Proposal rejected — the previous share stays. The admin will see the reason"
 
@@ -9455,8 +9455,8 @@ msgstr "Cancelling the proposal…"
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
@@ -11080,7 +11080,7 @@ msgid "Частка в проєкті «{projectName}»: пропозицію в
 msgstr "Share in “{projectName}”: proposal rejected — the previous one stays. The admin will see the reason"
 
 #. placeholder {0}: data.effectiveSeniorSharePercent
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 msgid "Частка в проєкті тепер {0}%"
 msgstr "The project share is now {0}%"
 
