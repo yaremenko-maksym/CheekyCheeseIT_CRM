@@ -1,83 +1,83 @@
-# Экран «Ожидают ответа» (`/pending`) — дизайн-спека
+# «Ожидают ответа» screen (`/pending`) — design spec
 
-**Design tier:** 1 (новый экран) — позиция 7c плана эпика «уведомления и подтверждения».
-**Design-gate:** **degraded** (Mode E по статическому мокапу — Claude Design недоступен агенту в этой
-сессии). Референс — `docs/design/assets/pending-screen/design.html` + PNG ниже, не браузерный раунд
-в claude.ai/design.
-**Экран:** `apps/web/app/routes/_authenticated/pending/index.tsx` (новый файл).
-**Источник бизнес-контекста:** `docs/superpowers/specs/2026-09-01-notifications-and-confirmations-
-design.md` §3, §4.1, §7.4, §8.3, §8.4 — прочитан целиком, решения владельца ниже не пересматриваются,
-переводятся в конкретную вёрстку. Задание: `.claude/tasks/task-pending-screen.md` — прочитано целиком.
-**Тема:** только тёмная (`apps/web/index.html` жёстко `class="dark"`) — светлую не проектирую и не
-проверяю, см. `.claude/rules/common/design-gate.md`.
-**Референсы:**
+**Design tier:** 1 (new screen) — position 7c of the «notifications and confirmations» epic plan.
+**Design-gate:** **degraded** (Mode E from a static mockup — Claude Design is unavailable to the agent in this
+session). The reference is `docs/design/assets/pending-screen/design.html` + the PNGs below, not a browser round
+in claude.ai/design.
+**Screen:** `apps/web/app/routes/_authenticated/pending/index.tsx` (new file).
+**Business context source:** `docs/superpowers/specs/2026-09-01-notifications-and-confirmations-
+design.md` §3, §4.1, §7.4, §8.3, §8.4 — read in full, the owner's decisions below are not revisited,
+they are translated into concrete layout. The assignment: `.claude/tasks/task-pending-screen.md` — read in full.
+**Theme:** dark only (`apps/web/index.html` is hard-coded `class="dark"`) — I do not design or
+check a light theme, see `.claude/rules/common/design-gate.md`.
+**References:**
 
-- `docs/design/assets/pending-screen/design.html` — статический мокап на наших токенах (три
-  состояния: SENIOR, ADMIN, пустое + справочные фрагменты nav-бейджа и футера попапа).
-- `docs/design/assets/pending-screen/design-320.png`, `design-768.png`, `design-1440.png` — снято
-  этим же Playwright-скриптом (headless chromium, `fullPage`).
-- `docs/design/assets/pending-screen/design.png` = копия `design-1440.png` (главный fidelity-
-  референс для Mode B, см. `design-fidelity-review.md`).
+- `docs/design/assets/pending-screen/design.html` — a static mockup on our tokens (three
+  states: SENIOR, ADMIN, empty + reference fragments of the nav badge and the popup footer).
+- `docs/design/assets/pending-screen/design-320.png`, `design-768.png`, `design-1440.png` — captured
+  by the same Playwright script (headless chromium, `fullPage`).
+- `docs/design/assets/pending-screen/design.png` = a copy of `design-1440.png` (the main fidelity
+  reference for Mode B, see `design-fidelity-review.md`).
 
 ---
 
-## 0. Что уже устроено (прочитано по коду, не по памяти)
+## 0. What is already in place (read from code, not from memory)
 
-Пять фактов, которые определяют всю дальнейшую конструкцию.
+Five facts that determine the entire design that follows.
 
-1. **`approvals` — уже готовый источник «мне».** `ApprovalsService.listPendingForApprover(userId)`
-   существует и отдаёт то же самое, что сегодня ad-hoc собирает `usePendingProjectApprovals`
-   (`GET /projects`, отфильтрованный на клиенте по `status === 'DRAFT'`). Симметричного
-   `listPendingProposedBy(userId)` **нет** — это часть API-стороны этой же задачи (п.1
-   «Что сделать» в task-файле), не дизайн-решение; здесь я исхожу из того, что оно появится с той
-   же формой данных.
-2. **Действие по проекту УЖЕ упаковано в готовый компонент.** `ProjectApprovalActions`
-   (`apps/web/app/components/projects/ProjectApprovalActions.tsx`) — подтвердить/отклонить с
-   диалогом причины, `h-11 sm:h-7` кнопки, `aria-label`+`title`, `data-testid`. Шесть раундов ревью
-   (#646) уже закрыли a11y/touch-target/overflow находки на этом самом компоненте. **Переиспользуется
-   как есть**, без переноса свойств.
-3. **Действие по доле НЕ упаковано.** `useApproveSeniorShareChange`/`useRejectSeniorShareChange`
-   (`apps/web/app/hooks/use-user-profile.ts`, scope `user`) и их проектный близнец (инлайн в
+1. **`approvals` is already a ready «to me» source.** `ApprovalsService.listPendingForApprover(userId)`
+   exists and returns the same thing that `usePendingProjectApprovals` assembles ad hoc today
+   (`GET /projects`, filtered on the client by `status === 'DRAFT'`). There is **no** symmetric
+   `listPendingProposedBy(userId)` — it is part of the API side of this same task (item 1
+   «What to do» in the task file), not a design decision; here I assume it will appear with the
+   same data shape.
+2. **The project action is ALREADY packaged in a ready component.** `ProjectApprovalActions`
+   (`apps/web/app/components/projects/ProjectApprovalActions.tsx`) — confirm/reject with a
+   reason dialog, `h-11 sm:h-7` buttons, `aria-label`+`title`, `data-testid`. Six review rounds
+   (#646) already closed the a11y/touch-target/overflow findings on this very component. **Reused
+   as is**, without moving properties around.
+3. **The share action is NOT packaged.** `useApproveSeniorShareChange`/`useRejectSeniorShareChange`
+   (`apps/web/app/hooks/use-user-profile.ts`, scope `user`) and their project twin (inline in
    `apps/web/app/routes/_authenticated/projects/$projectId.tsx:PendingShareApprovalBanner`, scope
-   `project`) существуют, но каждый вшит в СВОЙ баннер (`OverviewTab.tsx` / `$projectId.tsx`), не
-   вынесен в переиспользуемый компонент уровня `ProjectApprovalActions`. Единственное, что уже готово
-   как отдельно импортируемый компонент — `CancelPendingShareButton`
-   (`apps/web/app/components/pending-share/cancel-pending-share.tsx`), нужный только ADMIN-стороне
-   («Отозвать»). См. §5 — что из этого переиспользуется, что нужно собрать заново по образцу.
-4. **Заголовков-`<h1>` на страницах CRM больше нет.** Проверено на `documents.tsx` (целиком, ни
-   одного `<h1>`/`<h2>`) — E2E-якорь везде `data-testid` корня контейнера, не `getByRole('heading')`
-   (закреплено PR #243/#244). Значит `/pending` тоже **не получает** большой заголовок страницы —
-   первое, что видит зритель, это заголовок первой секции («Ждёт вашего ответа»), как и на любой
-   другой странице CRM.
-5. **`max-w-6xl` (1152px), без `mx-auto`, — уже установленная конвенция «страница-колонка, не
-   дэшборд».** `UserProfileShell.tsx` (комментарий `task-border-reset-and-profile-shell`,
-   2026-08-16) ставит именно этот кап на content-область, обосновывая его буквально текстом
-   `foundation.md` §10 («content columns get a max-w cap on ≥1440»), и это измерено на всех 4
-   классах устройств. `/pending` — тот же архетип страницы (список карточек-строк, не таблица КПЭ на
-   весь экран), поэтому берёт тот же кап, а не изобретает свой (см. §9).
+   `project`) exist, but each is built into ITS OWN banner (`OverviewTab.tsx` / `$projectId.tsx`), not
+   extracted into a reusable component at the level of `ProjectApprovalActions`. The only thing already ready
+   as a separately importable component is `CancelPendingShareButton`
+   (`apps/web/app/components/pending-share/cancel-pending-share.tsx`), needed only by the ADMIN side
+   («Отозвать»). See §5 — what of this is reused, and what needs to be built anew on the model.
+4. **There are no `<h1>` headings on CRM pages anymore.** Verified on `documents.tsx` (in full, not a single
+   `<h1>`/`<h2>`) — the E2E anchor everywhere is the `data-testid` of the container root, not `getByRole('heading')`
+   (fixed by PR #243/#244). So `/pending` **does not get** a big page heading either —
+   the first thing the viewer sees is the heading of the first section («Ждёт вашего ответа»), like on any
+   other CRM page.
+5. **`max-w-6xl` (1152px), without `mx-auto`, is an already established convention «a column page, not
+   a dashboard».** `UserProfileShell.tsx` (comment `task-border-reset-and-profile-shell`,
+   2026-08-16) sets exactly this cap on the content area, justifying it literally with the text of
+   `foundation.md` §10 («content columns get a max-w cap on ≥1440»), and it is measured on all 4
+   device classes. `/pending` is the same page archetype (a list of row cards, not a KPI table across the
+   whole screen), so it takes the same cap rather than inventing its own (see §9).
 
 ---
 
-## 1. Бриф (5 вопросов, skill `frontend-design-direction`)
+## 1. Brief (5 questions, skill `frontend-design-direction`)
 
-| Вопрос               | Ответ                                                                                                                                                                                                                                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Purpose**          | Единая точка «что от меня ждут»: проекты на подтверждение, изменения доли, контракт на подпись — сегодня разбросаны по трём поверхностям (виджет дашборда, вкладка профиля, попап колокольчика) и теряются за десятком уведомлений. Экран не добавляет НИЧЕГО нового по функции — агрегирует уже существующие действия под одной крышей. |
-| **Audience**         | Любая роль, у которой в принципе может быть незакрытое обязательство: SENIOR/DROP (проект, доля), JUNIOR/HR/ACCOUNTANT (контракт), ADMIN (свои + «кто мне ещё не ответил»). Заходят НЕ каждый день — по бейджу на колокольчике/нав-пункте, значит экран должен быть считываем с нуля, без привычки.                                      |
-| **Tone**             | `dense · quiet · scannable` — тот же язык, что и весь CRM (foundation.md §1). НЕ tracker/inbox-эстетика (никаких read/unread точек, никакого «архивировать свайпом») — это список действий, а не лента.                                                                                                                                  |
-| **Memorable detail** | Асимметрия ADMIN — бейдж на нав-пункте показывает **только** `mine.length` (что лично ADMIN должен решить), а не общее число ожидающих в системе. ADMIN почти всегда видит пункт БЕЗ числа, но заходит и видит целый раздел «Ждут ответа других» — деталь, которая один раз объясняется в спеке (§7) и больше не требует памяти.         |
-| **Constraints**      | Tailwind v4 + shadcn/ui, только существующие токены, русский UI, WCAG 2.2 AA, адаптив 320–1920 (7 тест-ширин), только тёмная тема, переиспользование `ProjectApprovalActions`/`CancelPendingShareButton` как есть.                                                                                                                       |
+| Question             | Answer                                                                                                                                                                                                                                                                                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Purpose**          | A single point of «what is expected of me»: projects awaiting confirmation, share changes, a contract to sign — today scattered across three surfaces (a dashboard widget, a profile tab, the bell popup) and lost among dozens of notifications. The screen adds NOTHING new in function — it aggregates already existing actions under one roof.                     |
+| **Audience**         | Any role that can possibly have an unclosed obligation: SENIOR/DROP (project, share), JUNIOR/HR/ACCOUNTANT (contract), ADMIN (their own + «who hasn't answered me yet»). They come NOT every day — via the bell/nav-item badge, so the screen must be readable from scratch, without habit.                                                                            |
+| **Tone**             | `dense · quiet · scannable` — the same language as the whole CRM (foundation.md §1). NOT a tracker/inbox aesthetic (no read/unread dots, no «archive by swipe») — this is a list of actions, not a feed.                                                                                                                                                               |
+| **Memorable detail** | The ADMIN asymmetry — the nav-item badge shows **only** `mine.length` (what the ADMIN personally has to decide), not the total number of pending items in the system. ADMIN almost always sees the item WITHOUT a number, but walks in and sees a whole «Ждут ответа других» section — a detail that is explained once in the spec (§7) and no longer requires memory. |
+| **Constraints**      | Tailwind v4 + shadcn/ui, only existing tokens, Russian UI, WCAG 2.2 AA, responsive 320–1920 (7 test widths), dark theme only, reuse of `ProjectApprovalActions`/`CancelPendingShareButton` as is.                                                                                                                                                                      |
 
-**Domain-fit.** Не «инбокс», а «to-do с двумя кнопками на каждый пункт» — операционный чек-лист, не
-поток контента. Отсюда: без бесконечного скролла/пагинации (число пунктов у одного человека — единицы,
-изредка десятки), без сортировки/фильтров (нечего фильтровать в списке из трёх кнопок).
+**Domain-fit.** Not an «inbox», but a «to-do with two buttons per item» — an operational checklist, not a
+content stream. Hence: no infinite scroll/pagination (the number of items per person is a handful,
+occasionally dozens), no sorting/filters (there is nothing to filter in a list of three buttons).
 
 ---
 
-## 2. Данные, которые получает экран (recap — не переопределяю, только граунд для вёрстки)
+## 2. Data the screen receives (recap — I do not redefine it, only ground it for the layout)
 
-Форма ответа `GET /pending` — решение API-стороны этой же задачи (task-файл §«Что сделать» п.1), здесь
-не пересматривается, только фиксируется, что подаётся на вход вёрстке:
+The shape of the `GET /pending` response is a decision of the API side of this same task (task file §«What to do» item 1); it is not
+revisited here, it is only recorded what is fed into the layout:
 
 ```
 { mine: PendingItem[], proposedByMe: PendingItem[] }
@@ -86,165 +86,165 @@ PendingItem:
   kind: 'PROJECT_APPROVAL' | 'SHARE_APPROVAL' | 'CONTRACT_TO_SIGN'
   approvalId?: string
   subjectId: string
-  title: string                         // название проекта / «Контракт сотрудника»
-  proposedBy?: string                   // имя — для mine
-  waitingFor?: string[]                 // имена — для proposedByMe
-  currentPercent?: number               // SHARE_APPROVAL, только если доля зрителя
-  pendingPercent?: number               // SHARE_APPROVAL — см. врезку ниже про null-override
+  title: string                         // project name / «Контракт сотрудника»
+  proposedBy?: string                   // name — for mine
+  waitingFor?: string[]                 // names — for proposedByMe
+  currentPercent?: number               // SHARE_APPROVAL, only if it is the viewer's share
+  pendingPercent?: number               // SHARE_APPROVAL — see the note below about null-override
   createdAt: string                     // ISO
   actions: Array<'approve' | 'reject' | 'cancel' | 'open'>
   link: string
 ```
 
-**Важная находка при разборе `pendingSeniorShareSchema` (`packages/shared/src/schemas/pending-share.ts`),
-которую стоит донести до API-стороны, если ещё не учтено.** Предложение по доле умеет быть «снять
-override, вернуться к дефолту» — тогда «сырой» `percent` на бэкенде равен `null`, а показывать нужно
-`effectivePercentAfterApproval` (он ВСЕГДА конкретное число — тот же файл прямо предупреждает «client
-must never compute this locally… always a concrete number»). Значит `pendingPercent` в `PendingItem`
-должен быть заполнен из `effectivePercentAfterApproval`, не из сырого `percent` — иначе на экране
-проскочит **пустая ячейка процента** ровно в том редком случае, который эта схема специально
-предусматривает. Вёрстка ниже (§6.2) рассчитана на то, что `pendingPercent` всегда есть, если
-`kind === 'SHARE_APPROVAL'` попал в список вообще.
+**An important finding when analyzing `pendingSeniorShareSchema` (`packages/shared/src/schemas/pending-share.ts`),
+worth passing on to the API side if not yet accounted for.** A share proposal can be «remove the
+override, return to the default» — then the «raw» `percent` on the backend is `null`, and what must be shown is
+`effectivePercentAfterApproval` (it is ALWAYS a concrete number — the same file explicitly warns «client
+must never compute this locally… always a concrete number»). So `pendingPercent` in `PendingItem`
+must be filled from `effectivePercentAfterApproval`, not from the raw `percent` — otherwise an **empty percent cell**
+would slip onto the screen in exactly the rare case this schema specifically
+provides for. The layout below (§6.2) assumes that `pendingPercent` is always present if
+`kind === 'SHARE_APPROVAL'` got into the list at all.
 
-**`proposedBy` может отсутствовать для `CONTRACT_TO_SIGN`.** Никто не «предлагает» контракт в том же
-смысле, что проект/долю — это административное действие (`employeeContracts.createdByUserId`
-технически существует, но резолвить его в имя ради одной строки на экране, который и так не может
-показать approve/reject для контракта, — накладные расходы без пользы). Строка контракта в макете
-(§6.3) не показывает «от кого» вовсе — только давность.
-
----
-
-## 3. Общая структура страницы
-
-**Без `<h1>`** — см. §0.5. Корень: `<div data-testid="pending-page" className="flex flex-col h-full">`,
-контент — `flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:px-8 lg:max-w-6xl` (без `mx-auto` —
-тот же паттерн, что `UserProfileShell`, см. §0.5 и §9).
-
-Две **зоны**, каждая рендерится только если непуста (тот же принцип, что уже несёт
-`PendingProjectApprovalsPanel` — «ничего, если нечего показывать», не пустая карточка):
-
-1. **«Ждёт вашего ответа»** (`mine`) — видна всем ролям, у кого в ней есть хотя бы один пункт.
-2. **«Ждут ответа других»** (`proposedByMe`) — только ADMIN, и только когда там что-то есть.
-
-Внутри каждой зоны — **под-секции по `kind`**, в фиксированном порядке Проекты → Доли → Контракты
-(тот же порядок, что в enum `kind` задания, и то же самое, в каком nav/иконки этой фичи уже
-перечисляются в task-файле). Под-секция тоже рендерится только если в ней есть пункты — секция
-«Контракты» никогда не появится в «Ждут ответа других» (см. врезку в §2 — `proposedByMe` физически не
-может содержать `CONTRACT_TO_SIGN`, это не строка `approvals`).
-
-**Почему секции, а не табы.** Бизнес-спека §8.3 описывает экран буквально как «список всего,
-ожидающего ответа» — не как несколько списков, между которыми переключаются. У большинства зрителей в
-`mine` будет 0–3 пункта суммарно по всем kind — прятать три пункта за табами означает лишний клик там,
-где и без того мало контента. Табы имели бы смысл при десятках пунктов на kind; здесь это не тот масштаб
-(прецедент того же выбора — `project-status-filter.md` §2 отклоняет второй табличный контрол по
-похожей причине: «один список — один навигационный механизм»).
-
-**Почему у ADMIN зона «Ждёт вас» вообще может отсутствовать, а не просто быть пустой карточкой.**
-`mine` для ADMIN считается ТЕМ ЖЕ `listPendingForApprover`, что и для всех — а ADMIN не является
-приглашённым подтверждающим ни по одному проекту/доле (эту роль всегда играет SENIOR/DROP), и почти
-никогда не имеет собственного `employeeContracts`-контракта. `mine.length === 0` для ADMIN — это
-**нормальное, ожидаемое** состояние, не баг и не пустой экран: у ADMIN просто нет личных
-обязательств, только зона «Ждут ответа других». Это прямо показано в `design.html` (Вид 2) и
-откомментировано в разметке.
-
-**Глобальное пустое состояние** («Ничего не ждёт вашего ответа», §10.1) показывается ТОЛЬКО когда
-ОБЕ зоны пусты (`mine.length === 0 && proposedByMe.length === 0`). Если у ADMIN `mine` пусто, но
-`proposedByMe` — нет, страница показывает вторую зону без первой, а не общий empty-state.
+**`proposedBy` may be absent for `CONTRACT_TO_SIGN`.** Nobody «proposes» a contract in the same
+sense as a project/share — it is an administrative action (`employeeContracts.createdByUserId`
+technically exists, but resolving it into a name for a single line on a screen that cannot
+show approve/reject for a contract anyway is overhead without benefit). The contract row in the mockup
+(§6.3) does not show «from whom» at all — only age.
 
 ---
 
-## 4. Токен-карта
+## 3. Overall page structure
 
-Ничего нового в `apps/web/app/styles/globals.css` не добавляется. Вся раскраска — уже используемая
-конвенция «amber/emerald = ожидание/подтверждение» из ЭТОЙ ЖЕ фичи (не заимствование по аналогии —
-это буквально те же файлы, чьи действия этот экран переиспользует).
+**No `<h1>`** — see §0.5. Root: `<div data-testid="pending-page" className="flex flex-col h-full">`,
+content — `flex-1 overflow-y-auto px-4 py-5 md:px-6 md:py-6 lg:px-8 lg:max-w-6xl` (without `mx-auto` —
+the same pattern as `UserProfileShell`, see §0.5 and §9).
 
-| Назначение                                 | Классы                                                                                               | Прецедент                                                                                                  |
-| ------------------------------------------ | ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| Заголовок зоны                             | `text-base font-semibold tracking-tight`                                                             | foundation.md §4 «Section title»                                                                           |
-| Заголовок под-секции (kind)                | `text-[11px] font-semibold uppercase tracking-wider text-muted-foreground` + иконка `text-amber-400` | `PendingProjectApprovalsPanel.tsx` — «Ждёт вашего решения» header 1:1                                      |
-| Строка (обычная, `mine`)                   | `border-border/40 bg-muted/20 rounded-md`                                                            | `PendingProjectApprovalsPanel.tsx` per-item div                                                            |
-| Строка (наблюдатель, `proposedByMe` ADMIN) | `border-amber-500/30 bg-amber-500/[0.06]`                                                            | Слабее, чем баннер (`bg-amber-500/10`) — это построчный список, не один акцентный блок                     |
-| Кнопка «Подтвердить»                       | `border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`                                     | `ProjectApprovalActions.tsx` approve-button 1:1                                                            |
-| Кнопка «Отклонить»                         | `border-destructive/30 text-destructive hover:bg-destructive/10`                                     | `ProjectApprovalActions.tsx` reject-button 1:1                                                             |
-| Кнопка «Отозвать» (ADMIN)                  | `variant="outline"` дефолт shadcn                                                                    | `CancelPendingShareButton` — переиспользуется без правок стиля                                             |
-| Кнопка «Открыть»                           | contract → `variant="default"` (primary), проект/доля → `variant="ghost"`                            | Контракт — единственное действие в строке → CTA-вес; проект/доля — вторичная ссылка рядом с approve/reject |
-| Бейдж «готов к подписанию»                 | `variant="default"` (`Badge`, тот же жёлтый, что `ContractTab.tsx` `STATUS_VARIANTS.READY_TO_SIGN`)  | `ContractTab.tsx` — тот же статус, тот же вариант, не выдумывается новый                                   |
-| Проценты («Сейчас X% → предлагают Y%»)     | `tabular-nums font-medium`                                                                           | `PendingBaseShareBanner`/`PendingShareApprovalBanner` 1:1                                                  |
-| Давность                                   | `text-[11.5px] text-muted-foreground`, `formatDistanceToNow(date, {addSuffix:true, locale: ru})`     | `notifications-bell.tsx` `fmtRelative` — тот же helper, не переизобретается                                |
-| Пустое/ошибка — иконка                     | `text-muted-foreground/40`                                                                           | `notifications-bell.tsx` `Inbox` empty-state                                                               |
-| Content-колонка кап                        | `lg:max-w-6xl` (без `mx-auto`)                                                                       | `UserProfileShell.tsx` — см. §0.5                                                                          |
+Two **zones**, each rendered only if non-empty (the same principle already carried by
+`PendingProjectApprovalsPanel` — «nothing if there is nothing to show», not an empty card):
 
----
+1. **«Ждёт вашего ответа»** (`mine`) — visible to all roles that have at least one item in it.
+2. **«Ждут ответа других»** (`proposedByMe`) — ADMIN only, and only when there is something in it.
 
-## 5. Компоненты
+Inside each zone — **sub-sections by `kind`**, in a fixed order Projects → Shares → Contracts
+(the same order as in the `kind` enum of the assignment, and the same in which the nav/icons of this feature are already
+listed in the task file). A sub-section is also rendered only if it has items — the
+«Контракты» section will never appear in «Ждут ответа других» (see the note in §2 — `proposedByMe` physically
+cannot contain `CONTRACT_TO_SIGN`, it is not an `approvals` row).
 
-### 5.1 Существующие — переиспользуются как есть (без правок визуала)
+**Why sections, not tabs.** Business spec §8.3 describes the screen literally as «a list of everything
+awaiting an answer» — not as several lists to switch between. Most viewers will have
+0–3 items in `mine` in total across all kinds — hiding three items behind tabs means an extra click where
+there is little content anyway. Tabs would make sense with dozens of items per kind; this is not that scale
+(a precedent of the same choice — `project-status-filter.md` §2 rejects a second tab control for a
+similar reason: «one list — one navigation mechanism»).
 
-- **`ProjectApprovalActions`** (`@/components/projects/ProjectApprovalActions`) — для каждого пункта
-  `kind: 'PROJECT_APPROVAL'` в `mine`. Принимает `projectId`, `companyName`, `onActed` — ровно то, что
-  есть в `PendingItem` (`subjectId` → `projectId`, `title` → `companyName`).
-- **`CancelPendingShareButton`** (`@/components/pending-share/cancel-pending-share`) — для каждого
-  пункта `kind: 'SHARE_APPROVAL'` в `proposedByMe` (ADMIN). Принимает `scope: 'user' | 'project'`,
-  `id`, `pendingPercent` — маппинг прямой: `scope = subjectType === 'USER_SENIOR_SHARE' ? 'user' :
-'project'`, `id = subjectId`, `pendingPercent` = уже описанный выше `effectivePercentAfterApproval`.
-- **`Card` / `CardContent` / `Skeleton` / `Badge` / `Button`** — стандартные примитивы, без кастомизации
-  сверх того, что уже в токен-карте.
+**Why for ADMIN the «Ждёт вас» zone can be absent altogether, rather than just an empty card.**
+`mine` for ADMIN is computed by THE SAME `listPendingForApprover` as for everyone — and ADMIN is not an invited
+confirmer on any project/share (that role is always played by SENIOR/DROP), and
+almost never has their own `employeeContracts` contract. `mine.length === 0` for ADMIN is a
+**normal, expected** state, not a bug and not an empty screen: ADMIN simply has no personal
+obligations, only the «Ждут ответа других» zone. This is shown directly in `design.html` (View 2) and
+commented in the markup.
 
-### 5.2 Новое — обосновано, минимально
-
-1. **Действие «Подтвердить/Отклонить» для доли (`mine`, `kind: 'SHARE_APPROVAL'`) — новый маленький
-   компонент, ПО ОБРАЗЦУ `ProjectApprovalActions`, а не копия чужого баннера.**
-   Обоснование: единственное, что сегодня существует для этого действия — `useApproveSeniorShareChange`/
-   `useRejectSeniorShareChange` (user-scope, экспортированы из `use-user-profile.ts`) и их проектный
-   двойник, который живёт **инлайн внутри** `$projectId.tsx` (`PendingShareApprovalBanner`, НЕ
-   экспортирован ни как хук, ни как компонент). Для этого экрана нужен ОДИН компонент, работающий на
-   обоих scope — рекомендация: `SeniorShareApprovalActions({ scope, id, currentPercent, pendingPercent,
-onActed })`, визуально идентичный `ProjectApprovalActions` (те же классы кнопок из §4, тот же диалог
-   причины через `CrmDialogContent`/`CrmDialogHeader`/`CrmDialogBody`/`CrmDialogFooter`, тот же паттерн
-   `reason.length}/500` счётчика). **Технический вопрос к Coder** (не дизайн-решение, см. §12):
-   `useApproveSeniorShareChange`/`useRejectSeniorShareChange` уже параметризованы userId — для
-   project-scope придётся либо экспортировать аналогичную пару из `$projectId.tsx` (симметрично тому,
-   что уже сделано для user-scope), либо обобщить оба под один `scope`-параметр в
-   `use-user-profile.ts`, рядом с `useCancelPendingShare`, которая эту развилку уже решает 1:1 (см.
-   `cancel-pending-share.tsx:effectivePercentOf`). Второй путь предпочтительнее — не плодить третий файл
-   с той же `scope`-веткой, что уже есть у `useCancelPendingShare`.
-2. **`PendingKindSection`** — маленький presentational-компонент: иконка + заголовок uppercase (§4) +
-   список строк. Обоснование по deletion-тесту (`codebase-design` skill): удалить и заинлайнить обратно
-   — ничего не сломается, значит это не архитектурная граница, а чистая переиспользуемость (три места
-   применения на одной странице — уже стоит того, чтобы не копипастить JSX три раза).
-3. **`PendingItemRow`** — свитч по `item.kind`, рендерит нужную комбинацию заголовок/мета/действия
-   (детали — §6). Один компонент со свитчем внутри, не три отдельных компонента верхнего уровня — тело
-   каждой ветки короткое (заголовок + одна строка меты + один набор кнопок), выносить в отдельные файлы
-   рано по тому же deletion-тесту.
-4. **Вставка в `nav-sidebar.tsx`** — один новый `NavItem` («Ожидают ответа», `Clock`, `to: '/pending'`,
-   `roles: ALL_ROLES` из `route-access.ts`) + бейдж-счётчик (§7). НЕ новый компонент — расширение
-   существующего списка `NAV_ITEMS` тем же паттерном, что все остальные пункты.
-5. **Вставка в `notifications-bell.tsx`** — один `<footer>`-блок после `<ul data-testid="notifications-
-list">` (и с тем же условием видимости, что и сам список — футер нужен независимо от того, есть ли
-   непрочитанные уведомления, это не часть их состояния). Единственная правка этого файла — см. §8.
-
-**Явно НЕ вводится:** отдельный `EmptyState`-компонент общего назначения (в кодовой базе такого нет
-нигде — каждая страница пишет своё двумя-тремя строками JSX, `notifications-bell.tsx` и
-`DropBalanceCard.tsx` — прецеденты; вводить здесь абстракцию под один экран преждевременно).
+**The global empty state** («Ничего не ждёт вашего ответа», §10.1) is shown ONLY when
+BOTH zones are empty (`mine.length === 0 && proposedByMe.length === 0`). If ADMIN's `mine` is empty but
+`proposedByMe` is not, the page shows the second zone without the first, rather than a general empty-state.
 
 ---
 
-## 6. Анатомия строки по `kind`
+## 4. Token map
 
-> **Тексты в этом разделе устарели после copy-ревью PR #667 (круги 1–4).** Канон — код и тело PR; раздел описывает
-> **анатомию** строки, не её слова. Заменено: «Предложил {имя}» → «Предлагает {имя}» · «Ничего не ждёт вашего ответа» →
-> «…вашего решения» (подпись — «Новые проекты, доли и контракты появятся здесь.») · «Не удалось загрузить список.» →
+Nothing new is added to `apps/web/app/styles/globals.css`. All coloring is the already used
+convention «amber/emerald = waiting/confirmation» from THIS SAME feature (not borrowing by analogy —
+these are literally the same files whose actions this screen reuses).
+
+| Purpose                                   | Classes                                                                                             | Precedent                                                                                                   |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| Zone heading                              | `text-base font-semibold tracking-tight`                                                            | foundation.md §4 «Section title»                                                                            |
+| Sub-section heading (kind)                | `text-[11px] font-semibold uppercase tracking-wider text-muted-foreground` + icon `text-amber-400`  | `PendingProjectApprovalsPanel.tsx` — «Ждёт вашего решения» header 1:1                                       |
+| Row (regular, `mine`)                     | `border-border/40 bg-muted/20 rounded-md`                                                           | `PendingProjectApprovalsPanel.tsx` per-item div                                                             |
+| Row (observer, `proposedByMe` ADMIN)      | `border-amber-500/30 bg-amber-500/[0.06]`                                                           | Weaker than the banner (`bg-amber-500/10`) — this is a per-row list, not a single accent block              |
+| «Подтвердить» button                      | `border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10`                                    | `ProjectApprovalActions.tsx` approve-button 1:1                                                             |
+| «Отклонить» button                        | `border-destructive/30 text-destructive hover:bg-destructive/10`                                    | `ProjectApprovalActions.tsx` reject-button 1:1                                                              |
+| «Отозвать» button (ADMIN)                 | `variant="outline"` shadcn default                                                                  | `CancelPendingShareButton` — reused without style edits                                                     |
+| «Открыть» button                          | contract → `variant="default"` (primary), project/share → `variant="ghost"`                         | Contract — the only action in the row → CTA weight; project/share — a secondary link next to approve/reject |
+| «готов к подписанию» badge                | `variant="default"` (`Badge`, the same yellow as `ContractTab.tsx` `STATUS_VARIANTS.READY_TO_SIGN`) | `ContractTab.tsx` — the same status, the same variant, no new one is invented                               |
+| Percentages («Сейчас X% → предлагают Y%») | `tabular-nums font-medium`                                                                          | `PendingBaseShareBanner`/`PendingShareApprovalBanner` 1:1                                                   |
+| Age                                       | `text-[11.5px] text-muted-foreground`, `formatDistanceToNow(date, {addSuffix:true, locale: ru})`    | `notifications-bell.tsx` `fmtRelative` — the same helper, not reinvented                                    |
+| Empty/error — icon                        | `text-muted-foreground/40`                                                                          | `notifications-bell.tsx` `Inbox` empty-state                                                                |
+| Content column cap                        | `lg:max-w-6xl` (without `mx-auto`)                                                                  | `UserProfileShell.tsx` — see §0.5                                                                           |
+
+---
+
+## 5. Components
+
+### 5.1 Existing — reused as is (no visual edits)
+
+- **`ProjectApprovalActions`** (`@/components/projects/ProjectApprovalActions`) — for each item
+  of `kind: 'PROJECT_APPROVAL'` in `mine`. It takes `projectId`, `companyName`, `onActed` — exactly what
+  is in `PendingItem` (`subjectId` → `projectId`, `title` → `companyName`).
+- **`CancelPendingShareButton`** (`@/components/pending-share/cancel-pending-share`) — for each
+  item of `kind: 'SHARE_APPROVAL'` in `proposedByMe` (ADMIN). It takes `scope: 'user' | 'project'`,
+  `id`, `pendingPercent` — the mapping is direct: `scope = subjectType === 'USER_SENIOR_SHARE' ? 'user' :
+'project'`, `id = subjectId`, `pendingPercent` = the `effectivePercentAfterApproval` described above.
+- **`Card` / `CardContent` / `Skeleton` / `Badge` / `Button`** — standard primitives, with no customization
+  beyond what is already in the token map.
+
+### 5.2 New — justified, minimal
+
+1. **The «Подтвердить/Отклонить» action for a share (`mine`, `kind: 'SHARE_APPROVAL'`) — a new small
+   component, MODELED ON `ProjectApprovalActions`, not a copy of someone else's banner.**
+   Rationale: the only thing that exists today for this action is `useApproveSeniorShareChange`/
+   `useRejectSeniorShareChange` (user-scope, exported from `use-user-profile.ts`) and their project
+   twin, which lives **inline inside** `$projectId.tsx` (`PendingShareApprovalBanner`, NOT
+   exported either as a hook or as a component). This screen needs ONE component working on
+   both scopes — recommendation: `SeniorShareApprovalActions({ scope, id, currentPercent, pendingPercent,
+onActed })`, visually identical to `ProjectApprovalActions` (the same button classes from §4, the same reason
+   dialog via `CrmDialogContent`/`CrmDialogHeader`/`CrmDialogBody`/`CrmDialogFooter`, the same pattern
+   of the `reason.length}/500` counter). **A technical question for the Coder** (not a design decision, see §12):
+   `useApproveSeniorShareChange`/`useRejectSeniorShareChange` are already parameterized by userId — for
+   project-scope one must either export an analogous pair from `$projectId.tsx` (symmetrically to what
+   is already done for user-scope), or generalize both under one `scope` parameter in
+   `use-user-profile.ts`, next to `useCancelPendingShare`, which already solves this fork 1:1 (see
+   `cancel-pending-share.tsx:effectivePercentOf`). The second path is preferable — do not breed a third file
+   with the same `scope` branch that `useCancelPendingShare` already has.
+2. **`PendingKindSection`** — a small presentational component: icon + uppercase heading (§4) +
+   a list of rows. Rationale by the deletion test (`codebase-design` skill): delete it and inline it back —
+   nothing breaks, so this is not an architectural boundary but pure reusability (three
+   places of use on one page — already worth not copy-pasting JSX three times).
+3. **`PendingItemRow`** — a switch on `item.kind`, renders the needed combination of heading/meta/actions
+   (details — §6). One component with a switch inside, not three separate top-level components — the body of
+   each branch is short (a heading + one meta line + one set of buttons), extracting into separate files
+   is premature by the same deletion test.
+4. **An insertion into `nav-sidebar.tsx`** — one new `NavItem` («Ожидают ответа», `Clock`, `to: '/pending'`,
+   `roles: ALL_ROLES` from `route-access.ts`) + a counter badge (§7). NOT a new component — an extension of
+   the existing `NAV_ITEMS` list by the same pattern as all the other items.
+5. **An insertion into `notifications-bell.tsx`** — one `<footer>` block after `<ul data-testid="notifications-
+list">` (and with the same visibility condition as the list itself — the footer is needed regardless of whether there
+   are unread notifications, it is not part of their state). The only edit to this file — see §8.
+
+**Explicitly NOT introduced:** a general-purpose standalone `EmptyState` component (there is none in the codebase
+anywhere — each page writes its own in two or three lines of JSX, `notifications-bell.tsx` and
+`DropBalanceCard.tsx` are precedents; introducing an abstraction here for one screen is premature).
+
+---
+
+## 6. Row anatomy by `kind`
+
+> **The texts in this section are outdated after the copy review of PR #667 (rounds 1–4).** The canon is the code and the PR body; the section describes the
+> **anatomy** of a row, not its words. Replaced: «Предложил {имя}» → «Предлагает {имя}» · «Ничего не ждёт вашего ответа» →
+> «…вашего решения» (caption — «Новые проекты, доли и контракты появятся здесь.») · «Не удалось загрузить список.» →
 > «Не удалось загрузить, что ждёт решения.» · «Отозвать» → «Отменить предложение» · «Доля по проекту «{name}»» →
-> «{companyName}» · в зоне `proposedByMe` «предлагают» → «предложено» · «ждём:» → «Ждём:». Растры (`design.html`,
-> `design-*.png`) сделаны до этих правок и источником текста не являются.
+> «{companyName}» · in the `proposedByMe` zone «предлагают» → «предложено» · «ждём:» → «Ждём:». The rasters (`design.html`,
+> `design-*.png`) were made before these edits and are not a source of text.
 
-Общий каркас строки (все kind) — `.item-row` из `design.html`: `flex flex-wrap items-center
-justify-between gap-2.5`, левая часть (`min-w-0 flex-1`) — заголовок + мета, правая (`flex-none`) —
-действия. `flex-wrap` на самой строке — обязательно (не опция): именно его отсутствие дало QA-H-2 на
-#646 (действия наезжали на соседнюю колонку на 1024px, см. `ProjectApprovalActions.tsx` собственный
-комментарий про `max-w-full` фикс) — здесь тот же риск на той же ширине кнопок, значит тот же фикс
-закладывается сразу, а не находится заново.
+The common row skeleton (all kinds) — `.item-row` from `design.html`: `flex flex-wrap items-center
+justify-between gap-2.5`, the left part (`min-w-0 flex-1`) — heading + meta, the right (`flex-none`) —
+actions. `flex-wrap` on the row itself is mandatory (not optional): its absence is what produced QA-H-2 on
+#646 (actions ran onto the neighboring column at 1024px, see `ProjectApprovalActions.tsx`'s own
+comment about the `max-w-full` fix) — here is the same risk at the same button width, so the same fix
+is built in from the start rather than found anew.
 
 ### 6.1 `PROJECT_APPROVAL`
 
@@ -254,39 +254,39 @@ justify-between gap-2.5`, левая часть (`min-w-0 flex-1`) — заго�
 [Ваша доля: 26%                                  ]
 ```
 
-- Заголовок — `item.title` (`truncate`, одна строка ≥640px; `line-clamp-2 wrap-anywhere` <640px — см.
-  §10.4 про 80-символьное имя).
-- Мета — `Предложил {proposedBy} · {давность}`. Если `proposedBy` отсутствует (не должно случаться для
-  этого kind, но fail-safe) — просто `{давность}` без «Предложил».
-- Действия — `<ProjectApprovalActions projectId={subjectId} companyName={title} onActed={...} />` **как
-  есть**, без `compact` пропа (тот включает иконку-без-текста на `lg:` — здесь строка и так одна на
-  экране, места достаточно, текстовые кнопки читаемее).
-- Если `actions` не содержит `'approve'`/`'reject'` (не должно происходить для `mine`, но контракт
-  `PendingItem.actions` это в принципе допускает) — рендерится только то, что есть; `'open'` без
-  approve/reject даёт одну ссылку «Открыть» вместо пары кнопок.
-- **Третья строка — доля зрителя (решено в Mode B, круг 1, UX-H-1; закрыто fix-round 3).** Когда
-  `zone === 'mine'` и `item.viewerSharePercent != null` — под мета-строкой рендерится ещё один `<p>`:
-  `Ваша доля: {viewerSharePercent}%`, плюс ` · синьор: {seniorName}` если `seniorName` присутствует
-  (`text-[11px] text-amber-300/70` — на тон бледнее и мельче основной меты: здесь процент — контекст
-  для решения, не сам предмет решения, в отличие от `SHARE_APPROVAL` в §6.2, где `tabular-nums
-font-medium` уместен). Кто видит эту строку и с каким содержимым — определяет **зритель**, не
-  бэкенд-флаг:
-  - **SENIOR**, подтверждающий свой же проект — `Ваша доля: {seniorSharePercent}%`, БЕЗ «синьор: …»
-    (он и есть синьор, добавлять его имя было бы избыточно).
-  - **DROP**, подтверждающий проект, где `project.dropId === viewer.id` — `Ваша доля: {dropSharePercent}%
-· синьор: {senior.displayName}`. Для DROP это единственный сигнал условий сделки на этом экране: у
-    DROP нет доступа к `/projects` вовсе (RBAC), и в отличие от SENIOR у него нет «Открыть» на этой
-    строке — без доли «Подтвердить» было бы решением вслепую.
-  - **ADMIN** (и любой другой зритель зоны `proposedByMe`) — эта строка не появляется никогда: ADMIN
-    видит `mine`-строку только когда он сам SENIOR/DROP проекта (crossover-кейс, тот же расчёт как
-    выше), а в `proposedByMe` он наблюдатель, не сторона сделки — там ему нечего подтверждать долей.
-  - Верифицировано живым проходом на скретч-стенде (Mode B, круг 2, PR #667): SENIOR-вьюер видит
-    `«Ваша доля: 26%»` без суффикса, DROP-вьюер — `«Ваша доля: 5% · синьор: Dmytro Marchenko»`, ADMIN
-    на `proposedByMe` — `0` строк с этим классом на странице (`p.text-amber-300/70` не рендерится).
-  - Это НЕ дрейф от макета `design.html`/`design.png` (созданных до этой строки) — целенаправленное
-    расширение анатомии `PROJECT_APPROVAL`, найденное самим Mode B в круге 1 как пробел покрытия
-    (DROP не видел условия сделки), а не незапланированное отклонение кодера. Следующий fidelity-аудит
-    сверяет эту строку с ЭТИМ разделом, не с растровым референсом, который её не содержит.
+- The heading — `item.title` (`truncate`, a single line ≥640px; `line-clamp-2 wrap-anywhere` <640px — see
+  §10.4 about the 80-character name).
+- Meta — `Предложил {proposedBy} · {age}`. If `proposedBy` is absent (should not happen for
+  this kind, but fail-safe) — just `{age}` without «Предложил».
+- Actions — `<ProjectApprovalActions projectId={subjectId} companyName={title} onActed={...} />` **as
+  is**, without the `compact` prop (it turns on an icon-without-text at `lg:` — here the row is alone on the
+  screen anyway, there is enough room, text buttons are more readable).
+- If `actions` does not contain `'approve'`/`'reject'` (should not happen for `mine`, but the
+  `PendingItem.actions` contract in principle allows it) — only what is there is rendered; `'open'` without
+  approve/reject yields a single «Открыть» link instead of a pair of buttons.
+- **The third line — the viewer's share (decided in Mode B, round 1, UX-H-1; closed by fix-round 3).** When
+  `zone === 'mine'` and `item.viewerSharePercent != null` — another `<p>` is rendered under the meta line:
+  `Ваша доля: {viewerSharePercent}%`, plus ` · синьор: {seniorName}` if `seniorName` is present
+  (`text-[11px] text-amber-300/70` — a tone paler and smaller than the main meta: here the percentage is context
+  for the decision, not the subject of the decision itself, unlike `SHARE_APPROVAL` in §6.2, where `tabular-nums
+font-medium` is appropriate). Who sees this line and with what content is determined by the **viewer**, not
+  a backend flag:
+  - **SENIOR**, confirming their own project — `Ваша доля: {seniorSharePercent}%`, WITHOUT «синьор: …»
+    (they are the senior, adding their name would be redundant).
+  - **DROP**, confirming a project where `project.dropId === viewer.id` — `Ваша доля: {dropSharePercent}%
+· синьор: {senior.displayName}`. For DROP this is the only signal of the deal terms on this screen: DROP
+    has no access to `/projects` at all (RBAC), and unlike SENIOR has no «Открыть» on this
+    row — without the share, «Подтвердить» would be a decision made blind.
+  - **ADMIN** (and any other viewer of the `proposedByMe` zone) — this line never appears: ADMIN
+    sees a `mine` row only when they are themselves the project's SENIOR/DROP (a crossover case, the same computation as
+    above), and in `proposedByMe` they are an observer, not a party to the deal — there is nothing for them to confirm by share.
+  - Verified by a live pass on a scratch stand (Mode B, round 2, PR #667): a SENIOR viewer sees
+    `«Ваша доля: 26%»` without a suffix, a DROP viewer — `«Ваша доля: 5% · синьор: Dmytro Marchenko»`, ADMIN
+    on `proposedByMe` — `0` rows with this class on the page (`p.text-amber-300/70` is not rendered).
+  - This is NOT drift from the `design.html`/`design.png` mockup (created before this line) — a deliberate
+    extension of the `PROJECT_APPROVAL` anatomy, found by Mode B itself in round 1 as a coverage gap
+    (DROP did not see the deal terms), not an unplanned deviation by the coder. The next fidelity audit
+    checks this line against THIS section, not against the raster reference, which does not contain it.
 
 ### 6.2 `SHARE_APPROVAL`
 
@@ -295,17 +295,17 @@ font-medium` уместен). Кто видит эту строку и с как
 [Сейчас 26% → предлагают 30% · 1 день назад       ]
 ```
 
-- Заголовок — не `item.title` буквально, а зависит от того, что несёт `title` с бэкенда: если это уже
-  «Доля по умолчанию» / «Доля по проекту «X»» (различие user-scope / project-scope, см. §2) — рендерится
-  как есть. Рекомендация API-стороне (не мандат, но нужно решить консистентно): `title` = `'Доля по
-умолчанию'` для `USER_SENIOR_SHARE`, `` `Доля по проекту «${projectName}»` `` для
-  `PROJECT_SENIOR_SHARE` — ровно тот текст, что уже пишут существующие баннеры (`PendingBaseShareBanner`
-  говорит «долю по умолчанию», `PendingShareApprovalBanner` — «доля по проекту»), просто вынесенный на
-  уровень данных вместо хардкода в двух местах.
-- Мета — `Сейчас {currentPercent}% → предлагают {pendingPercent}% · {давность}`, оба числа
-  `tabular-nums font-medium`. Если `currentPercent` отсутствует (контрактно не должно для `mine`, но
-  defensive) — `Предлагают {pendingPercent}% · {давность}` без «Сейчас… →».
-- Действия — новый `SeniorShareApprovalActions` (§5.2 п.1), визуально идентичный `ProjectApprovalActions`.
+- The heading is not literally `item.title`, but depends on what `title` carries from the backend: if it is already
+  «Доля по умолчанию» / «Доля по проекту «X»» (the difference between user-scope / project-scope, see §2) — it is rendered
+  as is. A recommendation to the API side (not a mandate, but it must be decided consistently): `title` = `'Доля по
+умолчанию'` for `USER_SENIOR_SHARE`, `` `Доля по проекту «${projectName}»` `` for
+  `PROJECT_SENIOR_SHARE` — exactly the text the existing banners already write (`PendingBaseShareBanner`
+  says «долю по умолчанию», `PendingShareApprovalBanner` — «доля по проекту»), simply moved
+  to the data level instead of being hard-coded in two places.
+- Meta — `Сейчас {currentPercent}% → предлагают {pendingPercent}% · {age}`, both numbers
+  `tabular-nums font-medium`. If `currentPercent` is absent (by contract should not be for `mine`, but
+  defensive) — `Предлагают {pendingPercent}% · {age}` without «Сейчас… →».
+- Actions — the new `SeniorShareApprovalActions` (§5.2 item 1), visually identical to `ProjectApprovalActions`.
 
 ### 6.3 `CONTRACT_TO_SIGN`
 
@@ -314,25 +314,25 @@ font-medium` уместен). Кто видит эту строку и с как
 [6 часов назад                                     ]
 ```
 
-- Заголовок и бейдж — **раздельные flex-элементы** внутри `.item-title-row` (не один текстовый узел с
-  бейджем внутри), каждый со своим переносом. **Реальная находка, поймана на собственном мокапе**: при
-  первой вёрстке я положил бейдж внутрь того же `<p>`, что и заголовок, с `white-space: nowrap` — на
-  320px бейдж «готов к подписанию» обрезался вместе с текстом (см. скриншот `design-320.png` ДО фикса
-  vs текущий). Исправлено разделением на `item-title-row` (`flex flex-wrap`) с `item-title` (`flex: 1 1
-auto; min-width: 40px`) и бейджем как отдельным `flex`-соседом, который переносится на новую строку,
-  если не помещается, а не обрезается. Это тот самый класс дефекта AC7 («кнопки/бейджи не наезжают и не
-  обрезаются») — прямое доказательство, что и заголовок с бейджем нуждается в той же дисциплине, что и
-  заголовок с кнопками.
-- Мета — только давность (`{давность}`), без «от кого» — см. врезку §2.
-- Действие — одна кнопка `variant="default"` «Открыть» → `link` (`/profile?tab=contract` для своего
-  профиля — `EmployeeContractsService.getMyStatus` резолвит контракт вызывающего, второй адрес не
-  нужен). **Approve/reject на этом экране НЕТ** — задание прямо запрещает переносить подпись сюда
-  («строка ведёт туда»), это единственный kind без approve/reject-пары в принципе, не частный случай
-  отсутствующих `actions`.
+- The heading and the badge are **separate flex elements** inside `.item-title-row` (not one text node with
+  the badge inside), each with its own wrapping. **A real finding, caught on my own mockup**: in the
+  first layout I put the badge inside the same `<p>` as the heading, with `white-space: nowrap` — at 320px the badge
+  «готов к подписанию» was cut off together with the text (see screenshot `design-320.png` BEFORE the fix
+  vs the current one). Fixed by splitting into `item-title-row` (`flex flex-wrap`) with `item-title` (`flex: 1 1
+auto; min-width: 40px`) and the badge as a separate `flex` neighbor that wraps to a new line
+  if it does not fit, rather than being cut off. This is exactly the AC7 defect class («buttons/badges do not overlap and are not
+  cut off») — direct proof that a heading with a badge needs the same discipline as a
+  heading with buttons.
+- Meta — age only (`{age}`), without «from whom» — see the note in §2.
+- Action — one `variant="default"` button «Открыть» → `link` (`/profile?tab=contract` for one's own
+  profile — `EmployeeContractsService.getMyStatus` resolves the caller's contract, a second address
+  is not needed). **There is NO approve/reject on this screen** — the assignment explicitly forbids moving signing here
+  («the row leads there»); this is the only kind with no approve/reject pair at all, not a special case of
+  missing `actions`.
 
-### 6.4 `proposedByMe` (ADMIN) — вариант «наблюдатель»
+### 6.4 `proposedByMe` (ADMIN) — the «observer» variant
 
-Тот же каркас строки, другой фон (`.item-row.observer` — см. §4), мета заменяется на «Ждём: {имена}»:
+The same row skeleton, a different background (`.item-row.observer` — see §4), meta is replaced with «Ждём: {names}»:
 
 ```
 [Нордвік Діджитал                                 ]  [Открыть →]
@@ -345,68 +345,68 @@ auto; min-width: 40px`) и бейджем как отдельным `flex`-со�
 [Коваленко · 1 день назад                          ]
 ```
 
-- `waitingFor` — массив имён, соединённых запятой (`waitingFor.join(', ')`). Вопрос «через запятую или
-  через „и“ для последнего» — оставляю `copy-reviewer` (см. §12); дефолт в мокапе — простое `join(',
-')`, самый безопасный вариант без риска согласования числительных/родов на разных именах.
-- `PROJECT_APPROVAL`, `proposedByMe`: действие — только `'open'` (`variant="ghost"`), см. врезку в §2
-  задания — эндпоинта «отозвать проект-черновик» в `main` нет (`@Delete(':id')` = `archive`, это ДРУГОЕ,
-  более широкое действие, не эквивалент отзыва конкретного предложения). Зафиксировано в «Допущениях»
-  задания, не решается здесь заново.
-- `SHARE_APPROVAL`, `proposedByMe`: действие — `<CancelPendingShareButton>` (§5.1), которая уже несёт
-  собственный `AlertDialog`-подтверждение («Отменить предложение X%?» / «Оставить» / «Отменить
-  предложение»), сюда встраивается без изменений.
+- `waitingFor` — an array of names, joined by a comma (`waitingFor.join(', ')`). The question «comma-separated or
+  with „и“ before the last» — I leave to `copy-reviewer` (see §12); the default in the mockup is a plain `join(',
+')`, the safest option with no risk of numeral/gender agreement across different names.
+- `PROJECT_APPROVAL`, `proposedByMe`: the action is only `'open'` (`variant="ghost"`), see the note in §2
+  of the assignment — there is no «withdraw a project draft» endpoint in `main` (`@Delete(':id')` = `archive`, this is a DIFFERENT,
+  broader action, not equivalent to withdrawing a specific proposal). Recorded in the «Assumptions»
+  of the assignment, not decided here anew.
+- `SHARE_APPROVAL`, `proposedByMe`: the action is `<CancelPendingShareButton>` (§5.1), which already carries
+  its own `AlertDialog` confirmation («Отменить предложение X%?» / «Оставить» / «Отменить
+  предложение»), embedded here without changes.
 
-### 6.5 Неизвестный `kind` (AC6 — не роняет экран)
+### 6.5 Unknown `kind` (AC6 — does not crash the screen)
 
-`PendingItemRow`'s switch получает `default`-ветку: заголовок = `item.title` (если есть, иначе
-`'Запрос на действие'`), мета = давность, действие = `'open'`, если есть в `actions`, иначе ничего.
-Иконка — `HelpCircle` (нейтральная, не притворяется, что знает, что это). Не попадает ни в одну
-kind-секцию — рендерится в отдельной под-секции «Другое» **в конце зоны**, показывается только если
-такой пункт реально пришёл (сегодня — никогда; это чисто defensive branch на будущее расширение enum
-без деплоя фронта одновременно с бэком).
-
----
-
-## 7. Nav-пункт + бейдж-счётчик
-
-`nav-sidebar.tsx`, `NAV_ITEMS`: новая запись `{ label: 'Ожидают ответа', icon: Clock, to: '/pending',
-roles: navRolesFor('/pending') }`, в `route-access.ts` — `{ prefix: '/pending', roles: ALL_ROLES }`
-(тот же паттерн, что `/profile` и `/onboarding` — единственные два существующих `ALL_ROLES`-пункта в
-файле). Позиция в списке — после «Дашборд», перед «Пользователи» (по
-аналогии с тем, что это тоже «личное», не операционный раздел вроде «Проекты»/«Финансы»); финальная
-позиция — на усмотрение Coder, не является дизайн-решением.
-
-Бейдж — `mine.length`, тот же самый запрос, что и сама страница (`PENDING_QUERY_KEY`, отдельный от
-`PENDING_APPROVALS_QUERY_KEY` виджета — не смешивать, у него другая форма ответа). **Три состояния**
-(см. `design.html`, «Справочно»):
-
-| `mine.length` | Вид                                                                                                                                               |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `0`           | Бейджа нет вообще (пункт — просто пункт меню, без числа)                                                                                          |
-| `1–9`         | Точное число, тот же визуал, что `notifications-bell-badge`                                                                                       |
-| `10+`         | Кап на `99+` — конвенция УЖЕ есть в `notifications-bell.tsx` (`unreadCount > 99 ? '99+' : unreadCount`), берётся дословно, не изобретается заново |
-
-Верстка бейджа — `absolute -top-0.5 -right-0.5` (или эквивалент под `DesktopNavLink`'s `relative`
-обёртку) `flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold
-text-primary-foreground` — 1:1 копия классов `notifications-bell-badge` (нет причины вводить второй
-визуальный язык для «числа непрочитанного/незакрытого» в одном приложении).
-
-**ADMIN-асимметрия — уже описана в §3 «Почему у ADMIN зона…» и в §1 «Memorable detail». Здесь важно
-только: бейдж это НЕ считает.** `proposedByMe.length` никогда не попадает в счётчик нав-пункта —
-бейдж отвечает на вопрос «что мне лично нужно сделать», а не «сколько всего в системе ждёт кого-то».
-
-**Мобильный `Sheet`-вариант меню** (`nav-sidebar.tsx`, `<Sheet>` ветка) — тот же пункт, тот же бейдж,
-но там `<item.icon>` и `<span>{item.label}</span>` уже идут в ряд без `collapsed`-состояния — бейдж
-пристраивается тем же паттерном `ml-auto` рядом с лейблом, а не `absolute` поверх иконки (в
-развёрнутом меню есть горизонтальное место, обрезать иконку абсолютным позиционированием не нужно).
+`PendingItemRow`'s switch gets a `default` branch: heading = `item.title` (if present, otherwise
+`'Запрос на действие'`), meta = age, action = `'open'` if it is in `actions`, otherwise nothing.
+The icon is `HelpCircle` (neutral, does not pretend to know what it is). It does not fall into any
+kind section — it is rendered in a separate sub-section «Другое» **at the end of the zone**, shown only if
+such an item actually arrived (today — never; this is a purely defensive branch for a future enum extension
+without deploying the front end simultaneously with the back end).
 
 ---
 
-## 8. Футер попапа колокольчика
+## 7. Nav item + counter badge
 
-`notifications-bell.tsx` — единственная правка: один `<footer>`-блок сразу после закрывающего тега
-`</ul>` (после ветки `items.length === 0 ? ... : (...)`, то есть футер виден **и** при пустом списке
-уведомлений, **и** при непустом — это не часть состояния списка):
+`nav-sidebar.tsx`, `NAV_ITEMS`: a new entry `{ label: 'Ожидают ответа', icon: Clock, to: '/pending',
+roles: navRolesFor('/pending') }`, in `route-access.ts` — `{ prefix: '/pending', roles: ALL_ROLES }`
+(the same pattern as `/profile` and `/onboarding` — the only two existing `ALL_ROLES` items in the
+file). Position in the list — after «Дашборд», before «Пользователи» (by
+analogy with the fact that this is also «personal», not an operational section like «Проекты»/«Финансы»); the final
+position is at the Coder's discretion, it is not a design decision.
+
+The badge is `mine.length`, the same query as the page itself (`PENDING_QUERY_KEY`, separate from the widget's
+`PENDING_APPROVALS_QUERY_KEY` — do not mix, it has a different response shape). **Three states**
+(see `design.html`, «Справочно»):
+
+| `mine.length` | Look                                                                                                                                                      |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `0`           | No badge at all (the item is just a menu item, without a number)                                                                                          |
+| `1–9`         | The exact number, the same visual as `notifications-bell-badge`                                                                                           |
+| `10+`         | Capped at `99+` — the convention ALREADY exists in `notifications-bell.tsx` (`unreadCount > 99 ? '99+' : unreadCount`), taken verbatim, not invented anew |
+
+The badge layout — `absolute -top-0.5 -right-0.5` (or an equivalent under `DesktopNavLink`'s `relative`
+wrapper) `flex h-4 min-w-4 items-center justify-center rounded-full bg-primary text-[10px] font-bold
+text-primary-foreground` — a 1:1 copy of the `notifications-bell-badge` classes (there is no reason to introduce a second
+visual language for a «number of unread/unclosed» in one application).
+
+**The ADMIN asymmetry — already described in §3 «Why for ADMIN the zone…» and in §1 «Memorable detail». The only thing that matters here:
+the badge does NOT count this.** `proposedByMe.length` never gets into the nav-item counter —
+the badge answers the question «what do I personally need to do», not «how much in total in the system is waiting for someone».
+
+**The mobile `Sheet` variant of the menu** (`nav-sidebar.tsx`, the `<Sheet>` branch) — the same item, the same badge,
+but there `<item.icon>` and `<span>{item.label}</span>` already go in a row without the `collapsed` state — the badge
+is placed by the same `ml-auto` pattern next to the label, not `absolute` over the icon (the
+expanded menu has horizontal room, there is no need to clip the icon with absolute positioning).
+
+---
+
+## 8. Bell popup footer
+
+`notifications-bell.tsx` — the only edit: one `<footer>` block right after the closing tag
+`</ul>` (after the `items.length === 0 ? ... : (...)` branch, i.e. the footer is visible **both** with an empty list of
+notifications **and** a non-empty one — it is not part of the list state):
 
 ```tsx
 <footer className="border-t border-border/50 px-4 py-2.5 text-center">
@@ -422,86 +422,86 @@ text-primary-foreground` — 1:1 копия классов `notifications-bell-b
 </footer>
 ```
 
-- `onClick={() => setOpen(false)}` — тот же паттерн, что `handleItemClick` уже делает для обычных
-  пунктов (закрыть дропдаун перед навигацией).
-- Не завязан на `unreadCount`/`hasUnread` — это не «ещё одно уведомление», а постоянная точка выхода на
-  агрегирующий экран, видна всегда.
-- Копия текста «Всё, что ждёт ответа» — сознательно **не** «Ждёт решения» (см. врезку в §13 про
-  расхождение с бэклог-пунктом 168) и не «Все уведомления» (это НЕ то же самое, что список
-  уведомлений выше в этом же попапе — типичная путаница, которую снимает явный текст «ждёт ответа»,
-  отличный от заголовка «Уведомления» тремя строками выше).
+- `onClick={() => setOpen(false)}` — the same pattern that `handleItemClick` already uses for regular
+  items (close the dropdown before navigating).
+- Not tied to `unreadCount`/`hasUnread` — it is not «one more notification», but a permanent exit point to the
+  aggregating screen, always visible.
+- The copy of the text «Всё, что ждёт ответа» is deliberately **not** «Ждёт решения» (see the note in §13 about the
+  divergence from backlog item 168) and not «Все уведомления» (that is NOT the same as the list of
+  notifications above in this same popup — a typical confusion that the explicit text «ждёт ответа» removes,
+  distinct from the «Уведомления» heading three lines above).
 
 ---
 
-## 9. Адаптив (320/375 · 768 · 1024/1280 · 1440/1920)
+## 9. Responsive (320/375 · 768 · 1024/1280 · 1440/1920)
 
-### Ключевое решение: строчный список (flex-row), не переключение table↔card
+### Key decision: a line-by-line list (flex-row), not a table↔card switch
 
-Задание допускает оба варианта («768 — две колонки или таблица»). Выбираю **один и тот же `.item-row`
-на всех классах устройств**, без структурного переключения на `<table>` на десктопе — по трём причинам:
+The assignment allows both options («768 — two columns or a table»). I choose **the same `.item-row`
+on all device classes**, without a structural switch to `<table>` on desktop — for three reasons:
 
-1. **Это уже устоявшийся паттерн ИМЕННО для approval-строк в этом самом приложении.**
-   `PendingProjectApprovalsPanel`, `ProjectApprovalActions`, `PendingBaseShareBanner` — все три
-   компонента, которые этот экран переиспользует буквально, уже используют flex-row с
-   `flex-wrap`, не таблицу. Вводить `<table>` здесь означало бы, что три идентичных по смыслу
-   действия на одной странице выглядят по двум разным грамматикам.
-2. **Данных в строке мало** (заголовок + одна строка меты + 1-2 кнопки) — таблица оправдана, когда
-   нужно сравнивать значения ПО КОЛОНКАМ через много строк (числа/статусы); здесь каждая строка — это
-   самодостаточная карточка-решение, а не запись в реестре.
-3. **`justify-content: space-between` внутри строки одинаковой ширины УЖЕ даёт табличное выравнивание
-   визуально** (действия у всех строк прижаты к одному правому краю) — без platform-механики
-   `<table>` (`role="row"`/`role="cell"`, которая сюда не подходит семантически: это не данные, а
-   список действий).
+1. **It is already an established pattern SPECIFICALLY for approval rows in this very application.**
+   `PendingProjectApprovalsPanel`, `ProjectApprovalActions`, `PendingBaseShareBanner` — all three
+   components that this screen reuses literally already use flex-row with
+   `flex-wrap`, not a table. Introducing a `<table>` here would mean three actions identical in meaning
+   on one page look like two different grammars.
+2. **There is little data in a row** (a heading + one meta line + 1-2 buttons) — a table is justified when
+   values need to be compared BY COLUMNS across many rows (numbers/statuses); here each row is a
+   self-sufficient decision card, not a registry entry.
+3. **`justify-content: space-between` inside a row of equal width ALREADY gives table alignment
+   visually** (the actions of all rows are pressed to one right edge) — without the platform mechanics of
+   `<table>` (`role="row"`/`role="cell"`, which does not fit here semantically: this is not data but a
+   list of actions).
 
-«Таблица с капом ширины» из задания читается как «выровненный, некэшированный список с ограниченной
-шириной колонки», а не как требование к тегу `<table>` — капом закрывается через §0.5/§9 `max-w-6xl`.
+The «table with a width cap» from the assignment reads as «an aligned, non-cached list with a limited
+column width», not as a requirement for the `<table>` tag — the cap is satisfied through §0.5/§9 `max-w-6xl`.
 
-### Per-class поведение
+### Per-class behavior
 
-| Класс         | Ширины      | Поведение                                                                                                                                                                                                                                                                                                                                                                                                    |
-| ------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Мобильный** | 320 / 375   | `.item-row` — заголовок+мета на всю ширину, кнопки на следующей строке (`flex-wrap`), каждая кнопка `h-11` (44px, `responsive-design.md` мобильный минимум — `ProjectApprovalActions` уже это делает через `sm:h-7`, наследуется бесплатно). Диалог причины отказа — `CrmDialogContent` (уже `w-full`, без радиуса ниже `sm:`, `max-h-[90dvh]` — см. §9.1 почему НЕ нужен отдельный bottom-sheet компонент). |
-| **Планшет**   | 768         | Тот же `.item-row`, кнопки чаще помещаются в один ряд с текстом (ширины хватает) — чисто следствие `flex-wrap`, не отдельная ветка кода.                                                                                                                                                                                                                                                                     |
-| **Ноутбук**   | 1024 / 1280 | То же, `lg:max-w-6xl` ещё не связывает (естественная ширина контента у́же кэпа на этих экранах — см. §0.5 измерения `UserProfileShell`, тот же кейс).                                                                                                                                                                                                                                                         |
-| **Большой**   | 1440 / 1920 | `lg:max-w-6xl` реально ограничивает — строки не растягиваются на всю ширину экрана, ряд текст+кнопки не «расползается» глазами.                                                                                                                                                                                                                                                                              |
+| Class      | Widths      | Behavior                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ---------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Mobile** | 320 / 375   | `.item-row` — heading+meta across the full width, buttons on the next line (`flex-wrap`), each button `h-11` (44px, `responsive-design.md` mobile minimum — `ProjectApprovalActions` already does this via `sm:h-7`, inherited for free). The reject-reason dialog — `CrmDialogContent` (already `w-full`, no radius below `sm:`, `max-h-[90dvh]` — see §9.1 why a separate bottom-sheet component is NOT needed). |
+| **Tablet** | 768         | The same `.item-row`, buttons more often fit in one row with the text (there is enough width) — purely a consequence of `flex-wrap`, not a separate code branch.                                                                                                                                                                                                                                                   |
+| **Laptop** | 1024 / 1280 | The same, `lg:max-w-6xl` does not constrain yet (the natural content width is narrower than the cap on these screens — see the §0.5 measurements of `UserProfileShell`, the same case).                                                                                                                                                                                                                            |
+| **Large**  | 1440 / 1920 | `lg:max-w-6xl` actually constrains — rows do not stretch across the whole screen width, the text+buttons row does not «sprawl» for the eye.                                                                                                                                                                                                                                                                        |
 
-### 9.1 Диалог причины отказа — переиспользуемый `CrmDialogContent`, НЕ новый bottom-sheet
+### 9.1 The reject-reason dialog — the reusable `CrmDialogContent`, NOT a new bottom-sheet
 
-Задание (со ссылкой на `responsive-design.md`) предполагает bottom-sheet/full-screen на мобайле для
-диалога отказа. Проверено по коду: `CrmDialogContent` (`apps/web/app/components/ui/crm-dialog.tsx`) на
-`<sm` уже `w-full`, без `sm:rounded-xl` (то есть без скруглений — почти edge-to-edge), с `max-h-[90dvh]`
-и скроллящимся `CrmDialogBody`. Это ровно тот эффект, которого добивается bottom-sheet (почти весь
-экран, вертикальный скролл контента, фиксированный футер с кнопками) — просто через центрированную, а
-не приклеенную к низу, анимацию. **Это уже используемый диалог для ЭТОГО ЖЕ действия** —
-`ProjectApprovalActions`, `PendingBaseShareBanner`, `PendingShareApprovalBanner` все используют
-`CrmDialogContent maxWidth="sm:max-w-md"` для причины отказа. Вводить настоящий bottom-sheet
-(другая анимация, другой примитив) только для `/pending` значило бы, что один и тот же диалог
-«отклонить» выглядит по-разному в зависимости от того, с какого экрана его открыли — что хуже, чем
-не дотянуть до буквы `responsive-design.md`. **Решение (A1, обратимо):** переиспользовать
-`CrmDialogContent` как есть.
+The assignment (referencing `responsive-design.md`) assumes a bottom-sheet/full-screen on mobile for
+the reject dialog. Verified in code: `CrmDialogContent` (`apps/web/app/components/ui/crm-dialog.tsx`) at
+`<sm` is already `w-full`, without `sm:rounded-xl` (i.e. without rounding — almost edge-to-edge), with `max-h-[90dvh]`
+and a scrolling `CrmDialogBody`. This is exactly the effect a bottom-sheet aims for (almost the whole
+screen, vertical scroll of content, a fixed footer with buttons) — just via a centered rather than
+bottom-attached animation. **It is already the dialog used for THIS SAME action** —
+`ProjectApprovalActions`, `PendingBaseShareBanner`, `PendingShareApprovalBanner` all use
+`CrmDialogContent maxWidth="sm:max-w-md"` for the rejection reason. Introducing a real bottom-sheet
+(a different animation, a different primitive) only for `/pending` would mean the same «reject» dialog
+looks different depending on which screen it was opened from — which is worse than
+falling short of the letter of `responsive-design.md`. **Decision (A1, reversible):** reuse
+`CrmDialogContent` as is.
 
-### 9.2 Тач-таргеты
+### 9.2 Touch targets
 
-Все интерактивные элементы ≥44×44 CSS px на `<sm:` (мобильный порог `responsive-design.md`, строже
-базового a11y-минимума 24px): approve/reject/cancel-кнопки наследуют это от переиспользуемых
-компонентов (`ProjectApprovalActions`/`CancelPendingShareButton` уже несут `h-11 sm:h-7`/`h-11 sm:h-8`),
-новый `SeniorShareApprovalActions` обязан повторить тот же паттерн (`h-11` база, `sm:h-7` от 640px).
-Кнопка «Открыть» (contract/project-наблюдатель) — тот же `h-11 sm:h-7|h-8`. Ссылка в футере попапа
-(§8) — короткий текст, но попадает в кликабельную зону `py-2.5` (≥44px по высоте включая паддинг
-`<footer>`, замерить в Mode B).
+All interactive elements are ≥44×44 CSS px at `<sm:` (the `responsive-design.md` mobile threshold, stricter than
+the basic a11y minimum of 24px): approve/reject/cancel buttons inherit this from the reused
+components (`ProjectApprovalActions`/`CancelPendingShareButton` already carry `h-11 sm:h-7`/`h-11 sm:h-8`),
+the new `SeniorShareApprovalActions` must repeat the same pattern (`h-11` base, `sm:h-7` from 640px).
+The «Открыть» button (contract/project-observer) — the same `h-11 sm:h-7|h-8`. The link in the popup footer
+(§8) — short text, but falls into the clickable area `py-2.5` (≥44px in height including the padding
+of the `<footer>`, to be measured in Mode B).
 
 ---
 
-## 10. Состояния
+## 10. States
 
-> **Тексты в этом разделе устарели после copy-ревью PR #667 (круги 1–4).** Канон — код и тело PR; раздел описывает
-> **анатомию** строки, не её слова. Заменено: «Предложил {имя}» → «Предлагает {имя}» · «Ничего не ждёт вашего ответа» →
-> «…вашего решения» (подпись — «Новые проекты, доли и контракты появятся здесь.») · «Не удалось загрузить список.» →
+> **The texts in this section are outdated after the copy review of PR #667 (rounds 1–4).** The canon is the code and the PR body; the section describes the
+> **anatomy** of a row, not its words. Replaced: «Предложил {имя}» → «Предлагает {имя}» · «Ничего не ждёт вашего ответа» →
+> «…вашего решения» (caption — «Новые проекты, доли и контракты появятся здесь.») · «Не удалось загрузить список.» →
 > «Не удалось загрузить, что ждёт решения.» · «Отозвать» → «Отменить предложение» · «Доля по проекту «{name}»» →
-> «{companyName}» · в зоне `proposedByMe` «предлагают» → «предложено» · «ждём:» → «Ждём:». Растры (`design.html`,
-> `design-*.png`) сделаны до этих правок и источником текста не являются.
+> «{companyName}» · in the `proposedByMe` zone «предлагают» → «предложено» · «ждём:» → «Ждём:». The rasters (`design.html`,
+> `design-*.png`) were made before these edits and are not a source of text.
 
-### 10.1 Пусто (обе зоны пусты)
+### 10.1 Empty (both zones are empty)
 
 ```
         [Inbox icon, 34px, text-muted-foreground/40]
@@ -512,196 +512,195 @@ text-primary-foreground` — 1:1 копия классов `notifications-bell-b
    здесь, как только кто-то будет ждать вашего решения.
 ```
 
-`data-testid="pending-empty"`. Центрировано по всей высоте content-области (`flex-1 flex flex-col
-items-center justify-center`, не просто `padding` сверху — на большом экране «Ничего не ждёт» не
-должно жаться к самому верху страницы). Копия — прямое эхо заголовка зоны («Ждёт вашего ответа» →
-«Ничего не ждёт вашего ответа»), тот же самый прецедент, что `notifications-bell.tsx` делает для
+`data-testid="pending-empty"`. Centered across the full height of the content area (`flex-1 flex flex-col
+items-center justify-center`, not just `padding` on top — on a large screen «Ничего не ждёт» must
+not cling to the very top of the page). The copy is a direct echo of the zone heading («Ждёт вашего ответа» →
+«Ничего не ждёт вашего ответа»), the same precedent that `notifications-bell.tsx` makes for
 «Уведомлений» → «Уведомлений нет».
 
-### 10.2 Загрузка
+### 10.2 Loading
 
-`Skeleton` — 2-3 плейсхолдер-строки высотой, близкой к реальной строке (`h-16 rounded-md`, не `h-24`
-карточка целиком — здесь несколько узких строк более честно отражает будущий контент, чем одна большая
-плашка). `data-testid="pending-loading"`.
+`Skeleton` — 2-3 placeholder rows of a height close to a real row (`h-16 rounded-md`, not an `h-24`
+card as a whole — several narrow rows more honestly reflect the future content than one large
+plate). `data-testid="pending-loading"`.
 
-### 10.3 Ошибка
+### 10.3 Error
 
-Тот же минималистичный паттерн, что `DropBalanceCard.tsx`: центрированный текст +
-`variant="ghost"`-кнопка «Повторить» — не изобретаю новую формулировку, «Повторить» уже словарь
-проекта (`DropBalanceCard.tsx`, `TosPdfPreview.tsx`, `ContractPdfPreview.tsx`, `CascadeImpactPanel.tsx`
-— 4 независимых прецедента, одно слово). `data-testid="pending-error"`.
+The same minimalist pattern as `DropBalanceCard.tsx`: centered text +
+a `variant="ghost"` button «Повторить» — I do not invent a new wording, «Повторить» is already project vocabulary
+(`DropBalanceCard.tsx`, `TosPdfPreview.tsx`, `ContractPdfPreview.tsx`, `CascadeImpactPanel.tsx`
+— 4 independent precedents, one word). `data-testid="pending-error"`.
 
 ```
         Не удалось загрузить список. [Повторить]
 ```
 
-### 10.4 Overflow — 80-символьное название проекта
+### 10.4 Overflow — an 80-character project name
 
-Продемонстрировано в `design.html` Вид 1 (вторая строка секции «Проекты»): `<640px` заголовок —
-`line-clamp-2` + `overflow-wrap: anywhere` (класс `wrap-anywhere`, тот же приём, что
-`notifications-bell.tsx` уже использует для длинных строк — обоснование там же: `break-word`
-исключён из intrinsic-size расчёта CSS Text spec, `wrap-anywhere` — нет). `≥640px` — одна строка с
-`truncate` (многоточие), т.к. ширины уже достаточно, чтобы не тратить вертикальное место на второй ряд.
-Кнопки при этом НЕ сжимаются и не обрезаются — они в отдельном flex-item с `flex: none`, длинный
-заголовок «отжимает» только себя, не соседей (тот же `min-w-0`+`flex-1` на `.item-main`, что уже
-разобран в §6 каркасе).
+Demonstrated in `design.html` View 1 (the second row of the «Проекты» section): `<640px` the heading is
+`line-clamp-2` + `overflow-wrap: anywhere` (the `wrap-anywhere` class, the same device that
+`notifications-bell.tsx` already uses for long strings — rationale there too: `break-word` is
+excluded from the intrinsic-size calculation by the CSS Text spec, `wrap-anywhere` is not). `≥640px` — a single line with
+`truncate` (ellipsis), since the width is already enough not to spend vertical space on a second row.
+The buttons at the same time are NOT squeezed and not cut off — they are in a separate flex-item with `flex: none`, the long
+heading «squeezes» only itself, not its neighbors (the same `min-w-0`+`flex-1` on `.item-main` already
+covered in the §6 skeleton).
 
 ---
 
 ## 11. Motion
 
-Per `foundation.md` §7 (только `transform`/`opacity`, 150–300ms, ease-out):
+Per `foundation.md` §7 (only `transform`/`opacity`, 150–300ms, ease-out):
 
-- **Вход зоны/секции при монтировании** — тот же паттерн, что `PendingProjectApprovalsPanel.card`
+- **Zone/section entrance on mount** — the same pattern as `PendingProjectApprovalsPanel.card`
   (`{ hidden: { opacity: 0, y: 12 }, show: { opacity: 1, y: 0, transition: { duration: 0.3, ease:
-[0.25, 0.1, 0.25, 1] } } }`) — переиспользуется буквально (импортировать `card` из того файла или
-  скопировать константу — решение Coder, поведение то же).
-- **Исчезновение строки после действия** (AC4 — «строка исчезла») — `AnimatePresence` вокруг
-  `.kind-list`, каждая строка — `motion.div` с `layout` (соседние строки плавно занимают освободившееся
-  место) и `exit={{ opacity: 0, height: 0 }}`. Длительность 200ms, тот же диапазон, что и остальные
-  переходы панелей (§7 foundation.md).
-- **`prefers-reduced-motion`** — framer-motion уважает системную настройку из коробки при
-  `useReducedMotion()`/глобальном `MotionConfig`, если он уже настроен на уровне приложения; если нет
-  — Coder добавляет `transition: { duration: shouldReduceMotion ? 0 : 0.2 }` на exit/enter здесь же (не
-  изобретать новый механизм, foundation.md §7 уже требует уважать этот флаг).
-- **Никакой анимации на бейдж-счётчике** нав-пункта — число просто меняется (не «прыгает»/не
-  анимируется цифрами) — избыточная анимация на постоянно видимом элементе чата не нужна.
+[0.25, 0.1, 0.25, 1] } } }`) — reused literally (import `card` from that file or
+  copy the constant — the Coder's decision, the behavior is the same).
+- **A row disappearing after an action** (AC4 — «the row disappeared») — `AnimatePresence` around
+  `.kind-list`, each row is a `motion.div` with `layout` (neighboring rows smoothly take the freed
+  space) and `exit={{ opacity: 0, height: 0 }}`. Duration 200ms, the same range as the other
+  panel transitions (§7 of foundation.md).
+- **`prefers-reduced-motion`** — framer-motion respects the system setting out of the box with
+  `useReducedMotion()`/a global `MotionConfig`, if it is already configured at the app level; if not
+  — the Coder adds `transition: { duration: shouldReduceMotion ? 0 : 0.2 }` on exit/enter right here (do not
+  invent a new mechanism, foundation.md §7 already requires respecting this flag).
+- **No animation on the counter badge** of the nav item — the number just changes (does not «jump»/is not
+  animated by digits) — excessive animation on a permanently visible element is not needed.
 
 ---
 
 ## 12. A11y (WCAG 2.2 AA) — skill `accessibility`
 
-- **Семантика.** `<main>`/секции — обычные `<section>`+`<h2>`(зона)/`<h3>`(kind) вместо голых `div`;
-  заголовки — реальные заголовки уровня, не декоративный текст с похожим классом (даже при том, что
-  страница не имеет `<h1>` — это НЕ означает отсутствие иерархии заголовков вообще, просто верхний
-  уровень страницы не дублирует то, что уже сказано в nav; `<h2>` — валидное начало иерархии внутри
+- **Semantics.** `<main>`/sections — regular `<section>`+`<h2>` (zone)/`<h3>` (kind) instead of bare `div`s;
+  headings — real level headings, not decorative text with a similar class (even though the
+  page has no `<h1>` — this does NOT mean the absence of a heading hierarchy altogether, it is just that the top
+  level of the page does not duplicate what is already said in the nav; `<h2>` is a valid start of the hierarchy inside
   `<main>`).
-- **Фокус.** Каждая интерактивная единица (`Button`, `Link`) уже несёт
-  `focus-visible:ring-2 focus-visible:ring-ring` через shadcn-базовые классы — не трогается. Порядок
-  focus — сверху вниз, слева направо, естественный DOM-порядок (заголовок секции не фокусируется,
-  первая focusable-единица в строке — кнопка).
-- **Target-size (SC 2.5.8).** 24×24 CSS px — общий a11y-минимум; на `<sm:` (мобильный) — 44×44,
-  строже (см. §9.2). Ссылка в футере попапа (§8) и «Открыть»-кнопки — тоже подпадают, не только
+- **Focus.** Every interactive unit (`Button`, `Link`) already carries
+  `focus-visible:ring-2 focus-visible:ring-ring` through the shadcn base classes — not touched. The focus
+  order — top to bottom, left to right, natural DOM order (the section heading is not focusable,
+  the first focusable unit in a row is the button).
+- **Target size (SC 2.5.8).** 24×24 CSS px is the general a11y minimum; at `<sm:` (mobile) — 44×44,
+  stricter (see §9.2). The link in the popup footer (§8) and the «Открыть» buttons also fall under it, not only
   approve/reject.
-- **Live-region на исчезновение строки (SC 4.1.3, status messages).** Тост (`sonner`) на своё действие
-  уже озвучивается — но visually сама строка пропадает из DOM синхронно с этим же событием (AC4), и
-  screen-reader пользователь, находящийся ВНУТРИ строки (например, на кнопке «Подтвердить» в момент
-  клика), может потерять фокус в никуда, если DOM-узел, на котором стоял фокус, исчезает. Рекомендация:
-  после успешной мутации фокус переводится на ближайший оставшийся элемент (следующую строку той же
-  секции, либо на сам заголовок секции, если строка была последней) — тот же паттерн, что модалки уже
-  обязаны соблюдать при закрытии (фокус возвращается на триггер), только здесь триггер исчез вместе со
-  строкой, значит цель — следующий логичный элемент, не `document.body`.
-- **Счётчик под aria-live не нужен отдельно** — сам факт, что строка пропала (плюс тост «Проект
-  подтверждён» / аналог для доли), уже сообщает результат; дублирующий `aria-live`-параграф с текстом
-  «Осталось: N» добавил бы шум без новой информации (в отличие от `project-status-filter.md` §10, где
-  список остаётся на месте и просто перефильтровывается — здесь единица уходит насовсем, разница
-  существенная).
-- **Иконки-only.** В этом экране таких нет в самих строках (`ProjectApprovalActions`,
-  `CancelPendingShareButton` уже несут `aria-label`/`title` для случаев, когда текст скрыт по `compact`
-  — сюда компакт-режим не подключается, см. §6.1). В nav-пункте — иконка ВСЕГДА с видимым текстом
-  (desktop развёрнутый + мобильный Sheet), кроме `collapsed`-состояния сайдбара, где уже есть готовый
-  `Tooltip`-паттерн (`DesktopNavLink`, §0) — новый пункт наследует его бесплатно, ничего добавлять не
-  нужно.
-- **Контраст.** `amber-400`/`amber-300` на `bg-amber-500/[0.06]`/`bg-muted/20`, `emerald-400`/
-  `destructive` на прозрачном/`bg-transparent` — те же пары, что уже используются и не получали
-  находок по контрасту на тёмной теме в трёх исходных компонентах (§0.2-0.3). Новых замеров не требуется
-  — тональность идентична.
-- **Табличная семантика НЕ вводится** (см. §9) — значит и `role="table"`/`aria-rowindex` и т.п. не
-  нужны; список — обычный `<ul>`/`<li>` внутри `PendingKindSection`, каждая строка — `<li>` (не голый
-  `div` — список остаётся списком для screen-reader навигации по элементам, «3 пункта в списке»
-  озвучивается нативно).
+- **Live region for a disappearing row (SC 4.1.3, status messages).** The toast (`sonner`) for the user's own action
+  is already announced — but visually the row itself disappears from the DOM synchronously with this same event (AC4), and
+  a screen-reader user who is INSIDE the row (e.g. on the «Подтвердить» button at the moment of the
+  click) may lose focus into nowhere if the DOM node holding focus disappears. Recommendation:
+  after a successful mutation, focus is moved to the nearest remaining element (the next row of the same
+  section, or the section heading itself if the row was the last) — the same pattern that modals are
+  already required to follow on close (focus returns to the trigger), only here the trigger disappeared along with the
+  row, so the target is the next logical element, not `document.body`.
+- **A counter under aria-live is not needed separately** — the very fact that the row disappeared (plus the toast «Проект
+  подтверждён» / its analogue for a share) already reports the result; a duplicate `aria-live` paragraph with the text
+  «Осталось: N» would add noise without new information (unlike `project-status-filter.md` §10, where the
+  list stays in place and is merely re-filtered — here the unit leaves for good, the difference is
+  substantial).
+- **Icon-only.** There are none in the rows of this screen themselves (`ProjectApprovalActions`,
+  `CancelPendingShareButton` already carry `aria-label`/`title` for the cases when the text is hidden by `compact`
+  — compact mode is not connected here, see §6.1). In the nav item — the icon ALWAYS with visible text
+  (desktop expanded + mobile Sheet), except the sidebar's `collapsed` state, where there is already a ready
+  `Tooltip` pattern (`DesktopNavLink`, §0) — the new item inherits it for free, nothing needs to be added.
+- **Contrast.** `amber-400`/`amber-300` on `bg-amber-500/[0.06]`/`bg-muted/20`, `emerald-400`/
+  `destructive` on transparent/`bg-transparent` — the same pairs that are already used and received no
+  contrast findings on the dark theme in the three source components (§0.2-0.3). No new measurements are required
+  — the tonality is identical.
+- **Table semantics are NOT introduced** (see §9) — so `role="table"`/`aria-rowindex` etc. are not
+  needed either; the list is a regular `<ul>`/`<li>` inside `PendingKindSection`, each row is an `<li>` (not a bare
+  `div` — a list remains a list for screen-reader navigation by elements, «3 items in the list» is
+  announced natively).
 
 ---
 
-## 13. Допущения дизайнера (A1 — обратимо, не эскалирую)
+## 13. Designer assumptions (A1 — reversible, not escalated)
 
-Эти решения — мои, не переопределение чего-то, что уже решил оркестратор/владелец (те — в task-файле,
-раздел «Допущения», не повторяю здесь).
+These decisions are mine, not an override of something already decided by the orchestrator/owner (those are in the task file,
+the «Assumptions» section, not repeated here).
 
-1. **Секции, не табы** (§3) — обратимо, чисто клиентский выбор компоновки.
-2. **Строчный список, не `<table>`** (§9) — обратимо, следует существующей конвенции трёх
-   переиспользуемых компонентов этого же экрана.
-3. **`CrmDialogContent` вместо выделенного bottom-sheet** (§9.1) — обратимо, следует существующему
-   использованию того же диалога в тех же трёх компонентах.
-4. **Copy-семья «ответ», не «решение»** — задание уже фиксирует «Ожидают ответа» (заголовок/роут) и
-   «Ждут ответа других» (текст ADMIN-секции) дословно — я довожу эту же семью до заголовка «Ждёт
-   вашего ответа» (mine-зона) и текста футера попапа («Всё, что ждёт ответа»), а НЕ смешиваю со словом
-   «решение», которым сегодня говорит существующий виджет `PendingProjectApprovalsPanel` («Ждёт вашего
-   решения»). Это осознанно оставляет видимое расхождение между новым экраном и старым виджетом на ОДНОЙ
-   и той же панели навигации (виджет уже ссылается на этот же экран по «Допущению» задания) — см. §14,
-   открытый вопрос 1.
-5. **Имена в `waitingFor` через запятую, без «и» перед последним** — самый нейтральный вариант,
-   грамматически безопасный при любом числе/роде имён; финальное слово за `copy-reviewer`.
-6. **Нет аватарок в строках** — `PendingItem` не несёт `avatarDocumentId`/`avatarUrl` (только имя
-   строкой), и я не прошу их добавить: этот список сканируется по названию проекта/типу действия
-   в первую очередь, имя — вторичный контекст, ради которого не стоит утяжелять ответ API лишними
-   полями/джойнами. `PendingProjectApprovalsPanel` (прямой прецедент для той же задачи) тоже не
-   показывает аватарки.
-
----
-
-## 14. Открытые вопросы (для PM/владельца — с рекомендацией по каждому)
-
-**Вопрос 1 — терминологический разъезд «ответ» (новый экран) vs «решение» (существующий виджет
-`PendingProjectApprovalsPanel`).** Бэклог-пункт 168 уже фиксирует похожую находку на СОСЕДНЕЙ
-поверхности (`/projects` таб-лейбл «На подтверждении» против бейджа «Ждёт решения») и рекомендует
-сходиться на «Ждут решения». Моя спека для НОВОГО экрана сходится на другом слове («ответ»), потому
-что оно уже дважды зафиксировано в самом задании (заголовок роута + текст ADMIN-секции) — я не
-переигрываю уже принятое A1-решение оркестратора. Но после этого PR на одной панели навигации будут
-одновременно жить «Ждёт вашего решения» (виджет дашборда, не тронутый этой задачей кроме источника
-данных) и «Ждёт вашего ответа» (этот экран, до которого виджет теперь явно ведёт ссылкой «все →») —
-видимый разъезд ровно там, где эти два текста могут попасть в одно поле зрения.
-**Рекомендую:** отдельной строкой в той же задаче (или сразу follow-up) переименовать заголовок
-`PendingProjectApprovalsPanel` с «Ждёт вашего решения» на «Ждёт вашего ответа» — это одна строка в
-файле, который эта же задача и так трогает (SR-L-6, смена источника данных виджета). Решение не
-блокирует Mode B этого PR (расхождение не в новом коде, а в соседнем старом), но стоит закрыть в том же
-цикле, а не откладывать до отдельного бэклог-пункта.
-
-**Вопрос 2 — `SeniorShareApprovalActions` (§5.2 п.1): куда положить общий approve/reject-хук для
-project-scope.** Технический выбор между «экспортировать инлайн-мутации из `$projectId.tsx`» и
-«обобщить `use-user-profile.ts`'s пару под параметр `scope`, симметрично `useCancelPendingShare`».
-**Рекомендую** второе — единообразие с уже решённой той же развилкой в `cancel-pending-share.tsx`, один
-файл-источник для всех трёх действий над senior-share (`approve`/`reject`/`cancel`) вместо разнесённых
-по трём местам. Не дизайн-решение по существу (не меняет ничего на экране), но затрагивает файловую
-структуру, которую Coder будет писать — оставляю как рекомендацию, не мандат.
-
-**Вопрос 3 — позиция нав-пункта в списке `NAV_ITEMS`.** Указал «после Дашборда» как разумный дефолт
-(§7), не проверял с владельцем. Дёшево изменить, не блокирует реализацию.
+1. **Sections, not tabs** (§3) — reversible, a purely client-side layout choice.
+2. **A line-by-line list, not `<table>`** (§9) — reversible, follows the existing convention of the three
+   reused components of this same screen.
+3. **`CrmDialogContent` instead of a dedicated bottom-sheet** (§9.1) — reversible, follows the existing
+   use of the same dialog in the same three components.
+4. **The «ответ» copy family, not «решение»** — the assignment already fixes «Ожидают ответа» (heading/route) and
+   «Ждут ответа других» (the ADMIN section text) verbatim — I carry this same family through to the heading «Ждёт
+   вашего ответа» (the mine zone) and the popup footer text («Всё, что ждёт ответа»), and do NOT mix it with the word
+   «решение», which the existing `PendingProjectApprovalsPanel` widget uses today («Ждёт вашего
+   решения»). This deliberately leaves a visible divergence between the new screen and the old widget on ONE
+   and the same navigation panel (the widget already links to this same screen per the assignment's «Assumption») — see §14,
+   open question 1.
+5. **Names in `waitingFor` comma-separated, without «и» before the last** — the most neutral option,
+   grammatically safe for any number/gender of names; the final word is `copy-reviewer`'s.
+6. **No avatars in the rows** — `PendingItem` does not carry `avatarDocumentId`/`avatarUrl` (only a name
+   as a string), and I do not ask to add them: this list is scanned first by the project name/action type,
+   the name is secondary context, not worth weighing down the API response with extra
+   fields/joins. `PendingProjectApprovalsPanel` (a direct precedent for the same task) does not
+   show avatars either.
 
 ---
 
-## 15. Чек-лист для Coder (сводка, не дублирует секции выше)
+## 14. Open questions (for PM/owner — with a recommendation for each)
 
-- [ ] `apps/web/app/routes/_authenticated/pending/index.tsx` — новый роут, `data-testid="pending-page"`,
-      без `<h1>` (§0.5, §3).
+**Question 1 — the terminological divergence «ответ» (new screen) vs «решение» (the existing
+`PendingProjectApprovalsPanel` widget).** Backlog item 168 already records a similar finding on the NEIGHBORING
+surface (`/projects` tab label «На подтверждении» vs the badge «Ждёт решения») and recommends
+converging on «Ждут решения». My spec for the NEW screen converges on a different word («ответ»), because
+it is already fixed twice in the assignment itself (the route heading + the ADMIN section text) — I do not
+relitigate the orchestrator's already accepted A1 decision. But after this PR, on one navigation panel there will
+live simultaneously «Ждёт вашего решения» (the dashboard widget, untouched by this task except for the data
+source) and «Ждёт вашего ответа» (this screen, which the widget now explicitly links to with «все →») —
+a visible divergence exactly where these two texts can fall into the same field of view.
+**I recommend:** as a separate line in the same task (or immediately a follow-up) rename the heading of
+`PendingProjectApprovalsPanel` from «Ждёт вашего решения» to «Ждёт вашего ответа» — this is one line in
+a file that this same task touches anyway (SR-L-6, changing the widget's data source). The decision does not
+block Mode B of this PR (the divergence is not in new code but in the neighboring old one), but it is worth closing in the same
+cycle rather than postponing to a separate backlog item.
+
+**Question 2 — `SeniorShareApprovalActions` (§5.2 item 1): where to put the shared approve/reject hook for
+project-scope.** A technical choice between «export the inline mutations from `$projectId.tsx`» and
+«generalize the `use-user-profile.ts` pair under a `scope` parameter, symmetrically to `useCancelPendingShare`».
+**I recommend** the second — consistency with the same fork already solved in `cancel-pending-share.tsx`, one
+source file for all three actions on senior-share (`approve`/`reject`/`cancel`) instead of being spread across
+three places. Not a design decision in essence (changes nothing on the screen), but it affects the file
+structure the Coder will write — I leave it as a recommendation, not a mandate.
+
+**Question 3 — the position of the nav item in the `NAV_ITEMS` list.** I specified «after Dashboard» as a reasonable default
+(§7), did not check with the owner. Cheap to change, does not block implementation.
+
+---
+
+## 15. Checklist for Coder (a summary, does not duplicate the sections above)
+
+- [ ] `apps/web/app/routes/_authenticated/pending/index.tsx` — a new route, `data-testid="pending-page"`,
+      without `<h1>` (§0.5, §3).
 - [ ] `route-access.ts`: `{ prefix: '/pending', roles: ALL_ROLES }`.
-- [ ] `nav-sidebar.tsx`: новый `NavItem` + бейдж 0/1–9/99+ (§7), тот же визуал, что
+- [ ] `nav-sidebar.tsx`: a new `NavItem` + a 0/1–9/99+ badge (§7), the same visual as
       `notifications-bell-badge`.
-- [ ] `notifications-bell.tsx`: ОДНА вставка — `<footer>` со ссылкой на `/pending` после `</ul>` (§8).
-- [ ] Новый `SeniorShareApprovalActions` по образцу `ProjectApprovalActions` (§5.2 п.1, §14 вопрос 2).
-- [ ] `PendingKindSection`/`PendingItemRow` — presentational, свитч по `kind`, `default`-ветка для
-      неизвестного kind (§6.5).
-- [ ] Переиспользовать буквально: `ProjectApprovalActions`, `CancelPendingShareButton`,
-      `formatDistanceToNow(…, { locale: ru })`, `PendingProjectApprovalsPanel.card` motion-константа.
-- [ ] `lg:max-w-6xl` без `mx-auto` на content-области (§0.5, §9).
-- [ ] `flex-wrap` на `.item-row` и `flex: none` на блоке действий — обязательно, не опция (класс
-      дефекта QA-H-2 на #646, §6).
-- [ ] `pendingPercent` = `effectivePercentAfterApproval`, не сырой `percent` (§2 — иначе пустая ячейка
-      на clear-override предложениях).
-- [ ] AnimatePresence + exit на исчезновение строки после действия (§11) + возврат фокуса (§12).
-- [ ] Пустое/загрузка/ошибка/overflow — по §10, `data-testid` как указано.
-- [ ] НЕ трогать: подпись контракта (остаётся в `ContractTab`/`ContractActionBar`), рендер уведомлений
-      по типу (позиция 6), настройки каналов (7b), письма (7a).
+- [ ] `notifications-bell.tsx`: ONE insertion — a `<footer>` with a link to `/pending` after `</ul>` (§8).
+- [ ] A new `SeniorShareApprovalActions` modeled on `ProjectApprovalActions` (§5.2 item 1, §14 question 2).
+- [ ] `PendingKindSection`/`PendingItemRow` — presentational, a switch on `kind`, a `default` branch for an
+      unknown kind (§6.5).
+- [ ] Reuse literally: `ProjectApprovalActions`, `CancelPendingShareButton`,
+      `formatDistanceToNow(…, { locale: ru })`, the `PendingProjectApprovalsPanel.card` motion constant.
+- [ ] `lg:max-w-6xl` without `mx-auto` on the content area (§0.5, §9).
+- [ ] `flex-wrap` on `.item-row` and `flex: none` on the actions block — mandatory, not optional (the
+      QA-H-2 defect class on #646, §6).
+- [ ] `pendingPercent` = `effectivePercentAfterApproval`, not the raw `percent` (§2 — otherwise an empty cell
+      on clear-override proposals).
+- [ ] AnimatePresence + exit on a row disappearing after an action (§11) + focus return (§12).
+- [ ] Empty/loading/error/overflow — per §10, `data-testid` as specified.
+- [ ] DO NOT touch: contract signing (stays in `ContractTab`/`ContractActionBar`), rendering notifications
+      by type (position 6), channel settings (7b), emails (7a).
 
 ---
 
-## Скриншоты / референсы
+## Screenshots / references
 
-- `docs/design/assets/pending-screen/design.html` — статический мокап (source, три состояния + справка).
-- `docs/design/assets/pending-screen/design-320.png` — мобайл.
-- `docs/design/assets/pending-screen/design-768.png` — планшет.
-- `docs/design/assets/pending-screen/design-1440.png` / `design.png` — большой экран (главный fidelity-
-  референс).
+- `docs/design/assets/pending-screen/design.html` — the static mockup (source, three states + reference).
+- `docs/design/assets/pending-screen/design-320.png` — mobile.
+- `docs/design/assets/pending-screen/design-768.png` — tablet.
+- `docs/design/assets/pending-screen/design-1440.png` / `design.png` — large screen (the main fidelity
+  reference).
 
-Снято headless Chromium (Playwright, `fullPage`) напрямую из `design.html` — без dev-стека, без
-Claude Design (design-gate: degraded, см. шапку файла).
+Captured with headless Chromium (Playwright, `fullPage`) directly from `design.html` — without a dev stack, without
+Claude Design (design-gate: degraded, see the file header).

@@ -1,10 +1,10 @@
-# Design Spec: Роль DROP — «Мой роутинг», финансовый кабинет, 4-навигация
+# Design Spec: DROP role — «Мой роутинг», financial cabinet, 4-item navigation
 
 > Mode A — Design Direction (pre-feature)
 > Spec slug: `drop-role-ux`
-> Источник-план: `docs/architecture/2026-06-10-drop-role-design.md`
-> Прецедент структуры: `docs/design/junior-hub.md`
-> Автор: ui-ux-designer · 2026-06-12
+> Source plan: `docs/architecture/2026-06-10-drop-role-design.md`
+> Structure precedent: `docs/design/junior-hub.md`
+> Author: ui-ux-designer · 2026-06-12
 
 ---
 
@@ -12,82 +12,82 @@
 
 ### 1.1 Purpose
 
-Интерфейс решает три задачи для DROP:
+The interface solves three tasks for DROP:
 
-1. **Хаб «Мой роутинг»** — единый центр управления платёжным потоком: текущий баланс/доля, список приходов требующих действия («Платить компании»), активные drop-проекты, быстрые действия. Заменяет текущий редирект на `/crm/profile`.
-2. **Финансовый кабинет** — полная лента приходов (`pending → validated → paid`), баланс/доля breakdown, долг компании, статусы исходящих платежей, действия (зарегистрировать приход, инициировать крипто-платёж).
-3. **Команда и Профиль** — своя одна drop-team (синьор/HR/бухгалтер, реальные контакты) + профиль с акцентом на реквизиты (кошельки).
+1. **The «Мой роутинг» hub** — a single center for managing the payment flow: current balance/share, the list of incomes requiring action («Платить компании»), active drop projects, quick actions. Replaces the current redirect to `/crm/profile`.
+2. **The financial cabinet** — the full feed of incomes (`pending → validated → paid`), the balance/share breakdown, the company debt, the statuses of outgoing payments, actions (register an income, initiate a crypto payment).
+3. **Team and Profile** — one's own single drop-team (senior/HR/accountant, real contacts) + a profile with an emphasis on requisites (wallets).
 
 ### 1.2 Audience
 
-**Кто:** DROP-участник схемы роутинга платежей.
-**Паттерн использования:** 2–5 сеансов в неделю, каждый по 3–10 минут. Сценарии:
+**Who:** a DROP participant of the payment routing scheme.
+**Usage pattern:** 2–5 sessions a week, each 3–10 minutes. Scenarios:
 
-- Клиент перевёл деньги → Дроп открывает хаб, видит «Требует действия» → нажимает «Зарегистрировать приход».
-- Бухгалтер подтвердил приход → Дроп получает сигнал → видит в «Требует действия» CTA «Платить компании» → инициирует платёж.
-- Контроль баланса: раз в неделю — открыть хаб, проверить накопленное/долг.
-- Координация: нужен контакт синьора или HR → «Команда».
+- The client transferred money → the Drop opens the hub, sees «Требует действия» → presses «Зарегистрировать приход».
+- The accountant confirmed an income → the Drop gets a signal → sees the CTA «Платить компании» in «Требует действия» → initiates the payment.
+- Balance control: once a week — open the hub, check the accumulated amount/debt.
+- Coordination: needs the contact of the senior or HR → «Команда».
 
-Дроп **не управляет командой** и не видит чужих финансов — только своё. Интерфейс должен делать платёжный цикл (`приход → валидация → платёж компании`) максимально читаемым за один взгляд.
+The Drop **does not manage the team** and does not see others' finances — only their own. The interface must make the payment cycle (`income → validation → payment to the company`) as readable as possible at a glance.
 
 ### 1.3 Tone
 
 `dense / quiet / operational`
 
-- **Dense:** Карточка баланса + блок «Требует действия» + список проектов — всё без скролла на 1024px+.
-- **Quiet:** Карточки `border-border/40 bg-card`. Ни одного decorative gradient. Акценты — только через `--primary` (жёлтый) на CTA и statusных indikatorах.
-- **Operational:** Финансовые суммы — `tabular-nums`. Статусы — Badge с семантикой (pending/validated/paid), не только цветом.
+- **Dense:** the balance card + the «Требует действия» block + the project list — all without scrolling at 1024px+.
+- **Quiet:** `border-border/40 bg-card` cards. Not a single decorative gradient. Accents — only via `--primary` (yellow) on CTAs and status indicators.
+- **Operational:** Financial amounts — `tabular-nums`. Statuses — a Badge with semantics (pending/validated/paid), not only color.
 
-**Запрещено:** purple/gradient hero, glass morphism, oversized hero copy, cards inside cards, decorative blobs.
+**Forbidden:** a purple/gradient hero, glass morphism, oversized hero copy, cards inside cards, decorative blobs.
 
 ### 1.4 Memorable detail
 
-**Карточка баланса** — единственный элемент с характером. Крупная сумма накопленной доли в `text-3xl font-bold tabular-nums text-foreground`, под ней 3 компактных метрики в ряд (`ставка % · в работе N · долг компании`). Визуальный сигнал: «это мои деньги, я их контролирую».
+**The balance card** is the only element with character. A large amount of the accumulated share in `text-3xl font-bold tabular-nums text-foreground`, under it 3 compact metrics in a row (`rate % · in progress N · company debt`). The visual signal: «this is my money, I control it».
 
-Блок «Требует действия» использует `--primary` (бренд-жёлтый) только для badge-счётчика и кнопки CTA — всё остальное нейтрально. Это создаёт иерархию: жёлтое = действие требуется сейчас.
+The «Требует действия» block uses `--primary` (brand yellow) only for the badge counter and the CTA button — everything else is neutral. This creates a hierarchy: yellow = action required now.
 
 ### 1.5 Constraints
 
-- Tailwind v4 CSS-first (`@theme inline` токены из `globals.css`), без hardcoded hex
-- shadcn/ui компоненты как base (Card, Badge, Button, Avatar, Skeleton, Separator, Tooltip, ScrollArea, Table)
-- Framer Motion для enter-анимаций (stagger pattern, как в `crm/index.tsx`)
+- Tailwind v4 CSS-first (`@theme inline` tokens from `globals.css`), no hardcoded hex
+- shadcn/ui components as the base (Card, Badge, Button, Avatar, Skeleton, Separator, Tooltip, ScrollArea, Table)
+- Framer Motion for enter animations (the stagger pattern, as in `crm/index.tsx`)
 - WCAG 2.2 Level AA — target size 24×24px, focus ring, contrast 4.5:1 text / 3:1 UI
 - Responsive: 320 / 768 / 1024 / 1440
-- Russian UI — все user-facing тексты на русском
+- Russian UI — all user-facing texts in Russian
 - TanStack Router file-based routes (`apps/web/app/routes/crm/`)
-- TanStack Query для data fetching (новые хуки: `useDropSummary`, `useDropIncomes`, `useDropProjects`)
-- НЕ показывать данные других дропов, чужих команд, джунов, легенд
+- TanStack Query for data fetching (new hooks: `useDropSummary`, `useDropIncomes`, `useDropProjects`)
+- Do NOT show the data of other drops, other teams, juniors, legends
 
 ---
 
-## 2. Навигация DROP (4 пункта)
+## 2. DROP navigation (4 items)
 
-### 2.1 Целевой состав NAV_ITEMS для роли `DROP`
+### 2.1 Target NAV_ITEMS composition for the `DROP` role
 
-| #   | Пункт       | Icon (lucide) | Route          |
+| #   | Item        | Icon (lucide) | Route          |
 | --- | ----------- | ------------- | -------------- |
 | 1   | Мой роутинг | `Route`       | `/crm/routing` |
 | 2   | Финансы     | `DollarSign`  | `/crm/finance` |
 | 3   | Команда     | `UsersRound`  | `/crm/team`    |
 | 4   | Профиль     | `UserCircle`  | `/crm/profile` |
 
-**Изменения в `nav-sidebar.tsx` относительно текущего состояния:**
+**Changes in `nav-sidebar.tsx` relative to the current state:**
 
-1. Добавить пункт `Мой роутинг` (icon `Route` из lucide) — первым, только для `DROP`.
-2. Пункт `Команда` — уже есть в `roles: ['DROP']`, оставить.
-3. Пункт `Финансы` — уже есть в `roles: ['DROP']`, оставить.
-4. Пункт `Профиль` — уже есть в `roles: ['DROP']`, оставить.
+1. Add the `Мой роутинг` item (icon `Route` from lucide) — first, only for `DROP`.
+2. The `Команда` item — already in `roles: ['DROP']`, leave it.
+3. The `Финансы` item — already in `roles: ['DROP']`, leave it.
+4. The `Профиль` item — already in `roles: ['DROP']`, leave it.
 
-**Redirect:** при логине DROP (или переходе на `/crm`) → `/crm/routing` (хаб).
-Изменить в `routes/crm/index.tsx`: `user?.role === 'DROP'` → `navigate({ to: '/crm/routing' })`.
+**Redirect:** on DROP login (or navigation to `/crm`) → `/crm/routing` (the hub).
+Change in `routes/crm/index.tsx`: `user?.role === 'DROP'` → `navigate({ to: '/crm/routing' })`.
 
-Текущее поведение (редирект на `/crm/profile`) — временный костыль из phase 1 (см. `index.tsx:78`).
+The current behavior (a redirect to `/crm/profile`) is a temporary crutch from phase 1 (see `index.tsx:78`).
 
-### 2.2 Новый route
+### 2.2 New route
 
 ```
 apps/web/app/routes/crm/routing.tsx       → /crm/routing
-apps/web/app/routes/crm/routing/          → директория компонентов хаба
+apps/web/app/routes/crm/routing/          → hub components directory
   components/
     DropBalanceCard.tsx
     DropActionRequiredBlock.tsx
@@ -97,7 +97,7 @@ apps/web/app/routes/crm/routing/          → директория компон�
 
 ---
 
-## 3. Хаб «Мой роутинг» (`/crm/routing`)
+## 3. The «Мой роутинг» hub (`/crm/routing`)
 
 ### 3.1 Layout ≥ 1024px (desktop)
 
@@ -106,32 +106,32 @@ apps/web/app/routes/crm/routing/          → директория компон�
 │  <h1>Мой роутинг</h1>  text-muted-foreground: «Платёжный хаб»│
 ├───────────────────┬──────────────────────────────────────────┤
 │  DropBalanceCard  │  DropActionRequiredBlock                  │
-│  (баланс·доля·    │  (validated приходы → CTA «Платить»)     │
+│  (баланс·доля·    │  (validated incomes → CTA «Платить»)     │
 │   ставка·долг)    │                                          │
 ├───────────────────┴──────────────────────────────────────────┤
-│  DropProjectsList  (drop-проекты: компания · синьор · N пр.)  │
+│  DropProjectsList  (drop projects: company · senior · N inc.)  │
 ├──────────────────────────────────────────────────────────────┤
-│  DropQuickActions  (2 кнопки)                                 │
+│  DropQuickActions  (2 buttons)                                 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 
-- Строка 1: `DropBalanceCard` (col 1) + `DropActionRequiredBlock` (col 2).
-- Строка 2: `DropProjectsList` — `col-span-full`.
-- Строка 3: `DropQuickActions` — `col-span-full`.
+- Row 1: `DropBalanceCard` (col 1) + `DropActionRequiredBlock` (col 2).
+- Row 2: `DropProjectsList` — `col-span-full`.
+- Row 3: `DropQuickActions` — `col-span-full`.
 
-### 3.2 Layout < 768px (mobile, 1 колонка)
+### 3.2 Layout < 768px (mobile, 1 column)
 
-Порядок: DropActionRequiredBlock → DropBalanceCard → DropProjectsList → DropQuickActions.
+Order: DropActionRequiredBlock → DropBalanceCard → DropProjectsList → DropQuickActions.
 
-На мобильном `DropActionRequiredBlock` идёт **первым** — дроп открывает хаб чтобы выполнить действие, баланс вторичен.
+On mobile `DropActionRequiredBlock` goes **first** — the drop opens the hub to perform an action, the balance is secondary.
 
-### 3.3 DropBalanceCard — детальная структура
+### 3.3 DropBalanceCard — detailed structure
 
-**Данные:** `GET /api/finance/drop/me/summary` → `{ balance, dropSharePercent, pendingIncomesCount, debtToCompany }`.
+**Data:** `GET /api/finance/drop/me/summary` → `{ balance, dropSharePercent, pendingIncomesCount, debtToCompany }`.
 
-Компонент — `Card` со структурой:
+The component is a `Card` with the structure:
 
 ```
 ┌─ Card bg-card border-border/40 ─────────────────────────────┐
@@ -145,42 +145,42 @@ CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Детали метрик (нижняя строка):**
+**Metric details (bottom row):**
 
-- Каждая метрика: `flex flex-col items-center gap-0.5`, текст значения `text-sm font-semibold tabular-nums`, подпись `text-xs text-muted-foreground`.
-- Разделитель между метриками: `<Separator orientation="vertical" className="h-8" />`.
-- `деbtToCompany` > 0 → цвет значения `text-destructive`. = 0 → `text-muted-foreground`.
-- Icon: `Wallet` для заголовка, `Percent`, `Clock`, `ArrowDownCircle` (lucide) для метрик.
+- Each metric: `flex flex-col items-center gap-0.5`, the value text `text-sm font-semibold tabular-nums`, the caption `text-xs text-muted-foreground`.
+- Separator between metrics: `<Separator orientation="vertical" className="h-8" />`.
+- `debtToCompany` > 0 → the value color `text-destructive`. = 0 → `text-muted-foreground`.
+- Icons: `Wallet` for the header, `Percent`, `Clock`, `ArrowDownCircle` (lucide) for the metrics.
 
 **Loading:** `<Skeleton className="h-32 w-full rounded-lg" />`.
 
-**Error:** `text-xs text-destructive` + retry кнопка.
+**Error:** `text-xs text-destructive` + a retry button.
 
-### 3.4 DropActionRequiredBlock — детальная структура
+### 3.4 DropActionRequiredBlock — detailed structure
 
-**Данные:** из того же `GET /api/finance/drop/me/summary` (поле `pendingIncomesCount`) + `GET /api/finance/drop/me/incomes?status=validated` → список validated приходов.
+**Data:** from the same `GET /api/finance/drop/me/summary` (the `pendingIncomesCount` field) + `GET /api/finance/drop/me/incomes?status=validated` → the list of validated incomes.
 
-Два состояния:
+Two states:
 
-**A. Есть validated приходы (требуют оплаты компании):**
+**A. There are validated incomes (requiring payment to the company):**
 
 ```
 ┌─ Card border-border/40 ─────────────────────────────────────┐
 │  [AlertCircle icon text-primary] ТРЕБУЕТ ДЕЙСТВИЯ           │
-│  Badge variant="default" (primary жёлтый): "N приходов"     │
+│  Badge variant="default" (primary yellow): "N приходов"     │
 │  ─────────────────────────────────────────────────────────  │
-│  [список validated приходов — max 3 строки]                  │
+│  [list of validated incomes — max 3 rows]                  │
 │  ┌ $1,500  TechCorp · 12 июн  → Button "Платить" sm ghost   │
 │  ├ $800    StartupA · 10 июн  → Button "Платить" sm ghost   │
-│  └ +N ещё...                   (link к /crm/finance)        │
+│  └ +N ещё...                   (link to /crm/finance)        │
 │  ─────────────────────────────────────────────────────────  │
 │  Button variant="default" w-full: "Платить компании"        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-Кнопка «Платить компании» (w-full primary) → `/crm/payments/initiate` (общий flow, бэкенд выбирает validated приходы автоматически). Кнопка «Платить» на строке → `/crm/payments/initiate/:incomeId`.
+The «Платить компании» button (w-full primary) → `/crm/payments/initiate` (a common flow, the backend picks validated incomes automatically). The «Платить» button on a row → `/crm/payments/initiate/:incomeId`.
 
-**B. Нет pending действий:**
+**B. No pending actions:**
 
 ```
 ┌─ Card border-border/40 ─────────────────────────────────────┐
@@ -192,9 +192,9 @@ CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 
 **Loading:** `<Skeleton className="h-28 w-full rounded-lg" />`.
 
-### 3.5 DropProjectsList — детальная структура
+### 3.5 DropProjectsList — detailed structure
 
-**Данные:** `GET /api/projects/drop/me` → `DropProjectDto[] { id, companyName, seniorDisplayName, incomesCount, status }`.
+**Data:** `GET /api/projects/drop/me` → `DropProjectDto[] { id, companyName, seniorDisplayName, incomesCount, status }`.
 
 ```
 ┌─ Card border-border/40 ─────────────────────────────────────┐
@@ -206,15 +206,15 @@ CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-**Строка проекта:**
+**Project row:**
 
-- `Avatar` (инициалы компании, `bg-secondary text-secondary-foreground`, `h-8 w-8`).
+- `Avatar` (the company's initials, `bg-secondary text-secondary-foreground`, `h-8 w-8`).
 - `companyName` — `text-sm font-medium truncate flex-1`.
-- `·` разделитель + `seniorDisplayName` — `text-xs text-muted-foreground`.
-- `·` разделитель + `N прих.` — `text-xs text-muted-foreground tabular-nums`.
-- `Badge variant="outline"` для статуса: ACTIVE → dot зелёный + «Активный»; CLOSED → «Закрытый» secondary.
+- A `·` separator + `seniorDisplayName` — `text-xs text-muted-foreground`.
+- A `·` separator + `N прих.` — `text-xs text-muted-foreground tabular-nums`.
+- `Badge variant="outline"` for the status: ACTIVE → a green dot + «Активный»; CLOSED → «Закрытый» secondary.
 
-**Пустое состояние:** «Нет активных drop-проектов. Обратитесь к администратору.»
+**Empty state:** «Нет активных drop-проектов. Обратитесь к администратору.»
 
 **Loading:** 2× `<Skeleton className="h-10 w-full rounded-md" />`.
 
@@ -227,38 +227,38 @@ CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 └─────────────────────────────────────────────────────────────┘
 ```
 
-- «Зарегистрировать приход» — открывает существующий `CreateTransactionDialog` (компонент должен поддерживать `DROP_INCOME` тип; Coder проверяет).
-- «Платить компании» — навигация на `/crm/payments/initiate` (или модальный flow, если существует).
-- На мобильном: `flex-col w-full` (кнопки в колонку, полная ширина).
+- «Зарегистрировать приход» — opens the existing `CreateTransactionDialog` (the component must support the `DROP_INCOME` type; the Coder checks).
+- «Платить компании» — navigation to `/crm/payments/initiate` (or a modal flow, if one exists).
+- On mobile: `flex-col w-full` (buttons in a column, full width).
 
 ---
 
-## 4. Финансовый кабинет (`/crm/finance` — drop-версия)
+## 4. Financial cabinet (`/crm/finance` — drop version)
 
-### 4.1 Стратегия
+### 4.1 Strategy
 
-Существующий `/crm/finance` уже в nav для DROP. Задача — убедиться что он рендерит **drop-специфичный вид** когда `user.role === 'DROP'`. Coder должен проверить текущий `routes/crm/finance/` (или аналог) — там скорее всего SENIOR/ADMIN-ориентированный UI.
+The existing `/crm/finance` is already in the nav for DROP. The task is to make sure it renders a **drop-specific view** when `user.role === 'DROP'`. The Coder must check the current `routes/crm/finance/` (or an equivalent) — it is most likely a SENIOR/ADMIN-oriented UI.
 
-Вариант реализации: в `finance.tsx` добавить `if (user.role === 'DROP') return <DropFinancePage />`.
+An implementation option: in `finance.tsx` add `if (user.role === 'DROP') return <DropFinancePage />`.
 
-### 4.2 Layout drop-финансов ≥ 1024px
+### 4.2 Drop finance layout ≥ 1024px
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  <h1>Финансы</h1>                                            │
 ├──────────────────────────────────────────────────────────────┤
-│  DropBalanceSummaryCard  (переиспользовать из хаба, col-full) │
+│  DropBalanceSummaryCard  (reuse from the hub, col-full) │
 ├──────────────────────────────────────────────────────────────┤
 │  Лента приходов (DropIncomesTable)              [Фильтры ↓]   │
 │  фильтры: тип DROP_INCOME · статус · период                   │
 ├──────────────────────────────────────────────────────────────┤
-│  DropPaymentsHistory  (исходящие платежи компании)           │
+│  DropPaymentsHistory  (outgoing payments of the company)           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 DropBalanceSummaryCard (расширенная версия для /crm/finance)
+### 4.3 DropBalanceSummaryCard (extended version for /crm/finance)
 
-Та же карточка баланса из хаба (`DropBalanceCard`) + дополнительный breakdown:
+The same balance card from the hub (`DropBalanceCard`) + an additional breakdown:
 
 ```
 Накоплено: $X,XXX.XX  |  Ставка: X%  |  В работе: N прих.  |  Долг: $X.XX
@@ -266,47 +266,47 @@ CSS: `grid-cols-1 md:grid-cols-2 gap-4`.
 Последний приход: $X,XXX.XX  TechCorp  12 июн  [Валидирован]
 ```
 
-Переиспользовать компонент — просто проп `variant="compact"` (хаб) vs `variant="full"` (финансы).
+Reuse the component — just a prop `variant="compact"` (hub) vs `variant="full"` (finance).
 
 ### 4.4 DropIncomesTable
 
-**Данные:** `GET /api/finance/drop/me/incomes?status=&type=&from=&to=&page=&limit=20`.
+**Data:** `GET /api/finance/drop/me/incomes?status=&type=&from=&to=&page=&limit=20`.
 
-**Колонки таблицы:**
+**Table columns:**
 
-| Колонка  | Описание                                                |
+| Column   | Description                                             |
 | -------- | ------------------------------------------------------- |
 | Дата     | `text-xs text-muted-foreground tabular-nums`            |
-| Компания | Название клиента из прихода                             |
+| Компания | The client name from the income                         |
 | Сумма    | `font-semibold tabular-nums` + currency                 |
 | Тип      | Badge: `DROP_INCOME` → «Приход»                         |
-| Статус   | Badge: pending/validated/paid (см. §4.5)                |
-| Действие | Кнопка «Платить» — только если `status === 'validated'` |
+| Статус   | Badge: pending/validated/paid (see §4.5)                |
+| Действие | The «Платить» button — only if `status === 'validated'` |
 
-shadcn/ui `Table` компонент: `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`.
+The shadcn/ui `Table` component: `TableHeader`, `TableBody`, `TableRow`, `TableHead`, `TableCell`.
 
-**Фильтры:** `Select` для статуса + `Select` для периода (текущий месяц / прошлый / 3 мес / всё). Расположение: над таблицей, `flex gap-2 flex-wrap`.
+**Filters:** a `Select` for status + a `Select` for period (current month / previous / 3 months / all). Placement: above the table, `flex gap-2 flex-wrap`.
 
-**Пустое состояние:** «Приходов пока нет».
+**Empty state:** «Приходов пока нет».
 
-**Пагинация:** если записей > 20 — кнопки «Предыдущая» / «Следующая» под таблицей.
+**Pagination:** if there are > 20 records — «Предыдущая» / «Следующая» buttons under the table.
 
-### 4.5 Статусные Badge для приходов
+### 4.5 Status Badges for incomes
 
-| Статус      | Badge variant | Иконка                | Текст         |
+| Status      | Badge variant | Icon                  | Text          |
 | ----------- | ------------- | --------------------- | ------------- |
 | `pending`   | `secondary`   | `Clock h-3 w-3`       | «Ожидает»     |
 | `validated` | `default`     | `CheckCircle h-3 w-3` | «Валидирован» |
 | `paid`      | `outline`     | `CircleCheck h-3 w-3` | «Оплачен»     |
 | `rejected`  | `destructive` | `XCircle h-3 w-3`     | «Отклонён»    |
 
-Badge с иконкой слева: `<Badge variant="..."><Clock className="mr-1 h-3 w-3" />Ожидает</Badge>`.
+A Badge with an icon on the left: `<Badge variant="..."><Clock className="mr-1 h-3 w-3" />Ожидает</Badge>`.
 
-Проверить в `badge.tsx` — если `destructive` variant не поддерживает текстовое содержимое — добавить. Не hardcoded hex.
+Check in `badge.tsx` — if the `destructive` variant does not support text content — add it. Not a hardcoded hex.
 
 ### 4.6 DropPaymentsHistory
 
-Упрощённая лента исходящих платежей (дроп → компания):
+A simplified feed of outgoing payments (drop → company):
 
 ```
 ┌─ Card border-border/40 ─────────────────────────────────────┐
@@ -317,19 +317,19 @@ Badge с иконкой слева: `<Badge variant="..."><Clock className="mr-1
 └─────────────────────────────────────────────────────────────┘
 ```
 
-`txHash` — `font-mono text-xs truncate max-w-[120px]`, Tooltip с полным хэшем.
+`txHash` — `font-mono text-xs truncate max-w-[120px]`, a Tooltip with the full hash.
 
 ---
 
-## 5. Команда (`/crm/team` — drop-версия)
+## 5. Team (`/crm/team` — drop version)
 
-### 5.1 Стратегия
+### 5.1 Strategy
 
-Существующий `/crm/team` сейчас показывает ВСЕ команды (баг: `TeamsService.findAll` не фильтрует для DROP). После бэкенд-фикса DROP получит только свою одну команду.
+The existing `/crm/team` currently shows ALL teams (a bug: `TeamsService.findAll` does not filter for DROP). After the backend fix DROP will get only their own single team.
 
-Фронтенд изменения минимальны: нет смысла строить отдельный компонент, пока бэкенд не исправлен. Spec описывает **целевой визуальный результат** после фикса.
+The front-end changes are minimal: there is no point in building a separate component until the backend is fixed. The spec describes the **target visual result** after the fix.
 
-### 5.2 Целевой вид drop-команды
+### 5.2 Target view of the drop team
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -344,22 +344,22 @@ Badge с иконкой слева: `<Badge variant="..."><Clock className="mr-1
 └──────────────────────────────────────────────────────────────┘
 ```
 
-- Контакты: иконки-ссылки `mailto:`, `tel:`, `https://t.me/` — реальные (дроп координируется напрямую).
-- Read-only — нет кнопок редактирования/добавления.
-- Подпись страницы: `«Ваша drop-команда для координации»` — explicit: дроп понимает зачем этот экран.
+- Contacts: icon links `mailto:`, `tel:`, `https://t.me/` — real ones (the drop coordinates directly).
+- Read-only — no edit/add buttons.
+- The page caption: `«Ваша drop-команда для координации»` — explicit: the drop understands why this screen exists.
 
-**Пустое состояние** (до бэкенд-фикса или если команда не назначена):
+**Empty state** (before the backend fix or if no team is assigned):
 «Команда не назначена. Обратитесь к администратору.»
 
 ---
 
-## 6. Профиль (`/crm/profile` — drop-акценты)
+## 6. Profile (`/crm/profile` — drop accents)
 
-### 6.1 Изменения в существующем Профиле
+### 6.1 Changes in the existing Profile
 
-Профиль уже работает. Spec описывает **акцент на Реквизиты** — таб «Реквизиты» должен быть активным по умолчанию при переходе с хаба.
+The Profile already works. The spec describes an **emphasis on Requisites** — the «Реквизиты» tab must be active by default when arriving from the hub.
 
-**Redirect из хаба к реквизитам:** DropQuickActions или DropBalanceCard могут содержать ссылку:
+**Redirect from the hub to requisites:** DropQuickActions or DropBalanceCard may contain a link:
 
 ```tsx
 <Link to="/crm/profile" search={{ tab: 'requisites' }}>
@@ -367,53 +367,53 @@ Badge с иконкой слева: `<Badge variant="..."><Clock className="mr-1
 </Link>
 ```
 
-Таб «Реквизиты» (`/crm/profile?tab=requisites`) — кошельки (USDT ERC-20), банковские реквизиты. Критично для роутинга — Coder проверяет что реквизиты USDT видны и редактируемы под ролью DROP.
+The «Реквизиты» tab (`/crm/profile?tab=requisites`) — wallets (USDT ERC-20), bank requisites. Critical for routing — the Coder checks that the USDT requisites are visible and editable under the DROP role.
 
-### 6.2 Видимость табов для DROP
+### 6.2 Tab visibility for DROP
 
-| Таб       | DROP видит? | Примечание                                  |
-| --------- | ----------- | ------------------------------------------- |
-| Обзор     | Да          | Личные данные, доля                         |
-| Проекты   | Нет         | Список проектов в профиле — лишнее для DROP |
-| Команда   | Нет         | Есть отдельная страница /crm/team           |
-| Реквизиты | Да          | Приоритетный таб                            |
-| Документы | Да          | Контракт/онбординг                          |
-| Финансы   | Нет         | Есть отдельная страница /crm/finance        |
+| Tab       | DROP sees? | Note                                                  |
+| --------- | ---------- | ----------------------------------------------------- |
+| Обзор     | Yes        | Personal data, share                                  |
+| Проекты   | No         | A project list in the profile is superfluous for DROP |
+| Команда   | No         | There is a separate /crm/team page                    |
+| Реквизиты | Yes        | The priority tab                                      |
+| Документы | Yes        | Contract/onboarding                                   |
+| Финансы   | No         | There is a separate /crm/finance page                 |
 
-Если у DROP в Профиле сейчас показаны все 6 табов — Coder скрывает лишние через RBAC-проп или `user.role` check.
+If DROP currently has all 6 tabs shown in the Profile — the Coder hides the extra ones via an RBAC prop or a `user.role` check.
 
 ---
 
 ## 7. Token map
 
-Все токены из `apps/web/app/styles/globals.css` (`@theme inline {}`). **Новых токенов не добавляется.**
+All tokens from `apps/web/app/styles/globals.css` (`@theme inline {}`). **No new tokens are added.**
 
-| Назначение                           | Token                               | Tailwind class                |
+| Purpose                              | Token                               | Tailwind class                |
 | ------------------------------------ | ----------------------------------- | ----------------------------- |
-| Фон страницы                         | `--color-background`                | `bg-background`               |
-| Карточки                             | `--color-card`                      | `bg-card`                     |
-| Граница карточек                     | `--color-border`                    | `border-border/40`            |
-| Основной текст                       | `--color-foreground`                | `text-foreground`             |
-| Вторичный текст                      | `--color-muted-foreground`          | `text-muted-foreground`       |
-| CTA, Badge «validated», Alert-иконка | `--color-primary`                   | `text-primary` / `bg-primary` |
+| Page background                      | `--color-background`                | `bg-background`               |
+| Cards                                | `--color-card`                      | `bg-card`                     |
+| Card border                          | `--color-border`                    | `border-border/40`            |
+| Primary text                         | `--color-foreground`                | `text-foreground`             |
+| Secondary text                       | `--color-muted-foreground`          | `text-muted-foreground`       |
+| CTA, «validated» Badge, Alert icon   | `--color-primary`                   | `text-primary` / `bg-primary` |
 | Hover/ghost states                   | `--color-accent`                    | `hover:bg-accent`             |
-| Destructive (долг, rejected, ошибки) | `--color-destructive`               | `text-destructive`            |
-| Avatar-фон (инициалы компании)       | `--color-secondary`                 | `bg-secondary`                |
-| Avatar-текст                         | `--color-secondary-foreground`      | `text-secondary-foreground`   |
-| Reveal-контейнер (secure zone)       | `--color-muted`                     | `bg-muted/40`                 |
-| Радиус карточки                      | `--radius-lg` = `var(--radius)`     | `rounded-lg`                  |
-| Радиус кнопок внутри карточки        | `--radius-md` = `var(--radius)-2px` | `rounded-md`                  |
-| Суммы, хэши, метрики                 | CSS `font-variant-numeric`          | `tabular-nums`                |
+| Destructive (debt, rejected, errors) | `--color-destructive`               | `text-destructive`            |
+| Avatar background (company initials) | `--color-secondary`                 | `bg-secondary`                |
+| Avatar text                          | `--color-secondary-foreground`      | `text-secondary-foreground`   |
+| Reveal container (secure zone)       | `--color-muted`                     | `bg-muted/40`                 |
+| Card radius                          | `--radius-lg` = `var(--radius)`     | `rounded-lg`                  |
+| Button radius inside a card          | `--radius-md` = `var(--radius)-2px` | `rounded-md`                  |
+| Amounts, hashes, metrics             | CSS `font-variant-numeric`          | `tabular-nums`                |
 
-**Concentric radius:** Карточка `rounded-lg` → кнопки внутри `rounded-md`. Padding карточки `p-4` / `p-5` — разница достаточна.
+**Concentric radius:** Card `rounded-lg` → buttons inside `rounded-md`. The card padding `p-4` / `p-5` — the difference is sufficient.
 
-**Статус-цвета:** только через существующие Badge variants. Если `badge.tsx` не имеет `destructive` variant — добавить через CSS var (не hex). Проверить перед реализацией.
+**Status colors:** only through the existing Badge variants. If `badge.tsx` has no `destructive` variant — add it via a CSS var (not hex). Check before implementation.
 
 ---
 
 ## 8. Motion spec
 
-Используем тот же Framer Motion stagger pattern что в `routes/crm/index.tsx`:
+We use the same Framer Motion stagger pattern as in `routes/crm/index.tsx`:
 
 ```tsx
 const container = {
@@ -426,16 +426,16 @@ const card = {
 }
 ```
 
-Применять к `motion.div` обёрткам карточек хаба при первой загрузке.
+Apply it to the `motion.div` wrappers of the hub cards on first load.
 
-**Правила motion:**
+**Motion rules:**
 
 - Enter: opacity + `translateY(12px)`, stagger 60ms.
-- Exit: не нужен на хабе.
-- Skeleton → данные: без анимации (React условный рендер без перехода).
-- Кнопки: `transition-property: background-color, color, opacity; duration: 150ms`.
-- Запрещено: `transition: all`, `will-change: all`, scroll-triggered анимации.
-- `DropActionRequiredBlock` — при появлении/исчезновении строк приходов: `<AnimatePresence>` + `motion.li` с `initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}`.
+- Exit: not needed on the hub.
+- Skeleton → data: no animation (React conditional render without a transition).
+- Buttons: `transition-property: background-color, color, opacity; duration: 150ms`.
+- Forbidden: `transition: all`, `will-change: all`, scroll-triggered animations.
+- `DropActionRequiredBlock` — when income rows appear/disappear: `<AnimatePresence>` + `motion.li` with `initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}`.
 
 ---
 
@@ -443,76 +443,76 @@ const card = {
 
 ### 9.1 Focus order (`/crm/routing`)
 
-1. `<h1>Мой роутинг</h1>` (нет фокуса, anchor)
-2. `DropBalanceCard` (нет интерактивных — tabindex не нужен)
-3. `DropActionRequiredBlock` → строки приходов → кнопки «Платить» (по порядку) → кнопка «Платить компании»
-4. `DropProjectsList` (строки — нет интерактивных, если без drill-down)
+1. `<h1>Мой роутинг</h1>` (no focus, anchor)
+2. `DropBalanceCard` (no interactive elements — tabindex not needed)
+3. `DropActionRequiredBlock` → income rows → «Платить» buttons (in order) → the «Платить компании» button
+4. `DropProjectsList` (rows — no interactive elements, if without drill-down)
 5. `DropQuickActions` → «Зарегистрировать приход» → «Платить компании»
 
-DOM-порядок совпадает с визуальным. На мобиле порядок меняется (DropActionRequiredBlock первый визуально) — изменить DOM через `order` (CSS order), но обеспечить, что tabindex следует DOM: применить `order` только на grid-items, не через absolute positioning.
+The DOM order matches the visual one. On mobile the order changes (DropActionRequiredBlock is first visually) — change the DOM via `order` (CSS order), but make sure that tabindex follows the DOM: apply `order` only on grid items, not through absolute positioning.
 
 ### 9.2 Target size (SC 2.5.8, min 24×24px)
 
-| Элемент                         | Размер              | Hit area              |
-| ------------------------------- | ------------------- | --------------------- |
-| Кнопка «Платить» (строка)       | `h-7` (28px)        | `h-8 min-w-[60px]`    |
-| Кнопка «Зарегистрировать»       | `h-9` (36px)        | OK                    |
-| Кнопка «Платить компании» (CTA) | `h-9` (36px)        | OK                    |
-| Icon-кнопки в таблице приходов  | `h-7 w-7` (28×28px) | OK (> 24px)           |
-| Контактные иконки (Команда)     | `h-8 w-8` (32×32px) | `p-1.5` touch padding |
+| Element                             | Size                | Hit area              |
+| ----------------------------------- | ------------------- | --------------------- |
+| The «Платить» button (row)          | `h-7` (28px)        | `h-8 min-w-[60px]`    |
+| The «Зарегистрировать» button       | `h-9` (36px)        | OK                    |
+| The «Платить компании» button (CTA) | `h-9` (36px)        | OK                    |
+| Icon buttons in the incomes table   | `h-7 w-7` (28×28px) | OK (> 24px)           |
+| Contact icons (Team)                | `h-8 w-8` (32×32px) | `p-1.5` touch padding |
 
 ### 9.3 Contrast (SC 1.4.3: 4.5:1 normal; SC 1.4.11: 3:1 UI)
 
-| Элемент                     | Foreground token                         | Background token     | Ratio  | Статус |
+| Element                     | Foreground token                         | Background token     | Ratio  | Status |
 | --------------------------- | ---------------------------------------- | -------------------- | ------ | ------ |
-| Основной текст на карточке  | `--foreground` L=0.97                    | `--card` L=0.12      | >10:1  | PASS   |
+| Primary text on a card      | `--foreground` L=0.97                    | `--card` L=0.12      | >10:1  | PASS   |
 | Muted text                  | `--muted-foreground` L=0.58              | `--card` L=0.12      | ~5.5:1 | PASS   |
-| `text-destructive` (долг)   | `--destructive` L=0.58                   | `--card` L=0.12      | ~4.8:1 | PASS   |
+| `text-destructive` (debt)   | `--destructive` L=0.58                   | `--card` L=0.12      | ~4.8:1 | PASS   |
 | Badge `validated` (primary) | `--primary-foreground` L=0.08            | `--primary` L=0.84   | >7:1   | PASS   |
-| Avatar инициалы компании    | `--secondary-foreground` L=0.2           | `--secondary` L=0.94 | >8:1   | PASS   |
-| Зелёный dot статуса         | `oklch(0.65 0.2 142)` на `--card` L=0.12 | ~4.8:1               | PASS   |
+| Avatar company initials     | `--secondary-foreground` L=0.2           | `--secondary` L=0.94 | >8:1   | PASS   |
+| Green status dot            | `oklch(0.65 0.2 142)` on `--card` L=0.12 | ~4.8:1               | PASS   |
 
-### 9.4 Icon-only кнопки (SC 1.1.1)
+### 9.4 Icon-only buttons (SC 1.1.1)
 
-| Элемент                            | aria-label требование                                                  |
-| ---------------------------------- | ---------------------------------------------------------------------- |
-| «Платить» (строка прихода)         | `aria-label="Оплатить приход от {company}"`                            |
-| Кнопка «retry» при ошибке загрузки | `aria-label="Повторить загрузку"`                                      |
-| Reveal txHash (если есть toggle)   | `aria-label="Показать полный хэш"`                                     |
-| Контактные иконки (email, tel, TG) | `aria-label="Email {name}"` / `"Телефон {name}"` / `"Telegram {name}"` |
+| Element                              | aria-label requirement                                                 |
+| ------------------------------------ | ---------------------------------------------------------------------- |
+| «Платить» (income row)               | `aria-label="Оплатить приход от {company}"`                            |
+| The «retry» button on a load error   | `aria-label="Повторить загрузку"`                                      |
+| Reveal txHash (if there is a toggle) | `aria-label="Показать полный хэш"`                                     |
+| Contact icons (email, tel, TG)       | `aria-label="Email {name}"` / `"Телефон {name}"` / `"Telegram {name}"` |
 
-Если кнопка содержит видимый текст — `aria-label` не нужен.
+If a button contains visible text — `aria-label` is not needed.
 
 ### 9.5 Focus indicators (SC 2.4.11)
 
-Используем `outline-ring` из `globals.css` (`--ring`). Все `Button variant="ghost"` и `Link` — не переопределять `outline: none`. shadcn/ui Button по умолчанию `focus-visible:ring-2 focus-visible:ring-ring`.
+We use `outline-ring` from `globals.css` (`--ring`). All `Button variant="ghost"` and `Link` — do not override `outline: none`. The shadcn/ui Button by default has `focus-visible:ring-2 focus-visible:ring-ring`.
 
-### 9.6 Семантика
+### 9.6 Semantics
 
-- Хаб: `<main>` → `<h1>Мой роутинг</h1>` (или `sr-only` если дизайн убирает заголовок).
-- Список приходов: `<ul>` / shadcn `Table` (семантическая таблица с `<thead>`, `<tbody>`).
-- Список drop-проектов: `<ul>` с `<li>` (не просто div-стак).
+- Hub: `<main>` → `<h1>Мой роутинг</h1>` (or `sr-only` if the design removes the heading).
+- The incomes list: `<ul>` / shadcn `Table` (a semantic table with `<thead>`, `<tbody>`).
+- The drop projects list: `<ul>` with `<li>` (not just a div stack).
 - DropActionRequiredBlock: `<section aria-label="Требует действия">`.
 - DropBalanceCard: `<section aria-label="Мой баланс">`.
-- Статус-метрики в BalanceCard: не только цвет — Badge + текст всегда (долг = текст + цвет).
+- Status metrics in BalanceCard: not only color — Badge + text always (debt = text + color).
 
 ### 9.7 Reflow (SC 1.4.10)
 
-CSS grid `grid-cols-1 md:grid-cols-2` → при zoom 400% корректный mobile layout. Без горизонтального overflow. `tabular-nums` суммы — не ломают layout при крупных числах (`max-w-full overflow-hidden text-ellipsis` на контейнере).
+CSS grid `grid-cols-1 md:grid-cols-2` → at 400% zoom a correct mobile layout. No horizontal overflow. `tabular-nums` amounts — do not break the layout with large numbers (`max-w-full overflow-hidden text-ellipsis` on the container).
 
 ---
 
 ## 10. Data contracts (API)
 
-### 10.1 Хаб — данные
+### 10.1 Hub — data
 
 ```
 GET /api/finance/drop/me/summary
 → DropSummaryDto {
-    balance: number           // накопленная доля, USD
-    dropSharePercent: number  // процентная ставка дропа (5 по умолчанию)
-    pendingIncomesCount: number  // приходов в статусе validated (требуют оплаты)
-    debtToCompany: number    // долг компании перед дропом (доля синьора к выплате)
+    balance: number           // accumulated share, USD
+    dropSharePercent: number  // the drop's percentage rate (5 by default)
+    pendingIncomesCount: number  // incomes in the validated status (require payment)
+    debtToCompany: number    // the company's debt to the drop (the senior's share to be paid out)
   }
 
 GET /api/finance/drop/me/incomes?status=validated&limit=3
@@ -529,19 +529,19 @@ GET /api/projects/drop/me
 → DropProjectDto[] {
     id: string
     companyName: string
-    seniorDisplayName: string  // displayName синьора (НЕ реальное имя если маска)
+    seniorDisplayName: string  // the senior's displayName (NOT the real name if masked)
     incomesCount: number
     status: 'active' | 'closed'
   }
 ```
 
-**Замечание Coder'у:**
+**A note to the Coder:**
 
-- Если `GET /api/finance/drop/me/summary` не существует — создать endpoint. Аналог: `getSummary` для SENIOR. Доступен только самому дропу (RBAC: `DROP` + `userId === req.user.id`).
-- Если `GET /api/projects/drop/me` не существует — фильтр в `ProjectsService.findAll` для DROP: проекты где `drop_id = self`.
-- `seniorDisplayName` — реальное имя синьора (дроп его видит, координируются напрямую согласно §4 plan-doc'а).
+- If `GET /api/finance/drop/me/summary` does not exist — create the endpoint. An analogue: `getSummary` for SENIOR. Available only to the drop themselves (RBAC: `DROP` + `userId === req.user.id`).
+- If `GET /api/projects/drop/me` does not exist — a filter in `ProjectsService.findAll` for DROP: projects where `drop_id = self`.
+- `seniorDisplayName` — the senior's real name (the drop sees it, they coordinate directly per §4 of the plan doc).
 
-### 10.2 Финансы — данные
+### 10.2 Finance — data
 
 ```
 GET /api/finance/drop/me/incomes?status=&type=&from=&to=&page=1&limit=20
@@ -552,13 +552,13 @@ GET /api/finance/drop/me/payments
     id: string
     amount: number
     currency: string
-    txHash?: string          // крипто-хэш если крипто-платёж
+    txHash?: string          // crypto hash if a crypto payment
     status: 'pending' | 'confirmed' | 'failed'
     createdAt: string
   }
 ```
 
-### 10.3 Хук-структура (новые хуки)
+### 10.3 Hook structure (new hooks)
 
 ```ts
 // apps/web/app/hooks/use-drop-summary.ts
@@ -570,182 +570,182 @@ export function useDropProjects() // query /api/projects/drop/me
 export function useDropPayments() // query /api/finance/drop/me/payments
 ```
 
-Образцы: `use-legend.ts` и существующие finance hooks. Все ответы через `.parse()` из `@crm/shared` Zod-схем.
+Models: `use-legend.ts` and the existing finance hooks. All responses via `.parse()` from `@crm/shared` Zod schemas.
 
 ---
 
 ## 11. Edge cases
 
-### 11.1 Хаб «Мой роутинг»
+### 11.1 The «Мой роутинг» hub
 
-| Кейс                     | Поведение                                                                                      |
-| ------------------------ | ---------------------------------------------------------------------------------------------- |
-| Нет drop-проектов        | DropProjectsList: «Нет активных drop-проектов. Обратитесь к администратору.»                   |
-| Нет validated приходов   | DropActionRequiredBlock: состояние B (CheckCircle + «Всё оплачено»)                            |
-| `debtToCompany === 0`    | Метрика долга: `text-muted-foreground`, значение «$0.00», без destructive                      |
-| `debtToCompany > 0`      | Метрика долга: `text-destructive`, Tooltip «Долг компании перед вами — доля синьора к выплате» |
-| `balance === 0`          | Сумма «$0.00», без специальной стилизации (neutral)                                            |
-| Validated приходов > 3   | В DropActionRequiredBlock показать 3 + ссылка «+N ещё» → `/crm/finance?status=validated`       |
-| Ошибка API `/me/summary` | Toast + inline retry. Другие блоки продолжают работать (независимые queries)                   |
-| Loading                  | Все блоки → Skeleton соответствующей высоты                                                    |
+| Case                    | Behavior                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------ |
+| No drop projects        | DropProjectsList: «Нет активных drop-проектов. Обратитесь к администратору.»                     |
+| No validated incomes    | DropActionRequiredBlock: state B (CheckCircle + «Всё оплачено»)                                  |
+| `debtToCompany === 0`   | The debt metric: `text-muted-foreground`, the value «$0.00», without destructive                 |
+| `debtToCompany > 0`     | The debt metric: `text-destructive`, Tooltip «Долг компании перед вами — доля синьора к выплате» |
+| `balance === 0`         | The amount «$0.00», without special styling (neutral)                                            |
+| Validated incomes > 3   | In DropActionRequiredBlock show 3 + a link «+N ещё» → `/crm/finance?status=validated`            |
+| API error `/me/summary` | A toast + inline retry. The other blocks keep working (independent queries)                      |
+| Loading                 | All blocks → a Skeleton of the corresponding height                                              |
 
-### 11.2 Финансы
+### 11.2 Finance
 
-| Кейс                             | Поведение                                                                           |
-| -------------------------------- | ----------------------------------------------------------------------------------- |
-| Нет приходов                     | DropIncomesTable: «Приходов пока нет»                                               |
-| Нет платежей компании            | DropPaymentsHistory: «Нет истории платежей»                                         |
-| `txHash` отсутствует             | Колонка txHash: «—» (dash)                                                          |
-| Фильтр применён, нет результатов | «Нет приходов по выбранным фильтрам. Сбросить фильтры.» с кнопкой сброса            |
-| Пагинация страница > 1           | Кнопки «Предыдущая» / «Следующая». Нет пагинации с > 3 страниц — не нужно для дропа |
+| Case                         | Behavior                                                                                 |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| No incomes                   | DropIncomesTable: «Приходов пока нет»                                                    |
+| No company payments          | DropPaymentsHistory: «Нет истории платежей»                                              |
+| `txHash` absent              | The txHash column: «—» (dash)                                                            |
+| A filter applied, no results | «Нет приходов по выбранным фильтрам. Сбросить фильтры.» with a reset button              |
+| Pagination page > 1          | «Предыдущая» / «Следующая» buttons. No pagination with > 3 pages — not needed for a drop |
 
-### 11.3 Команда
+### 11.3 Team
 
-| Кейс                                   | Поведение                                            |
-| -------------------------------------- | ---------------------------------------------------- |
-| Команда не назначена (до бэкенд-фикса) | «Команда не назначена. Обратитесь к администратору.» |
-| Нет HR в команде                       | Строка HR скрыта (не показывать пустую строку)       |
-| Нет бухгалтера                         | Аналогично                                           |
-| Контакт пустой (нет telegram handle)   | Иконка TG скрывается (не рендерить пустую ссылку)    |
-
----
-
-## 12. data-testid реестр (для AutoTest)
-
-Стабильные селекторы — только `data-testid`, не классы:
-
-| testid                       | Что                                            |
-| ---------------------------- | ---------------------------------------------- |
-| `drop-routing-hub`           | Корневой div хаба `/crm/routing`               |
-| `drop-balance-card`          | `DropBalanceCard`                              |
-| `drop-balance-amount`        | Сумма накопленной доли (tabular-nums)          |
-| `drop-balance-share-percent` | Метрика ставки %                               |
-| `drop-balance-pending-count` | Метрика «в работе» (кол-во приходов)           |
-| `drop-balance-debt`          | Метрика долга компании                         |
-| `drop-action-block`          | `DropActionRequiredBlock`                      |
-| `drop-action-income-item`    | `<li>` строка validated прихода                |
-| `drop-action-pay-btn-{id}`   | Кнопка «Платить» на строке прихода             |
-| `drop-action-pay-all-btn`    | CTA «Платить компании» (общая)                 |
-| `drop-action-more-link`      | Ссылка «+N ещё» к /crm/finance                 |
-| `drop-projects-list`         | `DropProjectsList` блок                        |
-| `drop-project-item-{id}`     | `<li>` строка drop-проекта                     |
-| `drop-quick-register-btn`    | «Зарегистрировать приход»                      |
-| `drop-quick-pay-btn`         | «Платить компании» (DropQuickActions)          |
-| `drop-finance-page`          | Корневой div `/crm/finance` drop-view          |
-| `drop-incomes-table`         | `DropIncomesTable`                             |
-| `drop-income-row-{id}`       | `<tr>` строка прихода                          |
-| `drop-income-status-{id}`    | Badge статуса прихода                          |
-| `drop-income-pay-btn-{id}`   | Кнопка «Платить» в таблице                     |
-| `drop-filter-status`         | Select фильтра статуса                         |
-| `drop-filter-period`         | Select фильтра периода                         |
-| `drop-payments-history`      | `DropPaymentsHistory` блок                     |
-| `drop-payment-row-{id}`      | Строка исходящего платежа                      |
-| `drop-nav`                   | Sidebar nav для DROP (обёртка для count check) |
+| Case                                      | Behavior                                             |
+| ----------------------------------------- | ---------------------------------------------------- |
+| No team assigned (before the backend fix) | «Команда не назначена. Обратитесь к администратору.» |
+| No HR in the team                         | The HR row is hidden (do not show an empty row)      |
+| No accountant                             | Likewise                                             |
+| A contact is empty (no telegram handle)   | The TG icon is hidden (do not render an empty link)  |
 
 ---
 
-## 13. Русские тексты (user-facing)
+## 12. data-testid registry (for AutoTest)
 
-### Хаб «Мой роутинг»
+Stable selectors — only `data-testid`, not classes:
 
-| Элемент                          | Текст                                                        |
-| -------------------------------- | ------------------------------------------------------------ |
-| Заголовок страницы               | `«Мой роутинг»`                                              |
-| Subtitle страницы                | `«Платёжный хаб»`                                            |
-| BalanceCard заголовок            | `«МОЙ БАЛАНС»` (uppercase tracking-wider)                    |
-| BalanceCard subtitle             | `«Накопленная доля»`                                         |
-| Метрика ставки                   | `«Ставка»`                                                   |
-| Метрика в работе                 | `«В работе»`                                                 |
-| Метрика долг                     | `«Долг компании»`                                            |
-| Tooltip долга                    | `«Доля синьора, которую компания должна выплатить вам»`      |
-| ActionBlock заголовок (активный) | `«ТРЕБУЕТ ДЕЙСТВИЯ»`                                         |
-| ActionBlock badge                | `«{N} приходов»` / `«{N} приход»` (склонение, если нужно)    |
-| ActionBlock кнопка строки        | `«Платить»`                                                  |
-| ActionBlock CTA                  | `«Платить компании»`                                         |
-| ActionBlock ссылка доп.          | `«+{N} ещё»`                                                 |
-| ActionBlock заголовок (пустой)   | `«ВСЁ ОПЛАЧЕНО»`                                             |
-| ActionBlock пустой текст         | `«Нет приходов, требующих оплаты»`                           |
-| ProjectsList заголовок           | `«МОИ DROP-ПРОЕКТЫ»`                                         |
-| ProjectsList пустой              | `«Нет активных drop-проектов. Обратитесь к администратору.»` |
-| QuickActions кнопка 1            | `«Зарегистрировать приход»`                                  |
-| QuickActions кнопка 2            | `«Платить компании»`                                         |
+| testid                       | What                                             |
+| ---------------------------- | ------------------------------------------------ |
+| `drop-routing-hub`           | Root div of the `/crm/routing` hub               |
+| `drop-balance-card`          | `DropBalanceCard`                                |
+| `drop-balance-amount`        | The accumulated share amount (tabular-nums)      |
+| `drop-balance-share-percent` | The rate % metric                                |
+| `drop-balance-pending-count` | The «in progress» metric (number of incomes)     |
+| `drop-balance-debt`          | The company debt metric                          |
+| `drop-action-block`          | `DropActionRequiredBlock`                        |
+| `drop-action-income-item`    | `<li>` row of a validated income                 |
+| `drop-action-pay-btn-{id}`   | The «Платить» button on an income row            |
+| `drop-action-pay-all-btn`    | The CTA «Платить компании» (general)             |
+| `drop-action-more-link`      | The «+N ещё» link to /crm/finance                |
+| `drop-projects-list`         | The `DropProjectsList` block                     |
+| `drop-project-item-{id}`     | `<li>` row of a drop project                     |
+| `drop-quick-register-btn`    | «Зарегистрировать приход»                        |
+| `drop-quick-pay-btn`         | «Платить компании» (DropQuickActions)            |
+| `drop-finance-page`          | Root div of `/crm/finance` drop-view             |
+| `drop-incomes-table`         | `DropIncomesTable`                               |
+| `drop-income-row-{id}`       | `<tr>` income row                                |
+| `drop-income-status-{id}`    | Income status Badge                              |
+| `drop-income-pay-btn-{id}`   | The «Платить» button in the table                |
+| `drop-filter-status`         | The status filter Select                         |
+| `drop-filter-period`         | The period filter Select                         |
+| `drop-payments-history`      | The `DropPaymentsHistory` block                  |
+| `drop-payment-row-{id}`      | An outgoing payment row                          |
+| `drop-nav`                   | Sidebar nav for DROP (a wrapper for count check) |
 
-### Финансы (drop-view)
+---
 
-| Элемент                   | Текст                                                      |
+## 13. Russian texts (user-facing)
+
+### The «Мой роутинг» hub
+
+| Element                      | Text                                                         |
+| ---------------------------- | ------------------------------------------------------------ |
+| Page heading                 | `«Мой роутинг»`                                              |
+| Page subtitle                | `«Платёжный хаб»`                                            |
+| BalanceCard heading          | `«МОЙ БАЛАНС»` (uppercase tracking-wider)                    |
+| BalanceCard subtitle         | `«Накопленная доля»`                                         |
+| Rate metric                  | `«Ставка»`                                                   |
+| In-progress metric           | `«В работе»`                                                 |
+| Debt metric                  | `«Долг компании»`                                            |
+| Debt tooltip                 | `«Доля синьора, которую компания должна выплатить вам»`      |
+| ActionBlock heading (active) | `«ТРЕБУЕТ ДЕЙСТВИЯ»`                                         |
+| ActionBlock badge            | `«{N} приходов»` / `«{N} приход»` (declension, if needed)    |
+| ActionBlock row button       | `«Платить»`                                                  |
+| ActionBlock CTA              | `«Платить компании»`                                         |
+| ActionBlock extra link       | `«+{N} ещё»`                                                 |
+| ActionBlock heading (empty)  | `«ВСЁ ОПЛАЧЕНО»`                                             |
+| ActionBlock empty text       | `«Нет приходов, требующих оплаты»`                           |
+| ProjectsList heading         | `«МОИ DROP-ПРОЕКТЫ»`                                         |
+| ProjectsList empty           | `«Нет активных drop-проектов. Обратитесь к администратору.»` |
+| QuickActions button 1        | `«Зарегистрировать приход»`                                  |
+| QuickActions button 2        | `«Платить компании»`                                         |
+
+### Finance (drop-view)
+
+| Element                   | Text                                                       |
 | ------------------------- | ---------------------------------------------------------- |
-| Заголовок страницы        | `«Финансы»`                                                |
-| IncomesTable заголовок    | `«МОИ ПРИХОДЫ»`                                            |
-| Колонки таблицы           | `«Дата»  «Компания»  «Сумма»  «Тип»  «Статус»  «Действие»` |
-| Фильтр статус placeholder | `«Все статусы»`                                            |
-| Фильтр период placeholder | `«Все периоды»`                                            |
-| Пустая таблица            | `«Приходов пока нет»`                                      |
-| Фильтр без результатов    | `«Нет приходов по выбранным фильтрам.»`                    |
-| Кнопка сброса             | `«Сбросить фильтры»`                                       |
-| PaymentsHistory заголовок | `«ПЛАТЕЖИ КОМПАНИИ»`                                       |
-| Пустая история            | `«Нет истории платежей»`                                   |
-| Статусы приходов          | `«Ожидает»  «Валидирован»  «Оплачен»  «Отклонён»`          |
-| Статусы платежей          | `«Ожидает»  «Подтверждён»  «Ошибка»`                       |
+| Page heading              | `«Финансы»`                                                |
+| IncomesTable heading      | `«МОИ ПРИХОДЫ»`                                            |
+| Table columns             | `«Дата»  «Компания»  «Сумма»  «Тип»  «Статус»  «Действие»` |
+| Status filter placeholder | `«Все статусы»`                                            |
+| Period filter placeholder | `«Все периоды»`                                            |
+| Empty table               | `«Приходов пока нет»`                                      |
+| Filter without results    | `«Нет приходов по выбранным фильтрам.»`                    |
+| Reset button              | `«Сбросить фильтры»`                                       |
+| PaymentsHistory heading   | `«ПЛАТЕЖИ КОМПАНИИ»`                                       |
+| Empty history             | `«Нет истории платежей»`                                   |
+| Income statuses           | `«Ожидает»  «Валидирован»  «Оплачен»  «Отклонён»`          |
+| Payment statuses          | `«Ожидает»  «Подтверждён»  «Ошибка»`                       |
 
-### Команда (drop-view)
+### Team (drop-view)
 
-| Элемент                    | Текст                                                  |
-| -------------------------- | ------------------------------------------------------ |
-| Заголовок страницы         | `«Моя команда»`                                        |
-| Subtitle                   | `«Ваша drop-команда для координации»`                  |
-| Пустое состояние           | `«Команда не назначена. Обратитесь к администратору.»` |
-| Роль синьора               | `«Синьор»`                                             |
-| Роль HR                    | `«HR»`                                                 |
-| Роль бухгалтера            | `«Бухгалтер»`                                          |
-| aria-label email-ссылки    | `«Email {name}»`                                       |
-| aria-label tel-ссылки      | `«Телефон {name}»`                                     |
-| aria-label telegram-ссылки | `«Telegram {name}»`                                    |
+| Element                  | Text                                                   |
+| ------------------------ | ------------------------------------------------------ |
+| Page heading             | `«Моя команда»`                                        |
+| Subtitle                 | `«Ваша drop-команда для координации»`                  |
+| Empty state              | `«Команда не назначена. Обратитесь к администратору.»` |
+| Senior role              | `«Синьор»`                                             |
+| HR role                  | `«HR»`                                                 |
+| Accountant role          | `«Бухгалтер»`                                          |
+| aria-label email link    | `«Email {name}»`                                       |
+| aria-label tel link      | `«Телефон {name}»`                                     |
+| aria-label telegram link | `«Telegram {name}»`                                    |
 
 ---
 
-## 14. Handoff-чеклист для Coder
+## 14. Handoff checklist for Coder
 
 ### Pre-implementation
 
-- [ ] Прочитать план-документ `docs/architecture/2026-06-10-drop-role-design.md` (источник решений)
-- [ ] Проверить существующие badge.tsx variants — нужен ли `destructive` variant с текстом
-- [ ] Найти `CreateTransactionDialog` — поддерживает ли `DROP_INCOME` тип, или нужно расширить
-- [ ] Проверить `/crm/payments/initiate/:incomeId` — существует ли route, доступен ли DROP
-- [ ] Подтвердить endpoint `/api/finance/drop/me/summary` или создать (задача Coder §6 плана)
-- [ ] Подтвердить endpoint `/api/projects/drop/me` или создать фильтр в `ProjectsService`
-- [ ] Проверить `TeamsService.findAll` — фильтр для DROP (задача Coder §6 плана)
-- [ ] `nav-sidebar.tsx` — добавить `Route` icon из lucide + `Мой роутинг` entry для `DROP`
-- [ ] `routes/crm/index.tsx` — изменить redirect для DROP: `/crm/profile` → `/crm/routing`
+- [ ] Read the plan document `docs/architecture/2026-06-10-drop-role-design.md` (the source of decisions)
+- [ ] Check the existing badge.tsx variants — is a `destructive` variant with text needed
+- [ ] Find `CreateTransactionDialog` — does it support the `DROP_INCOME` type, or does it need to be extended
+- [ ] Check `/crm/payments/initiate/:incomeId` — does the route exist, is it accessible to DROP
+- [ ] Confirm the endpoint `/api/finance/drop/me/summary` or create it (Coder task §6 of the plan)
+- [ ] Confirm the endpoint `/api/projects/drop/me` or create a filter in `ProjectsService`
+- [ ] Check `TeamsService.findAll` — the filter for DROP (Coder task §6 of the plan)
+- [ ] `nav-sidebar.tsx` — add the `Route` icon from lucide + the `Мой роутинг` entry for `DROP`
+- [ ] `routes/crm/index.tsx` — change the redirect for DROP: `/crm/profile` → `/crm/routing`
 
 ### Post-implementation WCAG verify
 
-- [ ] Все icon-only кнопки имеют `aria-label` (§9.4)
-- [ ] tabular-nums на суммах (CSS `font-variant-numeric: tabular-nums`)
+- [ ] All icon-only buttons have `aria-label` (§9.4)
+- [ ] tabular-nums on amounts (CSS `font-variant-numeric: tabular-nums`)
 - [ ] `debtToCompany > 0` → `text-destructive` (§3.3)
-- [ ] Responsive smoke: 320px / 768px / 1024px / 1440px — нет горизонтального overflow
-- [ ] Playwright screenshot: хаб + финансы на 1440px и 375px (в PR)
-- [ ] Все `Button variant="ghost"` — focus ring видимый
+- [ ] Responsive smoke: 320px / 768px / 1024px / 1440px — no horizontal overflow
+- [ ] Playwright screenshot: the hub + finance at 1440px and 375px (in the PR)
+- [ ] All `Button variant="ghost"` — the focus ring is visible
 
 ### Anti-slop check (Mode C)
 
-- [ ] Нет purple/gradient backgrounds на карточках
-- [ ] Нет `rounded-2xl` везде — только `rounded-lg` / `rounded-md`
-- [ ] Нет `shadow-xl` на всех карточках без причины
-- [ ] Нет decorative blobs / illustrations
-- [ ] Нет `transition: all`
-- [ ] Суммы — `tabular-nums`, не `text-2xl text-center bold` без контекста
+- [ ] No purple/gradient backgrounds on cards
+- [ ] No `rounded-2xl` everywhere — only `rounded-lg` / `rounded-md`
+- [ ] No `shadow-xl` on all cards without a reason
+- [ ] No decorative blobs / illustrations
+- [ ] No `transition: all`
+- [ ] Amounts — `tabular-nums`, not `text-2xl text-center bold` without context
 
 ---
 
-## 15. Антипаттерны (проверить при code review)
+## 15. Anti-patterns (check during code review)
 
-- Не использовать `transition: all` на кнопках — только explicit properties.
-- Не вкладывать Cards внутрь Card — DropActionRequiredBlock это не Card внутри Card (строки приходов — `<li>`, не вложенные Card).
-- Не делать «баланс» крупным hero-элементом с gradient фоном — это operational SaaS, не wallet-app.
-- Не хранить финансовые данные в localStorage / IndexedDB — только TanStack Query memory cache (см. persist query allow-list: finance/PII НИКОГДА).
-- Не показывать skeleton-рамки без данных внутри — только Skeleton или данные, без пустых Card-оболочек.
-- Не делать «Платить компании» деструктивным (красным) — это нормальное действие, не удаление. Primary-желтый.
-- Не прятать метрику долга при `debtToCompany === 0` — показывать «$0.00» (дроп должен видеть что долга нет).
-- Не добавлять `data-amount` или другие атрибуты с финансовыми данными в DOM-элементы — только отображение.
-- `tabular-nums` обязателен на всех числовых полях (суммы, проценты, счётчики).
-- Реальные контакты синьора/HR/бухгалтера в «Команде» — не маскировать (дроп координируется напрямую). Это отличие от JUNIOR-хаба где персона из легенды.
+- Do not use `transition: all` on buttons — only explicit properties.
+- Do not nest Cards inside a Card — DropActionRequiredBlock is not a Card inside a Card (income rows are `<li>`, not nested Cards).
+- Do not make the «balance» a large hero element with a gradient background — this is operational SaaS, not a wallet app.
+- Do not store financial data in localStorage / IndexedDB — only the TanStack Query memory cache (see the persist query allow-list: finance/PII NEVER).
+- Do not show skeleton frames without data inside — only a Skeleton or data, without empty Card shells.
+- Do not make «Платить компании» destructive (red) — it is a normal action, not a deletion. Primary yellow.
+- Do not hide the debt metric at `debtToCompany === 0` — show «$0.00» (the drop must see that there is no debt).
+- Do not add `data-amount` or other attributes with financial data to DOM elements — display only.
+- `tabular-nums` is mandatory on all numeric fields (amounts, percentages, counters).
+- The real contacts of the senior/HR/accountant in «Команда» — do not mask (the drop coordinates directly). This is the difference from the JUNIOR hub where the persona comes from the legend.
