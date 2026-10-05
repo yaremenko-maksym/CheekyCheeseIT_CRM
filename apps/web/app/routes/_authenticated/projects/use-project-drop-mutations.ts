@@ -6,10 +6,9 @@ import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 
 /**
- * Drop attach/detach mutation for the project-detail page. Moved verbatim from
- * `$projectId.tsx`; the page passes `onSuccessClose` to keep closing its two
- * dialogs (picker + detach-confirm) exactly where the inline `onSuccess` did.
- * Must be called unconditionally, before the page's `denied` early-return.
+ * Drop attach/detach mutation for the project-detail page. Its only consumer is
+ * `ProjectDropDialogs`, which passes `onSuccessClose` to close both of its dialogs
+ * (picker + detach-confirm) after a successful attach/detach.
  */
 export function useProjectDropMutations(projectId: string, onSuccessClose: () => void) {
   const { t } = useLingui()

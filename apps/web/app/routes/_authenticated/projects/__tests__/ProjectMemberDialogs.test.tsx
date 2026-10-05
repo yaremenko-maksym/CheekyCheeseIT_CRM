@@ -1,0 +1,205 @@
+/**
+ * Mikado leaf 10 — characterization of the remove-member confirm + add-member picker
+ * dialogs extracted from `$projectId.tsx` into `ProjectMemberDialogs.tsx`. Expected values
+ * are hand-written literals (labels, URLs, payloads), not derived from the code.
+ */
+import { useState } from 'react'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import type { ProjectMemberDto } from '@crm/shared'
+import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { ProjectMemberDialogs, type UserForAdd } from '../ProjectMemberDialogs'
+
+vi.mock('@/lib/axios', () => ({
+  api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
+}))
+vi.mock('@/components/ui/avatar', () => ({
+  Avatar: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+  AvatarImage: ({ src }: { src: string }) => <img data-testid="avatar-img" src={src} alt="" />,
+  AvatarFallback: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+}))
+
+import { api } from '@/lib/axios'
+
+const TARGET = { userId: 'u9', displayName: 'Олег Джуніор' } as unknown as ProjectMemberDto
+
+function candidate(over: Partial<UserForAdd> & { id: string }): UserForAdd {
+  return {
+    displayName: 'Anon',
+    email: 'a@example.com',
+    role: 'JUNIOR',
+    avatarUrl: null,
+    avatarDocumentId: null,
+    hasActiveProject: false,
+    ...over,
+  }
+}
+
+const CANDIDATES: UserForAdd[] = [
+  candidate({ id: 'c1', displayName: 'Іван Петренко', email: 'ivan@example.com', role: 'HR' }),
+  candidate({
+    id: 'c2',
+    displayName: 'Марія Шевченко',
+    email: 'maria@example.com',
+    avatarUrl: 'https://img.example/m.png',
+  }),
+]
+
+beforeEach(async () => {
+  await loadCatalog('uk')
+  vi.mocked(api.post).mockReset()
+  vi.mocked(api.delete).mockReset()
+})
+
+interface Handlers {
+  onCloseRemoveMember: Mock<() => void>
+  onCloseAddMember: Mock<() => void>
+  onMemberAdded: Mock<(id: string) => void>
+}
+
+function setup(props: Partial<React.ComponentProps<typeof ProjectMemberDialogs>> = {}): Handlers {
+  const handlers: Handlers = {
+    onCloseRemoveMember: vi.fn<() => void>(),
+    onCloseAddMember: vi.fn<() => void>(),
+    onMemberAdded: vi.fn<(id: string) => void>(),
+  }
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  render(
+    <QueryClientProvider client={qc}>
+      <ProjectMemberDialogs
+        projectId="proj-1"
+        removeMemberTarget={null}
+        addMemberOpen={false}
+        availableToAdd={CANDIDATES}
+        addedMemberIds={new Set()}
+        {...handlers}
+        {...props}
+      />
+    </QueryClientProvider>,
+    { wrapper: I18nTestProvider },
+  )
+  return handlers
+}
+
+describe('ProjectMemberDialogs — remove confirm', () => {
+  it('renders nothing while both dialogs are closed', () => {
+    setup()
+    expect(screen.queryByText('Прибрати зі складу?')).toBeNull()
+    expect(screen.queryByText('Додати до складу')).toBeNull()
+  })
+
+  it('opens for a target and shows its name', () => {
+    setup({ removeMemberTarget: TARGET })
+    expect(screen.getByText('Прибрати зі складу?')).toBeTruthy()
+    expect(screen.getByText('Олег Джуніор')).toBeTruthy()
+  })
+
+  it('confirm deletes the member by userId and closes on success', async () => {
+    vi.mocked(api.delete).mockResolvedValue({ data: {} })
+    const { onCloseRemoveMember } = setup({ removeMemberTarget: TARGET })
+    await userEvent.click(screen.getByRole('button', { name: 'Прибрати' }))
+    await waitFor(() => expect(onCloseRemoveMember).toHaveBeenCalledTimes(1))
+    expect(api.delete).toHaveBeenCalledWith('/projects/proj-1/members/u9')
+  })
+
+  it('cancel closes without calling the API', async () => {
+    const { onCloseRemoveMember } = setup({ removeMemberTarget: TARGET })
+    await userEvent.click(screen.getByRole('button', { name: 'Скасувати' }))
+    expect(onCloseRemoveMember).toHaveBeenCalledTimes(1)
+    expect(api.delete).not.toHaveBeenCalled()
+  })
+
+  it('disables the destructive button while the delete is pending and keeps the dialog open', async () => {
+    vi.mocked(api.delete).mockReturnValue(new Promise(() => {}))
+    const { onCloseRemoveMember } = setup({ removeMemberTarget: TARGET })
+    const confirm = screen.getByRole('button', { name: 'Прибрати' })
+    await userEvent.click(confirm)
+    await waitFor(() => expect(confirm.hasAttribute('disabled')).toBe(true))
+    expect(onCloseRemoveMember).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProjectMemberDialogs — add picker', () => {
+  it('shows the empty state when there is nobody to add', () => {
+    setup({ addMemberOpen: true, availableToAdd: [] })
+    expect(screen.getByText('Немає кого додати')).toBeTruthy()
+  })
+
+  it('lists every candidate with name, email and role label; avatar only when url is set', () => {
+    setup({ addMemberOpen: true })
+    expect(screen.queryByText('Немає кого додати')).toBeNull()
+    expect(screen.getByText('Іван Петренко')).toBeTruthy()
+    expect(screen.getByText('maria@example.com')).toBeTruthy()
+    expect(screen.getAllByTestId('avatar-img')).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Додати' })).toHaveLength(2)
+  })
+
+  it('shows «Додано» and disables the button for already-added ids', () => {
+    setup({ addMemberOpen: true, addedMemberIds: new Set(['c1']) })
+    const added = screen.getByRole('button', { name: 'Додано' })
+    expect(added.hasAttribute('disabled')).toBe(true)
+    expect(screen.getByRole('button', { name: 'Додати' }).hasAttribute('disabled')).toBe(false)
+  })
+
+  it('click posts the userId, shows pending, then reports the add to the page', async () => {
+    let resolve: (v: unknown) => void = () => {}
+    vi.mocked(api.post).mockReturnValue(new Promise((r) => (resolve = r)))
+    const { onMemberAdded } = setup({ addMemberOpen: true })
+    const [first] = screen.getAllByRole('button', { name: 'Додати' })
+    await userEvent.click(first!)
+    const pending = await screen.findByRole('button', { name: 'Додаємо…' })
+    expect(pending.hasAttribute('disabled')).toBe(true)
+    expect(api.post).toHaveBeenCalledWith('/projects/proj-1/members', { userId: 'c1' })
+    resolve({ data: {} })
+    await waitFor(() => expect(onMemberAdded).toHaveBeenCalledWith('c1'))
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Додаємо…' })).toBeNull())
+  })
+
+  it('clears the pending state when the add fails and does not report an add', async () => {
+    vi.mocked(api.post).mockRejectedValue(new Error('boom'))
+    const { onMemberAdded } = setup({ addMemberOpen: true })
+    const [first] = screen.getAllByRole('button', { name: 'Додати' })
+    await userEvent.click(first!)
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Додати' })).toHaveLength(2))
+    expect(onMemberAdded).not.toHaveBeenCalled()
+  })
+
+  it('closing the picker via Escape calls onCloseAddMember', async () => {
+    const { onCloseAddMember } = setup({ addMemberOpen: true })
+    await userEvent.keyboard('{Escape}')
+    expect(onCloseAddMember).toHaveBeenCalledTimes(1)
+  })
+
+  it('uses stateful parent wiring: added id flips the button to «Додано»', async () => {
+    vi.mocked(api.post).mockResolvedValue({ data: {} })
+    function Harness(): React.ReactElement {
+      const [added, setAdded] = useState<Set<string>>(new Set())
+      return (
+        <ProjectMemberDialogs
+          projectId="proj-1"
+          removeMemberTarget={null}
+          onCloseRemoveMember={() => {}}
+          addMemberOpen
+          onCloseAddMember={() => {}}
+          availableToAdd={CANDIDATES}
+          addedMemberIds={added}
+          onMemberAdded={(id) => setAdded((p) => new Set(p).add(id))}
+        />
+      )
+    }
+    const qc = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <Harness />
+      </QueryClientProvider>,
+      { wrapper: I18nTestProvider },
+    )
+    const [first] = screen.getAllByRole('button', { name: 'Додати' })
+    await userEvent.click(first!)
+    expect(await screen.findByRole('button', { name: 'Додано' })).toBeTruthy()
+  })
+})

@@ -404,7 +404,7 @@ msgid "<0>{{{key}}}</0> — додана, але не використовуєт
 msgstr "<0>{{{key}}}</0> — додана, але не використовується в тексті"
 
 #. placeholder {0}: removeMemberTarget?.displayName
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "<0>{0}</0> більше не буде у складі проєкту."
 msgstr "<0>{0}</0> більше не буде у складі проєкту."
 
@@ -1751,7 +1751,7 @@ msgstr "Вибір команди"
 msgid "Вибір проєкту"
 msgstr "Вибір проєкту"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Вибір учасників для додавання до складу проєкту."
 msgstr "Вибір учасників для додавання до складу проєкту."
 
@@ -3162,7 +3162,7 @@ msgstr "договір"
 msgid "Договір"
 msgstr "Договір"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Додаємо…"
 msgstr "Додаємо…"
 
@@ -3179,14 +3179,14 @@ msgstr "Додайте нову співбесіду на дошку."
 msgid "api-error.APPLICATION_RESUME_REQUIRED"
 msgstr "Додайте файл резюме"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Додано"
 msgstr "Додано"
 
 #: apps/web/app/components/contracts/AddCustomVariableDialog.tsx
 #: apps/web/app/components/projects/ProjectCredentialsSection.tsx
 #: apps/web/app/components/user-profile/tabs/OverviewTab.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 msgid "Додати"
 msgstr "Додати"
@@ -3213,7 +3213,7 @@ msgid "Додати до команди дропа"
 msgstr "Додати до команди дропа"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Додати до складу"
 msgstr "Додати до складу"
 
@@ -6487,7 +6487,7 @@ msgid "Немає зобов’язань"
 msgstr "Немає зобов’язань"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Немає кого додати"
 msgstr "Немає кого додати"
 
@@ -7701,7 +7701,7 @@ msgstr "Підтвердження"
 msgid "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 msgstr "Підтвердження архівації. Введіть ім’я для підтвердження дії."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Підтвердження видалення учасника зі складу проєкту."
 msgstr "Підтвердження видалення учасника зі складу проєкту."
 
@@ -8290,7 +8290,7 @@ msgstr "Правка суми цього рядка заборонена, при
 msgid "Прев’ю чека"
 msgstr "Прев’ю чека"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Прибрати"
 msgstr "Прибрати"
 
@@ -8303,7 +8303,7 @@ msgstr "Прибрати {0}"
 msgid "Прибрати бухгалтера"
 msgstr "Прибрати бухгалтера"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 msgid "Прибрати зі складу?"
 msgstr "Прибрати зі складу?"
 
@@ -9453,10 +9453,10 @@ msgstr "Скасовуємо пропозицію…"
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectApprovalBanners.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectDropDialogs.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectMemberDialogs.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
