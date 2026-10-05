@@ -1,10 +1,10 @@
-# Design Spec: Пароли проекта (ProjectCredentialsSection)
+# Design Spec: Project passwords (ProjectCredentialsSection)
 
 **Slug:** `project-credentials`
-**Статус:** Ready for implementation
-**Дата:** 2026-06-12
-**Автор:** ui-ux-designer (Mode A)
-**Task-источник:** `.claude/tasks/task-project-credentials.md`
+**Status:** Ready for implementation
+**Date:** 2026-06-12
+**Author:** ui-ux-designer (Mode A)
+**Task source:** `.claude/tasks/task-project-credentials.md`
 
 ---
 
@@ -12,47 +12,47 @@
 
 ### Purpose
 
-Интерфейс позволяет управлять паролями рабочих аккаунтов проекта (GitHub, Jira, Slack, CRM-клиента…).
+The interface lets users manage the passwords of a project's work accounts (GitHub, Jira, Slack, the client CRM…).
 
-- **JUNIOR** — активный участник проекта — просматривает список, делает reveal пароля нужного сервиса, копирует в буфер чтобы войти. Workflow — открытие хаба, поиск строчки, один клик глаза, копирование.
-- **ADMIN/HR** — добавляет, редактирует, удаляет записи при онбординге джуна или ротации паролей.
+- **JUNIOR** — an active project participant — views the list, reveals the password of the needed service, copies it to the clipboard to sign in. Workflow — open the hub, find the row, one click on the eye, copy.
+- **ADMIN/HR** — adds, edits, deletes entries when onboarding a junior or rotating passwords.
 
-Критическое ограничение: пароли — **чувствительные данные**. Список не содержит plaintext даже в виде маски `*` из DOM. Reveal — отдельный запрос, plaintext в UI только пока пользователь явно смотрит (max 30с).
+Critical constraint: passwords are **sensitive data**. The list contains no plaintext, not even in the form of a `*` mask from the DOM. Reveal is a separate request, plaintext in the UI only while the user is explicitly looking (max 30s).
 
 ### Audience
 
-| Пользователь | Частота      | Главный сценарий                         |
-| ------------ | ------------ | ---------------------------------------- |
-| JUNIOR       | ежедневно    | Скопировать пароль нужного ресурса       |
-| ADMIN        | 1-2 раза/нед | Добавить/обновить аккаунт при онбординге |
-| HR           | 1-2 раза/нед | Добавить/обновить при ротации пароля     |
+| User   | Frequency      | Main scenario                            |
+| ------ | -------------- | ---------------------------------------- |
+| JUNIOR | daily          | Copy the password of the needed resource |
+| ADMIN  | 1-2 times/week | Add/update an account during onboarding  |
+| HR     | 1-2 times/week | Add/update on password rotation          |
 
 ### Tone
 
-**Dense / quiet / secure.** Операционный SaaS-инструмент с акцентом на безопасность.
+**Dense / quiet / secure.** An operational SaaS tool with an emphasis on security.
 
-- Никакого визуального «шума» — секция органично встраивается в существующий стиль хаба (`border-border/40 bg-card`), не выделяется цветом.
-- Пароли — чувствительные данные: UI транслирует это через сдержанность, а не яркость.
-- Reveal-состояние — единственная «особая» визуальная зона: моноширинный фон-«сейф».
+- No visual «noise» — the section blends into the existing hub style (`border-border/40 bg-card`), does not stand out by color.
+- Passwords are sensitive data: the UI conveys this through restraint, not brightness.
+- The reveal state is the only «special» visual zone: a monospace «safe» background.
 
 ### Memorable detail
 
-Revealed пароль отображается в **`font-mono tabular-nums tracking-wider`** на фоне `bg-muted/40` (визуальный «сейф» — инверсный box относительно строки). Авто-скрытие через 30с сопровождается тонкой **progress-bar CSS-анимацией** под паролем — визуальный таймер без JS-интервала (`animation: shrink 30s linear`). Пользователь видит «окно», которое закрывается.
+A revealed password is displayed in **`font-mono tabular-nums tracking-wider`** on a `bg-muted/40` background (a visual «safe» — an inverse box relative to the row). Auto-hide after 30s is accompanied by a thin **CSS progress-bar animation** under the password — a visual timer without a JS interval (`animation: shrink 30s linear`). The user sees a «window» that is closing.
 
 ### Constraints
 
-- Tailwind v4 + shadcn/ui (существующие компоненты)
-- Russian UI (все user-facing тексты)
+- Tailwind v4 + shadcn/ui (existing components)
+- Russian UI (all user-facing texts)
 - WCAG 2.2 Level AA
 - Responsive: 320px — 1440px
-- Существующие design tokens из `apps/web/app/styles/globals.css` (нет новых tokens)
-- Паттерн: `ProjectLegendSection.tsx` (Card + CardHeader + CardContent, border-border/40)
+- Existing design tokens from `apps/web/app/styles/globals.css` (no new tokens)
+- Pattern: `ProjectLegendSection.tsx` (Card + CardHeader + CardContent, border-border/40)
 
 ---
 
-## 2. Состояния компонента
+## 2. Component states
 
-### 2.1. Empty (нет записей)
+### 2.1. Empty (no entries)
 
 ```
 ┌─ Card border-border/40 ──────────────────────────┐
@@ -62,11 +62,11 @@ Revealed пароль отображается в **`font-mono tabular-nums trac
 └────────────────────────────────────────────────────┘
 ```
 
-- Кнопка «+ Добавить» только для ADMIN/HR (prop `canEdit`). JUNIOR видит empty-message без кнопки.
-- Иконка: `KeyRound` (lucide-react).
+- The «+ Добавить» button only for ADMIN/HR (prop `canEdit`). JUNIOR sees the empty message without the button.
+- Icon: `KeyRound` (lucide-react).
 - Text: `text-sm text-muted-foreground/60 italic`.
 
-### 2.2. List (пароли загружены)
+### 2.2. List (passwords loaded)
 
 ```
 ┌─ Card border-border/40 ──────────────────────────────────────────┐
@@ -82,25 +82,25 @@ Revealed пароль отображается в **`font-mono tabular-nums trac
 └────────────────────────────────────────────────────────────────── ┘
 ```
 
-**Строка записи:**
+**Entry row:**
 
 - `label` — `text-sm font-medium` (GitHub, Jira…)
-- `login` — `text-xs text-muted-foreground` (если заполнен)
-- `url` — `text-xs text-muted-foreground` в виде ссылки `<a target="_blank" rel="noopener noreferrer">` с иконкой `ExternalLink h-3 w-3` (если заполнен)
-- Маска: строка `••••••••` (`text-sm text-muted-foreground/50 tracking-widest font-mono`) — статичный текст, НЕ input
-- Кнопки: [👁 reveal] [✏ edit] [🗑 delete] — icon-only, ghost, h-7 w-7
+- `login` — `text-xs text-muted-foreground` (if filled)
+- `url` — `text-xs text-muted-foreground` as a link `<a target="_blank" rel="noopener noreferrer">` with an `ExternalLink h-3 w-3` icon (if filled)
+- Mask: the string `••••••••` (`text-sm text-muted-foreground/50 tracking-widest font-mono`) — static text, NOT an input
+- Buttons: [👁 reveal] [✏ edit] [🗑 delete] — icon-only, ghost, h-7 w-7
 
-**Разделитель:** `<Separator className="my-1" />` между строками (только для ≥2 записей).
+**Separator:** `<Separator className="my-1" />` between rows (only for ≥2 entries).
 
-**RBAC видимость кнопок:**
+**RBAC button visibility:**
 
-- JUNIOR: только `[👁]` (без edit/delete)
+- JUNIOR: only `[👁]` (no edit/delete)
 - ADMIN, HR: `[👁] [✏] [🗑]`
 
-### 2.3. Reveal (plaintext виден)
+### 2.3. Reveal (plaintext visible)
 
 ```
-┌─ строка credential ────────────────────────────────────────────┐
+┌─ credential row ───────────────────────────────────────────────┐
 │  [G] GitHub                                                     │
 │       login: john.doe@company.com  · github.com  [👁▪] [📋] [✏] [🗑]│
 │       ┌─── bg-muted/40 rounded-md px-3 py-1.5 ──────────────┐  │
@@ -110,125 +110,125 @@ Revealed пароль отображается в **`font-mono tabular-nums trac
 └─────────────────────────────────────────────────────────────── ┘
 ```
 
-**Детали reveal-зоны:**
+**Reveal zone details:**
 
 - Container: `bg-muted/40 rounded-[calc(var(--radius)-4px)] px-3 py-2` (concentric radius: Card radius - padding = 6px)
-- Пароль: `font-mono text-sm font-medium tabular-nums tracking-[0.12em] text-foreground select-text`
+- Password: `font-mono text-sm font-medium tabular-nums tracking-[0.12em] text-foreground select-text`
 - Progress-bar: `h-0.5 w-full bg-primary/30 rounded-full overflow-hidden`
   - Inner bar: `h-full bg-primary/60 animate-[shrink_30s_linear_forwards]`
   - Keyframe: `@keyframes shrink { from { width: 100% } to { width: 0% } }`
-  - После 30с: авто-скрытие (через `onAnimationEnd` callback)
-- Кнопка-глаз в reveal-состоянии: `aria-pressed="true"` + `aria-label="Скрыть пароль"` + `data-testid="credentials-hide-btn-{id}"`
-- Кнопка «Копировать» (clipboard): появляется только когда пароль показан. `aria-label="Копировать пароль"`. После успешного копирования — иконка `Check` вместо `Copy` на 2с (CSS transition opacity).
+  - After 30s: auto-hide (via the `onAnimationEnd` callback)
+- The eye button in the reveal state: `aria-pressed="true"` + `aria-label="Скрыть пароль"` + `data-testid="credentials-hide-btn-{id}"`
+- The «Копировать» (clipboard) button: appears only when the password is shown. `aria-label="Копировать пароль"`. After a successful copy — the `Check` icon instead of `Copy` for 2s (CSS transition opacity).
 
-### 2.4. Loading (список загружается)
+### 2.4. Loading (list is loading)
 
-Два Skeleton-блока:
+Two Skeleton blocks:
 
 ```tsx
 <Skeleton className="h-12 w-full rounded-md" />
 <Skeleton className="h-12 w-full rounded-md" />
 ```
 
-### 2.5. Error (reveal вернул 403/throttle)
+### 2.5. Error (reveal returned 403/throttle)
 
-Inline error под строкой, `text-xs text-destructive`. Тексты:
+An inline error under the row, `text-xs text-destructive`. Texts:
 
 - 403: `«Нет доступа к этому паролю»`
 - 429: `«Слишком много запросов. Попробуйте через минуту.»`
-- Сетевая ошибка: `«Не удалось получить пароль. Попробуйте ещё раз.»`
+- Network error: `«Не удалось получить пароль. Попробуйте ещё раз.»`
 
-Ошибка исчезает при следующей попытке reveal (не нужен явный dismiss).
+The error disappears on the next reveal attempt (no explicit dismiss needed).
 
 ---
 
 ## 3. Component List
 
-### Из shadcn/ui (apps/web/app/components/ui/)
+### From shadcn/ui (apps/web/app/components/ui/)
 
-| Компонент                                                                                                                                                             | Где применяется                                  |
+| Component                                                                                                                                                             | Where used                                       |
 | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| `Card`, `CardContent`, `CardHeader`, `CardTitle`                                                                                                                      | Секция целиком (паттерн ProjectLegendSection)    |
-| `Button` (variant="ghost", size="sm")                                                                                                                                 | Все кнопки-действия (reveal, copy, edit, delete) |
-| `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter`                                                                                              | Добавление / редактирование записи               |
-| `AlertDialog`, `AlertDialogContent`, `AlertDialogHeader`, `AlertDialogTitle`, `AlertDialogDescription`, `AlertDialogFooter`, `AlertDialogAction`, `AlertDialogCancel` | Confirm удаления                                 |
-| `Input`                                                                                                                                                               | Поля label, login, password, url                 |
-| `Label`                                                                                                                                                               | Подписи полей формы                              |
-| `Textarea`                                                                                                                                                            | Поле notes                                       |
-| `Separator`                                                                                                                                                           | Разделитель между строками                       |
-| `Skeleton`                                                                                                                                                            | Loading-состояние                                |
-| `Tooltip` (TooltipProvider, TooltipContent, TooltipTrigger)                                                                                                           | Подсказки для icon-only кнопок                   |
+| `Card`, `CardContent`, `CardHeader`, `CardTitle`                                                                                                                      | The whole section (ProjectLegendSection pattern) |
+| `Button` (variant="ghost", size="sm")                                                                                                                                 | All action buttons (reveal, copy, edit, delete)  |
+| `Dialog`, `DialogContent`, `DialogHeader`, `DialogTitle`, `DialogFooter`                                                                                              | Adding / editing an entry                        |
+| `AlertDialog`, `AlertDialogContent`, `AlertDialogHeader`, `AlertDialogTitle`, `AlertDialogDescription`, `AlertDialogFooter`, `AlertDialogAction`, `AlertDialogCancel` | Delete confirm                                   |
+| `Input`                                                                                                                                                               | The label, login, password, url fields           |
+| `Label`                                                                                                                                                               | Form field captions                              |
+| `Textarea`                                                                                                                                                            | The notes field                                  |
+| `Separator`                                                                                                                                                           | Separator between rows                           |
+| `Skeleton`                                                                                                                                                            | Loading state                                    |
+| `Tooltip` (TooltipProvider, TooltipContent, TooltipTrigger)                                                                                                           | Hints for icon-only buttons                      |
 
 ### Lucide-react icons
 
-| Иконка          | Где                                |
+| Icon            | Where                              |
 | --------------- | ---------------------------------- |
-| `KeyRound`      | Заголовок секции                   |
+| `KeyRound`      | Section header                     |
 | `Eye`, `EyeOff` | Reveal / hide toggle               |
 | `Copy`, `Check` | Clipboard button (swap on success) |
-| `Pencil`        | Edit кнопка                        |
-| `Trash2`        | Delete кнопка                      |
-| `Plus`          | Добавить запись                    |
-| `ExternalLink`  | URL-ссылка                         |
-| `Loader2`       | Pending state в кнопках            |
+| `Pencil`        | Edit button                        |
+| `Trash2`        | Delete button                      |
+| `Plus`          | Add an entry                       |
+| `ExternalLink`  | URL link                           |
+| `Loader2`       | Pending state in buttons           |
 
-### Новые файлы (Coder создаёт)
+### New files (Coder creates)
 
 ```
 apps/web/app/components/projects/ProjectCredentialsSection.tsx
 apps/web/app/hooks/use-credentials.ts
 ```
 
-Образцы: `ProjectLegendSection.tsx` + `use-legend.ts` соответственно.
+Models: `ProjectLegendSection.tsx` + `use-legend.ts` respectively.
 
 ---
 
 ## 4. Token Map
 
-Все токены из `apps/web/app/styles/globals.css` (`@theme inline {}`). **Новые токены не добавляются.**
+All tokens from `apps/web/app/styles/globals.css` (`@theme inline {}`). **No new tokens are added.**
 
-| Токен                                              | Применение                                                                      |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `var(--border)` / `border-border/40`               | Card border (паттерн секций хаба)                                               |
-| `var(--card)`                                      | Card background                                                                 |
-| `var(--muted-foreground)`                          | login, url, маска, caption-текст                                                |
-| `var(--muted)` / `bg-muted/40`                     | Reveal-контейнер (secure zone)                                                  |
-| `var(--foreground)`                                | Revealed пароль (полная непрозрачность)                                         |
-| `var(--primary)`                                   | Progress-bar fill (`bg-primary/60`), трек (`bg-primary/30`)                     |
-| `var(--destructive)`                               | Inline error messages                                                           |
-| `var(--ring)`                                      | Focus indicator (через Tailwind `focus-visible:ring-2 focus-visible:ring-ring`) |
-| `var(--radius)` → `calc(var(--radius) - 4px)`      | Reveal-контейнер (concentric radius)                                            |
-| `--font-sans`                                      | Весь текст (default)                                                            |
-| `font-mono` (Tailwind utility → browser monospace) | Revealed password display                                                       |
+| Token                                              | Usage                                                                         |
+| -------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `var(--border)` / `border-border/40`               | Card border (hub sections pattern)                                            |
+| `var(--card)`                                      | Card background                                                               |
+| `var(--muted-foreground)`                          | login, url, mask, caption text                                                |
+| `var(--muted)` / `bg-muted/40`                     | Reveal container (secure zone)                                                |
+| `var(--foreground)`                                | Revealed password (full opacity)                                              |
+| `var(--primary)`                                   | Progress-bar fill (`bg-primary/60`), track (`bg-primary/30`)                  |
+| `var(--destructive)`                               | Inline error messages                                                         |
+| `var(--ring)`                                      | Focus indicator (via Tailwind `focus-visible:ring-2 focus-visible:ring-ring`) |
+| `var(--radius)` → `calc(var(--radius) - 4px)`      | Reveal container (concentric radius)                                          |
+| `--font-sans`                                      | All text (default)                                                            |
+| `font-mono` (Tailwind utility → browser monospace) | Revealed password display                                                     |
 
-**Radius concentric:** Card `--radius` = 0.625rem (10px). Padding Card = 24px. Reveal-контейнер вложен внутрь CardContent → outer radius - 4px = 6px = `calc(var(--radius) - 4px)` = `rounded-[calc(var(--radius)-4px)]`.
+**Concentric radius:** Card `--radius` = 0.625rem (10px). Card padding = 24px. The reveal container is nested inside CardContent → outer radius - 4px = 6px = `calc(var(--radius) - 4px)` = `rounded-[calc(var(--radius)-4px)]`.
 
 ---
 
-## 5. Dialog: Добавление / Редактирование записи
+## 5. Dialog: Adding / Editing an entry
 
-### Поля формы
+### Form fields
 
-| Поле       | Тип                                        | Обязательность                                     | Placeholder                    |
-| ---------- | ------------------------------------------ | -------------------------------------------------- | ------------------------------ |
-| Название\* | `Input`                                    | Required                                           | `GitHub, Jira, Slack...`       |
-| Логин      | `Input`                                    | Optional                                           | `john.doe@company.com`         |
-| Пароль\*   | `Input type="password"` + toggle show/hide | Required при создании, Optional при редактировании | `Пароль аккаунта`              |
-| URL        | `Input type="url"`                         | Optional                                           | `https://github.com`           |
-| Заметки    | `Textarea rows={3}`                        | Optional                                           | `Дополнительная информация...` |
+| Field      | Type                                       | Required                             | Placeholder                    |
+| ---------- | ------------------------------------------ | ------------------------------------ | ------------------------------ |
+| Название\* | `Input`                                    | Required                             | `GitHub, Jira, Slack...`       |
+| Логин      | `Input`                                    | Optional                             | `john.doe@company.com`         |
+| Пароль\*   | `Input type="password"` + toggle show/hide | Required on create, Optional on edit | `Пароль аккаунта`              |
+| URL        | `Input type="url"`                         | Optional                             | `https://github.com`           |
+| Заметки    | `Textarea rows={3}`                        | Optional                             | `Дополнительная информация...` |
 
-**Password field:** нативный `<input type="password">` (браузер скрывает по умолчанию) + кнопка-глаз для toggle внутри поля. При редактировании — поле пустое с `placeholder="Оставьте пустым чтобы не менять пароль"`. Если поле пустое при PATCH — пароль не обновляется (бэк игнорирует absent `password`).
+**Password field:** a native `<input type="password">` (the browser hides it by default) + an eye button for the toggle inside the field. On edit — the field is empty with `placeholder="Оставьте пустым чтобы не менять пароль"`. If the field is empty on PATCH — the password is not updated (the backend ignores an absent `password`).
 
-### Dialog поведение
+### Dialog behavior
 
-- Trigger: кнопка «+ Добавить» (пустой state) или `[✏]` на записи.
+- Trigger: the «+ Добавить» button (empty state) or `[✏]` on an entry.
 - `DialogTitle`: `"Добавить аккаунт"` / `"Редактировать аккаунт"`.
-- Escape → закрытие без сохранения. Focus restore на trigger-кнопку.
-- Submit → `<button type="submit">`. Enter в text-полях → submit формы. **Исключение:** textarea notes — Enter добавляет новую строку, не сабмитит (нативное поведение textarea).
-- Pending: submit-кнопка `disabled + <Loader2 animate-spin />`.
-- После успешного submit → диалог закрывается, список обновляется через `queryClient.invalidateQueries`.
+- Escape → close without saving. Focus restore to the trigger button.
+- Submit → `<button type="submit">`. Enter in text fields → form submit. **Exception:** the notes textarea — Enter adds a new line, does not submit (native textarea behavior).
+- Pending: the submit button `disabled + <Loader2 animate-spin />`.
+- After a successful submit → the dialog closes, the list refreshes via `queryClient.invalidateQueries`.
 
-### Layout формы (Dialog)
+### Form layout (Dialog)
 
 ```
 DialogContent className="sm:max-w-md"
@@ -248,36 +248,36 @@ DialogContent className="sm:max-w-md"
 
 ---
 
-## 6. Confirm удаления
+## 6. Delete confirm
 
-Компонент `AlertDialog` (shadcn/ui). Trigger: кнопка `[🗑]`.
+The `AlertDialog` component (shadcn/ui). Trigger: the `[🗑]` button.
 
 ```
 AlertDialogTitle:       "Удалить аккаунт?"
 AlertDialogDescription: "Запись «{label}» будет удалена безвозвратно."
-AlertDialogCancel:      "Отмена"   (Escape → отмена)
+AlertDialogCancel:      "Отмена"   (Escape → cancel)
 AlertDialogAction:      "Удалить"  variant="destructive"
 ```
 
-Focus trap: Radix AlertDialog обеспечивает автоматически. После закрытия — focus restore на trigger.
+Focus trap: Radix AlertDialog provides it automatically. After closing — focus restore to the trigger.
 
 ---
 
 ## 7. Motion Spec
 
-Все анимации — минимальны, функциональны (не декоративны).
+All animations are minimal, functional (not decorative).
 
-### Reveal-блок (появление)
+### Reveal block (appearance)
 
 ```css
-/* Framer Motion variants — паттерн из project.tsx */
+/* Framer Motion variants — pattern from project.tsx */
 enter: { opacity: 0, height: 0 } → { opacity: 1, height: "auto", transition: { duration: 0.2, ease: [0.25, 0.1, 0.25, 1] } }
 exit:  { opacity: 1, height: "auto" } → { opacity: 0, height: 0, transition: { duration: 0.15 } }
 ```
 
-Использовать `<AnimatePresence>` + `motion.div` для reveal-контейнера — вход/выход.
+Use `<AnimatePresence>` + `motion.div` for the reveal container — enter/exit.
 
-### Progress-bar (авто-скрытие таймер)
+### Progress-bar (auto-hide timer)
 
 ```css
 @keyframes shrink {
@@ -294,9 +294,9 @@ exit:  { opacity: 1, height: "auto" } → { opacity: 0, height: 0, transition: {
 }
 ```
 
-`animation-play-state: running` пока показан; при копировании — **не сбрасывать таймер** (у пользователя уже в буфере, 30с от reveal).
+`animation-play-state: running` while shown; on copy — **do not reset the timer** (the user already has it in the clipboard, 30s from reveal).
 
-### Clipboard success (Check-иконка swap)
+### Clipboard success (Check icon swap)
 
 ```css
 transition-property: opacity, transform;
@@ -304,9 +304,9 @@ transition-duration: 150ms;
 transition-timing-function: ease-out;
 ```
 
-Copy → Check: `opacity 0 → 1, scale 0.8 → 1`. После 2с: Check → Copy обратно.
+Copy → Check: `opacity 0 → 1, scale 0.8 → 1`. After 2s: Check → Copy back.
 
-### Кнопки действий
+### Action buttons
 
 ```css
 transition-property: background-color, opacity, color;
@@ -314,7 +314,7 @@ transition-duration: 150ms;
 transition-timing-function: ease-out;
 ```
 
-Никакого `transition: all`.
+Never `transition: all`.
 
 ---
 
@@ -322,40 +322,40 @@ transition-timing-function: ease-out;
 
 ### 8.1. Target size — SC 2.5.8 (min 24×24px)
 
-Все icon-only кнопки имеют `className="h-7 w-7"` (28×28px) — превышает минимум 24px.
-Padding расширяет hit-area без увеличения иконки: `p-1.5` внутри h-7 w-7.
+All icon-only buttons have `className="h-7 w-7"` (28×28px) — exceeds the 24px minimum.
+Padding expands the hit area without enlarging the icon: `p-1.5` inside h-7 w-7.
 
 ### 8.2. Focus indicator — SC 2.4.11
 
-Все интерактивные элементы используют shadcn/ui паттерн `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`. Кастомные элементы (inline-кнопки) — явно наследуют через Button component.
+All interactive elements use the shadcn/ui pattern `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`. Custom elements (inline buttons) explicitly inherit through the Button component.
 
-Reveal-контейнер `select-text` — не интерактивный элемент, нет focus ring нужен.
+The `select-text` reveal container is not an interactive element, no focus ring is needed.
 
 ### 8.3. Color contrast — SC 1.4.3 / 1.4.11
 
-| Элемент          | Цвет                           | Фон                 | Contrast                  |
-| ---------------- | ------------------------------ | ------------------- | ------------------------- |
-| Пароль revealed  | `foreground` L=0.97            | `muted/40` ≈ L=0.18 | >7:1 ✓                    |
-| Маска `••••••••` | `muted-foreground/50` ≈ L=0.29 | `card` L=0.12       | ~3:1 (large UI element ✓) |
-| Label record     | `foreground`                   | `card`              | >7:1 ✓                    |
-| Login/URL        | `muted-foreground` L=0.58      | `card` L=0.12       | ~4.5:1 ✓                  |
-| Error text       | `destructive`                  | `card`              | ≥4.5:1 ✓                  |
+| Element           | Color                          | Background          | Contrast                  |
+| ----------------- | ------------------------------ | ------------------- | ------------------------- |
+| Revealed password | `foreground` L=0.97            | `muted/40` ≈ L=0.18 | >7:1 ✓                    |
+| Mask `••••••••`   | `muted-foreground/50` ≈ L=0.29 | `card` L=0.12       | ~3:1 (large UI element ✓) |
+| Record label      | `foreground`                   | `card`              | >7:1 ✓                    |
+| Login/URL         | `muted-foreground` L=0.58      | `card` L=0.12       | ~4.5:1 ✓                  |
+| Error text        | `destructive`                  | `card`              | ≥4.5:1 ✓                  |
 
 ### 8.4. Icon-only buttons — SC 1.1.1
 
-| Кнопка | aria-label                                                 | aria-pressed     | data-testid                   |
+| Button | aria-label                                                 | aria-pressed     | data-testid                   |
 | ------ | ---------------------------------------------------------- | ---------------- | ----------------------------- |
 | Reveal | `"Показать пароль"` (hidden) / `"Скрыть пароль"` (visible) | `false` / `true` | `credentials-reveal-btn-{id}` |
-| Copy   | `"Копировать пароль"` / `"Скопировано"` (после успеха)     | —                | `credentials-copy-btn-{id}`   |
+| Copy   | `"Копировать пароль"` / `"Скопировано"` (after success)    | —                | `credentials-copy-btn-{id}`   |
 | Edit   | `"Редактировать {label}"`                                  | —                | `credentials-edit-btn-{id}`   |
 | Delete | `"Удалить {label}"`                                        | —                | `credentials-delete-btn-{id}` |
-| Add    | — (label "Добавить" виден)                                 | —                | `credentials-add-btn`         |
+| Add    | — (the label "Добавить" is visible)                        | —                | `credentials-add-btn`         |
 
-Tooltip обёртывает каждую icon-only кнопку: `<Tooltip><TooltipTrigger asChild>...<TooltipContent>{label}</TooltipContent></Tooltip>`.
+A Tooltip wraps every icon-only button: `<Tooltip><TooltipTrigger asChild>...<TooltipContent>{label}</TooltipContent></Tooltip>`.
 
 ### 8.5. Clipboard feedback — SC 4.1.3
 
-Статус копирования объявляется через `aria-live`:
+The copy status is announced via `aria-live`:
 
 ```tsx
 <div
@@ -368,93 +368,93 @@ Tooltip обёртывает каждую icon-only кнопку: `<Tooltip><Too
 </div>
 ```
 
-Обнуляется через 3с чтобы повторное копирование снова объявлялось.
+Reset after 3s so that a repeated copy is announced again.
 
 ### 8.6. Revealed password — screen reader
 
-Reveal-блок НЕ имеет `aria-live` — пользователь явно нажал кнопку и ожидает изменения. Пароль попадает в accessibility tree через обычный `<span>`, скринридер прочитает при фокусе/навигации. `aria-hidden="false"` явно (default).
+The reveal block has NO `aria-live` — the user explicitly pressed the button and expects a change. The password enters the accessibility tree through a regular `<span>`, the screen reader reads it on focus/navigation. `aria-hidden="false"` explicitly (default).
 
-НЕ добавлять `aria-label` на сам password-span (скринридер зачитает plaintext — это намеренно при явном действии пользователя).
+Do NOT add `aria-label` to the password span itself (the screen reader would read out the plaintext — this is intentional on an explicit user action).
 
 ### 8.7. Dialog focus management
 
-Radix Dialog автоматически:
+Radix Dialog automatically:
 
-- Trap focus внутри открытого диалога
-- Restore focus на trigger-элемент при закрытии
+- Traps focus inside the open dialog
+- Restores focus to the trigger element on close
 - Escape → close
 
-Проверить: первый `autoFocus` в Dialog → поле «Название» (через `autoFocus` prop на Input).
+Check: the first `autoFocus` in the Dialog → the «Название» field (via the `autoFocus` prop on Input).
 
 ### 8.8. AlertDialog
 
-`role="alertdialog"` (Radix AlertDialog) — автоматически. Focus идёт на первую кнопку (Cancel) — безопасный default для деструктивных действий (WCAG best practice).
+`role="alertdialog"` (Radix AlertDialog) — automatic. Focus goes to the first button (Cancel) — a safe default for destructive actions (WCAG best practice).
 
-### 8.9. Keyboard navigation flow (секция)
+### 8.9. Keyboard navigation flow (section)
 
 ```
-Tab: [+ Добавить] → строка 1: [👁] → [✏] → [🗑] → строка 2: [👁] → [✏] → [🗑] → ...
+Tab: [+ Добавить] → row 1: [👁] → [✏] → [🗑] → row 2: [👁] → [✏] → [🗑] → ...
 ```
 
-Порядок DOM соответствует визуальному порядку. Reveal-блок вставляется **после** соответствующей строки в DOM — при появлении Tab переходит внутрь него (password span + [📋 copy]).
+DOM order matches visual order. The reveal block is inserted **after** the corresponding row in the DOM — when it appears, Tab moves inside it (password span + [📋 copy]).
 
 ---
 
 ## 9. Edge Cases
 
-### 9.1. Длинные label / login
+### 9.1. Long label / login
 
-- `label`: `truncate` (одна строка, ellipsis). Полный текст — в Tooltip при hover/focus.
-- `login`: `truncate max-w-[160px] sm:max-w-[240px]`. Полный email — в `title` attribute.
-- `url`: `truncate max-w-[120px] sm:max-w-[180px]`. Полный URL — в href (виден при hover в браузере).
+- `label`: `truncate` (a single line, ellipsis). The full text — in a Tooltip on hover/focus.
+- `login`: `truncate max-w-[160px] sm:max-w-[240px]`. The full email — in the `title` attribute.
+- `url`: `truncate max-w-[120px] sm:max-w-[180px]`. The full URL — in the href (visible on hover in the browser).
 
-### 9.2. Много записей (>10)
+### 9.2. Many entries (>10)
 
-Нет пагинации на клиенте (бэк возвращает все записи проекта). Список внутри `<ScrollArea className="max-h-[480px]">` если количество записей > 8. Порог 8 — примерно 3 viewport-height на мобильном 320px.
+No client-side pagination (the backend returns all project entries). The list is inside `<ScrollArea className="max-h-[480px]">` if the number of entries is > 8. The threshold of 8 is roughly 3 viewport-heights on a 320px mobile.
 
-Ориентир: credential-строка ≈ 56px. 8 × 56 = 448px + заголовок ≈ 480px max-height.
+Guideline: a credential row ≈ 56px. 8 × 56 = 448px + header ≈ 480px max-height.
 
-### 9.3. Throttle reveal (429)
+### 9.3. Reveal throttle (429)
 
-Лимит бэка: 30 requests/мин. При 429:
+Backend limit: 30 requests/min. On 429:
 
-- Inline error под строкой: `«Слишком много запросов. Попробуйте через минуту.»`
-- Кнопка reveal: `disabled` на 60с (отсчёт на клиенте). После 60с — re-enable без перезагрузки страницы.
-- `aria-disabled="true"` + `title="Доступно через {N}с"` на кнопке в disabled-состоянии.
+- Inline error under the row: `«Слишком много запросов. Попробуйте через минуту.»`
+- Reveal button: `disabled` for 60s (countdown on the client). After 60s — re-enable without a page reload.
+- `aria-disabled="true"` + `title="Доступно через {N}с"` on the button in the disabled state.
 
-### 9.4. Параллельные reveal (множество открытых паролей)
+### 9.4. Parallel reveals (multiple open passwords)
 
-Разрешено: пользователь может открыть несколько паролей одновременно. Каждый reveal-блок имеет независимый таймер (30с от момента своего reveal). Нет искусственного ограничения «только 1 открытый».
+Allowed: the user can open several passwords at the same time. Each reveal block has an independent timer (30s from its own reveal). No artificial «only 1 open» limit.
 
-### 9.5. Авто-скрытие и clipboard race
+### 9.5. Auto-hide and clipboard race
 
-Если пользователь нажимает «Копировать» в момент когда таймер почти истёк — копирование выполняется (plaintext ещё в state). После `onAnimationEnd` state очищается. Нет race: React setState синхронен в обработчике события.
+If the user presses «Копировать» at the moment the timer has almost expired — the copy is performed (the plaintext is still in state). After `onAnimationEnd` the state is cleared. No race: React setState is synchronous in the event handler.
 
 ### 9.6. Empty url / login
 
-Если `login` пустой — строка login не рендерится (не занимает место). Если `url` пустой — ссылка не рендерится. Не показывать пустые строки с прочерком.
+If `login` is empty — the login line is not rendered (takes no space). If `url` is empty — the link is not rendered. Do not show empty lines with a dash.
 
 ### 9.7. Mobile (320px)
 
-- Кнопки `[👁] [✏] [🗑]` не переносятся на новую строку: flex-row, min-width кнопки 28px, `flex-shrink-0`.
-- Label + кнопки: flex layout с `flex-1 min-w-0` на label-блоке и `flex-shrink-0` на кнопках.
-- Reveal-контейнер: `break-all` на пароле (длинные символы без пробелов).
+- The `[👁] [✏] [🗑]` buttons do not wrap to a new line: flex-row, button min-width 28px, `flex-shrink-0`.
+- Label + buttons: flex layout with `flex-1 min-w-0` on the label block and `flex-shrink-0` on the buttons.
+- Reveal container: `break-all` on the password (long characters without spaces).
 
-### 9.8. Offline / network error на reveal
+### 9.8. Offline / network error on reveal
 
-Сетевая ошибка (не 4xx): inline error `«Не удалось получить пароль. Попробуйте ещё раз.»` + кнопка reveal остаётся активной (не disable).
+A network error (not 4xx): inline error `«Не удалось получить пароль. Попробуйте ещё раз.»` + the reveal button stays active (not disabled).
 
-### 9.9. JUNIOR на чужом проекте (403 на list)
+### 9.9. JUNIOR on someone else's project (403 on list)
 
-Если GET /credentials вернул 403 → секция не рендерится (аналогично паттерну `useHrContact` в project.tsx:137-143). Не показывать error state для JUNIOR — 403 означает «нет доступа», секция скрывается молча.
+If GET /credentials returned 403 → the section is not rendered (similar to the `useHrContact` pattern in project.tsx:137-143). Do not show an error state for JUNIOR — 403 means «no access», the section is hidden silently.
 
 ---
 
-## 10. Интеграция в существующие страницы
+## 10. Integration into existing pages
 
-### 10.1. Junior-хаб: `apps/web/app/routes/crm/project.tsx`
+### 10.1. Junior hub: `apps/web/app/routes/crm/project.tsx`
 
-Секция добавляется в `<HubCards>` последней карточкой перед quick-links. Паттерн существующих карточек: `motion.div` с вариантами `card` + `col-span-full`.
+The section is added to `<HubCards>` as the last card before the quick links. The pattern of existing cards: `motion.div` with `card` variants + `col-span-full`.
 
 ```tsx
 {/* Пароли проекта */}
@@ -466,11 +466,11 @@ Tab: [+ Добавить] → строка 1: [👁] → [✏] → [🗑] → с
 </motion.div>
 ```
 
-JUNIOR всегда `canEdit={false}` — кнопки edit/delete скрыты.
+JUNIOR is always `canEdit={false}` — the edit/delete buttons are hidden.
 
 ### 10.2. Project detail: `apps/web/app/routes/crm/projects/$projectId.tsx`
 
-Секция добавляется в таб «Обзор» рядом с `ProjectLegendSection`. Паттерн: grid `gap-4`, `col-span-full`.
+The section is added to the «Обзор» tab next to `ProjectLegendSection`. Pattern: grid `gap-4`, `col-span-full`.
 
 ```tsx
 {
@@ -483,11 +483,11 @@ JUNIOR всегда `canEdit={false}` — кнопки edit/delete скрыты.
 }
 ```
 
-`canViewCredentials` и `canEditCredentials` вычисляются по той же логике что `canAccessLegend` в соседних секциях: `role === 'ADMIN' || (role === 'HR' && hrCanAccess)`. На 403 от бэка — скрывать секцию через `onAccessDenied` callback или тот же паттерн useHrContact (try/catch → null → скрыть).
+`canViewCredentials` and `canEditCredentials` are computed by the same logic as `canAccessLegend` in neighboring sections: `role === 'ADMIN' || (role === 'HR' && hrCanAccess)`. On a 403 from the backend — hide the section via an `onAccessDenied` callback or the same useHrContact pattern (try/catch → null → hide).
 
 ---
 
-## 11. Props (интерфейс компонента)
+## 11. Props (component interface)
 
 ```tsx
 interface ProjectCredentialsSectionProps {
@@ -503,77 +503,77 @@ interface ProjectCredentialsSectionProps {
 }
 ```
 
-Нет `canAccess` prop — компонент сам обрабатывает 403 от list-эндпоинта (скрывает себя).
+There is no `canAccess` prop — the component handles a 403 from the list endpoint itself (hides itself).
 
 ---
 
-## 12. data-testid реестр (для AutoTest)
+## 12. data-testid registry (for AutoTest)
 
-| testid                              | Что                                   |
-| ----------------------------------- | ------------------------------------- |
-| `credentials-section`               | Корневая Card                         |
-| `credentials-add-btn`               | Кнопка «+ Добавить»                   |
-| `credentials-list`                  | `<ul>` список записей                 |
-| `credentials-item-{id}`             | `<li>` строка записи                  |
-| `credentials-label-{id}`            | Label записи                          |
-| `credentials-reveal-btn-{id}`       | Кнопка глаза (reveal/hide)            |
-| `credentials-copy-btn-{id}`         | Кнопка копирования (видна при reveal) |
-| `credentials-password-display-{id}` | Span с plaintext паролем              |
-| `credentials-timer-bar-{id}`        | Progress-bar авто-скрытия             |
-| `credentials-edit-btn-{id}`         | Кнопка редактирования                 |
-| `credentials-delete-btn-{id}`       | Кнопка удаления                       |
-| `credentials-dialog`                | Dialog добавления/редактирования      |
-| `credentials-input-label`           | Input «Название» в dialog             |
-| `credentials-input-login`           | Input «Логин» в dialog                |
-| `credentials-input-password`        | Input «Пароль» в dialog               |
-| `credentials-input-url`             | Input «URL» в dialog                  |
-| `credentials-input-notes`           | Textarea «Заметки» в dialog           |
-| `credentials-dialog-submit`         | Submit-кнопка dialog                  |
-| `credentials-delete-confirm`        | AlertDialog confirm                   |
-| `credentials-clipboard-status`      | aria-live регион статуса clipboard    |
-| `credentials-error-{id}`            | Inline error под строкой              |
+| testid                              | What                                     |
+| ----------------------------------- | ---------------------------------------- |
+| `credentials-section`               | Root Card                                |
+| `credentials-add-btn`               | The «+ Добавить» button                  |
+| `credentials-list`                  | `<ul>` list of entries                   |
+| `credentials-item-{id}`             | `<li>` entry row                         |
+| `credentials-label-{id}`            | Entry label                              |
+| `credentials-reveal-btn-{id}`       | Eye button (reveal/hide)                 |
+| `credentials-copy-btn-{id}`         | Copy button (visible on reveal)          |
+| `credentials-password-display-{id}` | Span with the plaintext password         |
+| `credentials-timer-bar-{id}`        | Auto-hide progress bar                   |
+| `credentials-edit-btn-{id}`         | Edit button                              |
+| `credentials-delete-btn-{id}`       | Delete button                            |
+| `credentials-dialog`                | Add/edit dialog                          |
+| `credentials-input-label`           | The «Название» input in the dialog       |
+| `credentials-input-login`           | The «Логин» input in the dialog          |
+| `credentials-input-password`        | The «Пароль» input in the dialog         |
+| `credentials-input-url`             | The «URL» input in the dialog            |
+| `credentials-input-notes`           | The «Заметки» textarea in the dialog     |
+| `credentials-dialog-submit`         | Dialog submit button                     |
+| `credentials-delete-confirm`        | AlertDialog confirm                      |
+| `credentials-clipboard-status`      | aria-live region of the clipboard status |
+| `credentials-error-{id}`            | Inline error under the row               |
 
 ---
 
-## 13. Русские тексты (user-facing)
+## 13. Russian texts (user-facing)
 
-### Секция (без диалога)
+### Section (without the dialog)
 
-| Элемент               | Текст                                                         |
-| --------------------- | ------------------------------------------------------------- |
-| Заголовок секции      | `«ПАРОЛИ ПРОЕКТА»` (uppercase tracking-wider, паттерн секций) |
-| Кнопка добавить       | `«Добавить»`                                                  |
-| Empty state           | `«Нет сохранённых паролей»`                                   |
-| Маска пароля          | `«••••••••»` (статичный текст)                                |
-| Tooltip reveal        | `«Показать пароль»` / `«Скрыть пароль»`                       |
-| Tooltip copy          | `«Копировать пароль»`                                         |
-| Tooltip edit          | `«Редактировать»`                                             |
-| Tooltip delete        | `«Удалить»`                                                   |
-| Статус clipboard      | `«Пароль скопирован»`                                         |
-| Error 403             | `«Нет доступа к этому паролю»`                                |
-| Error 429             | `«Слишком много запросов. Попробуйте через минуту.»`          |
-| Error network         | `«Не удалось получить пароль. Попробуйте ещё раз.»`           |
-| Disabled reveal title | `«Доступно через {N}с»`                                       |
+| Element               | Text                                                            |
+| --------------------- | --------------------------------------------------------------- |
+| Section title         | `«ПАРОЛИ ПРОЕКТА»` (uppercase tracking-wider, sections pattern) |
+| Add button            | `«Добавить»`                                                    |
+| Empty state           | `«Нет сохранённых паролей»`                                     |
+| Password mask         | `«••••••••»` (static text)                                      |
+| Tooltip reveal        | `«Показать пароль»` / `«Скрыть пароль»`                         |
+| Tooltip copy          | `«Копировать пароль»`                                           |
+| Tooltip edit          | `«Редактировать»`                                               |
+| Tooltip delete        | `«Удалить»`                                                     |
+| Clipboard status      | `«Пароль скопирован»`                                           |
+| Error 403             | `«Нет доступа к этому паролю»`                                  |
+| Error 429             | `«Слишком много запросов. Попробуйте через минуту.»`            |
+| Error network         | `«Не удалось получить пароль. Попробуйте ещё раз.»`             |
+| Disabled reveal title | `«Доступно через {N}с»`                                         |
 
 ### Dialog
 
-| Элемент                   | Текст                                |
-| ------------------------- | ------------------------------------ |
-| Title создание            | `«Добавить аккаунт»`                 |
-| Title редактирование      | `«Редактировать аккаунт»`            |
-| Label «Название»          | `«Название *»`                       |
-| Label «Логин»             | `«Логин»`                            |
-| Label «Пароль»            | `«Пароль *»`                         |
-| Label «Пароль» (edit)     | `«Новый пароль»`                     |
-| Placeholder пароль (edit) | `«Оставьте пустым, чтобы не менять»` |
-| Label «URL»               | `«URL»`                              |
-| Label «Заметки»           | `«Заметки»`                          |
-| Button cancel             | `«Отмена»`                           |
-| Button submit             | `«Сохранить»`                        |
+| Element                     | Text                                 |
+| --------------------------- | ------------------------------------ |
+| Title create                | `«Добавить аккаунт»`                 |
+| Title edit                  | `«Редактировать аккаунт»`            |
+| Label «Название»            | `«Название *»`                       |
+| Label «Логин»               | `«Логин»`                            |
+| Label «Пароль»              | `«Пароль *»`                         |
+| Label «Пароль» (edit)       | `«Новый пароль»`                     |
+| Placeholder password (edit) | `«Оставьте пустым, чтобы не менять»` |
+| Label «URL»                 | `«URL»`                              |
+| Label «Заметки»             | `«Заметки»`                          |
+| Button cancel               | `«Отмена»`                           |
+| Button submit               | `«Сохранить»`                        |
 
-### AlertDialog удаления
+### Delete AlertDialog
 
-| Элемент     | Текст                                            |
+| Element     | Text                                             |
 | ----------- | ------------------------------------------------ |
 | Title       | `«Удалить аккаунт?»`                             |
 | Description | `«Запись «{label}» будет удалена безвозвратно.»` |
@@ -584,9 +584,9 @@ interface ProjectCredentialsSectionProps {
 
 ## 14. Hook: use-credentials.ts
 
-Образец: `apps/web/app/hooks/use-legend.ts`. Все ответы через `.parse()` из `@crm/shared`.
+Model: `apps/web/app/hooks/use-legend.ts`. All responses via `.parse()` from `@crm/shared`.
 
-Экспорты:
+Exports:
 
 ```ts
 export function useCredentials(projectId: string) // list query
@@ -596,17 +596,17 @@ export function useDeleteCredential(projectId: string) // mutation
 export function useRevealCredential(projectId: string) // manual query (не auto-fetch)
 ```
 
-`useRevealCredential` — **manual trigger**, не `useQuery` с `enabled`. Использовать `useMutation` или `useQuery` с `enabled: false` + `refetch()` при клике на глаз. Ответ не кэшировать в QueryClient (plaintext в памяти только в компонентном state).
+`useRevealCredential` — **manual trigger**, not a `useQuery` with `enabled`. Use `useMutation` or `useQuery` with `enabled: false` + `refetch()` on the eye click. Do not cache the response in the QueryClient (plaintext in memory only in component state).
 
-На 403 `useCredentials` → компонент скрывает себя (не error state). Все остальные коды ошибок → toast через sonner.
+On 403 `useCredentials` → the component hides itself (not an error state). All other error codes → a toast via sonner.
 
 ---
 
-## 15. Антипаттерны (проверить при code review)
+## 15. Anti-patterns (check during code review)
 
-- Не хранить plaintext пароль в QueryClient cache — только в `useState` компонента строки.
-- Не добавлять `data-password` или другие data-атрибуты с plaintext на DOM-элементы.
-- Не использовать `transition: all` на кнопках — только explicit properties (make-interfaces-feel-better).
-- Не делать reveal-блок `display: none` через CSS (скринридер не увидит); использовать conditional rendering.
-- Не вкладывать Cards внутрь Card (anti-pattern). Reveal-блок — не Card, только styled div.
-- Не копировать HR-логику доступа из legend.service — использовать новый `HrAccessService` (задача Coder §6).
+- Do not store the plaintext password in the QueryClient cache — only in the row component's `useState`.
+- Do not add `data-password` or other data attributes with plaintext to DOM elements.
+- Do not use `transition: all` on buttons — only explicit properties (make-interfaces-feel-better).
+- Do not make the reveal block `display: none` via CSS (a screen reader will not see it); use conditional rendering.
+- Do not nest Cards inside a Card (anti-pattern). The reveal block is not a Card, only a styled div.
+- Do not copy the HR access logic from legend.service — use the new `HrAccessService` (Coder task §6).
