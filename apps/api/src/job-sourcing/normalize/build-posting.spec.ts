@@ -91,4 +91,81 @@ describe('buildNormalizedPosting', () => {
       buildNormalizedPosting('REMOTIVE_API', ok)!.fingerprint,
     )
   })
+
+  it('drops (does not truncate) a canonical url longer than 2048 chars', () => {
+    expect(
+      buildNormalizedPosting('REMOTEOK_API', { ...ok, url: `https://x.test/${'a'.repeat(2100)}` }),
+    ).toBeNull()
+    const edge = `https://x.test/${'a'.repeat(2048 - 'https://x.test/'.length)}`
+    expect(buildNormalizedPosting('REMOTEOK_API', { ...ok, url: edge })!.url).toBe(edge)
+  })
+
+  it('never throws on non-string garbage from raw JSON', () => {
+    const bad = (over: Record<string, unknown>) =>
+      buildNormalizedPosting('REMOTEOK_API', { ...ok, ...over } as never)
+    expect(bad({ title: 123 })).toBeNull()
+    expect(bad({ companyName: { a: 1 } })).toBeNull()
+    expect(bad({ url: 42 })).toBeNull()
+    expect(bad({ tags: 'x' })!.tags).toEqual([])
+    expect(bad({ tags: ['a', 1, null, { x: 1 }, 'b'] })!.tags).toEqual(['a', 'b'])
+    expect(bad({ description: 99 })!.descriptionMd).toBe('')
+    expect(bad({ location: ['x'] })!.location).toBeNull()
+    expect(bad({ employmentType: 5, seniorityHint: {} })).toMatchObject({
+      employmentType: null,
+      seniorityHint: null,
+    })
+    expect(bad({ remote: 'yes' })!.remote).toBeNull()
+    expect(bad({ publishedAt: {} })!.publishedAt).toBeNull()
+  })
+
+  it('text kind neutralizes markdown images, links and autolinks', () => {
+    const p = buildNormalizedPosting('HN_HIRING', {
+      ...ok,
+      description: 'x ![](https://evil/p.png) [a](https://evil) <https://evil> <b>y</b>',
+      descriptionKind: 'text',
+    })!
+    expect(p.descriptionMd).not.toMatch(/(^|[^\\])\[/)
+    expect(p.descriptionMd).not.toMatch(/(^|[^\\])</)
+    expect(p.descriptionMd).toContain('!\\[\\]')
+  })
+
+  it('text kind trims', () => {
+    const p = buildNormalizedPosting('HN_HIRING', {
+      ...ok,
+      description: '  hi \n',
+      descriptionKind: 'text',
+    })!
+    expect(p.descriptionMd).toBe('hi')
+  })
+
+  it('cuts huge raw description before processing', () => {
+    const huge = '<p>' + 'word '.repeat(2_000_000) + '</p>'
+    const p = buildNormalizedPosting('REMOTEOK_API', { ...ok, description: huge })!
+    // htmlToMarkdown appends a one-char ellipsis when it truncates
+    expect(p.descriptionMd.length).toBeLessThanOrEqual(20_001)
+    const t = buildNormalizedPosting('HN_HIRING', {
+      ...ok,
+      description: '['.repeat(500_000),
+      descriptionKind: 'text',
+    })!
+    expect(t.descriptionMd.length).toBeLessThanOrEqual(20_000)
+  })
+
+  it('strips bidi controls from title/company', () => {
+    const p = buildNormalizedPosting('REMOTEOK_API', {
+      ...ok,
+      title: 'Dev\u202Egnp.exe',
+      companyName: '\u2066Acme\u2069\u200F',
+    })!
+    expect(p.title).toBe('Devgnp.exe')
+    expect(p.companyName).toBe('Acme')
+  })
+
+  it('slices surrogate-safe (no lone high surrogate at the cut)', () => {
+    const p = buildNormalizedPosting('REMOTEOK_API', {
+      ...ok,
+      title: 'a'.repeat(499) + '\u{1F600}',
+    })!
+    expect(p.title).toBe('a'.repeat(499))
+  })
 })

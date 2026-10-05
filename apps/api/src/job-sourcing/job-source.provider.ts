@@ -56,8 +56,10 @@ export interface JobSourceProvider {
 }
 
 /**
- * Canonical form of a posting URL — `https://host/path` with query, fragment,
- * default port and trailing slash removed, host lowercased.
+ * Canonical form of a posting URL — `https://host/path` with fragment, default
+ * port and trailing slash removed, host lowercased. The query string is removed
+ * too, EXCEPT params named in `keepParams` (sorted, re-encoded) — for sources
+ * that identify items only by a param (HN: `?id=`).
  *
  * THIS IS THE DEDUPE SPINE (AC1). DOU's `<guid>` carries a FRESH TIMESTAMP
  * query on every fetch (`…/vacancies/356562/?1786092518`) and `<link>` carries
