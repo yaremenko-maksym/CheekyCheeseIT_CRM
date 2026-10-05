@@ -1,189 +1,200 @@
-# CheekyCheeseIT CRM — язык проекта
+# CheekyCheeseIT CRM — project language
 
-Глоссарий домена. **Только** термины, специфичные для этого бизнеса: если понятие общее для
-программирования (таймаут, кэш, хук), ему здесь не место.
+Domain glossary. **Only** terms specific to this business: if a concept is general to programming
+(timeout, cache, hook), it does not belong here.
 
-Правила пользования:
+Usage rules:
 
-- Термин из `_Избегать_` в теле PR, имени переменной, названии теста или отчёте агента — **находка
-  ревью**, а не стилистическое замечание. Мы выбрали одно слово намеренно.
-- Русский термин — для общения и отчётов; идентификатор в скобках — как это называется в коде.
-  Разные языки, одно понятие; синонимов не заводим ни в одном из них.
-- Продукт с 2026-09-19 двуязычный (`uk` дефолт / `en`, спека `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`):
-  у каждого термина появятся формы `uk` и `en` — их добавляет первый PR этапа 3 (`web-core`), они и есть
-  источник для каталогов Lingui и для `copy-reviewer`. До этого русская форма остаётся языком глоссария.
-- Понятия здесь нет, а оно нужно — это сигнал: либо изобретается язык, которого в проекте нет
-  (пересмотреть), либо реальный пробел (добавить сюда в том же PR).
+- A term from `_Avoid_` in a PR body, a variable name, a test name or an agent report is a **review
+  finding**, not a stylistic remark. We chose one word deliberately.
+- Each entry leads with the **English concept name** — that is the term for communication, reports
+  and the repo. The `product term: «…»` token and the `_Avoid_` list are **data**: they record the
+  ru/uk word the product and its UI actually show (and the ones to reject), not the language of this
+  file. The identifier in parentheses is how the concept is named in code. One concept, one word per
+  surface; we do not introduce synonyms. Russian itself is used only in the owner↔Claude direct chat
+  (see `.claude/rules/common/russian-language.md`), never in the repo or as "the glossary's language".
+- Since 2026-09-19 the product is bilingual (`uk` default / `en`, spec `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`):
+  each term will gain `uk` and `en` forms — added by the first PR of stage 3 (`web-core`), and those are
+  the source for the Lingui catalogs and for `copy-reviewer`. Until they land, the kept ru product-term
+  token stands in for the product form.
+- A concept is missing here but needed — that is a signal: either a language the project does not have
+  is being invented (reconsider), or a real gap (add it here in the same PR).
 
-Реализация, фазы, миграции, RBAC-матрица — **не здесь**, а в `.claude/agents/project-state.md`.
-Этот файл не спека и не блокнот: он глоссарий и ничего больше.
-
----
-
-## Люди и роли
-
-**Роль** (`roleEnum`):
-Одна из шести: `ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`, `DROP`. Роль определяет и права
-(RBAC), и место в денежных потоках.
-_Избегать_: пермишен, уровень доступа, тип пользователя
-
-**Дроп** (`DROP`):
-Роль маршрутизации платежей: человек, через чьи реквизиты проходят деньги проекта. Не «фейковый
-сотрудник» и не подмена стороны договора — у дропа своя доля и свои обязательства.
-_Избегать_: подставное лицо, номинал, прокси
-
-**Легенда** (`legends`, `legendEntries`):
-Пер-проектный набор фактов, которые джуниор видит вместо настоящих. Маскировка построена как
-**список разрешённого**, не список запрещённого: новая поверхность по умолчанию скрыта.
-_Избегать_: маска, фейк-данные, подмена
-
-**Юридическое имя**:
-ФИО, которым человек подписывает договор. Задаёт админ. Отличается от отображаемого имени в
-платформе, и в контракт идёт именно оно.
-_Избегать_: display name, никнейм, имя в системе
-
-## Деньги
-
-**Транзакция** (`transactions`):
-Одна строка денежного движения с типом (`transactionTypeEnum`) и статусом
-(`transactionStatusEnum`). Единица учёта: балансы не хранятся, а считаются из транзакций.
-_Избегать_: платёж, проводка, запись баланса
-
-**Обязательство** (`pendingObligations`):
-Долг, признанный, но ещё не выплаченный: у него есть кредитор, тип должника (`COMPANY` для новых
-строк) и жизненный цикл `PENDING → PAID | CANCELLED`. Пока `PENDING`, баланс кредитора **не
-двигается**. Закрывается транзакцией, ссылка на неё — `closingTransactionId`.
-_Избегать_: долг, IOU, начисление, pending-строка
-
-**Заявка на выплату** (`payoutRequests`):
-Запрос сеньора на вывод валидированного дохода. Два статуса: `PENDING` (создана) и `PAID`
-(указан txHash, автотранзакции созданы).
-_Избегать_: вывод средств, реквест, withdrawal
-
-**Валидация дохода**:
-Подтверждение бухгалтером или админом заявленного сеньором/дропом дохода: `PENDING → VALIDATED`.
-До валидации выплату создать нельзя, а зарплата джуниора за месяц стоит в `LOCKED`.
-_Избегать_: аппрув дохода, подтверждение платежа, проверка транзакции
-
-**Расчёт** (settle):
-Закрытие обязательства выплатой. Порождает каскад: закрывающая транзакция, пересчёт балансов,
-снимок суммы на момент расчёта.
-_Избегать_: погашение, закрытие долга, выплата (у «выплаты» уже есть свой смысл — `PAYOUT`)
-
-**Доля дропа** (`dropShare`, `resolveDropShare`):
-Процент проекта, причитающийся дропу. Берётся из настроек проекта, может быть переопределён
-точечно; резолвер — единственное место, где это решается.
-_Избегать_: процент дропа, комиссия, ставка
-
-**Доля синьора** (`seniorSharePercent`, `resolveSeniorShare`):
-Процент проекта или личный процент, причитающийся синьору. Резолвер проверяет три уровня по
-убыванию приоритета — проект → команда → личный процент синьора (в интерфейсе он подписан
-«(по умолчанию)») — и берёт первый заданный. Проектное значение в интерфейсе —
-«индивидуальная доля по проекту».
-Изменение на проектном или личном уровне (не командном — тот применяется сразу) не действует,
-пока сам синьор его не подтвердит: до подтверждения действует прежнее значение, а предложенное
-видно как «Предложено N%» только ADMIN и самому синьору. ACCOUNTANT и HR видят действующую
-долю (она нужна им для расчётов), но не узнают, что изменение вообще предложено.
-_Избегать_: процент синьора, ставка синьора, комиссия синьора, переопределение, override
-
-**Тип оплаты проекта** (`projectPaymentTypeEnum`):
-`FOP` | `GIG_CONTRACT` | `USDT`. Определяет, **кто заявляет доход**: на `FOP` и `GIG_CONTRACT` —
-сеньор или дроп, на `USDT` — только админ.
-_Избегать_: способ оплаты (это `paymentMethodEnum` — реквизиты получателя, другое понятие)
-
-**Способ выплаты** (`paymentMethodEnum`):
-`USDT_ERC20` | `BANK_UAH_FOP` — по каким реквизитам человек получает деньги. Не путать с типом
-оплаты проекта.
-_Избегать_: платёжный метод, канал оплаты
-
-**Счёт компании** (`companyAccount`):
-Общий USDT-кошелёк. Пополнение (`COMPANY_DEPOSIT`) заявляется ссылкой на транзакцию и проверяется
-по Etherscan: остаётся `PENDING`, пока не наберутся подтверждения **и** получатель не совпадёт с
-кошельком компании. Смарт-контрактов нет — верификация внешняя.
-_Избегать_: общий баланс, казна, кошелёк ТОВ
-
-**Дивиденд** (`DIVIDEND_TO_ADMIN`):
-Распределение со счёта компании на баланс админа. Сопровождается `DIVIDEND_TAX` — налогом,
-который дебетует только счёт компании.
-_Избегать_: выплата админу, доля учредителя
-
-## Работа
-
-**Проект** (`projects`):
-Единица работы с клиентом: у него есть состав участников, тип оплаты и финансовые настройки.
-_Избегать_: контракт (это документ), заказ, клиент
-
-**Статус согласования проекта** (`status`):
-`DRAFT` — «Ждёт решения», `REJECTED` — «Отклонён», `ACTIVE` — «Активный»; архив (`archivedAt`)
-перекрывает всё независимо от статуса — «В архиве». Одно название на статус везде, где он
-подписывает конкретный проект (строка списка, шапка страницы проекта). Раздел, который собирает
-такие проекты, называется во множественном — «Ждут решения» (левая навигация, `/pending`).
-_Избегать_: «Отклонено» (средний род не согласуется с «проект»), «На подтверждении», «Черновик» —
-для этих состояний проекта
-
-**Состав** (`projectMembers`):
-Кто участвует в проекте. Членство дропа определяется полем `dropId` проекта, **не** строкой в
-составе — это разные механизмы, и путать их дорого.
-_Избегать_: команда проекта (у «команды» есть своя сущность `teams`), участники
-
-**Собеседование** (`interviews`):
-Кандидат на канбане со стадией (`interviewStageEnum`). Стадия — состояние кандидата, не задача.
-_Избегать_: интервью, кандидат (кандидат — человек, собеседование — процесс)
-
-**Вакансия** (`vacancies`):
-Публикуемая на лендинге позиция с доменом, уровнем и типом занятости. Отклик на неё —
-`vacancyApplications`.
-_Избегать_: позиция, джоба
-
-**Источник вакансий** (`jobSources`):
-Внешний фид, из которого приходят `jobPostings`; отфильтрованное и оценённое становится
-`jobSuggestions` — предложением рекрутеру.
-_Избегать_: парсер, скрапер, интеграция
-
-## Документы
-
-**Счёт** (`invoices`, `invoiceSignatures`):
-Документ на оплату с двумя подписывающими сторонами (`COMPANY` и `COUNTERPARTY`) и способом
-подписи (автоматическая от компании либо ручной клик).
-_Избегать_: инвойс, акт, платёжка
-
-**Шаблон договора** (`contractTemplates`) и **подписанный договор** (`signedContracts`):
-Шаблон несёт плейсхолдеры (стандартные плюс кастомные для конкретного шаблона); подписанный
-договор — результат подстановки значений. Это две разные сущности, а не два состояния одной.
-_Избегать_: договор вообще (уточнять — шаблон или подписанный)
-
-**Контракт сотрудника** (`employeeContracts`):
-Документ между компанией и сотрудником, который сотрудник подписывает в онбординге. Статусы:
-`DRAFT → READY_TO_SIGN → SIGNED`, плюс терминальный `CANCELLED`. Третья сущность рядом с парой
-«шаблон / подписанный договор», а не их состояние: у неё свой жизненный цикл и свой адресат.
-_Избегать_: договор с сотрудником, документ на подпись
+Implementation, phases, migrations, the RBAC matrix — **not here**, but in `.claude/agents/project-state.md`.
+This file is not a spec and not a scratchpad: it is a glossary and nothing more.
 
 ---
 
-## Формы `uk`/`en`
+## People and roles
 
-Канонические формы терминов по волнам i18n (a — `web-core`, b — `web-people`, c — `web-projects`,
-d — `web-finance`, e — `web-docs-notify`), типографика (апостроф, кавычки, «Could not …») и история
-«добавлено PR …» — в журнале `docs/i18n/context-glossary-journal.md`. Это не словарь, поэтому здесь
-не живёт; расхождение каталога с журналом по форме термина — находка `copy-reviewer`.
+**Role** (product term: «Роль»; `roleEnum`):
+One of six: `ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`, `DROP`. A role determines both
+permissions (RBAC) and a place in the money flows.
+_Avoid_: «пермишен», «уровень доступа», «тип пользователя»
+
+**Drop** (product term: «Дроп»; `DROP`):
+A payment-routing role: a person through whose payment details the project's money passes. Not a
+«fake employee» and not a substitution of a contract party — a drop has its own share and its own
+obligations.
+_Avoid_: «подставное лицо», «номинал», «прокси»
+
+**Legend** (product term: «Легенда»; `legends`, `legendEntries`):
+A per-project set of facts that a junior sees instead of the real ones. The masking is built as an
+**allow-list**, not a deny-list: a new surface is hidden by default.
+_Avoid_: «маска», «фейк-данные», «подмена»
+
+**Legal name** (product term: «Юридическое имя»):
+The full legal name under which a person signs a contract. Set by an admin. It differs from the
+display name in the platform, and it is exactly this name that goes into the contract.
+_Avoid_: «display name», «никнейм», «имя в системе»
+
+## Money
+
+**Transaction** (product term: «Транзакция»; `transactions`):
+A single line of money movement with a type (`transactionTypeEnum`) and a status
+(`transactionStatusEnum`). The unit of accounting: balances are not stored but computed from transactions.
+_Avoid_: «платёж», «проводка», «запись баланса»
+
+**Obligation** (product term: «Обязательство»; `pendingObligations`):
+A debt that is recognized but not yet paid: it has a creditor, a debtor type (`COMPANY` for new
+rows) and a lifecycle `PENDING → PAID | CANCELLED`. While `PENDING`, the creditor's balance **does
+not move**. It is closed by a transaction, referenced by `closingTransactionId`.
+_Avoid_: «долг», «IOU», «начисление», «pending-строка»
+
+**Payout request** (product term: «Заявка на выплату»; `payoutRequests`):
+A senior's request to withdraw validated income. Two statuses: `PENDING` (created) and `PAID`
+(txHash provided, auto-transactions created).
+_Avoid_: «вывод средств», «реквест», «withdrawal»
+
+**Income validation** (product term: «Валидация дохода»):
+An accountant's or admin's confirmation of income declared by a senior/drop: `PENDING → VALIDATED`.
+Before validation a payout cannot be created, and a junior's salary for the month stays `LOCKED`.
+_Avoid_: «аппрув дохода», «подтверждение платежа», «проверка транзакции»
+
+**Settlement** (product term: «Расчёт»; settle):
+Closing an obligation by a payment. It triggers a cascade: a closing transaction, a recomputation
+of balances, a snapshot of the amount at the moment of settlement.
+_Avoid_: «погашение», «закрытие долга», «выплата» (the latter already has its own meaning — `PAYOUT`)
+
+**Drop share** (product term: «Доля дропа»; `dropShare`, `resolveDropShare`):
+The percentage of a project due to the drop. Taken from the project settings, can be overridden
+pointwise; the resolver is the only place where this is decided.
+_Avoid_: «процент дропа», «комиссия», «ставка»
+
+**Senior share** (product term: «Доля синьора»; `seniorSharePercent`, `resolveSeniorShare`):
+The percentage of a project or the personal percentage due to the senior. The resolver checks three
+levels in descending priority — project → team → the senior's personal percentage (labeled
+«(по умолчанию)» in the interface) — and takes the first one set. The project value in the interface
+is «индивидуальная доля по проекту».
+A change at the project or personal level (not the team one — that applies immediately) does not take
+effect until the senior themselves confirms it: until confirmation the previous value applies, and the
+proposed one is visible as «Предложено N%» only to ADMIN and to the senior themselves. ACCOUNTANT and
+HR see the effective share (they need it for calculations) but do not learn that a change was proposed at all.
+_Avoid_: «процент синьора», «ставка синьора», «комиссия синьора», «переопределение», «override»
+
+**Project payment type** (product term: «Тип оплаты проекта»; `projectPaymentTypeEnum`):
+`FOP` | `GIG_CONTRACT` | `USDT`. Determines **who declares income**: on `FOP` and `GIG_CONTRACT` —
+the senior or the drop, on `USDT` — only the admin.
+_Avoid_: «способ оплаты» (that is `paymentMethodEnum` — the recipient's payment details, a different concept)
+
+**Payout method** (product term: «Способ выплаты»; `paymentMethodEnum`):
+`USDT_ERC20` | `BANK_UAH_FOP` — the payment details by which a person receives money. Not to be
+confused with the project payment type.
+_Avoid_: «платёжный метод», «канал оплаты»
+
+**Company account** (product term: «Счёт компании»; `companyAccount`):
+A shared USDT wallet. A deposit (`COMPANY_DEPOSIT`) is declared with a link to a transaction and
+verified via Etherscan: it stays `PENDING` until confirmations accumulate **and** the recipient
+matches the company wallet. There are no smart contracts — verification is external.
+_Avoid_: «общий баланс», «казна», «кошелёк ТОВ»
+
+**Dividend** (product term: «Дивиденд»; `DIVIDEND_TO_ADMIN`):
+A distribution from the company account to an admin's balance. Accompanied by `DIVIDEND_TAX` — a
+tax that debits only the company account.
+_Avoid_: «выплата админу», «доля учредителя»
+
+## Work
+
+**Project** (product term: «Проект»; `projects`):
+A unit of work with a client: it has a set of members, a payment type and financial settings.
+_Avoid_: «контракт» (that is a document), «заказ», «клиент»
+
+**Project approval status** (product term: «Статус согласования проекта»; `status`):
+`DRAFT` — «Ждёт решения», `REJECTED` — «Отклонён», `ACTIVE` — «Активный»; the archive (`archivedAt`)
+overrides everything regardless of status — «В архиве». One label per status everywhere it labels a
+specific project (a list row, a project page header). The section that collects such projects is
+named in the plural — «Ждут решения» (left navigation, `/pending`).
+_Avoid_: «Отклонено» (the neuter gender does not agree with «проект»), «На подтверждении», «Черновик» —
+for these project states
+
+**Members** (product term: «Состав»; `projectMembers`):
+Who participates in a project. A drop's membership is determined by the project's `dropId` field,
+**not** by a row in the members list — these are different mechanisms, and confusing them is costly.
+Note: the preferred term is the project's membership roster (`projectMembers`); «участники» is avoided as a
+looser synonym, and «команда проекта» is avoided because «команда» is a separate entity (`teams`), not this roster.
+_Avoid_: «команда проекта» («команда» has its own entity `teams`), «участники»
+
+**Interview** (product term: «Собеседование»; `interviews`):
+A candidate on the kanban with a stage (`interviewStageEnum`). A stage is the candidate's state, not a task.
+Note: the preferred term is the hiring process as an entity (the kanban card); «интервью» is avoided as a
+bare loanword synonym for that same thing, and «кандидат» is avoided because it names the person, not the process.
+_Avoid_: «интервью», «кандидат» (a candidate is a person, an interview is a process)
+
+**Vacancy** (product term: «Вакансия»; `vacancies`):
+A position published on the landing with a domain, a level and an employment type. An application to
+it — `vacancyApplications`.
+_Avoid_: «позиция», «джоба»
+
+**Job source** (product term: «Источник вакансий»; `jobSources`):
+An external feed from which `jobPostings` arrive; the filtered and scored ones become `jobSuggestions`
+— a suggestion to the recruiter.
+_Avoid_: «парсер», «скрапер», «интеграция»
+
+## Documents
+
+**Invoice** (product term: «Счёт»; `invoices`, `invoiceSignatures`):
+A payment document with two signing parties (`COMPANY` and `COUNTERPARTY`) and a signing method
+(automatic from the company or a manual click).
+_Avoid_: «инвойс», «акт», «платёжка»
+
+**Contract template** (product term: «Шаблон договора»; `contractTemplates`) and **signed contract** (product term: «подписанный договор»; `signedContracts`):
+A template carries placeholders (standard plus custom for a specific template); a signed contract is
+the result of substituting values. These are two different entities, not two states of one.
+_Avoid_: «договор» in general (clarify — a template or a signed one)
+
+**Employee contract** (product term: «Контракт сотрудника»; `employeeContracts`):
+A document between the company and an employee, which the employee signs during onboarding. Statuses:
+`DRAFT → READY_TO_SIGN → SIGNED`, plus the terminal `CANCELLED`. A third entity alongside the
+«template / signed contract» pair, not their state: it has its own lifecycle and its own addressee.
+_Avoid_: «договор с сотрудником», «документ на подпись»
 
 ---
 
-## Связи
+## `uk`/`en` forms
 
-- **Проект** имеет один **тип оплаты**, и он решает, кто заявляет доход.
-- **Валидация дохода** предшествует **заявке на выплату**; заявка порождает **транзакции**.
-- **Обязательство** живёт отдельно от **транзакции** и закрывается **расчётом**.
-- **Дроп** получает **долю дропа** и может быть кредитором **обязательства**, где должник —
-  компания.
-- **Легенда** привязана к **проекту**, а не к пользователю.
+Canonical term forms by i18n wave (a — `web-core`, b — `web-people`, c — `web-projects`,
+d — `web-finance`, e — `web-docs-notify`), typography (apostrophe, quotation marks, «Could not …») and
+the «added in PR …» history — in the journal `docs/i18n/context-glossary-journal.md`. It is not a
+dictionary, so it does not live here; a divergence of a catalog from the journal on a term form is a
+`copy-reviewer` finding.
 
-## Помеченные неоднозначности
+---
 
-- **«Выплата»** раньше означала и `PAYOUT` (сеньор платит компании), и «отдать деньги человеку».
-  Решено: `PAYOUT` — только первое; второе называется **расчётом** (settle).
-- **«Долг»** значил и обязательство в таблице, и историческую величину из импорта бухгалтерии.
-  Решено: сущность — **обязательство**; исторические величины импорта термином не являются.
-- **`DROP` / `TOV` в типе должника** (`pendingObligationDebtorTypeEnum`) — легаси-значения для
-  строк до рефактора. Новые обязательства всегда `COMPANY`. Значения оставлены ради истории, а не
-  как выбор.
+## Relationships
+
+- A **project** has one **payment type**, and it decides who declares income.
+- **Income validation** precedes a **payout request**; a request spawns **transactions**.
+- An **obligation** lives separately from a **transaction** and is closed by a **settlement**.
+- A **drop** receives a **drop share** and can be the creditor of an **obligation** whose debtor is
+  the company.
+- A **legend** is bound to a **project**, not to a user.
+
+## Flagged ambiguities
+
+- **«Выплата»** used to mean both `PAYOUT` (a senior pays the company) and «give money to a person».
+  Resolved: `PAYOUT` is only the former; the latter is called a **settlement** (settle).
+- **«Долг»** meant both the obligation in the table and a historical value from the accounting import.
+  Resolved: the entity is an **obligation**; historical import values are not the term.
+- **`DROP` / `TOV` in the debtor type** (`pendingObligationDebtorTypeEnum`) — legacy values for rows
+  from before the refactor. New obligations are always `COMPANY`. The values are kept for history, not
+  as a choice.
