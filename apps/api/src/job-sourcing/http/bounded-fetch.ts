@@ -70,7 +70,7 @@ function assertValidAllowedHosts(allowedHosts: readonly string[]): void {
       DNS_HOST.test(entry) &&
       // IPv4 literal (all-numeric TLD) is not a name.
       /[a-z]/.test(lastLabel) &&
-      entry !== 'localhost' &&
+      // A bare `localhost` needs no clause of its own: DNS_HOST requires a dot.
       !INTERNAL_SUFFIXES.some((suffix) => entry.endsWith(suffix))
     if (!ok) throw new Error(`invalid allowedHosts entry: ${JSON.stringify(entry)}`)
   }
@@ -94,15 +94,21 @@ function assertAllowed(rawUrl: string, allowedHosts: readonly string[]): string 
   } catch {
     throw new Error('host not allowed')
   }
-  const authority = /^https:\/\/([^/?#\\]*)/i.exec(rawUrl)?.[1]
+  // Stryker disable all: explicit scheme/userinfo/port refusal is deliberate defence in depth. It is
+  // fully subsumed by the authority comparison below (a non-https scheme, `user@` or `:port` each make
+  // the written authority differ from `parsed.host`), so no input can tell these conditions apart
+  // from their mutants.
   if (
     parsed.protocol !== 'https:' ||
     parsed.username !== '' ||
     parsed.password !== '' ||
-    parsed.port !== '' ||
-    authority !== parsed.host ||
-    !allowedHosts.includes(parsed.host)
+    parsed.port !== ''
   ) {
+    throw new Error('host not allowed')
+  }
+  // Stryker restore all
+  const authority = /^https:\/\/([^/?#\\]*)/i.exec(rawUrl)?.[1]
+  if (authority !== parsed.host || !allowedHosts.includes(parsed.host)) {
     throw new Error('host not allowed')
   }
   return parsed.host
@@ -204,7 +210,7 @@ export async function boundedFetchText(url: string, opts: BoundedFetchOptions): 
 
       // Cheap pre-check when the server is honest about the size; the streaming
       // check below is what enforces it when it is not.
-      const declared = Number(response.headers.get('content-length') ?? '')
+      const declared = Number(response.headers.get('content-length'))
       if (Number.isFinite(declared) && declared > maxBytes) {
         await response.body?.cancel()
         throw new Error(`${host} response too large: content-length ${declared} > ${maxBytes}`)

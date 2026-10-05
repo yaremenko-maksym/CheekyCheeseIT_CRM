@@ -554,3 +554,206 @@ describe('boundedFetchText — limits, timeout, defaults (SR-M-3 / CR-M-2)', () 
     ).resolves.toBe('')
   })
 })
+
+describe('boundedFetchText — mutation-gate hardening', () => {
+  const o = { allowedHosts: hosts, minGapMs: 0 }
+  const U = 'https://api.example.test/x'
+  const nullBody = (status: number, headers: Record<string, string> = {}) =>
+    new Response(null, { status, headers })
+
+  it('does not wait at all when the gap has elapsed exactly (wait === 0)', async () => {
+    vi.useFakeTimers()
+    try {
+      const f = vi.fn().mockImplementation(async () => resp('ok', { status: 200, url: U }))
+      vi.stubGlobal('fetch', f)
+      const opts = { allowedHosts: hosts, minGapMs: 1000 }
+      const p1 = boundedFetchText(U, opts)
+      await vi.advanceTimersByTimeAsync(0)
+      await p1
+      await vi.advanceTimersByTimeAsync(1000)
+      const p2 = boundedFetchText(U, opts)
+      // flush microtasks only — a (mutated) setTimeout(…, 0) would not have fired
+      for (let i = 0; i < 20; i++) await Promise.resolve()
+      expect(f).toHaveBeenCalledTimes(2)
+      await p2
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reassembles a body delivered in several chunks, skipping empty reads', async () => {
+    const enc = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(enc.encode('ab'))
+        c.enqueue(undefined as unknown as Uint8Array)
+        c.enqueue(enc.encode('cd'))
+        c.enqueue(enc.encode('ef'))
+        c.close()
+      },
+    })
+    const r = new Response(stream, { status: 200 })
+    Object.defineProperty(r, 'url', { value: U })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(r))
+    await expect(boundedFetchText(U, o)).resolves.toBe('abcdef')
+  })
+
+  it('releases the reader lock on success and on the size-cap error path', async () => {
+    const mk = (chunks: Uint8Array[]) => {
+      const releaseLock = vi.fn()
+      const reads = [...chunks.map((value) => ({ done: false, value })), { done: true }]
+      const reader = {
+        read: vi.fn().mockImplementation(async () => reads.shift()),
+        cancel: vi.fn(),
+        releaseLock,
+      }
+      const fake = {
+        status: 200,
+        ok: true,
+        url: U,
+        headers: new Headers(),
+        body: { getReader: () => reader, cancel: vi.fn() },
+      } as unknown as Response
+      return { fake, releaseLock, reader }
+    }
+    const a = mk([new TextEncoder().encode('hi')])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(a.fake))
+    await expect(boundedFetchText(U, o)).resolves.toBe('hi')
+    expect(a.releaseLock).toHaveBeenCalledTimes(1)
+
+    const b = mk([new Uint8Array(50)])
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(b.fake))
+    await expect(boundedFetchText(U, { ...o, maxBytes: 10 })).rejects.toThrow(/too large/)
+    expect(b.reader.cancel).toHaveBeenCalled()
+    expect(b.releaseLock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends GET without a body property by default', async () => {
+    const f = vi.fn().mockResolvedValueOnce(resp('ok', { status: 200, url: U }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText(U, o)
+    const init = f.mock.calls[0][1] as RequestInit
+    expect(init.method).toBe('GET')
+    expect(init).not.toHaveProperty('body')
+  })
+
+  it.each([301, 302])('turns POST into GET without body on a same-host %i', async (status) => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(status, '/r'))
+      .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText(U, { ...o, method: 'POST', body: 'b', headers: { 'x-api-key': 'k' } })
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.method).toBe('GET')
+    expect(init).not.toHaveProperty('body')
+    // same host: credentials are still sent
+    expect(init.headers).toMatchObject({ 'x-api-key': 'k' })
+  })
+
+  it('keeps POST and body on a same-host 308', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(308, '/r'))
+      .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText(U, { ...o, method: 'POST', body: 'b' })
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.method).toBe('POST')
+    expect(init.body).toBe('b')
+  })
+
+  it('keeps GET on a same-host 301 and 302 for GET requests', async () => {
+    for (const status of [301, 302]) {
+      const f = vi
+        .fn()
+        .mockResolvedValueOnce(redirect(status, '/r'))
+        .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' }))
+      vi.stubGlobal('fetch', f)
+      await boundedFetchText(U, o)
+      expect((f.mock.calls[1][1] as RequestInit).method).toBe('GET')
+    }
+  })
+
+  it('only rewrites the request on a 301/302 when it was a POST (a GET keeps what it carried)', async () => {
+    const f = vi
+      .fn()
+      .mockResolvedValueOnce(redirect(302, '/r'))
+      .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' }))
+    vi.stubGlobal('fetch', f)
+    await boundedFetchText(U, { ...o, method: 'GET', body: 'kept' })
+    const init = f.mock.calls[1][1] as RequestInit
+    expect(init.method).toBe('GET')
+    expect(init.body).toBe('kept')
+  })
+
+  it('turns a redirect Location that cannot be parsed into a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(redirect(302, 'https://[bad')))
+    await expect(boundedFetchText(U, o)).rejects.toThrow('host not allowed')
+  })
+
+  it('refuses a URL with leading whitespace (scheme must be written literally)', async () => {
+    const f = vi.fn()
+    vi.stubGlobal('fetch', f)
+    await expect(boundedFetchText(` ${U}`, o)).rejects.toThrow(/not allowed/)
+    expect(f).not.toHaveBeenCalled()
+  })
+
+  it('rejects an allowedHosts entry whose TLD is numeric even if other labels have letters', async () => {
+    await expect(
+      boundedFetchText(U, { allowedHosts: ['api.example.123'], minGapMs: 0 }),
+    ).rejects.toThrow(/invalid allowedHosts/)
+  })
+
+  it('follows a redirect that has no body', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(nullBody(302, { location: '/r' }))
+        .mockResolvedValueOnce(resp('ok', { status: 200, url: 'https://api.example.test/r' })),
+    )
+    await expect(boundedFetchText(U, o)).resolves.toBe('ok')
+  })
+
+  it('maps 403 / 429 / 500 / foreign-url / oversized responses even when the body is null', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(nullBody(403)))
+    await expect(boundedFetchText(U, o)).rejects.toBeInstanceOf(SourceBlockedError)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(nullBody(429)))
+    await expect(boundedFetchText(U, o)).rejects.toBeInstanceOf(SourceRateLimitedError)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(nullBody(500)))
+    await expect(boundedFetchText(U, o)).rejects.toThrow('api.example.test responded 500')
+    const foreign = nullBody(200)
+    Object.defineProperty(foreign, 'url', { value: 'https://evil.test/x' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(foreign))
+    await expect(boundedFetchText(U, o)).rejects.toThrow('host not allowed')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(nullBody(200, { 'content-length': '999' })),
+    )
+    await expect(boundedFetchText(U, { ...o, maxBytes: 100 })).rejects.toThrow(/too large/)
+  })
+
+  it('accepts a declared content-length equal to maxBytes', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValueOnce(
+          resp('x', { status: 200, url: U, headers: { 'content-length': '1000' } }),
+        ),
+    )
+    await expect(boundedFetchText(U, { ...o, maxBytes: 1000 })).resolves.toBe('x')
+  })
+
+  it('puts host, status and a stable name on the typed source errors', () => {
+    const blocked = new SourceBlockedError('h.test', 403)
+    expect(blocked.name).toBe('SourceBlockedError')
+    expect(blocked.message).toContain('h.test')
+    expect(blocked.message).toContain('403')
+    const limited = new SourceRateLimitedError('h.test')
+    expect(limited.name).toBe('SourceRateLimitedError')
+    expect(limited.message).toContain('h.test')
+    expect(limited.message).toContain('429')
+  })
+})
