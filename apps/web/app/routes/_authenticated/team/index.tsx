@@ -13,6 +13,7 @@ import type { CreateUserDto, ProjectDto, TeamDto, UserProfileDto } from '@crm/sh
 import { compareNames, createUserSchema, updateProfileSchema } from '@crm/shared'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { cn } from '@/lib/utils'
+import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { useRoleGuard } from '@/hooks/use-role-guard'
@@ -55,15 +56,6 @@ export const Route = createFileRoute('/_authenticated/team/')({
   validateSearch: (search) => teamSearchSchema.parse(search),
   component: TeamPage,
 })
-
-function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
-}
 
 const container = {
   hidden: { opacity: 0 },
@@ -769,7 +761,7 @@ function TeamPage() {
                             <AvatarImage src={member.avatarUrl} alt={member.displayName} />
                           )}
                           <AvatarFallback className="bg-muted text-[10px]">
-                            {getInitials(member.displayName)}
+                            {getInitialsBySpaceSplit(member.displayName)}
                           </AvatarFallback>
                         </Avatar>
                       ))}

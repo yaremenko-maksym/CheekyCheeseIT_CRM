@@ -53,6 +53,7 @@ import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
+import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { ROLE_LABEL_MESSAGES, useRoleLabel } from '@/components/ui/role-select'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
@@ -153,15 +154,6 @@ const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accou
   JUNIOR: 'junior',
   HR: 'hr',
   ACCOUNTANT: 'accountant',
-}
-
-function getInitials(name: string) {
-  return (name || '?')
-    .split(' ')
-    .map((n) => n[0])
-    .join('')
-    .toUpperCase()
-    .slice(0, 2)
 }
 
 // TanStack Form field/form render props require many generics — suppress with eslint
@@ -1534,7 +1526,7 @@ function ProjectDetailPage() {
                   documentId={project.logoDocumentId}
                   externalUrl={project.logoExternalUrl}
                   companyName={project.companyName}
-                  fallback={getInitials(project.companyName)}
+                  fallback={getInitialsBySpaceSplit(project.companyName)}
                   avatarClassName="relative h-14 w-14 rounded-xl shadow-lg"
                 />
               </div>
@@ -1919,7 +1911,7 @@ function ProjectDetailPage() {
                       >
                         <Avatar className="h-8 w-8 shrink-0 ring-2 ring-[#6366f1]/30">
                           <AvatarFallback className="text-[11px] font-semibold">
-                            {getInitials(senior.displayName)}
+                            {getInitialsBySpaceSplit(senior.displayName)}
                           </AvatarFallback>
                         </Avatar>
                         {/* MED1: no hover:underline — element may be non-navigable (nonNavigable=true)
@@ -1956,7 +1948,7 @@ function ProjectDetailPage() {
                               />
                             )}
                             <AvatarFallback className="text-[11px] font-semibold">
-                              {getInitials(dropMember.displayName)}
+                              {getInitialsBySpaceSplit(dropMember.displayName)}
                             </AvatarFallback>
                           </Avatar>
                           <span className="text-sm font-medium truncate text-primary">
@@ -2179,7 +2171,7 @@ function ProjectDetailPage() {
                       <Avatar className="h-7 w-7 shrink-0">
                         {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
                         <AvatarFallback className="text-[10px]">
-                          {getInitials(u.displayName)}
+                          {getInitialsBySpaceSplit(u.displayName)}
                         </AvatarFallback>
                       </Avatar>
                       <div className="min-w-0 flex-1">
@@ -2237,7 +2229,7 @@ function ProjectDetailPage() {
                     <Avatar className="h-7 w-7 shrink-0">
                       {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
                       <AvatarFallback className="text-[10px]">
-                        {getInitials(u.displayName)}
+                        {getInitialsBySpaceSplit(u.displayName)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
@@ -2595,7 +2587,9 @@ function MemberRow({
       >
         <Avatar className="h-6 w-6 shrink-0">
           {member.avatarUrl && <AvatarImage src={member.avatarUrl} alt={member.displayName} />}
-          <AvatarFallback className="text-[9px]">{getInitials(member.displayName)}</AvatarFallback>
+          <AvatarFallback className="text-[9px]">
+            {getInitialsBySpaceSplit(member.displayName)}
+          </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
           <p className="truncate text-xs font-medium leading-none text-blue-500 hover:underline">
@@ -2810,7 +2804,7 @@ function ProjectEffectiveTeamCard({
               <Avatar className="h-7 w-7 shrink-0">
                 {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt={m.displayName} />}
                 <AvatarFallback className="text-[10px] font-semibold">
-                  {getInitials(m.displayName)}
+                  {getInitialsBySpaceSplit(m.displayName)}
                 </AvatarFallback>
               </Avatar>
               {/* MED1: hover:underline only when the row is navigable — a non-clickable

@@ -17,6 +17,7 @@ import {
 } from '@crm/shared'
 import { apiError } from '../common/api-error'
 import { DatabaseService } from '../database/database.service'
+import { isUniqueViolation } from '../database/pg-errors'
 import { NotificationsService } from '../notifications/notifications.service'
 import { contractTemplates, employeeContracts, tosAcceptances } from '../database/schema'
 import type { EmployeeContract } from '../database/schema'
@@ -41,23 +42,6 @@ import { buildContractVariableMap } from './contract-rendering'
  * ADMIN users from appearing as the employee (user_id field).
  * Service also guards at the application level for fast 400.
  */
-
-/** Postgres SQLSTATE for a unique-constraint violation. */
-const PG_UNIQUE_VIOLATION = '23505'
-
-/**
- * True when `err` (or any error in its `.cause` chain) is a Postgres
- * unique-constraint violation (SQLSTATE 23505). Drizzle-orm wraps query
- * failures so the original pg error lives on `.cause`; this walks the chain.
- */
-function isUniqueViolation(err: unknown): boolean {
-  let cur: unknown = err
-  for (let depth = 0; cur != null && depth < 8; depth += 1) {
-    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
-    cur = (cur as { cause?: unknown }).cause
-  }
-  return false
-}
 
 @Injectable()
 export class EmployeeContractsService {
