@@ -1,107 +1,107 @@
-# Спек: роль DROP, команды дропа и финансовая прокладка
+# Spec: the DROP role, drop commands, and the financial pass-through
 
-Статус: согласован владельцем. Язык UI/реализации: русский. Принцип №1: **не сломать текущую логику синьора**.
+Status: agreed by the owner. UI/implementation language: Russian. Principle #1: **do not break the current senior logic**.
 
-## 1. Цель и главный принцип
+## 1. Goal and the main principle
 
-Ввести пользователя-«дропа» — финансовую прокладку, через счета которой проходят деньги по проектам и который берёт небольшую долю (деф. 5%). Синьор работает «под дропом». Команда синьора и весь существующий финансовый/архивный флоу синьора — **без изменений**. Дроп добавляется строго аддитивно.
+Introduce a "drop" user — a financial pass-through through whose accounts money flows for projects and who takes a small share (default 5%). The senior works "under the drop". The senior's team and the entire existing financial/archive flow of the senior — **unchanged**. The drop is added strictly additively.
 
-## 2. Глоссарий
+## 2. Glossary
 
-- **Команда синьора** — существующая сущность, логика НЕ меняется.
-- **Дроп (DROP)** — новая роль; финансовая прокладка; в собеседованиях НЕ участвует.
-- **Команда дропа** — полноценная команда (HR + бухгалтер) + дроп-владелец + опц. 1 синьор; создаётся при создании дропа (обязательно).
-- **Drop-проект** — проект с `projects.dropId`; деньги приходят на дропа, распределение включает долю дропа.
+- **Senior team** — an existing entity, the logic does NOT change.
+- **Drop (DROP)** — a new role; a financial pass-through; does NOT participate in interviews.
+- **Drop team** — a full-fledged team (HR + accountant) + drop-owner + optionally 1 senior; created when the drop is created (mandatory).
+- **Drop project** — a project with `projects.dropId`; money arrives to the drop, distribution includes the drop's share.
 
-## 3. Модель данных (аддитивно)
+## 3. Data model (additive)
 
 - `role` enum += `'DROP'`.
-- `users` += `drop_share_percent` (int, деф. `5`, nullable).
-- `teams` += `type` (`'SENIOR' | 'DROP'`, деф. `'SENIOR'`); бэкфилл существующих → `'SENIOR'`.
-- `projects` += `drop_id` (uuid, nullable, FK users); `NULL` = обычный проект синьора (без изменений), задан = drop-проект.
-- Миграции новые `0020+`. Shared: `roleSchema` += `DROP`; `createDropSchema`; `projectSchema` += `dropId`.
+- `users` += `drop_share_percent` (int, default `5`, nullable).
+- `teams` += `type` (`'SENIOR' | 'DROP'`, default `'SENIOR'`); backfill existing → `'SENIOR'`.
+- `projects` += `drop_id` (uuid, nullable, FK users); `NULL` = ordinary senior project (unchanged), set = drop project.
+- Migrations new `0020+`. Shared: `roleSchema` += `DROP`; `createDropSchema`; `projectSchema` += `dropId`.
 
 ## 4. RBAC
 
-- **DROP видит:** свой профиль, свои финансы, свою команду дропа (read). Без Собеседований.
-- **Сайдбар дропа:** Профиль, Команда, Финансы.
-- **Бухгалтер/Админ** валидируют приходы дропа как у синьора. Остальные RBAC — без изменений.
+- **DROP sees:** own profile, own finances, own drop team (read). Without Interviews.
+- **Drop sidebar:** Profile, Team, Finances.
+- **Accountant/Admin** validate the drop's income as for a senior. The rest of RBAC — unchanged.
 
-## 5. Создание сущностей
+## 5. Creating entities
 
-### 5.1 Создание дропа (зеркало формы синьора)
+### 5.1 Creating a drop (mirror of the senior form)
 
-Идентичность (`role=DROP`), контакты, реквизиты, `drop_share_percent` (деф. 5%). Секция «Команда»: HR(ы) **ОБЯЗАТЕЛЬНО ≥1** + бухгалтер + telegram-канал — поля **ИДЕНТИЧНЫ** команде синьора. На submit: создаётся юзер DROP И обязательно команда дропа (`type='DROP'`) с участниками дроп+HR+бухгалтер.
+Identity (`role=DROP`), contacts, requisites, `drop_share_percent` (default 5%). The "Team" section: HR(s) **MANDATORY ≥1** + accountant + telegram channel — the fields are **IDENTICAL** to the senior team. On submit: a DROP user is created AND a drop team is mandatorily created (`type='DROP'`) with members drop+HR+accountant.
 
-### 5.2 Создание синьора — 2 опции
+### 5.2 Creating a senior — 2 options
 
-1. Создать свою команду (текущее поведение, без изменений) или
-2. Добавить в существующую команду дропа (показывать drop-команды без активного синьора).
+1. Create their own team (current behavior, unchanged) or
+2. Add to an existing drop team (show drop teams without an active senior).
 
-Со страницы «Команды» **отдельное создание команды — УБРАТЬ**. Синьор — максимум в 1 активной команде.
+From the "Teams" page the **separate team creation — REMOVE**. A senior — at most in 1 active team.
 
-### 5.3 Синьор без команды (edge — только после архива команды дропа)
+### 5.3 Senior without a team (edge — only after archiving a drop team)
 
-Отцепляется → значок «без команды»; теряет доступ к Собеседованиям и Проектам (nav скрыт + empty-state на роутах); в профиле кнопка «Создать/выбрать команду» с тем же выбором, что в 5.2.
+Detached → the "no team" badge; loses access to Interviews and Projects (nav hidden + empty-state on the routes); in the profile a "Create/choose team" button with the same choice as in 5.2.
 
-## 6. Ротация синьора в команде дропа
+## 6. Senior rotation in a drop team
 
-Максимум 1 активный синьор. Ротация: текущий → `team_members.leftAt=now`, новый → добавляется; дроп остаётся. На детали команды дропа — действие «сменить/назначить синьора».
+At most 1 active senior. Rotation: current → `team_members.leftAt=now`, new → added; the drop stays. On the drop team details — the "change/assign senior" action.
 
-## 7. Архивация и каскады
+## 7. Archiving and cascades
 
-- **Архив синьора** (своя команда): его команда + проекты (как сейчас). Без изменений.
-- **Архив команды синьора:** синьор + проекты (как сейчас). Без изменений.
-- **Архив команды дропа:** дроп + все её проекты; синьор **ОТЦЕПЛЯЕТСЯ** (не архив), HR/бухгалтер → `leftAt`.
-- **Архив дропа:** команда дропа + все её проекты; синьор **ОТЦЕПЛЯЕТСЯ** (не архив).
+- **Senior archive** (own team): their team + projects (as now). Unchanged.
+- **Senior team archive:** senior + projects (as now). Unchanged.
+- **Drop team archive:** drop + all its projects; the senior is **DETACHED** (not archived), HR/accountant → `leftAt`.
+- **Drop archive:** the drop team + all its projects; the senior is **DETACHED** (not archived).
 
-Дроп↔команда дропа — двунаправленная пара (зеркало senior↔team). Перед подтверждением — экран impact-cascade с предупреждением (N проектов архивируется, синьор открепляется). «Удаление» = архив (soft, `archivedAt`). Физический DELETE не вводим.
+Drop↔drop team — a bidirectional pair (mirror of senior↔team). Before confirmation — an impact-cascade screen with a warning (N projects archived, the senior is detached). "Deletion" = archive (soft, `archivedAt`). We do not introduce a physical DELETE.
 
-## 8. Финансы
+## 8. Finances
 
-### 8.1 Drop-проект — распределение
+### 8.1 Drop project — distribution
 
-Проект как у синьора, но деньги на дропа + доля дропа. Пример (приход 1000$, синьор 26%, дроп 5%):
+A project as for a senior, but money to the drop + the drop's share. Example (income $1000, senior 26%, drop 5%):
 
 ```
-Приход на дропа:            $1000
-  − доля синьора (26%):      $260
-  − доля дропа (5%):          $50
-  = остаток:                 $690  → 50/50 между админами (MAKSYM/KOSTYA): $345 / $345
-Зарплата джуна — отдельно (junior_payments, как сейчас).
+Income to the drop:         $1000
+  − senior share (26%):      $260
+  − drop share (5%):          $50
+  = remainder:               $690  → 50/50 between admins (MAKSYM/KOSTYA): $345 / $345
+Junior salary — separate (junior_payments, as now).
 ```
 
-Реализация: новая ветка «если `project.dropId != null`»: вычесть долю синьора и долю дропа, затем остаток 50/50 партнёрам. Ветка обычного синьор-проекта (`dropId=null`) — **без изменений**.
+Implementation: a new branch "if `project.dropId != null`": subtract the senior's share and the drop's share, then split the remainder 50/50 to the partners. The ordinary senior-project branch (`dropId=null`) — **unchanged**.
 
-### 8.2 Флоу прихода/выплаты дропа
+### 8.2 Drop income/payout flow
 
-Дроп регистрирует приход + чек (как синьор) → бухгалтер валидирует → выбор транзакций на выплату → выплата. Приход может быть ФОП / гиг / крипта.
+The drop registers an income + receipt (as a senior) → the accountant validates → selection of transactions for payout → payout. Income can be FOP / gig / crypto.
 
-### 8.3 Реквизиты дропа
+### 8.3 Drop requisites
 
-**НЕ USDT-only** (в отличие от синьора/админа) — доступны USDT ERC-20 и Bank UAH (ФОП).
+**NOT USDT-only** (unlike the senior/admin) — USDT ERC-20 and Bank UAH (FOP) are available.
 
-### 8.4 Ручное подтверждение выплаты (новое; для синьора и дропа)
+### 8.4 Manual payout confirmation (new; for the senior and the drop)
 
-Бухгалтер/Админ вручную подтверждает выплату (off-platform расчёты); в диалоге указывает, какой админ получил деньги.
+The accountant/Admin manually confirms a payout (off-platform settlements); in the dialog they specify which admin received the money.
 
-- **Drop-выплата:** дропу пришло $1000, дроп платит $950 выбранному админу → (1) транзакция «приход на баланс админа» = полная сумма выплаты ($950); (2) Pending «выплата процентов синьору» = доля синьора от прихода дропа ($260 при 26%). Дроп удерживает 5% ($50) = приход − выплата админу.
-- **Senior-выплата:** синьор сам владелец прихода и уже удержал свою долю → создаётся **ТОЛЬКО** «доля админа» (= сумма выплаты выбранному админу). Отдельная «доля синьора»-транзакция НЕ создаётся. Без авто-50/50.
+- **Drop payout:** the drop received $1000, the drop pays $950 to the chosen admin → (1) a transaction "income to the admin's balance" = the full payout amount ($950); (2) Pending "payout of the senior's percent" = the senior's share of the drop's income ($260 at 26%). The drop retains 5% ($50) = income − payout to the admin.
+- **Senior payout:** the senior is the owner of the income themselves and has already retained their share → **ONLY** an "admin share" is created (= the payout amount to the chosen admin). A separate "senior share" transaction is NOT created. Without auto-50/50.
 
-## 9. Фазы (отдельные зелёные PR)
+## 9. Phases (separate green PRs)
 
-1. **Структура** (роль, миграции, создание дропа+команды, 2 опции синьора, edge teamless, ротация, каскады).
-2. **Финансы drop-проекта.**
-3. **Ручное подтверждение выплаты.**
+1. **Structure** (role, migrations, drop+team creation, 2 senior options, teamless edge, rotation, cascades).
+2. **Drop-project finances.**
+3. **Manual payout confirmation.**
 
-## 10. Тестирование (фокус — «не сломали синьора»)
+## 10. Testing (focus — "did not break the senior")
 
-- **Регрессия синьора:** существующие E2E/UT проходят без изменений (кроме выбора «2 опции» в форме).
-- **UT новое:** создание дропа создаёт команду дропа; `drop_share` деф. 5; расчёт drop-проекта (1000→260/50/345/345); каскады архива; запрет 2-го активного синьора в команде дропа.
-- **E2E новое:** создание дропа; «синьор в команду дропа»; edge teamless-синьор; ручное подтверждение (drop: $950 админу + pending $260 синьору; senior: только доля админа).
+- **Senior regression:** existing E2E/UT pass unchanged (except the "2 options" choice in the form).
+- **UT new:** creating a drop creates a drop team; `drop_share` default 5; drop-project calculation (1000→260/50/345/345); archive cascades; prohibition of a 2nd active senior in a drop team.
+- **E2E new:** creating a drop; "senior into a drop team"; teamless-senior edge; manual confirmation (drop: $950 to the admin + pending $260 to the senior; senior: only the admin share).
 
-## 11. Решено владельцем
+## 11. Decided by the owner
 
-1. Senior ручное подтверждение — только «доля админа».
-2. HR при создании дропа обязателен (≥1).
-3. team-поля команды дропа идентичны команде синьора.
+1. Senior manual confirmation — only the "admin share".
+2. HR is mandatory when creating a drop (≥1).
+3. The team fields of a drop team are identical to the senior team.

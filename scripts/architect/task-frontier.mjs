@@ -1,24 +1,29 @@
 #!/usr/bin/env node
-// Вычисляет фронтир задач: какие task-файлы можно диспатчить прямо сейчас.
+// Computes the task frontier: which task files can be dispatched right now.
 //
-// Фронтир = задача со `## Статус: ready`, у которой КАЖДЫЙ блокер из `## Блокеры:`
-// имеет `## Статус: done`. Это заменяет оценку «на глаз»: диспатч задачи, которой
-// нет в выводе этого скрипта, — нарушение (rules/common/orchestration-routing.md).
+// Frontier = a task with `## Status: ready` whose EVERY blocker from `## Blockers:`
+// has `## Status: done`. This replaces an "by eye" assessment: dispatching a task
+// that is not in this script's output is a violation (rules/common/orchestration-routing.md).
 //
-// Поля читаются из шапки task-файла (.claude/tasks/templates/task.md.tpl):
-//   ## Статус: ready | in-progress | blocked | draft | done
-//   ## Блокеры: none | task-a, task-b
+// The fields are read from the task file header (.claude/tasks/templates/task.md.tpl):
+//   ## Status: ready | in-progress | blocked | draft | done
+//   ## Blockers: none | task-a, task-b
 //
-// Файлы без `## Статус:` — legacy (заведены до 2026-08-22). Они не ошибка и не
-// участвуют в расчёте; их число печатается, чтобы миграция была видна.
+// Both the English heading tokens (Status / Blockers) and the legacy Russian ones
+// (Статус / Блокеры) are accepted: the template was translated to English 2026-10-05,
+// but live task files in main still use the Russian headings, so both must parse.
 //
-// Использование:
-//   node scripts/architect/task-frontier.mjs            # человекочитаемо
-//   node scripts/architect/task-frontier.mjs --json     # для скриптов
-//   node scripts/architect/task-frontier.mjs --tasks-dir <путь>
+// Files without a recognized `## Status:` / `## Статус:` are legacy (created before
+// 2026-08-22). They are not an error and do not participate in the computation; their
+// count is printed so the migration stays visible.
 //
-// Exit 1 — только на структурных дефектах графа (висячий блокер, цикл,
-// самоблокировка). Пустой фронтир при живых задачах — это факт, не ошибка.
+// Usage:
+//   node scripts/architect/task-frontier.mjs            # human-readable
+//   node scripts/architect/task-frontier.mjs --json     # for scripts
+//   node scripts/architect/task-frontier.mjs --tasks-dir <path>
+//
+// Exit 1 — only on structural defects of the graph (a dangling blocker, a cycle,
+// a self-block). An empty frontier with live tasks is a fact, not an error.
 
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, basename } from 'node:path'
@@ -28,21 +33,22 @@ const asJson = args.includes('--json')
 const dirFlag = args.indexOf('--tasks-dir')
 const TASKS_DIR = dirFlag !== -1 ? args[dirFlag + 1] : '.claude/tasks'
 
-// `draft` уже встречался в репозитории до этого скрипта («ждёт решений владельца»)
-// и означает ровно A2/A3 из rules/common/autonomy-levels.md: задача не диспатчится,
-// пока владелец не ответил. Словарь выровнен по репозиторию, а не наоборот.
+// `draft` already appeared in the repository before this script ("awaiting owner decisions")
+// and means exactly A2/A3 from rules/common/autonomy-levels.md: the task is not dispatched
+// until the owner has answered. The vocabulary is aligned to the repository, not the reverse.
 const STATUSES = new Set(['ready', 'in-progress', 'blocked', 'draft', 'done'])
 
-/** Читает одно `## <Поле>:` из шапки файла. */
-function field(text, name) {
-  const m = text.match(new RegExp(`^##\\s*${name}\\s*:\\s*(.*)$`, 'mi'))
+/** Reads one `## <Field>:` from the file header. Accepts any of the given names. */
+function field(text, names) {
+  const alt = (Array.isArray(names) ? names : [names]).join('|')
+  const m = text.match(new RegExp(`^##\\s*(?:${alt})\\s*:\\s*(.*)$`, 'mi'))
   return m ? m[1].trim() : null
 }
 
 function parseBlockers(raw) {
   if (!raw) return []
   const cleaned = raw
-    .replace(/\(.*?\)/g, '') // пояснения в скобках не адреса
+    .replace(/\(.*?\)/g, '') // parenthetical explanations are not addresses
     .trim()
   if (!cleaned || /^none$/i.test(cleaned) || /^нет$/i.test(cleaned)) return []
   return cleaned
@@ -52,7 +58,7 @@ function parseBlockers(raw) {
 }
 
 if (!existsSync(TASKS_DIR)) {
-  console.error(`Каталог задач не найден: ${TASKS_DIR}`)
+  console.error(`Tasks directory not found: ${TASKS_DIR}`)
   process.exit(1)
 }
 
@@ -66,7 +72,7 @@ const legacy = []
 for (const f of files) {
   const id = basename(f, '.md')
   const text = readFileSync(join(TASKS_DIR, f), 'utf8')
-  const rawStatus = field(text, 'Статус')
+  const rawStatus = field(text, ['Status', 'Статус'])
   if (!rawStatus) {
     legacy.push(id)
     continue
@@ -76,30 +82,28 @@ for (const f of files) {
     id,
     status,
     statusValid: STATUSES.has(status),
-    blockers: parseBlockers(field(text, 'Блокеры')),
+    blockers: parseBlockers(field(text, ['Blockers', 'Блокеры'])),
     hasBlockedFile: existsSync(join(TASKS_DIR, `${id}.blocked.md`)),
   })
 }
 
-// --- структурные дефекты графа -------------------------------------------
+// --- structural defects of the graph -------------------------------------
 const errors = []
 
 for (const t of tasks.values()) {
   if (!t.statusValid) {
-    errors.push(
-      `${t.id}: неизвестный статус «${t.status}» (ожидается ${[...STATUSES].join(' | ')})`,
-    )
+    errors.push(`${t.id}: unknown status "${t.status}" (expected ${[...STATUSES].join(' | ')})`)
   }
   for (const b of t.blockers) {
-    if (b === t.id) errors.push(`${t.id}: блокирует сам себя`)
+    if (b === t.id) errors.push(`${t.id}: blocks itself`)
     else if (!tasks.has(b)) {
-      const hint = legacy.includes(b) ? ' (файл есть, но без «## Статус:» — legacy)' : ''
-      errors.push(`${t.id}: блокер «${b}» не найден среди задач со статусом${hint}`)
+      const hint = legacy.includes(b) ? ' (file exists, but without "## Status:" — legacy)' : ''
+      errors.push(`${t.id}: blocker "${b}" not found among tasks with a status${hint}`)
     }
   }
 }
 
-// поиск циклов обходом в глубину
+// cycle search via depth-first traversal
 const WHITE = 0,
   GREY = 1,
   BLACK = 2
@@ -114,7 +118,7 @@ function visit(id) {
     if (colour.get(b) === GREY) {
       const members = stack.slice(stack.indexOf(b))
       for (const m of members) cyclic.add(m)
-      errors.push(`цикл блокировок: ${members.concat(b).join(' -> ')}`)
+      errors.push(`blocker cycle: ${members.concat(b).join(' -> ')}`)
     } else if (colour.get(b) === WHITE) visit(b)
   }
   stack.pop()
@@ -122,27 +126,27 @@ function visit(id) {
 }
 for (const id of tasks.keys()) if (colour.get(id) === WHITE) visit(id)
 
-// --- фронтир ---------------------------------------------------------------
+// --- frontier --------------------------------------------------------------
 const isDone = (id) => tasks.get(id)?.status === 'done'
 
 const frontier = []
 const blocked = []
-const undecidable = [] // граф про эту задачу сломан — считать её готовой нельзя
+const undecidable = [] // the graph around this task is broken — it cannot be treated as ready
 
 for (const t of tasks.values()) {
   if (t.status !== 'ready') continue
 
-  // Висячий блокер НЕ игнорируется: задача с опечаткой в id иначе выглядела бы
-  // разблокированной, и молчаливо уезжала бы в диспатч. Это ровно тот класс
-  // тихого отказа, ради которого скрипт написан.
+  // A dangling blocker is NOT ignored: a task with a typo in an id would otherwise look
+  // unblocked and silently drive into dispatch. This is exactly the class of silent
+  // failure the script is written for.
   const dangling = t.blockers.filter((b) => !tasks.has(b))
   const inCycle = cyclic.has(t.id)
   if (dangling.length || inCycle) {
     undecidable.push({
       ...t,
       why: [
-        dangling.length ? `висячие блокеры: ${dangling.join(', ')}` : null,
-        inCycle ? 'участвует в цикле блокировок' : null,
+        dangling.length ? `dangling blockers: ${dangling.join(', ')}` : null,
+        inCycle ? 'participates in a blocker cycle' : null,
       ]
         .filter(Boolean)
         .join('; '),
@@ -178,30 +182,30 @@ if (asJson) {
     ),
   )
 } else {
-  console.log(`Фронтир (можно диспатчить сейчас) — ${frontier.length}:`)
-  if (frontier.length === 0) console.log('  (пусто)')
+  console.log(`Frontier (dispatchable now) — ${frontier.length}:`)
+  if (frontier.length === 0) console.log('  (empty)')
   for (const t of frontier) {
-    console.log(`  ${t.id}${t.hasBlockedFile ? '  ⚠ есть .blocked.md' : ''}`)
+    console.log(`  ${t.id}${t.hasBlockedFile ? '  ⚠ has .blocked.md' : ''}`)
   }
 
-  console.log(`\nЖдут блокеров — ${blocked.length}:`)
-  if (blocked.length === 0) console.log('  (пусто)')
+  console.log(`\nWaiting on blockers — ${blocked.length}:`)
+  if (blocked.length === 0) console.log('  (empty)')
   for (const t of blocked) console.log(`  ${t.id}  ← ${t.open.join(', ')}`)
 
   if (undecidable.length) {
-    console.log(`\nНе поддаются расчёту (во фронтир НЕ идут) — ${undecidable.length}:`)
+    console.log(`\nNot computable (do NOT enter the frontier) — ${undecidable.length}:`)
     for (const t of undecidable) console.log(`  ${t.id}  ← ${t.why}`)
   }
 
   const summary = Object.entries(counts)
     .map(([k, v]) => `${k}: ${v}`)
     .join(' · ')
-  console.log(`\nСтатусы: ${summary || 'нет задач с полем «Статус»'}`)
+  console.log(`\nStatuses: ${summary || 'no tasks with a "Status" field'}`)
   if (legacy.length) {
-    console.log(`Legacy без «## Статус:» — ${legacy.length} (в расчёте не участвуют)`)
+    console.log(`Legacy without "## Status:" — ${legacy.length} (not in the computation)`)
   }
   if (errors.length) {
-    console.log(`\nДефекты графа — ${errors.length}:`)
+    console.log(`\nGraph defects — ${errors.length}:`)
     for (const e of errors) console.log(`  ✗ ${e}`)
   }
 }

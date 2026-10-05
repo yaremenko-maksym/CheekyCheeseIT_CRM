@@ -289,7 +289,7 @@ describe('paymentRequisitesSchema', () => {
     expect(
       paymentRequisitesSchema.safeParse({
         paymentMethod: 'BANK_UAH_FOP',
-        bankUahRecipient: 'Іван Петренко',
+        bankUahRecipient: 'Ivan Petrenko',
         bankUahIban: 'UA213223130000026007233566001',
         bankUahRnokpp: '1234567890',
       }).success,
@@ -300,7 +300,7 @@ describe('paymentRequisitesSchema', () => {
     expect(
       paymentRequisitesSchema.safeParse({
         paymentMethod: 'BANK_UAH_FOP',
-        bankUahRecipient: 'Іван',
+        bankUahRecipient: 'Ivan',
         bankUahIban: 'NOT-AN-IBAN',
         bankUahRnokpp: '1234567890',
       }).success,
@@ -311,7 +311,7 @@ describe('paymentRequisitesSchema', () => {
     expect(
       paymentRequisitesSchema.safeParse({
         paymentMethod: 'BANK_UAH_FOP',
-        bankUahRecipient: 'Іван',
+        bankUahRecipient: 'Ivan',
         bankUahIban: 'UA213223130000026007233566001',
         bankUahRnokpp: '12345',
       }).success,
@@ -341,18 +341,18 @@ export const usdtRequisitesSchema = z.object({
     .string()
     .regex(
       /^0x[a-fA-F0-9]{40}$/,
-      'USDT ERC-20 адрес должен начинаться с 0x и содержать 42 символа',
+      'USDT ERC-20 address must start with 0x and contain 42 characters',
     ),
   walletUsdtLabel: z.string().max(100).nullable().optional(),
 })
 
 export const bankUahRequisitesSchema = z.object({
   paymentMethod: z.literal('BANK_UAH_FOP'),
-  bankUahRecipient: z.string().min(3, 'ФИО получателя минимум 3 символа').max(255),
+  bankUahRecipient: z.string().min(3, 'Recipient full name, at least 3 characters').max(255),
   bankUahIban: z
     .string()
-    .regex(/^UA\d{27}$/, 'IBAN должен быть в формате UA + 27 цифр (29 символов)'),
-  bankUahRnokpp: z.string().regex(/^\d{10}$/, 'РНОКПП должен быть 10 цифр'),
+    .regex(/^UA\d{27}$/, 'IBAN must be in the format UA + 27 digits (29 characters)'),
+  bankUahRnokpp: z.string().regex(/^\d{10}$/, 'RNOKPP must be 10 digits'),
   bankUahBankName: z.string().max(255).nullable().optional(),
 })
 
@@ -472,7 +472,7 @@ export const changeSalarySchema = z
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
   })
   .refine((d) => d.monthlySalary !== undefined || d.seniorSharePercent !== undefined, {
-    message: 'Укажите хотя бы одно из полей: monthlySalary или seniorSharePercent',
+    message: 'Specify at least one of the fields: monthlySalary or seniorSharePercent',
   })
 
 export const changeRequisitesSchema = paymentRequisitesSchema
@@ -512,7 +512,7 @@ export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT
 
 const telegramSchema = z
   .string()
-  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Telegram: 5–32 символа, латиница/цифры/_')
+  .regex(/^@?[a-zA-Z0-9_]{5,32}$/, 'Telegram: 5–32 characters, Latin letters/digits/_')
   .max(33)
 
 const phoneSchema = z.string().max(30)
@@ -576,24 +576,28 @@ export const createUserSchema = z
     if (isUsdtOnlyRole && data.paymentMethod !== 'USDT_ERC20') {
       ctx.addIssue({
         code: 'custom',
-        message: 'Senior/Admin могут использовать только USDT ERC-20',
+        message: 'Senior/Admin can use only USDT ERC-20',
         path: ['paymentMethod'],
       })
     }
     if (data.paymentMethod === 'USDT_ERC20' && !data.walletUsdtErc20) {
       ctx.addIssue({
         code: 'custom',
-        message: 'USDT кошелёк обязателен',
+        message: 'USDT wallet is required',
         path: ['walletUsdtErc20'],
       })
     }
     if (data.paymentMethod === 'BANK_UAH_FOP') {
       if (!data.bankUahRecipient)
-        ctx.addIssue({ code: 'custom', message: 'ФИО обязательно', path: ['bankUahRecipient'] })
+        ctx.addIssue({
+          code: 'custom',
+          message: 'Full name is required',
+          path: ['bankUahRecipient'],
+        })
       if (!data.bankUahIban)
-        ctx.addIssue({ code: 'custom', message: 'IBAN обязателен', path: ['bankUahIban'] })
+        ctx.addIssue({ code: 'custom', message: 'IBAN is required', path: ['bankUahIban'] })
       if (!data.bankUahRnokpp)
-        ctx.addIssue({ code: 'custom', message: 'РНОКПП обязателен', path: ['bankUahRnokpp'] })
+        ctx.addIssue({ code: 'custom', message: 'RNOKPP is required', path: ['bankUahRnokpp'] })
     }
   })
 
@@ -700,7 +704,7 @@ export class RolesGuard implements CanActivate {
     const req = context.switchToHttp().getRequest<{ user?: SessionUser }>()
     if (!req.user) throw new ForbiddenException()
     if (!required.includes(req.user.role)) {
-      throw new ForbiddenException(`Доступ только для ролей: ${required.join(', ')}`)
+      throw new ForbiddenException(`Access only for roles: ${required.join(', ')}`)
     }
     return true
   }
@@ -769,7 +773,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     mockDb.isUserInSharedProject.mockResolvedValue(false)
   })
 
-  it('ADMIN viewing JUNIOR sees 6 tabs (no Собеседования)', async () => {
+  it('ADMIN viewing JUNIOR sees 6 tabs (no Interviews)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -779,7 +783,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('interviews')
   })
 
-  it('ADMIN viewing SENIOR includes Собеседования (7 tabs)', async () => {
+  it('ADMIN viewing SENIOR includes Interviews (7 tabs)', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -806,7 +810,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toEqual([])
   })
 
-  it('SELF — viewer sees all tabs for own role (SENIOR includes Собеседования)', async () => {
+  it('SELF — viewer sees all tabs for own role (SENIOR includes Interviews)', async () => {
     const senior = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(senior, senior)
     expect(p.tabs).toEqual(
@@ -1491,7 +1495,7 @@ export class UsersController {
   async createUser(@CurrentUser() currentUser: SessionUser, @Body() body: unknown) {
     const dto = createUserSchema.parse(body)
     if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
-      throw new ForbiddenException('HR может создавать только синьоров')
+      throw new ForbiddenException('HR can create only seniors')
     }
     return this.usersService.createUser({
       ...dto,
@@ -1524,7 +1528,7 @@ export class UsersController {
       (currentUser.role === 'SENIOR' || currentUser.role === 'ADMIN') &&
       dto.paymentMethod !== 'USDT_ERC20'
     ) {
-      throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
+      throw new ForbiddenException('Senior/Admin can use only USDT ERC-20')
     }
     return this.usersService.updateRequisites(
       currentUser.id,
@@ -1590,7 +1594,7 @@ export class UsersController {
       (target.role === 'SENIOR' || target.role === 'ADMIN') &&
       dto.paymentMethod !== 'USDT_ERC20'
     ) {
-      throw new ForbiddenException('Senior/Admin могут использовать только USDT ERC-20')
+      throw new ForbiddenException('Senior/Admin can use only USDT ERC-20')
     }
     return this.usersService.updateRequisites(
       id,
@@ -1687,10 +1691,10 @@ techStack: ['React', 'TypeScript', 'Node.js'],
 
 // For JUNIOR/HR/ACCOUNTANT — at least one of each method
 paymentMethod: 'BANK_UAH_FOP',
-bankUahRecipient: 'Тест Тестенко',
+bankUahRecipient: 'Test Testenko',
 bankUahIban: 'UA213223130000026007233566001',
 bankUahRnokpp: '1234567890',
-bankUahBankName: 'ПриватБанк',
+bankUahBankName: 'PrivatBank',
 techStack: ['React', 'Tailwind'],
 ```
 
@@ -1786,9 +1790,9 @@ export function useUpdateMe() {
     mutationFn: (data: UpdateProfileDto) => api.patch('/users/me', data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      toast.success('Сохранено')
+      toast.success('Saved')
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(`Error: ${e.message}`),
   })
 }
 
@@ -1800,9 +1804,9 @@ export function useUpdateMeRequisites() {
       api.patch('/users/me/requisites', data).then((r) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', 'me'] })
-      toast.success('Реквизиты обновлены')
+      toast.success('Requisites updated')
     },
-    onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
+    onError: (e: Error) => toast.error(`Error: ${e.message}`),
   })
 }
 
@@ -1814,7 +1818,7 @@ export function useAdminUpdateUser(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
-      toast.success('Профиль обновлён')
+      toast.success('Profile updated')
     },
   })
 }
@@ -1827,7 +1831,7 @@ export function useAdminChangeRole(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
-      toast.success('Роль изменена')
+      toast.success('Role changed')
     },
   })
 }
@@ -1840,7 +1844,7 @@ export function useAdminChangeSalary(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
-      toast.success('Зарплата обновлена')
+      toast.success('Salary updated')
     },
   })
 }
@@ -1853,7 +1857,7 @@ export function useAdminChangeRequisites(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
-      toast.success('Реквизиты обновлены')
+      toast.success('Requisites updated')
     },
   })
 }
@@ -1865,7 +1869,7 @@ export function useAdminSetNote(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['user-audit-log', userId] })
-      toast.success('Заметка сохранена')
+      toast.success('Note saved')
     },
   })
 }
@@ -1877,7 +1881,7 @@ export function useArchiveUser(userId: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['user-profile', userId] })
       qc.invalidateQueries({ queryKey: ['users'] })
-      toast.success('Пользователь архивирован')
+      toast.success('User archived')
     },
   })
 }
@@ -1919,11 +1923,11 @@ import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
 
 const ROLE_LABELS: Record<string, string> = {
-  ADMIN: 'Администратор',
-  SENIOR: 'Синьор',
-  JUNIOR: 'Джун',
+  ADMIN: 'Administrator',
+  SENIOR: 'Senior',
+  JUNIOR: 'Junior',
   HR: 'HR',
-  ACCOUNTANT: 'Бухгалтер',
+  ACCOUNTANT: 'Accountant',
 }
 const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
   ADMIN: 'admin',
@@ -1984,7 +1988,8 @@ export function UserProfileHeader({ user, onBack, actionsSlot }: UserProfileHead
       <div className="flex shrink-0 items-center gap-2">
         {onBack && (
           <Button variant="ghost" size="sm" onClick={onBack} className="gap-1">
-            <ChevronLeft className="h-4 w-4" />К списку
+            <ChevronLeft className="h-4 w-4" />
+            To list
           </Button>
         )}
         {actionsSlot}
@@ -2011,13 +2016,13 @@ import { AuditLogTab } from './tabs/AuditLogTab'
 import { AdminActionsMenu } from './admin-actions/AdminActionsMenu'
 
 const TAB_LABELS: Record<string, string> = {
-  overview: 'Обзор',
-  finance: 'Финансы',
-  projects: 'Проекты',
-  team: 'Команда',
-  interviews: 'Собеседования',
-  requisites: 'Реквизиты',
-  audit: 'История',
+  overview: 'Overview',
+  finance: 'Finance',
+  projects: 'Projects',
+  team: 'Team',
+  interviews: 'Interviews',
+  requisites: 'Requisites',
+  audit: 'History',
 }
 
 export interface UserProfileShellProps {
@@ -2165,7 +2170,7 @@ export function OverviewTab({ user, mode }: OverviewTabProps) {
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-xs uppercase text-muted-foreground">Зарплата</CardTitle>
+            <CardTitle className="text-xs uppercase text-muted-foreground">Salary</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
@@ -2178,11 +2183,11 @@ export function OverviewTab({ user, mode }: OverviewTabProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Технологии</CardTitle>
+          <CardTitle className="text-base">Technologies</CardTitle>
         </CardHeader>
         <CardContent>
           {techStack.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Не указано</p>
+            <p className="text-sm text-muted-foreground">Not specified</p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {techStack.map((t) => (
@@ -2198,7 +2203,7 @@ export function OverviewTab({ user, mode }: OverviewTabProps) {
       {mode === 'self' && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Личные данные</CardTitle>
+            <CardTitle className="text-base">Personal data</CardTitle>
           </CardHeader>
           <CardContent>
             <ProfileEditFields user={user} />
@@ -2246,7 +2251,7 @@ export function FinanceTab({ userId }: { userId: string }) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Транзакций пока нет
+          No transactions yet
         </CardContent>
       </Card>
     )
@@ -2312,11 +2317,11 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Активные ({active.length})</CardTitle>
+          <CardTitle className="text-base">Active ({active.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {active.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет активных проектов</p>
+            <p className="text-sm text-muted-foreground">No active projects</p>
           ) : (
             <div className="space-y-2">
               {active.map((p) => (
@@ -2328,11 +2333,11 @@ export function ProjectsTab({ userId, role }: { userId: string; role: string }) 
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">История ({closed.length})</CardTitle>
+          <CardTitle className="text-base">History ({closed.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {closed.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Нет завершённых проектов</p>
+            <p className="text-sm text-muted-foreground">No completed projects</p>
           ) : (
             <div className="space-y-2">
               {closed.map((p) => (
@@ -2357,7 +2362,7 @@ function ProjectRow({ p }: { p: ProjectListItem }) {
         </p>
       </div>
       <Badge variant={p.status === 'ACTIVE' ? 'default' : 'outline'}>
-        {p.status === 'ACTIVE' ? 'Активен' : 'Закрыт'}
+        {p.status === 'ACTIVE' ? 'Active' : 'Closed'}
       </Badge>
     </div>
   )
@@ -2409,7 +2414,7 @@ export function TeamTab({ userId }: { userId: string }) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Не состоит в команде
+          Not in a team
         </CardContent>
       </Card>
     )
@@ -2462,11 +2467,11 @@ export function InterviewsTab({ seniorId }: { seniorId: string }) {
   return (
     <Card>
       <CardContent className="pt-6 text-center">
-        <p className="mb-4 text-sm text-muted-foreground">Доска собеседований этого синьора</p>
+        <p className="mb-4 text-sm text-muted-foreground">This senior's interview board</p>
         <Button asChild>
           <Link to="/crm/interviews" search={{ seniorId }}>
             <ExternalLink className="mr-2 h-4 w-4" />
-            Открыть Канбан
+            Open Kanban
           </Link>
         </Button>
       </CardContent>
@@ -2547,7 +2552,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
       >
         {!isUsdtOnlyRole && (
           <div className="space-y-2">
-            <Label>Способ выплаты</Label>
+            <Label>Payout method</Label>
             <form.Field name="paymentMethod">
               {(f) => (
                 <RadioGroup
@@ -2560,7 +2565,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                   </div>
                   <div className="flex items-center gap-2">
                     <RadioGroupItem value="BANK_UAH_FOP" id="m-bank" />
-                    <Label htmlFor="m-bank">Банк UAH (ФОП)</Label>
+                    <Label htmlFor="m-bank">Bank UAH (FOP)</Label>
                   </div>
                 </RadioGroup>
               )}
@@ -2573,34 +2578,34 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
             method === 'USDT_ERC20' ? (
               <>
                 <form.Field name="walletUsdtErc20">
-                  {(f) => <FieldRow label="USDT ERC-20 кошелёк" field={f} placeholder="0x..." />}
+                  {(f) => <FieldRow label="USDT ERC-20 wallet" field={f} placeholder="0x..." />}
                 </form.Field>
                 <form.Field name="walletUsdtLabel">
                   {(f) => (
-                    <FieldRow label="Метка (опц.)" field={f} placeholder="Например: основной" />
+                    <FieldRow label="Label (opt.)" field={f} placeholder="For example: main" />
                   )}
                 </form.Field>
               </>
             ) : (
               <>
                 <form.Field name="bankUahRecipient">
-                  {(f) => <FieldRow label="ФИО получателя" field={f} />}
+                  {(f) => <FieldRow label="Recipient full name" field={f} />}
                 </form.Field>
                 <form.Field name="bankUahIban">
                   {(f) => <FieldRow label="IBAN (UA…)" field={f} placeholder="UA21..." />}
                 </form.Field>
                 <form.Field name="bankUahRnokpp">
-                  {(f) => <FieldRow label="РНОКПП (10 цифр)" field={f} />}
+                  {(f) => <FieldRow label="RNOKPP (10 digits)" field={f} />}
                 </form.Field>
                 <form.Field name="bankUahBankName">
-                  {(f) => <FieldRow label="Название банка (опц.)" field={f} />}
+                  {(f) => <FieldRow label="Bank name (opt.)" field={f} />}
                 </form.Field>
               </>
             )
           }
         </form.Subscribe>
 
-        <Button type="submit">Сохранить реквизиты</Button>
+        <Button type="submit">Save requisites</Button>
       </form>
 
       <AlertDialog
@@ -2611,13 +2616,13 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Изменение реквизитов</AlertDialogTitle>
+            <AlertDialogTitle>Changing requisites</AlertDialogTitle>
             <AlertDialogDescription>
-              На базе этих данных будут происходить следующие выплаты. Подтвердите изменение.
+              The following payouts will be based on this data. Confirm the change.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => {
                 if (pending) {
@@ -2626,7 +2631,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                 }
               }}
             >
-              Подтвердить
+              Confirm
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -2678,7 +2683,7 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Реквизиты для выплат</CardTitle>
+          <CardTitle>Payout requisites</CardTitle>
         </CardHeader>
         <CardContent>
           <RequisitesEditForm user={user} />
@@ -2689,31 +2694,31 @@ export function RequisitesTab({ user, mode }: { user: UserProfileDto; mode: 'sel
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Реквизиты для выплат</CardTitle>
+        <CardTitle>Payout requisites</CardTitle>
       </CardHeader>
       <CardContent className="space-y-3 text-sm">
         <Row
-          label="Способ"
+          label="Method"
           value={
             user.paymentMethod === 'USDT_ERC20'
               ? 'USDT ERC-20'
               : user.paymentMethod === 'BANK_UAH_FOP'
-                ? 'Банк UAH (ФОП)'
+                ? 'Bank UAH (FOP)'
                 : '—'
           }
         />
         {user.paymentMethod === 'USDT_ERC20' && (
           <>
-            <Row label="USDT кошелёк" value={user.walletUsdtErc20 ?? '—'} mono />
-            {user.walletUsdtLabel && <Row label="Метка" value={user.walletUsdtLabel} />}
+            <Row label="USDT wallet" value={user.walletUsdtErc20 ?? '—'} mono />
+            {user.walletUsdtLabel && <Row label="Label" value={user.walletUsdtLabel} />}
           </>
         )}
         {user.paymentMethod === 'BANK_UAH_FOP' && (
           <>
-            <Row label="Получатель" value={user.bankUahRecipient ?? '—'} />
+            <Row label="Recipient" value={user.bankUahRecipient ?? '—'} />
             <Row label="IBAN" value={user.bankUahIban ?? '—'} mono />
-            <Row label="РНОКПП" value={user.bankUahRnokpp ?? '—'} mono />
-            {user.bankUahBankName && <Row label="Банк" value={user.bankUahBankName} />}
+            <Row label="RNOKPP" value={user.bankUahRnokpp ?? '—'} mono />
+            {user.bankUahBankName && <Row label="Bank" value={user.bankUahBankName} />}
           </>
         )}
       </CardContent>
@@ -2756,14 +2761,14 @@ import { Button } from '@/components/ui/button'
 import { useUserAuditLog } from '@/hooks/use-user-profile'
 
 const ACTION_LABELS: Record<string, string> = {
-  profile_edit: 'Профиль изменён',
-  requisites_edit: 'Реквизиты изменены',
-  role_change: 'Роль изменена',
-  salary_change: 'Зарплата изменена',
-  note_set: 'Заметка обновлена',
-  team_membership: 'Изменение команды',
-  project_reassignment: 'Переназначение проекта',
-  user_archived: 'Пользователь архивирован',
+  profile_edit: 'Profile changed',
+  requisites_edit: 'Requisites changed',
+  role_change: 'Role changed',
+  salary_change: 'Salary changed',
+  note_set: 'Note updated',
+  team_membership: 'Team change',
+  project_reassignment: 'Project reassignment',
+  user_archived: 'User archived',
 }
 
 export function AuditLogTab({ userId }: { userId: string }) {
@@ -2780,7 +2785,7 @@ export function AuditLogTab({ userId }: { userId: string }) {
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          История пуста
+          History is empty
         </CardContent>
       </Card>
     )
@@ -2804,7 +2809,7 @@ export function AuditLogTab({ userId }: { userId: string }) {
         ))}
         <div className="flex items-center justify-between pt-2">
           <span className="text-xs text-muted-foreground">
-            Стр. {page} из {pages}
+            Page {page} of {pages}
           </span>
           <div className="flex gap-2">
             <Button
@@ -2813,7 +2818,7 @@ export function AuditLogTab({ userId }: { userId: string }) {
               disabled={page <= 1}
               onClick={() => setPage((p) => p - 1)}
             >
-              Назад
+              Back
             </Button>
             <Button
               size="sm"
@@ -2821,7 +2826,7 @@ export function AuditLogTab({ userId }: { userId: string }) {
               disabled={page >= pages}
               onClick={() => setPage((p) => p + 1)}
             >
-              Вперёд
+              Forward
             </Button>
           </div>
         </div>
@@ -2965,7 +2970,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
   return (
     <div className="space-y-4">
       <div className="space-y-1.5">
-        <Label htmlFor="displayName">Имя</Label>
+        <Label htmlFor="displayName">Name</Label>
         <Input
           id="displayName"
           value={displayName}
@@ -2988,7 +2993,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
         />
       </div>
       <div className="space-y-1.5">
-        <Label htmlFor="phone">Телефон</Label>
+        <Label htmlFor="phone">Phone</Label>
         <Input
           id="phone"
           value={phone}
@@ -2999,7 +3004,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
         />
       </div>
       <div className="space-y-1.5">
-        <Label>Технологии</Label>
+        <Label>Technologies</Label>
         <div className="flex flex-wrap gap-2 mb-2">
           {techStack.map((t) => (
             <Badge key={t} variant="outline" className="gap-1">
@@ -3011,7 +3016,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           ))}
         </div>
         <Input
-          placeholder="Добавить технологию (Enter)"
+          placeholder="Add a technology (Enter)"
           value={techInput}
           onChange={(e) => setTechInput(e.target.value)}
           onKeyDown={(e) => {
@@ -3086,14 +3091,14 @@ import { ArchiveUserDialog } from './ArchiveUserDialog'
 type OpenDialog = ActionKey | null
 
 const ACTION_LABELS: Record<ActionKey, string> = {
-  'edit-profile': '✏️ Редактировать данные',
-  'change-role': '🎭 Изменить роль',
-  'change-salary': '💰 Изменить зарплату',
-  'change-requisites': '🏦 Изменить реквизиты',
-  'manage-team': '👥 Управление командой',
-  'reassign-project': '📂 Переназначить проект',
-  'set-note': '📝 Заметка админа',
-  archive: '🗑️ Архивировать',
+  'edit-profile': '✏️ Edit data',
+  'change-role': '🎭 Change role',
+  'change-salary': '💰 Change salary',
+  'change-requisites': '🏦 Change requisites',
+  'manage-team': '👥 Team management',
+  'reassign-project': '📂 Reassign project',
+  'set-note': '📝 Admin note',
+  archive: '🗑️ Archive',
 }
 
 export function AdminActionsMenu({
@@ -3113,7 +3118,7 @@ export function AdminActionsMenu({
         <DropdownMenuTrigger asChild>
           <Button variant="default" size="sm" className="gap-1">
             <Zap className="h-4 w-4" />
-            Действия
+            Actions
             <ChevronDown className="h-4 w-4" />
           </Button>
         </DropdownMenuTrigger>
@@ -3190,11 +3195,11 @@ export function EditProfileDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Редактировать профиль</DialogTitle>
+          <DialogTitle>Edit profile</DialogTitle>
         </DialogHeader>
         <div className="space-y-3">
           <div>
-            <Label>Имя</Label>
+            <Label>Name</Label>
             <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} />
           </div>
           <div>
@@ -3202,13 +3207,13 @@ export function EditProfileDialog({
             <Input value={telegram} onChange={(e) => setTelegram(e.target.value)} />
           </div>
           <div>
-            <Label>Телефон</Label>
+            <Label>Phone</Label>
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            Cancel
           </Button>
           <Button
             onClick={async () => {
@@ -3220,7 +3225,7 @@ export function EditProfileDialog({
               onClose()
             }}
           >
-            Сохранить
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3268,10 +3273,10 @@ export function ChangeRoleDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Изменить роль</DialogTitle>
+          <DialogTitle>Change role</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          <Label>Роль</Label>
+          <Label>Role</Label>
           <Select value={role} onValueChange={setRole}>
             <SelectTrigger>
               <SelectValue />
@@ -3287,7 +3292,7 @@ export function ChangeRoleDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            Cancel
           </Button>
           <Button
             onClick={async () => {
@@ -3295,7 +3300,7 @@ export function ChangeRoleDialog({
               onClose()
             }}
           >
-            Сохранить
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3339,22 +3344,22 @@ export function ChangeSalaryDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Изменить зарплату</DialogTitle>
+          <DialogTitle>Change salary</DialogTitle>
         </DialogHeader>
         {isShareRole ? (
           <div>
-            <Label>Доля (%)</Label>
+            <Label>Share (%)</Label>
             <Input type="number" value={share} onChange={(e) => setShare(e.target.value)} />
           </div>
         ) : (
           <div>
-            <Label>Месячная ставка (USD)</Label>
+            <Label>Monthly rate (USD)</Label>
             <Input type="number" value={salary} onChange={(e) => setSalary(e.target.value)} />
           </div>
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            Cancel
           </Button>
           <Button
             onClick={async () => {
@@ -3365,7 +3370,7 @@ export function ChangeSalaryDialog({
               onClose()
             }}
           >
-            Сохранить
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3401,7 +3406,7 @@ export function ChangeRequisitesDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Изменить реквизиты</DialogTitle>
+          <DialogTitle>Change requisites</DialogTitle>
         </DialogHeader>
         {/* form fields here — same shape as RequisitesEditForm */}
       </DialogContent>
@@ -3443,10 +3448,10 @@ export function AdminNoteDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Заметка админа</DialogTitle>
+          <DialogTitle>Admin note</DialogTitle>
         </DialogHeader>
         <div>
-          <Label>Заметка (макс. 2000 символов)</Label>
+          <Label>Note (max. 2000 characters)</Label>
           <Textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
@@ -3456,7 +3461,7 @@ export function AdminNoteDialog({
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            Cancel
           </Button>
           <Button
             onClick={async () => {
@@ -3464,7 +3469,7 @@ export function AdminNoteDialog({
               onClose()
             }}
           >
-            Сохранить
+            Save
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3507,20 +3512,20 @@ export function ArchiveUserDialog({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
+          <DialogTitle className="text-destructive">Archive user</DialogTitle>
         </DialogHeader>
         <div className="space-y-3 text-sm">
           <p>
-            Пользователь будет перемещён в архив. Связанные проекты, выплаты и история остаются.
+            The user will be moved to the archive. Related projects, payouts and history remain.
           </p>
           <p>
-            Для подтверждения введите имя: <strong>{userName}</strong>
+            To confirm, enter the name: <strong>{userName}</strong>
           </p>
           <Input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={userName} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
-            Отмена
+            Cancel
           </Button>
           <Button
             variant="destructive"
@@ -3530,7 +3535,7 @@ export function ArchiveUserDialog({
               onClose()
             }}
           >
-            Архивировать
+            Archive
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -3553,13 +3558,13 @@ export function ManageTeamDialog({ userId, onClose }: { userId: string; onClose:
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Управление командой</DialogTitle>
+          <DialogTitle>Team management</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Перейдите в раздел «Команда» для управления составом.
+          Go to the "Team" section to manage the composition.
         </p>
         <Button asChild>
-          <a href={`/crm/team`}>Открыть Команду</a>
+          <a href={`/crm/team`}>Open Team</a>
         </Button>
       </DialogContent>
     </Dialog>
@@ -3729,7 +3734,7 @@ test('self-edit on /crm/profile — debounced autosave + toast', async ({ page }
   await tg.fill('@new_handle_e2e')
   // Wait > debounce 800ms
   await page.waitForTimeout(1000)
-  await expect(page.getByText('Сохранено')).toBeVisible()
+  await expect(page.getByText('Saved')).toBeVisible()
 
   // Reload and verify persistence
   await page.reload()
@@ -3769,17 +3774,17 @@ test('admin can change role and entry appears in audit log', async ({ page }) =>
   const juniorId = await getSeedUserId('junior@example.com')
 
   await page.goto(`/crm/users/${juniorId}`)
-  await page.getByRole('button', { name: /Действия/ }).click()
-  await page.getByText('🎭 Изменить роль').click()
+  await page.getByRole('button', { name: /Actions/ }).click()
+  await page.getByText('🎭 Change role').click()
 
   await page.getByRole('combobox').click()
   await page.getByRole('option', { name: 'HR' }).click()
-  await page.getByRole('button', { name: 'Сохранить' }).click()
-  await expect(page.getByText('Роль изменена')).toBeVisible()
+  await page.getByRole('button', { name: 'Save' }).click()
+  await expect(page.getByText('Role changed')).toBeVisible()
 
   // Verify audit tab shows entry
   await page.goto(`/crm/users/${juniorId}?tab=audit`)
-  await expect(page.getByText('Роль изменена')).toBeVisible()
+  await expect(page.getByText('Role changed')).toBeVisible()
 })
 ```
 
@@ -3810,13 +3815,13 @@ test('HR viewing SENIOR — no Finance, Requisites, Audit tabs', async ({ page }
   await loginAs(page, 'hr@example.com')
   const seniorId = await getSeedUserId('senior@example.com')
   await page.goto(`/crm/users/${seniorId}`)
-  await expect(page.getByRole('tab', { name: 'Обзор' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Проекты' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Команда' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Собеседования' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Финансы' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'Реквизиты' })).toHaveCount(0)
-  await expect(page.getByRole('tab', { name: 'История' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Projects' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Team' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Interviews' })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Finance' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'Requisites' })).toHaveCount(0)
+  await expect(page.getByRole('tab', { name: 'History' })).toHaveCount(0)
 })
 ```
 
@@ -3824,7 +3829,7 @@ test('HR viewing SENIOR — no Finance, Requisites, Audit tabs', async ({ page }
 
 ```bash
 git add apps/e2e/tests/rbac-hr-on-senior.spec.ts
-git commit -m "test(e2e): RBAC — HR on SENIOR sees only Обзор/Проекты/Команда/Собеседования"
+git commit -m "test(e2e): RBAC — HR on SENIOR sees only Overview/Projects/Team/Interviews"
 ```
 
 ---
@@ -3877,15 +3882,15 @@ test('requisites change — modal warning appears, confirm saves', async ({ page
   await loginAs(page, 'junior@example.com')
   await page.goto('/crm/profile?tab=requisites')
 
-  await page.getByLabel('Банк UAH (ФОП)').check()
-  await page.getByLabel('ФИО получателя').fill('Тест Тестенко')
+  await page.getByLabel('Bank UAH (FOP)').check()
+  await page.getByLabel('Recipient full name').fill('Test Testenko')
   await page.getByLabel(/IBAN/).fill('UA213223130000026007233566001')
-  await page.getByLabel(/РНОКПП/).fill('1234567890')
+  await page.getByLabel(/RNOKPP/).fill('1234567890')
 
-  await page.getByRole('button', { name: /Сохранить реквизиты/ }).click()
-  await expect(page.getByText(/На базе этих данных/)).toBeVisible()
-  await page.getByRole('button', { name: 'Подтвердить' }).click()
-  await expect(page.getByText('Реквизиты обновлены')).toBeVisible()
+  await page.getByRole('button', { name: /Save requisites/ }).click()
+  await expect(page.getByText(/The following payouts will be based/)).toBeVisible()
+  await page.getByRole('button', { name: 'Confirm' }).click()
+  await expect(page.getByText('Requisites updated')).toBeVisible()
 })
 ```
 
@@ -3938,9 +3943,9 @@ Expected: PASS for the 5 new specs (plus existing).
 
 Use Playwright MCP to:
 
-1. Login as ADMIN → navigate to `/crm/users/<junior-id>` → see 6 tabs + Действия menu with 8 items.
+1. Login as ADMIN → navigate to `/crm/users/<junior-id>` → see 6 tabs + Actions menu with 8 items.
 2. Switch tab to `?tab=requisites` → see USDT field. To `?tab=audit` → see history list.
-3. Login as HR → same junior → see no Финансы/Реквизиты/История.
+3. Login as HR → same junior → see no Finance/Requisites/History.
 4. Login as JUNIOR → another junior → see only header.
 
 - [ ] **Step 6: Final commit (cleanup)**
