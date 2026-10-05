@@ -34,7 +34,6 @@ import { type ExchangeRates, fmtUsd } from '@/routes/_authenticated/finance/cons
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
-import { getApiErrorMessage } from '@/lib/axios-utils'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
@@ -64,13 +63,13 @@ import { PendingShareApprovalBanner, ProjectHeaderApprovalNote } from './Project
 import { ProjectEffectiveTeamCard, MemberRow } from './ProjectTeamCards'
 import { ProjectTransactions } from './ProjectTransactions'
 import { useProjectPermissions } from './use-project-permissions'
+import { ProjectDropDialogs } from './ProjectDropDialogs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
 import { type UnarchiveCascadeEntity } from '@/hooks/use-archive'
 import { ProjectUnarchiveHeaderButton, ProjectCascadeUnarchiveModal } from './ProjectUnarchive'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
-import { toast } from 'sonner'
 
 /**
  * Defensive coercion: if a project row has a `domain` value that is not
@@ -267,22 +266,6 @@ function ProjectDetailPage() {
         next.delete(userId)
         return next
       })
-    },
-  })
-
-  // Drop mutation: PATCH /projects/:id { dropId } for attach (string) and detach (null)
-  const dropMutation = useMutation({
-    mutationFn: (dropId: string | null) =>
-      api.patch<ProjectDto>(`/projects/${projectId}`, { dropId }).then((r) => r.data),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId] })
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      void qc.invalidateQueries({ queryKey: ['users'] })
-      setDropPickerOpen(false)
-      setDetachDropConfirmOpen(false)
-    },
-    onError: (err) => {
-      toast.error(getApiErrorMessage(err, t`Не вдалося змінити дропа`))
     },
   })
 
@@ -1087,98 +1070,15 @@ function ProjectDetailPage() {
             </CrmDialogBody>
           </CrmDialogContent>
         </Dialog>
-        {/* ── Drop picker dialog (attach drop) ── */}
-        <Dialog open={dropPickerOpen} onOpenChange={(v) => !v && setDropPickerOpen(false)}>
-          <CrmDialogContent maxWidth="max-w-sm" data-testid="attach-drop-dialog">
-            <CrmDialogHeader>
-              <DialogTitle>
-                <Trans>Прив’язати дропа</Trans>
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                <Trans>Вибір дропа для проєкту</Trans>
-              </DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody>
-              <ul className="max-h-72 space-y-1.5 overflow-y-auto">
-                {dropCandidates.length === 0 && (
-                  <p className="py-2 text-sm text-muted-foreground">
-                    <Trans>Немає доступних дропів</Trans>
-                  </p>
-                )}
-                {dropCandidates.map((u) => (
-                  <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
-                    <Avatar className="h-7 w-7 shrink-0">
-                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                      <AvatarFallback className="text-[10px]">
-                        {getInitialsBySpaceSplit(u.displayName)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{u.displayName}</p>
-                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                    </div>
-                    <Badge
-                      variant="outline"
-                      className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
-                    >
-                      {i18n._(ROLE_LABEL_MESSAGES.DROP)}
-                    </Badge>
-                    <Button
-                      size="sm"
-                      className="h-7 min-h-[44px] min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0"
-                      disabled={dropMutation.isPending}
-                      onClick={() => dropMutation.mutate(u.id)}
-                      aria-label={t`Призначити ${u.displayName} дропом`}
-                      data-testid={`assign-drop-btn-${u.id}`}
-                    >
-                      {dropMutation.isPending ? t`Призначаємо…` : t`Призначити`}
-                    </Button>
-                  </li>
-                ))}
-              </ul>
-            </CrmDialogBody>
-          </CrmDialogContent>
-        </Dialog>
-        {/* ── Detach drop confirm dialog ── */}
-        <Dialog
-          open={detachDropConfirmOpen}
-          onOpenChange={(v) => !v && setDetachDropConfirmOpen(false)}
-        >
-          <CrmDialogContent maxWidth="sm:max-w-sm" data-testid="detach-drop-dialog">
-            <CrmDialogHeader>
-              <DialogTitle>
-                <Trans>Відв’язати дропа?</Trans>
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                <Trans>Підтвердження відв’язання дропа від проєкту</Trans>
-              </DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody className="pb-2">
-              <p className="text-sm text-muted-foreground">
-                <Trans>
-                  <span className="font-medium text-foreground">
-                    {project.effectiveTeam?.drop?.displayName ?? i18n._(ROLE_LABEL_MESSAGES.DROP)}
-                  </span>
-                  : доступ до проєкту буде припинено. Гроші за проєктом більше не йтимуть через ці
-                  реквізити.
-                </Trans>
-              </p>
-            </CrmDialogBody>
-            <CrmDialogFooter>
-              <Button variant="outline" onClick={() => setDetachDropConfirmOpen(false)}>
-                <Trans>Скасувати</Trans>
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() => dropMutation.mutate(null)}
-                disabled={dropMutation.isPending}
-                data-testid="detach-drop-confirm-btn"
-              >
-                <Trans>Відв’язати</Trans>
-              </Button>
-            </CrmDialogFooter>
-          </CrmDialogContent>
-        </Dialog>
+        <ProjectDropDialogs
+          projectId={projectId}
+          currentDropDisplayName={project.effectiveTeam?.drop?.displayName}
+          dropCandidates={dropCandidates}
+          dropPickerOpen={dropPickerOpen}
+          onCloseDropPicker={() => setDropPickerOpen(false)}
+          detachDropConfirmOpen={detachDropConfirmOpen}
+          onCloseDetachDropConfirm={() => setDetachDropConfirmOpen(false)}
+        />
         {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
         {archiveDialogOpen && (
           <ArchiveConfirmDialog

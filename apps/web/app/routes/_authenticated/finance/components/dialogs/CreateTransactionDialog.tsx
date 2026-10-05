@@ -110,6 +110,11 @@ type UserOption = { id: string; displayName: string; role: string }
 type ExchangeRate = { usdUah: string; usdtUah: string; eurUah: string; date: string }
 
 type Currency = 'USDT' | 'USD' | 'EUR' | 'UAH'
+type SalaryPrefill = {
+  receiverId: string
+  salaryMonth: string
+  currency: Currency
+}
 
 const TYPE_ICONS: Record<string, React.ReactNode> = {
   ADMIN_INCOME: <TrendingUp className="h-4 w-4" />,
@@ -152,6 +157,12 @@ function getRate(currency: Currency, rates: ExchangeRate | undefined): number | 
   if (currency === 'UAH') return 1 / parseFloat(rates.usdUah)
   if (currency === 'USD') return 1
   return null
+}
+
+function defaultSalaryMonth(): string {
+  const prev = new Date()
+  prev.setMonth(prev.getMonth() - 1)
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
 }
 
 // task-admin-income-unified (AC5/AC6). Pre-submit preview of the obligation(s)
@@ -244,7 +255,15 @@ export function computeObligationPreviews(
   return previews
 }
 
-export function CreateTransactionDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function CreateTransactionDialog({
+  open,
+  onClose,
+  salaryPrefill,
+}: {
+  open: boolean
+  onClose: () => void
+  salaryPrefill?: SalaryPrefill
+}) {
   const { user } = useAuth()
   const qc = useQueryClient()
   const { t, i18n } = useLingui()
@@ -306,11 +325,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [fundingSource, setFundingSource] = useState<FundingSourceUI>(
     defaultFundingSource(availableTypes[0] ?? 'SENIOR_INCOME'),
   )
-  const [salaryMonth, setSalaryMonth] = useState(() => {
-    const prev = new Date()
-    prev.setMonth(prev.getMonth() - 1)
-    return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`
-  })
+  const [salaryMonth, setSalaryMonth] = useState(defaultSalaryMonth)
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [notes, setNotes] = useState('')
   // MED-2 (BIZ-19): one UUID per dialog open — generated at mount, refreshed on
@@ -340,6 +355,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [dropIncomeIdempotencyKey, setDropIncomeIdempotencyKey] = useState(() =>
     crypto.randomUUID(),
   )
+  const [salaryIdempotencyKey, setSalaryIdempotencyKey] = useState(() => crypto.randomUUID())
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -349,6 +365,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // amount, …) inline next to the field, instead of only the first failure in
   // a single bottom banner.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+
+  useEffect(() => {
+    if (!open || !salaryPrefill) return
+    setType('SALARY')
+    setReceiverId(salaryPrefill.receiverId)
+    setSalaryMonth(salaryPrefill.salaryMonth)
+    setCurrency(salaryPrefill.currency)
+    setAmount('')
+    setFieldErrors({})
+  }, [open, salaryPrefill?.receiverId, salaryPrefill?.salaryMonth, salaryPrefill?.currency])
 
   // Drop a single field's error as soon as the user edits it — keeps the
   // inline hint from lingering after the problem is fixed.
@@ -718,6 +744,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           amount: amt,
           currency,
           salaryMonth,
+          idempotencyKey: salaryIdempotencyKey,
           notes: notes || null,
           txDate: txDate || null,
         })
@@ -799,6 +826,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setAmount('')
     setCurrency('USD')
     setCategory('')
+    setSalaryMonth(defaultSalaryMonth())
     setReceipt(emptyReceiptState())
     setNotes('')
     setFieldErrors({})
@@ -817,6 +845,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     // new intent).
     setSeniorIncomeIdempotencyKey(crypto.randomUUID())
     setDropIncomeIdempotencyKey(crypto.randomUUID())
+    setSalaryIdempotencyKey(crypto.randomUUID())
   }
 
   // EXPENSE and ADMIN_INCOME's ACCOUNTANT branch render the SAME two-button
@@ -971,7 +1000,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       <CrmDialogContent maxWidth="sm:max-w-lg" data-testid="create-transaction-dialog">
         <CrmDialogHeader>
           <DialogTitle className="text-base" data-testid="create-transaction-dialog-title">
-            <Trans>Нова транзакція</Trans>
+            {salaryPrefill ? (
+              <Trans>Додати частину зарплати</Trans>
+            ) : (
+              <Trans>Нова транзакція</Trans>
+            )}
           </DialogTitle>
           <DialogDescription className="sr-only">
             <Trans>Створення транзакції</Trans>

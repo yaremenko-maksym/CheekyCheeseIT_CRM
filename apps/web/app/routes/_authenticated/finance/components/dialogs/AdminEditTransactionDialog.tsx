@@ -357,6 +357,9 @@ export function AdminEditTransactionDialog({
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
       void qc.invalidateQueries({ queryKey: ['transaction', tx?.id] })
+      void qc.invalidateQueries({ queryKey: ['company-account'] })
+      void qc.invalidateQueries({ queryKey: ['invoices'] })
+      void qc.invalidateQueries({ queryKey: ['documents'] })
       onClose()
     },
   })

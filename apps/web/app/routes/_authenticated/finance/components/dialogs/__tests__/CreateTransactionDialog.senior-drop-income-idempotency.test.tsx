@@ -62,6 +62,7 @@ vi.mock('@/lib/telemetry', () => ({
 
 const createSeniorIncomeMock = vi.fn().mockResolvedValue({})
 const createDropIncomeMock = vi.fn().mockResolvedValue({})
+const createSalaryMock = vi.fn().mockResolvedValue({})
 vi.mock('../../../api', () => ({
   financeApi: {
     declareUsdtProjectIncome: vi.fn().mockResolvedValue({}),
@@ -69,7 +70,7 @@ vi.mock('../../../api', () => ({
     createDropIncome: (...args: unknown[]) => createDropIncomeMock(...args),
     createAdminIncome: vi.fn().mockResolvedValue({}),
     createExpense: vi.fn().mockResolvedValue({}),
-    createSalary: vi.fn().mockResolvedValue({}),
+    createSalary: (...args: unknown[]) => createSalaryMock(...args),
     createAdminTransfer: vi.fn().mockResolvedValue({}),
   },
   companyAccountApi: {
@@ -112,6 +113,7 @@ async function fillAndSubmit(projectName: string, amount: string) {
 beforeEach(() => {
   createSeniorIncomeMock.mockClear()
   createDropIncomeMock.mockClear()
+  createSalaryMock.mockClear()
 })
 
 describe('CreateTransactionDialog — SENIOR_INCOME idempotencyKey (backlog 73/A-3)', () => {
@@ -137,5 +139,73 @@ describe('CreateTransactionDialog — DROP_INCOME idempotencyKey (backlog 73/A-3
     const [payload] = createDropIncomeMock.mock.calls[0] as [{ idempotencyKey?: string }]
     expect(payload.idempotencyKey).toBeTruthy()
     expect(payload.idempotencyKey).toMatch(UUID_RE)
+  })
+})
+
+describe('CreateTransactionDialog — SALARY idempotencyKey', () => {
+  it('sends one real UUID for the salary intent', async () => {
+    currentRole = 'ADMIN'
+    currentUserId = 'admin-1'
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog
+            open
+            onClose={() => {}}
+            salaryPrefill={{
+              receiverId: '11111111-1111-4111-8111-111111111111',
+              salaryMonth: '2026-10',
+              currency: 'USD',
+            }}
+          />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+
+    await waitFor(() => expect(createSalaryMock).toHaveBeenCalledTimes(1))
+    const [payload] = createSalaryMock.mock.calls[0] as [{ idempotencyKey?: string }]
+    expect(payload.idempotencyKey).toBeTruthy()
+    expect(payload.idempotencyKey).toMatch(UUID_RE)
+  })
+
+  it('reuses the same UUID when the same salary intent is retried after an error', async () => {
+    currentRole = 'ADMIN'
+    currentUserId = 'admin-1'
+    createSalaryMock
+      .mockRejectedValueOnce(new Error('network failed after submit'))
+      .mockResolvedValueOnce({})
+
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <I18nTestProvider>
+        <QueryClientProvider client={qc}>
+          <CreateTransactionDialog
+            open
+            onClose={() => {}}
+            salaryPrefill={{
+              receiverId: '11111111-1111-4111-8111-111111111111',
+              salaryMonth: '2026-10',
+              currency: 'USD',
+            }}
+          />
+        </QueryClientProvider>
+      </I18nTestProvider>,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createSalaryMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createSalaryMock).toHaveBeenCalledTimes(2))
+
+    const [firstPayload] = createSalaryMock.mock.calls[0] as [{ idempotencyKey: string }]
+    const [retryPayload] = createSalaryMock.mock.calls[1] as [{ idempotencyKey: string }]
+    expect(retryPayload.idempotencyKey).toBe(firstPayload.idempotencyKey)
   })
 })

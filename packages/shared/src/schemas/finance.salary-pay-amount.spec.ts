@@ -62,6 +62,7 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
     const createBase = {
       receiverId: '22222222-2222-4222-8222-222222222222',
       salaryMonth: '2026-08',
+      idempotencyKey: '33333333-3333-4333-8333-333333333333',
     }
     expect(
       createSalarySchema.safeParse({ ...createBase, amount: MAX_TRANSACTION_AMOUNT }).success,

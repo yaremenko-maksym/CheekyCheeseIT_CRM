@@ -1385,17 +1385,18 @@ export const transactions = pgTable(
     // additive migration push-friendly and the nullable semantics simple.
     fundingSource: varchar('funding_source', { length: 16 }),
     /**
-     * Client-supplied idempotency key. SHARED across FOUR idempotent flows —
-     * one nullable column, one key namespace, guarded by four DISJOINT partial
+     * Client-supplied idempotency key. SHARED across FIVE idempotent flows —
+     * one nullable column, one key namespace, guarded by five DISJOINT partial
      * unique indexes (one per `type`):
      *   - BIZ-19 (MED-2): DIVIDEND_TO_ADMIN (createDividend).
      *   - PR #367 (MED-1): ADMIN_INCOME    (declareUsdtProjectIncome).
      *   - backlog 73/A-3: SENIOR_INCOME    (createSeniorIncome).
      *   - backlog 73/A-3: DROP_INCOME      (createDropIncome).
+     *   - multipart salary: SALARY          (createSalary).
      * The caller generates a UUID and passes it on the first request; a
      * subsequent request with the same key returns the existing row (no-op).
-     * NULL for all other rows and for legacy callers without a key
-     * (backward-compat: keyless rows get fresh rows, unaffected by the indexes).
+     * NULL for all other rows and historical salary rows created before the
+     * manual-salary idempotency contract became mandatory.
      *
      * ADD COLUMN + INDEX DDL (apply to dev/prod manually before deploy):
      *   ALTER TABLE transactions ADD COLUMN idempotency_key uuid;
@@ -1420,6 +1421,9 @@ export const transactions = pgTable(
     notes: varchar('notes', { length: 1000 }),
     // Calendar month this transaction belongs to (for SALARY/LOCKED logic): YYYY-MM
     salaryMonth: varchar('salary_month', { length: 7 }),
+    // A SALARY row is one concrete salary part. Manual and cron-created parts
+    // may coexist for the same employee/month; NULL identifies legacy rows.
+    salaryOrigin: varchar('salary_origin', { length: 8 }),
     // User-specified transaction date (defaults to creation time if not provided)
     txDate: timestamp('tx_date', { withTimezone: true }),
     createdBy: uuid('created_by')
@@ -1480,15 +1484,9 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_company_deposit_tx_hash')
       .on(t.txHash)
       .where(sql`${t.type} = 'COMPANY_DEPOSIT' AND ${t.txHash} IS NOT NULL`),
-    // Audit 2026-06-27 (LOW #5). Idempotency for the monthly salary cron: a given
-    // (receiver, salaryMonth) can hold at most ONE SALARY row. Without it the cron
-    // had a find-then-insert gap (TOCTOU) — a concurrent / re-run cron could
-    // create duplicate salary reminders for the same employee+month. Partial
-    // (WHERE type='SALARY' AND salaryMonth IS NOT NULL) so non-salary rows and
-    // legacy salary rows with no month are unaffected. The cron now inserts with
-    // `onConflictDoNothing` targeting this index — the DB is the single source of
-    // truth for "already created", closing the gap.
-    uniqueIndex('uq_transactions_salary_receiver_month')
+    // Several salary parts for one employee/month are legitimate. Cron
+    // idempotency is owned by salary_month_initializations below.
+    index('idx_transactions_salary_receiver_month')
       .on(t.receiverId, t.salaryMonth)
       .where(sql`${t.type} = 'SALARY' AND ${t.salaryMonth} IS NOT NULL`),
     // BIZ-19: idempotency key for DIVIDEND_TO_ADMIN. Client supplies a UUID;
@@ -1530,6 +1528,21 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_drop_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'DROP_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
+    // Multipart salary: an idempotency key names one manual salary-part intent.
+    // Two equal-looking parts with DIFFERENT keys remain legal; retrying the
+    // SAME intent (including a concurrent retry) cannot create a second row.
+    // Historical keyless rows remain valid; new MANUAL rows are covered by
+    // the CHECK below and must carry a key.
+    uniqueIndex('uq_transactions_salary_idempotency_key')
+      .on(t.idempotencyKey)
+      .where(sql`${t.type} = 'SALARY' AND ${t.idempotencyKey} IS NOT NULL`),
+    // New manual salary parts must always carry an idempotency key. Legacy
+    // rows remain valid because they have salary_origin NULL; cron-owned rows
+    // use CRON and intentionally do not need a client intent key.
+    check(
+      'ck_transactions_manual_salary_idempotency_key',
+      sql`${t.type} <> 'SALARY' OR ${t.salaryOrigin} IS DISTINCT FROM 'MANUAL' OR ${t.idempotencyKey} IS NOT NULL`,
+    ),
     // security-review round 2 (PR #517, MED-F) — structural race guard for the
     // admin-income-drop-backfill apply script. See the doc comment on
     // `sourceIncomeTransactionId` above for the full reasoning: at most one
@@ -1566,6 +1579,28 @@ export const transactions = pgTable(
     //   ALTER TABLE transactions ADD CONSTRAINT ck_transactions_sender_ne_receiver
     //     CHECK (sender_id <> receiver_id);
     check('ck_transactions_sender_ne_receiver', sql`${t.senderId} <> ${t.receiverId}`),
+  ],
+)
+
+// Monthly cron idempotency must not constrain the business ledger: operators
+// may create several salary parts for one employee/month. A durable marker
+// claims only the automatic component and survives salary edits/soft-deletes.
+export const salaryMonthInitializations = pgTable(
+  'salary_month_initializations',
+  {
+    // Drizzle infers the same physical name (id) from this property key.
+    // Avoid an explicit redundant literal that mutation testing cannot distinguish
+    // from the empty-name form because Drizzle normalizes both to the property key.
+    id: uuid().defaultRandom().primaryKey(),
+    receiverId: uuid('receiver_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    salaryMonth: varchar('salary_month', { length: 7 }).notNull(),
+    initializedBy: uuid('initialized_by').references(() => users.id, { onDelete: 'set null' }),
+    initializedAt: timestamp('initialized_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_salary_month_initializations_receiver_month').on(t.receiverId, t.salaryMonth),
   ],
 )
 
@@ -3455,6 +3490,8 @@ export type Interview = typeof interviews.$inferSelect
 export type NewInterview = typeof interviews.$inferInsert
 export type Transaction = typeof transactions.$inferSelect
 export type NewTransaction = typeof transactions.$inferInsert
+export type SalaryMonthInitialization = typeof salaryMonthInitializations.$inferSelect
+export type NewSalaryMonthInitialization = typeof salaryMonthInitializations.$inferInsert
 export type JobSource = typeof jobSources.$inferSelect
 export type NewJobSource = typeof jobSources.$inferInsert
 export type JobPosting = typeof jobPostings.$inferSelect

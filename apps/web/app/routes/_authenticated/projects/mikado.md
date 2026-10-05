@@ -33,14 +33,21 @@
   `isAdmin`, `canManage`, `canOpenEdit`, `canRemoveMembers`, `canSeeProjectFinance`, `canEditOverride`,
   `canAccessLegend`, `canManageCredentials`; `isSubject` внутренний; characterization:
   `__tests__/use-project-permissions.test.ts`, роли x состояния проекта)
-- [todo] хук `useProjectDropMutations`
+- [done] хук `useProjectDropMutations(projectId, onSuccessClose)` -> `use-project-drop-mutations.ts` (лист 8;
+  единственная drop-мутация `dropMutation` — PATCH `{ dropId }` для attach/detach; страница передаёт
+  `onSuccessClose`, закрывающий оба диалога; инвалидации/toast перенесены дословно;
+  characterization: `__tests__/use-project-drop-mutations.test.tsx`). `addMemberMutation`/`removeMemberMutation`
+  остались в странице (member-, не drop-мутации; завязаны на локальные `Set`-состояния)
 
 Уровень 2 — нужен дизайн интерфейса (предпосылки: уровень 1):
 
 - [todo] `ProjectEditDialog` (владеет `editForm`; риск: field-scoped RBAC в `onSubmit` — `paymentType`/override
   только при `canEditOverride`) <- `ProjectEditFields`, константы, `useProjectPermissions`
-- [todo] диалоги remove-member / add-member / drop-picker / detach-drop
-  <- `useProjectDropMutations`, `useProjectPermissions`
+- [done] диалоги drop-picker + detach-drop -> `ProjectDropDialogs.tsx` (лист 9; компонент владеет
+  `useProjectDropMutations`, успех закрывает оба диалога через `onCloseDropPicker`/`onCloseDetachDropConfirm`;
+  страница держит open-состояния, `dropCandidates` и гейт `canManageDrop` на кнопках-триггерах;
+  characterization: `__tests__/ProjectDropDialogs.test.tsx`)
+- [todo] диалоги remove-member / add-member <- `useProjectPermissions`
 - [todo] overview-таб (вынос) <- `ProjectInfoRows`, `PendingShareApprovalBanner`, `ProjectEffectiveTeamCard`
 - [todo] hero-хедер <- `ProjectHeaderApprovalNote`, `ProjectUnarchive*`
 

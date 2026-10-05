@@ -83,8 +83,9 @@ const KNOWN_PENDING_ACCRUAL_SITES: Record<string, string> = {
   createDropIncome: 'DROP_INCOME — now refuses an archived drop',
   // Already correct before this task — pinned by salary-archived-receiver.unit.spec.ts.
   createSalary: 'SALARY (manual) — already refuses archived receiver.role check',
-  // Same method name appears TWICE — once per branch (HR/ACCOUNTANT query
-  // filter, JUNIOR loop check). Both already correct; see that file too.
+  // Both receiver populations flow through one shared automatic-salary INSERT
+  // inside this method. The dedicated assertion below also pins that both the
+  // HR/ACCOUNTANT and JUNIOR loops invoke that shared helper.
   createMonthlySalaries:
     'SALARY (cron) — HR/ACCOUNTANT + JUNIOR branches, both already archived-gated',
   // Fixed round 2 (security-review MED-1 + MED-3) — resubmit-UPDATE, not an
@@ -213,17 +214,23 @@ describe('transactions.service.ts — every PENDING-accrual site is accounted fo
     expect([...methodsFound].sort()).toEqual(Object.keys(KNOWN_PENDING_ACCRUAL_SITES).sort())
   })
 
-  it('createMonthlySalaries appears exactly twice (HR/ACCOUNTANT branch + JUNIOR branch)', () => {
+  it('createMonthlySalaries has one shared PENDING insert used by both receiver branches', () => {
     const sites = scanPendingAccrualSites()
-    expect(sites.filter((s) => s.method === 'createMonthlySalaries')).toHaveLength(2)
+    expect(sites.filter((s) => s.method === 'createMonthlySalaries')).toHaveLength(1)
+
+    const source = readFileSync(SRC_FILE, 'utf8')
+    // Keep this structural assertion tolerant of Stryker instrumentation.
+    // Mutation testing can wrap the object argument between `(` and `{`, but
+    // the two call sites themselves must remain present.
+    expect(source.match(/createAutomaticSalary\s*\(/g) ?? []).toHaveLength(2)
   })
 
   it('the scan is not vacuous — it really finds createSeniorIncome', () => {
     const sites = scanPendingAccrualSites()
     expect(sites.some((s) => s.method === 'createSeniorIncome')).toBe(true)
     // Sanity on total count: 2 (income create) + 1 (manual salary) +
-    // 2 (cron) + 2 (income resubmit-update, round 2 / MED-3) = 7.
-    expect(sites).toHaveLength(7)
+    // 1 shared cron insert + 2 (income resubmit-update, round 2 / MED-3) = 6.
+    expect(sites).toHaveLength(6)
   })
 
   // security-review PR #584 round 2 (MED-3): the whole point of the fix —

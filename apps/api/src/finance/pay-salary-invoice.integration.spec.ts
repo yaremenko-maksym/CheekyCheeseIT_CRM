@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -253,7 +254,13 @@ describe.skipIf(!hasDatabaseUrl())(
       }
 
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: salaryAmount, currency: 'USDT', salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: salaryAmount,
+          currency: 'USDT',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
 
@@ -281,7 +288,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await cleanup()
 
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 150, currency: 'USD', salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 150,
+          currency: 'USD',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
 
@@ -314,7 +327,13 @@ describe.skipIf(!hasDatabaseUrl())(
       invoiceAutoCreateSpy.mockRejectedValueOnce(new Error('S3 outage'))
 
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 200, currency: 'USD', salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 200,
+          currency: 'USD',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
