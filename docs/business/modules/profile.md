@@ -1,22 +1,22 @@
-# Модуль: Профиль (Profile)
+# Module: Profile
 
-## Статус: ✅ Частично реализован (PHASE 7 partial)
+## Status: ✅ Partially implemented (PHASE 7 partial)
 
-## Реализовано
+## Implemented
 
-- `/crm/profile` — редактирование телефона и Telegram
-- `/crm/users/:id` — просмотр профиля другого пользователя (read-only)
-- Ссылки на профили из Team/Projects/Interviews карточек
+- `/crm/profile` — editing phone and Telegram
+- `/crm/users/:id` — viewing another user's profile (read-only)
+- Links to profiles from Team/Projects/Interviews cards
 
-## Планируется (PHASE 7 полный)
+## Planned (PHASE 7 full)
 
-- Загрузка фото аватара (S3 + sharp сжатие)
-- **USDT кошелёк** (обязательно JUNIOR + SENIOR для смарт-контракта, Phase 8)
-  - Смена кошелька — с подтверждением (security critical)
-- **Легенда SENIOR** — профиль для клиентской компании (ФИО, дата рождения, адрес, хобби)
-  - Видят: ADMIN, HR своего синьора, JUNIOR своего синьора
+- Avatar photo upload (S3 + sharp compression)
+- **USDT wallet** (mandatory for JUNIOR + SENIOR for the smart contract, Phase 8)
+  - Changing the wallet — with confirmation (security critical)
+- **SENIOR legend** — a profile for the client company (full name, date of birth, address, hobbies)
+  - Visible to: ADMIN, the HR of that senior, the JUNIOR of that senior
 
-## Таблицы БД (текущие)
+## DB tables (current)
 
 ```sql
 users: id, email, displayName, avatar, role, googleId,
@@ -26,13 +26,13 @@ users: id, email, displayName, avatar, role, googleId,
 ## Endpoints
 
 ```
-GET    /api/users        → список (для dropdowns)
-GET    /api/users/:id    → профиль пользователя
-PATCH  /api/users/me     → обновить свой профиль (phone, telegram)
+GET    /api/users        → list (for dropdowns)
+GET    /api/users/:id    → user profile
+PATCH  /api/users/me     → update own profile (phone, telegram)
 ```
 
 ## Edge Cases
 
-- Google avatar обновляется при каждом логине
-- Email и displayName — read-only (из Google OAuth, нельзя менять)
-- walletAddress — при смене требуется подтверждение (риск потери денег)
+- The Google avatar is updated on every login
+- Email and displayName are read-only (from Google OAuth, cannot be changed)
+- walletAddress — changing it requires confirmation (risk of losing money)

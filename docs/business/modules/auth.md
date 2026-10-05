@@ -1,49 +1,49 @@
-# Модуль: Auth (Авторизация)
+# Module: Auth (Authorization)
 
-## Статус: ✅ Реализован (PHASE 1)
+## Status: ✅ Implemented (PHASE 1)
 
-## Бизнес-логика
+## Business logic
 
 ### Google SSO Only
 
-Единственный способ входа — Google OAuth. Доступ только для сотрудников компании: если email не в таблице `users` → 403 + redirect `/login?error=unauthorized`.
+The only way to sign in is Google OAuth. Access is only for company employees: if the email is not in the `users` table → 403 + redirect `/login?error=unauthorized`.
 
-### JWT в HttpOnly Cookie
+### JWT in an HttpOnly Cookie
 
-- Срок: 7 дней
+- Lifetime: 7 days
 - Cookie: HttpOnly, Secure, SameSite=Strict
 - Payload: `SessionUser` (id, email, displayName, avatar, role)
-- Подписан через `@nestjs/jwt`
+- Signed via `@nestjs/jwt`
 
 ### CSRF Protection
 
-- Случайный `state` параметр при OAuth redirect
-- Хранится в signed cookie `oauth_state`, TTL 600 сек
-- Проверяется при callback
+- A random `state` parameter on the OAuth redirect
+- Stored in the signed cookie `oauth_state`, TTL 600 sec
+- Verified on the callback
 
 ## Endpoints
 
 ```
-GET /api/auth/google           → redirect на Google
-GET /api/auth/google/callback  → обработка callback
-GET /api/auth/me               → текущий пользователь (требует JWT)
-POST /api/auth/logout          → очистка cookie
+GET /api/auth/google           → redirect to Google
+GET /api/auth/google/callback  → callback handling
+GET /api/auth/me               → current user (requires JWT)
+POST /api/auth/logout          → clear cookie
 ```
 
-## Роли
+## Roles
 
-Роль задаётся в таблице `users` при создании (seed скрипт / ручное добавление). Доступные: `ADMIN | SENIOR | JUNIOR | HR | ACCOUNTANT`.
+The role is set in the `users` table on creation (seed script / manual addition). Available: `ADMIN | SENIOR | JUNIOR | HR | ACCOUNTANT`.
 
 ## Frontend
 
-- Login: `/login` — кнопка Google SSO, ошибки: `?error=unauthorized|google_error|invalid_state`
-- AuthContext: `useAuth()` хук, `staleTime: 5 мин`
-- Защита: `routes/crm/route.tsx` — redirect на `/login` если не аутентифицирован
-- Скелетон при загрузке auth state
+- Login: `/login` — a Google SSO button, errors: `?error=unauthorized|google_error|invalid_state`
+- AuthContext: the `useAuth()` hook, `staleTime: 5 min`
+- Protection: `routes/crm/route.tsx` — redirect to `/login` if not authenticated
+- A skeleton while the auth state loads
 
 ## Edge Cases
 
-- Email не в БД → redirect `/login?error=unauthorized` (403)
+- Email not in the DB → redirect `/login?error=unauthorized` (403)
 - Google OAuth timeout → `google_error`
-- Expired JWT (7 дней) → redirect на login
-- Недействительный `state` → `invalid_state`
+- Expired JWT (7 days) → redirect to login
+- Invalid `state` → `invalid_state`
