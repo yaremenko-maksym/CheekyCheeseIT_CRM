@@ -1,76 +1,76 @@
 # Task: Payout → company wallet + on-chain validation (Phase 8 v2, backend)
 
-## Модель: opus
+## Model: opus
 
-(Money + on-chain валидация + RBAC + Drizzle/финансовая логика → opus per model-routing.)
+(Money + on-chain validation + RBAC + Drizzle/financial logic → opus per model-routing.)
 
-## Зона: Coder — `apps/api/**`, `packages/shared/**`, `.github/workflows/guard-test-gate.yml` (allowlist). Прогресс — `.claude/tasks/task-payout-company-wallet.progress.md`.
+## Zone: Coder — `apps/api/**`, `packages/shared/**`, `.github/workflows/guard-test-gate.yml` (allowlist). Progress — `.claude/tasks/task-payout-company-wallet.progress.md`.
 
-## Контекст (направление владельца 2026-06-20)
+## Context (owner's direction 2026-06-20)
 
-Приход на счёт компании идёт ЧЕРЕЗ существующий **payout-флоу** («выплата»), НЕ через отдельную страницу (та удалена в #251). Счёт компании = **только USDT**. Синьоры/дропы рассчитываются с компанией криптой.
+Income to the company account goes THROUGH the existing **payout flow** ("выплата"), NOT through a separate page (that one was removed in #251). The company account = **USDT only**. Seniors/drops settle with the company in crypto.
 
-Изучи через codegraph ПЕРЕД правкой (verbatim source, не Read те же файлы):
+Study via codegraph BEFORE editing (verbatim source, do not Read the same files):
 
 - `transactions.service.ts`: `createPayoutRequest` (~1818), `payPayoutRequest` (~1940), `computeDropAggregate`, `mapTx`.
-- `company-account.service.ts` (computeBalance, getRow), `etherscan.service.ts` (`verifyDeposit(txHash, expectedTo, threshold)` — уже проверяет получателя+confirmations+amount).
-- `nbu-currency.service.ts` (курсы USD/EUR/UAH).
+- `company-account.service.ts` (computeBalance, getRow), `etherscan.service.ts` (`verifyDeposit(txHash, expectedTo, threshold)` — already checks recipient+confirmations+amount).
+- `nbu-currency.service.ts` (USD/EUR/UAH rates).
 - `packages/shared/src/schemas/finance.ts`: `payPayoutRequestSchema`, `createPayoutRequestSchema`, `payoutRequestSchema`.
-- `company_account` таблица (walletAddress, confirmationThreshold).
+- `company_account` table (walletAddress, confirmationThreshold).
 
-## Текущее состояние (что меняем)
+## Current state (what we change)
 
-- `createPayoutRequest`: получатель = СТАБ `contractAddress = '0x'+randomBytes(20)`; **mixed-currency guard** (`currencies.size>1 → BadRequest`); payableAmount = company-share (100−seniorSharePercent%) в валюте дохода.
-- `payPayoutRequest`: подтверждение по `txHash`, но **симуляция** (`simulateResult: 'success'|'error'`), НЕ реальная блокчейн-проверка.
+- `createPayoutRequest`: recipient = a STUB `contractAddress = '0x'+randomBytes(20)`; **mixed-currency guard** (`currencies.size>1 → BadRequest`); payableAmount = company-share (100−seniorSharePercent%) in the income currency.
+- `payPayoutRequest`: confirmation by `txHash`, but a **simulation** (`simulateResult: 'success'|'error'`), NOT a real blockchain check.
 
-## Design (реализуй так)
+## Design (implement it this way)
 
-### 1. createPayoutRequest — получатель = кошелёк компании + USDT-конверсия
+### 1. createPayoutRequest — recipient = company wallet + USDT conversion
 
-- `contractAddress` → **адрес кошелька компании** (из `company_account.walletAddress`). Если кошелёк не настроен → BadRequest «Кошелёк компании не настроен». (Поле `contract_address` переиспользуем как recipient — схему НЕ ломаем.)
-- **Снять mixed-currency guard.** Вместо: конвертировать company-share КАЖДОГО дохода в USDT (USDT/USD = 1:1; EUR/UAH через `nbu-currency.service`), суммировать → `payableAmount` в USDT. `incomeAmount` тоже в USDT (или оставить per-source — но payable обязательно USDT). Валюта payout = **USDT**.
-- Зафиксировать курс/расчёт детерминированно (целочисленная арифметика как сейчас, SCALE=1e6).
+- `contractAddress` → **the company wallet address** (from `company_account.walletAddress`). If the wallet is not configured → BadRequest «Кошелёк компании не настроен». (We reuse the `contract_address` field as the recipient — do NOT break the schema.)
+- **Remove the mixed-currency guard.** Instead: convert the company-share of EACH income to USDT (USDT/USD = 1:1; EUR/UAH via `nbu-currency.service`), sum → `payableAmount` in USDT. `incomeAmount` also in USDT (or keep per-source — but payable must be USDT). The payout currency = **USDT**.
+- Fix the rate/calculation deterministically (integer arithmetic as now, SCALE=1e6).
 
-### 2. payPayoutRequest — реальная Etherscan-валидация + зачисление
+### 2. payPayoutRequest — real Etherscan validation + crediting
 
-- Убрать `simulateResult`-симуляцию (или оставить ТОЛЬКО под NODE_ENV!=='production' + явный dev-флаг — не в проде).
-- Реальная проверка: `etherscan.verifyDeposit(txHash, companyWallet, threshold)` → инвариант: `toMatches && confirmed && amount ≈ payableAmount` (допуск ~1% на курс/округление; задокументируй). Не PAID если получатель != кошелёк компании ИЛИ не confirmed ИЛИ сумма мимо допуска.
-- На валид → payout PAID + связанные income-tx → PAID + **зачисление на счёт компании**. Избегай ДВОЙНОГО учёта: расширь `company-account computeBalance` чтобы включать Σ(payout_requests PAID payableAmount) ЛИБО вставляй один служебный credit-row — выбери одно, задокументируй, чтобы баланс не задваивался.
-- Idempotency: повторный confirm того же payout/txHash не задваивает (UNIQUE/проверка).
+- Remove the `simulateResult` simulation (or keep it ONLY under NODE_ENV!=='production' + an explicit dev flag — not in prod).
+- Real check: `etherscan.verifyDeposit(txHash, companyWallet, threshold)` → invariant: `toMatches && confirmed && amount ≈ payableAmount` (tolerance ~1% for rate/rounding; document it). Not PAID if the recipient != the company wallet OR not confirmed OR the amount is outside the tolerance.
+- On valid → payout PAID + linked income-tx → PAID + **crediting to the company account**. Avoid DOUBLE counting: extend `company-account computeBalance` to include Σ(payout_requests PAID payableAmount) OR insert a single service credit-row — choose one, document it, so the balance is not doubled.
+- Idempotency: a repeated confirm of the same payout/txHash does not double (UNIQUE/check).
 
 ### 3. Manual-confirm endpoint (ADMIN/ACCOUNTANT)
 
-- Новый endpoint: ADMIN/ACCOUNTANT вручную подтверждает что выплата оплачена иначе. DTO: `method: 'CASH' | 'ADMIN_USDT' | 'COMPANY_ACCOUNT'` (+ опц. note/txHash).
-- RBAC: только ADMIN/ACCOUNTANT (не SENIOR/DROP). Real backend 403-тест (FM-5).
-- Маркирует payout PAID. Зачисление: если `COMPANY_ACCOUNT` → кредит счёта компании; если `ADMIN_USDT`/`CASH` → НЕ кредитует счёт компании (деньги ушли мимо). Запиши method (audit).
+- New endpoint: ADMIN/ACCOUNTANT manually confirms that the payout was paid some other way. DTO: `method: 'CASH' | 'ADMIN_USDT' | 'COMPANY_ACCOUNT'` (+ optional note/txHash).
+- RBAC: only ADMIN/ACCOUNTANT (not SENIOR/DROP). A real backend 403 test (FM-5).
+- Marks the payout PAID. Crediting: if `COMPANY_ACCOUNT` → credits the company account; if `ADMIN_USDT`/`CASH` → does NOT credit the company account (the money went around it). Record the method (audit).
 
 ### 4. Shared schemas
 
-Обнови `payPayoutRequestSchema` (txHash обязателен для on-chain пути), новый `manualConfirmPayoutSchema` (method enum), `payoutRequestSchema` (currency=USDT, recipient). Все API через `.parse()`.
+Update `payPayoutRequestSchema` (txHash required for the on-chain path), a new `manualConfirmPayoutSchema` (method enum), `payoutRequestSchema` (currency=USDT, recipient). All API via `.parse()`.
 
 ### 5. FM-5 guard-test gate
 
-Если новый контроллер/endpoint в sensitive-дире — попадает под allowlist (`finance`/`transactions` уже покрыты). Проверь.
+If a new controller/endpoint is in a sensitive dir — it falls under the allowlist (`finance`/`transactions` are already covered). Verify.
 
-## Acceptance Criteria (каждый — с тестом, integration против РЕАЛЬНОЙ scratch-DB `crm_qa`, НЕ `crm_db`)
+## Acceptance Criteria (each with a test, integration against the REAL scratch DB `crm_qa`, NOT `crm_db`)
 
-1. createPayoutRequest: recipient = кошелёк компании; кошелёк не настроен → BadRequest. typecheck зелёный.
-2. **USDT-конверсия:** смешанные валюты (USD+USDT, как баг фото-1) → один USDT payout, payableAmount = Σ(company-share в USDT). НЕ BadRequest. (unit + integration).
-3. **On-chain confirm (integration, mock Etherscan):** valid (to=wallet, confirmed, amount-match) → PAID + счёт компании +payable. wrong-recipient / not-confirmed / amount-mismatch → НЕ PAID, баланс не растёт.
-4. **Зачисление без двойного учёта:** баланс компании растёт ровно на payableAmount подтверждённого payout (unit).
-5. **Manual-confirm RBAC (integration 403):** SENIOR/DROP → 403; ADMIN/ACCOUNTANT → PAID. COMPANY_ACCOUNT кредитует, ADMIN_USDT/CASH — нет.
-6. Idempotency: повторный confirm не задваивает баланс.
-7. eslint чистый (mcp**eslint**lint-files); все unit+integration зелёные на crm_qa; полный api typecheck.
+1. createPayoutRequest: recipient = company wallet; wallet not configured → BadRequest. typecheck green.
+2. **USDT conversion:** mixed currencies (USD+USDT, like the photo-1 bug) → one USDT payout, payableAmount = Σ(company-share in USDT). NOT BadRequest. (unit + integration).
+3. **On-chain confirm (integration, mock Etherscan):** valid (to=wallet, confirmed, amount-match) → PAID + company account +payable. wrong-recipient / not-confirmed / amount-mismatch → NOT PAID, balance does not grow.
+4. **Crediting without double counting:** the company balance grows by exactly the payableAmount of the confirmed payout (unit).
+5. **Manual-confirm RBAC (integration 403):** SENIOR/DROP → 403; ADMIN/ACCOUNTANT → PAID. COMPANY_ACCOUNT credits, ADMIN_USDT/CASH — does not.
+6. Idempotency: a repeated confirm does not double the balance.
+7. eslint clean (mcp**eslint**lint-files); all unit+integration green on crm_qa; full api typecheck.
 
-## Тестовая дисциплина
+## Test discipline
 
-Integration RBAC/on-chain против `crm_qa` (guard #233), ассерты 403 + баланс-дельты. Mock Etherscan для valid/invalid веток (НЕ ходить в реальный блокчейн). Real-controller (через `@Inject`, НЕ sentinel-зеркало — урок #227/#251). `DATABASE_URL= git push`.
+Integration RBAC/on-chain against `crm_qa` (guard #233), asserts 403 + balance deltas. Mock Etherscan for the valid/invalid branches (do NOT hit the real blockchain). Real controller (via `@Inject`, NOT a sentinel mirror — lesson #227/#251). `DATABASE_URL= git push`.
 
 ## Worktree (FM-2)
 
-Твой worktree: `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/worktrees/payout-rework`. ВСЕ Edit/Write — ВНУТРИ него (абс. пути с `/.claude/worktrees/payout-rework/`). НЕ писать по main-repo путям. После первого edit `git -C <wt> status`. `pnpm -C <wt> install --frozen-lockfile` если нет node_modules.
+Your worktree: `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/worktrees/payout-rework`. ALL Edit/Write — INSIDE it (abs paths with `/.claude/worktrees/payout-rework/`). Do NOT write to main-repo paths. After the first edit `git -C <wt> status`. `pnpm -C <wt> install --frozen-lockfile` if there is no node_modules.
 
 ## Git
 
-Ветка `feature/payout-company-wallet` (создана). Chunked `wip:`; финальный `ac_verified: 1,2,3,4,5,6,7`. `DATABASE_URL= git push`. PR на main. НЕ мержить.
-ВАЖНО: фронт payout-диалогов (получатель-кошелёк + on-chain статус + manual-confirm кнопка) — ОТДЕЛЬНАЯ задача, НЕ трогай apps/web (кроме exhaustive-stub если вынудит enum).
+Branch `feature/payout-company-wallet` (created). Chunked `wip:`; final `ac_verified: 1,2,3,4,5,6,7`. `DATABASE_URL= git push`. PR to main. Do NOT merge.
+IMPORTANT: the frontend of the payout dialogs (recipient wallet + on-chain status + manual-confirm button) is a SEPARATE task, do NOT touch apps/web (except an exhaustive stub if an enum forces it).

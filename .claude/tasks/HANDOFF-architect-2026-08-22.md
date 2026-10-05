@@ -1,183 +1,183 @@
-# Handoff архитектору — 2026-08-22
+# Handoff to the architect — 2026-08-22
 
-Сессия закрывала баги из `BACKLOG-followups.md` и вела каскад правки оплаченных транзакций.
-За день накопились находки, которые **не чинятся патчем** — им нужен архитектурный ответ.
-Это и есть предмет следующей сессии.
-
----
-
-## Часть 1. Что требует архитектурного решения
-
-### 1.1. Гейты проверки на денежных путях не доказывают того, что мы от них ждём
-
-Четыре независимых факта, каждый безобиден по отдельности, вместе — дыра:
-
-1. `check-mutation-tally.mjs:101-110` краснеет **только** на `Survived > 0`. `NoCoverage` проходит молча.
-2. У Stryker **нет мутатора для операторов внутри шаблонных строк** — логика в SQL-фрагментах
-   структурно недоказуема этим гейтом.
-3. Гейт мутаций **не видит** `*.integration.spec.ts`. На #603 из-за этого весь новый эндпоинт давал
-   «0 killed» при живом интеграционном покрытии; лечится юнит-дублём по
-   `mutation-gate-integration-specs.md`, но заметить проблему можно только прочитав лог —
-   **вердикт гейта при этом зелёный**.
-4. `Integration Tests (Postgres)` **не является обязательной проверкой** на `main` (сверено по API
-   branch protection: обязательны `Typecheck · Lint · Unit Tests` и `E2E Tests`).
-
-Композиция: **на путях, где логика живёт в SQL, зелёный гейт мутаций не означает ничего, а
-единственная проверка, которая там что-то означает, слияние не блокирует.** Прецеденты за день:
-подавления мутантов на #600 и #603 обоснованы «ловится интеграционной спекой» — то есть опираются
-на необязательный чек.
-
-**Вопрос архитектору:** какая конструкция гейтов даёт доказуемость на денежных путях. Варианты,
-которые видно снизу: сделать интеграционные обязательными; краснить гейт на `NoCoverage` без
-`integration-hint`; ввести отдельный обязательный money-path чек. Нужен выбор с обоснованием, а не
-все три сразу.
-
-**Решение владельца ждёт по пункту «сделать `Integration Tests (Postgres)` обязательной проверкой».**
-
-### 1.2. Инвариант, подпирающий чужой код, ничем не зафиксирован
-
-`#603` HIGH-2-residual — самая тонкая находка дня. Резолвер в `@crm/shared` сравнивает валюту с
-литералом `'USDT'`. Это верно сегодня **только потому**, что неизменность валюты держит BIZ-18 —
-гвард, который снимает **задача 3 того же каскада**. Ни один тест этого не поймает: юнит на стороне
-`apps/api` докажет существование литерала, но не зависимость от него другого пакета.
-
-Рядом — асимметрия, которую стоит осмыслить: на стороне **записи** в этой же базе
-(`pending-settlement.service.ts:806`) на аналогичном недостижимом сегодня инварианте отказывают
-**вслух**. Запись выбрала fail-loud, чтение — молчаливое предположение.
-
-**Вопрос архитектору:** нужен механизм, которым «код A зависит от инварианта, который держит код B»
-записывается так, чтобы автор следующей задачи это увидел. Комментарий — не механизм (см. 1.3).
-
-### 1.3. «Держите копии в синхроне» встречается в коде буквально
-
-`autoCreateForPayout` считала сумму инвойса третьей независимой копией правила, и её комментарий
-**прямо просил читателя синхронизировать копии вручную** («signInvoice PAYOUT branch mirrors this
-exactly»). Копии разошлись. Устранено в #600 сведением к одному хелперу.
-
-**Практический вывод для аудита:** формулировка «mirrors X exactly» в комментарии — почти всегда
-маркер третьей копии. Стоит прогнать по репозиторию.
-
-### 1.4. Валюта лежит рядом со значением, но в арифметику не входит
-
-Один и тот же структурный дефект найден за день **дважды в несвязанных местах**:
-
-- **Инвойсы (#600):** акт на 1000 USD против ответа проверки 740 USDT.
-- **Каскад (#603):** доля в USDT минус накопитель, хранящийся в валюте платежа. Обязательство,
-  закрытое в гривне, кладёт ≈2000 в накопитель — и почти любая правка объявляет дропа
-  переплаченным, лишая доплаты.
-
-Форма общая: пара `amount` + `currency` существует, но вычитание/сравнение валюту игнорирует, а
-предупреждение о валюте вешается **поверх** уже посчитанного числа.
-
-**Вопрос архитектору:** стоит ли вводить денежный тип (значение + валюта как одна величина) хотя бы
-в `@crm/shared`, и если да — где граница внедрения. Плюс: нужен sweep остальных денежных путей на
-эту же форму (`codebase-audit`, read-only fan-out).
-
-### 1.5. Акт по смешанному батчу печатает бессмысленное число (продуктово-юридическое)
-
-Батч из строк в разных валютах конвертируется в USDT по курсам НБУ, результат лежит в
-`transactions.amount`. А в PDF идёт **слепая сумма сырых чисел** с валютой произвольной строки.
-У человека на руках юридический документ с числом, которое не значит ничего.
-
-Важно: «просто запретить смешанные валюты» — **не вариант**, такой гвард уже был и его сняли
-**как баг** (`transactions.service.ts:4208-4214`, блокировал легитимные батчи).
-
-**Нужен вердикт владельца** (возможно с юристом): слепая сумма, конвертированный итог или разбивка
-по валютам. Архитектору — сформулировать варианты с последствиями. Бэклог п. 83/84.
+The session closed bugs from `BACKLOG-followups.md` and drove the cascade of editing paid transactions.
+During the day findings accumulated that **cannot be fixed with a patch** — they need an architectural answer.
+That is the subject of the next session.
 
 ---
 
-## Часть 2. Состояние каскада правки оплаченных транзакций
+## Part 1. What requires an architectural decision
 
-ADR: `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` (884 строки, AC1–AC6 +
-декомпозиция на 6 задач). Порядок продиктован зависимостями.
+### 1.1. The verification gates on money paths do not prove what we expect of them
 
-| #   | Задача                                            | Состояние                |
-| --- | ------------------------------------------------- | ------------------------ |
-| 0   | Починить L3 (обе копии суммы)                     | ✅ merged, #598          |
-| 1   | Инфраструктура снимка (`settled_amount` и соседи) | ✅ merged, #599          |
-| 2   | Резолвер + предпросмотр (read-only)               | 🔄 PR #603, фикс-раунд 2 |
-| 3   | **Применение каскада** (ядро, пишет деньги)       | ⬜ не начата             |
-| 4   | Инвойс: аннулирование при правке                  | 🔄 PR #600, раунд 7      |
-| 5   | UI: предпросмотр, `PENDING` с «уже выплачено»     | ⬜ не начата             |
+Four independent facts, each harmless on its own, together a hole:
 
-### Что критично не потерять при задаче 3
+1. `check-mutation-tally.mjs:101-110` goes red **only** on `Survived > 0`. `NoCoverage` passes silently.
+2. Stryker has **no mutator for operators inside template strings** — logic in SQL fragments
+   is structurally unprovable by this gate.
+3. The mutation gate **does not see** `*.integration.spec.ts`. On #603 because of this the whole new endpoint gave
+   "0 killed" with live integration coverage; it is cured by a unit duplicate per
+   `mutation-gate-integration-specs.md`, but the problem can only be noticed by reading the log —
+   **the gate's verdict is green meanwhile**.
+4. `Integration Tests (Postgres)` **is not a required check** on `main` (verified against the API
+   branch protection: `Typecheck · Lint · Unit Tests` and `E2E Tests` are required).
 
-- **Терм леджера — «самое важное в AC3».** Дебет счёта компании держится на `status='PAID'`.
-  Откат `PAID → PENDING_PAYMENT` **убирает дебет**, и баланс вырастает ровно на уже выплаченную
-  сумму — при том, что деньги физически ушли. Завышенный баланс это вход в money-гейт
-  `if (amount > balance) throw`: система разрешит потратить то, чего нет. **Вариант без
-  компенсации в леджере не является приемлемым решением.**
-- **Гвард 2 (`payoutRequestId`) снимать нельзя** — он единственный, кто механически удерживает
-  каскад одноуровневым (доказательство в AC3).
-- **BIZ-18 снимать хирургически — только для `amount`.** Это **одно** условие на
-  `amount || currency || salaryMonth`. Широкое снятие («PAID-строка стала редактируемой») бьёт
-  сразу дважды: откроет живую ветку `data.currency` (зеркальный дефект 1.2/1.4) **и** активирует
-  SR-M-1 — `oldAmount` берётся из строк с литеральным `currency: 'USDT'`, но помечается
-  `sourceCurrency`, так что админ увидит USDT-число с меткой EUR. Оба дефекта сегодня
-  недостижимы и оба ждут ровно одного неверного движения в задаче 3. Бэклог п. 95.
+Composition: **on paths where the logic lives in SQL, a green mutation gate means nothing, and
+the only check that means anything there does not block the merge.** Precedents of the day:
+the mutant suppressions on #600 and #603 are justified by "caught by an integration spec" — that is, they rely
+on a non-required check.
+
+**Question to the architect:** which gate construction gives provability on money paths. Options
+visible from below: make the integration ones required; turn the gate red on `NoCoverage` without
+`integration-hint`; introduce a separate required money-path check. A choice with justification is needed, not
+all three at once.
+
+**The owner's decision is pending on the item "make `Integration Tests (Postgres)` a required check".**
+
+### 1.2. An invariant that props up someone else's code is not recorded anywhere
+
+`#603` HIGH-2-residual — the subtlest finding of the day. The resolver in `@crm/shared` compares the currency with
+the literal `'USDT'`. This is correct today **only because** the immutability of the currency is held by BIZ-18 —
+a guard that **task 3 of the same cascade** removes. No test will catch this: a unit on the `apps/api` side
+will prove the existence of the literal, but not another package's dependence on it.
+
+Next to it is an asymmetry worth thinking about: on the **write** side of the same database
+(`pending-settlement.service.ts:806`) on an analogous invariant that is unreachable today they refuse
+**loudly**. The write side chose fail-loud, the read side a silent assumption.
+
+**Question to the architect:** a mechanism is needed by which "code A depends on an invariant held by code B"
+is recorded so that the author of the next task sees it. A comment is not a mechanism (see 1.3).
+
+### 1.3. "Keep the copies in sync" occurs in the code literally
+
+`autoCreateForPayout` counted the invoice amount as a third independent copy of the rule, and its comment
+**directly asked the reader to sync the copies by hand** ("signInvoice PAYOUT branch mirrors this
+exactly"). The copies diverged. Eliminated in #600 by reducing to a single helper.
+
+**Practical conclusion for the audit:** the wording "mirrors X exactly" in a comment is almost always
+a marker of a third copy. Worth running across the repository.
+
+### 1.4. The currency lies next to the value but does not enter the arithmetic
+
+The same structural defect was found twice during the day **in unrelated places**:
+
+- **Invoices (#600):** an act for 1000 USD against a verification response of 740 USDT.
+- **Cascade (#603):** the USDT share minus an accumulator stored in the payment currency. An obligation
+  closed in hryvnia puts ≈2000 into the accumulator — and almost any edit declares the drop
+  overpaid, depriving them of the top-up.
+
+The shared form: the `amount` + `currency` pair exists, but subtraction/comparison ignores the currency, and
+the currency warning is hung **on top of** the already computed number.
+
+**Question to the architect:** should a money type be introduced (value + currency as one quantity) at least
+in `@crm/shared`, and if so — where is the boundary of adoption. Plus: a sweep of the other money paths is needed for
+the same form (`codebase-audit`, read-only fan-out).
+
+### 1.5. The act for a mixed batch prints a meaningless number (product-legal)
+
+A batch of rows in different currencies is converted to USDT at NBU rates, the result lies in
+`transactions.amount`. Whereas the PDF carries a **blind sum of the raw numbers** with the currency of an arbitrary row.
+A person ends up with a legal document with a number that means nothing.
+
+Important: "just forbid mixed currencies" is **not an option**, such a guard already existed and was removed
+**as a bug** (`transactions.service.ts:4208-4214`, it blocked legitimate batches).
+
+**The owner's verdict is needed** (possibly with a lawyer): the blind sum, the converted total, or a breakdown
+by currency. For the architect — to formulate the options with consequences. Backlog items 83/84.
 
 ---
 
-## Часть 3. Где остановились
+## Part 2. State of the paid-transaction-edit cascade
 
-**Всё, что было в работе, смёржено.** Ветка `main` на момент передачи:
+ADR: `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` (884 lines, AC1–AC6 +
+decomposition into 6 tasks). The order is dictated by dependencies.
 
-| PR   | Что                                                  | Итог                     |
-| ---- | ---------------------------------------------------- | ------------------------ |
-| #598 | Задача 0 — обе копии суммы обязательства             | merged                   |
-| #599 | Задача 1 — инфраструктура снимка                     | merged                   |
-| #601 | Сортировка финансов по видимой дате + прыжок таблицы | merged                   |
-| #603 | **Задача 2 — резолвер + предпросмотр**               | merged (3 раунда ревью)  |
-| #604 | Переполнение стека в замерах рендера                 | merged                   |
-| #600 | **Задача 4 — аннулирование инвойса**                 | merged (7 раундов ревью) |
-| #605 | Гигиена `.claude/tasks/` + этот handoff              | merged                   |
+| #   | Task                                               | State                   |
+| --- | -------------------------------------------------- | ----------------------- |
+| 0   | Fix L3 (both copies of the amount)                 | ✅ merged, #598         |
+| 1   | Snapshot infrastructure (`settled_amount` and co.) | ✅ merged, #599         |
+| 2   | Resolver + preview (read-only)                     | 🔄 PR #603, fix round 2 |
+| 3   | **Applying the cascade** (core, writes money)      | ⬜ not started          |
+| 4   | Invoice: voiding on edit                           | 🔄 PR #600, round 7     |
+| 5   | UI: preview, `PENDING` with "already paid"         | ⬜ not started          |
 
-`#602` (`infra/afk-pipeline-migration`) ведётся **параллельной сессией** — не трогать.
+### What is critical not to lose in task 3
 
-### Следующий шаг — задача 3
-
-Это ядро каскада: первое, что реально пишет деньги. Требует задач 1 и 2 (обе в `main`).
-**Обязателен `security-review`.** Что критично — раздел выше; коротко: терм леджера, гвард 2,
-хирургическое снятие BIZ-18.
-
-Задача 5 (UI предпросмотра) — после 3. Задача 4 закрыта.
-
-## Часть 4. Гигиена, найденная попутно
-
-- **Документация ссылается на 9 task-файлов, которых нет в репозитории** (`.claude/tasks/*.md`
-  в `.gitignore`, но 39 файлов были закоммичены до правила). Для свежего клона ссылки битые.
-  Заодно: 29 закоммиченных `*.progress.md` / `*.blocked.md` — рабочие огрызки июня–августа, вся
-  работа смёржена; они противоречат собственному `.gitignore` проекта. **Снято в PR
-  `chore/tasks-hygiene`**, туда же добавлено исключение для `BACKLOG-*` и `HANDOFF-*`: до этого
-  накопительный бэклог (113 КБ находок) существовал **только локально** и не пережил бы потерю
-  машины.
-- **`WORKING-CONTEXT.md` в корне не обновлялся с 2026-06-03**, при этом заявляет, что отслеживает
-  «active sprint, blockers, queues». Ссылок на него 5. Либо обновлять, либо снять заявку.
-- **Лейбла `security-noted` в репозитории нет**, хотя `.claude/agents/security-reviewer.md`
-  предписывает его ставить. Ревьюеры натыкаются каждый раз.
-- **Ручная чистка `payout_requests` сломает подписание актов** (FK `ON DELETE SET NULL` обнулит
-  `payoutRequestId` → `signInvoice` начнёт падать 409). Сейчас недостижимо, но схема **сама**
-  называет такую чистку реалистичной. Бэклог п. 90.
+- **The ledger term — "the most important thing in AC3".** The company account debit rests on `status='PAID'`.
+  Rolling back `PAID → PENDING_PAYMENT` **removes the debit**, and the balance grows by exactly the already paid
+  amount — while the money has physically gone. An inflated balance is the input to the money gate
+  `if (amount > balance) throw`: the system will allow spending what does not exist. **A variant without
+  compensation in the ledger is not an acceptable solution.**
+- **Guard 2 (`payoutRequestId`) must not be removed** — it is the only one that mechanically keeps the cascade
+  single-level (proof in AC3).
+- **BIZ-18 is removed surgically — only for `amount`.** This is **one** condition on
+  `amount || currency || salaryMonth`. A broad removal ("a PAID row became editable") hits
+  twice at once: it will open the live `data.currency` branch (a mirror defect of 1.2/1.4) **and** activate
+  SR-M-1 — `oldAmount` is taken from rows with the literal `currency: 'USDT'`, but is labeled
+  `sourceCurrency`, so the admin will see a USDT number labeled EUR. Both defects are today
+  unreachable and both wait for exactly one wrong move in task 3. Backlog item 95.
 
 ---
 
-## Часть 5. Что читать перед началом
+## Part 3. Where we stopped
 
-1. `.claude/tasks/BACKLOG-followups.md` — пункты **70–92** написаны этой сессией, это концентрат
-   находок. Особенно 70 (пустота как информация), 86 (несравнимые величины), 87 (слепой
-   property-тест), 91 (инвариант, который снимает следующая задача).
-2. `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` — AC3 и AC4 целиком.
-3. `.claude/tasks/task-invoice-signature-integrity.md` и `task-cascade-resolver-preview.md` —
-   протоколы всех раундов ревью с обоснованиями решений.
+**Everything that was in progress is merged.** Branch `main` at the time of handoff:
 
-## Приложение. Повторяющийся мотив дня
+| PR   | What                                          | Outcome                  |
+| ---- | --------------------------------------------- | ------------------------ |
+| #598 | Task 0 — both copies of the obligation amount | merged                   |
+| #599 | Task 1 — snapshot infrastructure              | merged                   |
+| #601 | Sorting finances by visible date + table jump | merged                   |
+| #603 | **Task 2 — resolver + preview**               | merged (3 review rounds) |
+| #604 | Stack overflow in render measurements         | merged                   |
+| #600 | **Task 4 — invoice voiding**                  | merged (7 review rounds) |
+| #605 | `.claude/tasks/` hygiene + this handoff       | merged                   |
 
-Пять из восьми находок за день — одна форма: **уверенный ответ там, где ответа нет.**
-Заполнение колонки, стирающее признак «неизвестно» (п. 70). Флаг, утверждающий `false` вместо
-«не определялось» (п. 89). Мок, делающий ветку недостижимой, при зелёном гейте (3 случая).
-Property-тест, чей генератор не порождает спорный случай (п. 87). Подстановка чужого числа вместо
-отказа (#600 HIGH-4).
+`#602` (`infra/afk-pipeline-migration`) is run by a **parallel session** — do not touch.
 
-Во всех случаях система была **не неправа, а уверенно неправа** — и именно уверенность мешала
-заметить. Это стоит держать как рабочую гипотезу при следующем аудите.
+### Next step — task 3
+
+This is the core of the cascade: the first thing that actually writes money. Requires tasks 1 and 2 (both in `main`).
+**`security-review` is mandatory.** What is critical — the section above; in short: the ledger term, guard 2,
+the surgical removal of BIZ-18.
+
+Task 5 (preview UI) — after 3. Task 4 is closed.
+
+## Part 4. Hygiene found along the way
+
+- **The documentation references 9 task files that are not in the repository** (`.claude/tasks/*.md`
+  is in `.gitignore`, but 39 files were committed before the rule). For a fresh clone the links are broken.
+  Also: 29 committed `*.progress.md` / `*.blocked.md` — working scraps from June–August, all
+  the work is merged; they contradict the project's own `.gitignore`. **Removed in PR
+  `chore/tasks-hygiene`**, an exception for `BACKLOG-*` and `HANDOFF-*` was added there too: until then
+  the cumulative backlog (113 KB of findings) existed **only locally** and would not have survived the loss of the
+  machine.
+- **`WORKING-CONTEXT.md` in the root has not been updated since 2026-06-03**, while it claims to track
+  "active sprint, blockers, queues". There are 5 references to it. Either update it or withdraw the claim.
+- **The label `security-noted` does not exist in the repository**, although `.claude/agents/security-reviewer.md`
+  prescribes setting it. Reviewers run into this every time.
+- **A manual cleanup of `payout_requests` will break signing of acts** (FK `ON DELETE SET NULL` will null
+  `payoutRequestId` → `signInvoice` will start failing with 409). Currently unreachable, but the schema **itself**
+  calls such a cleanup realistic. Backlog item 90.
+
+---
+
+## Part 5. What to read before starting
+
+1. `.claude/tasks/BACKLOG-followups.md` — items **70–92** were written by this session, this is the concentrate
+   of findings. Especially 70 (emptiness as information), 86 (incomparable quantities), 87 (a blind
+   property test), 91 (an invariant removed by the next task).
+2. `docs/architecture/2026-08-22-paid-transaction-edit-cascade.md` — AC3 and AC4 in full.
+3. `.claude/tasks/task-invoice-signature-integrity.md` and `task-cascade-resolver-preview.md` —
+   the protocols of all review rounds with the justifications of the decisions.
+
+## Appendix. The recurring motif of the day
+
+Five of the eight findings of the day have one form: **a confident answer where there is no answer.**
+A column fill that erases the "unknown" marker (item 70). A flag asserting `false` instead of
+"not determined" (item 89). A mock making a branch unreachable while the gate is green (3 cases).
+A property test whose generator does not produce the disputed case (item 87). Substituting someone else's number instead of
+a refusal (#600 HIGH-4).
+
+In all cases the system was **not wrong, but confidently wrong** — and it was the confidence that prevented
+noticing. This is worth keeping as a working hypothesis in the next audit.

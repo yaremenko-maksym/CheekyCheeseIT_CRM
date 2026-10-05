@@ -1,26 +1,26 @@
 # task-fix-e2e-broken (auto-generated)
 
-## Агент: autotest
+## Agent: autotest
 
-## Приоритет: CRITICAL
+## Priority: CRITICAL
 
-## Ветка: fix/e2e-auto-{{timestamp}}
+## Branch: fix/e2e-auto-{{timestamp}}
 
-## Контекст
+## Context
 
-E2E тесты упали на main. Это задача автоматически создана watchdog-ом.
+E2E tests failed on main. This task was created automatically by the watchdog.
 CI Run: {{run_url}}
 Commit: {{sha}}
 
-## Задача
+## Task
 
-1. Прочитай `apps/e2e/tests/` — все spec файлы
-2. Запусти playwright локально (или изучи логи CI из артефактов)
-3. Найди все упавшие тесты — определи причину (изменился UI или код?)
-4. Исправь тесты — обнови локаторы, адаптируй под текущий UI
-5. НЕ меняй бизнес-логику — только чини тесты
+1. Read `apps/e2e/tests/` — all spec files
+2. Run playwright locally (or study the CI logs from the artifacts)
+3. Find all failed tests — determine the cause (did the UI or the code change?)
+4. Fix the tests — update locators, adapt to the current UI
+5. Do NOT change business logic — only fix the tests
 
 ## Acceptance criteria
 
-- [ ] Все тесты в apps/e2e/tests/ проходят
-- [ ] Ветка запушена, PR создан
+- [ ] All tests in apps/e2e/tests/ pass
+- [ ] Branch pushed, PR created

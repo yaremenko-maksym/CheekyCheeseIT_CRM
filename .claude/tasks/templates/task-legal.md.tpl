@@ -1,40 +1,40 @@
 # task-legal-<slug>
 
-## Агент: legal
+## Agent: legal
 ## Mode: consult | strategic
-## Дата: YYYY-MM-DD
-## Запросил: PM | User direct
+## Date: YYYY-MM-DD
+## Requested by: PM | User direct
 
-## Контекст
+## Context
 
-<Бизнес-фон: какая фича / решение / ситуация. 2-4 строки. Какие artifact'ы уже существуют (PR / brief / документы) и как они связаны.>
+<Business background: which feature / decision / situation. 2-4 lines. Which artifacts already exist (PR / brief / documents) and how they relate.>
 
-## Вопрос
+## Question
 
-<Конкретный legal вопрос. Один основной + опц. 1-2 sub-вопроса. Избегать «расскажи всё про X» — нужен focused inquiry.>
+<A specific legal question. One main one + optionally 1-2 sub-questions. Avoid "tell me everything about X" — a focused inquiry is needed.>
 
-## Релевантные ссылки
+## Relevant links
 
-- `docs/business/<...>` — если есть business документация по теме
-- PR #N (опц.) — если связан с конкретным PR
-- `apps/api/src/<...>` (опц.) — если код-touchpoint
-- Внешние source'ы которые user видел / хочет уточнить
+- `docs/business/<...>` — if there is business documentation on the topic
+- PR #N (optional) — if tied to a specific PR
+- `apps/api/src/<...>` (optional) — if there is a code touchpoint
+- External sources the user has seen / wants clarified
 
-## Что НЕ хочется услышать
+## What we do NOT want to hear
 
-(Опц.) Если есть очевидные «не туда» направления — обозначить чтобы Legal не тратил время:
+(Optional) If there are obvious "wrong direction" threads — name them so Legal does not waste time:
 
-- «Не нужен анализ криминальных рисков — это вне scope»
-- «GDPR не релевантно — у нас все клиенты в UA»
+- "No analysis of criminal risks needed — that is out of scope"
+- "GDPR is not relevant — all our clients are in UA"
 
-## Что важно для решения
+## What matters for the decision
 
-(Опц.) Какие критерии определяют «хороший ответ»:
+(Optional) Which criteria define a "good answer":
 
-- «Решение должно работать без human юриста для рутинных случаев»
-- «Готов потратить до X тыс. грн на compliance setup»
-- «Нужна возможность обновления когда закон меняется»
+- "The solution must work without a human lawyer for routine cases"
+- "Ready to spend up to X thousand UAH on compliance setup"
+- "Need the ability to update when the law changes"
 
 ---
 
-<!-- Legal-агент дописывает ниже секцию `## Ответ юриста` со структурой из docs/agents/legal.md -->
+<!-- The Legal agent appends below a `## Lawyer answer` section with the structure from docs/agents/legal.md -->

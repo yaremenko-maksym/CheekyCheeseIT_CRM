@@ -1,151 +1,151 @@
-# BACKLOG — накопленные follow-up из ревью 2026-07-27
+# BACKLOG — accumulated follow-ups from the 2026-07-27 reviews
 
-Не блокеры. Собраны из вердиктов, чтобы не потерялись между PR. Диспатчить пачкой, когда
-основной батч безопасности уедет.
+Not blockers. Collected from verdicts so they don't get lost between PRs. Dispatch as a batch once
+the main security batch ships.
 
 ---
 
-## АУДИТ 2026-08-16 — проверены все 59 пунктов против `origin/main` (6fa735f1)
+## AUDIT 2026-08-16 — all 59 items checked against `origin/main` (6fa735f1)
 
-Три read-only агента, непересекающиеся срезы, вердикт по каждому пункту с доказательством
-(`файл:строка` или вывод команды). Вердикт без доказательства не принимался.
+Three read-only agents, non-overlapping slices, a verdict on each item with evidence
+(`file:line` or command output). A verdict without evidence was not accepted.
 
-**Итог: 17 уже закрыты · 39 живы · 3 неясны (нужен прод, доступа у агентов нет).**
+**Result: 17 already closed · 39 alive · 3 unclear (need prod, agents have no access).**
 
-**Закрыты нашими же PR, но никто не отметил** — 1, 5, 9, 10, 11, 17, 18, 21, 26, 28, 31, 33,
-34, 35, 42, 48 (шов), 57-б. Перепроверять их не надо.
+**Closed by our own PRs, but nobody marked them** — 1, 5, 9, 10, 11, 17, 18, 21, 26, 28, 31, 33,
+34, 35, 42, 48 (seam), 57-b. No need to re-check them.
 
-**Аудит поправил три записи, включая мои:**
+**The audit corrected three entries, including mine:**
 
-- пункт 5 существует (я утверждал, что его нет);
-- пункт 41 **жив** (я предполагал, что закрыт) — и это дубль пункта 49;
-- пункты 7 и 56 — **один и тот же дефект**, записан дважды с разницей в две недели.
+- item 5 exists (I claimed it did not);
+- item 41 is **alive** (I assumed it was closed) — and it duplicates item 49;
+- items 7 and 56 are **the same defect**, recorded twice two weeks apart.
 
-**Диагнозы, изменённые аудитом:**
+**Diagnoses changed by the audit:**
 
-- **20** — причина не «плавающее поведение харнеса», а детерминированный allowlist во
-  frontmatter: `Skill` отсутствовал у **одиннадцати** агентов (не девяти). Закрыто PR #530.
-- **59** — установлено измерением: гонка **в проверке**, не в уборке. Уборка герметична
-  (`mkdtemp` → `try` → `finally rm`, дочерний процесс мёртв к моменту удаления). Тест считал
-  каталоги во всём системном `/tmp` и видел чужие рендеры: присутствие в 1996 замерах из 1996,
-  изменение счётчика за 2 с в 18% случаев. **Опасение «прод оставляет мусор» снято.**
-- **38** — лекарство не достаёт: тел с лазейкой имени **24 в `apps/e2e` против 3 в `apps/api`**,
-  а `apps/e2e` исключён из мутационного гейта намеренно и навсегда. Закрыто ~3 из 27.
+- **20** — the cause is not "floating harness behavior" but a deterministic allowlist in
+  frontmatter: `Skill` was missing for **eleven** agents (not nine). Closed by PR #530.
+- **59** — established by measurement: a race **in the check**, not in the cleanup. The cleanup is airtight
+  (`mkdtemp` → `try` → `finally rm`, the child process is dead by the time of removal). The test counted
+  directories across the whole system `/tmp` and saw other processes' renders: presence in 1996 of 1996 measurements,
+  counter change within 2 s in 18% of cases. **The concern "prod leaves garbage behind" is withdrawn.**
+- **38** — the remedy falls short: bodies with the name loophole number **24 in `apps/e2e` versus 3 in `apps/api`**,
+  and `apps/e2e` is excluded from the mutation gate deliberately and permanently. About 3 of 27 closed.
 
-**Решения владельца 2026-08-16:**
+**Owner decisions 2026-08-16:**
 
-- **43 (светлой темы нет)** → отложено явно; требование ECC «проверять обе» отменено
-  project-правилом, см. `rules/common/design-gate.md`.
-- **52, 53, 55** (числились «осознанными разменами») → **чинить**, не закрывать.
-- **57-а** (`mcp__postgres__query` смотрел в живую `crm_db`) → переключено на `crm_qa`
-  в `~/.claude.json`, копия конфига рядом. Подхватывается при следующем старте MCP.
+- **43 (no light theme)** → explicitly deferred; the ECC requirement "check both" is overridden
+  by the project rule, see `rules/common/design-gate.md`.
+- **52, 53, 55** (listed as "conscious trade-offs") → **fix**, do not close.
+- **57-a** (`mcp__postgres__query` pointed at the live `crm_db`) → switched to `crm_qa`
+  in `~/.claude.json`, a copy of the config alongside. Picked up on the next MCP start.
 
-## СВЕРКА 2026-08-16/17 — аудит перепроверен против `main` через API GitHub
+## RECONCILIATION 2026-08-16/17 — audit re-checked against `main` via the GitHub API
 
-Проверено 20 пунктов заново, поштучно. Утренний аудит оказался точнее, чем показала первая
-сверка: из семнадцати «закрытых» подтвердились **шестнадцать**. Неверна одна запись — пункт 42.
-Второе расхождение (пункт 28) оказалось **моей** ошибкой чтения, см. поправку ниже.
+20 items re-checked, one by one. The morning audit turned out more accurate than the first
+reconciliation suggested: of seventeen "closed", **sixteen** were confirmed. One entry is wrong — item 42.
+The second discrepancy (item 28) turned out to be **my** misreading, see the correction below.
 
-### Аудит пометил закрытыми, а они ЖИВЫ — из двух подтвердился ОДИН
+### The audit marked these closed, but they are ALIVE — of two, ONE was confirmed
 
-> **ПОПРАВКА 2026-08-17 (моя ошибка, не аудита).** Здесь стояли два пункта, 28 и 42.
-> **28 закрыт, аудит был прав.** Я объявил его живым, потому что нашёл grep'ом строку
-> `wired = {f for f in all_files if f in deploy_yml_content}` в `check-prod-ddl-wiring.py`
-> и принял её за реализацию. Она лежит **внутри модульной докстроки**, описывающей, как
-> страж работал РАНЬШЕ и почему так было плохо. Настоящая реализация разбирает шаги
-> (`parse_steps`, `source_values`) и в комментарии на строке 238 прямо называет
-> «имя упомянуто, значит подведено» тем наивным подходом, которого избегает.
-> Проверено исполнением: devops-агент собрал поддельный `deploy.yml`, где имя файла
-> встречается трижды в прозе и ни разу в реальных шагах, — страж дал FAIL.
+> **CORRECTION 2026-08-17 (my mistake, not the audit's).** Two items stood here, 28 and 42.
+> **28 is closed, the audit was right.** I declared it alive because I grepped out the line
+> `wired = {f for f in all_files if f in deploy_yml_content}` in `check-prod-ddl-wiring.py`
+> and took it for the implementation. It sits **inside the module docstring** describing how the guard
+> worked BEFORE and why that was bad. The real implementation parses steps
+> (`parse_steps`, `source_values`) and in the comment on line 238 explicitly calls
+> "name mentioned, therefore wired" the naive approach it avoids.
+> Verified by execution: a devops agent built a fake `deploy.yml` in which the file name
+> appears three times in prose and never in the real steps — the guard returned FAIL.
 >
-> **Я сделал ровно то, за что критиковал аудит:** судил механизм по поверхностному
-> совпадению вместо того, что он делает. Аудит зачитывал файл по имени, я — по строке
-> из его документации. Правило остаётся то же и теперь подкреплено дважды:
-> **страж проверяется запуском, а не чтением.**
+> **I did exactly what I criticized the audit for:** I judged a mechanism by a superficial
+> match instead of by what it does. The audit read the file by name, I read it by a line
+> from its documentation. The rule stays the same and is now reinforced twice over:
+> **a guard is verified by running it, not by reading it.**
 
-- **42 — жив, подтверждено на `origin/main`.** `apps/api/src/app.module.spec.ts` (из #532)
-  по имени выглядит закрытием пункта, но в собственной докстроке (строка 33) сказано, что
-  он **намеренно не вызывает** `Test.createTestingModule(...).compile()`: читает метаданные
-  `@Module` через `Reflect.getMetadata`. Проверяет порядок регистрации трёх `APP_GUARD` —
-  полезно, но пункт просил другого: собрать контейнер внедрения, чтобы ловился класс
-  «всё зелено, приложение не стартует».
+- **42 — alive, confirmed on `origin/main`.** `apps/api/src/app.module.spec.ts` (from #532)
+  looks by name like it closes the item, but its own docstring (line 33) says it
+  **deliberately does not call** `Test.createTestingModule(...).compile()`: it reads the `@Module` metadata
+  via `Reflect.getMetadata`. It checks the registration order of the three `APP_GUARD`s —
+  useful, but the item asked for something else: build the DI container so that the class
+  "everything is green, the app doesn't start" gets caught.
 
-### Аудит пометил живым, а он ЗАКРЫТ
+### The audit marked these alive, but they are CLOSED
 
-- **15 — закрыт.** `@Get(':id/audit-log')` `@Roles('ADMIN')` в `transactions.controller.ts`
-  плюс `transaction-audit-log-read.integration.spec.ts`. Уехало с PR #456 03.08.
-  **Остаток** (маленькая дельта, не фича): чтение только у ADMIN, бухгалтера нет; экрана нет.
-  `task-soft-delete-and-money-audit.md` надо ужать до этого, а не запускать целиком.
+- **15 — closed.** `@Get(':id/audit-log')` `@Roles('ADMIN')` in `transactions.controller.ts`
+  plus `transaction-audit-log-read.integration.spec.ts`. Shipped with PR #456 on 03.08.
+  **Remainder** (a small delta, not a feature): read access for ADMIN only, no accountant; no screen.
+  `task-soft-delete-and-money-audit.md` should be trimmed to this, not launched in full.
 
-### Подтверждены живыми — с доказательством
+### Confirmed alive — with evidence
 
 - **14** — `apps/api/tsconfig.json`: `"exclude": [… "**/*.spec.ts", "**/*.test.ts"]`.
-- **16** — `project_members`: первичный ключ только `id`, уникального индекса на паре
-  (проект, участник) нет; две параллельные вставки пройдут обе.
-- **19** — запрет сырого обращения к `transactions` покрывает ровно три пути:
-  `src/documents/**`, `src/admin/**`, `src/projects/**`. Четвёртый модуль незапрещён по умолчанию.
-  Сама конфигурация написана хорошо (закрывает и реляционный обход `with: { transactions }`) —
-  проблема в том, что это список-разрешение там, где нужен список-запрет.
-- **39** — измерено живьём: страница вакансии объявляет `hreflang` для `en`, `uk`, `x-default`;
-  в `sitemap.xml` есть ещё `ru`, `es`, `pt`. Шесть адресов вне языковых кластеров.
-- **40** — автомерж по-прежнему `gh pr checks --watch --required`, без проверки, что оба
-  требуемых контекста вообще появились.
-- **41 + 49** — мёртвые шаги про `2026-08-07_senior_resume.sql` в `deploy.yml`:
-  копирование (1037–1055) и применение (2232–2256).
-- **47** — `describeLimits` экспортируется (`resume-typst.service.ts:438`), вызывающих ноль.
-- **60** — `mutation-gate.mjs:154` по-прежнему исключает `src/**/*.module.ts`.
+- **16** — `project_members`: the primary key is `id` only, there is no unique index on the (project, member) pair;
+  two parallel inserts will both go through.
+- **19** — the ban on raw access to `transactions` covers exactly three paths:
+  `src/documents/**`, `src/admin/**`, `src/projects/**`. A fourth module is not banned by default.
+  The configuration itself is well written (it also closes the relational bypass `with: { transactions }`) —
+  the problem is that it is an allowlist where a denylist is needed.
+- **39** — measured live: the vacancy page declares `hreflang` for `en`, `uk`, `x-default`;
+  `sitemap.xml` additionally has `ru`, `es`, `pt`. Six addresses outside the language clusters.
+- **40** — auto-merge is still `gh pr checks --watch --required`, with no check that both
+  required contexts appeared at all.
+- **41 + 49** — dead steps about `2026-08-07_senior_resume.sql` in `deploy.yml`:
+  the copy (1037–1055) and the apply (2232–2256).
+- **47** — `describeLimits` is exported (`resume-typst.service.ts:438`), zero callers.
+- **60** — `mutation-gate.mjs:154` still excludes `src/**/*.module.ts`.
 
-### Подтверждены закрытыми (перепроверять не нужно)
+### Confirmed closed (no need to re-check)
 
-**5** (RBAC намеренно делегирован вызывающим и это записано в докстроке; остаток — тест на то,
-что каждый вызывающий проверяет права, он же `task-authz-followups.md`) · **10**
-(`deploy-alert.yml`) · **11** (`ci.yml:821` сеет вакансии, `:833` собирает лендинг —
-сборка идёт против непустого набора) · **17** (`vitest.config.mts` печатает явный баннер
-о пропуске интеграционных спек с командой запуска) · **21** · **26** · **31** · **33**
-(`not.toBeNull()` + написанное объяснение, почему прежняя форма не могла упасть) ·
+**5** (RBAC is deliberately delegated to callers and this is recorded in the docstring; the remainder is a test that
+every caller checks permissions, also in `task-authz-followups.md`) · **10**
+(`deploy-alert.yml`) · **11** (`ci.yml:821` seeds vacancies, `:833` builds the landing —
+the build runs against a non-empty set) · **17** (`vitest.config.mts` prints an explicit banner
+about skipping integration specs with the command to run them) · **21** · **26** · **31** · **33**
+(`not.toBeNull()` + a written explanation of why the previous form could not fail) ·
 **34** · **35**.
 
-### Правило, выведенное из этой сверки
+### Rule derived from this reconciliation
 
-**Перед диспатчем по пункту бэклога — проверка против `main`, а не доверие записи.**
-Запись стареет молча, и сегодня это дважды едва не стоило агента, запущенного чинить
-починенное. Наличие файла с подходящим именем доказательством не является — читать, что
-файл делает.
-
----
-
-**Замечание про сам файл:** `.claude/tasks/*.md` в `.gitignore` — этот список нигде не
-версионируется и живёт только на машине владельца. 59 находок держатся на одном диске.
+**Before dispatching on a backlog item — check against `main`, don't trust the entry.**
+An entry goes stale silently, and today this twice nearly cost an agent launched to fix
+the already fixed. The existence of a file with a suitable name is not proof — read what the
+file does.
 
 ---
 
-## Деньги / финансы
+**A note on the file itself:** `.claude/tasks/*.md` is in `.gitignore` — this list is not versioned
+anywhere and lives only on the owner's machine. 59 findings rest on a single disk.
 
-1. ~~**Форма оплаты у DROP показывает пустой список.**~~ — **ЗАКРЫТО, проверено 2026-08-31.**
-   Фильтр давно заменён на общий предикат, который по типу-гарду сужает к приходу синьора
-   **и приходу дропа**; на приход дропа есть тесты. Запись устарела, дефекта нет.
-   Прежний текст: `PayoutPaymentForm.tsx` фильтрует только
-   приходы синьора, поэтому в выплате дропа список транзакций всегда пуст. Pre-existing,
-   найдено при ревью PR #445. Чинить вместе с типом прихода (`resolveSharePercent` уже умеет
-   ветвиться — использовать тот же подход).
-2. ~~**Самоссылочные записи доли дропа**~~ — **ЗАКРЫТО, проверено 2026-08-31.**
-   Решение владельца принято («плохие/легаси данные»), паритет с агрегатом дропа установлен:
-   самоссылочная строка нетится в ноль в обоих представлениях, есть тест «краснел до фикса,
-   зелёный после». Прежний текст: (`sender_id = receiver_id`) считаются `+amount` в
-   профильном балансе, но нетто-нулём в сводке дропа — два представления расходятся. Осознанно
-   вынесено из PR #443. Отдельный дефект, требует решения: какое представление верное.
-3. ~~**Мёртвый `verifyTransaction`**~~ — **ЗАКРЫТО, проверено 2026-08-31.**
-   Символа нет в репозитории вовсе — ноль совпадений по всем пакетам. Уже удалён.
-   Прежний текст: (MED-5 из ревью #438) — прод-вызывающих нет, удалить.
-4. **Проверить на проде суммы доли компании у дропов.** Старый диалог считал долю по проценту
-   СИНЬОРА даже для прихода дропа (подтверждено по коду при ревью #445). Если дропы платили
-   через него — суммы расходятся.
+---
 
-   **Единственный незакрытый из пяти продуктовых (проверено 2026-08-31).** Кодом не чинится:
-   нужен взгляд на реальные данные, а прод-база доступна только владельцу — SSH к серверу нет,
-   MCP смотрит в локальную QA-базу.
+## Money / finance
 
-   Запрос готов, только на чтение, ничего не меняет:
+1. ~~**The DROP payment form shows an empty list.**~~ — **CLOSED, verified 2026-08-31.**
+   The filter was long ago replaced by a shared predicate that, via a type guard, narrows to senior income
+   **and drop income**; there are tests for drop income. The entry is stale, there is no defect.
+   Previous text: `PayoutPaymentForm.tsx` filters only
+   senior income, so in a drop's payout the transaction list is always empty. Pre-existing,
+   found while reviewing PR #445. Fix together with the income type (`resolveSharePercent` can already
+   branch — use the same approach).
+2. ~~**Self-referencing drop share records**~~ — **CLOSED, verified 2026-08-31.**
+   The owner's decision was made ("bad/legacy data"), parity with the drop aggregate is established:
+   a self-referencing row nets to zero in both views, there is a "red before the fix,
+   green after" test. Previous text: (`sender_id = receiver_id`) count as `+amount` in the
+   profile balance but net to zero in the drop summary — the two views diverge. Deliberately
+   moved out of PR #443. A separate defect, needs a decision: which view is correct.
+3. ~~**Dead `verifyTransaction`**~~ — **CLOSED, verified 2026-08-31.**
+   The symbol is not in the repository at all — zero matches across all packages. Already removed.
+   Previous text: (MED-5 from review #438) — no prod callers, delete.
+4. **Check on prod the company-share amounts for drops.** The old dialog computed the share by the SENIOR's
+   percent even for drop income (confirmed from the code during review #445). If drops paid
+   through it, the amounts diverge.
+
+   **The only unclosed one of the five product items (verified 2026-08-31).** Cannot be fixed by code:
+   needs a look at real data, and the prod database is available only to the owner — there is no SSH to the server,
+   the MCP looks at the local QA database.
+
+   The query is ready, read-only, changes nothing:
 
    ```sql
    SELECT id, created_at, amount, currency,
@@ -156,2667 +156,2667 @@
     ORDER BY created_at;
    ```
 
-   **Как читать.** Штатная доля дропа — 5, синьора — 26 (значения по умолчанию). Признак дефекта:
-   у строки прихода **дропа** доля посчитана по проценту синьора, то есть `drop_share_percent`
-   пуст либо равен проценту синьора. Пустые строки при этом законны для старых записей — сам по
-   себе пропуск не доказывает ошибку, поэтому смотреть надо на **сумму**: сходится ли фактически
-   удержанная доля с 5% или с 26%.
+   **How to read it.** The standard drop share is 5, the senior's is 26 (default values). Sign of the defect:
+   in a **drop**-income row the share was computed by the senior's percent, i.e. `drop_share_percent`
+   is empty or equals the senior's percent. Empty rows are legitimate for old records — a gap
+   by itself does not prove an error, so look at the **amount**: does the actually
+   withheld share match 5% or 26%.
 
-   Если расхождения найдутся — правка данных отдельной задачей, через выверенный SQL в конвейере
-   деплоя (прямого доступа к серверу нет).
+   If discrepancies are found — fix the data as a separate task, via verified SQL in the deploy
+   pipeline (there is no direct access to the server).
 
-## Права доступа
+## Access rights
 
-5. ~~`rejoinTeam` — второй вход без проверки скоупа~~ — **ЗАКРЫТО, проверено 2026-08-31.**
-   Проверка существует, вызывается из `rejoinTeam` и покрыта двумя интеграционными спеками.
-   Прошла четыре раунда ревью: первая версия опиралась на отрицательное свидетельство
-   (отсутствие дисквалифицирующей записи), что было опровергнуто и переделано на положительное.
-   Прежний текст: `rejoinTeam` — второй вход в `addSeniorToDropTeam` без проверки скоупа; `actorRole`/`actorId`
-   опциональны (fail-open по форме); LOW-хвосты. **Задание уже написано:**
+5. ~~`rejoinTeam` — a second entry without a scope check~~ — **CLOSED, verified 2026-08-31.**
+   The check exists, is called from `rejoinTeam` and is covered by two integration specs.
+   It went through four review rounds: the first version relied on negative evidence
+   (absence of a disqualifying record), which was refuted and redone to positive evidence.
+   Previous text: `rejoinTeam` — a second entry into `addSeniorToDropTeam` without a scope check; `actorRole`/`actorId`
+   are optional (fail-open by shape); LOW tails. **The task is already written:**
    `.claude/tasks/task-authz-followups.md`.
 
-## Гигиена
+## Hygiene
 
-6. **Docs drift** (зона BA): `docs/business/modules/auth.md:30` и `docs/business/user-flows.md:27`
-   описывают удалённый `GET /api/auth/logout`.
-7. **`dotenv@17.4.2` печатает рекламные строки в stdout**, включая ссылку на сторонний сервис.
-   Зашито в самом пакете, не компрометация. Учесть при обновлении зависимостей; проверить в
-   рамках второй волны аудита (цепочка поставок).
-8. **Устаревшие комментарии** в денежном коде — вычищались точечно в каждом раунде, стоит пройти
-   сплошняком после мержа батча.
+6. **Docs drift** (BA zone): `docs/business/modules/auth.md:30` and `docs/business/user-flows.md:27`
+   describe the removed `GET /api/auth/logout`.
+7. **`dotenv@17.4.2` prints advertising lines to stdout**, including a link to a third-party service.
+   Baked into the package itself, not a compromise. Take into account when updating dependencies; check as
+   part of the second audit wave (supply chain).
+8. **Stale comments** in money code — cleaned up point by point in each round, worth a sweep
+   across the whole code after the batch merges.
 
-## Системное — найдено 2026-08-05
+## Systemic — found 2026-08-05
 
-25. **Сброс `* { border-color }` в `globals.css` съедает ВСЕ цветные рамки на лендинге.**
-    Правило не обёрнуто в слой, а неслойные правила всегда выигрывают у `@layer utilities`
-    независимо от порядка в файле. Следствие: цветные рамки доменных меток
-    (`ai`/`edtech`/`ecommerce`) **никогда не отрисовывались** — дизайн задуман, написан
-    и не работает. Найдено при работе над #492, подтверждено дважды: чтением вычисленных
-    стилей и временным удалением правила в живом DOM.
-    Затрагивает, вероятно, не только метки: подсветка карточек при наведении и цвет
-    контура фокуса идут через то же правило. Блиц-радиус на весь лендинг, поэтому в #492
-    сознательно не чинилось — там обошли через `border-dashed` (стиль рамки, сбросом
-    не затрагивается).
-    Чинить отдельной задачей: обернуть сброс в слой либо сузить его. **Обязательно
-    посмотреть глазами, что изменится** — часть текущего вида может неявно зависеть от
-    того, что цветные рамки не видны, и «починка» способна изменить страницу сильнее,
-    чем ожидается.
+25. **The `* { border-color }` reset in `globals.css` eats ALL colored borders on the landing.**
+    The rule is not wrapped in a layer, and unlayered rules always beat `@layer utilities`
+    regardless of order in the file. Consequence: the colored borders of the domain labels
+    (`ai`/`edtech`/`ecommerce`) **were never rendered** — the design was conceived, written
+    and does not work. Found while working on #492, confirmed twice: by reading the computed
+    styles and by temporarily removing the rule in the live DOM.
+    Probably affects not only labels: card hover highlighting and the focus outline color
+    go through the same rule. Blast radius is the whole landing, so in #492 it was
+    deliberately not fixed — it was worked around there via `border-dashed` (a border style that the reset
+    does not affect).
+    Fix as a separate task: wrap the reset in a layer or narrow it. **Be sure to
+    look with your own eyes at what changes** — part of the current look may implicitly depend on
+    colored borders not being visible, and the "fix" could change the page more
+    than expected.
 
-26. **Прогон лендинг-шарда сразу после `build:prerender` даёт 429 и выглядит как дефект вёрстки.**
-    Предрендер исчерпывает глобальный ограничитель запросов, и следующий прогон получает
-    отказы: `responsive.spec.ts` падает на `vacancies[0].slug` против пустого списка, что
-    читается как поломка разметки и ею не является. CI это обходит через `THROTTLER_LIMIT=2000`,
-    локально — нет, и на диагностику уходит время (подтверждено дважды: инцидент с прод-выкатом
-    27–31.07 и локальный прогон 2026-08-05 при работе над #489).
-    Либо задать тот же лимит в локальном рецепте прогона, либо сделать так, чтобы 429 в этом
-    месте отличался от пустого ответа сообщением. Зона DevOps.
+26. **Running the landing shard right after `build:prerender` gives 429 and looks like a layout defect.**
+    The prerender exhausts the global request limiter, and the next run gets
+    rejections: `responsive.spec.ts` fails on `vacancies[0].slug` against an empty list, which
+    reads as broken markup and is not. CI works around this via `THROTTLER_LIMIT=2000`,
+    locally it does not, and time goes into diagnosis (confirmed twice: the prod-rollout incident
+    27–31.07 and a local run on 2026-08-05 while working on #489).
+    Either set the same limit in the local run recipe, or make the 429 in this
+    place distinguishable from an empty response by a message. DevOps zone.
 
-27. **Нижней границы суммы нет у ~10 схем, кроме починенной.** PR #485 ввёл
-    `transactionAmountError` (пол `0.000001` = единица при scale 6 + запрет лишних знаков)
-    и применил его к `paidAmount`. Соседние поля — `createSalarySchema.amount` и ещё около
-    десяти схем в `packages/shared/src/schemas/finance.ts` — остались на
-    `.positive().max(MAX_TRANSACTION_AMOUNT)` без пола: `createSalary(amount: 1e-7)` до сих
-    пор ляжет в колонку как `0.000000`, то есть обязательство на ноль. Предсуществующее,
-    только ADMIN, не регрессия #485. Хелпер уже есть, фикс однострочный.
-    **Но натягивать вслепую нельзя** (замечание автора #485): там, где сумма приходит из
-    вычислений с плавающей точкой (`income * 0.5` даёт `333.33333333333337`), запрет на
-    > 6 знаков сломает законный путь. Нужно разделить: минимум там, где сумма вводится
-    > руками, округление на входе там, где она вычисляется.
-28. **Комментарий теста обещает больше, чем тест делает.** `salary-paid-amount.integration.spec.ts`
-    — премиса-тест `SELECT (0.0000001::numeric(18,6))` кастит **литерал**, а не колонку,
-    поэтому смену типа колонки он НЕ поймает, хотя комментарий заявляет «so a future
-    column-type change is caught». Проверено ревьюером эмпирически: при сужении колонки
-    премиса остаётся зелёной, регресс ловит round-trip-тест. Поправить текст при следующем
-    касании файла (сам тест полезен — он честно пинует семантику округления Postgres).
+27. **About 10 schemas have no lower bound on the amount, except the fixed one.** PR #485 introduced
+    `transactionAmountError` (floor `0.000001` = one unit at scale 6 + a ban on extra digits)
+    and applied it to `paidAmount`. The neighboring fields — `createSalarySchema.amount` and about
+    ten more schemas in `packages/shared/src/schemas/finance.ts` — remained on
+    `.positive().max(MAX_TRANSACTION_AMOUNT)` without a floor: `createSalary(amount: 1e-7)` will still
+    land in the column as `0.000000`, i.e. an obligation of zero. Pre-existing,
+    ADMIN only, not a regression of #485. The helper already exists, the fix is a one-liner.
+    **But it can't be applied blindly** (note from the author of #485): where the amount comes from
+    floating-point computations (`income * 0.5` gives `333.33333333333337`), a ban on
+    > 6 digits would break a legitimate path. Need to separate: a minimum where the amount is entered
+    > by hand, rounding on input where it is computed.
+28. **A test comment promises more than the test does.** `salary-paid-amount.integration.spec.ts`
+    — the premise test `SELECT (0.0000001::numeric(18,6))` casts a **literal**, not the column,
+    so it does NOT catch a column type change, although the comment claims "so a future
+    column-type change is caught". Verified empirically by the reviewer: when the column is narrowed
+    the premise stays green, the regression is caught by the round-trip test. Fix the text on the next
+    touch of the file (the test itself is useful — it honestly pins the Postgres rounding semantics).
 
-29. **Унаследованные переменные окружения уводят агентский API на ЖИВУЮ базу владельца.**
-    Инцидент 2026-08-05 (PR #485): у агента `API_PORT=3000` и `DATABASE_URL=…/crm_db`
-    из окружения перебили его собственный `.env`, и API около двух минут слушал :3000
-    против живой `crm_db`. Обошлось (агент сам заметил, проверил и сообщил: записей нет,
-    новых колонок нет, обслужились только 404), но обошлось **случайно**.
-    Предупреждение «задавай `API_PORT`/`DATABASE_URL` ЯВНО инлайном» стоит в **каждом**
-    диспатче — и всё равно не сработало. Значит дисциплины недостаточно, нужен механизм:
-    хук, который отказывается стартовать API/миграции из `.claude/worktrees/agent-*`,
-    если `DATABASE_URL` указывает на `crm_db` либо порт входит в живую пару 3000/3001.
-    Прецедент рядом: `pre-bash-devserver-ttl-gate.sh` уже блокирует голые dev-серверы
-    в worktree — расширить его или завести соседний. Зона DevOps.
-    **Уточнение по масштабу (проверено ревьюером 2026-08-05):** `crm_db` — ЛОКАЛЬНАЯ база
-    владельца, не прод (в ней 0 транзакций, состояние сида; прод живёт на VPS и агентам
-    недостижим). Цена ошибки — порча рабочего окружения владельца, а не боевых финансов.
-    Первая формулировка этого пункта завышала серьёзность — исправлено, чтобы приоритет
-    не выставлялся по преувеличенной цене.
+29. **Inherited environment variables send the agent's API to the owner's LIVE database.**
+    Incident 2026-08-05 (PR #485): an agent's `API_PORT=3000` and `DATABASE_URL=…/crm_db`
+    from the environment overrode its own `.env`, and the API listened on :3000 for about two minutes
+    against the live `crm_db`. It turned out fine (the agent noticed, checked and reported: no writes,
+    no new columns, only 404s were served), but it turned out fine **by accident**.
+    The warning "set `API_PORT`/`DATABASE_URL` EXPLICITLY inline" is in **every**
+    dispatch — and still did not work. So discipline is not enough, a mechanism is needed:
+    a hook that refuses to start the API/migrations from `.claude/worktrees/agent-*`
+    if `DATABASE_URL` points at `crm_db` or the port is in the live pair 3000/3001.
+    A nearby precedent: `pre-bash-devserver-ttl-gate.sh` already blocks bare dev servers
+    in a worktree — extend it or add a neighboring one. DevOps zone.
+    **Clarification on scale (verified by the reviewer 2026-08-05):** `crm_db` is the owner's LOCAL
+    database, not prod (it has 0 transactions, seed state; prod lives on the VPS and is unreachable
+    to agents). The cost of an error is damage to the owner's working environment, not real finances.
+    The first wording of this item overstated the severity — corrected so that priority
+    is not set by an exaggerated cost.
 
-## Системное — найдено 2026-08-04
+## Systemic — found 2026-08-04
 
-20. **Инструмент вызова скиллов доступен субагентам НЕ всегда — и от чего это зависит,
-    неизвестно.** За одну сессию четыре агента подряд (кодер лендинга, оба копи-ревьюера,
-    security-reviewer на первом проходе) сообщили, что инструмента `Skill` в их окружении
-    нет вовсе, и читали `SKILL.md` напрямую. При этом **тот же security-reviewer на втором
-    проходе скиллы вызвал** и перечислил их поимённо. То есть это не «субагентам нельзя», а
-    плавающее поведение — что хуже: правило то исполняется, то нет, и заметить это можно
-    только по добровольному признанию агента в отчёте.
-    Это ровно тот дрейф, что описан ниже в `skills-invocation.md` («скилл может
-    существовать, но не вызываться»), только в более широком виде: там ломались отдельные
-    ссылки, здесь не работает весь канал. Правило «trigger applies → агент ОБЯЗАН вызвать
-    skill» сейчас невыполнимо для любого субагента, а значит формально нарушается всеми.
-    Разобраться, почему `Skill` не прокидывается в субагентское окружение; если это
-    ограничение харнесса, а не наша конфигурация — переписать правило под реальность
-    (например «прочитай `SKILL.md`, если инструмент недоступен»), а не оставлять
-    предписание, которое нельзя исполнить.
+20. **The skill-invocation tool is NOT always available to subagents — and what it depends on
+    is unknown.** Within one session four agents in a row (the landing coder, both copy reviewers,
+    the security-reviewer on its first pass) reported that the `Skill` tool is absent from their environment
+    entirely, and read `SKILL.md` directly. Yet **the same security-reviewer on its second
+    pass did invoke skills** and listed them by name. So this is not "subagents can't", but
+    floating behavior — which is worse: the rule is sometimes followed and sometimes not, and this can be noticed
+    only by the agent's voluntary admission in its report.
+    This is exactly the drift described below in `skills-invocation.md` ("a skill may
+    exist but not be invoked"), only in a broader form: there individual links broke, here
+    the whole channel does not work. The rule "trigger applies → the agent MUST invoke
+    the skill" is currently unexecutable for any subagent, which means it is formally violated by all.
+    Find out why `Skill` is not passed through into the subagent environment; if this is
+    a harness limitation and not our configuration — rewrite the rule to fit reality
+    (for example "read `SKILL.md` if the tool is unavailable"), rather than leaving
+    a prescription that cannot be executed.
 
-## Системное — найдено 2026-08-03
+## Systemic — found 2026-08-03
 
-17. **Прогон тестов без фильтра структурно исключает интеграционные.** `vitest run` без
-    `integration.spec` не запускает `*.integration.spec.ts` — значит отчёт «2019 тестов зелёные»
-    говорит только о юнитах, проверенных на заглушках. Обнаружено ревьюером на себе: мутация
-    определения представления «прошла зелёной» на полном юнит-наборе. Правило: **число тестов
-    ничего не значит, пока не сказано, какие наборы гонялись.** Оценить, стоит ли сделать
-    прогон обоих наборов умолчанием либо выводить явное предупреждение о пропущенных.
-18. ~~**Фильтр представления `non_deleted_transactions` определён в двух местах** без теста на
-    согласованность.~~ **ЗАКРЫТО в #456**: предикат вынесен в одно место, заведена проверка,
-    сравнивающая описание схемы с текстом миграции; доказана мутацией.
-19. **Запрет сырого обращения к таблице покрывает три модуля**, новый модуль будет незапрещён
-    по умолчанию. Плюс представление на уровне базы допускает запись — защита чисто типовая.
+17. **A test run without a filter structurally excludes integration tests.** `vitest run` without
+    `integration.spec` does not run `*.integration.spec.ts` — so a report "2019 tests green"
+    speaks only of unit tests checked against stubs. Discovered by a reviewer firsthand: a mutation
+    of a view definition "passed green" on the full unit suite. Rule: **the number of tests
+    means nothing until it is said which suites were run.** Evaluate whether to make
+    running both suites the default or to print an explicit warning about the skipped ones.
+18. ~~**The `non_deleted_transactions` view filter is defined in two places** with no consistency
+    test.~~ **CLOSED in #456**: the predicate was moved to one place, a check was added
+    that compares the schema description with the migration text; proven by mutation.
+19. **The ban on raw access to the table covers three modules**, a new module will be unbanned
+    by default. Plus the database-level view permits writes — the protection is purely type-level.
 
-## Системное — найдено 2026-08-01
+## Systemic — found 2026-08-01
 
-14. **Файлы тестов исключены из проверки типов** (`apps/api/tsconfig.json`). Следствие: спека,
-    конструирующая сервис без обязательной зависимости, компилятором НЕ ловится — обнаружилось
-    при ревью #455, где `teams.archive.spec.ts:159` создаёт сервис без аудит-зависимости.
-    Тест при этом «зелёный», но проверяет не ту конфигурацию, что работает в проде. Оценить
-    включение спек в проверку типов: сколько мест придётся чинить и стоит ли разово.
-15. **Журнал денежных операций write-only.** Во всём API нет ни одного чтения
-    `transaction_audit_log` — мы пишем то, что нельзя посмотреть из интерфейса. Данные копятся
-    и при расследовании достаются запросом к базе, но защита, к которой нет доступа, на практике
-    не работает: никто не пойдёт писать SQL ради рутинной сверки. Нужен просмотр хотя бы для ADMIN.
-16. **Теоретическая гонка на возврате в команду**: нет уникального индекса на паре
-    (команда, участник), а проверки идут вне транзакции — два экс-синьора ОДНОЙ команды
-    параллельно могут оба вставиться. Привилегий сверх имеющихся не даёт, предсуществующее.
+14. **Test files are excluded from type checking** (`apps/api/tsconfig.json`). Consequence: a spec
+    constructing a service without a required dependency is NOT caught by the compiler — discovered
+    in review of #455, where `teams.archive.spec.ts:159` creates a service without the audit dependency.
+    The test is "green" but checks not the configuration that runs in prod. Evaluate
+    including specs in type checking: how many places would need fixing and whether it's worth doing once.
+15. **The money-operations log is write-only.** Across the whole API there is not a single read
+    of `transaction_audit_log` — we write what cannot be viewed from the interface. The data accumulates
+    and is pulled by a database query during an investigation, but a protection that can't be accessed does not
+    work in practice: nobody will go write SQL for a routine reconciliation. A view is needed at least for ADMIN.
+16. **A theoretical race on rejoining a team**: no unique index on the (team, member)
+    pair, and the checks run outside a transaction — two ex-seniors of the SAME team
+    can both insert in parallel. Grants no privileges beyond those already held, pre-existing.
 
-## ПЕРЕД переключением фильтра по источнику в блокирующий режим (обязательно)
+## BEFORE switching the source filter to blocking mode (mandatory)
 
-Фильтр влит (#451) в режиме наблюдения — сейчас не блокирует ничего. Три находки ревью
-4831276136 относятся именно к моменту переключения; закрыть ДО того, как режим меняется.
+The filter is merged (#451) in observation mode — right now it blocks nothing. Three review findings
+4831276136 relate precisely to the moment of the switch; close them BEFORE the mode changes.
 
-- **A. Ложно-успешная запись в логе.** Маршрут по умолчанию типа on-link (шлюз `0.0.0.0`)
-  проходит обе проверки и пишет «доверяю шлюзу 0.0.0.0». Эксплуатации нет (nginx трактует его
-  как одиночный адрес), но это ровно та строка лога, которую runbook велит оператору читать
-  при решении о переключении. Отфильтровать вырожденный случай.
-- **B. Гейт может молча стать пустышкой.** Если опубликованный порт идёт через пользовательский
-  прокси Docker, а не через перенаправление в ядре (в том числе IPv6 без соответствующих правил),
-  весь внешний трафик приходит с адреса шлюза моста — и фильтр перестаёт различать кого-либо.
-  Не регрессия этого PR, но в предусловиях переключения такой проверки нет. Добавить.
-- **C. Проверка свежести диапазонов обязательна процедурно, но не механически.** Завести страж,
-  срабатывающий только на изменении, переводящем режим в блокирующий.
+- **A. False-success log entry.** A default route of the on-link type (gateway `0.0.0.0`)
+  passes both checks and writes «доверяю шлюзу 0.0.0.0». It is not exploitable (nginx treats it
+  as a single address), but it is exactly the log line the runbook tells the operator to read
+  when deciding on the switch. Filter out the degenerate case.
+- **B. The gate may silently become a dummy.** If the published port goes through Docker's userland
+  proxy rather than kernel redirection (including IPv6 without the corresponding rules),
+  all external traffic arrives from the bridge gateway address — and the filter stops telling anyone apart.
+  Not a regression of this PR, but there is no such check among the switch preconditions. Add it.
+- **C. The range freshness check is mandatory procedurally, but not mechanically.** Introduce a guard
+  that fires only on a change that moves the mode to blocking.
 
-## Из финальных раундов ревью (не блокеры, но реальные пробелы)
+## From the final review rounds (not blockers, but real gaps)
 
-12. **Фикс дублированного параметра хеша не покрыт тестом** (#438, раунд 8 MED-1). Контроллерных
-    спек в модуле нет вовсе — все спеки на просмотр зовут сервис напрямую и до разбора параметров
-    запроса не доходят. Нужен один HTTP-кейс: `?txHash=a&txHash=b` → 400.
-13. **Ассерт в тесте MED-R негативный** (`not.toMatch`): доказывает, что сообщение не про хеш,
-    но не что исполнение дошло до нужного блока. Будущий ранний выход оставит тест зелёным
-    при потерянном покрытии. Сильнее — ассертить конкретное имя нарушенного ограничения.
+12. **The fix for the duplicated hash parameter is not covered by a test** (#438, round 8 MED-1). There are no controller
+    specs in the module at all — all view specs call the service directly and never reach request
+    parameter parsing. One HTTP case is needed: `?txHash=a&txHash=b` → 400.
+13. **The assertion in the MED-R test is negative** (`not.toMatch`): it proves that the message is not about the hash,
+    but not that execution reached the right block. A future early exit will leave the test green
+    while coverage is lost. Stronger: assert the specific name of the violated constraint.
 
-## Инфраструктура — найдено 2026-07-31 при мерж-сессии
+## Infrastructure — found 2026-07-31 during the merge session
 
-9. **Автоматика слияния не может мержить PR, трогающие `.github/workflows/**`.** Токен не имеет
-права на изменение файлов конвейера: `GraphQL: refusing to allow a GitHub App to create or
-   update workflow .github/workflows/ci.yml without workflows permission`. Два PR (#437, #449)
-зависли молча — лейбл стоит, шаг слияния падает, и это выглядит как «CI красный».
-Пришлось мержить вручную. Починить: выдать право либо явно отделить такие PR с понятным
-сообщением, чтобы не выглядело сбоем проверок.
-**ЗАКРЫТО.** Выбран второй путь. Проверено на PR #498 (2026-08-07): автоматика определяет
-такие PR, оставляет в PR комментарий с объяснением («это НЕ сбой проверок, нужен ручной
-мерж») и завершается успехом, а не молча. Право `workflow`авто-мержу намеренно не выдано:
-это встроенная защита GitHub от бесконтрольного изменения конвейера автоматикой, и обход
-ради удобства был бы понижением безопасности. Ручной мерж таких PR — обычный`gh pr merge --squash`, без `--admin`.
-10. **Падение выкатки не поднимает алерт.** Деплой упал 2026-07-27 21:22 и оставался красным
-    **четыре дня** — никто не узнал, прод молча работал на старом коде. Оповещение о красной
-    основной ветке мы завели (#441/#446), а на `Deploy → failure` — нет. Завести.
-11. **Проверка на структурированные данные включается только при наличии вакансий.** Пока их было
-    ноль, сборка проходила, а страницы уезжали на прод без разметки для поисковиков. Это уже
-    второй случай такого класса в том же файле (см. комментарий `prerender.mjs:481-484`).
-    Нужен прогон сборки в CI против непустого набора вакансий, иначе класс воспроизведётся третий раз.
+9. **The merge automation cannot merge PRs that touch `.github/workflows/**`.** The token has no
+   permission to modify pipeline files: `GraphQL: refusing to allow a GitHub App to create or
+update workflow .github/workflows/ci.yml without workflows permission`. Two PRs (#437, #449)
+   hung silently — the label is set, the merge step fails, and it looks like "CI is red".
+   They had to be merged manually. Fix: either grant the permission or explicitly separate such PRs with a clear
+   message so it does not look like a check failure.
+   **CLOSED.** The second path was chosen. Verified on PR #498 (2026-08-07): the automation detects
+   such PRs, leaves a comment in the PR with an explanation («это НЕ сбой проверок, нужен ручной
+   мерж») and finishes successfully rather than silently. The `workflow` permission is intentionally not granted to auto-merge:
+   it is GitHub's built-in protection against uncontrolled pipeline changes by automation, and a bypass
+   for convenience would be a security downgrade. Manually merging such PRs is an ordinary `gh pr merge --squash`, without `--admin`.
+10. **A deploy failure does not raise an alert.** The deploy failed 2026-07-27 21:22 and stayed red for
+    **four days** — nobody found out, prod quietly ran on old code. We set up a notification about a red
+    main branch (#441/#446), but not on `Deploy → failure`. Set it up.
+11. **The structured-data check is enabled only when vacancies exist.** While there were
+    zero, the build passed and pages went to prod without markup for search engines. This is already
+    the second case of this class in the same file (see the comment `prerender.mjs:481-484`).
+    A CI build run against a non-empty set of vacancies is needed, otherwise the class will reproduce a third time.
 
-12. **ESLint не запускается в `packages/shared` и `apps/e2e` — ни локально, ни в CI.**
-    Проверено 2026-08-07: у обоих пакетов нет ни `eslint.config.*`, ни скрипта `lint` в
-    `package.json`, поэтому общий прогон их просто пропускает. `apps/api`, `apps/web`,
-    `apps/landing` настроены (`eslint src` / `eslint app`).
-    Цена: `packages/shared` — единственный источник Zod-схем и общих утилит, то есть контракт
-    между фронтом и бэком **не линтуется вообще**; `apps/e2e` — все спеки Playwright, где живут
-    наши повторяющиеся дефекты (строгий режим селекторов, забытый `await`). Найдено попутно
-    код-ревьюером на PR #493. Зона DevOps: добавить конфиги и включить в общий прогон, затем
-    разгрести накопившееся отдельным PR, чтобы не смешивать включение гейта с массовой правкой.
+12. **ESLint does not run in `packages/shared` and `apps/e2e` — neither locally nor in CI.**
+    Verified 2026-08-07: both packages have neither `eslint.config.*` nor a `lint` script in
+    `package.json`, so the shared run simply skips them. `apps/api`, `apps/web`,
+    `apps/landing` are configured (`eslint src` / `eslint app`).
+    Cost: `packages/shared` is the single source of Zod schemas and shared utilities, i.e. the contract
+    between front and back is **not linted at all**; `apps/e2e` holds all the Playwright specs, where our
+    recurring defects live (selector strict mode, a forgotten `await`). Found in passing
+    by the code-reviewer on PR #493. DevOps zone: add configs and include them in the shared run, then
+    clear the accumulated backlog in a separate PR, so as not to mix enabling the gate with a mass fix.
 
-13. **Параллельные ревьюеры пишут в общий рабочий каталог и портят друг другу измерения.**
-    2026-08-07, PR #493: security-ревьюер обнаружил, что в его каталоге посреди проверки
-    появились чужие изменения (впрыснутая минимальная ширина в компонент + посторонний
-    тестовый файл) — след параллельно работавшего код-ревьюера, мутировавшего тот же код.
-    При старте каталог был чист. Ревьюер заметил и перепрогнал замеры на побайтово сверенном
-    дереве, но мог и не заметить: тогда мутация одного агента попала бы в выводы другого как
-    свойство кода. В этом же PR похожее уже стоило двух лишних циклов — число «858 px» ушло
-    в отчёт как измерение живого компонента, будучи следствием собственной инъекции автора.
-    Починить механикой, а не дисциплиной: у каждого ревьюера свой каталог, имя выводится из
-    его идентификатора. Проверить, откуда берётся общий путь `scratchpad/rev<PR>` —
-    вероятно, из шаблона в промпте или из скилла.
+13. **Parallel reviewers write to a shared working directory and corrupt each other's measurements.**
+    2026-08-07, PR #493: the security reviewer discovered that foreign changes appeared in its directory
+    mid-check (an injected minimum width in a component + a stray
+    test file) — the trace of a code-reviewer working in parallel that mutated the same code.
+    At start the directory was clean. The reviewer noticed and re-ran the measurements on a byte-for-byte verified
+    tree, but might not have noticed: then one agent's mutation would have ended up in another's conclusions
+    as a property of the code. In the same PR something similar already cost two extra cycles — the number «858 px» went
+    into the report as a measurement of a live component, being the result of the author's own injection.
+    Fix with mechanics, not discipline: each reviewer gets its own directory, the name derived from
+    its identifier. Check where the shared path `scratchpad/rev<PR>` comes from —
+    probably from a template in the prompt or from a skill.
 
-14. **Гвард подводки прод-миграций удовлетворяется комментарием.** `check-prod-ddl-wiring.py:103`:
-    `wired = {f for f in all_files if f in deploy_yml_content}` — поиск подстроки по всему
-    содержимому `deploy.yml`. Доказывает, что имя файла где-то упоминается, а не что миграция
-    копируется на сервер и применяется. Достаточно комментария или названия шага с этим именем.
-    Найдено 2026-08-07 DevOps-агентом попутно на PR #498: он отметил, что гвард зеленеет
-    «потому что мои комментарии и имена шагов сами содержат нужную строку».
-    Цена: гвард заведён после настоящего инцидента (код спрашивал колонки, которых на проде
-    не было) — то есть защита от повторения того инцидента сейчас формальна.
-    Починить: проверять, что имя встречается и в шаге копирования, и в шаге применения,
-    а не просто где-то в файле. Проверку самого гварда написать так, чтобы она краснела на
-    подделке комментарием, — иначе воспроизведём тот же класс на уровень выше.
+14. **The prod-migration wiring guard is satisfied by a comment.** `check-prod-ddl-wiring.py:103`:
+    `wired = {f for f in all_files if f in deploy_yml_content}` — a substring search over the whole
+    content of `deploy.yml`. It proves that the file name is mentioned somewhere, not that the migration
+    is copied to the server and applied. A comment or a step name containing that name is enough.
+    Found 2026-08-07 by the DevOps agent in passing on PR #498: it noted that the guard turns green
+    "because my comments and step names themselves contain the needed string".
+    Cost: the guard was introduced after a real incident (the code asked for columns that did not exist
+    on prod) — i.e. protection against a repeat of that incident is currently formal.
+    Fix: check that the name occurs both in the copy step and in the apply step,
+    not just somewhere in the file. Write the guard's own check so that it goes red on a
+    comment forgery — otherwise we reproduce the same class one level up.
 
-15. **Общая оболочка карточки профиля: три адаптивных дефекта, не связанных с конкретной фичей.**
-    Найдено дизайнером 2026-08-07 при аудите PR #497, воспроизведено и на других вкладках, то есть
-    это поведение `UserProfileShell.tsx`, а не регрессия резюме: (а) коллизия заголовка профиля
-    на 768; (б) нет ограничения ширины контента на 1440/1920 — строки растягиваются на всю
-    сверхширину; (в) полоса вкладок прокручивается без визуальной подсказки, что справа ещё есть
-    вкладки. Отдельной задачей дизайнеру: чинится в одном месте и сразу для всех вкладок.
+15. **The shared profile-card shell: three responsive defects unrelated to any specific feature.**
+    Found by the designer 2026-08-07 while auditing PR #497, reproduced on other tabs too, i.e.
+    this is the behavior of `UserProfileShell.tsx`, not a resume regression: (a) the profile header collides
+    at 768; (b) there is no content width limit at 1440/1920 — lines stretch across the whole
+    ultra-wide width; (c) the tab strip scrolls without a visual hint that there are more tabs to the right.
+    A separate task for the designer: fixed in one place and immediately for all tabs.
 
-16. **Кэш turbo отдаёт зелёную проверку, которая не выполнялась — и чужую.** 2026-08-08, PR #493:
-    код-ревьюер запустил `pnpm typecheck`, получил `FULL TURBO` и увидел в выводе лог **из чужого
-    рабочего каталога** (`agent-a88aab8f5…`). Он не зачёл результат и прогнал `tsc --noEmit`
-    напрямую. Это тот же класс, что и остальные находки сессии, но опаснее: проверка не просто
-    беззубая, она **сообщает об успехе, не запустившись**, и подставляет результат другого дерева.
-    При параллельных агентах на одном коммите ключ кэша совпадает, а содержимое деревьев — нет.
-    Разобраться, из-за чего ключ не различает деревья (вероятно, в него не входит путь/ветка),
-    и либо развести ключи, либо отключить кэш для агентских прогонов. До починки: результат
-    `FULL TURBO` в отчёте агента доказательством не считать — требовать прямой прогон.
+16. **The turbo cache returns a green check that did not run — and someone else's.** 2026-08-08, PR #493:
+    the code-reviewer ran `pnpm typecheck`, got `FULL TURBO` and saw in the output a log **from another
+    working directory** (`agent-a88aab8f5…`). It did not count the result and ran `tsc --noEmit`
+    directly. This is the same class as the other findings of the session, but more dangerous: the check is not merely
+    toothless, it **reports success without having run**, and substitutes the result of another tree.
+    With parallel agents on the same commit the cache key matches, while the tree contents do not.
+    Find out why the key does not distinguish trees (probably the path/branch is not part of it),
+    and either separate the keys or disable the cache for agent runs. Until fixed: do not treat a
+    `FULL TURBO` result in an agent report as proof — require a direct run.
 
-17. **У `@crm/e2e` нет скрипта проверки типов, и в спеке лежат две настоящие ошибки.**
-    2026-08-08: `pnpm --filter @crm/e2e exec tsc --noEmit` даёт 2 ошибки в
-    `tests/senior-payout-no-dup.spec.ts`; ни один гейт этого не гоняет. Тот же пакет, что и в
-    п. 26 (нет ESLint) — закрывать одной задачей вместе с ним.
+17. **`@crm/e2e` has no type-check script, and the spec contains two real errors.**
+    2026-08-08: `pnpm --filter @crm/e2e exec tsc --noEmit` gives 2 errors in
+    `tests/senior-payout-no-dup.spec.ts`; no gate runs this. The same package as in
+    item 26 (no ESLint) — close in one task together with it.
 
-18. **РАЗОБРАНО 2026-08-08: дыры в правах НЕТ, но правило сокрытия ничем не закреплено.**
-    Исходное подозрение — «5 красных тестов доступа в `rbac-senior-junior.spec.ts` на `main`» —
-    **не подтвердилось**: прогон шёл без `VITE_API_URL`, который задаёт CI, поэтому приложение
-    ходило по относительному пути, а подмены в спеках слушали абсолютный и не перехватывали.
-    При верной настройке: 1 упал, 1 пропущен, 10 прошли.
-    Что оказалось настоящим:
-    - `:203` умирает на **положительном** утверждении (строгий режим, 2 совпадения — смотрящий
-      сам и есть «Senior Dev»), поэтому его проверки «джуниор скрыт» не исполняются никогда;
-    - `:249` **не выполнялся ни разу**: обе предпосылки под `if (isVisible)`, а нужная карточка
-      в этом потоке не рендерится. Теперь честно рапортует пропуск.
-    - **ГЛАВНОЕ, требует задачи:** сокрытие живёт на сервере (`ProjectsService.mapProject`:
-      `viewerRole === 'SENIOR' && isJuniorMember` → пустое `displayName`, `userId: '[redacted]'`)
-      и **не покрыто ни одним тестом в `apps/api`**. Единственный номинальный страж — E2E с
-      подменёнными ответами, который проверить это физически не может: фикстура жёстко
-      прописывает имя джуниора в `members`, то есть ровно тот ответ, который сервер отдавать
-      отказывается. Нужен серверный юнит-тест на `mapProject`.
-      Четвёртый рецидив паттерна [[feedback_mocked_e2e_guards]].
-      Смежное: 20 других падений E2E, каждое подтверждено прогоном той же спеки с `origin/main`.
+18. **TRIAGED 2026-08-08: there is NO hole in permissions, but the hiding rule is not enforced by anything.**
+    The initial suspicion — "5 red access tests in `rbac-senior-junior.spec.ts` on `main`" —
+    **was not confirmed**: the run went without `VITE_API_URL`, which CI sets, so the app
+    went through a relative path, while the stubs in the specs listened on an absolute one and did not intercept.
+    With correct setup: 1 failed, 1 skipped, 10 passed.
+    What turned out to be real:
+    - `:203` dies on a **positive** assertion (strict mode, 2 matches — the viewer
+      is itself "Senior Dev"), so its "junior is hidden" checks are never executed;
+    - `:249` **was never executed**: both preconditions are under `if (isVisible)`, and the needed
+      card is not rendered in this flow. It now honestly reports a skip.
+    - **MAIN POINT, needs a task:** the hiding lives on the server (`ProjectsService.mapProject`:
+      `viewerRole === 'SENIOR' && isJuniorMember` → empty `displayName`, `userId: '[redacted]'`)
+      and is **not covered by any test in `apps/api`**. The only nominal guard is an E2E with
+      stubbed responses, which physically cannot check this: the fixture hard-codes the junior's name
+      in `members`, i.e. exactly the response the server refuses to give.
+      A server unit test for `mapProject` is needed.
+      The fourth recurrence of the pattern [[feedback_mocked_e2e_guards]].
+      Related: 20 other E2E failures, each confirmed by running the same spec from `origin/main`.
 
-19. **`projects.spec.ts`: селекторы никогда ни с чем не совпадали — дефект теста, не продукта.**
-    Разобрано 2026-08-08. Диалог создания **отрисовывает** все шесть полей метаданных
-    (`index.tsx:775` — цикл по списку ключей), продуктового дефекта нет. Но поля рендерятся без
-    атрибута `name`, а спека ищет их по `getByPlaceholder(/стек технологий/i)` и
-    `input[name*="tech"]` — эти селекторы не совпадали никогда. Прятали это два условия:
-    `if (isVisible)` на заполнении и `if (body.techStack)` на проверке. Починка требует связать
-    подпись с полем или добавить `data-testid` — это правка продукта, поэтому вынесена сюда.
+19. **`projects.spec.ts`: the selectors never matched anything — a test defect, not a product one.**
+    Triaged 2026-08-08. The create dialog **renders** all six metadata fields
+    (`index.tsx:775` — a loop over the key list), there is no product defect. But the fields render without
+    a `name` attribute, while the spec looks them up via `getByPlaceholder(/стек технологий/i)` and
+    `input[name*="tech"]` — these selectors never matched. This was hidden by two conditions:
+    `if (isVisible)` on the fill and `if (body.techStack)` on the check. The fix requires tying the label to the field
+    or adding `data-testid` — that is a product edit, which is why it is raised here.
 
-20. **Проверка, которая не может упасть, в спеке про выплаты.**
+20. **A check that cannot fail in the payouts spec.**
     `apps/e2e/tests/drop-confirm-payout-rbac.spec.ts:155` —
-    `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)`. Когда `confirmed` равен `null`
-    (комментарий строкой выше сам это допускает), выражение сводится к сравнению значения с самим
-    собой. Найдено код-ревьюером на #500. Ухудшение против `main` не в поведении, а в
-    **обнаружимости**: раньше там был `if`, который увидело бы новое линт-правило, теперь скип
-    невидим. Честная форма — `expect(confirmed).not.toBeNull()` и дальше безусловная проверка.
-    В этом же PR правильная форма применена в четырёх других местах, то есть это
-    непоследовательность, а не позиция.
+    `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)`. When `confirmed` is `null`
+    (the comment one line above itself allows this), the expression reduces to comparing a value with
+    itself. Found by the code-reviewer on #500. The degradation versus `main` is not in behavior but in
+    **detectability**: before, there was an `if` there that a new lint rule would have seen, now the skip
+    is invisible. The honest form is `expect(confirmed).not.toBeNull()` followed by an unconditional check.
+    In the same PR the correct form was applied in four other places, i.e. this is
+    an inconsistency, not a position.
 
-21. **`scripts/check-package-gates.mjs` нигде не запускается** (#500, MED-5). Пока не подведён
-    в CI отдельным PR в зоне DevOps, утверждение «новый пакет не сможет уехать от гейтов» неверно.
-    Смежное (MED-1 там же): самопроверка детектора не покрывает собственный разбор
-    `pnpm-workspace.yaml` — globs передаются явно, поэтому частично сгнивший парсер даёт
-    «всё хорошо» и код 0. Фикс — одна строка (убрать второй аргумент в самопроверке).
+21. **`scripts/check-package-gates.mjs` is not run anywhere** (#500, MED-5). Until it is wired
+    into CI in a separate PR in the DevOps zone, the claim "a new package cannot drift away from the gates" is false.
+    Related (MED-1, same place): the detector's self-check does not cover its own parsing of
+    `pnpm-workspace.yaml` — globs are passed explicitly, so a partially rotted parser yields
+    "all good" and exit code 0. The fix is one line (drop the second argument in the self-check).
 
-22. **Форма пустого теста: ожидаемое выводится из фактического.** Три случая за 2026-08-07/08,
-    и обычным линт-правилом она НЕ ловится — синтаксис безупречен:
-    - `expect(observedPeak).toBeLessThanOrEqual(MAX_CONCURRENT_EXTRACTIONS)` (#497) — ассерт
-      ссылается на ту самую константу, которую должен закреплять, поэтому подмена двойки на
-      миллион его не роняет. Кандидат в правило: **сравнивать с литералом, а не с проверяемой
-      константой**;
-    - `expect([...ids]).toEqual(ids.size === 0 ? [] : [id])` (#500 MED-3) — ожидаемое выводится
-      из фактического, пустая ветка самоисполняющаяся;
-    - `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)` (#500 MED-2) — при `null`
-      сводится к сравнению значения с самим собой; хуже того, эта форма **невидима** для
-      `no-conditional-expect`, тогда как исходный `if` был виден.
-      Мутационный гейт убивает все три мгновенно; линт — ни одну. Аргумент в пользу того, что
-      гейт из `task-mutation-gate.md` не дублирует #500, а закрывает то, что тот не может.
+22. **The shape of an empty test: the expected value is derived from the actual one.** Three cases on 2026-08-07/08,
+    and an ordinary lint rule does NOT catch it — the syntax is flawless:
+    - `expect(observedPeak).toBeLessThanOrEqual(MAX_CONCURRENT_EXTRACTIONS)` (#497) — the assert
+      references the very constant it is supposed to pin, so replacing two with
+      a million does not fail it. Candidate for a rule: **compare against a literal, not against the constant
+      under test**;
+    - `expect([...ids]).toEqual(ids.size === 0 ? [] : [id])` (#500 MED-3) — the expected value is derived
+      from the actual one, the empty branch is self-fulfilling;
+    - `expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)` (#500 MED-2) — with `null`
+      it reduces to comparing a value with itself; worse, this form is **invisible** to
+      `no-conditional-expect`, whereas the original `if` was visible.
+      The mutation gate kills all three instantly; lint kills none. An argument in favor of the fact that the
+      gate from `task-mutation-gate.md` does not duplicate #500, but closes what that one cannot.
 
-23. **Агент, запущенный без изоляции, работает в каталоге оркестратора.** 2026-08-08: раунды 2–3
-    по #497 диспатчились без `isolation=worktree`, поэтому кодер писал в рабочий каталог сессии
-    (`strange-cerf-c5eb99`) и в итоге перевёл его на `feature/resume-base`. Хук зоны записи это
-    заметил и предупредил; агент повёл себя правильно — перенёс ветку, а не обошёл хук.
-    Ущерба нет (главный чекаут остался чист), но это третий за сессию случай пересечения агентов
-    по каталогам. Ошибка диспетчера, а не агента: **любой пишущий агент запускать только с
-    `isolation=worktree`**. Стоит поднять на уровень механики — отказ на старте пишущего агента
-    без изоляции лучше, чем дисциплина.
+23. **An agent launched without isolation works in the orchestrator's directory.** 2026-08-08: rounds 2–3
+    on #497 were dispatched without `isolation=worktree`, so the coder wrote into the session's working directory
+    (`strange-cerf-c5eb99`) and ended up switching it to `feature/resume-base`. The write-zone hook
+    noticed and warned; the agent behaved correctly — it moved the branch rather than bypassing the hook.
+    No damage (the main checkout stayed clean), but this is the third case in the session of agents crossing
+    over directories. A dispatcher error, not an agent one: **launch any writing agent only with
+    `isolation=worktree`**. Worth raising to the level of mechanics — a refusal at the start of a writing agent
+    without isolation is better than discipline.
 
-24. **Правило «тест без утверждений» обходится именем функции — измерено, 24 места опираются.**
-    2026-08-08, #500: `assertFunctionPatterns` (`^assert`, `^verify`, `^expect`) сопоставляет
-    **только имя** вызываемого хелпера, тело не анализируется. Ревьюер доказал двумя мутациями:
-    переименовать `assertNavigatedTo` → `navigateTo`, не трогая тело, — 4 ошибки; оставить имя
-    и **выпотрошить тело** — 0 ошибок, код 0. Масштаб замерен снятием опции: на лазейку
-    опираются **20 тел тестов в `apps/e2e` + 4 в `apps/api`** (в web/landing/shared — 0).
-    Это не дефект #500 — так устроены оба плагина. Но означает: «утверждения внутри хелпера» —
-    свойство, проверенное человеком, а не линтером. **Закрывается мутационным гейтом**
-    (`task-mutation-gate.md`): пустой `assert*`-хелпер не убьёт ни одного мутанта.
-    Ещё один аргумент, что волна 2 не дублирует волну 1b.
+24. **The "test without assertions" rule is bypassed by a function name — measured, 24 places rely on it.**
+    2026-08-08, #500: `assertFunctionPatterns` (`^assert`, `^verify`, `^expect`) matches
+    **only the name** of the called helper, the body is not analyzed. The reviewer proved it with two mutations:
+    rename `assertNavigatedTo` → `navigateTo` without touching the body — 4 errors; keep the name
+    and **gut the body** — 0 errors, exit code 0. The scale was measured by removing the option: the loophole
+    is relied on by **20 test bodies in `apps/e2e` + 4 in `apps/api`** (in web/landing/shared — 0).
+    This is not a defect of #500 — both plugins work this way. But it means: "assertions inside a helper" is a
+    property checked by a human, not by the linter. **Closed by the mutation gate**
+    (`task-mutation-gate.md`): an empty `assert*` helper will not kill a single mutant.
+    Another argument that wave 2 does not duplicate wave 1b.
 
-25. **Шесть адресов карты сайта не входят ни в один языковой кластер.** Найдено код-ревьюером
-    на #502 (вне диффа). Страницы вакансий рекламируют `hreflang` только для `en` и `uk`, тогда
-    как в `sitemap.xml` есть те же вакансии на `ru`, `es`, `pt`. Google получает адреса из карты,
-    но не видит их связи с остальными языковыми версиями — вероятная часть второй строки отчёта
-    Search Console от 2026-08-08 («обнаружена, не проиндексирована», 15 адресов).
-    Развёртка `INDEX-4` из #502 это **по устройству не поймает**: она проверяет достижимость
-    разрекламированного, а не полноту рекламы. Значит нужна отдельная проверка «каждый адрес
-    карты входит хотя бы в один кластер и кластер симметричен». Живёт в `apps/landing`.
+25. **Six sitemap addresses are not part of any language cluster.** Found by the code-reviewer
+    on #502 (outside the diff). Vacancy pages advertise `hreflang` only for `en` and `uk`, whereas
+    `sitemap.xml` has the same vacancies in `ru`, `es`, `pt`. Google gets the addresses from the sitemap,
+    but does not see their relation to the other language versions — probably part of the second line of the
+    Search Console report of 2026-08-08 ("discovered, not indexed", 15 addresses).
+    The `INDEX-4` sweep from #502 **by design will not catch** this: it checks the reachability
+    of what is advertised, not the completeness of the advertising. So a separate check is needed: "every sitemap
+    address belongs to at least one cluster and the cluster is symmetric". Lives in `apps/landing`.
 
-26. **Автомерж объявляет «CI зелёный», дождавшись ОДНОЙ обязательной проверки из двух.**
-    2026-08-08, PR #503: воркфлоу дождался `Typecheck · Lint · Unit Tests`, вызвал
-    `gh pr merge --squash` и получил `the base branch policy prohibits the merge` — потому что
-    `E2E Tests` (вторая требуемая в защите ветки) в этот момент ещё шла. PR с лейблом
-    `merge-approved` **простоял несмерженным двое суток**: упавший шаг автомержа выглядит как
-    очередная красная проверка, отдельного сигнала нет.
-    Тот же класс, что инцидент с #437/#449 (п. 9): гейт проверяет **уже**, чем обещает его имя.
-    Починить: дожидаться ВСЕХ контекстов, требуемых защитой ветки (список брать из API, а не
-    хардкодить — иначе разъедется при добавлении третьего), либо использовать `--auto`, чтобы
-    мерж выполнился сам при выполнении всех условий. И отдельный громкий сигнал на отказ мержа
-    при стоящем лейбле — молчаливое «висит» здесь опаснее красного.
+26. **Auto-merge declares "CI green" after waiting for ONE required check out of two.**
+    2026-08-08, PR #503: the workflow waited for `Typecheck · Lint · Unit Tests`, called
+    `gh pr merge --squash` and got `the base branch policy prohibits the merge` — because
+    `E2E Tests` (the second one required in the branch protection) was still running at that moment. A PR with the label
+    `merge-approved` **sat unmerged for two days**: a failed auto-merge step looks like
+    yet another red check, there is no separate signal.
+    The same class as the #437/#449 incident (item 9): the gate checks more narrowly than its name promises.
+    Fix: wait for ALL contexts required by branch protection (take the list from the API, do not
+    hardcode it — otherwise it drifts apart when a third one is added), or use `--auto`, so that the
+    merge happens by itself when all conditions are met. And a separate loud signal on a merge refusal
+    with the label in place — a silent "hanging" is more dangerous here than a red one.
 
-27. **В `deploy.yml` остался шаг для миграции, которой не будет никогда.** Шаг `2t` из PR #498
-    ссылается на `apps/api/drizzle/manual/2026-08-07_senior_resume.sql` из закрытого #497 —
-    файл не появится, работа пересобрана под другую модель (#504, миграция называется иначе).
-    Шаг защищён проверкой наличия, поэтому просто печатает уведомление и пропускается.
-    Вреда нет, но это **уведомление на каждой выкатке о том, чего не существует** — а привычка
-    пропускать уведомления мимо глаз стоит дороже трёх строк конфига. Убрать вместе со
-    следующей правкой `deploy.yml`. Замечено DevOps-агентом на #505, вне его задачи — он
-    правильно не стал расширять скоуп молча.
+27. **`deploy.yml` still has a step for a migration that will never exist.** Step `2t` from PR #498
+    refers to `apps/api/drizzle/manual/2026-08-07_senior_resume.sql` from the closed #497 —
+    the file will not appear, the work was rebuilt for a different model (#504, the migration is named differently).
+    The step is protected by an existence check, so it just prints a notice and is skipped.
+    No harm, but this is a **notice on every rollout about something that does not exist** — and a habit of
+    letting notices slide past the eyes costs more than three lines of config. Remove together with the
+    next edit of `deploy.yml`. Noticed by the DevOps agent on #505, outside its task — it
+    rightly did not silently widen the scope.
 
-28. **Тесты не поднимают приложение целиком, поэтому не видят отказ контейнера внедрения.**
-    2026-08-10, #504: DevOps сообщил, что API падает при старте
-    (`UnknownDependenciesException` на `ResumeTypstService` — вызываемый интерфейс в конструкторе
-    вырождается в метаданных в `Function`), при том что все юнит-тесты и локальные E2E у автора
-    зелёные. Юнит-тесты создают сервисы руками и контейнер внедрения не задействуют вовсе.
-    Противоречие в разборе; **но независимо от исхода** нужен гейт: тест, поднимающий
-    приложение целиком в собранном виде. Класс «всё зелено, приложение не стартует» обычными
-    тестами не ловится в принципе.
+28. **Tests do not bring up the whole application, so they do not see an injection container failure.**
+    2026-08-10, #504: DevOps reported that the API crashes at startup
+    (`UnknownDependenciesException` on `ResumeTypstService` — an interface used as a type in the constructor
+    degenerates in the metadata into `Function`), while all of the author's unit tests and local E2E
+    are green. Unit tests create services by hand and do not engage the injection container at all.
+    A contradiction in the triage; **but regardless of the outcome** a gate is needed: a test that brings up
+    the whole application in built form. The class "everything is green, the application does not start" is not caught
+    by ordinary tests in principle.
 
-29. **Светлой темы в приложении нет вообще — а правила требуют проверять обе.**
-    Найдено дизайнером 2026-08-10 на #504: `apps/web/index.html:2` жёстко задаёт тёмную тему,
-    провайдера темы в коде нет. То есть требование «прогнать в обеих темах», которое стоит в
-    наших правилах дизайна и которое я сам повторял в каждой постановке дизайнеру, **невыполнимо
-    и всё это время выполнялось формально**. Решить: либо завести светлую тему по-настоящему,
-    либо убрать требование из правил. Сейчас оно ровно то, что мы вычищаем весь день —
-    проверка, которая не может ничего показать.
+29. **There is no light theme in the application at all — yet the rules require checking both.**
+    Found by the designer 2026-08-10 on #504: `apps/web/index.html:2` hard-codes the dark theme,
+    there is no theme provider in the code. That is, the requirement "run in both themes", which is in
+    our design rules and which I repeated myself in every brief to the designer, **is impossible to meet
+    and was met only formally all this time**. Decide: either introduce a light theme for real,
+    or remove the requirement from the rules. Right now it is exactly what we have been cleaning out all day —
+    a check that cannot show anything.
 
-30. **Отказ загрузки в хранилище после успешного рендера оставляет статус «выполняется».**
-    Найдено дизайнером 2026-08-10 (вне диффа #504): если `this.s3.upload()` падает после того,
-    как Typst уже собрал документ, запись висит в `RUNNING` до срабатывания подметателя через
-    пять минут, и пользователю не показывается ничего. Пять минут «крутится» вместо внятного
-    отказа. Смежно с п. 42: класс отказов, который виден только на живом стеке.
+30. **A storage upload failure after a successful render leaves the status "in progress".**
+    Found by the designer 2026-08-10 (outside the #504 diff): if `this.s3.upload()` fails after
+    Typst has already built the document, the record hangs in `RUNNING` until the sweeper fires
+    five minutes later, and the user is shown nothing. Five minutes of "spinning" instead of a clear
+    refusal. Related to item 42: a class of failures visible only on a live stack.
 
-31. **Перенос находок из ревью в задание — канал без гейта, и он уже терял.**
-    2026-08-11, #504: при составлении списка «что доделать» я (оркестратор) **потерял одну
-    находку безопасности** — обход проверки глифов. Не оценил как несущественную, а просто не
-    перенёс. Кодер её закономерно не сделал; поймалось только сверкой отчёта с исходным ревью.
-    У нас есть гейты на код, тесты, гварды, измерения — и ни одного на «все находки ревью
-    попали в задание». Держится на внимательности, которая подвела на девятом раунде.
-    Механика вместо дисциплины: перечислять находки списком с идентификаторами и требовать
-    у исполнителя отчёт по каждому, включая «не делал, потому что…». Тогда пропуск виден.
+31. **Transferring findings from review into the task is a channel without a gate, and it has already lost one.**
+    2026-08-11, #504: when composing the "what to finish" list I (the orchestrator) **lost one
+    security finding** — the glyph check bypass. I did not judge it insignificant, I just did not
+    transfer it. The coder naturally did not do it; it was caught only by checking the report against the original review.
+    We have gates on code, tests, guards, measurements — and none on "all review findings
+    made it into the task". It rests on attentiveness, which failed in the ninth round.
+    Mechanics instead of discipline: list findings with identifiers and require
+    from the executor a report on each, including "did not do it because…". Then an omission is visible.
 
-32. **Пределы, которые никто не сравнивал между собой.** 2026-08-11, #504: самый плотный
-    документ, который наши же ограничители **разрешают**, обрабатывается 8,3–14,7 с — против
-    срока в 10 с. Две границы, каждая разумная по отдельности, вместе противоречивы; результат —
-    пользователю сообщается, что его законный файл нечитаем. Найдено только когда починили
-    измеритель. Аналогично: предел адресного пространства 1 ГиБ против **399 ГБ резервирований**
-    простаивающего процесса Node — тот же класс, и он давал аварийное завершение на файлах 23 КБ.
-    Заводить как отдельную проверку: у каждой пары «что разрешено» / «за какое время или в какой
-    объём должно уложиться» должен быть тест, сравнивающий их **между собой**, а не с константой.
+32. **Limits that nobody compared with each other.** 2026-08-11, #504: the densest
+    document that our own limiters **allow** takes 8.3–14.7 s to process — against a
+    10 s deadline. Two boundaries, each reasonable on its own, are contradictory together; the result is
+    the user is told that their legitimate file is unreadable. Found only when the measurer was fixed.
+    Similarly: the address space limit of 1 GiB against **399 GB of reservations** by an
+    idle Node process — the same class, and it caused a crash on 23 KB files.
+    Introduce as a separate check: every pair "what is allowed" / "in what time or what
+    volume it must fit" should have a test comparing them **with each other**, not with a constant.
 
-33. **`describeLimits()` — мёртвый экспорт, чья докстрока обещает несуществующий тест.**
-    Найдено на #511 (2026-08-11). У функции **ноль вызывающих во всём репозитории**, при этом
-    её докстрока обещает «чтобы тест мог проверить пределы без платформенной проверки» —
-    такого теста нет. Сам предел живой: `RENDER_ADDRESS_SPACE_KB` уходит в аргументы напрямую
+33. **`describeLimits()` is a dead export whose docstring promises a nonexistent test.**
+    Found on #511 (2026-08-11). The function has **zero callers in the whole repository**, yet
+    its docstring promises "so that a test can check the limits without the platform check" —
+    there is no such test. The limit itself is live: `RENDER_ADDRESS_SPACE_KB` goes into the arguments directly
     (`resume-typst.service.ts:411`).
-    **Задача не «написать тест», а сначала решить, нужен ли аксессор.** Писать тест ради вызова
-    функции, которую никто не зовёт, значит закрепить мёртвый код как живой — тот же класс, что
-    и остальное в этом списке.
+    **The task is not "write a test", but first to decide whether the accessor is needed.** Writing a test just to call
+    a function nobody calls means pinning dead code as live — the same class as
+    the rest of this list.
 
-34. **Ограничитель, получивший испорченное значение, обязан становиться строже, а не слабее.**
-    Выведено на #511. Шов `cpuSeconds` при `NaN`, `Infinity`, `-1` и **`1e21`** оставлял процесс
-    **вообще без предела**: команда установки падала на нечисловой строке (`String(1e21)` даёт
-    `"1e+21"`), ошибка глушилась перенаправлением. Все эти значения — валидный `number`, то есть
-    **проверка типов от класса не защищает**: значение корректно на границе языка и некорректно
-    на границе процесса.
-    Показательна асимметрия: соседний `timeoutMs` при том же мусоре **закрывается** (таймер
-    сводит к 1 мс), новый шов **открывался**. Один класс входа, противоположные последствия.
-    Починено зажимом на #511. **Правило на будущее:** у каждого места, где наше значение уходит
-    во внешний ограничитель, проверять поведение на испорченном входе — и требовать, чтобы оно
-    было в сторону строгости. Кандидат на отдельный сквозной аудит: где ещё мы передаём числа
-    в оболочку или в системные пределы.
+34. **A limiter that receives a corrupted value must become stricter, not weaker.**
+    Surfaced on #511. The `cpuSeconds` seam with `NaN`, `Infinity`, `-1` and **`1e21`** left the process
+    **with no limit at all**: the install command failed on a non-numeric string (`String(1e21)` gives
+    `"1e+21"`), the error was swallowed by a redirect. All these values are a valid `number`, i.e.
+    **type checking does not protect against the class**: the value is correct at the language boundary and incorrect
+    at the process boundary.
+    The asymmetry is telling: the neighboring `timeoutMs` with the same garbage **closes** (the timer
+    reduces it to 1 ms), the new seam **opened**. One class of input, opposite consequences.
+    Fixed with a clamp on #511. **Rule for the future:** at every place where our value goes
+    into an external limiter, check the behavior on corrupted input — and require that it
+    goes toward strictness. Candidate for a separate cross-cutting audit: where else we pass numbers
+    into a shell or into system limits.
 
-35. **Деплой навсегда объявляет о файле, которого не будет.** `deploy.yml` несёт два шага-сторожа
-    для `apps/api/drizzle/manual/2026-08-07_senior_resume.sql` — «PR #497 ещё не смержен».
-    **#497 закрыт, не смержен**, файла не будет никогда: таблицу `senior_resumes` создаёт
-    `2026-08-10_senior_resume_template.sql` из #504, и в проде она уже есть (проверено по выводу
-    деплоя 31537077708 — все столбцы макета на месте).
-    Вреда прямо сейчас нет, вред отложенный: каждый деплой печатает два `::notice` о пропуске,
-    и это ровно тот шум, который приучает не читать уведомления. А следующий настоящий пропуск
-    DDL будет выглядеть точно так же.
-    Убрать оба шага (копирование и применение). DevOps-зона, правка на десять строк.
+35. **Deploy forever announces a file that will never exist.** `deploy.yml` carries two sentinel steps
+    for `apps/api/drizzle/manual/2026-08-07_senior_resume.sql` — «PR #497 ещё не смержен».
+    **#497 is closed, not merged**, the file will never exist: the `senior_resumes` table is created by
+    `2026-08-10_senior_resume_template.sql` from #504, and it is already in prod (verified from the output of
+    deploy 31537077708 — all the layout columns are in place).
+    No harm right now, the harm is deferred: every deploy prints two `::notice` about a skip,
+    and this is exactly the noise that trains people not to read notices. And the next real DDL
+    skip will look exactly the same.
+    Remove both steps (copy and apply). DevOps zone, a ten-line edit.
 
-36. **`db:push` синхронизирует базу с файлами, а не с тем, что смержено.** Инцидент 2026-08-12.
-    Локальный `main` отставал от origin на 40 коммитов — то есть был слепком до #493 и #504.
-    Прогон `pnpm --filter @crm/api db:push` по `crm_db` честно свёл базу к той схеме:
-    создал csp/телеметрию, **удалил `senior_resumes`** и не создал ни одной таблицы job sourcing.
-    Резервную копию `_settle_phantom_backup_20260715` (28 денежных строк) он тоже предложил снести —
-    её спасло только то, что дамп сняли за минуту до.
-    **Два отдельных урока, не один.**
-    (а) Про `senior_resumes` **предупреждения не было**: drizzle показывает «data-loss» только для
-    таблиц со строками. Пустая таблица исчезает молча. То есть громкость предупреждения зависит
-    от наполнения, а не от того, теряем ли мы структуру, — на пустой базе разработчика этот
-    сторож не срабатывает никогда.
-    (б) Опасность создаёт **расстояние между чекаутом и origin**, а его в момент запуска никто
-    не видит. Рядом стоит вторая мина того же рода: в воркtree свой `.env`, и та же команда
-    уходит в чужую временную базу.
-    **Что сделать:** обёртка над `db:push`, которая до запуска (1) считает
-    `git rev-list --count HEAD..origin/main` и отказывается работать при ненулевом значении без
-    явного подтверждения, (2) печатает имя базы из резолвленного `DATABASE_URL` и требует
-    подтвердить именно его, (3) перечисляет таблицы, которые исчезнут, **включая пустые**.
-    Не памяткой в правилах — памятка здесь уже была и не помогла: команду выдал тот, кто сам
-    за час до этого обнаружил отставание чекаута.
+36. **`db:push` synchronizes the database with the files, not with what is merged.** Incident 2026-08-12.
+    Local `main` lagged origin by 40 commits — i.e. it was a snapshot from before #493 and #504.
+    Running `pnpm --filter @crm/api db:push` against `crm_db` faithfully brought the database to that schema:
+    it created csp/telemetry, **dropped `senior_resumes`** and created not a single job sourcing table.
+    It also offered to wipe the backup `_settle_phantom_backup_20260715` (28 money rows) —
+    it was saved only by the fact that a dump had been taken a minute earlier.
+    **Two separate lessons, not one.**
+    (a) There was **no warning** about `senior_resumes`: drizzle shows "data-loss" only for
+    tables with rows. An empty table vanishes silently. That is, the loudness of the warning depends
+    on the contents, not on whether we lose structure — on a developer's empty database this
+    sentinel never fires.
+    (b) The danger is created by the **distance between the checkout and origin**, and at launch time nobody
+    sees it. Next to it sits a second mine of the same kind: a worktree has its own `.env`, and the same command
+    goes to someone else's temporary database.
+    **What to do:** a wrapper over `db:push` that, before running, (1) counts
+    `git rev-list --count HEAD..origin/main` and refuses to work at a nonzero value without
+    explicit confirmation, (2) prints the database name from the resolved `DATABASE_URL` and requires
+    confirming exactly that, (3) lists the tables that will disappear, **including empty ones**.
+    Not with a reminder in the rules — a reminder was already there and did not help: the command was issued by the one who
+    had himself discovered the checkout's lag an hour earlier.
 
-37. **Единица бюджета считает вызов провайдера, а не запрос к чужой службе.** Из security-ревью
-    #515 (LOW, вынесено сюда осознанно). Сегодня у DOU один `fetch` на `collect()`, поэтому
-    «единица бюджета == один вызов `collectSource`» и «== один запрос наружу» совпадают. Провайдер
-    из слайса 2 с постраничной выдачей потратит N запросов на одну списанную единицу — и месячные
-    200 у JSearch кончатся в N раз быстрее, чем показывает счётчик. Зафиксировать контрактом на
-    `JobSourceProvider`: либо провайдер сам сообщает, сколько запросов израсходовал, либо ему
-    запрещена пагинация внутри одной единицы. Решать **до** подключения платных источников.
+37. **The budget unit counts a provider call, not a request to a third-party service.** From the security review of
+    #515 (LOW, deliberately moved here). Today DOU has one `fetch` per `collect()`, so
+    "budget unit == one `collectSource` call" and "== one outbound request" coincide. A provider
+    from slice 2 with paginated results will spend N requests per one charged unit — and JSearch's monthly
+    200 will run out N times faster than the counter shows. Pin it down with a contract on
+    `JobSourceProvider`: either the provider itself reports how many requests it used, or pagination
+    within a single unit is forbidden for it. Decide **before** connecting paid sources.
 
-38. **Троттлер `/collect` считает по адресу, а не по пользователю** (`app.module.ts:116-119`).
-    Из того же ревью (LOW). Приемлемо, потому что настоящая защита — счётчик в БД, а троттлер
-    второй рубеж. Записано, чтобы при появлении дорогих источников это пересмотрели осознанно,
-    а не обнаружили.
+38. **The `/collect` throttler counts per address, not per user** (`app.module.ts:116-119`).
+    From the same review (LOW). Acceptable, because the real protection is the counter in the DB and the throttler
+    is a second line. Recorded so that when expensive sources appear this is reconsidered deliberately,
+    not discovered.
 
-39. **Гонка на границе окна бюджета.** Проигравший получает «бюджет исчерпан», хотя окно только
-    что сбросилось. Направление консервативное (пропустить прогон, а не потратить лишнее), само
-    лечится следующим запуском. Записано как известное поведение, не как дефект.
+39. **A race at the budget window boundary.** The loser gets "budget exhausted" although the window has just
+    reset. The direction is conservative (skip a run, rather than spend extra), it
+    heals itself with the next run. Recorded as known behavior, not as a defect.
 
-40. **`loadSuggestionRows` — единственный запрос сервиса без собственного `seniorId`/`status`.**
-    Из security-ревью #515 (LOW). Доверяет области видимости вызывающего: сегодня id приходят из
-    уже отфильтрованного набора, и это верно, но защита держится на дисциплине вызова, а не на
-    самом запросе. Там же мелкая гонка: предложение, отвеченное между двумя проходами, один раз
-    мелькнёт в очереди. Оба — про хрупкость, не про текущую дыру.
+40. **`loadSuggestionRows` is the only service query without its own `seniorId`/`status`.**
+    From the security review of #515 (LOW). It trusts the caller's visibility scope: today the ids come from
+    an already filtered set, and that is correct, but the protection rests on call discipline, not on
+    the query itself. Also there, a minor race: a suggestion answered between two passes will flash
+    once in the queue. Both are about fragility, not about a current hole.
 
-41. **Усечение сверхдлинного навыка схлопывает разные ключи в один канонический.** Следствие
-    фикса HIGH-1 на #515. Направление строгое (лишний матч не создаётся, создаётся лишнее
-    совпадение двух мусорных строк между собой), касается только навыков длиннее 100 символов
-    в канонической форме — то есть заведомо испорченных данных. Записано, чтобы это было
-    известным поведением, а не открытием.
+41. **Truncating an overlong skill collapses different keys into one canonical one.** A consequence of the
+    HIGH-1 fix on #515. The direction is strict (no extra match is created, what is created is an extra
+    match between two garbage strings), it concerns only skills longer than 100 characters
+    in canonical form — i.e. knowingly corrupted data. Recorded so that it is
+    known behavior, not a discovery.
 
-42. **Зависимость печатает в вывод сборки строку, адресованную агентам.** Замечено code-reviewer'ом
-    на #517: в выводе `pnpm test` появляется «tip: auth for agents [www.vestauth.com]». Источник —
-    upstream `dotenv@17.4.x`, к нашему коду отношения не имеет. Ревьюер поступил правильно:
-    **не выполнил, проверил источник, отметил для видимости.**
-    Само по себе это, вероятно, реклама, а не атака. Но форма опасная: текст в выводе инструмента,
-    сформулированный как инструкция агенту, — ровно тот канал, через который prompt-injection и
-    заходит, и наши агенты этот вывод читают постоянно. Ценность записи не в конкретной строке,
-    а в том, что канал существует и мы его не контролируем.
-    **Что сделать:** проверить, какая именно версия `dotenv` это печатает и с какой целью;
-    решить, глушить ли (`DOTENV_CONFIG_QUIET` или подобное) и не пора ли пинить версию. Плюс
-    напоминание в правило про источник инструкций: вывод сборки и тестов — данные, а не команды.
+42. **A dependency prints a line addressed to agents into the build output.** Noticed by the code-reviewer
+    on #517: in the `pnpm test` output there appears "tip: auth for agents [www.vestauth.com]". The source is
+    upstream `dotenv@17.4.x`, unrelated to our code. The reviewer acted correctly:
+    **did not execute, checked the source, flagged it for visibility.**
+    In itself this is probably an advertisement, not an attack. But the form is dangerous: text in tool output
+    phrased as an instruction to an agent is exactly the channel through which prompt injection
+    gets in, and our agents read this output constantly. The value of the entry is not in the specific line,
+    but in the fact that the channel exists and we do not control it.
+    **What to do:** check which exact `dotenv` version prints this and for what purpose;
+    decide whether to silence it (`DOTENV_CONFIG_QUIET` or similar) and whether it is time to pin the version. Plus
+    a reminder in the instruction-source rule: build and test output is data, not commands.
 
-43. **`mcp__postgres__query` захардкожен на живую `crm_db`.** Замечено manual-qa 2026-08-12:
-    агент собирался работать на своей scratch-базе, обнаружил, что MCP-инструмент ходит в живую
-    базу владельца независимо от переданного окружения, и **сам** перестал им пользоваться,
-    перейдя на прямой `psql`. Поведение правильное — но оно держится на внимательности агента,
-    а не на механике.
-    Это тот же класс, что и весь список: инструмент, который выглядит нейтральным, молча
-    указывает в самое опасное место. Хук `pre:bash:live-db-guard` закрывает `Bash`, но MCP
-    идёт мимо него.
-    **Что сделать:** либо перенастроить MCP на безопасную базу по умолчанию, либо снять его
-    у агентских профилей, оставив `psql` с явным `DATABASE_URL`. Решение — за DevOps.
+43. **`mcp__postgres__query` is hard-coded to the live `crm_db`.** Noticed by manual-qa 2026-08-12:
+    the agent was about to work on its own scratch database, discovered that the MCP tool goes to the owner's live
+    database regardless of the passed environment, and **itself** stopped using it,
+    switching to direct `psql`. The behavior is correct — but it rests on the agent's attentiveness,
+    not on mechanics.
+    This is the same class as the whole list: a tool that looks neutral silently
+    points at the most dangerous place. The hook `pre:bash:live-db-guard` covers `Bash`, but MCP
+    bypasses it.
+    **What to do:** either reconfigure the MCP to a safe database by default, or remove it
+    from agent profiles, leaving `psql` with an explicit `DATABASE_URL`. The decision is DevOps's.
 
-44. **Тест, проходящий только до определённой даты.** Инцидент 2026-08-13: `main` покраснел сам
-    по себе в полночь UTC. `admin-income-drop-backfill.integration.spec.ts` сеял строки с
-    `created_at = now()` и проверял их против **намеренной** отсечки `'2026-08-13 00:00:00+00'`
-    в прод-SQL. До полуночи `now()` был меньше отсечки, после — больше; кандидатов стало ноль,
-    десять утверждений рухнули. Прод-логика при этом верна, сломан был только прибор.
-    **Класс:** тест зависел от того, **когда** его запускают, а не от того, что проверяет.
-    Зеркальное отражение всего остального в этом файле: обычно мы ловим проверку, которая не
-    может упасть, — а здесь проверка, которая не может пройти, начиная с некоторой даты.
-    Чинится явным временем в засеве. **Стоит поискать этот класс сквозным проходом:** любая
-    захардкоженная будущая дата, любое `now()` против фиксированной границы, любой снапшот с
-    датой внутри. Кандидат на отдельный аудит; на #517 такую отсечку добавили осознанно и
-    правильно, а тест к ней не приспособили.
+44. **A test that passes only until a certain date.** Incident 2026-08-13: `main` went red on its own
+    at midnight UTC. `admin-income-drop-backfill.integration.spec.ts` seeded rows with
+    `created_at = now()` and checked them against the **deliberate** cutoff `'2026-08-13 00:00:00+00'`
+    in the prod SQL. Before midnight `now()` was less than the cutoff, after — greater; the candidates became zero,
+    ten assertions collapsed. The prod logic was correct, only the instrument was broken.
+    **Class:** the test depended on **when** it is run, not on what it checks.
+    A mirror image of everything else in this file: usually we catch a check that cannot
+    fail — and here is a check that cannot pass from a certain date on.
+    Fixed with an explicit time in the seeding. **Worth searching for this class with a cross-cutting pass:** any
+    hard-coded future date, any `now()` against a fixed boundary, any snapshot with
+    a date inside. Candidate for a separate audit; on #517 such a cutoff was added deliberately and
+    correctly, but the test was not adapted to it.
 
-45. **Фикстура, совпадающая с запасным значением, обезоруживает тест.** Найдено security-ревью
-    на #521 (раунд 4). Три теста доказывали, что исторический запрос курса не отравляет общий
-    кэш. Два из них сеяли кэш значением `41.5` — ровно тем, что лежит в `HARDCODED_FALLBACK`
-    сервиса НБУ. При **полностью отключённой** записи в кэш фолбэк вернул бы те же 41.50,
-    и оба теста остались бы зелёными. Работу записи доказывает только третий, контрастный,
-    берущий `43.0`.
-    **Класс:** значение фикстуры совпало со значением по умолчанию / запасным, и проверка
-    перестала различать «сработало» и «не сработало». Тест написан правильно по замыслу и
-    бесполезен по исполнению — причём написан он был **чтобы доказать починку**.
-    **Правило:** фикстура никогда не должна совпадать с дефолтом, константой-заглушкой или
-    запасным значением того, что проверяешь. Если совпала — тест проходит по совпадению.
-    Кандидат на сквозной проход: поискать в тестах значения, равные `HARDCODED_FALLBACK`,
-    `DEFAULT_*`-константам и нулям, которые одновременно являются «пусто» и «не сработало».
+45. **A fixture that coincides with the fallback value disarms the test.** Found by the security review
+    on #521 (round 4). Three tests proved that the historical rate request does not poison the shared
+    cache. Two of them seeded the cache with `41.5` — exactly what lies in the `HARDCODED_FALLBACK`
+    of the NBU service. With cache writes **fully disabled** the fallback would have returned the same 41.50,
+    and both tests would have stayed green. The write's work is proven only by the third, contrasting one,
+    which takes `43.0`.
+    **Class:** the fixture value coincided with the default / fallback value, and the check
+    stopped distinguishing "worked" from "did not work". The test is written correctly in intent and
+    useless in execution — and it was written **to prove the fix**.
+    **Rule:** a fixture must never coincide with the default, the stub constant or
+    the fallback value of what you are checking. If it coincided — the test passes by coincidence.
+    Candidate for a cross-cutting pass: search tests for values equal to `HARDCODED_FALLBACK`,
+    `DEFAULT_*` constants and zeros that are simultaneously "empty" and "did not work".
 
-46. **Нестабильный тест уборки песочницы — возможно, нестабильна сама уборка.** 2026-08-13,
-    PR #527 (правил только `nginx/**` и один shell-скрипт) покраснел на юнит-тесте
-    `leaves no scratch directory behind, on success or on failure` в `apps/api`.
-    Доказательство постороннести: три последних прогона на `main` зелёные, а диф PR физически
-    не может влиять на песочницу рендера резюме. Перезапуск разблокировал.
-    **Почему это не «просто флак».** Тест утверждает, что после работы **не остаётся временного
-    каталога**. Падает он через раз — значит гонка есть либо в проверке (смотрит раньше, чем
-    уборка закончила), либо **в самой уборке**. Второе означает, что прод периодически
-    оставляет мусор в файловой системе, и заметить это можно только по заполнению диска.
-    Разница между этими двумя объяснениями — разница между косметикой и утечкой на проде,
-    и она не установлена.
-    **Что сделать:** прогнать тест в цикле (50-100 раз) и поймать состояние; если гонка в
-    уборке — чинить уборку, а не ожидание в тесте. Запрет на «pre-existing flake без
-    доказательства» тут соблюдён: доказательство постороннести есть, объяснение — нет.
+46. **A flaky sandbox cleanup test — possibly the cleanup itself is flaky.** 2026-08-13,
+    PR #527 (changed only `nginx/**` and one shell script) went red on the unit test
+    `leaves no scratch directory behind, on success or on failure` in `apps/api`.
+    Evidence of irrelevance: the last three runs on `main` are green, and the PR diff physically
+    cannot affect the resume render sandbox. A restart unblocked it.
+    **Why this is not "just a flake".** The test asserts that after the work **no temporary
+    directory remains**. It fails every other time — so the race is either in the check (it looks earlier than
+    the cleanup finished), or **in the cleanup itself**. The latter means that prod periodically
+    leaves garbage in the file system, and this can only be noticed by the disk filling up.
+    The difference between these two explanations is the difference between cosmetics and a leak on prod,
+    and it has not been established.
+    **What to do:** run the test in a loop (50-100 times) and catch the state; if the race is in
+    the cleanup — fix the cleanup, not the wait in the test. The ban on "pre-existing flake without
+    proof" is observed here: there is proof of irrelevance, there is no explanation.
 
-47. **Мутационный гейт не достаёт до кода, покрытого только интеграционными тестами.** Найдено
-    при починке пунктов 52/53/55 (PR #532), 2026-08-16. Раннер Stryker не выставляет флаг,
-    по которому `apps/api/vitest.config.mts` включает `*.integration.spec.ts` в обнаружение
-    (`isIntegrationRun(argv)` ложно). Значит мутанты на строках, чьё поведение проверяется
-    **только** интеграционной спекой, не могут быть убиты — они либо выживают, либо числятся
-    как «нет покрытия».
-    **Почему это важно именно у нас:** денежные пути (бюджеты, обязательства, погашение,
-    доначисление) покрываются в основном интеграционными спеками на реальном Postgres — то есть
-    ровно самый дорогой класс кода лежит вне гейта, который мы считаем главным доказательством.
-    Автор #532 обошёл это вручную: применил и откатил две мутации против настоящей БД, обе дали
-    красное. Ручной обход не масштабируется и не оставляет следа в CI.
-    Зона `scripts/devops/**`. Оценить, можно ли гонять отдельный прогон гейта с интеграционным
-    флагом и своей базой, и во сколько это обходится по времени.
-    **Вторая слепая зона того же гейта, найдена там же:** глобальное исключение `*.module.ts`
-    для всех пакетов. Значит вайринг — порядок глобальных guard'ов, состав провайдеров,
-    подключение перехватчиков — мутациями не покрыт в принципе. А это ровно тот слой, где
-    перестановка двух строк молча меняет поведение всей системы (см. MED-2 на #532: порядок
-    `JwtAuthGuard → OnboardingGuard → UserAwareThrottlerGuard` был верным и ничем не закреплён).
-    Обходится ручной мутацией, что не масштабируется и не оставляет следа в CI.
+47. **The mutation gate does not reach code covered only by integration tests.** Found
+    while fixing items 52/53/55 (PR #532), 2026-08-16. The Stryker runner does not set the flag
+    by which `apps/api/vitest.config.mts` includes `*.integration.spec.ts` in discovery
+    (`isIntegrationRun(argv)` is false). So mutants on lines whose behavior is checked
+    **only** by an integration spec cannot be killed — they either survive or are listed
+    as "no coverage".
+    **Why this matters specifically for us:** money paths (budgets, obligations, repayment,
+    accrual top-ups) are covered mostly by integration specs on a real Postgres — i.e.
+    precisely the most expensive class of code lies outside the gate we consider the main proof.
+    The author of #532 worked around this manually: applied and rolled back two mutations against a real DB, both gave
+    red. A manual workaround does not scale and leaves no trace in CI.
+    Zone `scripts/devops/**`. Evaluate whether a separate gate run with the integration
+    flag and its own database is possible, and what it costs in time.
+    **A second blind spot of the same gate, found in the same place:** a global exclusion of `*.module.ts`
+    for all packages. So wiring — the order of global guards, the provider set,
+    interceptor hookup — is not covered by mutations at all. And that is exactly the layer where
+    swapping two lines silently changes the behavior of the whole system (see MED-2 on #532: the order
+    `JwtAuthGuard → OnboardingGuard → UserAwareThrottlerGuard` was correct and pinned by nothing).
+    Worked around by a manual mutation, which does not scale and leaves no trace in CI.
 
-48. **`chargeBudget` называет чужую причину: истощение бюджета вместо конкуренции.** Найдено
-    code-review на #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts:867-871`.
-    Когда CAS проигран `CHARGE_BUDGET_MAX_ATTEMPTS` раз подряд, хвостовая ветка безусловно бросает
-    `JobSourceBudgetExhaustedError` — не перечитав, действительно ли бюджет исчерпан. Исход
-    консервативный (не потратим лишнего), поэтому денег это не стоит; но оператору сообщается
-    **неверная причина**: он видит «бюджет кончился» там, где на самом деле была конкуренция за
-    строку, и лимит может быть далёк от исчерпания.
-    Цена ошибки — не деньги, а диагностика: расследование пойдёт не туда. Починка дешёвая
-    (перечитать состояние перед броском и назвать причину честно), но требует своего теста,
-    иначе это ровно та проверка, которая не умеет краснеть. Trade-off задокументирован в коде,
-    но не покрыт тестом.
+48. **`chargeBudget` names the wrong cause: budget exhaustion instead of contention.** Found by
+    code-review on #532 (2026-08-16), `apps/api/src/job-sourcing/job-sourcing.service.ts:867-871`.
+    When the CAS is lost `CHARGE_BUDGET_MAX_ATTEMPTS` times in a row, the tail branch unconditionally throws
+    `JobSourceBudgetExhaustedError` — without re-reading whether the budget is really exhausted. The outcome is
+    conservative (we will not spend extra), so it costs no money; but the operator is told
+    **the wrong cause**: they see "budget ran out" where in fact there was contention for the
+    row, and the limit may be far from exhausted.
+    The cost of the error is not money but diagnostics: the investigation will go the wrong way. The fix is cheap
+    (re-read the state before throwing and name the cause honestly), but it requires its own test,
+    otherwise it is exactly the check that cannot go red. The trade-off is documented in the code,
+    but not covered by a test.
 
-49. **Несуществующий адрес отвечает `200 OK` и статически отдаёт главную страницу.**
-    Письмо Google Search Console 2026-08-16 22:14: новая причина неиндексации —
-    «запрещено тегом noindex». Механизм установлен и проверен в браузере с исполнением JS:
-    статически адрес отдаёт главную (её заголовок, её canonical, `index, follow`), после
-    гидратации становится «Page not found» с `noindex, nofollow` и canonical на `/404/`.
-    Один адрес сообщает поисковику три разные вещи подряд; Googlebot исполняет скрипты
-    и видит последнюю.
-    **Ошибка не в теге** — `noindex` проставляется правильно. Ошибка в том, что до него
-    страница успевает представиться главной с кодом 200: это и мягкая 404, и дубликат главной.
-    Задача написана: `.claude/tasks/task-soft-404-and-noindex.md`. Примыкает к пункту 39 —
-    та же поверхность.
-    **Урок про инструмент:** первый заход в расследование не нашёл ни одного `noindex`
-    и едва не закрыл вопрос как несуществующий, потому что `curl` не исполняет скрипты.
+49. **A nonexistent address answers `200 OK` and statically serves the home page.**
+    Google Search Console email 2026-08-16 22:14: a new reason for non-indexing —
+    "blocked by noindex tag". The mechanism was established and verified in a browser with JS execution:
+    statically the address serves the home page (its title, its canonical, `index, follow`), after
+    hydration it becomes "Page not found" with `noindex, nofollow` and canonical to `/404/`.
+    One address tells the search engine three different things in a row; Googlebot executes scripts
+    and sees the last one.
+    **The error is not in the tag** — `noindex` is set correctly. The error is that before it
+    the page manages to present itself as the home page with code 200: it is both a soft 404 and a duplicate of the home page.
+    The task is written: `.claude/tasks/task-soft-404-and-noindex.md`. Adjacent to item 39 —
+    the same surface.
+    **A lesson about the tool:** the first pass of the investigation found not a single `noindex`
+    and almost closed the question as nonexistent, because `curl` does not execute scripts.
 
-50. **`pre-bash-live-db-guard` срабатывает на ЧТЕНИЕ, а не на запуск.** Найдено 2026-08-17:
-    команда `git show <ref>:pnpm-lock.yaml | grep -oE '/vite/[0-9.]+'` — чистое чтение из
-    git-объекта, ни одного процесса — заблокирована хуком с текстом про запуск dev-сервера
-    против живой базы. Причина: сопоставление идёт по подстроке `vite` в тексте команды,
-    без разбора, запускается ли что-нибудь.
-    **Почему это важно, а не косметика.** Хук защищает реальный инцидент (PR #485, API две
-    минуты слушал живую базу владельца) и написан правильно по замыслу. Но страж, который
-    отказывает на безобидном `grep`, приучает обходить себя: обход у него дешёвый и
-    задокументирован прямо в тексте отказа (`DATABASE_URL=` пустой), поэтому рефлекс
-    «дописать префикс и повторить» вырабатывается за пару срабатываний — и срабатывает потом
-    на настоящем запуске тоже. Ложное срабатывание стоит не потерянной минуты, а доверия
-    к стражу.
-    Сузить сопоставление до фактического запуска (`pnpm dev`, `nest start`, `vite` как
-    команда, `node dist/main`), а не до появления слова в любой позиции. Зона DevOps.
+50. **`pre-bash-live-db-guard` fires on READING, not on launching.** Found 2026-08-17:
+    the command `git show <ref>:pnpm-lock.yaml | grep -oE '/vite/[0-9.]+'` — a pure read from a
+    git object, not a single process — was blocked by the hook with text about launching a dev server
+    against the live database. Cause: matching is done on the substring `vite` in the command text,
+    without parsing whether anything is launched.
+    **Why this matters, not cosmetics.** The hook protects against a real incident (PR #485, the API listened to
+    the owner's live database for two minutes) and is written correctly in intent. But a guard that
+    refuses a harmless `grep` trains people to bypass it: its bypass is cheap and
+    documented right in the refusal text (`DATABASE_URL=` empty), so the reflex
+    "append the prefix and repeat" develops in a couple of firings — and then fires
+    on a real launch too. A false positive costs not a lost minute but trust
+    in the guard.
+    Narrow the matching to an actual launch (`pnpm dev`, `nest start`, `vite` as
+    a command, `node dist/main`), not to the appearance of the word in any position. DevOps zone.
 
-51. **Рунбук описывает цикл проверки, который не заводится по написанному.** Найдено
-    devops-ревьюером на #539 (2026-08-17). `scripts/devops/locale-routing-runbook.md`
-    описывает «быстрый цикл проверки только конфига» через контейнер nginx — по инструкции
-    он не стартует: не хватает модуля brotli и заголовка `Host` в проверочных запросах.
-    Ревьюер доделал окружение сам и работу выполнил, но следующий будет разбираться заново.
-    **Тот же класс, что и всё в этом файле:** инструкция, которая не работает по написанному,
-    — это проверка, которая не может пройти. Пока её не выполняли, она выглядела рабочей.
-    Смежное там же: `scripts/devops/check-locale-routing.sh` содержит устаревшую строку,
-    ожидающую `200` там, где после #539 честный `404`. Скрипт не подведён ни в CI, ни в
-    выкатке — заодно решить, живой он или мёртвый груз. Зона DevOps, отдельный небольшой PR.
+51. **The runbook describes a verification loop that does not start as written.** Found
+    by the devops reviewer on #539 (2026-08-17). `scripts/devops/locale-routing-runbook.md`
+    describes a "quick config-only verification loop" via an nginx container — per the instructions
+    it does not start: the brotli module and the `Host` header in the verification requests are missing.
+    The reviewer finished the environment themselves and did the job, but the next one will have to figure it out again.
+    **The same class as everything in this file:** an instruction that does not work as written
+    is a check that cannot pass. Until it was executed, it looked workable.
+    Related, in the same place: `scripts/devops/check-locale-routing.sh` contains a stale line
+    expecting `200` where after #539 the honest answer is `404`. The script is wired neither into CI nor into
+    the rollout — decide at the same time whether it is alive or dead weight. DevOps zone, a separate small PR.
 
-52. **Старый костыль под тот же баг рамок, и его комментарий стал неверным.** Найдено
-    code-review на #540 (2026-08-17). `apps/web/app/styles/globals.css:197-212` —
+52. **An old crutch for the same frame bug, and its comment has become wrong.** Found by
+    code-review on #540 (2026-08-17). `apps/web/app/styles/globals.css:197-212` —
     `.nav-active-accent[data-status='active'] { border-left-color: var(--primary) !important; }`
-    из PR #287: точечный обход ровно того дефекта, который #540 закрыл в корне.
-    Регрессии нет (семантика `!important` в слоях проверена ревьюером), но сопровождающий
-    комментарий утверждает, что «неслойный CSS выигрывает у любого `@layer`» — после #540 это
-    уже неправда для этого файла.
-    **Почему стоит убрать, а не оставить как есть:** костыль с `!important` и объяснением,
-    которое больше не соответствует коду, — это ловушка для следующего. Он прочитает
-    объяснение, поверит и построит на нём следующее решение. Самопроверка автора это
-    закономерно не ловит: визуально сравнивать нечего, поведение не изменилось.
-    Проверить, нужен ли костыль вообще после #540, и либо снять его вместе с комментарием,
-    либо переписать комментарий по факту.
+    from PR #287: a point workaround for exactly the defect that #540 closed at the root.
+    No regression (the semantics of `!important` in layers were verified by the reviewer), but the accompanying
+    comment claims that "unlayered CSS beats any `@layer`" — after #540 this is
+    no longer true for this file.
+    **Why it is worth removing rather than leaving as is:** a crutch with `!important` and an explanation
+    that no longer matches the code is a trap for the next person. They will read the
+    explanation, believe it and build the next decision on it. The author's self-check
+    understandably does not catch this: there is nothing to compare visually, the behavior has not changed.
+    Check whether the crutch is needed at all after #540, and either remove it together with the comment,
+    or rewrite the comment to match the facts.
 
-53. **Фикстура счёта в `crm_qa` ссылается на файл, которого нет в хранилище.** Замечено
-    дизайнером на #540 попутно: предпросмотр PDF счёта отдаёт ошибку `NoSuchKey` от MinIO —
-    объект документа в тестовой базе есть, файла за ним нет. К правке отношения не имеет,
-    трогать не стал (и правильно).
-    Значение: любой тест или ручной проход, идущий этим путём, упирается в ошибку хранилища,
-    а не в проверяемое поведение. Такая фикстура маскирует настоящие поломки — падение
-    выглядит одинаково и когда сломан код, и когда просто нет файла.
+53. **The invoice fixture in `crm_qa` references a file that is not in storage.** Noticed
+    by the designer on #540 in passing: the invoice PDF preview returns a `NoSuchKey` error from MinIO —
+    the document object exists in the test database, the file behind it does not. Unrelated to the change,
+    they did not touch it (rightly so).
+    Meaning: any test or manual pass going this way runs into a storage error,
+    not into the behavior under test. Such a fixture masks real breakages — a failure
+    looks the same both when the code is broken and when the file is simply absent.
 
-54. **Новая форма обхода стража прод-DDL: мёртвое присваивание засчитывается за применение.**
-    Найдено code-review на #542 (2026-08-17). `check-prod-ddl-wiring.py` разбирает шаги
-    и ищет реальный вызов `psql` — но присваивание переменной с именем файла **в том же шаге**,
-    где `psql` вызывается для ДРУГОГО файла, засчитывается как «этот применён».
-    То есть страж, починенный от обхода комментарием, обходится мёртвым кодом.
-    В докстроке это упомянуто как известное ограничение — **но теста на него нет**, а
-    ограничение без теста живёт ровно до первого, кто его не прочтёт.
-    Отдельная задача: сузить разбор до строки, где имя файла действительно уходит в `psql`,
-    и написать проверку, краснеющую на этой форме подделки. Зона DevOps.
-    Смежное с пунктом 28 (тот же файл, предыдущая форма обхода — закрыта в #499/#520).
+54. **A new form of bypassing the prod-DDL guard: a dead assignment is counted as an application.**
+    Found by code-review on #542 (2026-08-17). `check-prod-ddl-wiring.py` parses steps
+    and looks for a real `psql` call — but an assignment of a variable with the file name **in the same step**
+    where `psql` is called for ANOTHER file is counted as "this one is applied".
+    That is, the guard fixed against a comment bypass is bypassed by dead code.
+    The docstring mentions this as a known limitation — **but there is no test for it**, and a
+    limitation without a test lives exactly until the first person who does not read it.
+    A separate task: narrow the parsing to the line where the file name actually goes into `psql`,
+    and write a check that goes red on this form of forgery. DevOps zone.
+    Related to item 28 (the same file, the previous form of bypass — closed in #499/#520).
 
-55. **Две поверхности маскировки джуниора устроены противоположно — и это осознанно.**
-    Зафиксировано security-review на #541 (2026-08-17), чтобы никто потом не «привёл к
-    единообразию» откатом одной из сторон.
-    - **Проектная поверхность** (`projects.service.ts:613-615`): строки участников
-      СОХРАНЯЮТСЯ, затираются поля. В коде прямо написано, что мощность множества
-      сохраняется намеренно — синьор видит, что участник есть, но не видит кто.
-    - **Вкладка «Команда»** (`getTeamMembersForUser`): строки УДАЛЯЮТСЯ целиком, счёт теряется.
-      Обе формы соответствуют решению владельца 2026-08-17 «скрывать везде». Но они разные,
-      и разница осмысленна: на проекте важно, что состав не пустой; на вкладке — что человека
-      вообще нет в списке. Тронуть одну «для консистентности» значит сломать замысел другой.
+55. **Two junior masking surfaces are built oppositely — and this is deliberate.**
+    Recorded by security-review on #541 (2026-08-17), so that nobody later "brings them to
+    uniformity" by reverting one of the sides.
+    - **The project surface** (`projects.service.ts:613-615`): member rows are
+      KEPT, fields are blanked. The code states directly that the cardinality of the set
+      is preserved deliberately — the senior sees that a member exists but does not see who.
+    - **The «Команда» tab** (`getTeamMembersForUser`): rows are REMOVED entirely, the count is lost.
+      Both forms correspond to the owner's decision of 2026-08-17 "hide everywhere". But they are different,
+      and the difference is meaningful: on a project what matters is that the roster is not empty; on the tab — that the person
+      is not in the list at all. Touching one "for consistency" means breaking the design of the other.
 
-56. **Синьор с ростером из одних джуниоров видит «Не состоит в команде».** Следствие
-    строгой формы маскировки (#541). Фактически неверно: команда есть, синьор её просто
-    не видит. Не security — ревьюер проверил, что счётчиков и агрегатов по этому эндпоинту
-    нет, единственный потребитель — `TeamTab.tsx`, только сортировка и рендер.
-    Но пустое состояние **врёт пользователю о факте**, а не просто скрывает данные.
-    Нужен текст, честный к обоим случаям: «нет команды» и «состав скрыт». Зона дизайнера,
+56. **A senior with a roster of only juniors sees «Не состоит в команде».** A consequence
+    of the strict form of masking (#541). Factually wrong: the team exists, the senior simply
+    does not see it. Not security — the reviewer checked that there are no counters or aggregates on this endpoint,
+    the only consumer is `TeamTab.tsx`, only sorting and rendering.
+    But the empty state **lies to the user about a fact**, rather than just hiding data.
+    Text is needed that is honest for both cases: "no team" and "roster hidden". Designer's zone,
     tier 3.
 
-## Аудит — вторая волна (не начата)
+## Audit — second wave (not started)
 
-Файловое хранилище R2 и временные ссылки · XSS-поверхность `apps/web` (контракты, markdown) ·
-инфраструктура и цепочка зависимостей. Запускать через skill `codebase-audit` (read-only fan-out).
+R2 file storage and temporary links · XSS surface of `apps/web` (contracts, markdown) ·
+infrastructure and dependency chain. Run via the `codebase-audit` skill (read-only fan-out).
 
-## Отдельные задания, уже написанные
+## Separate tasks already written
 
-- `.claude/tasks/task-soft-delete-and-money-audit.md` — мягкое удаление + журнал денежных операций
-  (требования владельца: видно только админу и бухгалтеру, в общем списке скрыто по умолчанию).
-- `.claude/tasks/task-authz-followups.md` — см. п. 5.
+- `.claude/tasks/task-soft-delete-and-money-audit.md` — soft delete + money operations journal
+  (owner's requirements: visible only to admin and accountant, hidden by default in the general list).
+- `.claude/tasks/task-authz-followups.md` — see item 5.
 
-## Уроки ревью — каскад правки оплаченных транзакций (2026-08-21/22)
+## Review lessons — paid-transaction edit cascade (2026-08-21/22)
 
-70. **Заполнение колонки задним числом опасно не тем, что пишет неверное значение, а тем, что
-    стирает признак «значение неизвестно».** #600, раунд 3 (HIGH-2). Пустой снимок суммы был
-    единственным способом отличить «залито миграцией» от «действительно подписано»; заполнение
-    гасило и предупреждение в логе, и саму отличимость — то есть закрывало окно исправления
-    ровно тем механизмом, срочностью которого себя обосновывало. Пустота — это информация.
-    **Следствие второго порядка:** если сузить источник заполнения условием, но не сузить тем же
-    патчем его проверку, `RAISE EXCEPTION` уронит шаг миграции **на проде**. Сужение источника
-    и сужение проверки обязаны быть одним патчем.
+70. **Backfilling a column is dangerous not because it writes a wrong value, but because it
+    erases the "value unknown" marker.** #600, round 3 (HIGH-2). An empty amount snapshot was
+    the only way to tell "filled by migration" from "actually signed"; the backfill wiped out
+    both the log warning and the distinguishability itself — closing the window for correction
+    with the very mechanism whose urgency it justified itself by. Emptiness is information.
+    **Second-order consequence:** if you narrow the backfill source with a condition but do not
+    narrow its check in the same patch, `RAISE EXCEPTION` will crash the migration step **in prod**.
+    Narrowing the source and narrowing the check must be one patch.
 
-71. **«0 выживших мутантов» ничего не говорит о непокрытых.** `check-mutation-tally.mjs:101-110`
-    краснеет только на `Survived > 0`; `NoCoverage` проходит молча. Заявленное покрытие надо
-    сверять по факту, а не по вердикту гейта. Отдельно: у Stryker **нет мутатора для операторов
-    внутри шаблонных строк**, поэтому SQL-фрагменты структурно недоказуемы этим гейтом — их
-    ловят только интеграционные тесты, а `Integration Tests (Postgres)` **не является
-    обязательной проверкой** на `main` (см. п. 72).
+71. **"0 surviving mutants" says nothing about the uncovered ones.** `check-mutation-tally.mjs:101-110`
+    goes red only on `Survived > 0`; `NoCoverage` passes silently. Claimed coverage must be
+    checked against the facts, not against the gate's verdict. Separately: Stryker has **no
+    mutator for operators inside template strings**, so SQL fragments are structurally unprovable
+    by this gate — only integration tests catch them, and `Integration Tests (Postgres)` is **not
+    a required check** on `main` (see item 72).
 
-72. **Единственный класс тестов, способный поймать регрессию в SQL-фрагменте, живёт в
-    необязательной проверке.** `Integration Tests (Postgres)` не входит в required checks —
-    красный интеграционный прогон не блокирует слияние. Решение владельца о переводе в
-    обязательные — открыто.
+72. **The only class of tests able to catch a regression in a SQL fragment lives in a
+    non-required check.** `Integration Tests (Postgres)` is not among the required checks —
+    a red integration run does not block merge. The owner's decision on making it
+    required is open.
 
-73. **`resolveBase()` в мутационном гейте выбирает неверную базу после слияния `origin/main`
-    в ветку.** Эвристика по merge-коммиту берёт собственную до-мержевую вершину разработчика,
-    и весь диф задачи молча выпадает из проверки. Гейт при этом зелёный.
+73. **`resolveBase()` in the mutation gate picks the wrong base after `origin/main` is merged
+    into a branch.** The merge-commit heuristic picks the developer's own pre-merge tip,
+    and the entire task diff silently drops out of the check. The gate stays green.
 
-74. **Успех доставки сообщения агенту не означает, что агент работал.** Рецидив: два
-    возобновлённых через `SendMessage` агента были мертвы, а отчитывались как «в работе»;
-    поймал владелец. Третий раз — агент по #600 завершился фразой «подожду уведомления»,
-    но работа при этом была сделана и запушена. Вывод в обе стороны: **проверять фактом** —
-    новые коммиты в ветке, опубликованное ревью, `ListAgents`. Контекст писать в task-файл,
-    а не держать в живом агенте: файл переживает смерть.
+74. **Successful delivery of a message to an agent does not mean the agent was working.**
+    Recurrence: two agents resumed via `SendMessage` were dead yet reported "in progress";
+    the owner caught it. The third time — the agent on #600 ended with the phrase "I'll wait for the notification",
+    but the work had been done and pushed. Takeaway in both directions: **verify by fact** —
+    new commits in the branch, a published review, `ListAgents`. Write context into the task file,
+    don't keep it in a live agent: the file survives death.
 
-75. **Мок, который сам вычисляет ожидаемый результат тем же способом, что и код, подтверждает
-    любую реализацию.** Проверять надо не совпадение, а оспаривание: тест обязан краснеть на
-    предыдущей версии кода. Требовать доказательства (`git stash` + прогон), а не утверждения.
+75. **A mock that computes the expected result the same way the code does confirms
+    any implementation.** What to check is not a match but a challenge: the test must go red on
+    the previous version of the code. Demand proof (`git stash` + run), not assertions.
 
-76. **Выбор «в начало или в конец» для целой группы строк — признак, что группы быть не должно.**
-    #601: «недатированные первыми» воспроизвело ту же регрессию на противоположном крае, как
-    только недатированных стало больше размера страницы. Верное решение — не край, а запасной
-    ключ сортировки (`txDate ?? createdAt`), уравнивающий строку с остальными.
+76. **Choosing "to the start or to the end" for a whole group of rows is a sign the group should not exist.**
+    #601: "undated first" reproduced the same regression at the opposite edge
+    once the undated rows outnumbered the page size. The right solution is not an edge but a fallback
+    sort key (`txDate ?? createdAt`) that puts the row on equal footing with the rest.
 
-77. **Дата-без-времени рендерится в местном поясе оператора, а сортируется в UTC.** Найдено
-    ревьюером на #601 (MED, не блокер). `dayOf()` в `finance/sort.ts` усекает до **UTC**-суток,
-    а колонка «Дата» идёт через `fmtDate()` (`finance/constants.ts:243`) — `toLocaleDateString`
-    **без** `timeZone: 'UTC'`, то есть в поясе браузера. Обоснование фикса раунда 2 было
-    «усечь до тех суток, которые показывает колонка» — при расхождении поясов это обоснование
-    перестаёт быть верным.
-    **Практического вреда для владельца сейчас нет:** Киев восточнее UTC, и полночь UTC у
-    даты-без-времени рендерится тем же днём. **Настоящий скрытый дефект шире сортировки** —
-    для любого оператора западнее UTC `fmtDate` покажет дату-без-времени **предыдущим днём**.
-    Чинить надо не `dayOf`, а `fmtDate`: датам-без-времени нужен явный `timeZone: 'UTC'`.
-    **Тестами это не доказуемо:** окружение проекта закреплено `TZ=UTC` (см. комментарий в
-    `SettleSeniorPayoutDialog.tsx:462`), поэтому расхождение физически не воспроизводится
-    ни в unit, ни в E2E, ни в гейте мутаций.
+77. **A date-without-time is rendered in the operator's local time zone but sorted in UTC.** Found
+    by the reviewer on #601 (MED, not a blocker). `dayOf()` in `finance/sort.ts` truncates to **UTC** days,
+    while the "Date" column goes through `fmtDate()` (`finance/constants.ts:243`) — `toLocaleDateString`
+    **without** `timeZone: 'UTC'`, i.e. in the browser's zone. The rationale for the round 2 fix
+    was "truncate to the day the column shows" — when the zones diverge, this rationale
+    stops being true.
+    **No practical harm to the owner right now:** Kyiv is east of UTC, and UTC midnight for
+    a date-without-time renders as the same day. **The real hidden defect is wider than sorting** —
+    for any operator west of UTC, `fmtDate` will show a date-without-time as the **previous day**.
+    The fix belongs in `fmtDate`, not `dayOf`: dates-without-time need an explicit `timeZone: 'UTC'`.
+    **Not provable by tests:** the project environment is pinned to `TZ=UTC` (see the comment in
+    `SettleSeniorPayoutDialog.tsx:462`), so the divergence physically cannot be reproduced
+    in unit, E2E, or the mutation gate.
 
-78. **Подписанный акт на выплату и его же QR-проверка называют разные суммы в разных валютах.**
-    Найдено security-review на #600 (HIGH-3). В акте — агрегат по связанным доходам (1000 USD),
-    в ответе публичной проверки — payable в USDT (740 USDT). Не гипотеза: воспроизводится тестом
-    из самого PR на одной фикстуре. Дефект **пред-существующий**, агрегированные инвойсы в проде
-    с 2026-06-02 (#80). Чинится в раунде 4 того же PR: единый хелпер резолюции суммы, общий для
-    подписания и проверки.
+78. **A signed payout act and its own QR verification name different amounts in different currencies.**
+    Found by security review on #600 (HIGH-3). The act has the aggregate over linked incomes (1000 USD),
+    the public verification response has the payable in USDT (740 USDT). Not a hypothesis: reproducible by a test
+    from the PR itself on one fixture. The defect is **pre-existing**, aggregated invoices in prod
+    since 2026-06-02 (#80). Fixed in round 4 of the same PR: a single amount-resolution helper shared by
+    signing and verification.
 
-79. **Сумма инвойса по выплате собирается из строк в разных валютах вслепую.** Всплыло при
-    разборе п. 78. `signInvoice` суммирует связанные доходы через `parseFloat` **без учёта
-    валюты** и берёт валюту первой строки — при этом `SELECT` идёт **без `ORDER BY`**, то есть
-    «первая» недетерминирована. Пока все доходы одной выплаты в одной валюте, это не стреляет;
-    как только нет — подписанный документ содержит бессмысленное число, и какое именно, зависит
-    от планировщика.
+79. **The payout invoice amount is assembled blindly from rows in different currencies.** Surfaced
+    while analysing item 78. `signInvoice` sums linked incomes via `parseFloat` **without regard
+    to currency** and takes the currency of the first row — while the `SELECT` has **no `ORDER BY`**, so
+    "first" is nondeterministic. As long as all incomes of one payout share a currency, it does not fire;
+    as soon as they do not — the signed document contains a meaningless number, and which one depends on
+    the planner.
 
-80. **`GET /api/invoices/verify/:id` публичный и без собственного троттла.** Отмечено при разборе
-    MED-D на #600. Пока нагрузка на запрос мала, это не проблема; любая логика, добавляющая на
-    него запросы к БД, обязана быть узко ограничена по множеству строк.
+80. **`GET /api/invoices/verify/:id` is public and has no throttle of its own.** Noted while analysing
+    MED-D on #600. While the load on the request is small, it is not a problem; any logic that adds
+    DB queries to it must be tightly bounded by the row set.
 
-81. **Флак в модульном прогоне срабатывает на БЫСТРОЙ машине, а не на медленной.**
-    `resume-render-responsiveness.spec.ts:183` — `Math.max(...samples)`. `samples` наполняется
-    циклом проб всё время рендера: чем быстрее раннер, тем больше проб успевает пройти, тем
-    вероятнее упереться в лимит аргументов вызова и получить переполнение стека. То есть
-    привычная интуиция «флак = медленный раннер» здесь ведёт в противоположную сторону.
-    **ЗАКРЫТО** (#604, смёржен). Свёртка вместо спреда + регрессия на 200 000 элементов.
-    Остальные пять мест со спредом проверены поимённо и оставлены осознанно: ни одно не
-    разделяет форму дефекта (накопление сэмплов на всю длительность операции) — помесячные
-    графики, доходы одной группы в модалке, фиксированный массив длины 8.
+81. **A flake in the unit run triggers on a FAST machine, not a slow one.**
+    `resume-render-responsiveness.spec.ts:183` — `Math.max(...samples)`. `samples` is filled by
+    a probe loop for the whole duration of the render: the faster the runner, the more probes get through, the
+    likelier it is to hit the call-argument limit and get a stack overflow. That is,
+    the usual intuition "flake = slow runner" points the opposite way here.
+    **CLOSED** (#604, merged). A fold instead of a spread + a regression with 200,000 elements.
+    The remaining five spread sites were checked by name and deliberately left: none
+    shares the shape of the defect (accumulating samples for the whole duration of an operation) —
+    monthly charts, incomes of a single group in a modal, a fixed array of length 8.
 
-82. **Гейт мутаций не видит `*.integration.spec.ts` — и это делает целые эндпоинты невидимыми
-    для него.** Подтвердилось дважды за день. На #603 весь новый эндпоинт давал «0 killed» в
-    логе именно поэтому: покрытие было, но интеграционное, а Stryker его не считает. Лечится
-    юнит-дублём (правило `mutation-gate-integration-specs.md`), но заметить проблему можно только
-    прочитав лог — **вердикт гейта при этом зелёный**, потому что он краснеет лишь на `Survived`.
-    Складывается с п. 71 и п. 72 в один вывод: на SQL-путях зелёный гейт мутаций не значит ничего,
-    а единственная проверка, которая там что-то значит, необязательная.
+82. **The mutation gate does not see `*.integration.spec.ts` — and that makes whole endpoints invisible
+    to it.** Confirmed twice in one day. On #603 an entire new endpoint showed "0 killed" in
+    the log for exactly this reason: there was coverage, but integration coverage, and Stryker does not count it.
+    Cured by a unit duplicate (rule `mutation-gate-integration-specs.md`), but the problem can be noticed only by
+    reading the log — **the gate's verdict stays green**, because it goes red only on `Survived`.
+    Combined with item 71 and item 72 it gives one conclusion: on SQL paths a green mutation gate means nothing,
+    and the only check that means anything there is non-required.
 
-83. **Акт по выплате со смешанными валютами печатает бессмысленную сумму — при том, что
-    корректная уже посчитана.** Найдено при разборе HIGH-4 на #600. Батч со строками в разных
-    валютах конвертируется в USDT по курсам НБУ, и результат лежит в `transactions.amount`.
-    А в PDF идёт **слепая сумма сырых чисел** (`autoCreateForPayout`, `parseFloat`-редьюс без
-    учёта валюты) с валютой произвольной строки. То есть на руках у человека юридический документ
-    с числом, которое не значит ничего, хотя осмысленное число система уже знает.
-    **Не чинить в #600:** что должен показывать акт — слепую сумму (как сейчас), конвертированный
-    итог или разбивку по валютам — решение продуктовое и юридическое, не кодерское. Нужен вердикт
-    владельца, возможно с юристом. До тех пор #600 обязан лишь **не ухудшать**: снимок хранит ровно
-    напечатанное, каким бы дефектным оно ни было.
+83. **A payout act with mixed currencies prints a meaningless amount — even though the correct one
+    is already computed.** Found while analysing HIGH-4 on #600. A batch with rows in different
+    currencies is converted to USDT at NBU rates, and the result sits in `transactions.amount`.
+    But the PDF gets a **blind sum of raw numbers** (`autoCreateForPayout`, a `parseFloat` reduce
+    ignoring currency) with the currency of an arbitrary row. So a person ends up holding a legal document
+    with a number that means nothing, although the system already knows a meaningful one.
+    **Do not fix in #600:** what the act should show — the blind sum (as now), the converted
+    total, or a breakdown by currency — is a product and legal decision, not a coder's. It needs the owner's
+    verdict, possibly with a lawyer. Until then #600 must only **not make it worse**: the snapshot stores exactly
+    what was printed, however defective it is.
 
-84. **Смешанные валюты в батче — намеренная конфигурация, а не край.** Важно помнить при любой
-    правке этого пути: прежний жёсткий гвард сняли **как баг** —
-    `transactions.service.ts:4208-4214`, «the previous hard guard blocked legitimate mixed-currency
-    batches». Любое решение «просто запретить смешанные валюты» будет повторным внесением того же
-    бага.
+84. **Mixed currencies in a batch are an intentional configuration, not an edge case.** Important to remember on any
+    change to this path: the previous hard guard was removed **as a bug** —
+    `transactions.service.ts:4208-4214`, "the previous hard guard blocked legitimate mixed-currency
+    batches". Any decision to "just forbid mixed currencies" would be a reintroduction of the same
+    bug.
 
-85. **Правило, продублированное в трёх местах, с комментарием «держите копии в синхроне».**
-    Сумма инвойса по выплате считалась независимо в `autoCreateForPayout`, `signInvoice` и
-    `verifyInvoice`; комментарий третьей копии прямо просит читателя синхронизировать её вручную
-    («signInvoice PAYOUT branch mirrors this exactly»). Просьба к читателю — не механизм.
-    Устраняется в раунде 5 #600 сведением к одному хелперу. Стоит искать такие же формулировки
-    в других местах: «mirrors X exactly» в комментарии — почти всегда маркер третьей копии.
+85. **A rule duplicated in three places, with a comment "keep the copies in sync".**
+    The payout invoice amount was computed independently in `autoCreateForPayout`, `signInvoice` and
+    `verifyInvoice`; the third copy's comment directly asks the reader to sync it by hand
+    ("signInvoice PAYOUT branch mirrors this exactly"). A request to the reader is not a mechanism.
+    Eliminated in round 5 of #600 by collapsing to a single helper. Worth looking for the same wording
+    elsewhere: "mirrors X exactly" in a comment is almost always a marker of a third copy.
 
-86. **Один и тот же структурный дефект найден сегодня дважды в несвязанных местах: число
-    посчитано из двух несравнимых величин.** В инвойсах — акт на 1000 USD против проверки
-    740 USDT (#600 HIGH-3). В каскаде — доля в USDT минус накопитель, хранящийся **в валюте
-    платежа** (#603 HIGH-2): обязательство, закрытое в гривне, кладёт ≈2000 в накопитель, и
-    почти любая правка объявляет дропа переплаченным. Общая форма: **валюта хранится рядом со
-    значением, но в арифметику не входит**, а предупреждение о валюте вешается уже поверх
-    посчитанного числа. Стоит просмотреть остальные денежные пути на эту же форму:
-    везде, где есть пара `amount` + `currency`, вычитание/сравнение обязано либо проверять
-    равенство валют, либо не выдавать числа вовсе.
+86. **The same structural defect was found twice today in unrelated places: a number
+    computed from two incomparable quantities.** In invoices — an act for 1000 USD versus a verification
+    of 740 USDT (#600 HIGH-3). In the cascade — the share in USDT minus an accumulator stored **in the
+    payment currency** (#603 HIGH-2): an obligation closed in hryvnia puts ≈2000 into the accumulator, and
+    almost any edit declares the drop overpaid. The common form: **the currency is stored next to the
+    value but does not enter the arithmetic**, and the currency warning is hung on top of the already computed number.
+    Worth reviewing the remaining money paths for this same form:
+    wherever there is an `amount` + `currency` pair, subtraction/comparison must either check
+    currency equality or not produce a number at all.
 
-87. **Property-тест может быть слеп по построению.** #603 HIGH-1: генератор выводил
-    `settledAmount` **из** флага «обязательство закрыто», поэтому спорная комбинация
-    «обязательство `PENDING` + накопитель > 0» не порождалась ни разу — а проверяемый «инвариант
-    монотонности» утверждался только там, где нарушиться не мог. Тот же класс, что мок,
-    подтверждающий любую реализацию, только уровнем выше: **дефект не в утверждении, а в
-    генераторе**. При ревью property-тестов смотреть не на ассерты, а на то, какие комбинации
-    вход вообще способен породить.
+87. **A property test can be blind by construction.** #603 HIGH-1: the generator derived
+    `settledAmount` **from** the "obligation closed" flag, so the disputed combination
+    "obligation `PENDING` + accumulator > 0" was never produced even once — and the "monotonicity
+    invariant" under test was asserted only where it could not be violated. The same class as a mock
+    confirming any implementation, only a level up: **the defect is not in the assertion but in the
+    generator**. When reviewing property tests, look not at the asserts but at which combinations
+    the input can produce at all.
 
-88. **Лейбла `security-noted` в репозитории нет.** Ревьюеры пытаются его ставить и не могут
-    (`gh label list` — отсутствует). Либо завести, либо убрать упоминание из инструкций агентов.
+88. **The `security-noted` label does not exist in the repository.** Reviewers try to apply it and cannot
+    (`gh label list` — absent). Either create it or remove the mention from the agent instructions.
 
-89. **Флаг, который поднимается только на одной ветке, на всех остальных утверждает ложь.**
-    #600 MED-G: `mixedCurrency` выставлялся лишь на legacy-пути пересчёта, поэтому для нормального
-    подписанного инвойса смешанного батча публичный ответ говорил `mixedCurrency: false` — отрицал
-    смешанность ровно в том случае, ради которого поле вводили. Собственный тест PR это
-    закреплял (`false` для батча 1000 USD + 500 EUR). Общая форма: **булево поле не различает
-    «нет» и «не определялось»**, а потребитель читает его как «нет». Лечится нулевым третьим
-    состоянием. Сюда же п. 70: пустота — это информация, и её нельзя подменять уверенным «нет».
+89. **A flag raised on only one branch asserts a falsehood on all the others.**
+    #600 MED-G: `mixedCurrency` was set only on the legacy recalculation path, so for a normal
+    signed invoice of a mixed batch the public response said `mixedCurrency: false` — denying
+    mixedness in exactly the case the field was introduced for. The PR's own test
+    pinned this (`false` for a 1000 USD + 500 EUR batch). The common form: **a boolean field does not distinguish
+    "no" from "not determined"**, and the consumer reads it as "no". Cured by a nullable third
+    state. Item 70 belongs here too: emptiness is information, and it must not be replaced by a confident "no".
 
-90. **Ручная чистка `payout_requests` сломает подписание актов.** Отмечено на #600 раунд 6.
-    Сейчас недостижимо (`payout_requests` не удаляет ни код, ни ручные миграции), но схема **сама**
-    называет «future cleanup of payout_requests» реалистичным — ради этого в #443 заводили
-    `dropCascadeOrigin`. При такой чистке FK `ON DELETE SET NULL` (`schema.ts:706-708`) обнулит
-    `payoutRequestId`, и `signInvoice` начнёт падать 409. Если чистку когда-нибудь будут делать —
-    сначала посмотреть сюда.
+90. **Manual cleanup of `payout_requests` will break act signing.** Noted on #600 round 6.
+    Currently unreachable (neither code nor manual migrations delete `payout_requests`), but the schema **itself**
+    calls "future cleanup of payout_requests" realistic — `dropCascadeOrigin` was introduced in #443
+    for that. With such a cleanup, the FK `ON DELETE SET NULL` (`schema.ts:706-708`) will null out
+    `payoutRequestId`, and `signInvoice` will start failing with 409. If the cleanup is ever done —
+    look here first.
 
-91. **Гвард может держаться на инварианте, который снимает следующая задача того же каскада.**
-    #603 HIGH-2-residual, и это самая тонкая находка дня. Сравнение валюты с литералом `'USDT'`
-    верно сегодня только потому, что валюту строки держит неизменной BIZ-18 — **тот самый гвард,
-    который снимает задача 3**. Никакой тест этого не поймает: юнит докажет лишь, что литерал
-    таков, каков есть, но не что от него зависит другой пакет.
-    **Общее правило:** при ревью допущения спрашивать не «верно ли оно сейчас», а «что именно его
-    держит и не входит ли это в план ближайших работ». В многозадачном каскаде инвариант,
-    подпирающий чужой код, — обязательство, о котором обе стороны должны знать.
-    **Асимметрия, которую стоит запомнить:** на стороне записи в этой же базе
-    (`pending-settlement.service.ts:806`) на недостижимом сегодня инварианте отказывают **вслух**.
-    Запись выбрала громкий отказ, чтение — молчаливое предположение. Выравнивать надо к записи.
+91. **A guard may rest on an invariant that the next task of the same cascade removes.**
+    #603 HIGH-2-residual, and this is the subtlest finding of the day. Comparing the currency to the literal `'USDT'`
+    is correct today only because the row's currency is held unchanged by BIZ-18 — **the very guard
+    that task 3 removes**. No test will catch this: a unit test will only prove that the literal
+    is what it is, not that another package depends on it.
+    **General rule:** when reviewing an assumption, ask not "is it true now" but "what exactly holds it
+    up and is that part of the plan for the upcoming work". In a multi-task cascade, an invariant
+    propping up someone else's code is an obligation both sides must know about.
+    **An asymmetry worth remembering:** on the write side in this same codebase
+    (`pending-settlement.service.ts:806`) they refuse **loudly** on an invariant that is unreachable today.
+    The write side chose a loud refusal, the read side a silent assumption. Align to the write side.
 
-92. **Тест «покраснеет при смене литерала» — почти всегда самообман.** Продолжение п. 91: такой
-    тест доказывает существование литерала, а не зависимость от него удалённого потребителя.
-    Если корректность модуля A зависит от значения в модуле B, чинить надо связь (читать значение
-    B), а не заводить в B тест-сторож.
+92. **A "will go red when the literal changes" test is almost always self-deception.** A continuation of item 91: such
+    a test proves the existence of the literal, not the dependence of a remote consumer on it.
+    If module A's correctness depends on a value in module B, the thing to fix is the link (read B's
+    value), not to add a watchdog test in B.
 
-93. **Агент без `isolation=worktree` наследует worktree родителя, а не тот, что назван в задании.**
-    Поймано на #603: в промпте был указан рабочий каталог, но harness выдал агенту worktree
-    вызывающей сессии, и `git rev-parse --show-toplevel` вернул главный чекаут. Хук
-    `pre:bash:cross-agent-blast` это отловил и заблокировал правки «чужого» дерева — то есть
-    защита сработала штатно, но задание было сформулировано так, что агент физически не мог его
-    исполнить как написано.
-    **Вывод для диспатча:** если агент должен работать в конкретном существующем worktree,
-    указания в тексте промпта **недостаточно** — либо он сам делает `git worktree add --detach`
-    в свой scratch, либо задание строится вокруг ветки, а не каталога. Побочно: указывать
-    абсолютный путь чужого worktree в промпте — приглашение к контаминации, которую потом
-    ловит хук.
+93. **An agent without `isolation=worktree` inherits the parent's worktree, not the one named in the task.**
+    Caught on #603: the prompt specified a working directory, but the harness gave the agent the worktree of
+    the calling session, and `git rev-parse --show-toplevel` returned the main checkout. The hook
+    `pre:bash:cross-agent-blast` caught this and blocked edits to the "foreign" tree — so the
+    protection worked as designed, but the task was worded so that the agent physically could not
+    execute it as written.
+    **Takeaway for dispatch:** if an agent must work in a specific existing worktree,
+    stating it in the prompt text is **not enough** — either it does `git worktree add --detach`
+    into its own scratch, or the task is built around a branch, not a directory. Side note: giving
+    the absolute path of someone else's worktree in the prompt is an invitation to contamination, which the hook then
+    catches.
 
-94. **У `signInvoice` не было ни одного happy-path юнит-теста — обнаружено на седьмом раунде #600.**
-    Функция подписывает юридические документы и двигает деньги; все юнит-тесты вокруг неё были
-    на `SENIOR_INCOME` и бросали исключение **до** PAYOUT-ветки. Гейт мутаций молчал, потому что
-    непокрытые ветки он не краснит (п. 71), а интеграционная спека гоняла PAYOUT только по
-    счастливому пути и до `throw`-веток не доходила.
-    **Урок шире одной функции:** «покрыта тестами» и «имеет хотя бы один тест, который её реально
-    выполняет» — разные утверждения, и второе стоит проверять отдельно на денежных путях.
-    Стоит прогнать инвентаризацию: какие ещё функции, двигающие деньги, не имеют ни одного
-    исполняющего их юнит-теста.
+94. **`signInvoice` had not a single happy-path unit test — discovered in round seven of #600.**
+    The function signs legal documents and moves money; all unit tests around it were
+    on `SENIOR_INCOME` and threw an exception **before** the PAYOUT branch. The mutation gate was silent because
+    it does not redden on uncovered branches (item 71), and the integration spec exercised PAYOUT only along
+    the happy path and never reached the `throw` branches.
+    **A lesson wider than one function:** "covered by tests" and "has at least one test that actually
+    executes it" are different claims, and the second is worth checking separately on money paths.
+    It is worth running an inventory: which other money-moving functions have no unit test
+    that executes them.
 
-95. **Тот же дефект «валюта не входит в арифметику» переехал в тракт отображения — и его триггер
-    тоже задача 3.** Найдено security-review на #603 раунд 3 (SR-M-1, не блокер). `oldAmount`
-    берётся из строк, которым `bookCompanyObligations` штампует `currency: 'USDT'` литералом,
-    но в плане помечается `sourceCurrency`. `CascadeDerivativeSnapshot.currency` грузится и не
-    читается; `pendingObligations.currency` в снимок вообще не попадает. Сегодня недостижимо —
-    BIZ-18 запрещает менять валюту у оплаченной строки. **Но BIZ-18 это одно условие на
-    `amount || currency || salaryMonth`**: если задача 3 ослабит его целиком, а не хирургически
-    про `amount`, админ увидит USDT-число с меткой EUR. Второй случай п. 91 подряд, и оба ждут
-    одного и того же неверного движения в задаче 3.
+95. **The same "currency does not enter the arithmetic" defect moved into the display path — and its trigger
+    is also task 3.** Found by security review on #603 round 3 (SR-M-1, not a blocker). `oldAmount`
+    is taken from rows to which `bookCompanyObligations` stamps `currency: 'USDT'` as a literal,
+    but the plan labels it `sourceCurrency`. `CascadeDerivativeSnapshot.currency` is loaded and never
+    read; `pendingObligations.currency` does not reach the snapshot at all. Unreachable today —
+    BIZ-18 forbids changing the currency of a paid row. **But BIZ-18 is one condition
+    on `amount || currency || salaryMonth`**: if task 3 relaxes it wholesale rather than surgically
+    for `amount`, the admin will see a USDT number labelled EUR. The second case of item 91 in a row, and both wait for
+    the same wrong move in task 3.
 
-96. **Тест может покупать цифру гейта вместо защиты.** #603, LOW: тест на границу
-    `settledAmount > 0` убивает свой мутант **только** отрицательной суммой источника — входом,
-    который `.positive()` на wire-схеме не пропускает. В реальной области входов `>= 0`
-    эквивалентен `> 0`, то есть мутант эквивалентный, а тест поднимает счёт гейта, ничего не
-    защищая. Честнее было бы подавление с аргументом эквивалентности. Форма для распознавания:
-    **тест зелёный только на входе, который в проде невозможен.**
+96. **A test can buy the gate's number instead of protection.** #603, LOW: the test on the
+    `settledAmount > 0` boundary kills its mutant **only** with a negative source amount — an input
+    that `.positive()` on the wire schema does not let through. In the real input domain `>= 0`
+    is equivalent to `> 0`, i.e. the mutant is equivalent, and the test raises the gate's count while protecting
+    nothing. An honest approach would have been a suppression with an equivalence argument. The form to recognise:
+    **the test is green only on an input that is impossible in prod.**
 
-## Решения владельца 2026-08-23
+## Owner's decisions 2026-08-23
 
-**Р-1 (закрывает п. 72). `Integration Tests (Postgres)` переведён в обязательные проверки `main`.**
-Применено через API branch protection 2026-08-23; required checks стали
+**D-1 (closes item 72). `Integration Tests (Postgres)` made a required check on `main`.**
+Applied via the branch protection API on 2026-08-23; the required checks are now
 `Typecheck · Lint · Unit Tests` · `E2E Tests` · `Integration Tests (Postgres)`.
 
-Что проверено перед применением, чтобы не повторить класс «переименование job'а ломает мерж»:
-
-- Имя чек-рана снято с **реального коммита** (`ffb04fc0`), а не выведено из YAML:
-  `Integration Tests (Postgres)`, без префикса воркфлоу. Required check матчится по имени —
-  переименование job'а в `ci.yml` теперь блокирует мерж всего репозитория.
-- Job **всегда исполняется**; docs-фильтр висит на его _шагах_ (`steps.scope.outputs.code`),
-  а не на самом job'е. Значит вердикт приходит всегда, и docs-only PR не встаёт на
-  «required check skipped». Это было главным механическим риском — его нет.
-- `enforce_admins` = `true` (было до этой правки, не менялось): обойти чек нельзя и владельцу.
-
-Следствие, о котором надо помнить: **флак в интеграционной спеке теперь блокирует все мержи**,
-а не только свой PR. Zero-tolerance к флаку из `feedback_zero_flaky_e2e` распространяется на
-интеграционный прогон в полной мере.
-
-**Р-2 (закрывает п. 83/84). Акт по выплате со смешанными валютами печатает ОДНУ финальную валюту.**
-Решение владельца: не разбивка по валютам и не слепая сумма — **один конвертированный итог**.
-Осмысленное число система уже знает: батч конвертируется по курсам НБУ и результат лежит в
-`transactions.amount`; сегодня в PDF вместо него идёт слепой `parseFloat`-редьюс сырых чисел
-с валютой произвольной строки (и `SELECT` без `ORDER BY`, то есть «произвольной» буквально).
-
-Границы решения, чтобы его не расширили при реализации:
-
-- **Запрет смешанных валют в батче — по-прежнему НЕ вариант** (п. 84): прежний жёсткий гвард
-  сняли как баг, он блокировал легитимные батчи. Решение про то, что **печатать**, а не про то,
-  что **разрешать**.
-- Юрист не привлекался: владелец решил напрямую. Если форма акта когда-нибудь будет
-  оспорена контрагентом — вот точка, с которой начинать.
-- Задачу 3 каскада это не блокирует и в неё не входит (AC5 п. 10 — не чинить соседнее заодно).
-  Отдельное задание.
-
-**Р-3. Автоподача резюме — на паузе, ожидается смена подхода.**
-Решение владельца 2026-08-23. Пауза, **не** отмена: код `apps/api/src/job-sourcing/**`
-(провайдер DOU, фильтрация, html→markdown, бюджеты источников, матчинг) остаётся в `main` и
-работает. Меняется подход к тому, как автоподача делается дальше; какой именно — не сказано.
-
-Как это применять, чтобы пауза не «рассосалась» сама:
-
-- Черновики заданий по теме в `.claude/tasks/` (`task-resume-per-vacancy`, `task-vacancy-matching`,
-  `task-job-sourcing-slice1`, `task-resume-*`) **в работу не подбирать** без нового явного слова
-  владельца — они написаны под прежний подход, и переиспользовать их вслепую нельзя.
-- Находки ревью по `job-sourcing` **записывать как обычно**: пауза про новую разработку, а не про
-  фиксацию дефектов. Безопасность и падения прода под паузу не попадают.
-- Прежде чем что-то предлагать по теме — спросить, каким стал подход.
-
-Приоритет на момент паузы — каскад правки оплаченных транзакций (задачи 3, 5, затем 3b).
-
-## Найдено при ревью #607 (2026-08-23)
-
-**97. Session-scratchpad делится между агентами, и чекаут по родовому имени исчезает под ногами.**
-Замечено security-reviewer'ом на #607. Его первый чекаут `…/scratchpad/checkout` пропал с диска
-между двумя вызовами, а в том же каталоге лежали чужие файлы (`pr-body.md`, `addendum.md`,
-`tx-diff.patch`), созданные до старта его сессии. То есть scratchpad, который агент считает
-своим, таковым не является.
-
-Это та же семья, что `agent-isolation.md` §3 (общий рабочий каталог по предсказуемому имени),
-только уровнем ниже: правило закрыло `/tmp/rev<PR>`, но не родовые имена **внутри** scratchpad.
-`checkout` — ровно такое имя: его выберет любой ревьюер, которому нужен свой чекаут, и §6 скилла
-`code-review-discipline` фактически предлагает именно его.
-
-Ревьюер обошёл сам, пересоздав под уникальным `sr607-checkout`, и на его выводы это не повлияло.
-Но обход держится на внимательности, а не на механике — то есть ровно то, что мы стараемся не
-оставлять. Чинить в правиле: имя чекаута выводится из идентификатора агента, как и путь worktree.
-
-**98. Терм леджера, проверенный арифметикой на позиционных суммах, не проверяет членство в множестве.**
-Сформулировано security-reviewer'ом на #607 и подтвердилось находкой SR-H-2. Юнит-тест девятого
-терма скармливает девять фиксированных чисел и утверждает точный итог — он ловит знак, пропущенный
-терм и суммирование не той колонки, но **не может поймать неверный предикат**: какие именно строки
-попадут в SUM, решает Postgres, а мок этого вопроса не задаёт. Тест при этом выглядит
-исчерпывающим и зелёный.
-
-Форма для распознавания: **тест на агрегат проверяет арифметику агрегата, а не отбор в него.**
-Отбор доказуем только исполняемым запросом к настоящей БД — то есть интеграционной спекой,
-которую гейт мутаций не видит (п. 82). Значит на денежных термах нужны обе половины, и отсутствие
-второй не выдаёт себя ничем.
-
-**Р-4. Порядок каскада меняется: задача 3b идёт ПЕРЕД задачей 5.**
-Решение владельца 2026-08-23, принято после того, как изменилась цена отсрочки.
-
-Что изменилось. В первой редакции задания доплата по дроп-обязательству отказывала **в момент
-доплаты** — то есть строка просто ждала 3b, а всё остальное работало. Закрытие SR-M-3/SR-M-4
-единым законом AC15 («каскад не откатывает то, что не сможет закрыть») перенесло отказ **на момент
-правки**: каскад не имеет права переоткрывать обязательство, которое потом нечем закрыть, потому
-что переоткрытая строка заявляет несуществующий долг перед человеком, и выйти из этого состояния
-можно только правкой данных.
-
-Следствие: **доход, у которого доля дропа уже выплачена, нередактируем до 3b.** Это обычный
-сценарий, а не край. Поэтому 3b перестала быть приятным дополнением и стала условием полноты фичи.
-
-Новый порядок: **3 → 3b → 5**. UI выезжает, когда обе ветки (senior и drop) закрываются через
-систему, а не с экраном, который показывает «нельзя» на нормальном сценарии.
-
-**99. E2E-фикстуры и `db:seed` расходятся: локальный полный прогон невоспроизводим.**
-Найдено кодером на #607 раунд 2. Все падения локального E2E умирают на `dev-login` с
-`HTTP 404 — User admin@cheekycheese.dev not found in DB`: этих пользователей нет нигде в
-`apps/api` (грепом по репозиторию находится только сам файл фикстур), а `db:seed` создаёт других.
-
-Показано, а не заявлено: подмена `apps/api/src` + `packages/shared/src` на `origin/main` даёт
-**ровно то же** число падений, что и на ветке; `git diff origin/main -- apps/web apps/e2e apps/landing`
-пуст. То есть пре-существующий пробел, не регресс задачи.
-
-Почему это не косметика: **на CI E2E зелёный**, потому что там свой набор шагов подготовки БД.
-Значит разработчик, гоняющий E2E локально перед push (а это требование `feedback_e2e_before_push`),
-получает красноту, не связанную с его правкой, — и приучается объяснять её словами
-«pre-existing», ровно тем оборотом, который zero-tolerance-правило запрещает без доказательства.
-Один раз это уже привело к неверному отчёту: кодер объявил прогон зелёным, прочитав обрезанный
-`tail -6` вывод `line`-репортёра, где итог виден, а список падений — нет.
-
-Зона AutoTest. Чинить либо сидом (завести фикстурных пользователей), либо фикстурами (взять тех,
-кого сид реально создаёт). Побочно: `tail` на выводе `line`-репортёра — ловушка, итог печатается
-после списка падений.
-
-**Р-5. Доплата обязана идти от того же плательщика, а не только из того же кармана.**
-Решение владельца 2026-08-23 по находке SR-M-5 (#607 раунд 2).
-
-AC14 в первой редакции сверял **источник финансирования** — `COMPANY_ACCOUNT` против `null`.
-Внутри `ADMIN_PERSONAL` источник у всех админов один и тот же (`null`), при этом флип
-перезаписывает `senderId`, а личные балансы (`adminBalances.sent`) суммируют `amount` строки по
-`senderId`. Итог: админ A платит 260 → откат → админ B доплачивает остаток → **вся сумма строки
-числится за B, а A выглядит не заплатившим**. Счёта компании это не касается — потому MED, — но
-это деньги между двумя партнёрами с долями 50/50, и расхождение тихое: нигде не всплывёт, пока
-доли не сведут вручную.
-
-Отклонённая альтернатива: колонка «кто и сколько внёс» по образцу `settled_currency`. Точнее и
-ничего не блокирует, но это отдельная задача с миграцией и правкой личных балансов, а #607 её
-ждать не должен.
-
-Принятая цена: если первый платёж сделал один админ, закрыть остаток обязан он же — второй
-получит отказ вслух с указанием, кто платил. Обратимо: снять условие и завести колонку.
-
-**100. Провижининг worktree неполон: без `apps/api/.env` и троттл-переменных E2E не запускается.**
-Найдено кодером на #607 раунд 3, стоило ему заметного времени — и будет стоить каждому следующему.
-
-Известный фикс провижининга состоит из двух шагов (`pnpm install --frozen-lockfile` +
-`pnpm --filter @crm/web build`), но их недостаточно:
-
-- в свежем worktree нет `apps/api/.env`, и API **молча** падает на валидации переменных
-  окружения — симптом выглядит как «сервер не поднялся», а не как «нет конфига»;
-- CI выставляет `THROTTLE_RELAXED` / `THROTTLER_LIMIT`, локально их нет — без них 68 спек падают
-  на `HTTP 429` при `dev-login`, то есть **краснота, не связанная с правкой**.
-
-Складывается с пунктом 99 (фикстуры расходятся с сидом) в один и тот же эффект: разработчик,
-выполняющий обязательное «E2E локально перед push», получает красноту среды и приучается
-объяснять её словами «pre-existing» — ровно тем оборотом, который zero-tolerance-правило
-запрещает без доказательства.
-
-Чинить в провижининге, а не в инструкции агентам: инструкция — это просьба к читателю, а
-недостающий файл — механика. Минимум: копирование `.env.example` → `apps/api/.env` и те же
-троттл-переменные, что выставляет CI.
-
-**101. BIZ-18 держал корректность четырёх независимых мест, и ни одно об этом не знало.**
-Обобщение по четырём HIGH, найденным на #607 за три раунда ревью. Это самый ценный вывод по
-каскаду, и он больше, чем сам каскад.
-
-Гвард BIZ-18 («сумма оплаченной строки неизменна») выглядел как одно бизнес-правило. По факту он
-был **несущим** для четырёх мест, каждое из которых было бы неверным без него, и ни одно из
-которых на него не ссылалось:
-
-| Что разбудило снятие                                                           | Почему было незаметно                              |
-| ------------------------------------------------------------------------------ | -------------------------------------------------- |
-| Правка строки, которая **сама** является фактом расчёта (`SENIOR_INCOME`)      | флип обнуляет `payoutRequestId`, гвард 2 не держит |
-| Перезапись `funding_source` следующим settle стирает компенсацию терма         | до доплат строка оплачивалась ровно один раз       |
-| Ключ `source_transaction_id = self` неверен для до-июльской эпохи              | остальные предикаты для той популяции пусты        |
-| Гонка: запись без предиката по статусу (**пред-существующая**, есть на `main`) | без правки суммы `PAID`-строки у гонки нет цены    |
-
-Четвёртая строка — самая поучительная: дефект **уже был** в `main` и был безвреден **только**
-потому, что BIZ-18 не давал до него добраться. «Не ухудшать» для такого случая недостаточно:
-PR, снимающий гвард, и есть активатор, значит чинить обязан он.
-
-**Практический вывод, который стоит применять к любому снятию гварда.** Вопрос «что сломается,
-если снять» — не про сам гвард, а про **всех, кто молча на нём стоит**. Их не найти чтением
-диффа: они не ссылаются на гвард, потому что и не знали, что зависят от него. Находятся они
-только вопросом «какое утверждение перестанет быть истинным» — и дальше поиском по потребителям
-этого утверждения. Здесь: «сумма `PAID`-строки не меняется» → кто читает сумму `PAID`-строки →
-термы леджера, накопитель, предикаты происхождения, гонки записи.
-
-Связано с п. 91 (инвариант, подпирающий чужой код) — это его зеркало: там код зависел от гварда,
-который вот-вот снимут; здесь гвард держал четверых сразу.
-
-**102. Предпросмотр и применение читают строку РАЗНЫМИ запросами — третья пара «одно состояние, два описания» в одном файле.**
-Наблюдение кодера по итогам #607 раундов 3-4, подтверждённое двумя находками подряд.
-
-`getEditCascadePreview` читает через `fetchWritableTransactionOrThrow`, `adminUpdateTransaction` —
-через `loadCascadeSnapshot`. Расхождения ловились **дважды за два раунда** именно на стыке этих
-двух чтений: CR-M-1 (предпросмотр отдавал `editable: true` там, где применение отказывало) и
-SR-M-2 (предпросмотр показывал 100, запись сохраняла 260).
-
-Ирония в том, что вся конструкция AC4 — «один резолвер, две обёртки» — строилась ровно ради
-того, чтобы предпросмотр и факт не разъезжались. Резолвер действительно один. **Но входы в него
-формируются двумя разными запросами**, и гарантия «чистая функция на одинаковом входе даёт
-одинаковый выход» держится ровно до тех пор, пока входы совпадают — а это уже не свойство
-конструкции, а совпадение, которое надо поддерживать вручную.
-
-Сейчас они дают одно и то же. Это третья пара такого рода в этом файле (см. п. 85 — правило в
-трёх копиях с просьбой синхронизировать вручную).
-
-**Чинить отдельной задачей: свести к одному чтению.** Важно не чинить «по одному расхождению за
-раунд» — каждое такое исправление выглядит как закрытая находка и оставляет причину на месте.
-
-**103. Ни один гейт не читает прозу — а три находки подряд были именно в прозе.**
-Итог пяти раундов ревью #607. Кандидат на механический слой, НЕ решение.
-
-За раунды 3-5 три находки подряд оказались одной формы — **запись утверждает то, чего нет**:
-
-- ссылки на переменную `priorSettled`, не объявленную нигде (шесть мест, плюс седьмое, найденное
-  кодером сверх списка: имя, существующее в другой области видимости и означающее другое);
-- комментарий, описывающий **отменённый** вариант реализации — тот самый, что обходил границу
-  AC13, и вдобавок ссылающийся на «explicit test», которого не существовало;
-- эскейп-хетч, называющий неверный файл — **дважды подряд**, оба раза потому, что довод
-  переносили, а не перепроверяли.
-
-Все три пережили и ревью, и мутационный гейт: **гейт мутирует код, а не прозу**, а ревьюер читает
-прозу как пояснение, а не как утверждение, подлежащее проверке. Опаснее обычной устарелости —
-комментарий про отменённый вариант прямо приглашал следующего «восстановить консистентность» и
-вернуть дефект.
-
-**Предложение кодера:** проверять, что каждый `` `идентификатор` `` в бэктиках внутри комментария
-резолвится в существующий символ. Поймало бы находку про `priorSettled` целиком и про неверный
-файл — наполовину, не трогая суждений.
-
-**Почему это кандидат, а не готовое решение.** Прежде чем заводить, надо померить шум: в бэктиках
-живут имена колонок в snake_case, символы чужих пакетов, поля БД, типы из библиотек, куски SQL и
-просто английские слова. Гейт, который шумит на безобидном и молчит на опасном, — тот самый класс,
-который мы весь месяц вычищаем (см. довод в `review-findings-transfer.md` §«Механический чек»).
-Порядок действий: сначала прогнать предполагаемое правило по репозиторию **в режиме отчёта** и
-посмотреть долю ложных срабатываний; заводить гейтом только если она мала.
-
-**Р-6. Задача 3 каскада смёржена (#607, 2026-08-23) по явному «мерджим» владельца.**
-Пять раундов ревью, ~28 находок, **четыре HIGH** — все закрыты до мержа, ни одна не дошла до денег.
-Финальные вердикты на `cfa9529b`: `code-review: APPROVE (0)`, `spec-review: PASS (0)`,
-`security-review: APPROVE (1 LOW, перенесённый)`. CI: 13 из 13, включая ставшую сегодня
-обязательной `Integration Tests (Postgres)`.
-
-Обоснование мержа до ручной приёмки — **функция недостижима из интерфейса**: PR не трогает
-`apps/web` ни одним файлом, текущий клиент не шлёт `cascadeVersion` и не зовёт предпросмотр
-(проверено грепом). Для пользователя изменился только текст отказа: правка суммы оплаченной
-строки как отклонялась, так и отклоняется. Полная ручная приёмка — на задаче 5, до того как
-экран сделает механику достижимой. Решение владельца.
-
-**Осталось из ревью, вынесено сознательно (не забыто):**
-
-- предпросмотр и запись читают строку разными запросами — п. 102, отдельная задача;
-- классификация правки размазана по пяти `const` — читаемость, к задачам серии;
-- метка `SR-L-2` в task-файле использована для двух разных находок — идентификатор обязан быть
-  уникальным адресом; при переносе разведены (порядок 3b и «два чтения» — разные пункты).
-
-**Дальше по решению владельца: 3 → 3b → 5.** 3b (доплата по дроп-обязательству) — условие
-полноты, а не дополнение: пока её нет, доход с уже выплаченной долей дропа нередактируем.
-
-**104. Две worktree на одной ветке: чужой чекаут показывает «staged-откат», которого никто не делал.**
-Найдено и **сначала диагностировано неверно** 2026-08-23. Исправленная версия — эта.
-
-Что наблюдалось: в главном чекауте владельца `git status --porcelain apps/ packages/` показал 18
-файлов в индексе — удаления спек каскада, аддендума, возврат `transactions.service.ts` к
-до-мержевому виду, **−8718 строк**. Выглядело как классическая MAIN-контаминация (FM-2), и я так
-это и записал в первой редакции пункта. **Это было неверно.**
-
-Настоящий механизм, восстановленный по фактам:
-
-1. Главный чекаут стоял на ветке `main`, но его индекс и файлы остались на **до-мержевом**
-   `0e43ce41` — после мержа #607 его никто не обновлял (это чекаут владельца, он просто лежал).
-2. Оркестратор синхронизировался с `main` **в своём worktree** командой
-   `git checkout -B main origin/main`. **Git разрешает двум worktree держать одну ветку при
-   форсирующем `-B`** — обычный `checkout main` он бы отклонил, `-B` прошёл.
-3. Указатель ветки уехал вперёд. HEAD главного чекаута поехал вместе с ним, потому что ref общий,
-   а индекс и файлы — нет: git не трогает рабочие деревья других worktree.
-4. `git status` честно показал разницу между новым HEAD и старым индексом. Никто ничего не писал.
-
-Улики, отличающие это от настоящей контаминации: индекс **байт в байт** равен состоянию до мержа
-(`git diff --cached <pre-merge-sha>` пуст), unstaged-правок нет вовсе, собственной работы ноль.
-Настоящая контаминация выглядит иначе — там есть чьи-то правки, а не ровный откат до коммита.
-
-**Практические выводы:**
-
-- **`git checkout -B <ветка>` в worktree — тихий захват ветки у другого чекаута.** Обычный
-  `checkout` защищает («already checked out at …»), `-B` эту защиту снимает. Для синхронизации с
-  удалённым состоянием в своём worktree нужен detached (`git checkout --detach origin/main`) либо
-  собственная ветка, а не общая.
-- **Диагностика «похоже на известный отказ» — не диагностика.** Первая редакция этого пункта
-  назвала виновным механизм FM-2 и предложила заводить под него хук. Хук ловил бы то, чего не
-  было, а настоящую причину не трогал вовсе — то есть стоил бы доверия ко всей hook-инфре ради
-  ложной цели.
-- Владельцу стоит знать: **главный чекаут может месяцами отставать от `origin/main`**, и это
-  нормально ровно до тех пор, пока кто-то не сдвинет под ним ветку.
-
-**105. Починка одной оси ревью может воспроизвести дефект другой оси в новом месте.**
-Найдено на #611 (задача 5 каскада), раунд 2. Самый поучительный случай за весь каскад.
-
-Раунд 1 дал две независимые находки: `SR-H-1` — предпросмотр и отправка расходятся в окне
-дебаунса; `COPY-H-1` — примечание «Сохранить нельзя, пока не устранены проблемы» требует устранить
-то, что оператор устранить не может.
-
-Обе починили правильно. Но фикс `SR-H-1` **расширил условие блокировки** (`cascadeSaveBlocked`
-теперь включает `previewIsRecomputing`), а текст из `COPY-H-1` показывался именно по этому
-условию — и поехал вместе с ним в два обычных состояния счастливого пути: пока летит первый
-запрос и в окне дебаунса после каждого нажатия клавиши. Оператор стал видеть одновременно
-«Пересчитываем…» и «сумму не пересчитать, нужно ручное решение».
-
-То есть дефект, ради устранения которого писался текст, вернулся — в новом месте и чаще, чем был.
-
-**Почему это не поймали ни кодер, ни четыре другие оси.** Каждая ось смотрит свой срез: код —
-корректность выражений, security — деньги, spec — соответствие заданию, fidelity — пиксели. Текст
-и **условие его показа** принадлежат разным осям, и связь между ними не видна ни из одной по
-отдельности. Поймал `copy-reviewer` на повторном проходе, потому что читал уже изменённый код, а
-не только свои прежние находки.
-
-**Практические выводы:**
-
-- **Повторное ревью должно смотреть не только «закрыты ли мои находки», но и «не сдвинулось ли то,
-  на что они опирались».** Ось, проверяющая лишь свой список, пропустит ровно этот класс.
-- **Формулировка «текст правильный» неполна.** Правильность сообщения — функция от текста И от
-  множества состояний, в которых он показывается. Второе меняется чужими правками.
-- Ревьюер вместо спора дал **фальсифицируемую проверку** — одну строку в существующий тест,
-  красную на текущем коде. Это дешевле разбора и не требует согласия сторон.
-
-**106. Находка, адресованная файлу вне зоны исполнителя, теряется, если оставить её в теле PR.**
-Тот же PR, `COPY-L-2`. Правка адресована `CONTEXT.md` (зона architect), кодер отказался чинить
-одно правило нарушением zone-of-write — ход верный. Но тело PR схлопывается в сообщение коммита,
-а глоссарий там никто не ищет.
-
-Содержание находки, сформулированное поведением (по `doc-durability`, без координат): **в статье
-«Расчёт» словарь должен разрешать слово «выплачено» в значении суммы, фактически ушедшей
-получателю; запрет касается называния выплатой самого процесса settle.** Без этого следующий
-ревьюер поднимет то же самое снова — что на этом каскаде уже происходило дважды с другими
-формулировками.
-
-**Механика, а не дисциплина:** находка вне зоны исполнителя должна уезжать в бэклог тем, кто
-собирает аггрегат, в момент приёмки отказа — а не оставаться в теле PR «на память».
-
-**107. Клик до срабатывания дебаунса уходит без токена — доброкачественная половина того же окна.**
-**ЗАКРЫТО 2026-08-25 (#613): правило вынесено в чистую функцию и считается ещё и по живому
-значению поля — кнопка неактивна, пока предпросмотра нет, вместо активной с последующим отказом.**
-Найдено security-review на #611 раунд 2 (SR-L-4, LOW), измерено пробой P6, не выведено.
-
-После фикса SR-H-1 отправка неувиденного плана невозможна. Но если оператор успевает нажать
-«Сохранить» **до** первого срабатывания дебаунса, запрос уходит вовсе без `cascadeVersion`, и
-сервер отбивает его 400 с текстом «откройте предпросмотр» — при том, что панели предпросмотра на
-экране ещё нет и открывать нечего.
-
-Fail-closed, живёт ~400 мс, неверного применения не даёт — поэтому LOW и вне #611. Но текст
-отказа в этот момент снова инструктирует действие, которое оператор совершить не может: тот же
-класс, что #610 и COPY-H-1, третий раз в одном модуле.
-
-Чинится тем же приёмом, что и остальное окно: пока предпросмотра нет, кнопка неактивна, а не
-активна с последующим отказом.
-
-**108. Ошибка учёта при переносе находок: находку одной оси приписали другой.**
-Оркестратор (я) передал кодеру находку «`CascadeDerivativePlan` не несёт получателя для
-`DROP_PENDING_PAYOUT`» как пришедшую с оси security. На деле она из §14 спеки дизайнера.
-Security-reviewer заметил это на повторном проходе и сверил свой список: его шесть были другими.
-
-Почему это опасно: правило `review-findings-transfer` держится на **арифметике** — число
-идентификаторов в `Findings:` каждой оси должно сойтись с числом строк в отчёте исполнителя.
-Приписка находки чужой оси ломает именно сверку: у одной оси появляется лишняя строка, у другой
-недостача, и обе выглядят как ошибка исполнителя.
-
-Вывод: при переносе указывать **источник** находки (ось + идентификатор), а не пересказывать её
-своими словами со ссылкой «кажется, оттуда». Если источник неочевиден — спросить ось, а не
-угадать. Поймалось только потому, что ревьюер на повторном проходе сверил собственный список,
-а не принял мою формулировку.
-
-**109. `db:seed` усекает 24 таблицы, но не `company_account` — баланс накапливается между прогонами.**
-Найдено кодером на #611 раунд 4, объясняет систематическую красноту локального E2E.
-
-Наблюдение, из которого это вылезло: шард 1 в начале сессии был полностью зелёным, к концу дал
-46 падений — **и это не ветка** (на `main` в тот же момент 47). Причина не в коде, а в стенде:
-сид не обнуляет счёт компании, поэтому баланс растёт от прогона к прогону, и DROP-спеки начинают
-падать сами по себе.
-
-Складывается с пунктами 99 (фикстуры расходятся с сидом) и 100 (провижининг неполон) в одно:
-**локальный E2E сейчас не инструмент наблюдения, а ритуал.** Чтобы отличить регрессию от фона,
-приходится каждый раз гонять обе стороны и сверять множества `file:line` — что кодеры на этом
-каскаде и делали, но это защита дисциплиной, а не механикой.
-
-**ИСПРАВЛЕНО 2026-08-25 — заявленный механизм неверен, причина красноты остаётся неизвестной.**
-Кодер проверил утверждение до того, как чинить, и опроверг его: `company_account` **уже
-обнуляется** сидом — как побочный эффект `TRUNCATE ... CASCADE` по `users`, потому что на неё
-есть внешний ключ (`updated_by`). Показано двумя циклами сида с операцией, дебетующей счёт:
-баланс возвращается к нулю и до правки, и после. Той же неявной защитой накрыто ещё несколько
-таблиц, не названных в списке.
-
-Значит объяснение «баланс накапливается между прогонами» **не является причиной** наблюдавшейся
-красноты E2E (46 падений против 47 на чистом `main`). **Настоящая причина не найдена** — она
-по-прежнему открыта, и искать её надо заново, а не считать закрытой этим пунктом.
-
-Как эта запись появилась: диагноз пришёл из отчёта кодера на #611 и был перенесён в бэклог
-**без проверки**. Ровно тот класс, который мы ловим весь месяц — уверенное утверждение там, где
-проверки не было. Стоило записать «краснота есть, причина не установлена».
-
-Правка в сиде всё же сделана и оправдана иначе: сегодняшняя защита **случайна** — она держится на
-постороннем внешнем ключе и тихо исчезнет при рефакторинге `company_account`, воскресив ровно тот
-риск, которого боялся исходный пункт. Явная строка в списке усечения делает защиту намеренной.
-
-Побочно, из того же отчёта: юнит-прогоны на машине владельца дают ~1 спорадическое падение на
-прогон под нагрузкой (три разных теста в трёх прогонах, включая прогон на чистом `main`) — то есть
-это CPU-starvation от параллельных агентов, а не флак кода. Стоит помнить при чтении отчётов.
-
-**110. Новый баннер ошибки печатает серверное сообщение как есть — на денежном экране появился английский.**
-**ЗАКРЫТО 2026-08-25 (#613): починено в общем резолвере, а не в панели. Оказалось глубже
-формулировки — резолвер доверял любому сообщению ответа как объяснению, а сервер кладёт туда
-служебные фразы для необработанных исключений. Теперь такие фразы трактуются как «не объяснил».**
-Найдено security-review на #611 раунд 4 (SR-L-5, LOW), замерено.
-
-После UX-6 панель предпросмотра показывает баннер при ошибке со статусом — поверхность новая,
-раньше её не было. Баннер рендерит `message` из ответа сервера без перевода, поэтому на 500 виден
-`Internal server error`, на 403 — `Forbidden`.
-
-Утечки внутренностей нет (проверено: сырое сообщение уходит только в телеметрию), но нарушено
-`russian-language.md`: весь UI проекта русский, а этот экран показывает деньги. Чинить в общем
-резолвере сообщений, а не в панели — иначе следующая поверхность повторит.
-
-**111. Скомпилированный `@crm/shared` переживает переключение ветки — и подделывает «доказательство красным».**
-**ЗАКРЫТО 2026-08-25 (#613) с двух сторон: `tsconfig.base.json` вошёл в хеш сборочной системы;
-алиас на исходники в тестах стал безусловным (у лендинга его не было вовсе); сборка пакета
-предшествует проверке типов. Вариант через `pre*`-скрипты проверен и отклонён — в нашей версии
-pnpm они по умолчанию молча не запускаются.**
-Найдено при сверке замеров агентов на каскаде (2026-08-23/24); механизм проверен, инцидента с
-неверным выводом не случилось только потому, что агенты сверяли множества падающих тестов.
-
-`@crm/shared` резолвится потребителями **через `dist/`** (поле `main`/`exports` пакета), `dist/`
-лежит в `.gitignore`, а сборка — отдельный шаг. `git checkout` другой ветки **не пересобирает
-пакет**: на диске остаётся скомпилированный код той ветки, где `build` запускали последним.
-
-Почему это опаснее обычной несвежести. Наш главный приём проверки — «покажи, что тест краснеет на
-версии кода без фикса»: агент переключается на `main`, гоняет тест, видит красноту и заключает
-«дефект пред-существующий». Если `dist` при этом держит сборку фича-ветки, красноту дал **её
-собственный код**, и вывод получается ровно обратный истине. То есть механизм бьёт не по
-удобству, а по инструменту, которым мы отличаем регрессию от фона.
-
-Симптом, по которому узнаётся: результат прогона не меняется при переключении веток, хотя дифф
-между ними затрагивает `packages/shared`. Либо наоборот — меняется там, где по диффу не должен.
-
-Условие проверки, что находка ещё жива: `packages/shared/package.json` продолжает указывать
-потребителей на `dist`, а `dist` остаётся вне гита. Пока оба верны — ловушка на месте.
-
-Чинить не дисциплиной («не забывай пересобирать»), а механикой: пересборка `@crm/shared` как
-предусловие прогона, который может её импортировать. Дисциплина здесь уже проверена и не держит:
-инструкция про пересборку существует, а поймали мы это сверкой множеств `file:line`, а не памятью.
-
-**112. Число в долгоживущей записи без ручки для перепроверки (§15 спеки предпросмотра).** — ЗАКРЫТО
-Найдено copy-review на #611 раунд 7 (COPY-L-8, LOW). Закрыто 2026-08-25: в §15 внесён текст падающей
-ассерции, теперь утверждение о четырёх тестах перепроверяемо без повторения эксперимента.
-
-`docs/design/cascade-preview.md` §15 утверждает, что наивная правка «роняет четыре
-пред-существующих теста — один в `@crm/shared`, три в `@crm/api`». Число есть, **ручки нет**:
-читатель через три месяца не сможет перепроверить утверждение, не повторив эксперимент целиком.
-
-Причём в код-комментарии рядом ручка **уже есть** — там приведён текст падающей ассерции. Долго-
-живущая запись это §15, а не комментарий, поэтому проверяемая деталь должна жить в ней (или §15
-должен явно отослать к тому месту).
-
-Это частный случай общего: `doc-durability` требует, чтобы долгоживущая запись несла **условие
-проверки**, а не только вывод. Число без способа его перепроверить — это вывод без условия.
-
-**113. Снаружи невозможно узнать, какой коммит крутится на проде.**
-**ЗАКРЫТО 2026-08-25 (#613): отпечаток сборки в ответе проверки живости + передача его при
-сборке образа из того же источника версии, что уже уходит во фронтенд. Проверку на проде по
-факту сделать после деплоя.**
-Найдено при приёмке каскада 2026-08-25: понадобилось доказать, что прод обновился, — и оказалось,
-что доказать это можно только для фронтенда.
-
-`/api/health` отдаёт `{status, timestamp}` и **ни слова о версии**. Публичной интроспекции
-(swagger / openapi) нет. Войти нельзя: прод только через SSO.
-
-**ИСПРАВЛЕНО 2026-08-25 (находка security-review SR-M-2).** Первая редакция утверждала, будто
-финансовые роуты неавторизованному отвечают `404` — тем же кодом, что и несуществующий путь, — и
-что поэтому проба «есть ли эндпоинт» ничего не различает. **Это неверно, и неверно по моей
-ошибке:** я пробовал путь `/api/finance/transactions`, которого **не существует**, и получил `404`
-именно поэтому. Настоящий путь отдаёт `401`.
-
-Проба различает прекрасно: существующий защищённый роут → `401`, несуществующий → `404`.
-Перепроверено на обеих точках каскада — предпросмотр правки и применение правки отвечают `401`
-(применение — методом `PATCH`; на `GET` оно закономерно даёт `404`, и это тоже легко принять за
-отсутствие роута). То есть **наличие серверной половины на проде проверяемо снаружи**, и на этом
-каскаде проверено.
-
-Пункт при этом **остаётся открытым**, но по более узкой причине: наличие роута доказывает
-«развёрнута версия, в которой этот роут есть», а не «развёрнут вот этот коммит». Для второго
-по-прежнему нужен отпечаток сборки.
-
-Итог: фронтенд проверяется по факту (сменились хеши бандлов, в отданном коде лежат строки новой
-функции), **а серверная половина — только доверием к зелёному шагу деплоя.** Это ровно та опора,
-которая один раз уже подвела: сборка была зелёной, а прод не обновлялся четыре дня, и заметили это
-не по гейту.
-
-Чинить дёшево: `/api/health` возвращает короткий отпечаток сборки (коммит и время). Тогда проверка
-прода становится одной командой вместо рассуждения, и работает одинаково для обеих половин.
-
-Осторожно с формой: отпечаток не должен превращаться в подсказку атакующему сверх того, что и так
-видно в публичном репозитории — коммита достаточно, стек и пути не нужны.
-
-**114. Пустая строка — не отсутствие: два дефекта одной формы, оба пойманы только запуском образа.**
-Найдено кодером при закрытии п. 113 (2026-08-25). Оба починены там же; ценность — в форме, не в
-самих строчках.
-
-Отпечаток сборки читается из переменных окружения, задаваемых при сборке образа. Двигаясь по этому
-пути, кодер наткнулся на два независимых места, где **пустая строка выдала себя за значение**:
-
-1. **Объявление аргумента сборки с пустым значением по умолчанию** запекается в образ как
-   **присутствующая** переменная со значением `''`. Схема валидации, помечающая поле
-   необязательным, это не ловит — **ключ есть**. Итог: контейнер уходил в перезапуск по кругу на
-   старте. Лечится тем же приёмом, что уже применён в проекте к другому необязательному числовому
-   параметру: предобработка «пустая/пробельная строка → отсутствует».
-2. **Читатель конфигурации при `undefined` в провалидированном конфиге откатывается на сырое
-   окружение** (проверено чтением исходников библиотеки, не по документации). Та же пустая строка
-   доходила до контроллера повторно, и подстраховка через нуллиш-коалесинг её **не ловила**:
-   `''` не нуллиш. Лечится обычным «или».
-
-Общая форма: **два разных слоя договорились, что пустая строка это значение**, и обе штатные
-защиты (необязательность в схеме, нуллиш-коалесинг) по построению её пропускают. Это тот же
-класс, что п. 70 (заполнение колонки стирает признак «неизвестно»): признак отсутствия
-уничтожается, и дальше система уверенно работает с пустотой как с данными.
-
-**Почему поймалось.** Юнит-тесты проходили. Оба дефекта проявились только когда кодер **собрал
-настоящий образ и поднял контейнер**. Гейт мутаций тоже был пройден — и тоже ничего не сказал.
-Проверять отпечаток сборки, не собрав образ, значит проверять всё, кроме того, что чинишь.
-
-**115. Два клиентских условия держат мёртвыми две ветки текста, и ничто их не связывает.**
-Найдено manual QA при приёмке каскада (QA-LOW-1, 2026-08-25), уточнено по прямому вопросу.
-
-Панель предпросмотра каскада умеет показать шесть причин отказа. Две из них — про принадлежность
-строки семейству выплат и про связь с заявкой на выплату — **недостижимы из интерфейса**: до них
-не доводит ни один живой сценарий.
-
-Недостижимость держится на **двух независимых условиях в клиенте**: одно прячет саму кнопку
-правки, второе внутри диалога подменяет весь редактируемый блок статичным текстом, из-за чего поле
-суммы не рендерится и запрос предпросмотра не может уйти в принципе. Проверено, что вход в диалог
-ровно один.
-
-**Почему это записано, хотя дефекта нет.** Сервер уже сегодня **безусловно и корректно** отдаёт
-обе причины — проверено прямыми вызовами в обход клиента. То есть ветки не мёртвый код, а
-**спящий контракт**: разорвётся любое из двух клиентских условий — и они оживут мгновенно, без
-единой правки на сервере.
-
-При этом **ни ассерт, ни тест, ни общий символ не связывают** два условия ни друг с другом, ни с
-серверным списком отказов. Совпадение сегодня ручное, не структурное — то же семейство, что
-BIZ-18 (пять раундов ревью ушло на то, что четыре независимых места молча стояли на одном гварде,
-и ни одно на него не ссылалось).
-
-Что стоит сделать: регрессионный тест, привязывающий клиентские условия к серверному списку
-причин, — чтобы расхождение проявлялось красным, а не обнаруживалось живым проходом. Зона
-AutoTest.
-
-**116. Сетевая ошибка предпросмотра каскада не озвучивалась скринридером.** — ЗАКРЫТО
-Найдено manual QA при приёмке каскада (QA-MED-1, MED, WCAG 4.1.3), 2026-08-25, починено в #613.
-
-Зрячий пользователь видел красный баннер и кнопку «Повторить»; область живого региона при этом
-оставалась пустой, поэтому скринридер не сообщал **ничего** — экран молча переставал делать то,
-что обещал.
-
-Записано задним числом по замечанию spec-review (SPEC-M-2): правка приехала в PR из живого
-прохода QA, а не из бэклога, и потому не была привязана ни к одному пункту. Находка, попавшая в
-дифф мимо записи, ничем не отличается от находки, о которой забыли, — тот же канал, что чинит
-`review-findings-transfer.md`, только со стороны приёмки, а не ревью.
-
-**117. Тесты `apps/api` и сборка `apps/api` теперь читают разные срезы — это намеренно.**
-Найдено code-review на #613 (CR-M-4, MED). Записано **не как дефект, а как решение**, чтобы
-следующий не открыл его заново как баг.
-
-Закрывая п. 111, мы сделали алиас на исходники в тестах безусловным. Побочно это означает: юниты
-`apps/api` читают **исходники** общего пакета, а сборка того же приложения — его **собранный**
-результат. Формально расхождение.
-
-**Почему размен верный** (проверено ревьюером, не предположено): CI поднимает API для сквозных
-тестов уже **после** сборки и гоняет их против настоящего собранного кода. То есть слоёв три:
-юниты на исходниках — честная логика; сборка — ловит поломку компиляции; сквозные на собранном —
-интеграция. **До правки оба тестовых слоя читали один и тот же, возможно протухший, собранный
-код и могли соврать одинаково** — в этом и была суть п. 111. После правки они читают два разных
-среза, каждый честный.
-
-Остаточный риск назван честно: компилятор и сборщик тестов могут разойтись в семантике на одних и
-тех же исходниках. По конструкции возможно; в общем пакете — схемы валидации и чистые функции,
-без конструкций, где такое расхождение известно. Ревьюер искал и не нашёл.
-
-**118. Находка ускользнула от контрольной строки — и это уточняет правило, а не опровергает его.**
-Наблюдение на #613 (2026-08-25).
-
-`review-findings-transfer.md` требует нумеровать находки и заканчивать review строкой
-`Findings: … (N)`. На #613 строка была — и всё равно **не совпала с телом**: ревьюер нумеровал
-находки внутри раздела «некритичные замечания», а ещё одна лежала отдельно, в прозаическом
-разделе, куда шаг нумерации не дотянулся. Причина механическая, не небрежность.
-
-**Поймала это арифметика** — сверка «сколько идентификаторов в строке против скольких находок в
-теле», которую правило и предписывает делать. То есть случай **подтверждает** ценность проверки, а
-не требует её замены машинным гейтом: правило само называет условием для гейта «повторная потеря
-**при наличии** контрольной строки, то есть доказательство, что арифметику не делают». Здесь
-арифметику сделали, и она сработала.
-
-Уточнение, которое стоит внести в правило при следующей его правке: **нумеровать findings по мере
-написания, а не разделом** — потеря произошла ровно на границе разделов, где «пронумеровал раздел»
-незаметно подменило «пронумеровал каждую находку».
-
-**119. Документированный откат не откатывает — он пересобирает `main` и затирает то, к чему откатываются.**
-Найдено security-review на #613 раунд 2 (SR-H-2). Механика проверена, **сам дефект не чинится этим
-PR** — он старше и крупнее.
-
-Рансбук описывает откат как ручной запуск деплоя с тегом старой ревизии. По факту:
-
-- джоба сборки не имеет условия выполнения, а чекаут идёт **без указания ревизии** → берётся
-  свежая вершина основной ветки;
-- собранный из неё образ публикуется **под запрошенным старым тегом**, то есть **перезаписывает
-  настоящий образ той ревизии**.
-
-Итог: откат (а) не возвращает старый код и (б) **уничтожает цель отката**. Причём делает это
-молча, в момент аварии, когда на прод уже смотрят в четыре глаза.
-
-**Почему это записано отдельно, а не починено попутно.** Исправление меняет семантику
-**единственного** пути на прод, к которому у владельца нет доступа по SSH: сломанный деплой
-чинится только новым прогоном деплоя. Такое не делается внутри фикс-раунда по чужим находкам.
-
-**Что сделано вместо починки: дефект сделан видимым.** Отпечаток сборки теперь берёт хеш
-**фактического чекаута**, а не запрошенного тега, — поэтому после отката он честно покажет
-вершину основной ветки и **сам вскроет**, что отката не произошло. Разница между «починить» и
-«сделать видимым» здесь намеренная.
-
-**Как чинить по-настоящему** (отдельной задачей, с обкаткой): откат по смыслу — это **не сборка**.
-Запуск с явным тегом должен разворачивать **уже существующий** образ, а не собирать новый. Либо,
-если сборка всё же нужна, чекаут обязан брать запрошенную ревизию, а публикация — не затирать
-чужой тег.
-
-Смежно: формулировка «переразвернуть ранее собранный образ» появилась в комментарии и была
-**ложной с момента написания** — тот же класс, что находка о неверном комментарии про коды
-ответов. Прозаическое утверждение разошлось с поведением, и заметил это только тот, кто пошёл
-проверять поведение.
-
-**120. Allow-list на появление новой секретной подстановки в аргументах сборки.**
-Предложено security-review на #613 раунд 2 (SR-M-3, после принятого отказа от текстового стража).
-
-Отказ от механической проверки был обоснован тем, что классификатор **значений** не отличит
-публичное значение, лежащее в секретах ради удобства, от настоящего секрета, и будет шуметь на
-легитимных строках. Довод верен — но опровергает только классификатор значений.
-
-Он **не опровергает** проверку иного рода: список известных подстановок в блоке аргументов сборки,
-который краснеет ровно тогда, когда появляется **новая**. Ложных срабатываний у такой формы нет по
-построению: она срабатывает один раз, на добавлении строки, и требует не «докажи, что не секрет»,
-а «внеси в список осознанно». Форма в репозитории уже применяется для проверки проводки
-прод-миграций.
-
-Не сделано в #613: это новая проверка, а не починка находки, и заводить её внутри чужого
-фикс-раунда — расширение объёма.
-
-**121. Гейт мутаций обвиняет код там, где сам не выполнил ни одного теста (веб).**
-**ПРИЧИНА ПЕРЕСМОТРЕНА 2026-08-25, В ТОТ ЖЕ ДЕНЬ. Виноват не плагин, а наша арифметика.**
-Первая редакция ниже приписывала дефект известному багу плагина и ссылалась на его документацию.
-Диагноз был правдоподобен и **неверен**.
-
-Настоящая причина: конфиги тестов вычисляли корень репозитория **фиксированным подъёмом на два
-уровня** от своего расположения. Инструмент копирует пакет на два уровня глубже и перезагружает
-оттуда тот же конфиг — фиксированный подъём приземляется на сам пакет, и алиас на общий пакет
-указывает в несуществующий путь. Рядом при этом уже лежал написанный, но **не подключённый**
-помощник, ищущий корень обходом вверх и от глубины не зависящий.
-
-**И активировали это мы сами** — пунктом 111: сделав алиас безусловным, мы разбудили дефект,
-который до того дремал за условием «только в рабочем дереве».
-
-Доказательство подмены диагноза, числом: после починки вычисления корня веб-пакет перешёл с
-33 «неоценённых мутантов» (ноль выполненных тестов) на **17 честных выживших**. Если бы причиной
-был баг плагина, правка путей ничего бы не изменила.
-
-Что из первой редакции **остаётся верным**: режим отказа был ложной краснотой, а не ложной
-зеленью; и умение гейта отличать отказ инструмента от выжившего мутанта — самостоятельная
-ценность, оно и дальше нужно. Ошибочна была только атрибуция причины.
-
-_Ниже — первая редакция, сохранена как след рассуждения._
-
-Диагностировано DevOps 2026-08-25 при разборе блокировки на #613. Причина — **баг плагина**, не наш
-код и не эта ветка.
-
-**Механизм.** Настройка «прогонять только связанные тесты» стоит по умолчанию и применяется
-**дважды**: корректно на разведочном прогоне и **повторно на каждом мутанте** — но там уже с
-единственным файлом. Для веба второй, узкий проход не находит **ни одного** теста. А результат
-«ноль выполненных тестов» превращается в вердикт **«выжил»**, потому что среди нуля тестов нет
-упавших, — и при этом непустая карта покрытия с разведки не даёт пометить мутанта как непокрытого.
-
-Признак в отчёте Страйкера дословный: **«выполнено 0.00 тестов на мутанта»**. Ровно этой фразой
-описан симптом и в документации самого инструмента, где предлагается единственное решение —
-отключить упомянутую настройку.
-
-**Режим отказа — ложная КРАСНОТА, не ложная зелень.** Гейт обвиняет код, который тесты на самом
-деле покрывают и убивают; пропустить плохое он таким путём не может. Это важно: первая реакция
-(«значит его прошлые зелёные вердикты ничего не значили») **неверна**.
-
-**Не привнесено каскадом.** Код гейта на основной ветке идентичен; дефект живёт с момента создания
-гейта и до сих пор не проявлялся так явно. На контрольном диффе в другом пакете гейт отработал
-нормально — то есть дефект специфичен для сложного графа модулей веба, а не общий.
-
-**Официальный фикс проверен и непригоден как есть.** Отключение настройки механически устраняет
-причину, но: разведочный прогон вырастает почти втрое; всплывает **отдельный** структурный дефект —
-песочница инструмента видит только каталог пакета и не видит корень монорепозитория, из-за чего
-падает мета-тест, импортирующий корневой конфиг; а после обхода этого **не завершается ни один
-мутант** за отведённое время, предположительно потому что мутанты в условиях разметки требуют
-полной перезагрузки окружения на каждого.
-
-**Смежно, тот же класс:** та же слепота песочницы воспроизводится для серверного пакета и там
-тяжелее — общий пакет не резолвится внутри песочницы вообще, и падает любой дифф, доходящий до
-загрузки корневого модуля.
-
-**Что делать — решение владельца.** Варианты: (а) научить гейт отличать «прогон не выполнил ни
-одного теста» от «мутант выжил» и сообщать это как отказ инструмента — честно, дёшево, но веб
-временно остаётся без мутационного гейта; (б) поднять бюджет и разбираться со стоимостью; (в)
-оставить как есть и обходить вручную — худшее, потому что воспитывает обход.
-
-**122. Ночной прогон мутаций не разделяет отказ инструмента и выжившего мутанта.**
-Найдено DevOps при починке отчётности гейта (2026-08-25). **Намеренно не починено** — форма задачи
-другая, чинить молча было бы хуже.
-
-Пункт 121 научил гейт на пуше отличать «прогон не выполнил ни одного теста» (отказ инструмента) от
-«мутант выжил» (вина кода). Ночной прогон, который заводит issue о выживших мутантах, читает
-вердикт **напрямую из сырого отчёта** и этой переклассификации не разделяет.
-
-Значит ночью те же неоценённые мутанты по-прежнему будут числиться выжившими. **Охват там шире**
-(ночь метёт пакет целиком, а не изменённые файлы), поэтому и расхождение будет больше, а не
-меньше.
-
-Почему не сделано сразу: ночной путь агрегирует выгруженные артефакты нескольких прогонов, то есть
-это не та же правка в другом месте, а другая задача. Свести их в один код-путь — правильная цель,
-но она требует решения, где живёт общая логика чтения отчёта.
-
-До тех пор: **issue о выживших мутантах, заведённый ночью на веб-пакет, стоит перепроверять** —
-часть строк там может оказаться не виной кода, а отказом инструмента. Признак тот же: ноль
-выполненных тестов у мутанта.
-
-**123. Подавление мутанта над сцепленным вызовом молча применяется не к тому узлу.**
-Найдено кодером при закрытии выживших на #613 (2026-08-25). Обойдено в одном месте, **класс не
-проверен по репозиторию**.
-
-Директива подавления привязывается к узлу по **началу узла-владельца**. Для сцепленного вызова
-начало — это первое звено цепочки, а не строка, над которой директиву написали. Поэтому подавление,
-поставленное над конкретным звеном, применяется **к другому** — молча, без ошибки и без
-предупреждения.
-
-Практический итог: автор считает, что подавил мутанта в звене X с объяснением почему; на деле
-подавлен мутант в начале цепочки, а X остаётся живым (или наоборот — подавлено лишнее, и мы
-перестали проверять то, что думали, что проверяем).
-
-Обойдено вынесением значения в отдельную константу, механизм задокументирован рядом.
-
-**Что не сделано:** в репозитории **128 подавлений**, и проверка на их корректность существующая
-(`check-mutation-suppressions.mjs`) смотрит только, что подавление построчное и с причиной, — она
-**не проверяет, к тому ли узлу оно привязалось**. Сколько из 128 стоят над сцепленными вызовами и
-потому означают не то, что написано, — неизвестно.
-
-Тот же класс, что и остальные находки этого дня: механизм принимает запись и делает не то, о чём
-она говорит, не сообщая об этом. Проверять — прогоном, а не чтением: снять подавление, убедиться,
-что мутант появляется именно там, где ожидалось.
-
-**124. Страж, сверяющий зеркало с зеркалом, зелен при расхождении с истиной.**
-Найдено security-review на #615 раунд 4 (SR-M-5). Починено там же; ценность — в форме.
-
-Мы завели проверку, что два ручных списка одних и тех же файлов согласны **друг с другом**. Она
-показывала «расхождений нет» — при том, что **оба списка пропускали одни и те же два файла**,
-существующие в конвейере с начала августа.
-
-Формулировка ревьюера точнее любого пересказа: **из двух обязанностей, записанных в комментарии,
-механизировали вторую; первая уже не удержалась к моменту механизации.**
-
-Обобщение, применимое ко всякому стражу: **сверять копию с копией — не проверка.** Проверкой это
-становится, только когда одна из сторон выведена из источника, а не поддерживается руками. Здесь
-источником оказался синтаксический признак в самом конвейере (есть ли у шага условие), и его
-хватило — семантику выводить не пришлось.
-
-Как узнать, что страж этого класса: спросить, **что он сравнивает**. Если обе стороны пишет
-человек, страж доказывает лишь то, что человек написал одно и то же дважды.
-
-**125. В конвейере деплоя правка ломает не там, где написана, а в соседстве и порядке.**
-Наблюдение по итогам #615: пять раундов ревью, три HIGH, шесть MED — и **ни одну находку нельзя
-было получить чтением диффа**.
-
-Где они жили: в расписании другого триггера (откат самоотменяется при следующем плановом
-прогоне); в соседней джобе, которую правка не трогала (та тянула файлы со свежей вершины, из-за
-чего откат кода дал бы старый код на новой схеме); в порядке шагов внутри одной джобы (падение
-происходило после того, как половина файлов уже уехала на сервер); в форме вывода команды (пустой
-ответ с успешным кодом возврата уходил в ветку «нечего проверять»).
-
-Причина в природе предмета: **деплой — не функция, а граф джоб с общими побочными эффектами на
-живой машине.** Вопрос «верна ли эта правка» на нём систематически не работает: вред приходит не
-из ветки, а из соседства.
-
-Рабочая замена вопроса, которая себя оправдала: **«что теперь стало возможным».** Дважды подряд
-именно ответ на него дал лучшую часть отчёта исполнителя — включая находку, названную **против
-себя** (что новая проверка стала третьим ручным списком).
-
-Побочно, для дисциплины стражей: очевидный ход «загардить шаги, которые падают» был **строго
-хуже** — он переносил отказ ближе к серверу. Правильное место у отказа одно: **единственная
-джоба, идущая до всех остальных**.
-
-**126. Интеграционный тест рендера резюме нестабилен под нагрузкой CI.**
-Наблюдение 2026-09-01, изолированное доказательство получено.
-
-Тест в наборе RBAC резюме проверяет, что сохранение **не рендерит на месте**, а ставит в
-очередь, и что фоновая задача затем отработала. Утверждение — «функция рендера вызвана один
-раз»; на прогоне получено ноль.
-
-**Доказательство флака, а не поломки:** тот же самый коммит на повторном прогоне дал
-зелёное. Между последним заведомо зелёным прогоном интеграционных и этим падением в
-основную ветку попал **только документационный PR**, а сам проверяемый PR менял исключительно
-клиентский компонент выбора даты — к очередям отношения не имеющий.
-
-Время в тесте **относительное** (`Date.now() - таймаут`), не календарное, — то есть это не
-тот же класс, что сломавшийся в тот же день выбор даты.
-
-Это блокирует чужие мержи: падение выглядит как красный обязательный чек, и следующий
-человек потратит время на разбор ровно так же, как потратил я.
-
-**Чинить как флак:** тест ждёт завершения фоновой задачи и, судя по всему, полагается на
-время, а не на признак завершения. Правильная форма — дождаться наблюдаемого факта
-(состояние записи, счётчик), а не надеяться, что задача успела. Зона AutoTest.
-
-Правило проекта требует изолированного доказательства прежде, чем называть падение флаком.
-Оно здесь есть и записано выше — именно поэтому пункт заведён, а не пройден молча.
-
-**127. Замороженная фикстура проверочного скрипта больше не воспроизводится.**
-Найдено DevOps при починке гейта (2026-09-01), вынесено намеренно, не чинилось.
-
-В `scripts/devops/mutation-gate-vacuum-proof.sh` одна из проверок воспроизводит замороженное
-состояние от 2026-08-07. На текущем компоненте она падает в собственном пробном прогоне
-инструмента — обращение к неопределённому значению.
-
-Это **дрейф фикстуры**, а не дефект гейта: код, который она проверяет, с тех пор изменился.
-Остальные проверки того же скрипта работают.
-
-**Почему записано, а не починено на месте:** правка касалась другого места гейта, и
-подмешивать в неё чужую поломку значило бы смешать два несвязанных изменения в одном диффе.
-
-**Чем это опасно, если не чинить.** Скрипт заявляет, что доказывает работоспособность гейта.
-Одна его проверка теперь падает всегда — значит либо её перестанут запускать целиком, либо
-привыкнут к красноте и перестанут читать. Оба исхода делают доказательство декоративным.
-
-**128. Обычный перенос по словам не чинит переполнение внутри флекс-контейнера.**
-Найдено при починке попапа уведомлений (2026-09-01), стоило бы полдня отладки в следующий раз.
-
-Очевидный приём — разрешить перенос длинных слов — **не работает**, если контейнер флексовый.
-По спецификации этот режим **исключён** из расчёта минимальной внутренней ширины, поэтому бокс
-успевает растянуться под неразрывную строку раньше, чем перенос вообще срабатывает.
-
-Проверено числом: после применения переполнение осталось **ровно прежним** — 1535 против 318,
-ни пикселя разницы. Помогает другой режим, разрешающий разрыв в произвольном месте.
-
-**Признак, по которому это узнаётся:** если после «починки» переполнение не изменилось ни на
-пиксель — режим выбран не тот. Не «почти помогло» и не «нужно ещё немного» — просто не то
-свойство.
-
-## 130. Страж кросс-агентного взрыва не даёт ревьюеру убрать за собой
-
-**Замечено:** 2026-09-02, дважды за одну сессию (security-reviewer раунд 3, code-reviewer на том
-же PR).
-
-Ревьюер, которому по правилу положено делать **свой** чекаут для проверки красноты
-(`code-review-discipline` §6), не может его потом удалить: `pre:bash:cross-agent-blast`
-блокирует `git worktree remove`, потому что read-only агент диспатчится **без**
-`isolation="worktree"` — и харнесс не связывает его ни с одним рабочим каталогом. Хук честно
-сообщает «твой: <не в worktree>» и считает чужим даже тот чекаут, который агент создал сам
-минуту назад в собственном session-scratchpad.
-
-**Почему это не мелочь.** Правило `agent-isolation.md` требует от ревьюера свой чекаут — и то
-же семейство хуков наказывает за исполнение этого требования. Агент вынужден оставить мусор и
-написать «уберите вручную», что оба раза и произошло. Убирать пришлось оркестратору.
-
-Хуже последствие: **это ровно тот способ, которым вырабатывается привычка обходить гейт.**
-Ложное срабатывание стоит доверия ко всей hook-инфраструктуре, а не минуты — это записано в
-самом `agent-isolation.md` §«Цена ложного срабатывания», и здесь нарушено им же.
-
-**Направление, не решение:** хуку нужен признак «этот каталог создан этим агентом», а не
-«агент диспатчен с изоляцией». Session-scratchpad агента харнесс выдаёт персонально — путь
-внутри своего scratchpad опознаётся как свой без всякой связи с worktree. Проверить, что это
-не открывает дыру, ради которой хук заводился (мутация чужого дерева, PR #551).
-
-**Как узнаем, что починено:** ревьюер, сделавший чекаут в своём scratchpad, удаляет его сам, и
-в отчёте нет строки «уберите, пожалуйста, вручную».
-
-**Повторилось 2026-09-03, трижды за день:** три ревьюера (#644 ×2, #646, #647) создали чекаут по §6 `code-review-discipline` в своём session-scratchpad и не смогли убрать его — хук считает «своим» только worktree, выданный при диспатче. Каталоги остались на диске (`scratchpad/checkout`, `cr-pr646-checkout`, `pr647-review-checkout`); уборка — только владельцем. Пока не починено, правило §6 предписывает то, что хук запрещает.
-
-## 131. Playwright MCP по умолчанию пишет в чужой рабочий каталог
-
-**Замечено:** 2026-09-02, дизайнер на спеке фильтра статуса проектов.
-
-Скриншоты, снятые через Playwright MCP из агентского worktree, легли **в чужой** worktree
-(`paid-transaction-edit-cascade-d0b6d1`), а не в свой. Агент это заметил и перенёс файлы
-read-only способом (`base64`), не трогая чужое дерево, — но заметил случайно.
-
-**Чем опасно:** запись в чужой рабочий каталог — ровно то, ради предотвращения чего заведено
-правило изоляции. Здесь она происходит **мимо** агента, через путь по умолчанию у инструмента,
-поэтому ни один из двух хуков её не видит: команда `git`/`kill` не выполняется, файл появляется
-сам.
-
-**Что проверить:** откуда Playwright MCP берёт каталог вывода и можно ли привязать его к
-session-scratchpad вызывающего агента. Если нельзя — сделать явное указание пути обязательной
-частью диспатч-промпта любого агента, который снимает скриншоты, и записать это в
+What was verified before applying, so as not to repeat the "renaming a job breaks merge" class:
+
+- The check-run name was taken from a **real commit** (`ffb04fc0`), not derived from YAML:
+  `Integration Tests (Postgres)`, without the workflow prefix. A required check is matched by name —
+  renaming the job in `ci.yml` now blocks merging for the whole repository.
+- The job **always runs**; the docs filter hangs on its _steps_ (`steps.scope.outputs.code`),
+  not on the job itself. So the verdict always arrives, and a docs-only PR does not get stuck on
+  "required check skipped". That was the main mechanical risk — it is not there.
+- `enforce_admins` = `true` (was so before this change, not modified): the check cannot be bypassed, even by the owner.
+
+A consequence to keep in mind: **a flake in an integration spec now blocks all merges**,
+not just its own PR. The zero-tolerance for flakes from `feedback_zero_flaky_e2e` extends to
+the integration run in full.
+
+**D-2 (closes item 83/84). A payout act with mixed currencies prints ONE final currency.**
+The owner's decision: not a breakdown by currency and not a blind sum — **one converted total**.
+The system already knows the meaningful number: the batch is converted at NBU rates and the result sits in
+`transactions.amount`; today the PDF instead gets a blind `parseFloat` reduce of raw numbers
+with the currency of an arbitrary row (and a `SELECT` without `ORDER BY`, i.e. "arbitrary" literally).
+
+Boundaries of the decision, so that it is not widened during implementation:
+
+- **Forbidding mixed currencies in a batch is still NOT an option** (item 84): the previous hard guard
+  was removed as a bug, it blocked legitimate batches. The decision is about what to **print**, not
+  about what to **allow**.
+- A lawyer was not involved: the owner decided directly. If the form of the act is ever
+  challenged by a counterparty — this is the point to start from.
+- It does not block task 3 of the cascade and is not part of it (AC5 item 10 — do not fix neighbouring things in passing).
+  A separate task.
+
+**D-3. Resume auto-submission — on pause, a change of approach is expected.**
+The owner's decision 2026-08-23. A pause, **not** a cancellation: the code `apps/api/src/job-sourcing/**`
+(DOU provider, filtering, html→markdown, source budgets, matching) stays in `main` and
+works. What changes is the approach to how auto-submission is done going forward; which one is not stated.
+
+How to apply this so that the pause does not dissolve on its own:
+
+- Draft tasks on the topic in `.claude/tasks/` (`task-resume-per-vacancy`, `task-vacancy-matching`,
+  `task-job-sourcing-slice1`, `task-resume-*`) **are not to be picked up** without a new explicit word
+  from the owner — they were written for the previous approach, and cannot be reused blindly.
+- Review findings on `job-sourcing` **are recorded as usual**: the pause is about new development, not
+  about fixing defects. Security and prod outages do not fall under the pause.
+- Before proposing anything on the topic — ask what the approach has become.
+
+The priority at the time of the pause is the paid-transaction edit cascade (tasks 3, 5, then 3b).
+
+## Found during review of #607 (2026-08-23)
+
+**97. The session scratchpad is shared between agents, and a checkout under a generic name vanishes from under you.**
+Noticed by the security-reviewer on #607. His first checkout `…/scratchpad/checkout` disappeared from disk
+between two calls, and the same directory held other people's files (`pr-body.md`, `addendum.md`,
+`tx-diff.patch`), created before his session started. So the scratchpad the agent considers
+its own is not.
+
+This is the same family as `agent-isolation.md` §3 (a shared working directory under a predictable name),
+just one level down: the rule closed `/tmp/rev<PR>`, but not generic names **inside** the scratchpad.
+`checkout` is exactly such a name: any reviewer who needs their own checkout will pick it, and §6 of the
+`code-review-discipline` skill effectively suggests precisely that.
+
+The reviewer worked around it by recreating it under the unique name `sr607-checkout`, and this did not affect his conclusions.
+But the workaround rests on attentiveness, not mechanics — exactly what we try not to
+leave in place. Fix in the rule: the checkout name is derived from the agent's identifier, just like the worktree path.
+
+**98. A ledger term verified by arithmetic on positional sums does not verify set membership.**
+Formulated by the security-reviewer on #607 and confirmed by finding SR-H-2. The unit test of the ninth
+term feeds nine fixed numbers and asserts the exact total — it catches a sign, a missing
+term, and summing the wrong column, but **cannot catch a wrong predicate**: which rows
+end up in the SUM is decided by Postgres, and the mock never poses that question. The test nevertheless looks
+exhaustive and is green.
+
+The shape to recognize: **a test on an aggregate checks the aggregate's arithmetic, not the selection into it.**
+Selection is provable only by an executable query against a real DB — that is, by an integration spec,
+which the mutation gate does not see (item 82). So money terms need both halves, and the absence of the
+second betrays itself in no way.
+
+**R-4. The cascade order changes: task 3b goes BEFORE task 5.**
+Owner's decision 2026-08-23, made after the cost of deferral changed.
+
+What changed. In the first edition of the task, a top-up on a drop obligation was refused **at the moment of
+the top-up** — i.e. the row simply waited for 3b, and everything else worked. Closing SR-M-3/SR-M-4
+with the single law AC15 ("the cascade does not roll back what it will not be able to close") moved the refusal **to the moment
+of the edit**: the cascade has no right to reopen an obligation that then cannot be closed, because
+a reopened row claims a nonexistent debt to a person, and the only way out of that state
+is editing data.
+
+Consequence: **income whose drop share is already paid out is not editable until 3b.** This is an ordinary
+scenario, not an edge case. So 3b stopped being a nice-to-have addition and became a condition of the feature's completeness.
+
+New order: **3 → 3b → 5**. The UI ships when both branches (senior and drop) close through the
+system, rather than with a screen that says "not allowed" in a normal scenario.
+
+**99. E2E fixtures and `db:seed` diverge: a full local run is not reproducible.**
+Found by the coder on #607 round 2. All local E2E failures die at `dev-login` with
+`HTTP 404 — User admin@cheekycheese.dev not found in DB`: these users exist nowhere in
+`apps/api` (grepping the repository finds only the fixtures file itself), and `db:seed` creates different ones.
+
+Shown, not asserted: swapping `apps/api/src` + `packages/shared/src` for `origin/main` gives
+**exactly the same** number of failures as on the branch; `git diff origin/main -- apps/web apps/e2e apps/landing`
+is empty. So it is a pre-existing gap, not a regression of the task.
+
+Why this is not cosmetic: **E2E is green on CI**, because it has its own DB preparation steps.
+So a developer running E2E locally before push (which is the requirement `feedback_e2e_before_push`)
+gets redness unrelated to their change — and gets used to explaining it with the word
+"pre-existing", exactly the phrase the zero-tolerance rule forbids without proof.
+This has already led to a wrong report once: the coder declared the run green after reading a truncated
+`tail -6` of the `line` reporter's output, where the total is visible but the list of failures is not.
+
+AutoTest zone. Fix either via the seed (create the fixture users), or via the fixtures (use the ones
+the seed actually creates). Incidentally: `tail` on the `line` reporter's output is a trap — the total is printed
+after the list of failures.
+
+**R-5. A top-up must come from the same payer, not just from the same pocket.**
+Owner's decision 2026-08-23 on finding SR-M-5 (#607 round 2).
+
+AC14 in the first edition compared the **funding source** — `COMPANY_ACCOUNT` versus `null`. Within
+`ADMIN_PERSONAL` the source is the same for all admins (`null`), yet the flip
+overwrites `senderId`, and personal balances (`adminBalances.sent`) sum the row's `amount` by
+`senderId`. Result: admin A pays 260 → rollback → admin B tops up the remainder → **the whole row amount
+is credited to B, and A looks like they did not pay**. The company account is not affected — hence MED — but
+this is money between two partners with 50/50 shares, and the discrepancy is silent: it will surface nowhere until
+the shares are reconciled by hand.
+
+Rejected alternative: a "who contributed and how much" column modeled on `settled_currency`. More precise and
+blocks nothing, but it is a separate task with a migration and a change to personal balances, and #607 should not
+wait for it.
+
+Accepted cost: if the first payment was made by one admin, that same admin must close the remainder — the other
+gets an explicit refusal naming who paid. Reversible: drop the condition and add the column.
+
+**100. Worktree provisioning is incomplete: without `apps/api/.env` and the throttle variables E2E does not start.**
+Found by the coder on #607 round 3, cost them noticeable time — and will cost every next person.
+
+The known provisioning fix consists of two steps (`pnpm install --frozen-lockfile` +
+`pnpm --filter @crm/web build`), but they are not enough:
+
+- a fresh worktree has no `apps/api/.env`, and the API **silently** fails on environment
+  variable validation — the symptom looks like "the server did not come up", not "no config";
+- CI sets `THROTTLE_RELAXED` / `THROTTLER_LIMIT`, they are absent locally — without them 68 specs fail
+  with `HTTP 429` at `dev-login`, i.e. **redness unrelated to the change**.
+
+Combines with item 99 (fixtures diverge from the seed) into one and the same effect: a developer
+performing the mandatory "E2E locally before push" gets environment redness and gets used to
+explaining it with the word "pre-existing" — exactly the phrase the zero-tolerance rule
+forbids without proof.
+
+Fix in provisioning, not in the instructions to agents: an instruction is a request to the reader, while
+a missing file is mechanics. Minimum: copy `.env.example` → `apps/api/.env` and set the same throttle variables
+that CI sets.
+
+**101. BIZ-18 held up the correctness of four independent places, and none of them knew it.**
+A generalization over the four HIGHs found on #607 across three review rounds. This is the most valuable takeaway about the
+cascade, and it is bigger than the cascade itself.
+
+The BIZ-18 guard ("the amount of a paid row is immutable") looked like a single business rule. In fact it was
+**load-bearing** for four places, each of which would have been wrong without it, and none
+of which referred to it:
+
+| What lifting it woke up                                                          | Why it went unnoticed                                            |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| Editing a row that **itself** is a settlement fact (`SENIOR_INCOME`)             | the flip zeroes `payoutRequestId`, guard 2 does not hold         |
+| Overwriting `funding_source` by the next settle erases the term's compensation   | before top-ups a row was paid exactly once                       |
+| The key `source_transaction_id = self` is wrong for the pre-July era             | the other predicates are empty for that population               |
+| A race: a write without a status predicate (**pre-existing**, present on `main`) | without editing the amount of a `PAID` row the race has no price |
+
+The fourth row is the most instructive: the defect **was already** in `main` and was harmless **only**
+because BIZ-18 did not let anyone reach it. "Do not make it worse" is not enough for such a case:
+the PR that lifts the guard is the activator, so it is the one that must fix it.
+
+**A practical takeaway to apply to any guard removal.** The question "what breaks
+if we remove it" is not about the guard itself, but about **everyone who silently stands on it**. They cannot be found by reading
+the diff: they do not reference the guard, because they did not know they depended on it. They are found
+only by the question "which statement stops being true" — and then by searching for the consumers
+of that statement. Here: "the amount of a `PAID` row does not change" → who reads the amount of a `PAID` row →
+the ledger terms, the accumulator, the origin predicates, the write races.
+
+Related to item 91 (an invariant propping up someone else's code) — it is its mirror: there code depended on a guard
+that was about to be removed; here the guard held four at once.
+
+**102. Preview and apply read the row with DIFFERENT queries — the third "one state, two descriptions" pair in one file.**
+The coder's observation from #607 rounds 3-4, confirmed by two findings in a row.
+
+`getEditCascadePreview` reads through `fetchWritableTransactionOrThrow`, `adminUpdateTransaction` —
+through `loadCascadeSnapshot`. Discrepancies were caught **twice in two rounds** exactly at the junction of these
+two reads: CR-M-1 (the preview returned `editable: true` where apply refused) and
+SR-M-2 (the preview showed 100, the write saved 260).
+
+The irony is that the whole AC4 construction — "one resolver, two wrappers" — was built precisely so that the preview
+and the fact would not diverge. There really is one resolver. **But the inputs to it
+are formed by two different queries**, and the guarantee "a pure function on the same input gives
+the same output" holds exactly as long as the inputs coincide — and that is no longer a property
+of the construction, but a coincidence that has to be maintained by hand.
+
+Right now they give the same thing. This is the third pair of its kind in this file (see item 85 — a rule in
+three copies with a request to sync them by hand).
+
+**Fix as a separate task: reduce to a single read.** It is important not to fix "one discrepancy per
+round" — each such fix looks like a closed finding and leaves the cause in place.
+
+**103. No gate reads prose — and three findings in a row were precisely in prose.**
+The outcome of five review rounds of #607. A candidate for a mechanical layer, NOT a decision.
+
+In rounds 3-5 three findings in a row turned out to have one shape — **a record asserts something that is not there**:
+
+- references to a variable `priorSettled` not declared anywhere (six places, plus a seventh, found by the
+  coder beyond the list: a name that exists in a different scope and means something else);
+- a comment describing a **cancelled** implementation variant — the very one that bypassed the AC13
+  boundary, and which in addition referred to an "explicit test" that did not exist;
+- an escape hatch naming the wrong file — **twice in a row**, both times because the
+  argument was carried over rather than re-checked.
+
+All three survived both review and the mutation gate: **the gate mutates code, not prose**, and the reviewer
+reads prose as an explanation, not as an assertion subject to verification. More dangerous than ordinary staleness —
+the comment about the cancelled variant directly invited the next person to "restore consistency" and
+bring the defect back.
+
+**The coder's proposal:** check that every `` `identifier` `` in backticks inside a comment
+resolves to an existing symbol. It would have caught the `priorSettled` finding entirely and the wrong
+file one half-way, without touching judgments.
+
+**Why this is a candidate, not a finished solution.** Before adding it, the noise has to be measured: backticks
+hold snake_case column names, symbols from other packages, DB fields, library types, SQL fragments, and
+just plain English words. A gate that makes noise on the harmless and stays silent on the dangerous is the very class
+we have been cleaning out all month (see the argument in `review-findings-transfer.md` §"Mechanical check").
+Order of action: first run the proposed rule over the repository **in report mode** and
+look at the share of false positives; introduce it as a gate only if it is small.
+
+**R-6. Cascade task 3 is merged (#607, 2026-08-23) on the owner's explicit "merge".**
+Five review rounds, ~28 findings, **four HIGH** — all closed before merge, none reached the money.
+Final verdicts on `cfa9529b`: `code-review: APPROVE (0)`, `spec-review: PASS (0)`,
+`security-review: APPROVE (1 LOW, carried over)`. CI: 13 of 13, including `Integration Tests (Postgres)`,
+which became required today.
+
+The rationale for merging before manual acceptance — **the function is unreachable from the interface**: the PR does not touch
+`apps/web` with a single file, the current client does not send `cascadeVersion` and does not call the preview
+(verified by grep). For the user only the refusal text changed: editing the amount of a paid
+row was rejected before and is rejected now. Full manual acceptance — on task 5, before
+the screen makes the mechanics reachable. Owner's decision.
+
+**Left over from the review, deliberately set aside (not forgotten):**
+
+- preview and write read the row with different queries — item 102, a separate task;
+- the classification of an edit is smeared across five `const`s — readability, belongs to the tasks of the series;
+- the label `SR-L-2` in the task file was used for two different findings — an identifier must be
+  a unique address; separated during transfer (the order of 3b and "two reads" are different items).
+
+**Next by the owner's decision: 3 → 3b → 5.** 3b (top-up on a drop obligation) is a condition
+of completeness, not an add-on: until it exists, income with an already paid-out drop share is not editable.
+
+**104. Two worktrees on one branch: another checkout shows a "staged rollback" that nobody made.**
+Found and **first diagnosed wrongly** on 2026-08-23. The corrected version is this one.
+
+What was observed: in the owner's main checkout `git status --porcelain apps/ packages/` showed 18
+files in the index — deletions of the cascade specs, of the addendum, a return of `transactions.service.ts` to its
+pre-merge form, **−8718 lines**. It looked like classic MAIN contamination (FM-2), and that is how I
+recorded it in the first edition of this item. **That was wrong.**
+
+The actual mechanism, reconstructed from the facts:
+
+1. The main checkout was on branch `main`, but its index and files remained at the **pre-merge**
+   `0e43ce41` — nobody updated it after the merge of #607 (it is the owner's checkout, it simply sat there).
+2. The orchestrator synced with `main` **in its own worktree** with the command
+   `git checkout -B main origin/main`. **Git allows two worktrees to hold one branch with the
+   forcing `-B`** — a plain `checkout main` it would have rejected, `-B` went through.
+3. The branch pointer moved forward. The main checkout's HEAD moved with it, because the ref is shared,
+   while the index and files are not: git does not touch the working trees of other worktrees.
+4. `git status` honestly showed the difference between the new HEAD and the old index. Nobody wrote anything.
+
+Evidence distinguishing this from real contamination: the index is **byte for byte** equal to the pre-merge state
+(`git diff --cached <pre-merge-sha>` is empty), there are no unstaged edits at all, own work is zero.
+Real contamination looks different — there are someone's edits, not an even rollback to a commit.
+
+**Practical takeaways:**
+
+- **`git checkout -B <branch>` in a worktree is a silent hijacking of the branch from another checkout.**
+  A plain `checkout` protects ("already checked out at …"), `-B` removes that protection. To sync with
+  the remote state in your own worktree you need a detached head (`git checkout --detach origin/main`) or
+  your own branch, not a shared one.
+- **A diagnosis of "looks like a known failure" is not a diagnosis.** The first edition of this item
+  named the FM-2 mechanism as the culprit and proposed adding a hook for it. The hook would have caught what
+  did not happen, and would not have touched the real cause at all — i.e. it would have cost the trust in the whole hook infrastructure for
+  a false target.
+- The owner should know: **the main checkout can lag behind `origin/main` for months**, and this is
+  fine exactly until someone moves the branch under it.
+
+**105. Fixing one review axis can reproduce a defect of another axis in a new place.**
+Found on #611 (cascade task 5), round 2. The most instructive case of the whole cascade.
+
+Round 1 produced two independent findings: `SR-H-1` — preview and submit diverge in the debounce
+window; `COPY-H-1` — the note «Сохранить нельзя, пока не устранены проблемы» demands eliminating
+something the operator cannot eliminate.
+
+Both were fixed correctly. But the `SR-H-1` fix **widened the blocking condition** (`cascadeSaveBlocked`
+now includes `previewIsRecomputing`), and the text from `COPY-H-1` was shown precisely by that
+condition — and moved along with it into two ordinary happy-path states: while the first
+request is in flight and in the debounce window after each keystroke. The operator started seeing both
+«Пересчитываем…» and «сумму не пересчитать, нужно ручное решение» at once.
+
+That is, the defect that the text was written to eliminate came back — in a new place and more often than it was.
+
+**Why neither the coder nor the four other axes caught it.** Each axis looks at its own slice: code —
+correctness of expressions, security — money, spec — conformance to the task, fidelity — pixels. The text
+and **the condition of its display** belong to different axes, and the link between them is not visible from any one
+of them alone. It was caught by the `copy-reviewer` on the repeat pass, because it read the already changed code, not
+only its own earlier findings.
+
+**Practical takeaways:**
+
+- **A repeat review must look not only at "are my findings closed" but also at "has what they relied on
+  shifted".** An axis that checks only its own list will miss exactly this class.
+- **The formulation "the text is correct" is incomplete.** The correctness of a message is a function of the text AND of the
+  set of states in which it is shown. The second is changed by other people's edits.
+- Instead of arguing, the reviewer provided a **falsifiable check** — one line in an existing test,
+  red on the current code. It is cheaper than a debate and does not require the parties' agreement.
+
+**106. A finding addressed to a file outside the executor's zone is lost if left in the PR body.**
+Same PR, `COPY-L-2`. The fix is addressed to `CONTEXT.md` (architect's zone), the coder refused to fix
+one rule by violating zone-of-write — the right move. But the PR body collapses into the commit message,
+and nobody looks for a glossary there.
+
+The content of the finding, formulated as behavior (per `doc-durability`, without coordinates): **in the article
+«Расчёт» the dictionary must allow the word "paid out" in the sense of an amount actually gone to the
+recipient; the ban concerns calling the settle process itself a payout.** Without this the next
+reviewer will raise the same thing again — which has already happened twice on this cascade with different
+wording.
+
+**Mechanics, not discipline:** a finding outside the executor's zone must go to the backlog, carried by whoever
+assembles the aggregate, at the moment the refusal is accepted — and not stay in the PR body "for memory".
+
+**107. A click before the debounce fires goes out without a token — the benign half of the same window.**
+**CLOSED 2026-08-25 (#613): the rule was extracted into a pure function and is also computed from the live
+value of the field — the button is inactive while there is no preview, instead of active with a subsequent refusal.**
+Found by security-review on #611 round 2 (SR-L-4, LOW), measured by probe P6, not inferred.
+
+After the SR-H-1 fix, submitting an unseen plan is impossible. But if the operator manages to press
+«Сохранить» **before** the first debounce fires, the request goes out without `cascadeVersion` at all, and the
+server bounces it with 400 and the text «откройте предпросмотр» — although there is no preview panel
+on screen yet and nothing to open.
+
+Fail-closed, lives ~400 ms, gives no wrong application — hence LOW and outside #611. But the refusal
+text at that moment again instructs an action the operator cannot perform: the same
+class as #610 and COPY-H-1, the third time in one module.
+
+Fixed by the same device as the rest of the window: while there is no preview, the button is inactive, not
+active with a subsequent refusal.
+
+**108. A bookkeeping error during finding transfer: one axis's finding was attributed to another.**
+The orchestrator (me) passed to the coder the finding "`CascadeDerivativePlan` does not carry the recipient for
+`DROP_PENDING_PAYOUT`" as having come from the security axis. In fact it is from §14 of the designer's spec.
+The security-reviewer noticed this on the repeat pass and checked his list: his six were different.
+
+Why this is dangerous: the `review-findings-transfer` rule rests on **arithmetic** — the number of
+identifiers in the `Findings:` of each axis must match the number of lines in the executor's report.
+Attributing a finding to another axis breaks exactly that check: one axis gets an extra line, another
+a shortfall, and both look like an executor error.
+
+Takeaway: when transferring, specify the **source** of the finding (axis + identifier), rather than retelling it
+in your own words with a reference "seems to be from there". If the source is not obvious — ask the axis, do not
+guess. It was caught only because the reviewer on the repeat pass checked his own list
+instead of accepting my wording.
+
+**109. `db:seed` truncates 24 tables but not `company_account` — the balance accumulates between runs.**
+Found by the coder on #611 round 4, explains the systematic redness of local E2E.
+
+The observation it came out of: shard 1 at the start of the session was fully green, by the end it gave
+46 failures — **and it is not the branch** (on `main` at the same moment 47). The cause is not in the code but in the rig:
+the seed does not zero the company account, so the balance grows from run to run, and the DROP specs start
+failing on their own.
+
+Combines with items 99 (fixtures diverge from the seed) and 100 (provisioning is incomplete) into one thing:
+**local E2E is currently not an observation instrument but a ritual.** To tell a regression from background,
+you have to run both sides every time and compare the sets of `file:line` — which the coders on this
+cascade did, but that is protection by discipline, not by mechanics.
+
+**FIXED 2026-08-25 — the claimed mechanism is wrong, the cause of the redness remains unknown.**
+The coder checked the claim before fixing and refuted it: `company_account` **is already
+zeroed** by the seed — as a side effect of `TRUNCATE ... CASCADE` on `users`, because there is
+a foreign key to it (`updated_by`). Shown by two seed cycles with an operation that debits the account:
+the balance returns to zero both before and after the change. The same implicit protection covers several more
+tables not named in the list.
+
+So the explanation "the balance accumulates between runs" **is not the cause** of the observed
+E2E redness (46 failures versus 47 on clean `main`). **The real cause has not been found** — it
+is still open, and it must be looked for anew, not considered closed by this item.
+
+How this entry came about: the diagnosis came from the coder's report on #611 and was carried into the backlog
+**without verification**. Exactly the class we have been catching all month — a confident assertion where there
+was no check. It should have been recorded as "there is redness, the cause is not established".
+
+The seed change was made nonetheless and is justified differently: today's protection is **accidental** — it rests
+on an unrelated foreign key and will quietly disappear when `company_account` is refactored, resurrecting exactly the
+risk the original item feared. An explicit line in the truncation list makes the protection intentional.
+
+Incidentally, from the same report: unit runs on the owner's machine give ~1 sporadic failure per
+run under load (three different tests in three runs, including a run on clean `main`) — i.e.
+this is CPU starvation from parallel agents, not a code flake. Worth remembering when reading reports.
+
+**110. The new error banner prints the server message as is — English appeared on a money screen.**
+**CLOSED 2026-08-25 (#613): fixed in the shared resolver, not in the panel. It turned out to be deeper than the
+wording — the resolver trusted any response message as an explanation, while the server puts
+boilerplate phrases there for unhandled exceptions. Such phrases are now treated as "did not explain".**
+Found by security-review on #611 round 4 (SR-L-5, LOW), measured.
+
+After UX-6 the preview panel shows a banner on a status error — a new surface that
+did not exist before. The banner renders the server response's `message` without translation, so on a 500
+`Internal server error` is visible, on a 403 — `Forbidden`.
+
+There is no leak of internals (verified: the raw message goes only to telemetry), but `russian-language.md` is violated:
+the entire project UI is Russian, and this screen shows money. Fix in the shared
+message resolver, not in the panel — otherwise the next surface will repeat it.
+
+**111. The compiled `@crm/shared` survives a branch switch — and forges the "proof by red".**
+**CLOSED 2026-08-25 (#613) from two sides: `tsconfig.base.json` entered the build system's hash;
+the alias to sources in tests became unconditional (landing did not have it at all); the package
+build precedes the type check. The variant via `pre*` scripts was checked and rejected — in our version of
+pnpm they are silently not run by default.**
+Found while reconciling the agents' measurements on the cascade (2026-08-23/24); the mechanism was verified, and an incident
+with a wrong conclusion did not happen only because the agents compared sets of failing tests.
+
+`@crm/shared` is resolved by consumers **through `dist/`** (the package's `main`/`exports` field), `dist/`
+is in `.gitignore`, and the build is a separate step. `git checkout` of another branch **does not rebuild
+the package**: what stays on disk is the compiled code of the branch where `build` was last run.
+
+Why this is more dangerous than ordinary staleness. Our main verification device is "show that the test goes red
+on the version of the code without the fix": the agent switches to `main`, runs the test, sees red, and concludes
+"the defect is pre-existing". If `dist` meanwhile holds the feature-branch build, the red was produced by **its
+own code**, and the conclusion comes out exactly opposite to the truth. That is, the mechanism hits not convenience
+but the instrument by which we tell a regression from background.
+
+The symptom by which it is recognized: the run result does not change when switching branches although the diff
+between them touches `packages/shared`. Or the opposite — it changes where by the diff it should not.
+
+Condition for checking that the finding is still alive: `packages/shared/package.json` still points
+consumers at `dist`, and `dist` stays outside git. While both hold, the trap is in place.
+
+Fix not by discipline ("do not forget to rebuild") but by mechanics: rebuilding `@crm/shared` as a
+precondition of a run that may import it. Discipline has already been tested here and does not hold:
+the instruction about rebuilding exists, and we caught this by comparing sets of `file:line`, not by memory.
+
+**112. A number in a long-lived record without a handle for re-checking (§15 of the preview spec).** — CLOSED
+Found by copy-review on #611 round 7 (COPY-L-8, LOW). Closed 2026-08-25: the text of the failing
+assertion was added to §15, so the claim about four tests is now re-checkable without repeating the experiment.
+
+`docs/design/cascade-preview.md` §15 asserts that the naive edit "breaks four
+pre-existing tests — one in `@crm/shared`, three in `@crm/api`". The number is there, **the handle is not**:
+a reader three months from now cannot re-check the claim without repeating the entire experiment.
+
+In the code comment next to it the handle **already exists** — the text of the failing assertion is quoted there. The long-
+lived record is §15, not the comment, so the verifiable detail must live in it (or §15
+must explicitly point to that place).
+
+This is a special case of the general rule: `doc-durability` requires a long-lived record to carry the **verification
+condition**, not only the conclusion. A number without a way to re-check it is a conclusion without a condition.
+
+**113. From the outside it is impossible to tell which commit is running in prod.**
+**CLOSED 2026-08-25 (#613): a build fingerprint in the liveness-check response + passing it during
+image build from the same version source that already goes into the frontend. The check on prod
+to be done in fact after deploy.**
+Found during acceptance of the cascade on 2026-08-25: it was necessary to prove that prod had been updated — and it turned out
+that this can be proven only for the frontend.
+
+`/api/health` returns `{status, timestamp}` and **not a word about the version**. There is no public introspection
+(swagger / openapi). Logging in is impossible: prod is SSO only.
+
+**FIXED 2026-08-25 (finding of security-review SR-M-2).** The first edition claimed that
+finance routes answer `404` to an unauthorized caller — the same code as for a nonexistent path — and
+that therefore the probe "is the endpoint there" distinguishes nothing. **This is wrong, and wrong through my
+mistake:** I tried the path `/api/finance/transactions`, which **does not exist**, and got `404`
+precisely because of that. The real path returns `401`.
+
+The probe distinguishes perfectly well: an existing protected route → `401`, a nonexistent one → `404`.
+Re-checked on both cascade endpoints — the edit preview and the edit apply both answer `401`
+(apply — with method `PATCH`; on `GET` it naturally gives `404`, and that is also easy to mistake for
+a missing route). That is, **the presence of the server half on prod is verifiable from outside**, and on this
+cascade it was verified.
+
+The item nevertheless **remains open**, but for a narrower reason: the presence of a route proves
+"a version in which this route exists is deployed", not "this very commit is deployed". For the second
+a build fingerprint is still needed.
+
+Outcome: the frontend is verified in fact (the bundle hashes changed, the served code contains strings of the new
+feature), **while the server half is verified only by trusting the green deploy step.** That is exactly the support
+that has already failed once: the build was green while prod was not updated for four days, and it was noticed
+not by a gate.
+
+Cheap to fix: `/api/health` returns a short build fingerprint (commit and time). Then checking
+prod becomes one command instead of reasoning, and works the same for both halves.
+
+Careful with the form: the fingerprint must not turn into a hint for an attacker beyond what is already
+visible in the public repository — the commit is enough, the stack and paths are not needed.
+
+**114. An empty string is not absence: two defects of one shape, both caught only by running the image.**
+Found by the coder while closing item 113 (2026-08-25). Both fixed there; the value is in the shape, not in
+the lines themselves.
+
+The build fingerprint is read from environment variables set during the image build. Going along this
+path, the coder hit two independent places where an **empty string passed itself off as a value**:
+
+1. **Declaring a build argument with an empty default value** bakes into the image a
+   **present** variable with the value `''`. A validation schema marking the field as
+   optional does not catch this — **the key is there**. Result: the container went into a restart loop
+   at startup. Fixed by the same device already applied in the project to another optional numeric
+   parameter: preprocessing "empty/whitespace string → absent".
+2. **The configuration reader, on `undefined` in the validated config, falls back to the raw
+   environment** (verified by reading the library sources, not the documentation). The same empty string
+   reached the controller a second time, and the safety net via nullish coalescing **did not catch it**:
+   `''` is not nullish. Fixed with a plain "or".
+
+The common shape: **two different layers agreed that an empty string is a value**, and both standard
+protections (optionality in the schema, nullish coalescing) by construction let it through. This is the same
+class as item 70 (filling a column erases the "unknown" marker): the marker of absence
+is destroyed, and then the system confidently works with emptiness as with data.
+
+**Why it was caught.** Unit tests passed. Both defects showed up only when the coder **built
+a real image and brought up the container**. The mutation gate was passed too — and said nothing as well.
+Checking the build fingerprint without building the image means checking everything except what you are fixing.
+
+**115. Two client conditions keep two text branches dead, and nothing links them.**
+Found by manual QA during cascade acceptance (QA-LOW-1, 2026-08-25), clarified on a direct question.
+
+The cascade preview panel can show six refusal reasons. Two of them — about the row belonging to the
+payout family and about the link with a payout request — are **unreachable from the interface**: no live
+scenario leads to them.
+
+The unreachability rests on **two independent conditions in the client**: one hides the edit button itself,
+the other, inside the dialog, replaces the whole editable block with static text, so that the amount
+field is not rendered and the preview request cannot go out in principle. Verified that there is
+exactly one entry into the dialog.
+
+**Why this is recorded although there is no defect.** The server today already **unconditionally and correctly** returns
+both reasons — verified by direct calls bypassing the client. That is, the branches are not dead code but a
+**sleeping contract**: break either of the two client conditions — and they come alive instantly, without
+a single change on the server.
+
+At the same time **no assert, no test, no shared symbol links** the two conditions either to each other or to the
+server list of refusals. The match today is manual, not structural — the same family as BIZ-18 (five review rounds went on
+four independent places silently standing on one guard,
+and none of them referred to it).
+
+What is worth doing: a regression test binding the client conditions to the server list of
+reasons — so that a divergence shows up as red, rather than being discovered by a live pass. AutoTest
+zone.
+
+**116. The cascade preview network error was not announced by a screen reader.** — CLOSED
+Found by manual QA during cascade acceptance (QA-MED-1, MED, WCAG 4.1.3), 2026-08-25, fixed in #613.
+
+A sighted user saw the red banner and the «Повторить» button; the live-region area meanwhile
+stayed empty, so the screen reader announced **nothing** — the screen silently stopped doing
+what it promised.
+
+Recorded retroactively on a remark from spec-review (SPEC-M-2): the fix arrived in the PR from a live
+QA pass, not from the backlog, and therefore was not tied to any item. A finding that got into the
+diff bypassing the record is no different from a finding that was forgotten — the same channel that
+`review-findings-transfer.md` fixes, only from the acceptance side, not the review side.
+
+**117. The `apps/api` tests and the `apps/api` build now read different slices — this is intentional.**
+Found by code-review on #613 (CR-M-4, MED). Recorded **not as a defect but as a decision**, so that
+the next person does not reopen it as a bug.
+
+When closing item 111, we made the alias to sources in tests unconditional. As a side effect this means that `apps/api`
+units read the **sources** of the shared package, while the build of the same application reads its **built**
+output. Formally a discrepancy.
+
+**Why the trade is right** (verified by the reviewer, not assumed): CI brings up the API for end-to-end
+tests only **after** the build and runs them against the real built code. So there are three layers:
+units on sources — honest logic; the build — catches compilation breakage; end-to-end on the built output —
+integration. **Before the change both test layers read the same, possibly stale, built
+code and could lie in the same way** — that was the essence of item 111. After the change they read two different
+slices, each honest.
+
+The residual risk is named honestly: the compiler and the test bundler may diverge in semantics on the same
+sources. Possible by construction; in the shared package there are validation schemas and pure functions,
+without constructs where such a divergence is known. The reviewer looked and did not find any.
+
+**118. A finding slipped past the control line — and this refines the rule, not refutes it.**
+Observation on #613 (2026-08-25).
+
+`review-findings-transfer.md` requires numbering findings and ending a review with the line
+`Findings: … (N)`. On #613 the line was there — and still **did not match the body**: the reviewer numbered
+the findings inside the "non-critical remarks" section, while one more lay separately, in a prose
+section the numbering step did not reach. The cause is mechanical, not carelessness.
+
+**It was caught by arithmetic** — the check "how many identifiers in the line versus how many findings in
+the body", which the rule prescribes. That is, the case **confirms** the value of the check, and
+does not call for its replacement by a machine gate: the rule itself names as the condition for a gate "a repeated loss
+**in the presence of** a control line, i.e. proof that the arithmetic is not being done". Here
+the arithmetic was done, and it worked.
+
+A refinement worth making in the rule at its next edit: **number findings as they are
+written, not by section** — the loss occurred exactly at the section boundary, where "numbered the section"
+imperceptibly replaced "numbered every finding".
+
+**119. The documented rollback does not roll back — it rebuilds `main` and overwrites what is being rolled back to.**
+Found by security-review on #613 round 2 (SR-H-2). The mechanics were verified, **the defect itself is not fixed by this
+PR** — it is older and bigger.
+
+The runbook describes rollback as a manual run of the deploy with the tag of an old revision. In fact:
+
+- the build job has no run condition, and the checkout goes **without specifying a revision** → the
+  fresh tip of the main branch is taken;
+- the image built from it is published **under the requested old tag**, i.e. it **overwrites
+  the real image of that revision**.
+
+Outcome: the rollback (a) does not return the old code and (b) **destroys the target of the rollback**. And it does so
+silently, at the moment of an outage, when prod is already being watched by four eyes.
+
+**Why this is recorded separately and not fixed along the way.** The fix changes the semantics of the
+**only** path to prod to which the owner has no SSH access: a broken deploy
+is fixed only by a new deploy run. This is not done inside a fix round for other people's findings.
+
+**What was done instead of a fix: the defect was made visible.** The build fingerprint now takes the hash of the
+**actual checkout**, not of the requested tag — so after a rollback it will honestly show
+the tip of the main branch and **itself reveal** that the rollback did not happen. The difference between "fix" and
+"make visible" here is deliberate.
+
+**How to fix it for real** (as a separate task, with a trial run): a rollback by its meaning is **not a build**.
+A run with an explicit tag must deploy an **already existing** image, not build a new one. Or,
+if a build is still needed, the checkout must take the requested revision, and the publish must not overwrite
+someone else's tag.
+
+Related: the wording "redeploy a previously built image" appeared in a comment and was
+**false from the moment it was written** — the same class as the finding about the wrong comment on
+response codes. A prose assertion diverged from behavior, and it was noticed only by the one who went to
+check the behavior.
+
+**120. An allow-list for the appearance of a new secret substitution in build arguments.**
+Proposed by security-review on #613 round 2 (SR-M-3, after the accepted rejection of the text guard).
+
+The rejection of a mechanical check was justified by the fact that a **value** classifier will not distinguish
+a public value kept in secrets for convenience from a real secret, and will make noise on
+legitimate lines. The argument is valid — but it refutes only the value classifier.
+
+It **does not refute** a check of a different kind: a list of known substitutions in the block of build arguments
+that goes red exactly when a **new** one appears. Such a form has no false positives
+by construction: it fires once, on the addition of a line, and demands not "prove it is not a secret"
+but "add it to the list deliberately". The form is already applied in the repository for checking the wiring
+of prod migrations.
+
+Not done in #613: it is a new check, not a fix for a finding, and introducing it inside somebody else's
+fix round would be an expansion of scope.
+
+**121. The mutation gate blames code where it itself ran not a single test (web).**
+**CAUSE REVISED 2026-08-25, THE SAME DAY. The plugin is not to blame, our arithmetic is.**
+The first edition below attributed the defect to a known plugin bug and referred to its documentation.
+The diagnosis was plausible and **wrong**.
+
+The real cause: the test configs computed the repository root **by a fixed climb of two
+levels** from their own location. The tool copies the package two levels deeper and reloads
+the same config from there — the fixed climb lands on the package itself, and the alias to the shared package
+points to a nonexistent path. Next to it, meanwhile, lay an already written but **not wired in**
+helper that finds the root by walking upward and does not depend on depth.
+
+**And we activated this ourselves** — with item 111: by making the alias unconditional, we woke a defect
+that had until then slept behind the condition "only in the working tree".
+
+Proof that the diagnosis was replaced, by the numbers: after fixing the root computation the web package went from
+33 "unevaluated mutants" (zero tests run) to **17 honest survivors**. If the cause
+had been a plugin bug, fixing the paths would have changed nothing.
+
+What from the first edition **remains true**: the failure mode was false redness, not false
+green; and the gate's ability to tell a tool failure from a surviving mutant is a value in its own right,
+and it is still needed. Only the attribution of the cause was wrong.
+
+_Below is the first edition, preserved as a trace of the reasoning._
+
+Diagnosed by DevOps on 2026-08-25 while analyzing the block on #613. The cause is a **plugin bug**, not our
+code and not this branch.
+
+**Mechanism.** The "run only related tests" setting is on by default and is applied
+**twice**: correctly on the exploratory run and **again on each mutant** — but there already with a
+single file. For web the second, narrow pass finds **no** tests at all. And the result
+"zero tests run" turns into the verdict **"survived"**, because among zero tests there are no
+failed ones, — while the non-empty coverage map from the exploration prevents marking the mutant as uncovered.
+
+The sign in the Stryker report is verbatim: **"0.00 tests run per mutant"**. Precisely this phrase
+describes the symptom in the tool's own documentation, where the only solution offered is to
+disable the mentioned setting.
+
+**The failure mode is false REDNESS, not false green.** The gate blames code that the tests
+in fact cover and kill; it cannot let bad code pass this way. This is important: the first reaction
+("so its past green verdicts meant nothing") is **wrong**.
+
+**Not introduced by the cascade.** The gate code on the main branch is identical; the defect has lived since the gate was created
+and until now had not shown itself so clearly. On a control diff in another package the gate worked
+normally — i.e. the defect is specific to web's complex module graph, not general.
+
+**The official fix was checked and is unsuitable as is.** Disabling the setting mechanically removes
+the cause, but: the exploratory run grows almost threefold; a **separate** structural defect surfaces — the tool's
+sandbox sees only the package directory and does not see the monorepo root, because of which
+the meta-test importing the root config fails; and after working around that **not a single
+mutant completes** within the allotted time, presumably because mutants under markup conditions require
+a full environment reload for each.
+
+**Related, same class:** the same sandbox blindness reproduces for the server package and is
+heavier there — the shared package does not resolve inside the sandbox at all, and any diff that reaches
+the load of the root module fails.
+
+**What to do — the owner's decision.** Options: (a) teach the gate to tell "the run executed no
+tests" from "the mutant survived" and report it as a tool failure — honest, cheap, but web
+temporarily remains without a mutation gate; (b) raise the budget and deal with the cost; (c)
+leave as is and work around by hand — the worst, because it breeds workarounds.
+
+**122. The nightly mutation run does not separate a tool failure from a surviving mutant.**
+Found by DevOps while fixing the gate's reporting (2026-08-25). **Deliberately not fixed** — the shape of the task is
+different, fixing it silently would have been worse.
+
+Item 121 taught the gate on push to tell "the run executed no tests" (a tool failure) from
+"the mutant survived" (the code's fault). The nightly run, which opens an issue about surviving mutants, reads the
+verdict **directly from the raw report** and does not share this reclassification.
+
+So at night the same unevaluated mutants will still be counted as survivors. **The coverage there is wider**
+(the night sweeps the whole package, not the changed files), so the discrepancy will be larger, not
+smaller.
+
+Why it was not done right away: the nightly path aggregates uploaded artifacts of several runs, i.e.
+this is not the same fix in another place but a different task. Merging them into one code path is the right goal,
+but it requires a decision on where the shared report-reading logic lives.
+
+Until then: **an issue about surviving mutants opened at night for the web package should be re-checked** —
+some lines there may be not the code's fault but a tool failure. The sign is the same: zero
+executed tests for the mutant.
+
+**123. A mutant suppression above a chained call is silently applied to the wrong node.**
+Found by the coder while closing survivors on #613 (2026-08-25). Worked around in one place, **the class was not
+checked across the repository**.
+
+A suppression directive is bound to a node by the **start of the owner node**. For a chained call the start
+is the first link of the chain, not the line above which the directive was written. So a suppression
+placed above a specific link is applied **to a different one** — silently, with no error and no
+warning.
+
+Practical outcome: the author thinks they suppressed the mutant in link X with an explanation why; in fact
+the mutant at the start of the chain is suppressed, while X stays alive (or the other way round — too much is suppressed, and we
+stopped checking what we thought we were checking).
+
+Worked around by extracting the value into a separate constant, the mechanism is documented nearby.
+
+**What is not done:** the repository has **128 suppressions**, and the existing check of their correctness
+(`check-mutation-suppressions.mjs`) looks only at whether the suppression is line-level and has a reason — it
+**does not check whether it bound to the right node**. How many of the 128 stand above chained calls
+and therefore mean something other than what is written — unknown.
+
+The same class as the other findings of this day: the mechanism accepts a record and does something other than what
+it says, without reporting it. Check by running, not by reading: remove the suppression, make sure
+the mutant appears exactly where expected.
+
+**124. A guard that compares a mirror with a mirror is green when diverging from the truth.**
+Found by security-review on #615 round 4 (SR-M-5). Fixed there; the value is in the shape.
+
+We introduced a check that two manual lists of the same files agree **with each other**. It
+showed "no discrepancies" — while **both lists missed the same two files**,
+which have existed in the pipeline since the start of August.
+
+The reviewer's wording is more precise than any retelling: **of the two duties recorded in the comment,
+the second was mechanized; the first had already not held by the time of mechanization.**
+
+A generalization applicable to any guard: **comparing a copy with a copy is not a check.** It becomes a check
+only when one of the sides is derived from a source rather than maintained by hand. Here
+the source turned out to be a syntactic marker in the pipeline itself (whether a step has a condition),
+and it was enough — semantics did not have to be derived.
+
+How to tell that a guard is of this class: ask **what it compares**. If a human writes both sides, the guard proves only
+that the human wrote the same thing twice.
+
+**125. In the deploy pipeline an edit breaks not where it is written but in the neighborhood and the order.**
+An observation from #615: five review rounds, three HIGH, six MED — and **not one finding could
+be obtained by reading the diff**.
+
+Where they lived: in the schedule of another trigger (the rollback cancels itself on the next scheduled
+run); in a neighboring job that the edit did not touch (it pulled files from the fresh tip, because of
+which a code rollback would have produced old code on a new schema); in the order of steps inside one job (the failure
+happened after half of the files had already gone to the server); in the shape of a command's output (an empty
+response with a successful exit code went into the "nothing to check" branch).
+
+The cause is in the nature of the subject: **a deploy is not a function but a graph of jobs with shared side effects
+on a live machine.** The question "is this edit correct" systematically does not work on it: the harm comes not
+from the branch but from the neighborhood.
+
+A working replacement for the question that has proven itself: **"what has now become possible".** Twice in a row
+the answer to it produced the best part of the executor's report — including a finding named **against
+itself** (that the new check had become a third manual list).
+
+Incidentally, for guard discipline: the obvious move "guard the steps that fail" was **strictly
+worse** — it moved the failure closer to the server. The right place for a failure is one: **the single
+job that runs before all the others**.
+
+**126. The resume render integration test is unstable under CI load.**
+Observation 2026-09-01, isolated proof obtained.
+
+A test in the resume RBAC suite checks that saving **does not render in place** but puts it into
+the queue, and that the background task then ran. The assertion is "the render function was called one
+time"; the run got zero.
+
+**Proof of a flake, not a breakage:** the very same commit on a rerun gave
+green. Between the last known green run of the integration tests and this failure only a **documentation-only PR** reached
+the main branch, and the PR under test changed exclusively the
+client date-picker component — unrelated to queues.
+
+Time in the test is **relative** (`Date.now() - timeout`), not calendar — i.e. this is not
+the same class as the date picker that broke the same day.
+
+This blocks other people's merges: the failure looks like a red required check, and the next
+person will spend time analyzing it exactly as I did.
+
+**Fix as a flake:** the test waits for the background task to finish and, apparently, relies on
+time, not on a completion marker. The right form is to wait for an observable fact (record state, a counter),
+and not hope that the task made it in time. AutoTest zone.
+
+The project rule requires isolated proof before calling a failure a flake.
+It is here and recorded above — which is exactly why the item was opened and not silently passed over.
+
+**127. The frozen fixture of a verification script no longer reproduces.**
+Found by DevOps while fixing the gate (2026-09-01), set aside deliberately, not fixed.
+
+In `scripts/devops/mutation-gate-vacuum-proof.sh` one of the checks reproduces a frozen
+state from 2026-08-07. On the current component it fails in the tool's own trial run —
+an access to an undefined value.
+
+This is **fixture drift**, not a gate defect: the code it checks has changed since then.
+The other checks of the same script work.
+
+**Why recorded and not fixed on the spot:** the fix concerned a different place in the gate, and
+mixing someone else's breakage into it would have meant combining two unrelated changes in one diff.
+
+**Why this is dangerous if left unfixed.** The script claims to prove that the gate works.
+One of its checks now always fails — so either they will stop running it altogether, or
+they will get used to the redness and stop reading. Both outcomes make the proof decorative.
+
+**128. Ordinary word wrapping does not fix overflow inside a flex container.**
+Found while fixing the notifications popup (2026-09-01), would have cost half a day of debugging next time.
+
+The obvious device — allowing long words to wrap — **does not work** if the container is flex.
+By specification this mode is **excluded** from the min-content width calculation, so the box
+manages to stretch to the unbreakable string before wrapping even kicks in.
+
+Verified by the numbers: after applying it the overflow stayed **exactly the same** — 1535 versus 318,
+not a pixel of difference. A different mode helps, the one that allows a break at an arbitrary place.
+
+**The sign by which this is recognized:** if after the "fix" the overflow has not changed by a single
+pixel — the wrong mode was chosen. Not "almost helped" and not "a bit more is needed" — simply the wrong
+property.
+
+## 130. The cross-agent blast guard does not let a reviewer clean up after itself
+
+**Noticed:** 2026-09-02, twice in one session (security-reviewer round 3, code-reviewer on the same
+PR).
+
+A reviewer who, per the rule, is supposed to make **its own** checkout to verify redness
+(`code-review-discipline` §6) cannot delete it afterwards: `pre:bash:cross-agent-blast`
+blocks `git worktree remove`, because a read-only agent is dispatched **without**
+`isolation="worktree"` — and the harness does not tie it to any working directory. The hook
+honestly reports "yours: <not in a worktree>" and treats as foreign even a checkout the agent created itself
+a minute earlier in its own session-scratchpad.
+
+**Why this is not a trifle.** The `agent-isolation.md` rule requires the reviewer to have its own checkout — and the
+same family of hooks punishes it for fulfilling that requirement. The agent is forced to leave garbage and
+write "please clean up manually", which is what happened both times. The orchestrator had to clean up.
+
+A worse consequence: **this is exactly how the habit of bypassing a gate is formed.**
+A false positive costs trust in the whole hook infrastructure, not a minute — this is written in
+`agent-isolation.md` itself, §"The cost of a false positive", and here it is violated by that very file.
+
+**A direction, not a solution:** the hook needs a signal "this directory was created by this agent", not
+"the agent was dispatched with isolation". The agent's session-scratchpad is issued by the harness personally — a path
+inside one's own scratchpad is recognised as one's own with no connection to a worktree. Check that this
+does not open the hole the hook was created to close (mutation of a foreign tree, PR #551).
+
+**How we'll know it's fixed:** a reviewer that made a checkout in its scratchpad deletes it itself, and
+the report has no "please clean up manually" line.
+
+**Recurred 2026-09-03, three times in a day:** three reviewers (#644 x2, #646, #647) created a checkout per §6 of `code-review-discipline` in their session-scratchpad and could not remove it — the hook considers "its own" only a worktree issued at dispatch. The directories remained on disk (`scratchpad/checkout`, `cr-pr646-checkout`, `pr647-review-checkout`); cleanup — by the owner only. Until this is fixed, rule §6 prescribes what the hook forbids.
+
+## 131. Playwright MCP writes to a foreign working directory by default
+
+**Noticed:** 2026-09-02, designer on the project status filter spec.
+
+Screenshots taken via Playwright MCP from an agent worktree landed in **someone else's** worktree
+(`paid-transaction-edit-cascade-d0b6d1`), not in its own. The agent noticed this and moved the files
+in a read-only way (`base64`), without touching the foreign tree — but noticed it by chance.
+
+**Why it is dangerous:** writing to a foreign working directory is exactly what the isolation rule exists to prevent.
+Here it happens **bypassing** the agent, via the tool's default path,
+so neither of the two hooks sees it: no `git`/`kill` command is executed, the file appears
+on its own.
+
+**What to check:** where Playwright MCP takes the output directory from and whether it can be bound to the
+calling agent's session-scratchpad. If not — make an explicit path specification a mandatory
+part of the dispatch prompt of any agent that takes screenshots, and record this in
 `agent-isolation.md`.
 
-**Как узнаем, что починено:** скриншот, снятый агентом A, не появляется в каталоге агента B.
-
-## 132. Правило изоляции даёт ложный стоп на унаследованных путях родительской сессии
-
-**Замечено:** 2026-09-02. Кодер, диспатченный на починку PR #623, остановился, не начав работу,
-решив, что ему выдали чужой рабочий каталог. Стоимость — около 120 тысяч токенов и один
-потерянный ход.
+**How we'll know it's fixed:** a screenshot taken by agent A does not appear in agent B's directory.
+
+## 132. The isolation rule gives a false stop on paths inherited from the parent session
+
+**Noticed:** 2026-09-02. A coder dispatched to fix PR #623 stopped without starting work,
+having decided it had been given a foreign working directory. The cost was about 120 thousand tokens and one
+lost turn.
 
-**Его собственная проверка прошла:** `git rev-parse --show-toplevel` совпал с выданным путём,
-то есть требование правила (`agent-isolation.md` §8) было выполнено. Остановили его три других
-сигнала, которые он принял за доказательство расхождения:
-
-- путь к `CLAUDE.md` в системном напоминании;
-- путь session-scratchpad;
-- содержимое памяти сессии.
-
-**Все три принадлежат родительской сессии и наследуются каждым субагентом.** К каталогу самого
-агента они отношения не имеют. Плюс он счёл подозрительным флаг `locked` на своём worktree — а
-харнесс так помечает все агентские каталоги, это значит «занят тобой», не «чужой».
-
-**Почему это не вина агента.** Правило прямо велит не верить самопредставлению среды
-(«Самопредставлению окружения доверять нельзя», §8) и приводит случай, когда харнесс сообщал
-путь несуществующего worktree. Агент применил правило буквально и добросовестно. Правило не
-говорит, **какие именно** сигналы к его каталогу относятся, а какие наследованы.
-
-**Что записать в правило:** перечислить наследуемое (путь `CLAUDE.md` в напоминаниях, scratchpad,
-память) как заведомо родительское и не подлежащее сверке, и назвать `locked` нормальным
-состоянием собственного каталога. Единственный признак остаётся один — совпадение
-`--show-toplevel` с выданным путём.
-
-**Как узнаем, что починено:** агент, у которого совпал toplevel, не останавливается и не пишет в
-отчёт о расхождении.
-
-## 133. Агенты теряют часы работы на лимите сессии, потому что не коммитят по дороге
-
-**Замечено:** 2026-09-02, дважды за сессию. Пять агентов оборвано `rate_limit`; у трёх в рабочем
-дереве оставалось от 6 до 23 килобайт незакоммиченных правок — по нескольку часов работы каждая.
-Ничего не пропало только потому, что оркестратор снял патчи вручную.
-
-**Почему так вышло.** `git-policy.md` §«WIP commits & chunking» **уже требует** `wip:`-коммит
-каждые два файла или пять минут, и `wip:` специально освобождён от `ac_verified:` ровно для
-этого. Правило есть, его не соблюдают, и ничто об этом не сообщает: незакоммиченная работа
-выглядит точно так же, как закоммиченная, пока агент жив.
-
-**Чем это отличается от обычного нарушения дисциплины.** Обрыв по лимиту — не редкость и не
-авария: это штатное событие, наступающее тем вероятнее, чем дольше агент работает. То есть
-правило нарушается ровно в тех задачах, где цена нарушения максимальна.
-
-**Направление:** сделать напоминание механическим, а не дисциплинарным. Кандидат — хук на
-`Edit`/`Write`, считающий изменённые с последнего коммита файлы и печатающий предупреждение
-после порога. Предупреждение, не блокировка: блокирующий гейт посреди правки — способ
-воспитать привычку его обходить (`agent-isolation.md` §«Цена ложного срабатывания»).
-
-**Как узнаем, что починено:** у оборванного лимитом агента в рабочем дереве не больше двух
-изменённых файлов.
-
-## 134. Session-scratchpad общий для всех субагентов, а предписанное имя чекаута в нём фиксированное
-
-**Замечено:** 2026-09-02. Два ревьюера одной сессии независимо назвали свои чекауты одинаково
-(`checkout`) и оказались в одном каталоге.
-
-**Это не совпадение, а конструкция.** Scratchpad выдаётся **на сессию**, а не на агента: все
-субагенты одной сессии получают один и тот же путь. Проверено перечислением — в «своём»
-scratchpad лежат артефакты десятков разных агентов за день: чекауты ревьюеров, отчёты
-spec-ревьюера, логи мутационного гейта, скриншоты дизайнера. Поверх этого предписанный сниппет
-уборки (`pm-snippets.md`, раздел ревьюерского чекаута, и `code-review-discipline` §6) называет
-каталог **фиксированным** именем под `$SCRATCH`. Два агента, оба выполнившие инструкцию буквально,
-обязаны столкнуться. Те, кто не столкнулся, добавляли префикс от себя (`cr-pr611-r7-checkout`,
-`sr-pr623-r5b-checkout`) — то есть спасала импровизация, а не механика.
-
-**Чем это шире дыры с непрозрачным путём** (закрыта отказом `WORKTREE-OPAQUE`): та была про
-команду, которую страж не смог проверить. Здесь проверять нечего — путь **и правда** общий.
-`agent-isolation.md` §3 требует, чтобы рабочий каталог выводился из идентификатора **самого
-агента**; путь scratchpad выводится из идентификатора **сессии**. Это ровно тот дефект, который
-правило запрещает, и он записан в предписанном сниппете.
-
-**Почему хук это не закроет.** У него нет признака, отделяющего «моё поддерево scratchpad» от
-чужого: он знает только worktree. Поэтому он не может ни отказать в мутации чужого чекаута в
-scratchpad, ни опознать свой — вторая половина того же пробела записана пунктом 130 (ревьюер не
-может убрать за собой).
-
-**Направление:** имя каталога должно выводиться из идентификатора агента, а не быть константой в
-сниппете — тогда столкновение невозможно по построению, и хук получает тот самый признак
-принадлежности, которого ему не хватает для пункта 130.
-
-**Как узнаем, что починено:** два агента одной сессии, оба выполнившие сниппет буквально, получают
-**разные** пути; в scratchpad нет двух каталогов с одинаковым именем от разных агентов; ревьюер
-удаляет свой чекаут сам, без строки «уберите вручную».
-
-## 135. CI: отложенные оптимизации с замерами (после разделения гейта мутаций)
-
-**Заведено:** 2026-09-03 по решению владельца — фокус на уведомлениях, из CI делаем только
-безопасный минимум (гейт мутаций отдельным заданием, фильтр docs-only, матрица по пакетам).
-Остальное — сюда, с цифрами, чтобы не мерить заново.
-
-**Замеры (8 успешных прогонов CI, медиана/макс, секунды):** `Typecheck · Lint · Unit Tests`
-567/750 (из них юнит-тесты 235–257, остальное — гейт мутаций); `E2E (misc)` 332/384 —
-критический путь среди E2E; `E2E (landing)` 253/278; интеграционные 232/246; самый короткий
-шард `drop-lifecycle` 109/143. Гейт мутаций по пакетам: `shared` ~10 с, `web` ~230 с, `api`
-типично 250 с, **максимум 2489 с** — вот источник прогонов по 25–47 минут на тяжёлых диффах.
-
-**Проверено и опровергнуто:** потолок одновременности **не упирается** (в прогонах с очередью
-было занято ≤13 слотов; 302 с ожидания — не от лимита). Сам потолок 20 не подтверждён
-(`gh api /user` → `plan: null`). Проектировать надо так, чтобы корректность от него не зависела.
-
-### Что отложено
-
-**[ПРИОРИТЕТ, 2026-09-03 — решение владельца]** Подпункт 1 ниже — единственный оставшийся
-рычаг по скорости гейта мутаций после отката `ignoreStatic` (self-check показал, что настройка
-прячет модульные константы — класс инцидента 2026-08-07; см. `mutation-gate.mjs` "PR GATE vs
-NIGHTLY"). До этой правки тяжёлые диффы на `--changed` идут 25–47 минут (та же цифра из
-восьми прогонов CI выше в этом же пункте, не переизмерялась после отката — `ignoreStatic`
-в проде так и не побывал), осознанно.
-
-1. **Файловый шардинг `api`-ноги гейта мутаций.** Единственное, что лечит тяжёлые диффы:
-   матрица по пакетам даёт `max` вместо суммы, но когда весь вес в `api`, `max` = `api`.
-   Скрипт `mutation-gate.mjs` **не умеет** делить по файлам — переменные окружения: только
-   `MUTATION_PACKAGES`, `MUTATION_ONLY_FILES`, бюджет, конкурентность. Нужна правка скрипта:
-   раскладка изменённых файлов на N ног с сохранением **одного** отчёта на пакет (гейт читает
-   отчёт по имени пакета — N ног дадут N отчётов, и агрегация обязана быть явной).
-   Оценка по замерам: тяжёлые PR 25–47 мин → ~16–23 мин.
-2. **Перебалансировка E2E-шардов.** `misc` — 18 файлов и критический путь; per-file длительности
-   сняты с **одного** прогона (±20%), для решения нужно 3+. Кандидат: вынести `tests/crm/`
-   (9 спек) отдельным шардом. Попутно: `crm-tab-title.spec.ts` заявлен исполняющимся дважды —
-   подтвердить и убрать дубль.
-3. **Расщепление `Typecheck · Lint · Unit Tests` на ноги под агрегатором с тем же именем.**
-   Крупнейший потенциальный выигрыш (~567 → ~330 с), но агрегатор — новая точка отказа: ошибка в
-   нём = либо вечно красная обязательная проверка, либо зелёная при красной ноге. Делать только с
-   тестом на обе стороны и **не** переименовывая обязательный контекст.
-
-### Ловушка, записанная нарочно
-
-Матрица гейта мутаций по пакетам **не должна** заводить пакетные бюджеты (3600/1800/600 и т.п.):
-скрипт знает **один** бюджет на прогон, и раздельные числа без замера для `web` означают тихое
-ужесточение с ложными красными. Один бюджет на ногу, тот же, что сейчас.
-
-**Как узнаем, что сделано:** медиана `Typecheck · Lint · Unit Tests` на PR с кодом ниже 300 с,
-и ни один PR за месяц не превысил 15 минут по гейту мутаций.
-
-## 136. Аудит текста лендинга и CRM — перед следующей работой над мультиязычностью
-
-**Заведено:** 2026-09-03 по запросу владельца. **Когда делать:** первым шагом следующей задачи
-по мультиязычности, до того как переводить или расширять словари.
-
-**Факт, из-за которого запись.** Ревью текста (`copy-reviewer`) до PR #623 не запускалось ни
-разу. Агент заведён 2026-08-04; лендинг переведён на пять языков (en/uk/ru/es/pt) в июле, PR
-#421–#425 — то есть **ни один из пяти словарей ревью текста не проходил**. CRM (`apps/web`)
-русскоязычна, настоящих словарей у неё нет; все её строки писались кодерами по ходу задач и
-тоже не ревьюились как текст.
-
-На #623 первый же запуск оси дал четырнадцать находок, из них три HIGH, и две из них были не
-про стиль, а про поведение: страница входа падала на кодах ошибок, а совет «выберите другой
-аккаунт» был невыполним. То есть непроверенный текст — это не только «читается как перевод»,
-это ещё и место, где прячутся дефекты, которые не видит ни код-ревью, ни тесты.
-
-**Что аудировать.**
-
-- **Лендинг, все пять словарей** — по скиллу `copywriting`: тест на подмену логотипа для каждого
-  заголовка, признаки машинного текста, а главное — **пять оригиналов, а не перевод**: выписать
-  утверждение каждого заголовка одной строкой и проверить, что все пять языков несут тот же
-  набор обещаний. Длину мерить в символах для самого длинного языка на 320px.
-- **CRM, весь видимый текст** — заголовки, пустые состояния, ошибки, тосты, подписи кнопок.
-  Особое внимание сообщениям об ошибках: каждое обязано говорить, **что делать дальше**, а не
-  только что произошло (находки COPY-H-3 и COPY-M-8 на #623 — образец того, как это ломается).
-- **Английские строки в русскоязычной CRM** — на #623 нашлось два английских тоста на новых
-  путях (`COPY-H-5`, `COPY-H-6`), и оба пришли от старых литералов в сервисах. Пройти по всем
-  `throw new *Exception('...')` в `apps/api` и найти те, что доходят до экрана.
-
-**Почему именно перед мультиязычностью, а не когда-нибудь.** Переводить непроверенный текст —
-значит размножить каждый дефект на число языков. Дешевле один раз выправить исходник, чем потом
-править пять словарей синхронно.
-
-**Как узнаем, что сделано:** на каждом словаре лендинга и на CRM стоит вердикт `Copy Review:
-PASS` от `copy-reviewer`, а список найденных дефектов поведения (не стиля) заведён отдельными
-пунктами бэклога.
-
-## 137. Канал ночного мутационного алерта доставляет, но его не читают
-
-**Заведено:** 2026-09-03, при починке `task-mutation-gate nightly-alert-fidelity` (см. рядом —
-починка ТЕКСТА алерта `post-merge-alert.sh` для `KIND=mutation`). Проверено исполнением
-(`gh issue view 26 --repo yaremenko-maksym/cheekycheese-telemetry`): issue открыт 2026-08-12,
-**22 комментария**, последний — сегодня, 2026-09-03, всё ещё `OPEN`. Канал долгие недели
-technически работал (issue открывался, комментировался каждую ночь) — но три с лишним недели
-подряд никто его не читал, и ночной гейт молча оставался красным именно поэтому, а не только
-из-за неточного текста алерта.
-
-**Отличие от того, что чинится рядом.** Соседняя правка (`post-merge-alert.sh`,
-`check-mutation-tally.mjs`) делает ТЕКСТ алерта точным: раньше «сбор не завершился» и «нашлись
-выжившие» читались одинаково («выжившие мутанты — вот что делать»), хотя это разные диагнозы.
-Но точный текст в непрочитанном issue не решает исходную проблему — 22 молчаливых комментария
-доказывают, что дело не только в формулировке: канал доставки сам по себе не создаёт внимания.
-
-**Направление (не решено, требует выбора владельца — необратимо по цене «снова недели тишины»,
-см. `autonomy-levels.md` A2/A3):** дайджест/уведомление ПОВЕРХ issue (email/Telegram при
-открытии и при каждом продолжении, не только факт создания issue) — по аналогии с тем, как
-`telemetry-digest.yml` уже агрегирует другие приватные issue в читаемую сводку; либо явный
-периодический пункт в чьём-то регулярном чеклисте («раз в N дней открыть
-`cheekycheese-telemetry` руками»). Не решение DevOps в одиночку.
-
-**Как узнаем, что починено:** ни один `mutants-surviving` issue в `cheekycheese-telemetry` не
-копит больше 2-3 комментариев подряд без внешнего сигнала (письмо/сообщение) ДО того, как на
-него отреагировали; либо явный ответственный за периодический просмотр канала назван и
-подтверждён.
-
-## 138. Песочница Stryker не копирует `.sql` — локальный полный прогон `@crm/api` ненадёжен
-
-**Заведено:** 2026-09-03, находка кодера на #623 (проверено `git log`) — не связано с самим #623,
-структурная дыра гейта мутаций. Файл `.sql` из PR #587 не попадает в sandbox, который Stryker
-строит для `@crm/api` перед прогоном: гейт мутирует и тестирует TS/JS-исходники, но копирование
-проекта в песочницу — отдельный, более общий механизм Stryker (`files`/автодетект в
-`@stryker-mutator/core`), и он не гарантирует, что каждый файл, от которого код рантайм-зависит
-(миграция, сырой SQL, что угодно не-TS), окажется рядом в песочнице. Практический эффект: локальный
-`--changed`/`--full` на `@crm/api` может пройти (или упасть иначе), чем тот же прогон в CI, где
-чекаут полный — то есть локальный зелёный НЕ доказательство, что CI тоже будет зелёным именно для
-диффов, трогающих такие файлы.
-
-**Направление (не решено):** проверить, какой список путей Stryker реально копирует в sandbox для
-`@crm/api` (`mutation-gate.mjs`'s `writeConfig()` — нет явного `files:` allow-list, значит работает
-дефолт-автодетект Stryker; сверить его поведение с `.sql`-путями по первоисточнику
-`@stryker-mutator/core`, не по догадке). Если дефолт действительно пропускает не-TS-зависимости —
-либо явный `files:` allow-list с нужными путями, либо документированное ограничение "локальный
-прогон @crm/api недостоверен для диффов вне TS/JS, доверять только CI".
-
-**Как узнаем, что починено:** полный локальный `--changed` на `@crm/api` (диф, трогающий `.sql`
-или другой не-TS файл рантайм-зависимости) даёт ТОТ ЖЕ результат (те же surviving/killed по тем же
-мутантам), что и CI-прогон того же коммита.
-
-## 139. Убийство чужого процесса по правильному PID, но с ошибкой опознания
-
-**Заведено:** 2026-09-03, честное признание кодера на #623 — отправил SIGKILL процессу другого
-агента. Формально правило соблюдено (`agent-isolation.md` §5: убивать по PID, не по маске
-`pkill`/`killall`) — но PID был получен из неверного опознания: процесс, ошибочно принятый за
-зомби своей сессии, оказался живым процессом ДРУГОГО агента.
-
-**Отличие от уже закрытого.** `agent-isolation.md` §5 и хук `pre:bash:cross-agent-blast` закрывают
-конкретный механизм — широковещательный `pkill -f`/`killall` по шаблону. Здесь механизм другой:
-убийство точечное, по PID, синтаксически правильное — ошибка в том, ЧЕЙ это PID, а это хук
-проверить не может (он не знает, какой PID кому принадлежит; это факт из внешнего мира, не из
-текста команды).
-
-**Направление:** перед `kill <PID>` — сначала `ps -o etime,cmd -p <PID>` и сверка результата с
-**собственными** портами (`lsof -ti tcp:<свой порт>`) и рабочим каталогом агента, а не с
-предположением «долго висит — значит зомби». Найденное в `ps` не совпадает с ожидаемым (свой
-процесс, свой порт, свой каталог) — не трогать, сообщить оркестратору, а не убивать «на всякий
-случай». Кандидат для `agent-isolation.md`: явный шаг сверки перед §5, не только запрет маски.
-
-**Как узнаем, что починено:** ни в одном отчёте агента не появляется строка вида «убил процесс,
-оказался чужим» — то есть либо сверка предотвращает ошибку, либо (при сомнении) агент сообщает
-ДО, а не после убийства.
-
-## 140. Pre-push хук гоняет полный юнит-набор независимо от диффа
-
-**Заведено:** 2026-09-03, наблюдение оркестратора на #646. Одна строка в `.github/workflows/ci.yml`
-(подключение E2E-спеки к шарду) → `git push` = husky pre-push: typecheck плюс суиты `api`/`web`/`landing`
-(порядка 6 600 тестов). Под нагрузкой машины это 5–10 минут за попытку; две предыдущие попытки того же
-агента упали на флаках **чужих** тестов уже после полного прогона. Итог — больше получаса на одну строку,
-и владелец спросил, «в чём проблема этих агентов».
-
-**Отличие от уже сделанного.** `DATABASE_URL=` пустой освобождает только integration-спеки; гейт
-`ac_verified:` — про сообщение коммита; ни то ни другое не скоупит прогон по диффу.
-
-**Направление:** прогон по затронутым пакетам (`turbo run test --filter=...[origin/main]` или эквивалент)
-и полное освобождение для диффов, ограниченных `.github/**`, `docs/**`, `.claude/**`. Полный набор остаётся
-в CI — это required checks, хук их не заменяет. Цена: локально перестаёт ловиться кросс-пакетный регресс
-(его ловит CI); принять осознанно.
-
-**Как узнаем, что починено:** push диффа из одного workflow-файла занимает секунды, а не минуты; push с
-правкой только в `apps/api` не запускает суиты `web`/`landing`.
-
-## 141. Persist-allowlist обещает «non-PII reference data», а ключ `projects` персистит e-mail, ставки, доли, заметки — и причину отказа
-
-**Заведено:** 2026-09-03, security-review #646 (SR-M-1 закрывается в PR, SR-M-2 — здесь). Поведение:
-`PERSISTED_KEY_PREFIXES` включает ключ `projects`; в IndexedDB на 24 часа ложатся `members[].email`, `rate`,
-доли и `notesGeneral`, а с #646 — `rejectionReason` (текст о том, почему человек отказался от денежной
-схемы), причём панель согласований на дашбордах SENIOR/DROP заполняет кэш там, где раньше запроса не было.
-Правило персиста (память `project_persist_query_allowlist`): auth / payment / finance / PII — никогда.
-Комментарий над списком утверждает то, чего нет — тот же класс, что 15 ложных комментариев на #645.
-
-**Направление:** либо трансформер при персисте, вырезающий чувствительные поля для ключа `projects`, либо
-вынести финансовые поля и данные согласований в отдельный ключ вне allowlist. Решение — одно на оба
-пункта, не два разных.
-
-**Как узнаем, что починено:** после загрузки `/projects` под SENIOR в содержимом IndexedDB нет ни e-mail,
-ни ставок, ни текста причины отказа — проверка **содержимого стора**, а не кода.
-
-## 142. Ревьюер, переиспользующий чекаут между раундами, диффует не от merge-base
-
-**Заведено:** 2026-09-03, второй круг ревью #644. `git diff origin/main..HEAD` после `fetch` показал
-75 файлов и −11 741 строку: `origin/main` ушёл вперёд на три коммита между раундами, реальный дифф PR —
-10 файлов. Поймано только потому, что число не сошлось с первым кругом.
-
-**Направление:** в `code-review-discipline` §6 — перед диффом `base=$(git merge-base HEAD origin/main)` и
-`git diff "$base"..HEAD`, а источник истины по составу диффа — `gh pr diff <N>` / `gh pr view --json files`;
-локальный чекаут нужен только для запуска, не для чтения диффа.
-
-**Как узнаем, что починено:** число файлов в отчёте второго круга равно числу файлов PR по
-`gh pr view --json files`; расхождение — находка о процедуре, не о коде.
-
-## 143. Два worktree на одном ref ветки: `checkout -B` не остановил git, коммит одного агента лёг поверх коммита другого
-
-**Заведено:** 2026-09-03, отчёт DevOps на #646 (шард в `ci.yml`) — второй раз за день тем же механизмом
-(первый — `infra/mutation-gate-progress` и чужой `agent-a8ed9dc9ba1e79209`). Task-файл велел
-`git checkout -B feat/project-status-filter-ui origin/…` в своём worktree, пока кодер работал на той же ветке в
-своём. Git не отказал (ожидалось «already checked out at …»), и оба worktree оказались с HEAD на одном
-мутируемом ref: коммит кодера лёг поверх коммита DevOps через общий ref, не через pull. Работа не потерялась —
-DevOps заметил, отцепил HEAD (`--detach`), cherry-pick'нул только своё на чистую ветку от tip origin и запушил.
-
-**Механизм, который надо установить фактом, а не догадкой:** почему `checkout -B` прошёл (флаг `-B` сбрасывает
-существующую ветку; проверка «checked out elsewhere» для `-B`, возможно, не применяется; либо ветка кодера
-называлась иначе — `worktree-agent-…` с тем же upstream). Воспроизвести на двух временных worktree.
-
-**Направление:** оркестратор не даёт двум агентам одну ветку одновременно — второй получает **свою** ветку от
-tip первой и PR в неё, либо ждёт; в промптах — `git switch -c <своя-ветка> origin/<ветка>` вместо `checkout -B`.
-Кандидат на хук `pre:bash:cross-agent-blast`: отказ на `checkout -B <ветка>`, если `git worktree list` показывает
-эту ветку у другого worktree.
-
-**Как узнаем, что починено:** воспроизведение на двух worktree даёт отказ (git или хук) до того, как второй
-HEAD встанет на общий ref.
-
-## 144. Docs-only PR всё равно поднимает сервис-контейнеры E2E и запускает деплой
-
-**Заведено:** 2026-09-03, #649 (только `BACKLOG-followups.md`): шард `E2E (drop-lifecycle)` упал на
-`Initialize containers` — три таймаута `docker pull postgres:16-alpine` подряд. Docs-only фильтр пропускает
-**шаги**, но `services:` job'а стартуют до шагов, и docker-pull становится поверхностью флака для диффа из
-одного markdown-файла. После мержа `deploy.yml` пересобрал и передеплоил прод с тем же кодом.
-
-**Направление:** для E2E — job-level `if:` по результату фильтра (проверить, что «skipped» required-check не
-блокирует мерж — GitHub считает skipped job'ы прошедшими для required status checks; подтвердить фактом на
-тестовом PR, а не по памяти) либо вынести сервис-контейнеры в шаги (`docker compose up` внутри job'а после
-фильтра). Для деплоя — `paths-ignore` на `**/*.md`, `.claude/**`, `docs/**` с тем же `predicate-quantifier`.
-
-**Как узнаем, что починено:** на docs-only PR ни один E2E-шард не показывает шаг `Initialize containers`, а
-после мержа docs-only PR run деплоя не создаётся.
-
-## 145. GitHub Actions пиннуты тегами, не SHA — включая шаг, который получает SSH-ключ VPS
-
-**Заведено:** 2026-09-03, security-review #650 (SR-L-1, вне PR — конвенция всего репозитория).
-`appleboy/ssh-action@v1.2.0` получает `VPS_SSH_KEY`; тег — подвижный указатель, компрометация тега у
-мейнтейнера = чужой код с ключом к проду. Тот же класс, что пин версии signal-cli по отпечатку ключа: здесь
-пина нет.
-
-**Направление:** `uses: owner/action@<sha40> # vX.Y.Z` для всех действий, начиная с тех, что видят секреты
-(`ssh-action`, `docker/login-action`, `scp`); Dependabot/Renovate для обновления SHA. Отдельный PR DevOps,
-проверяемый `actionlint` + грепом на `@v`.
-
-**Как узнаем, что починено:** `grep -rnE 'uses: [^ ]+@v[0-9]' .github/workflows` пуст, кроме явных исключений с
-обоснованием в комментарии.
-
-## 146. Playwright MCP — один браузер на всех параллельных агентов сессии
-
-Заведено 2026-09-03: ui-ux-designer (Mode B r2, #646) и manual-qa работали одновременно, каждый на своём стеке
-(3030/3031 и 3040/3041), но через ОДИН экземпляр браузера Playwright MCP родительской сессии: URL и пользователь
-периодически подменялись чужим агентом, dev-login cookie на `localhost` (RFC 6265 — cookie не различают порт)
-стирался чужим логином и наоборот. Известный пункт 131 («пишет в чужой каталог») — лишь симптом того же:
-браузер не принадлежит агенту. Последствия: визуальный QA двух агентов параллельно невалиден; скриншоты в
-чужой allow-list каталог; замеры могут быть чужого экрана.
-Направление: правило в `agent-isolation.md` — не более одного агента с Playwright MCP одновременно (оркестратор
-сериализует визуальные оси), либо per-agent браузер (Playwright напрямую через `npx playwright` в своём worktree
-с `--user-data-dir`/`storageState` в своём каталоге, вместо общего MCP). Проверка: два агента с разными
-dev-login в одно время → у каждого свой пользователь до конца сессии.
-
-## 147. `responsive-design.md`: тач-таргет ≥44 px только «на мобайле» (<640) — планшет 768 считается тач-устройством, но правило его не покрывает
-
-Fidelity r2 #646 (UX-L-1): `sm:h-7` даёт 28 px на 768; дизайнер счёл допустимым по букве. Уточнить правило: 44 px до `md` (1024)?
-
-## 148. Инфраструктура manual-qa/ui-ux: три ограничения, найденные на #646 (2026-09-03)
-
-1. Playwright MCP `browser_take_screenshot`/`browser_snapshot` принимают только пути из allow-list, закреплённого за
-   worktree РОДИТЕЛЬСКОЙ сессии — агент не может сохранить скриншот в свой worktree ни абсолютным, ни относительным путём
-   (относительный падает в корень чужого worktree). Связано со 131/146: браузер и его каталоги не принадлежат агенту.
-2. `browser_resize` отсутствовал в тулсете manual-qa при диспатче, хотя системный промпт агента его упоминает —
-   сверить `tools:` frontmatter `manual-qa.md` с фактическим списком (тот же класс, что метка `security-noted`: инструкция
-   ссылается на то, чего нет).
-3. Хук `pre:bash:*` «too complex to verify that it stays inside the worktree» блокирует многострочные heredoc'и с `while`,
-   `page.evaluate`+`fetch`, конкатенацией путей через `+` — даже когда всё внутри своего worktree; агент писал скрипты
-   кусками через `cat >>`. Кандидат на сужение предиката (ложное срабатывание воспитывает обход — см. `agent-isolation.md`
-   «Цена ложного срабатывания»).
-   Обход, который сработал у manual-qa: собственный Node-скрипт на монорепном `@playwright/test` из Bash в своём worktree —
-   все responsive-скриншоты и замеры получены им, не общим MCP-браузером. Возможно, это и есть направление для 146.
-
-## 149. Стресс-нагрузка ревьюера («load hogs») пережила ревьюера на 22 часа и держала машину под LA 200
-
-Заведено 2026-09-03 23:41: security-reviewer 6-го круга #623 (2026-09-03 ~01:30) запустил `NPROC*2` = 16 busy-loop'ов
-в фоне для проверки стойкости к нагрузке и завершился, не остановив их. 16 `zsh -c` по ~35 % CPU держали load average
-150–320 весь день; это списывали на рендер в соседнем проекте и на параллельных агентов. Последствия: pre-push
-флакал (по 3–6 попыток на push), таймауты тестов, «в чём проблема этих агентов». Нашлось только по `ps -r` с
-полной командной строкой (в ней был путь к scratchpad ревьюера).
-Направление: (1) любой синтетический нагрузчик — с TTL (`timeout <sec>` вокруг цикла) и `trap`-уборкой в том же
-скрипте; (2) в `code-review-discipline` §6 — «после проверки красноты убедись `ps` по своему scratchpad-пути пуст»;
-(3) репер зомби (`reap-zombie-devservers.sh`) ловит только node/worktree — расширить на процессы, чья команда содержит
-путь scratchpad завершившейся сессии/агента старше N часов. Проверка: `ps -Ao etime,command | grep scratchpad` пуст
-через час после завершения любого ревьюера.
-
-## 150. Полная ночная развёртка мутаций невыполнима как один job: 25 665 (`api`) и 29 099 (`web`) мутантов против бюджета 5 ч
-
-Заведено 2026-09-04, run 33776905012 (первый прогон после #644/#647): `shared` 20 мин зелёный; `api` и `web` исчерпали
-18 000 с на ~23 000 мутантах каждая, оценка до конца ~33 ч и ~16 ч; гейт → «NOTHING was verified»; step summary 2.8 МБ
-не влез в лимит 1 МБ. Промежуточные выжившие (5 117 / 4 326) — реальные, но текущий алерт их не показывает.
-Направление (решение владельца): (а) ротационный поднабор — каждую ночь 1/N файлов по детерминированному списку
-(`MUTATION_ONLY_FILES` уже есть), весь репозиторий за неделю; (б) матрица шардов по файлам внутри одной ночи (N × 5 ч
-параллельно — бесплатный CI); (в) сокращение множества мутантов (исключить `__tests__`, фикстуры, `*.gen.ts`, уровни
-мутаторов) — измерить, сколько это даёт; (г) алерт с частичным результатом: «проверено X из Y, выжило Z» вместо
-«ничего»; (д) summary — усечённый до лимита с ссылкой на артефакт. Проверка: ночной run завершается зелёным/красным по
-существу, а не по бюджету; за 7 ночей покрыт каждый файл.
-
-## 151. Инструкция фикса из ревью сама стала регрессией: «обрезать до первой строки» применили ко всему выводу
-
-2026-09-04, #650 SR-M-6: первый круг security предписал маскировать/обрезать вывод signal-cli для каналов ошибок; кодер
-применил обрезку к любому stdout — `--groups` печатает одну группу из трёх, детект «version is too old» слепнет при
-строке stderr перед сообщением. Ревьюер признал авторство формулировки. Урок для `review-findings-transfer.md`: находка
-называет **канал и инвариант** («в письме/алерте не должно быть номера»), а не механику («обрезать до первой строки»);
-механику выбирает исполнитель, а ревьюер второго круга проверяет инвариант, не выполнение своей же подсказки.
-Проверка: в fix-задачах нет строк вида «сделай так: <механика>» без инварианта, который она обеспечивает.
-
-## 152. Новый тест-скрипт, который никто не запускает — третий случай за месяц
-
-#650 SR-M-7: `tests/test_verify_release_signature.sh` (страж на HIGH) не исполнялся ни pytest, ни стадией образа, ни
-`run-guard-tests.sh`, ни CI. Прецеденты: 42 кейса `cross-agent-hooks-smoke.sh` (#625), ночной `mutation-nightly` красный
-20 дней. Направление: мета-страж «каждый файл `test-*.sh`/`test_*.sh` в репо упоминается в каком-то раннере/workflow»
-(расширить `check-guard-tests-exist.sh` за пределы `scripts/devops/tests`). Проверка: новый `.sh`-тест без раннера → CI красный.
-
-## 153. Сетевые сбои раннера роняют required-check, не имея отношения к диффу
-
-2026-09-04 ночь: `E2E (drop-lifecycle)` на #649 — три таймаута `docker pull postgres:16-alpine`; `pnpm audit gate` на #650 —
-три попытки по 60 с без ответа реестра → `Typecheck · Lint · Unit Tests` красный (required). Оба случая — «перезапусти
-job», оба стоили полного круга ожидания и ручного перезапуска. Направление: (а) `pnpm audit` вынести в отдельный
-non-required job с алертом (advisory по сути не свойство диффа); либо retry с большим бюджетом и `neutral` при
-недоступности реестра + алерт в telemetry; (б) сервис-контейнеры: `docker pull` с retry уже есть у GitHub (3 попытки) —
-кэшировать образ postgres в GHCR-зеркале репозитория (`ghcr.io/<owner>/postgres:16-alpine`), чтобы не зависеть от Docker Hub.
-Проверка: неделя без ручных `gh run rerun --failed` по сетевым причинам.
-
-## 154. Смоук-тест, который не может упасть: `--version` под hardening-профилем
-
-2026-09-04, #650 SR-M-9: CI-смоук запускал `signal-cli --version` через `--entrypoint` (минуя entrypoint-скрипт) —
-единственную подкоманду без нативных библиотек; при этом реальный демон в том же профиле падал на `Can't load library`
-из `noexec /tmp`. Смоук был зелёным по построению. Урок в копилку «механизм уверенно сообщает то, чего не проверял»:
-смоук обязан идти тем же путём, что прод (entrypoint + та же команда/подкоманда, что в проде), и иметь известный
-красный кейс (доказательство, что он вообще умеет падать). Проверка: в PR-теле смоука — вывод красного прогона до фикса.
-Смежное: посылка «переменная окружения X читается как системное свойство Y» (TMPDIR ≠ java.io.tmpdir) — факт проверять
-прогоном, не по памяти; это уже третий случай за день, когда правка опиралась на непроверенную посылку.
-
-## 155. «Окно тишины» перед push по `pgrep -f` подстроки — два ждущих агента блокируют друг друга
-
-2026-09-04: дисциплина push (ждать `pgrep -f 'husky/pre-push'` пуст) с двумя агентами не сходится: командная строка чужого
-wait-loop'а содержит ту же подстроку. Найдено кодером #648 на 12-й попытке. Исправление — якорные паттерны
-(`\.husky/pre-push`, `vitest\.mjs run|vitest/dist/workers|@stryker-mutator`). Настоящее решение — пункт 140 (скоуп
-pre-push по диффу): очередь за окном исчезает вместе с полным прогоном. Пока 140 не сделан — паттерны в task-файлах.
-
-## 156. Вне диффа #648 — две находки manual-qa (OOS-1, OOS-2)
-
-Источник: issuecomment-5540201417 на PR #648. Выдержка:
-
-> - **OOS-1:** `ProjectShareInfo` (карточка «Обзор» проекта, `$projectId.tsx`) вычисляет отображаемый процент только из `seniorSharePercentOverr
-> - **OOS-2:** Диалог редактирования команды (`/team/:teamId`) — поле Telegram (`type="url"`, ждёт `https://t.me/...`) у \*\*всех 4 сидовых команд с
-
-## 157. `core.hooksPath` — абсолютный путь в основной чекаут: все worktree-push'и выполняют хук ОСНОВНОГО чекаута, а он отстаёт от main
-
-2026-09-04: после мержа #653 (скоупленный pre-push) push из worktree по-прежнему гонял полный набор — `git config core.hooksPath`
-= `/…/CheekyCheeseIT_CRM/.husky/_` (абсолютный), а `h` запускает `$(dirname $(dirname $0))/pre-push` — файл основного чекаута,
-который стоял на `main` в 83b27a1c (десятки коммитов позади). «Хук в main» ничего не включал, пока основной `main` не
-подтянули (`git merge --ff-only origin/main`). Смежно: `pnpm install` в любом worktree переписывает `hooksPath` на путь того
-worktree (husky), и после его удаления хуки ломаются у всех (память `project_worktree_provisioning_gotcha`).
-Направление: (а) хук-обёртка `h` должна брать `.husky/pre-push` из **текущего** worktree (`git rev-parse --show-toplevel`),
-а не из каталога `hooksPath`; либо `hooksPath` относительный (`.husky/_`) — проверить, как git резолвит относительный
-hooksPath в worktree; (б) в `light-track.md`/`agent-isolation.md` — шаг «обновить основной чекаут после мержа изменений
-хуков». Проверка: изменить хук в ветке, запушить из worktree — в логе строка нового хука без обновления основного чекаута.
-
-## 158. Субагенты одной сессии делят scratchpad оркестратора — чекауты ревьюеров сталкиваются, а хук не даёт их убрать
-
-2026-09-05, PR #646 круг 4: spec-reviewer и security-reviewer, запущенные из одной сессии, оба сделали чекаут в
-`…/<session>/scratchpad/checkout-r4` — путь совпал, потому что харнесс выдаёт субагентам scratchpad **родительской**
-сессии, а не персональный. Второй увидел «уже существует, чистый» и продолжил в нём; мутаций не было, поэтому обошлось —
-но это коллизия из `agent-isolation.md` §3 (путь выведен не из идентификатора агента), только источник — не абсолютный
-путь в промпте, а общий scratchpad. Вторая половина той же беды: `cross-agent-blast` признаёт «своим» только worktree,
-выданный при диспатче, и отказывает ревьюеру в `git worktree remove` на его собственный scratch-чекаут — за сессию их
-накопилось больше двадцати (`git worktree list | grep scratchpad`), уборка ложится на владельца.
-Поведение, которое нужно: имя чекаута включает уникальный токен, который агент получает сам
-(`mktemp -d "$SCRATCH/checkout.XXXXXX"`), и агент отказывается работать в чекауте, которого не создавал; хук считает
-«своим» чекаут, чей путь лежит в scratchpad текущей сессии и чей `.git`-файл указывает на общий репозиторий.
-Как проверить: два read-only ревьюера одного PR из одной сессии → `ls $SCRATCH` у каждого показывает разные каталоги;
-`git worktree remove` собственного scratch-чекаута проходит без отказа.
-
-## 159. Signal «+»: третий канал алерта (issue через `post-merge-alert.sh`) недостижим из контейнера
-
-2026-09-06, первый `--now` на VPS: `could not invoke /opt/crm/scripts/devops/post-merge-alert.sh: [Errno 2] No such
-file or directory`. `signal_plus/alert.py` (слой 3) зовёт хостовый скрипт по абсолютному пути, а исполняется внутри
-контейнера, где `/opt/crm` не смонтирован и нет ни `gh`, ни PAT. Слой задуман «читать опportunистически», но печатает
-ERROR при каждом срабатывании алерта. Варианты: (а) смонтировать скрипт + `gh` + `GH_TOKEN`/`ALERT_REPO` в контейнер —
-тяжело и расширяет секреты; (б) включать слой только при наличии файла и env, иначе молчать на DEBUG; (в) прямой вызов
-GitHub API из Python при наличии токена. Рекомендация — (б) сейчас, (в) если issue-канал реально нужен. Смежно:
-владельцу предложен слой 2 (`SIGNAL_ALERT_RECIPIENT` = свой номер, сообщение самому себе) как канал без новых секретов.
-Как проверить: `docker compose run --rm -e HANDOVER_TIME=00:01 signal-plus signal-plus --now` после 00:01 Kyiv — в логе
-нет строки про `post-merge-alert.sh`.
-
-## 160. Signal «+»: README-команда линковки не работала, а минимальный состав секрета нигде не записан
-
-2026-09-06: `sh -c 'signal-cli link …'` из README падал `signal-cli: not found` — бинаря нет в PATH контейнера; рабочая
-форма — `"$SIGNAL_CLI_BIN" -Djava.io.tmpdir="$SIGNAL_TMPDIR" link -n server-plus …` с фолбэком на
-`/opt/signal-cli-pinned/signal-cli`. Затем `--groups` упал `ConfigError: SIGNAL_CLI_BIN is required`: секрет
-`SIGNAL_PLUS_ENV` нёс только номер и группу, а `config.py` требует ещё `SIGNAL_CLI_BIN` и `STATE_FILE`; деплой пишет
-`.env` как есть и не проверяет состав, ошибка всплывает только при первом запуске обёртки. Побочно владелец затёр секрет
-пустой строкой (`ssh … | gh secret set` при упавшем ssh) — деплой на это падает громко, но лишь на следующем прогоне.
-Поведение, которое нужно: README и runbook перечисляют минимальный состав секрета; шаг `write-env` в
-`deploy-signal-plus.yml` проверяет обязательные ключи (`SIGNAL_ACCOUNT`, `SIGNAL_GROUP_ID`, `SIGNAL_CLI_BIN`,
-`STATE_FILE`) и падает с их именами; команда линковки в README — рабочая форма выше. Как проверить: секрет без
-`STATE_FILE` → деплой красный на `write-env`, а не зелёный с мёртвым контейнером.
-
-## 161. Auto-merge по лейблу не деплоит `signal-plus`; попутно — `status` read-only в zsh
-
-2026-09-06, PR #660: сквош через `merge-approved` идёт `GITHUB_TOKEN`'ом, push-событие не рождается (известный
-anti-recursion), а `auto-merge-on-label.yml` явно диспатчит только `deploy.yml` и `ci.yml`. Поэтому
-`deploy-signal-plus.yml` после мержа #660 не запустился: код правила про воскресенья лежал в main, на VPS крутился
-старый образ, пока оркестратор не дёрнул `gh workflow run deploy-signal-plus.yml --ref main` вручную.
-Поведение, которое нужно: если смерженный PR трогал `services/signal-plus/**` или сам `deploy-signal-plus.yml`,
-auto-merge диспатчит и его (по `gh pr view --json files`), либо `deploy-signal-plus.yml` слушает `workflow_run`
-auto-merge с фильтром по путям. Как проверить: смержить по лейблу правку в `services/signal-plus/README.md` —
-в `gh run list --workflow deploy-signal-plus.yml` появляется прогон на merge-коммите.
-Смежная мелочь для мониторов: в zsh переменная `status` read-only — скрипт с `status=$(...)` умирает молча
-(`read-only variable: status`), монитор мержа #660 так и погиб; называть иначе.
-
-## 162. Сетка строки проекта на 320 px схлопывает имя, синьора и джуна (QA-H-4 на #646, существует на main)
-
-2026-09-06, manual-qa r4 на #646: на ровно 320 px пятитрековая сетка `ProjectRow` (без брейкпоинтов на main) сжимает
-колонки имени/синьора/джуна почти до нуля — компания «A…», синьор «C», у джуна голая точка. Воспроизводится на табе
-«Активные» на нетронутом seed-проекте, то есть до фичи #646; спека `project-status-filter` §11 запретила трогать
-сетку в том PR, поэтому пять раундов чинили только статус-колонку. Copy-ревьюер и дизайнер отмечали то же с круга 3.
-Поведение, которое нужно: на `<lg` строка — карточка в столбец (foundation.md §10, «таблица → card-stack»), без сетки из
-пяти треков; на `lg+` — сетка как есть. Как проверить: `/projects` под любой ролью на 320/375 — имя компании и имена
-читаются целиком, тач-таргеты ≥44×44. Отдельная задача с дизайн-гейтом Tier 2, не light-track.
-
-**Дополнение 2026-09-07 (UX-L-4(r7) на #646).** Подпись «Нет джуна» усекается и на 768/834, не только на 320 —
-тот же класс дефекта, шире диапазон. Дизайнер показал арифметикой грида, что колонка джуна после #646 стала шире,
-чем на main (безусловный 8fr → условный 7fr/8fr), то есть это не регрессия PR. Кадры: ветка
+**Its own check passed:** `git rev-parse --show-toplevel` matched the issued path,
+i.e. the rule's requirement (`agent-isolation.md` §8) was met. It was stopped by three other
+signals it took for proof of a mismatch:
+
+- the path to `CLAUDE.md` in the system reminder;
+- the session-scratchpad path;
+- the session memory contents.
+
+**All three belong to the parent session and are inherited by every subagent.** They have no
+relation to the agent's own directory. It also found the `locked` flag on its worktree suspicious — but
+the harness marks all agent directories that way; it means "in use by you", not "foreign".
+
+**Why this is not the agent's fault.** The rule explicitly says not to trust the environment's self-description
+("The environment's self-description cannot be trusted", §8) and cites a case where the harness reported the
+path of a nonexistent worktree. The agent applied the rule literally and in good faith. The rule
+does not say **which** signals relate to its directory and which are inherited.
+
+**What to write into the rule:** list what is inherited (the `CLAUDE.md` path in reminders, scratchpad,
+memory) as parent-owned by definition and not subject to verification, and call `locked` the normal
+state of one's own directory. The one remaining signal is a single one — the match of
+`--show-toplevel` with the issued path.
+
+**How we'll know it's fixed:** an agent whose toplevel matches does not stop and does not write to the
+report about a mismatch.
+
+## 133. Agents lose hours of work at the session limit because they do not commit along the way
+
+**Noticed:** 2026-09-02, twice in a session. Five agents were cut off by `rate_limit`; three of them had 6 to 23 kilobytes
+of uncommitted edits left in the working tree — several hours of work each.
+Nothing was lost only because the orchestrator extracted the patches manually.
+
+**How this came about.** `git-policy.md` §"WIP commits & chunking" **already requires** a `wip:` commit
+every two files or five minutes, and `wip:` is specifically exempted from `ac_verified:` precisely for
+this. The rule exists, it is not followed, and nothing reports it: uncommitted work
+looks exactly like committed work while the agent is alive.
+
+**How this differs from an ordinary discipline violation.** A cutoff at the limit is neither rare nor an
+accident: it is a routine event, the more likely the longer an agent works. That is, the
+rule is broken precisely in the tasks where the cost of breaking it is highest.
+
+**Direction:** make the reminder mechanical rather than disciplinary. A candidate — a hook on
+`Edit`/`Write` that counts files changed since the last commit and prints a warning
+after a threshold. A warning, not a block: a blocking gate in the middle of an edit is a way to
+breed a habit of bypassing it (`agent-isolation.md` §"The cost of a false positive").
+
+**How we'll know it's fixed:** an agent cut off by the limit has no more than two
+modified files in its working tree.
+
+## 134. The session-scratchpad is shared by all subagents, and the prescribed checkout name in it is fixed
+
+**Noticed:** 2026-09-02. Two reviewers of the same session independently named their checkouts identically
+(`checkout`) and ended up in the same directory.
+
+**This is not a coincidence but a construction.** The scratchpad is issued **per session**, not per agent: all
+subagents of one session get the same path. Verified by listing — "its own"
+scratchpad holds artifacts of dozens of different agents over a day: reviewers' checkouts, spec-reviewer
+reports, mutation gate logs, designer screenshots. On top of that, the prescribed cleanup snippet
+(`pm-snippets.md`, the reviewer checkout section, and `code-review-discipline` §6) names the
+directory with a **fixed** name under `$SCRATCH`. Two agents that both followed the instruction literally
+are bound to collide. Those that did not collide added a prefix themselves (`cr-pr611-r7-checkout`,
+`sr-pr623-r5b-checkout`) — that is, improvisation saved them, not mechanics.
+
+**How this is wider than the opaque-path hole** (closed by the `WORKTREE-OPAQUE` refusal): that one was about a
+command the guard could not verify. Here there is nothing to verify — the path **really is** shared.
+`agent-isolation.md` §3 requires that the working directory be derived from the identifier of the **agent
+itself**; the scratchpad path is derived from the **session** identifier. This is exactly the defect the
+rule forbids, and it is written into the prescribed snippet.
+
+**Why the hook will not close this.** It has no signal separating "my subtree of the scratchpad" from
+someone else's: it knows only about worktrees. So it can neither refuse a mutation of a foreign checkout in the
+scratchpad nor recognise its own — the second half of the same gap is recorded as item 130 (a reviewer
+cannot clean up after itself).
+
+**Direction:** the directory name must be derived from the agent's identifier rather than be a constant in
+the snippet — then a collision is impossible by construction, and the hook gets the very ownership signal
+it lacks for item 130.
+
+**How we'll know it's fixed:** two agents of one session, both following the snippet literally, get
+**different** paths; there are no two directories with the same name from different agents in the scratchpad; a reviewer
+deletes its own checkout itself, without a "please clean up manually" line.
+
+## 135. CI: deferred optimizations with measurements (after splitting out the mutation gate)
+
+**Opened:** 2026-09-03 by the owner's decision — focus on notifications; for CI we do only
+the safe minimum (mutation gate as a separate job, docs-only filter, per-package matrix).
+The rest goes here, with numbers, so we do not measure again.
+
+**Measurements (8 successful CI runs, median/max, seconds):** `Typecheck · Lint · Unit Tests`
+567/750 (of which unit tests 235–257, the rest is the mutation gate); `E2E (misc)` 332/384 —
+the critical path among E2E; `E2E (landing)` 253/278; integration 232/246; the shortest
+shard `drop-lifecycle` 109/143. Mutation gate per package: `shared` ~10 s, `web` ~230 s, `api`
+typically 250 s, **maximum 2489 s** — the source of 25–47 minute runs on heavy diffs.
+
+**Checked and refuted:** the concurrency ceiling is **not hit** (in runs with a queue
+at most 13 slots were busy; the 302 s of waiting was not due to the limit). The ceiling of 20 itself is not confirmed
+(`gh api /user` → `plan: null`). The design must be such that correctness does not depend on it.
+
+### What is deferred
+
+**[PRIORITY, 2026-09-03 — owner's decision]** Sub-item 1 below is the only remaining
+lever for mutation gate speed after the rollback of `ignoreStatic` (the self-check showed that the setting
+hides module constants — the 2026-08-07 incident class; see `mutation-gate.mjs` "PR GATE vs
+NIGHTLY"). Until this fix, heavy diffs on `--changed` take 25–47 minutes (the same figure from
+the eight CI runs above in this same item, not re-measured after the rollback — `ignoreStatic`
+never made it to production), deliberately.
+
+1. **File sharding of the `api` leg of the mutation gate.** The only thing that cures heavy diffs:
+   a per-package matrix gives `max` instead of the sum, but when all the weight is in `api`, `max` = `api`.
+   The `mutation-gate.mjs` script **cannot** split by file — environment variables: only
+   `MUTATION_PACKAGES`, `MUTATION_ONLY_FILES`, budget, concurrency. The script needs a change:
+   distributing the changed files across N legs while keeping **one** report per package
+   (the gate reads the report by package name — N legs would give N reports, and the aggregation must be explicit).
+   Estimate from measurements: heavy PRs 25–47 min → ~16–23 min.
+2. **Rebalancing E2E shards.** `misc` is 18 files and the critical path; per-file durations
+   were taken from **one** run (±20%), the decision needs 3+. Candidate: move `tests/crm/`
+   (9 specs) into a separate shard. Along the way: `crm-tab-title.spec.ts` is claimed to run twice —
+   confirm and remove the duplicate.
+3. **Splitting `Typecheck · Lint · Unit Tests` into legs under an aggregator with the same name.**
+   The largest potential gain (~567 → ~330 s), but the aggregator is a new point of failure: a bug in
+   it means either a forever-red required check or green with a red leg. Do it only with
+   a test for both sides and **without** renaming the required context.
+
+### A trap, recorded deliberately
+
+The per-package mutation gate matrix **must not** introduce per-package budgets (3600/1800/600 etc.):
+the script knows **one** budget per run, and separate numbers without a measurement for `web` mean a silent
+tightening with false reds. One budget per leg, the same as now.
+
+**How we'll know it's done:** the median of `Typecheck · Lint · Unit Tests` on PRs with code is below 300 s,
+and no PR in a month exceeded 15 minutes on the mutation gate.
+
+## 136. Audit of landing and CRM text — before the next multilingual work
+
+**Opened:** 2026-09-03 at the owner's request. **When to do it:** as the first step of the next task
+on multilingual support, before translating or extending the dictionaries.
+
+**The fact behind this entry.** Text review (`copy-reviewer`) had not been run before PR #623
+even once. The agent was created 2026-08-04; the landing was translated into five languages (en/uk/ru/es/pt) in July, PRs
+#421–#425 — that is, **none of the five dictionaries went through text review**. The CRM (`apps/web`)
+is Russian-language, with no real dictionaries; all its strings were written by coders as they went
+and were likewise not reviewed as text.
+
+On #623 the very first run of this axis produced fourteen findings, three of them HIGH, and two of them were not
+about style but about behavior: the login page crashed on error codes, and the advice "choose another
+account" was impossible to follow. That is, unchecked text is not only "reads like a translation",
+it is also a place where defects hide that neither code review nor tests see.
+
+**What to audit.**
+
+- **Landing, all five dictionaries** — per the `copywriting` skill: the logo-swap test for each
+  heading, signs of machine text, and above all — **five originals, not a translation**: write out
+  each heading's claim in one line and check that all five languages carry the same
+  set of promises. Measure length in characters for the longest language at 320px.
+- **CRM, all visible text** — headings, empty states, errors, toasts, button labels.
+  Pay special attention to error messages: each must say **what to do next**, not
+  only what happened (findings COPY-H-3 and COPY-M-8 on #623 are a sample of how this breaks).
+- **English strings in the Russian-language CRM** — on #623 two English toasts were found on new
+  paths (`COPY-H-5`, `COPY-H-6`), and both came from old literals in services. Go through all
+  `throw new *Exception('...')` in `apps/api` and find those that reach the screen.
+
+**Why precisely before multilingual work, and not sometime later.** Translating unchecked text
+means multiplying every defect by the number of languages. It is cheaper to fix the source once than to
+fix five dictionaries in sync later.
+
+**How we'll know it's done:** every landing dictionary and the CRM carry a `Copy Review:
+PASS` verdict from `copy-reviewer`, and the list of found behavior defects (not style) has been filed as separate
+backlog items.
+
+## 137. The nightly mutation alert channel delivers, but nobody reads it
+
+**Filed:** 2026-09-03, while fixing `task-mutation-gate nightly-alert-fidelity` (see alongside —
+the fix to the alert TEXT of `post-merge-alert.sh` for `KIND=mutation`). Verified by execution
+(`gh issue view 26 --repo yaremenko-maksym/cheekycheese-telemetry`): the issue was opened 2026-08-12,
+**22 comments**, the last one today, 2026-09-03, still `OPEN`. For many weeks the channel
+technically worked (the issue was opened, commented on every night) — but for more than three weeks
+in a row nobody read it, and the nightly gate silently stayed red precisely because of that, not only
+because of the imprecise alert text.
+
+**How this differs from what is being fixed alongside.** The neighbouring fix (`post-merge-alert.sh`,
+`check-mutation-tally.mjs`) makes the alert TEXT precise: previously "the run did not complete" and "survivors were found"
+read the same ("surviving mutants — here is what to do"), although they are different diagnoses.
+But precise text in an unread issue does not solve the original problem — 22 silent comments
+prove that the wording is not the only cause: a delivery channel by itself does not create attention.
+
+**Direction (not decided, requires an owner choice — irreversible at the price of "weeks of silence again",
+see `autonomy-levels.md` A2/A3):** a digest/notification ON TOP of the issue (email/Telegram when it is
+opened and on every continuation, not just the fact that the issue was created) — by analogy with how
+`telemetry-digest.yml` already aggregates other private issues into a readable summary; or an explicit
+periodic item in someone's regular checklist ("every N days open
+`cheekycheese-telemetry` by hand"). Not DevOps's decision alone.
+
+**How we will know it is fixed:** no `mutants-surviving` issue in `cheekycheese-telemetry`
+accumulates more than 2-3 consecutive comments without an external signal (email/message) BEFORE
+someone reacted to it; or an explicit person responsible for periodically reviewing the channel is named and
+confirmed.
+
+## 138. The Stryker sandbox does not copy `.sql` — a local full `@crm/api` run is unreliable
+
+**Filed:** 2026-09-03, coder's finding on #623 (verified by `git log`) — unrelated to #623 itself,
+a structural hole in the mutation gate. The `.sql` file from PR #587 does not make it into the sandbox that Stryker
+builds for `@crm/api` before a run: the gate mutates and tests TS/JS sources, but copying the
+project into the sandbox is a separate, more general Stryker mechanism (`files`/autodetect in
+`@stryker-mutator/core`), and it does not guarantee that every file the code depends on at runtime
+(a migration, raw SQL, anything non-TS) ends up next to it in the sandbox. Practical effect: a local
+`--changed`/`--full` on `@crm/api` may pass (or fail differently) compared to the same run in CI, where
+the checkout is complete — i.e. a local green is NOT proof that CI will also be green, specifically for
+diffs touching such files.
+
+**Direction (not decided):** check which list of paths Stryker actually copies into the sandbox for
+`@crm/api` (`mutation-gate.mjs`'s `writeConfig()` — no explicit `files:` allow-list, so Stryker's
+default autodetect applies; compare its behaviour against `.sql` paths using the primary source
+`@stryker-mutator/core`, not a guess). If the default really skips non-TS dependencies —
+either an explicit `files:` allow-list with the needed paths, or a documented limitation "a local
+run of @crm/api is unreliable for diffs outside TS/JS, trust only CI".
+
+**How we will know it is fixed:** a full local `--changed` on `@crm/api` (a diff touching `.sql`
+or another non-TS runtime-dependency file) gives THE SAME result (the same surviving/killed on the same
+mutants) as the CI run of the same commit.
+
+## 139. Killing another agent's process by the right PID, but with a misidentification
+
+**Filed:** 2026-09-03, an honest admission by the coder on #623 — sent SIGKILL to another
+agent's process. Formally the rule was followed (`agent-isolation.md` §5: kill by PID, not by the
+`pkill`/`killall` pattern) — but the PID was obtained from a wrong identification: a process mistaken for a
+zombie of its own session turned out to be a live process of ANOTHER agent.
+
+**How this differs from what is already closed.** `agent-isolation.md` §5 and the `pre:bash:cross-agent-blast` hook close the
+specific mechanism — a broadcast `pkill -f`/`killall` by pattern. Here the mechanism is different:
+the kill is targeted, by PID, syntactically correct — the error is in WHOSE PID it is, and the hook cannot
+check that (it does not know which PID belongs to whom; that is a fact from the outside world, not from
+the command text).
+
+**Direction:** before `kill <PID>` — first `ps -o etime,cmd -p <PID>` and compare the result with
+**one's own** ports (`lsof -ti tcp:<own port>`) and the agent's working directory, not with the
+assumption "it has been hanging for a long time — so it's a zombie". If what `ps` shows does not match what is expected (own
+process, own port, own directory) — do not touch it, report to the orchestrator, do not kill "just in case".
+A candidate for `agent-isolation.md`: an explicit verification step before §5, not only a ban on the pattern form.
+
+**How we will know it is fixed:** no agent report contains a line like "killed a process,
+it turned out to be someone else's" — i.e. either the verification prevents the mistake, or (when in doubt)
+the agent reports BEFORE, not after, the kill.
+
+## 140. The pre-push hook runs the full unit suite regardless of the diff
+
+**Filed:** 2026-09-03, orchestrator's observation on #646. One line in `.github/workflows/ci.yml`
+(wiring an E2E spec into a shard) → `git push` = husky pre-push: typecheck plus the `api`/`web`/`landing` suites
+(about 6,600 tests). Under machine load that is 5–10 minutes per attempt; the same agent's two previous attempts
+failed on flakes of **other people's** tests after the full run. Result — more than half an hour for one line,
+and the owner asked "what is the problem with these agents".
+
+**How this differs from what is already done.** An empty `DATABASE_URL=` exempts only integration specs;
+the `ac_verified:` gate is about the commit message; neither scopes the run by the diff.
+
+**Direction:** a run over affected packages (`turbo run test --filter=...[origin/main]` or equivalent)
+and a full exemption for diffs confined to `.github/**`, `docs/**`, `.claude/**`. The full suite remains
+in CI — those are required checks, the hook does not replace them. Cost: a cross-package regression is no longer caught locally
+(CI catches it); accept this knowingly.
+
+**How we will know it is fixed:** a push of a diff of a single workflow file takes seconds, not minutes; a push with
+an edit only in `apps/api` does not launch the `web`/`landing` suites.
+
+## 141. The persist allowlist promises "non-PII reference data", yet the `projects` key persists e-mail, rates, shares, notes — and the rejection reason
+
+**Filed:** 2026-09-03, security review of #646 (SR-M-1 is closed in the PR, SR-M-2 — here). Behaviour:
+`PERSISTED_KEY_PREFIXES` includes the `projects` key; `members[].email`, `rate`,
+shares and `notesGeneral` are stored in IndexedDB for 24 hours, and since #646 also `rejectionReason` (text about why a person
+declined a money scheme), and the approvals panel on the SENIOR/DROP dashboards fills the cache where previously there was no request.
+The persist rule (memory `project_persist_query_allowlist`): auth / payment / finance / PII — never.
+The comment above the list claims something that is not true — the same class as the 15 false comments on #645.
+
+**Direction:** either a persist-time transformer that strips sensitive fields for the `projects` key, or
+move the financial fields and approvals data into a separate key outside the allowlist. One decision for both
+points, not two different ones.
+
+**How we will know it is fixed:** after loading `/projects` as SENIOR, the IndexedDB contents contain no e-mail,
+no rates, and no rejection-reason text — a check of the **store contents**, not of the code.
+
+## 142. A reviewer who reuses a checkout between rounds diffs not from the merge-base
+
+**Filed:** 2026-09-03, second review round of #644. `git diff origin/main..HEAD` after `fetch` showed
+75 files and −11,741 lines: `origin/main` had moved ahead by three commits between rounds, the real PR diff is
+10 files. Caught only because the number did not match the first round.
+
+**Direction:** in `code-review-discipline` §6 — before the diff, `base=$(git merge-base HEAD origin/main)` and
+`git diff "$base"..HEAD`, and the source of truth for the diff's composition is `gh pr diff <N>` / `gh pr view --json files`;
+the local checkout is needed only for running, not for reading the diff.
+
+**How we will know it is fixed:** the file count in the second-round report equals the PR's file count per
+`gh pr view --json files`; a mismatch is a finding about the procedure, not about the code.
+
+## 143. Two worktrees on one branch ref: `checkout -B` did not stop git, one agent's commit landed on top of another's
+
+**Filed:** 2026-09-03, DevOps report on #646 (a shard in `ci.yml`) — the second time that day by the same mechanism
+(the first — `infra/mutation-gate-progress` and another agent's `agent-a8ed9dc9ba1e79209`). The task file told it to run
+`git checkout -B feat/project-status-filter-ui origin/…` in its own worktree while the coder was working on the same branch in
+theirs. Git did not refuse (the expected "already checked out at …"), and both worktrees ended up with HEAD on one
+mutable ref: the coder's commit landed on top of DevOps's commit through the shared ref, not through a pull. No work was lost —
+DevOps noticed, detached HEAD (`--detach`), cherry-picked only its own work onto a clean branch from the origin tip and pushed.
+
+**Mechanism that must be established as a fact, not a guess:** why `checkout -B` went through (the `-B` flag resets an
+existing branch; the "checked out elsewhere" check may not apply to `-B`; or the coder's branch
+was named differently — `worktree-agent-…` with the same upstream). Reproduce on two temporary worktrees.
+
+**Direction:** the orchestrator does not give two agents the same branch at the same time — the second gets **its own** branch from
+the first's tip and a PR into it, or waits; in prompts — `git switch -c <own-branch> origin/<branch>` instead of `checkout -B`.
+A candidate for the `pre:bash:cross-agent-blast` hook: refuse `checkout -B <branch>` if `git worktree list` shows
+that branch at another worktree.
+
+**How we will know it is fixed:** reproduction on two worktrees gives a refusal (git or the hook) before the second
+HEAD lands on the shared ref.
+
+## 144. A docs-only PR still brings up E2E service containers and triggers a deploy
+
+**Filed:** 2026-09-03, #649 (only `BACKLOG-followups.md`): the `E2E (drop-lifecycle)` shard failed on
+`Initialize containers` — three `docker pull postgres:16-alpine` timeouts in a row. The docs-only filter skips
+**steps**, but a job's `services:` start before the steps, and docker-pull becomes a flake surface for a diff of
+a single markdown file. After the merge `deploy.yml` rebuilt and redeployed prod with the same code.
+
+**Direction:** for E2E — a job-level `if:` on the filter result (verify that a "skipped" required check does not
+block the merge — GitHub treats skipped jobs as passed for required status checks; confirm by fact on a
+test PR, not from memory) or move service containers into steps (`docker compose up` inside the job after the
+filter). For deploy — `paths-ignore` on `**/*.md`, `.claude/**`, `docs/**` with the same `predicate-quantifier`.
+
+**How we will know it is fixed:** on a docs-only PR no E2E shard shows the `Initialize containers` step, and
+after the merge of a docs-only PR no deploy run is created.
+
+## 145. GitHub Actions are pinned by tags, not SHA — including the step that receives the VPS SSH key
+
+**Filed:** 2026-09-03, security review of #650 (SR-L-1, outside the PR — a convention of the whole repository).
+`appleboy/ssh-action@v1.2.0` receives `VPS_SSH_KEY`; a tag is a movable pointer, a compromise of the tag on the
+maintainer's side = someone else's code with the key to prod. The same class as pinning the signal-cli version by key
+fingerprint: here there is no pin.
+
+**Direction:** `uses: owner/action@<sha40> # vX.Y.Z` for all actions, starting with those that see secrets
+(`ssh-action`, `docker/login-action`, `scp`); Dependabot/Renovate to update SHAs. A separate DevOps PR,
+verified by `actionlint` + a grep for `@v`.
+
+**How we will know it is fixed:** `grep -rnE 'uses: [^ ]+@v[0-9]' .github/workflows` is empty, except for explicit exceptions with a
+justification in a comment.
+
+## 146. Playwright MCP — one browser for all of a session's parallel agents
+
+Filed 2026-09-03: ui-ux-designer (Mode B r2, #646) and manual-qa worked at the same time, each on its own stack
+(3030/3031 and 3040/3041), but through ONE Playwright MCP browser instance of the parent session: the URL and user
+were periodically swapped by another agent, the dev-login cookie on `localhost` (RFC 6265 — cookies do not distinguish ports)
+was erased by another's login and vice versa. The known item 131 ("writes into another's directory") is merely a symptom of the same thing:
+the browser does not belong to the agent. Consequences: the visual QA of two agents in parallel is invalid; screenshots into
+another's allow-list directory; measurements may be of another's screen.
+Direction: a rule in `agent-isolation.md` — no more than one agent with Playwright MCP at a time (the orchestrator
+serialises the visual axes), or a per-agent browser (Playwright directly via `npx playwright` in its own worktree
+with `--user-data-dir`/`storageState` in its own directory, instead of the shared MCP). Check: two agents with different
+dev-logins at the same time → each has its own user until the end of the session.
+
+## 147. `responsive-design.md`: touch target ≥44 px only "on mobile" (<640) — a 768 tablet counts as a touch device, but the rule does not cover it
+
+Fidelity r2 #646 (UX-L-1): `sm:h-7` gives 28 px at 768; the designer considered it acceptable by the letter. Clarify the rule: 44 px up to `md` (1024)?
+
+## 148. manual-qa/ui-ux infrastructure: three limitations found on #646 (2026-09-03)
+
+1. Playwright MCP `browser_take_screenshot`/`browser_snapshot` accept only paths from an allow-list bound to the
+   PARENT session's worktree — the agent cannot save a screenshot into its own worktree by either an absolute or a relative path
+   (a relative one falls into the root of another's worktree). Related to 131/146: the browser and its directories do not belong to the agent.
+2. `browser_resize` was missing from manual-qa's toolset at dispatch, although the agent's system prompt mentions it —
+   reconcile the `tools:` frontmatter of `manual-qa.md` with the actual list (the same class as the `security-noted` label: an instruction
+   refers to something that does not exist).
+3. The `pre:bash:*` hook "too complex to verify that it stays inside the worktree" blocks multi-line heredocs with `while`,
+   `page.evaluate`+`fetch`, path concatenation via `+` — even when everything is inside its own worktree; the agent wrote scripts
+   in pieces via `cat >>`. A candidate for narrowing the predicate (a false positive teaches circumvention — see `agent-isolation.md`
+   "The cost of a false positive").
+   The workaround that worked for manual-qa: its own Node script on the monorepo's `@playwright/test` from Bash in its own worktree —
+   all responsive screenshots and measurements were obtained by it, not through the shared MCP browser. Perhaps that is the direction for 146.
+
+## 149. A reviewer's stress load ("load hogs") outlived the reviewer by 22 hours and kept the machine at LA 200
+
+Filed 2026-09-03 23:41: the security-reviewer of round 6 of #623 (2026-09-03 ~01:30) launched `NPROC*2` = 16 busy-loops
+in the background to check resilience to load and finished without stopping them. 16 `zsh -c` at ~35 % CPU each kept the load average at
+150–320 all day; this was blamed on rendering in a neighbouring project and on parallel agents. Consequences: pre-push
+flaked (3–6 attempts per push), test timeouts, "what is the problem with these agents". It was found only via `ps -r` with
+the full command line (it contained the path to the reviewer's scratchpad).
+Direction: (1) any synthetic load generator — with a TTL (`timeout <sec>` around the loop) and `trap` cleanup in the same
+script; (2) in `code-review-discipline` §6 — "after the redness check make sure `ps` for your own scratchpad path is empty";
+(3) the zombie reaper (`reap-zombie-devservers.sh`) catches only node/worktree — extend it to processes whose command contains
+the scratchpad path of a finished session/agent older than N hours. Check: `ps -Ao etime,command | grep scratchpad` is empty
+an hour after any reviewer finishes.
+
+## 150. A full nightly mutation sweep is infeasible as a single job: 25,665 (`api`) and 29,099 (`web`) mutants against a 5 h budget
+
+Filed 2026-09-04, run 33776905012 (the first run after #644/#647): `shared` green in 20 min; `api` and `web` exhausted
+18,000 s at ~23,000 mutants each, the estimate to completion ~33 h and ~16 h; the gate → "NOTHING was verified"; the 2.8 MB step summary
+did not fit the 1 MB limit. The intermediate survivors (5,117 / 4,326) are real, but the current alert does not show them.
+Direction (owner's decision): (a) a rotating subset — each night 1/N of the files from a deterministic list
+(`MUTATION_ONLY_FILES` already exists), the whole repository in a week; (b) a matrix of shards by files within a single night (N × 5 h
+in parallel — CI is free); (c) reducing the set of mutants (exclude `__tests__`, fixtures, `*.gen.ts`, mutator
+levels) — measure how much that gives; (d) an alert with a partial result: "checked X of Y, Z survived" instead of
+"nothing"; (e) a summary — truncated to the limit with a link to the artifact. Check: the nightly run ends green/red on
+the merits, not on the budget; every file is covered within 7 nights.
+
+## 151. A fix instruction from a review itself became a regression: "truncate to the first line" was applied to all output
+
+2026-09-04, #650 SR-M-6: the first security round prescribed masking/truncating signal-cli output for error channels; the coder
+applied truncation to any stdout — `--groups` prints one group of three, the "version is too old" detection goes blind with a
+stderr line before the message. The reviewer acknowledged authorship of the wording. A lesson for `review-findings-transfer.md`: a finding
+names the **channel and the invariant** ("the e-mail/alert must not contain the number"), not the mechanics ("truncate to the first line");
+the executor chooses the mechanics, and the second-round reviewer checks the invariant, not the execution of their own hint.
+Check: fix tasks contain no lines like "do it this way: <mechanics>" without the invariant it enforces.
+
+## 152. A new test script that nobody runs — the third case in a month
+
+#650 SR-M-7: `tests/test_verify_release_signature.sh` (a guard on a HIGH) was not executed by pytest, nor by the image stage, nor by
+`run-guard-tests.sh`, nor by CI. Precedents: the 42 cases of `cross-agent-hooks-smoke.sh` (#625), the nightly `mutation-nightly` red for
+20 days. Direction: a meta-guard "every `test-*.sh`/`test_*.sh` file in the repo is mentioned in some runner/workflow"
+(extend `check-guard-tests-exist.sh` beyond `scripts/devops/tests`). Check: a new `.sh` test without a runner → CI red.
+
+## 153. Runner network failures knock down a required check unrelated to the diff
+
+2026-09-04 night: `E2E (drop-lifecycle)` on #649 — three `docker pull postgres:16-alpine` timeouts; `pnpm audit gate` on #650 —
+three 60 s attempts with no registry response → `Typecheck · Lint · Unit Tests` red (required). Both cases were "restart the
+job", both cost a full round of waiting and a manual restart. Direction: (a) move `pnpm audit` into a separate
+non-required job with an alert (an advisory is essentially not a property of the diff); or a retry with a larger budget and `neutral` when
+the registry is unavailable + an alert in telemetry; (b) service containers: `docker pull` with retry is already built into GitHub (3 attempts) —
+cache the postgres image in the repository's GHCR mirror (`ghcr.io/<owner>/postgres:16-alpine`) so as not to depend on Docker Hub.
+Check: a week without manual `gh run rerun --failed` for network reasons.
+
+## 154. A smoke test that cannot fail: `--version` under the hardening profile
+
+2026-09-04, #650 SR-M-9: the CI smoke ran `signal-cli --version` via `--entrypoint` (bypassing the entrypoint script) —
+the only subcommand without native libraries; meanwhile the real daemon under the same profile crashed on `Can't load library`
+from a `noexec /tmp`. The smoke was green by construction. A lesson for the collection "a mechanism confidently reports what it did not check":
+a smoke must go the same way as prod (entrypoint + the same command/subcommand as in prod), and have a known
+red case (proof that it can fail at all). Check: in the smoke's PR body — the output of the red run before the fix.
+Related: the premise "environment variable X is read as system property Y" (TMPDIR ≠ java.io.tmpdir) — verify the fact by
+a run, not from memory; this is already the third case in a day where a fix relied on an unverified premise.
+
+## 155. The "quiet window" before push via a `pgrep -f` substring — two waiting agents block each other
+
+2026-09-04: the push discipline (wait until `pgrep -f 'husky/pre-push'` is empty) does not converge with two agents: the command line of
+another's wait-loop contains the same substring. Found by the #648 coder on the 12th attempt. The fix — anchored patterns
+(`\.husky/pre-push`, `vitest\.mjs run|vitest/dist/workers|@stryker-mutator`). The real solution is item 140 (scoping
+pre-push by diff): the queue behind the window disappears together with the full run. Until 140 is done — patterns in task files.
+
+## 156. Outside the diff of #648 — two manual-qa findings (OOS-1, OOS-2)
+
+Source: issuecomment-5540201417 on PR #648. Excerpt:
+
+> - **OOS-1:** `ProjectShareInfo` (the project "Overview" card, `$projectId.tsx`) computes the displayed percentage only from `seniorSharePercentOverr
+> - **OOS-2:** The team edit dialog (`/team/:teamId`) — the Telegram field (`type="url"`, expects `https://t.me/...`) for \*\*all 4 seeded teams with
+
+## 157. `core.hooksPath` is an absolute path into the main checkout: all worktree pushes run the MAIN checkout's hook, and it lags behind main
+
+2026-09-04: after the merge of #653 (scoped pre-push) a push from a worktree still ran the full suite — `git config core.hooksPath`
+= `/…/CheekyCheeseIT_CRM/.husky/_` (absolute), and `h` runs `$(dirname $(dirname $0))/pre-push` — the main checkout's file,
+which sat on `main` at 83b27a1c (dozens of commits behind). "The hook in main" enabled nothing until the main `main` was
+pulled up (`git merge --ff-only origin/main`). Related: `pnpm install` in any worktree rewrites `hooksPath` to that
+worktree's path (husky), and after its removal hooks break for everyone (memory `project_worktree_provisioning_gotcha`).
+Direction: (a) the `h` wrapper hook must take `.husky/pre-push` from the **current** worktree (`git rev-parse --show-toplevel`),
+not from the `hooksPath` directory; or make `hooksPath` relative (`.husky/_`) — check how git resolves a relative
+hooksPath in a worktree; (b) in `light-track.md`/`agent-isolation.md` — a step "update the main checkout after merging changes to
+hooks". Check: change a hook in a branch, push from a worktree — the log shows the new hook's line without updating the main checkout.
+
+## 158. Subagents of one session share the orchestrator's scratchpad — reviewers' checkouts collide, and the hook won't let them clean up
+
+2026-09-05, PR #646 round 4: spec-reviewer and security-reviewer, launched from the same session, both made a checkout at
+`…/<session>/scratchpad/checkout-r4` — the path matched because the harness hands subagents the **parent** session's
+scratchpad, not a personal one. The second saw "already exists, clean" and carried on in it; there were no mutations, so it got away with it —
+but this is the collision from `agent-isolation.md` §3 (path not derived from the agent's identifier), only the source is not an absolute
+path in the prompt but a shared scratchpad. The second half of the same trouble: `cross-agent-blast` only recognises as "own" the worktree
+issued at dispatch, and denies a reviewer `git worktree remove` on their own scratch checkout — more than twenty of them
+piled up over the session (`git worktree list | grep scratchpad`), and the cleanup falls on the owner.
+Required behavior: the checkout name includes a unique token that the agent obtains itself
+(`mktemp -d "$SCRATCH/checkout.XXXXXX"`), and the agent refuses to work in a checkout it did not create; the hook treats as
+"own" a checkout whose path lies in the current session's scratchpad and whose `.git` file points to the shared repository.
+How to verify: two read-only reviewers of the same PR from the same session → `ls $SCRATCH` for each shows different directories;
+`git worktree remove` of one's own scratch checkout passes without denial.
+
+## 159. Signal "+": the third alert channel (issue via `post-merge-alert.sh`) is unreachable from the container
+
+2026-09-06, first `--now` on the VPS: `could not invoke /opt/crm/scripts/devops/post-merge-alert.sh: [Errno 2] No such
+file or directory`. `signal_plus/alert.py` (layer 3) calls the host script by absolute path, but runs inside the
+container, where `/opt/crm` is not mounted and there is neither `gh` nor a PAT. The layer is meant to "read opportunistically", but it prints
+ERROR on every alert trigger. Options: (a) mount the script + `gh` + `GH_TOKEN`/`ALERT_REPO` into the container —
+heavy and widens secrets; (b) enable the layer only when the file and env are present, otherwise stay silent at DEBUG; (c) call the
+GitHub API directly from Python when a token is present. Recommendation — (b) now, (c) if the issue channel is actually needed. Related:
+the owner has been offered layer 2 (`SIGNAL_ALERT_RECIPIENT` = their own number, a message to themselves) as a channel with no new secrets.
+How to verify: `docker compose run --rm -e HANDOVER_TIME=00:01 signal-plus signal-plus --now` after 00:01 Kyiv — the log
+has no line about `post-merge-alert.sh`.
+
+## 160. Signal "+": the README link command did not work, and the minimal secret composition is recorded nowhere
+
+2026-09-06: `sh -c 'signal-cli link …'` from the README failed with `signal-cli: not found` — the binary is not in the container's PATH; the working
+form is `"$SIGNAL_CLI_BIN" -Djava.io.tmpdir="$SIGNAL_TMPDIR" link -n server-plus …` with a fallback to
+`/opt/signal-cli-pinned/signal-cli`. Then `--groups` failed with `ConfigError: SIGNAL_CLI_BIN is required`: the secret
+`SIGNAL_PLUS_ENV` carried only the number and the group, while `config.py` also requires `SIGNAL_CLI_BIN` and `STATE_FILE`; the deploy writes
+`.env` as is and does not validate its composition, so the error only surfaces on the wrapper's first run. Incidentally the owner overwrote the secret
+with an empty string (`ssh … | gh secret set` with ssh failing) — the deploy fails loudly on this, but only on the next run.
+Required behavior: the README and the runbook list the minimal secret composition; the `write-env` step in
+`deploy-signal-plus.yml` checks the required keys (`SIGNAL_ACCOUNT`, `SIGNAL_GROUP_ID`, `SIGNAL_CLI_BIN`,
+`STATE_FILE`) and fails naming them; the link command in the README is the working form above. How to verify: a secret without
+`STATE_FILE` → the deploy is red at `write-env`, not green with a dead container.
+
+## 161. Label-triggered auto-merge does not deploy `signal-plus`; also — `status` is read-only in zsh
+
+2026-09-06, PR #660: the squash via `merge-approved` runs under `GITHUB_TOKEN`, no push event is born (the known
+anti-recursion), and `auto-merge-on-label.yml` explicitly dispatches only `deploy.yml` and `ci.yml`. So
+`deploy-signal-plus.yml` did not start after the merge of #660: the Sunday-rule code sat in main, while the VPS ran the
+old image until the orchestrator triggered `gh workflow run deploy-signal-plus.yml --ref main` by hand.
+Required behavior: if the merged PR touched `services/signal-plus/**` or `deploy-signal-plus.yml` itself,
+auto-merge dispatches it too (via `gh pr view --json files`), or `deploy-signal-plus.yml` listens to the auto-merge `workflow_run`
+with a path filter. How to verify: merge by label an edit to `services/signal-plus/README.md` —
+`gh run list --workflow deploy-signal-plus.yml` shows a run on the merge commit.
+A related small thing for monitors: in zsh the variable `status` is read-only — a script with `status=$(...)` dies silently
+(`read-only variable: status`), the #660 merge monitor died exactly that way; name it differently.
+
+## 162. The project row grid at 320 px collapses the name, senior and junior (QA-H-4 on #646, exists on main)
+
+2026-09-06, manual-qa r4 on #646: at exactly 320 px the five-track `ProjectRow` grid (no breakpoints on main) squeezes
+the name/senior/junior columns almost to zero — company "A…", senior "C", the junior shows a bare dot. Reproduces on the "Active" tab
+on an untouched seed project, i.e. before the #646 feature; the `project-status-filter` spec §11 forbade touching the
+grid in that PR, so five rounds only fixed the status column. The copy reviewer and the designer flagged the same since round 3.
+Required behavior: below `lg` the row is a card in a column (foundation.md §10, "table → card-stack"), without a grid of
+five tracks; at `lg+` the grid stays as is. How to verify: `/projects` under any role at 320/375 — the company name and the names
+read in full, touch targets ≥44×44. A separate task with the design gate Tier 2, not light-track.
+
+**Addendum 2026-09-07 (UX-L-4(r7) on #646).** The label «Нет джуна» is truncated at 768/834 too, not only at 320 —
+the same class of defect, a wider range. The designer showed by grid arithmetic that the junior column after #646 became wider
+than on main (unconditional 8fr → conditional 7fr/8fr), so this is not a regression of the PR. Frames: branch
 `screenshots/pr646-r7-designer`, `pr646-r7-copy-l13-junior-col-834.png`, `pr646-r7-admin-active-junior-col-{768,834}.png`.
-Проверка при закрытии пункта: на 768 и 834 под ADMIN подпись колонки джуна читается целиком.
+Check on closing the item: at 768 and 834 under ADMIN the junior column label reads in full.
 
-## 163. Полный `ProjectDto` уходит DROP через виджет согласований (SR-L-6 на #646)
+## 163. The full `ProjectDto` goes to DROP through the approvals widget (SR-L-6 on #646)
 
-`mapProject` маскирует `rate`/`notesGeneral`/`members[].email` только для JUNIOR, поэтому DROP получает всё, что видит
-SENIOR по своему проекту, и виджет `PendingProjectApprovalsPanel` на дашборде DROP тянет полный `GET /projects` ради
-списка согласований (в персист не попадает — ключ вне allow-list). Закрывается позицией 7c (`task-pending-screen.md`):
-виджет переводится на узкий `GET /pending`. Если 7c откладывается — сузить `mapProject` для DROP отдельно.
-Как проверить: под DROP ответ `/projects` не содержит `rate`, `notesGeneral`, `members[].email`.
+`mapProject` masks `rate`/`notesGeneral`/`members[].email` only for JUNIOR, so DROP receives everything SENIOR sees for their
+project, and the `PendingProjectApprovalsPanel` widget on the DROP dashboard pulls the full `GET /projects` for the sake of the
+approvals list (it does not reach the persist — the key is outside the allow-list). Closed by item 7c (`task-pending-screen.md`):
+the widget is moved to the narrow `GET /pending`. If 7c is postponed — narrow `mapProject` for DROP separately.
+How to verify: under DROP the `/projects` response contains no `rate`, `notesGeneral`, `members[].email`.
 
-## 164. `drop-distribution-edge.spec.ts` не идемпотентен на переиспользованной базе
+## 164. `drop-distribution-edge.spec.ts` is not idempotent on a reused database
 
-2026-09-06, наблюдение кодера #648 (fix-раунд 2): второй прогон спеки против той же scratch-базы даёт 409 —
-предложение доли уже открыто или подтверждено первым прогоном; на свежем сиде зелёный. Свойство сценария из
-fix-раунда 1 #648: шаг подтверждения предложения синьором добавлен без очистки состояния. В CI база всегда свежая,
-поэтому не ловится; локально ломает повторные прогоны и маскирует настоящие регрессии повтором.
-Поведение, которое нужно: сценарий сам приводит проект в исходное состояние (отмена или сброс через API в
-`beforeEach`/`afterEach`) либо берёт собственный проект из фикстуры. Как проверить: два прогона подряд на одной базе
-зелёные.
+2026-09-06, observation by the #648 coder (fix round 2): a second run of the spec against the same scratch database gives 409 —
+the share proposal is already open or confirmed by the first run; on a fresh seed it is green. A property of the scenario from
+fix round 1 of #648: the step confirming the proposal by the senior was added without state cleanup. In CI the database is always fresh,
+so it is not caught; locally it breaks repeated runs and masks real regressions by retry.
+Required behavior: the scenario itself returns the project to its initial state (cancel or reset via the API in
+`beforeEach`/`afterEach`) or takes its own project from a fixture. How to verify: two runs in a row on the same database are
+green.
 
-## 165. Англоязычная пилюля `Override` на странице проекта (COPY-L-14 на #648, вне диффа)
+## 165. English-language pill `Override` on the project page (COPY-L-14 on #648, outside the diff)
 
-Copy-ревьюер r3 #648 (2026-09-06): на странице проекта рядом с долей синьора живёт пилюля с английским словом
-`Override` — существует на main, PR #648 её не трогал. Правило `russian-language.md`: весь видимый текст — по-русски;
-термин продукта — «личный процент по проекту» / «индивидуальная доля по проекту» (`CONTEXT.md`).
-Поведение, которое нужно: пилюля по-русски тем же термином, что и подсказки формы доли. Как проверить:
-`git grep -n '>Override<' apps/web/app` пуст; на странице проекта под ADMIN слова `Override` нет.
+Copy reviewer r3 of #648 (2026-09-06): on the project page next to the senior's share there is a pill with the English word
+`Override` — exists on main, PR #648 did not touch it. The `russian-language.md` rule: all visible text is in Russian;
+the product term is «личный процент по проекту» / «индивидуальная доля по проекту» (`CONTEXT.md`).
+Required behavior: the pill in Russian with the same term as the share form's hints. How to verify:
+`git grep -n '>Override<' apps/web/app` is empty; on the project page under ADMIN there is no word `Override`.
 
-## 166. Pre-push хук гоняет тесты по рабочему дереву, а не по пушимому коммиту
+## 166. The pre-push hook runs tests against the working tree, not the pushed commit
 
-2026-09-07, наблюдение кодера #648 (fix-раунд 3): он дважды правил файлы, пока шёл `pre-push`, и хук тестировал то,
-что лежало в рабочем дереве, а не содержимое коммита, который уходил в origin. Итог бывает ложно-красным (правка
-сломала тест, которого в коммите нет) и ложно-зелёным (правка починила то, что в коммите сломано).
-Поведение, которое нужно: хук проверяет пушимый коммит — либо отказывает при грязном дереве (`git status --porcelain`
-не пуст → «закоммить или отложи правки»), либо гоняет проверки во временном чекауте пушимого sha
-(`git worktree add --detach` в `$TMPDIR`). Дешевле первое. Как проверить: сделать коммит, сломать тест в рабочем
-дереве без коммита, `git push` — хук либо отказывает из-за грязного дерева, либо проходит по содержимому коммита.
+2026-09-07, observation by the #648 coder (fix round 3): he edited files twice while `pre-push` was running, and the hook tested what
+was in the working tree, not the contents of the commit going to origin. The result can be falsely red (an edit
+broke a test that is not in the commit) and falsely green (an edit fixed what is broken in the commit).
+Required behavior: the hook checks the pushed commit — either it refuses on a dirty tree (`git status --porcelain`
+not empty → "commit or stash your edits"), or it runs the checks in a temporary checkout of the pushed sha
+(`git worktree add --detach` in `$TMPDIR`). The first is cheaper. How to verify: make a commit, break a test in the working
+tree without committing, `git push` — the hook either refuses because of the dirty tree, or passes on the commit's contents.
 
-## 167. E2E-спеки из `KNOWN_UNSHARDED` ломаются ветками молча
+## 167. E2E specs from `KNOWN_UNSHARDED` are silently broken by branches
 
-2026-09-07, наблюдение кодера #648 (fix-раунд 4): ветка изменила поведение `PATCH` проектного override (теперь
-открывает предложение), и `team-share-override.spec.ts` стал красным — но CI его не гоняет: спека в списке
-`KNOWN_UNSHARDED` шард-гварда `check-e2e-shard-coverage.py`. Поломку нашли только локальным прогоном. Тот же
-список держит `senior-create-default.spec.ts`, который устарел с PR #119: спека ждёт кнопку `user-dialog-submit` в
-режиме создания, а кнопка с тех пор рендерится только при редактировании. Список «известного долга» превратился в
-список спек, которые никто не запускает.
-Поведение, которое нужно: либо вернуть эти спеки в шарды по одной, починив то, что мешало, либо гонять
-`KNOWN_UNSHARDED` отдельным неблокирующим job'ом с алертом, чтобы красное было видно. Как проверить:
-`KNOWN_UNSHARDED` в `check-e2e-shard-coverage.py` пуст, или у каждой спеки из него есть job, который её запускает.
+2026-09-07, observation by the #648 coder (fix round 4): a branch changed the behavior of the project override `PATCH` (it now
+opens a proposal), and `team-share-override.spec.ts` went red — but CI does not run it: the spec is in the `KNOWN_UNSHARDED`
+list of the shard guard `check-e2e-shard-coverage.py`. The breakage was found only by a local run. The same
+list holds `senior-create-default.spec.ts`, which has been stale since PR #119: the spec waits for the `user-dialog-submit` button in
+create mode, but the button has since rendered only when editing. The "known debt" list has turned into a
+list of specs nobody runs.
+Required behavior: either return these specs to the shards one at a time, fixing what got in the way, or run
+`KNOWN_UNSHARDED` as a separate non-blocking job with an alert so the red is visible. How to verify:
+`KNOWN_UNSHARDED` in `check-e2e-shard-coverage.py` is empty, or every spec in it has a job that runs it.
 
-Дополнение 2026-09-11 (кодер #664): `accountant-dashboard.spec.ts` не может пройти с 2026-06-21 (#268) — спека ждёт `<h1>` внутри `accountant-dashboard-hub`, а в `AccountantDashboard.tsx` заголовка `<h1>` нет; спека в списке долга шард-гварда, CI молчит три месяца. Проверка: спека вне `KNOWN_UNSHARDED` и зелёная в своём шарде.
+Addendum 2026-09-11 (coder of #664): `accountant-dashboard.spec.ts` cannot pass since 2026-06-21 (#268) — the spec waits for an `<h1>` inside `accountant-dashboard-hub`, but `AccountantDashboard.tsx` has no `<h1>` heading; the spec is in the shard guard's debt list, CI has been silent for three months. Check: the spec is outside `KNOWN_UNSHARDED` and green in its shard.
 
-## 168. Ярлык таба «На подтверждении» и бейдж «Ждёт решения» на одной странице (COPY-L-11 на #646)
+## 168. Tab label «На подтверждении» and badge «Ждёт решения» on the same page (COPY-L-11 on #646)
 
-Copy r6 #646 (2026-09-07): полный ярлык фильтра `STATUS_FILTER_LABELS.PENDING` = «На подтверждении» расходится с
-семейством «Ждёт решения» / «ЖДЁТ ВАШЕГО РЕШЕНИЯ» на бейджах и в виджете той же страницы; короткий ярлык «Ждут» уже
-ближе к продукту, чем полный. Поведение, которое нужно: одно имя одного факта — полный ярлык «Ждут решения».
-Как проверить: `git grep -n 'На подтверждении' apps/web/app` пуст.
+Copy r6 #646 (2026-09-07): the full filter label `STATUS_FILTER_LABELS.PENDING` = «На подтверждении» diverges from the
+«Ждёт решения» / «ЖДЁТ ВАШЕГО РЕШЕНИЯ» family on the badges and in the widget of the same page; the short label «Ждут» is already
+closer to the product than the full one. Required behavior: one name for one fact — the full label «Ждут решения».
+How to verify: `git grep -n 'На подтверждении' apps/web/app` is empty.
 
-Дополнение 2026-09-12 (copy r1 на #670, COPY-M-2): (ярлык фильтра «На подтверждении» ↔ «Ждёт решения»): copy r1 на #670 (COPY-M-2) насчитал пять имён одного состояния — nav «Ждут решения», строка списка и бейдж страницы «Ждёт решения», фильтр «На подтверждении»; метрика #646 (113,5 px) допускает «Ждут решения» без переполнения. Решение «не делать в #670» — чтобы не трогать спеку фильтра в чужом PR; закрывать одной правкой `STATUS_FILTER_LABELS.PENDING` + спека.
+Addendum 2026-09-12 (copy r1 on #670, COPY-M-2): (filter label «На подтверждении» ↔ «Ждёт решения»): copy r1 on #670 (COPY-M-2) counted five names for one state — nav «Ждут решения», list row and page badge «Ждёт решения», filter «На подтверждении»; the #646 metric (113.5 px) allows «Ждут решения» without overflow. The decision "not to do it in #670" — so as not to touch the filter spec in someone else's PR; close with a single edit of `STATUS_FILTER_LABELS.PENDING` + the spec.
 
-## 169. Разная точка перехода к полным ярлыкам сегментированного фильтра: вакансии с 640, проекты с 1024 (COPY-L-12 на #646)
+## 169. Different breakpoint for full labels of the segmented filter: vacancies from 640, projects from 1024 (COPY-L-12 on #646)
 
-Один и тот же `SegmentedToggle`: на `/vacancies` полные ярлыки от `sm` (640), на `/projects` после COPY-M-13 — от `lg`
-(1024; выбрано по Linux-метрикам шрифта в CI, где 768 и 800 давали перенос). На одном планшете два экрана с разной
-политикой. Поведение, которое нужно: единая точка перехода для всех сегментированных фильтров (вероятно `lg`, с
-проверкой вакансий на 768–1023 под Linux-метриками в CI). Как проверить: оба экрана на 834 показывают ярлыки
-одной длины.
+The same `SegmentedToggle`: on `/vacancies` full labels from `sm` (640), on `/projects` after COPY-M-13 — from `lg`
+(1024; chosen by the Linux font metrics in CI, where 768 and 800 gave a wrap). On one tablet two screens with different
+policy. Required behavior: a single breakpoint for all segmented filters (probably `lg`, with
+vacancies checked at 768–1023 under Linux metrics in CI). How to verify: both screens at 834 show labels
+of the same length.
 
-## 170. Guard-test gate валится на теле PR больше 128 KiB
+## 170. The guard-test gate fails on a PR body over 128 KiB
 
-2026-09-07, PR #646: `guard-test-gate.yml` передаёт тело PR через переменную окружения на шаге `actions/checkout`, и
-раннер умирает с «Argument list too long» (`MAX_ARG_STRLEN` 131072). Тело в 134 657 байт положило гейт; повторный
-запуск того же прогона не помогает — событие хранит старое тело, нужен новый push. Обход в моменте: история раундов
-вынесена в два архивных комментария PR. Поведение, которое нужно: тело PR попадает в скрипт файлом (записать
-`github.event.pull_request.body` в файл шагом после checkout либо прочитать `gh pr view --json body` там же), а не
-env на шаге checkout. Как проверить: PR с телом больше 130 KiB и зелёный `guard-test`.
+2026-09-07, PR #646: `guard-test-gate.yml` passes the PR body through an environment variable on the `actions/checkout` step, and
+the runner dies with "Argument list too long" (`MAX_ARG_STRLEN` 131072). A body of 134,657 bytes took the gate down; re-running
+the same run does not help — the event stores the old body, a new push is needed. Workaround for the moment: the round history
+was moved into two archive PR comments. Required behavior: the PR body reaches the script as a file (write
+`github.event.pull_request.body` to a file in a step after checkout or read `gh pr view --json body` there), not as
+env on the checkout step. How to verify: a PR with a body over 130 KiB and a green `guard-test`.
 
-## 171. Инцидент изоляции: manual-qa начал прогон в worktree дизайнера (#648, финальный круг)
+## 171. Isolation incident: manual-qa started a run in the designer's worktree (#648, final round)
 
-2026-09-07: QA-агент финального круга #648 сообщил, что первую часть прогона провёл в worktree и на портах
-дизайнера того же PR, затем «после обрыва ответа харнессом» продолжил в своём; отчёт переверил на своём worktree,
-но чужие артефакты (`scratchpad/shots`, `scratchpad/pw`) читал как наводку. Механика `agent-isolation.md` (п. 4,
-п. 7) сработала лишь частично: хук `cross-agent-blast` не ловит `cd` в чужой `agent-*` с последующим запуском
-скриптов, а сверка `git rev-parse --show-toplevel` делается один раз на старте, не после рестарта.
-Что выяснить: воспроизводится ли это при рестарте агента харнессом (resume в чужом cwd), и нужен ли `pre:bash`
-предикат на `cd` в чужой `agent-*`. Как проверить, что живо: отчёт агента, в котором `Worktree:` не совпадает с
-путями артефактов.
+2026-09-07: the QA agent of the final round of #648 reported that it ran the first part of the run in the worktree and on the ports of the
+designer of the same PR, then "after the harness cut off the response" continued in its own; it rechecked the report in its own worktree,
+but read the foreign artifacts (`scratchpad/shots`, `scratchpad/pw`) as a lead. The `agent-isolation.md` mechanics (item 4,
+item 7) worked only partially: the `cross-agent-blast` hook does not catch a `cd` into a foreign `agent-*` followed by running
+scripts, and the `git rev-parse --show-toplevel` check is done once at start, not after a restart.
+To find out: does this reproduce when the harness restarts the agent (resume in a foreign cwd), and is a `pre:bash`
+predicate on `cd` into a foreign `agent-*` needed. How to check that it is alive: an agent report in which `Worktree:` does not match the
+artifact paths.
 
-## 172. Pre-push typecheck на docs-only ветке требует полной провизии worktree
+## 172. Pre-push typecheck on a docs-only branch requires full worktree provisioning
 
-2026-09-07: попытка запушить один markdown на ветку скриншотов из чекаута с симлинком `node_modules` из соседнего
-worktree упала в `pre-push`: turbo при изменении корневых файлов (даже `docs/**`) считает затронутыми все пакеты и
-гоняет typecheck, которому нужны per-package `node_modules`. Для docs-only веток это минуты `pnpm install` ради
-нуля кода. Поведение, которое нужно: pre-push скоупит typecheck по реально изменённым файлам так же, как уже
-скоупит тесты (#653): дифф без `.ts`/`.tsx`/`package.json`/lock — typecheck не нужен. Как проверить: docs-only
-коммит пушится из чекаута без `node_modules` за секунды и без обхода хуков.
+2026-09-07: an attempt to push a single markdown file to the screenshots branch from a checkout with a `node_modules` symlink from a neighboring
+worktree failed in `pre-push`: when root files change (even `docs/**`) turbo considers all packages affected and
+runs typecheck, which needs per-package `node_modules`. For docs-only branches that is minutes of `pnpm install` for
+zero code. Required behavior: pre-push scopes typecheck by the actually changed files the same way it already
+scopes tests (#653): a diff without `.ts`/`.tsx`/`package.json`/lock — no typecheck needed. How to verify: a docs-only
+commit is pushed from a checkout without `node_modules` in seconds and without bypassing hooks.
 
-## 173. Докблок `UsersService.archive` утверждает обратное тому, что делает код (SR-L-6 на #662)
+## 173. The docblock of `UsersService.archive` claims the opposite of what the code does (SR-L-6 on #662)
 
-Security-reviewer на #662 (круги 1 и 3, 2026-09-07): сводный докблок метода `archive` в `users.service.ts` говорит, что
-каскад для SENIOR «sets leftAt for HR/Acc team_members», а реализация и inline-комментарий AC7/AC9 пятнадцатью строками
-ниже говорят обратное и называют прежнее поведение «a deliberate removal, not a regression». Именно это (архивация
-синьора не закрывает членства) породило SR-M-1 на #662 — архивный синьор доезжал до селектора HR. Риск: сопровождающий,
-поверивший сводке, решит, что `getAccessibleSeniorIds` и так отсекает команды архивных синьоров, и снимет предикат
-`notArchived` в `getBoardSeniors`, переоткрыв утечку.
-Поведение, которое нужно: докблок описывает то, что делает код, либо код делает то, что обещает докблок — решить явно.
-Как проверить: `git grep -n "sets leftAt" apps/api/src/users` пуст, либо рядом тест, который это подтверждает.
+Security reviewer on #662 (rounds 1 and 3, 2026-09-07): the summary docblock of the `archive` method in `users.service.ts` says that
+the cascade for SENIOR "sets leftAt for HR/Acc team_members", while the implementation and the inline comment AC7/AC9 fifteen lines
+below say the opposite and call the former behavior "a deliberate removal, not a regression". It is exactly this (archiving a
+senior does not close memberships) that gave rise to SR-M-1 on #662 — an archived senior made it to the HR selector. Risk: a maintainer
+who trusts the summary will decide that `getAccessibleSeniorIds` already cuts off the teams of archived seniors, and remove the
+`notArchived` predicate in `getBoardSeniors`, reopening the leak.
+Required behavior: the docblock describes what the code does, or the code does what the docblock promises — decide explicitly.
+How to verify: `git grep -n "sets leftAt" apps/api/src/users` is empty, or there is a test next to it that confirms it.
 
-## 174. Имперсонация не чистит персист запросов, в отличие от выхода (SR-L-5 на #662)
+## 174. Impersonation does not clear the query persist, unlike logout (SR-L-5 on #662)
 
-Security r2 на #662 (вне диффа): `login-as.tsx` делает `queryClient.clear()` и перезагрузку, а `useLogout` дополнительно
-удаляет IndexedDB-ключ `crm-query-cache`. Персист троттлится, и переживший навигацию дамп ADMIN-кэша (`projects`,
-`interviews`, …) может регидратироваться уже в имперсонированной сессии. Утечки сегодня нет (ADMIN → не-ADMIN в браузере
-самого ADMIN'а), но два пути смены сессии несогласованы, и цена растёт с каждым новым префиксом в allow-list персиста.
-Поведение, которое нужно: один общий шаг «сбросить сессию» для выхода и имперсонации. Как проверить: после «войти как»
-в IndexedDB нет ключа `crm-query-cache` до первого запроса новой сессии.
+Security r2 on #662 (outside the diff): `login-as.tsx` does `queryClient.clear()` and a reload, while `useLogout` additionally
+deletes the IndexedDB key `crm-query-cache`. The persist is throttled, and a dump of the ADMIN cache (`projects`,
+`interviews`, …) that survived navigation may rehydrate already in the impersonated session. There is no leak today (ADMIN → non-ADMIN in the
+ADMIN's own browser), but the two session-change paths are inconsistent, and the cost grows with every new prefix in the persist allow-list.
+Required behavior: one shared "reset the session" step for logout and impersonation. How to verify: after "log in as"
+there is no `crm-query-cache` key in IndexedDB until the first request of the new session.
 
 ---
 
-## Добавлено 2026-09-12 — раунды #664 (позиция 6) и #667 (позиция 7c), пункты 175–200
+## Added 2026-09-12 — rounds of #664 (item 6) and #667 (item 7c), items 175–200
 
-## 175. MCP-инструменты внутри субагентов зависают и убивают агента watchdog'ом
+## 175. MCP tools inside subagents hang and the agent is killed by the watchdog
 
-2026-09-07: шесть агентов подряд сняты с «Agent stalled: no progress for 600s»; кодер API-половины 7c успел записать причину: `mcp__codegraph__codegraph_explore` висел 30 минут. Ранее по той же картине исключали `mcp__eslint__*` и `mcp__playwright__*`. Пока причина не найдена (MCP-сервер codegraph индексирует worktree-дубли? лок SQLite? — см. `project_codegraph_adoption`), диспатч-промпты и `pm-snippets.md` должны запрещать все MCP в субагентах, а правило `mcp-first.md` — оговаривать исключение для субагентов. Поведение, которое нужно: MCP-вызов с таймаутом (≤60 с) и ошибкой вместо бесконечного ожидания; либо codegraph-сервер, который не блокируется на параллельных worktree. Проверка: `codegraph_explore` из субагента в worktree возвращает ответ или ошибку за минуту.
+2026-09-07: six agents in a row taken down with "Agent stalled: no progress for 600s"; the coder of the 7c API half managed to record the cause: `mcp__codegraph__codegraph_explore` hung for 30 minutes. Earlier, by the same picture, `mcp__eslint__*` and `mcp__playwright__*` were ruled out. Until the cause is found (does the codegraph MCP server index worktree duplicates? an SQLite lock? — see `project_codegraph_adoption`), dispatch prompts and `pm-snippets.md` must forbid all MCP in subagents, and the `mcp-first.md` rule must stipulate an exception for subagents. Required behavior: an MCP call with a timeout (≤60 s) and an error instead of infinite waiting; or a codegraph server that does not block on parallel worktrees. Check: `codegraph_explore` from a subagent in a worktree returns an answer or an error within a minute.
 
-## 176. `pnpm audit` gate красит required-чек на всех PR при появлении новых advisories
+## 176. The `pnpm audit` gate turns the required check red on all PRs when new advisories appear
 
-(2026-09-11: `vitest`/`@vitest/mocker` GHSA-82fw-gwwq-j7x9 исправлено в 4.1.11 при пине 4.1.8; `@xmldom/xmldom` исправлено в 0.8.15). Локфайл не менялся, шаг был зелёным четыре дня назад — то есть гейт краснеет от календаря, а не от диффа, и блокирует чужие PR. Поведение, которое нужно: новые advisories, не относящиеся к диффу PR, не должны красить required-чек PR — либо гейт сравнивает с baseline main (красит только новое относительно main), либо аудит живёт отдельным job'ом/ночным прогоном с алертом, а на PR — только регрессия относительно main. Проверка: PR без изменений в `package.json`/локфайле зелёный при свежем advisory.
+(2026-09-11: `vitest`/`@vitest/mocker` GHSA-82fw-gwwq-j7x9 fixed in 4.1.11 with the pin at 4.1.8; `@xmldom/xmldom` fixed in 0.8.15). The lockfile did not change, the step was green four days ago — i.e. the gate goes red from the calendar, not from the diff, and blocks other people's PRs. Required behavior: new advisories unrelated to the PR's diff must not turn the PR's required check red — either the gate compares against the main baseline (reddens only what is new relative to main), or the audit lives as a separate job/nightly run with an alert, and on the PR — only a regression relative to main. Check: a PR with no changes in `package.json`/the lockfile is green with a fresh advisory.
 
-## 177. Три унаследованных расхождения маскировки личностей (security r1 на #664, SR-L-3, не в теле ревью):
+## 177. Three inherited discrepancies in identity masking (security r1 on #664, SR-L-3, not in the review body):
 
-(1) `TEAM_NEW_MEMBER` отдаёт синьору `displayName` дропа — `mapTeam` уже раскрывает его, `mapProject` — нет; (2) дроп в drop-команде может узнать имя джуна, которого `mapDropTeam` скрывает; (3) `ProjectsService.createDraft` пишет `proposedByUserId: currentUser.id`, тогда как фильтр автора использует `impersonatorId ?? id`. Все три — до #664; нужен один явный контур «кто кого видит» для команд, как `mapProject` для проектов. Проверка: тест «синьор не видит displayName дропа в уведомлении и в `GET /teams`», «дроп не видит имя джуна», «имперсонированный ADMIN — автор = impersonator».
+(1) `TEAM_NEW_MEMBER` gives the senior the drop's `displayName` — `mapTeam` already reveals it, `mapProject` does not; (2) a drop in a drop team can learn the name of a junior that `mapDropTeam` hides; (3) `ProjectsService.createDraft` writes `proposedByUserId: currentUser.id`, whereas the author filter uses `impersonatorId ?? id`. All three predate #664; one explicit "who sees whom" contour is needed for teams, like `mapProject` for projects. Check: tests "a senior does not see the drop's displayName in the notification and in `GET /teams`", "a drop does not see the junior's name", "impersonated ADMIN — author = impersonator".
 
-## 178. `docker-compose.prod.yml` (спящий профиль `selfhosted-s3`) тянет `minio/minio:latest` и `minio/mc:latest`, которых больше нет — ЗАКРЫТО 2026-09-24 (#709)
+## 178. `docker-compose.prod.yml` (dormant profile `selfhosted-s3`) pulls `minio/minio:latest` and `minio/mc:latest`, which no longer exist — CLOSED 2026-09-24 (#709)
 
-**Закрыто:** образы MinIO стали недоступны и в quay.io (2026-09-24); по решению владельца MinIO удалён из проекта целиком, спящий профиль `selfhosted-s3` удалён из `docker-compose.prod.yml`, S3-стенд CI/dev — RustFS (#709). Текст ниже — исторический.
+**Closed:** the MinIO images became unavailable on quay.io too (2026-09-24); by the owner's decision MinIO was removed from the project entirely, the dormant `selfhosted-s3` profile was removed from `docker-compose.prod.yml`, the CI/dev S3 stand is RustFS (#709). The text below is historical.
 
-Образов больше нет на Docker Hub (MinIO прекратил публиковать community-образы 2025-10; #668 запинил `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` и `quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z` в CI и dev-compose). Прод на R2, деплой тянет только `api nginx`, поэтому сейчас не инцидент; но включение профиля упадёт на pull. Поведение: тот же пин в прод-compose; проверка — `git grep -n 'minio.*latest' docker-compose.prod.yml` пуст.
+The images are no longer on Docker Hub (MinIO stopped publishing community images 2025-10; #668 pinned `quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z` and `quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z` in CI and dev-compose). Prod is on R2, the deploy pulls only `api nginx`, so it is not an incident now; but enabling the profile will fail on pull. Behavior: the same pin in prod-compose; check — `git grep -n 'minio.*latest' docker-compose.prod.yml` is empty.
 
-## 179. `@xmldom/xmldom` 0.8.15 ломает два спека извлечения резюме — бамп отложен исключениями аудита
+## 179. `@xmldom/xmldom` 0.8.15 breaks two resume-extraction specs — the bump is postponed by audit exceptions
 
-Версия 0.8.15 ломает два спека извлечения резюме (`resume-text-extraction.service.spec.ts`, `resume-render-responsiveness.spec.ts` — тест опирается на квадратичное поведение, которое GHSA-8344-3jmq-59r6 как раз чинит); #668 записал девять GHSA в исключения аудита с обоснованием. Поведение: бамп до ≥0.8.15 вместе с правкой двух спек (зона AutoTest) и снятием исключений. Проверка: `pnpm audit` без записей xmldom в `pnpm-audit-exceptions.json`.
+Version 0.8.15 breaks two resume-extraction specs (`resume-text-extraction.service.spec.ts`, `resume-render-responsiveness.spec.ts` — the test relies on quadratic behavior that GHSA-8344-3jmq-59r6 is precisely fixing); #668 recorded nine GHSAs in the audit exceptions with a justification. Behavior: bump to ≥0.8.15 together with an edit of the two specs (AutoTest zone) and removal of the exceptions. Check: `pnpm audit` with no xmldom entries in `pnpm-audit-exceptions.json`.
 
-## 180. `apps/api/tsconfig.spec.json` не входит ни в один гейт и несёт ~448 унаследованных ошибок
+## 180. `apps/api/tsconfig.spec.json` is part of no gate and carries ~448 inherited errors
 
-(fix-раунд 2 #664): именно поэтому дубль-импорт (TS2300) в двух интеграционных спеках дожил до ревью — esbuild/Vitest его схлопывает, `pnpm typecheck` спеки не видит. Поведение, которое нужно: либо спеки типизируются чисто и конфиг заведён в CI-typecheck, либо конфиг удалён, чтобы не создавать иллюзию проверки. Проверка: `pnpm --filter @crm/api exec tsc -p tsconfig.spec.json --noEmit` → 0 и есть шаг в `ci.yml`.
+(fix round 2 of #664): that is exactly why a duplicate import (TS2300) in two integration specs survived until review — esbuild/Vitest collapses it, `pnpm typecheck` does not see the specs. Required behavior: either the specs are typed cleanly and the config is wired into the CI typecheck, or the config is deleted so as not to create an illusion of checking. Check: `pnpm --filter @crm/api exec tsc -p tsconfig.spec.json --noEmit` → 0 and there is a step in `ci.yml`.
 
-## 181. `resume-render-responsiveness.spec.ts` меряет машину, а не код
+## 181. `resume-render-responsiveness.spec.ts` measures the machine, not the code
 
-(тот же раунд; ловили и DevOps на #668, и API-кодер #667): абсолютные пороги в миллисекундах краснят pre-push при параллельной работе агентов (LA 30–130), зелёные на свободной машине. Поведение: сравнение с базовым замером в том же прогоне (относительный порог) либо пропуск при `load average` выше порога с явным `skipped`-выводом. Проверка: три подряд push'а с параллельными агентами без ложной красноты.
+(same round; caught by DevOps on #668 and by the API coder of #667): absolute thresholds in milliseconds turn pre-push red under parallel agent work (LA 30–130), green on a free machine. Behavior: comparison with a baseline measurement in the same run (a relative threshold) or a skip when `load average` is above a threshold with explicit `skipped` output. Check: three pushes in a row with parallel agents without false redness.
 
-## 182. 23 `NoCoverage` гейта мутаций на #664
+## 182. 23 `NoCoverage` of the mutation gate on #664
 
-22 — резолвер существования объектов уведомлений, покрытый только realdb-спекой (гейт по построению её не исполняет), 1 — `onClick` кнопки удаления в `notifications-bell.tsx` (E2E). По `mutation-gate-integration-specs.md` нужны тонкие unit-дабли вокруг тех же веток. Проверка: `no-coverage` по этим файлам → 0 без суппрешнов.
+22 — the resolver of notification-object existence, covered only by a realdb spec (the gate by construction does not execute it), 1 — the `onClick` of the delete button in `notifications-bell.tsx` (E2E). Per `mutation-gate-integration-specs.md`, thin unit doubles around the same branches are needed. Check: `no-coverage` for these files → 0 without suppressions.
 
-## 183. `scripts/devops/mutation-gate.mjs` содержит литеральный байт `\0` — `grep` считает файл бинарным
+## 183. `scripts/devops/mutation-gate.mjs` contains a literal `\0` byte — `grep` treats the file as binary
 
-(интегратор #667, 2026-09-12; тот же дефект был в `pending.service.ts` и заменён escape-последовательностью): для `grep` файл «binary», поиск по нему молчит. Поведение: в исходниках нет сырых NUL — только `\0` как escape. Проверка: `git grep -I --name-only -P '\x00'` пуст (или `grep -rlP '\x00' scripts apps packages` пуст).
+(integrator of #667, 2026-09-12; the same defect was in `pending.service.ts` and replaced by an escape sequence): for `grep` the file is "binary", a search over it stays silent. Behavior: no raw NULs in the sources — only `\0` as an escape. Check: `git grep -I --name-only -P '\x00'` is empty (or `grep -rlP '\x00' scripts apps packages` is empty).
 
-## 184. Дефолтный `MUTATION_BUDGET_SECONDS=900` молча обрывает веб-стадию `pnpm mutation:changed` на большом диффе
+## 184. The default `MUTATION_BUDGET_SECONDS=900` silently cuts off the web stage of `pnpm mutation:changed` on a large diff
 
-На большом диффе (интегратор #667: первый прогон умер по бюджету, полный требует `MUTATION_BUDGET_SECONDS=7200`). Обрыв должен быть громким и отличимым от `PASS`; локальный дефолт бюджета стоит поднять или считать по числу мутантов. Проверка: прогон с недостаточным бюджетом заканчивается явным `BUDGET EXCEEDED`, не «PASS» и не молчанием.
+On a large diff (integrator of #667: the first run died on the budget, a full one requires `MUTATION_BUDGET_SECONDS=7200`). The cutoff must be loud and distinguishable from `PASS`; the local default budget should be raised or computed by the number of mutants. Check: a run with an insufficient budget ends with an explicit `BUDGET EXCEEDED`, not "PASS" and not silence.
 
-## 185. `notifications-popup-overflow.spec.ts` (mocked-auth) не проходит против dev-прокси на нестандартных портах
+## 185. `notifications-popup-overflow.spec.ts` (mocked-auth) does not pass against the dev proxy on non-standard ports
 
-На стенде интегратора `notifications-bell-trigger` не находился и на `origin/main` (изоляция подменой файла). Спека завязана на дефолтный `localhost:3000/3001`; агенты поднимают стенды на 30xx. Поведение: спека читает адреса из `baseURL`/env, как соседние. Проверка: спека зелёная при `API_PORT=3084`/web 3085.
+On the integrator's stand `notifications-bell-trigger` was not found even on `origin/main` (isolation by file substitution). The spec is tied to the default `localhost:3000/3001`; agents bring stands up on 30xx. Behavior: the spec reads addresses from `baseURL`/env, like its neighbors. Check: the spec is green with `API_PORT=3084`/web 3085.
 
-## 186. Легаси-производитель `INVOICE_SIGNED` может дать 500 на уже подписанном инвойсе (security r3 на #664, вне диффа)
+## 186. The legacy producer of `INVOICE_SIGNED` can give a 500 on an already-signed invoice (security r3 on #664, outside the diff)
 
-(security r3 на #664, вне диффа): заголовок собирается как `<displayName> подписал инвойс`; `display_name` — `varchar(255)`, колонка `notifications.title` — тоже `varchar(255)`, длинное имя переполняет заголовок, `create()` бросает после того, как подпись проведена и документ перенаправлен — клиент получает 500 на успешной операции. Поведение: производитель через шов `emitInTx` (savepoint, как у десяти новых типов) и усечение заголовка по код-поинтам. Проверка: подпись инвойса контрагентом с именем в 255 символов → 200, уведомление либо усечено, либо пропущено с ERROR в журнале.
+(security r3 on #664, outside the diff): the title is assembled as `<displayName> подписал инвойс`; `display_name` is `varchar(255)`, the `notifications.title` column is also `varchar(255)`, a long name overflows the title, `create()` throws after the signature has been recorded and the document redirected — the client gets a 500 on a successful operation. Behavior: the producer through the `emitInTx` seam (savepoint, like the ten new types) and truncation of the title by code points. Check: signing an invoice by a counterparty with a 255-character name → 200, the notification is either truncated or skipped with an ERROR in the log.
 
-## 187. Ошибка загрузки командных override'ов проглатывается под цифрой доли
+## 187. A load error of the team overrides is swallowed under the share figure
 
-(security r1 на #667, SR-L-2): `loadTeamOverridesForSeniors` в `PendingService` делает `.catch(() => [])` — зеркало существующего паттерна `ProjectsService.loadTeamOverridesBySenior`; при сбое запроса доля резолвится без командного override'а, и человек видит неверный процент под кнопкой «Подтвердить». Форма выбрана под ограничение Stryker. Поведение: сбой загрузки override'ов — ошибка ответа (или явное «доля недоступна»), а не тихий дефолт; чинить оба места одним PR. Проверка: тест «запрос override'ов падает → ответ 5xx/поле `viewerSharePercent: null` с причиной», не число.
+(security r1 on #667, SR-L-2): `loadTeamOverridesForSeniors` in `PendingService` does `.catch(() => [])` — a mirror of the existing pattern `ProjectsService.loadTeamOverridesBySenior`; when the query fails the share resolves without the team override, and the person sees a wrong percentage under the «Подтвердить» button. The form was chosen under the Stryker constraint. Behavior: a failure to load overrides is a response error (or an explicit "share unavailable"), not a silent default; fix both places in one PR. Check: a test "the override query fails → response 5xx/field `viewerSharePercent: null` with a reason", not a number.
 
-## 188. Страница проекта показывает бейдж «Активный» для `DRAFT` и `REJECTED` (manual-qa r1 на #664, подтверждено по коду main)
+## 188. The project page shows the badge «Активный» for `DRAFT` and `REJECTED` (manual-qa r1 on #664, confirmed from main's code)
 
-(наблюдение manual-qa r1 на #664; бейдж в `$projectId.tsx` выводится только из `archivedAt` — «Активный»/«В архиве», статус согласования не участвует; #646 добавил на страницу плашку и кнопки решения, но бейдж не тронул). Кандидат на light-track сразу после мержа #667 (файл пересекается). Поведение: бейдж страницы проекта повторяет статус списка (`DRAFT` → «Ждёт решения», `REJECTED` → «Отклонён», `ACTIVE` → «Активный»). Проверка: под ADMIN открыть черновик — бейдж не «Активный»; unit-тест маппинга статуса на странице.
+(observation of manual-qa r1 on #664; the badge in `$projectId.tsx` is derived only from `archivedAt` — «Активный»/«В архиве», the approval status does not participate; #646 added a banner and decision buttons to the page but did not touch the badge). A light-track candidate right after the merge of #667 (the file overlaps). Behavior: the project page badge repeats the list status (`DRAFT` → «Ждёт решения», `REJECTED` → «Отклонён», `ACTIVE` → «Активный»). Check: under ADMIN open a draft — the badge is not «Активный»; a unit test of the status mapping on the page.
 
-## 189. «Открыть проект» на уже отклонённом черновике
+## 189. "Open project" on an already-rejected draft
 
-(QA-L-1 на #664): подтверждающего редиректит на дашборд без объяснения — `REJECTED` проект не в `visible_projects` для него. Поведение: страж маршрута показывает «Черновик отклонён» (или уведомление деградирует по §7.4 до «Проект отклонён» без кнопки), а не молчаливый редирект. Проверка: SENIOR открывает уведомление по отклонённому черновику → видит объяснение.
+(QA-L-1 on #664): the confirmer is redirected to the dashboard without explanation — the `REJECTED` project is not in `visible_projects` for them. Behavior: the route guard shows «Черновик отклонён» (or the notification degrades per §7.4 to «Проект отклонён» without a button), not a silent redirect. Check: SENIOR opens the notification for a rejected draft → sees the explanation.
 
-## 190. Реестр уведомлений: ветвление по `subjectType` и по `type` — две карты одного факта
+## 190. Notification registry: branching by `subjectType` and by `type` — two maps of one fact
 
-(security r4 на #664, вне тела ревью): `loadExistingIds` деградирует контракт по `subjectType === 'EMPLOYEE_CONTRACT'` и статусу `READY_TO_SIGN`, а `notificationActions` — по `type === 'DOCUMENT_SIGN_REQUIRED'`; следующий тип с тем же видом объекта молча унаследует «деградирует, пока не READY_TO_SIGN» и подпись «Контракт удалён». Поведение: в реестре явная карта `тип → subjectType → правило существования`, единственная точка ветвления; компилятор ловит новый тип (`never`). Проверка: добавление типа с `subjectType: 'EMPLOYEE_CONTRACT'` без записи в карте не компилируется.
+(security r4 on #664, outside the review body): `loadExistingIds` degrades the contract by `subjectType === 'EMPLOYEE_CONTRACT'` and the status `READY_TO_SIGN`, while `notificationActions` — by `type === 'DOCUMENT_SIGN_REQUIRED'`; the next type with the same kind of object will silently inherit "degrades until READY_TO_SIGN" and the label «Контракт удалён». Behavior: in the registry an explicit map `type → subjectType → existence rule`, the single branching point; the compiler catches a new type (`never`). Check: adding a type with `subjectType: 'EMPLOYEE_CONTRACT'` without an entry in the map does not compile.
 
-## 191. `whitespace-pre-wrap` на деталях уведомления делает переводы строк в недоверенном тексте (превью причины отказа) значимыми
+## 191. `whitespace-pre-wrap` on notification details makes line breaks in untrusted text (the rejection-reason preview) significant
 
-Сегодня безопасно (React-текст, `line-clamp-2`), станет значимым, если `detail` отрендерят без клампа или подставят в письмо (позиция 7a). Поведение: превью схлопывает пробелы/переводы строк в один пробел на сервере при усечении. Проверка: причина с десятью переводами строк → одна строка в попапе и в письме.
+Safe today (React text, `line-clamp-2`), will become significant if `detail` is rendered without a clamp or substituted into an email (item 7a). Behavior: the preview collapses spaces/line breaks into a single space on the server when truncating. Check: a reason with ten line breaks → one line in the popup and in the email.
 
-## 192. Три копии форматирования суммы
+## 192. Three copies of amount formatting
 
-(code r4 на #664, CR-M-3): `apps/web/app/lib/format-amount.ts#formatAmount`, `apps/api/src/invoices/invoices.service.ts#formatAmountForNotification` и `money()` в реестре уведомлений `@crm/shared` — одна формула (ru-RU, два знака, пробел тысяч). Поведение: одна функция в `@crm/shared`, web и api импортируют её. Проверка: `git grep -n "minimumFractionDigits: 2"` даёт одно определение.
+(code r4 on #664, CR-M-3): `apps/web/app/lib/format-amount.ts#formatAmount`, `apps/api/src/invoices/invoices.service.ts#formatAmountForNotification` and `money()` in the notification registry of `@crm/shared` — one formula (ru-RU, two decimals, thousands space). Behavior: one function in `@crm/shared`, web and api import it. Check: `git grep -n "minimumFractionDigits: 2"` gives one definition.
 
-## 193. Уведомление «снять переопределение доли» не показывает эффективный процент
+## 193. The "remove share override" notification does not show the effective percentage
 
-(copy r2 на #664, COPY-L-4): «30% → не задана», тогда как экран показывает `effectivePercentAfterApproval`. Поведение: производитель кладёт в `data` эффективный процент после подтверждения, текст — «30% → 25% (по умолчанию)». Проверка: уведомление и экран называют одно число.
+(copy r2 on #664, COPY-L-4): «30% → не задана», whereas the screen shows `effectivePercentAfterApproval`. Behavior: the producer puts the effective percentage after confirmation into `data`, the text — «30% → 25% (по умолчанию)». Check: the notification and the screen name the same number.
 
-## 194. Гонка клиентского редиректа онбординга в `_authenticated/route.tsx` (manual-qa r2 на #664, вне диффа)
+## 194. Race of the client-side onboarding redirect in `_authenticated/route.tsx` (manual-qa r2 on #664, outside the diff)
 
-(manual-qa r2 на #664, вне диффа): редирект на визард живёт в `useEffect` после ответа статуса, поэтому дочерние маршруты и виджеты успевают смонтироваться и дёрнуть API до редиректа (403 `ONBOARDING_REQUIRED` в консоли/сети). Поведение: статус онбординга резолвится в `beforeLoad`/лоадере маршрута до рендера дерева. Проверка: пользователь в онбординге открывает `/` — ни одного запроса к `/api/pending`/`/api/notifications` до редиректа.
+(manual-qa r2 on #664, outside the diff): the redirect to the wizard lives in a `useEffect` after the status response, so child routes and widgets manage to mount and hit the API before the redirect (403 `ONBOARDING_REQUIRED` in the console/network). Behavior: the onboarding status is resolved in the route's `beforeLoad`/loader before the tree renders. Check: a user in onboarding opens `/` — not a single request to `/api/pending`/`/api/notifications` before the redirect.
 
-## 195. `cascade-impact-panel.test.tsx` недетерминирован под полным параллельным прогоном
+## 195. `cascade-impact-panel.test.tsx` is nondeterministic under a full parallel run
 
-(кодеры #667 r3 и #664 r2/r5, DevOps #668 — четыре независимых наблюдения на push'ах под нагрузкой): падает разными кейсами (CP-7; CP-28+CP-29), в изоляции 41/41, полный сьют web отдельно — зелёный; в DOM-снимке `data-scroll-locked` на `<body>` — протёкший Radix-оверлей соседнего теста. Поведение: тест изолирован от соседей (cleanup оверлея/`scroll-lock` в `afterEach`, либо `test.sequential`/отдельный файл), зелёный при `--threads` под нагрузкой. Проверка: три подряд полных прогона `@crm/web` при LA > 30 без падений этого файла.
+(coders of #667 r3 and #664 r2/r5, DevOps #668 — four independent observations on pushes under load): fails on different cases (CP-7; CP-28+CP-29), in isolation 41/41, the full web suite separately — green; in the DOM snapshot `data-scroll-locked` on `<body>` — a leaked Radix overlay of a neighboring test. Behavior: the test is isolated from its neighbors (cleanup of the overlay/`scroll-lock` in `afterEach`, or `test.sequential`/a separate file), green with `--threads` under load. Check: three full `@crm/web` runs in a row at LA > 30 without failures of this file.
 
-## 196. `pnpm test` из корня тянет полный E2E на `localhost:3000/3001`
+## 196. `pnpm test` from the root pulls the full E2E on `localhost:3000/3001`
 
-(кодер #664 r5 запустил случайно: сотни `ECONNREFUSED`, а при живом стеке на дефолтных портах ударил бы по нему): корневой скрипт не должен включать `@crm/e2e` по умолчанию — E2E запускается явно (`pnpm --filter @crm/e2e test`). Проверка: `pnpm test` в корне не поднимает Playwright.
+(coder of #664 r5 ran it accidentally: hundreds of `ECONNREFUSED`, and with a live stack on the default ports it would have hit it): the root script must not include `@crm/e2e` by default — E2E is run explicitly (`pnpm --filter @crm/e2e test`). Check: `pnpm test` in the root does not bring up Playwright.
 
-## 197. Новый безусловный запрос в layout ломает все mocked-auth спеки редиректом на `/login` (#667, fix-раунд 5)
+## 197. A new unconditional request in the layout breaks all mocked-auth specs with a redirect to `/login` (#667, fix round 5)
 
-Бейдж nav «Ждут решения» шлёт `GET /api/pending` на каждой аутентифицированной странице; `mockAuthAs` его не мокал → запрос уходил в реальный API без куки → 401 → интерцептор axios уводит на `/login` посреди клика. Шард `E2E (drop-finance)` был красным на каждой голове PR, остальные шарды отменялись fail-fast и ни разу не проверялись, а красноту три раунда считали «флаком вне диффа». Закрыто моком в fix-раунде 5, но класс дефекта повторяется (тот же сценарий для `/notifications` описан в самой фикстуре). Поведение: страж — тест, который поднимает страницу под `mockAuthAs` и падает на любом запросе, ушедшем мимо моков (`page.on('request')` к `API_RE` без обработчика), либо fail-fast в CI отключён для E2E-шардов, чтобы красный шард не прятал остальные. Проверка: новый `api.get` в `nav-sidebar`/`notifications-bell` без мока → красный страж до CI. Урок диагностики: «флак вне диффа» проверять корреляцией мок/реальный логин по списку упавших спек, а не перезапуском.
+The nav badge «Ждут решения» sends `GET /api/pending` on every authenticated page; `mockAuthAs` did not mock it → the request went to the real API without a cookie → 401 → the axios interceptor sends the user to `/login` in the middle of a click. The shard `E2E (drop-finance)` was red on every PR head, the other shards were cancelled by fail-fast and never checked, and the redness was considered "a flake outside the diff" for three rounds. Closed with a mock in fix round 5, but the class of defect repeats (the same scenario for `/notifications` is described in the fixture itself). Behavior: a guard — a test that brings up a page under `mockAuthAs` and fails on any request that went past the mocks (`page.on('request')` to `API_RE` without a handler), or fail-fast in CI is turned off for E2E shards so a red shard does not hide the rest. Check: a new `api.get` in `nav-sidebar`/`notifications-bell` without a mock → red guard before CI. Diagnostic lesson: verify "a flake outside the diff" by correlating mock/real login over the list of failed specs, not by a rerun.
 
-## 198. `pending.spec.ts` (#667) флакает при `--workers>1`
+## 198. `pending.spec.ts` (#667) is flaky with `--workers>1`
 
-Тесты делят одного сидового SENIOR, соседние кейсы создают/удаляют его проекты между чтениями бейджа nav — ассерт бейджа падает в обе стороны (`Expected 2/Received 1`, `Expected 0/Received 1`); при `workers=1` (паритет с CI) 8/8. Доказано изоляцией на пред-раундовой голове (кодер r4). Поведение: каждый тест — свой SENIOR/проекты из фикстуры (как в `drop-*` спеках), без общего состояния. Проверка: `--workers=4 --repeat-each=3` зелёный.
+The tests share one seed SENIOR, neighboring cases create/delete his projects between reads of the nav badge — the badge assertion fails both ways (`Expected 2/Received 1`, `Expected 0/Received 1`); with `workers=1` (parity with CI) 8/8. Proven by isolation on the pre-round head (coder r4). Behavior: each test — its own SENIOR/projects from a fixture (as in the `drop-*` specs), no shared state. Check: `--workers=4 --repeat-each=3` is green.
 
-## 199. Деградированная строка «Ждут решения» для незнакомого `kind` не говорит, что делать
+## 199. The degraded "Ждут решения" row for an unknown `kind` does not say what to do
 
-(copy r3 на #667, COPY-L-7, LOW — ревьюер не настаивал; отложено, чтобы не гонять гейты ещё раз в окне мержа): при версионном расхождении клиент/сервер человек видит «Запрос на действие · N минут назад» без кнопок и без совета. Поведение: второй строкой в том же стиле, что «Доля неизвестна. Обновите страницу.», — «Обновите страницу, чтобы увидеть подробности.» (перезагрузка тянет бандл, который этот вид знает). Проверка: ответ с `kind: 'FUTURE'` → строка с подсказкой, остальные строки целы.
+(copy r3 on #667, COPY-L-7, LOW — the reviewer did not insist; postponed so as not to run the gates again in the merge window): on a client/server version mismatch the person sees «Запрос на действие · N минут назад» without buttons and without advice. Behavior: a second line in the same style as «Доля неизвестна. Обновите страницу.», — «Обновите страницу, чтобы увидеть подробности.» (a reload pulls a bundle that knows this kind). Check: a response with `kind: 'FUTURE'` → a row with the hint, the other rows intact.
 
-## 200. `resumes-rbac.integration.spec.ts` («finished PDF is served from storage») падает в CI на docs-only коммите
+## 200. `resumes-rbac.integration.spec.ts` («finished PDF is served from storage») fails in CI on a docs-only commit
 
-(#667, голова `0a789508`, job `Integration Tests (Postgres)`; на предыдущей голове с тем же кодом — зелёный): `getRenderedPdf` вернул `ready: false` — рендер, поставленный в очередь сохранением, к моменту чтения ещё не завершён; тест ждёт завершения по времени, а не по событию/поллингу состояния. Код автоподачи резюме на паузе — не чинить продукт, чинить тест. Поведение: тест дожидается `ready: true` поллингом с таймаутом (или явно дренирует очередь рендера), а не одним чтением. Проверка: пять подряд прогонов файла на нагруженном раннере без падений.
-
----
-
-## Добавлено 2026-09-12 (вечер) — #670 (бейдж статуса проекта) и слияние #664/#667, пункты 201–204
-
-## 201. Страница проекта показывает «Отклонён» без причины и «Ждёт решения» без «чьего» (COPY-M-3 на #670)
-
-(copy r1 на #670, COPY-M-3): строка списка под ADMIN показывает и причину отказа, и «от {синьор}», а карточка проекта после #670 — только слово статуса. Данные уже в `ProjectDetailDto` (`rejectionReason`, `seniorApprovalPending`, `dropApprovalPending`). Поведение: рядом с бейджем статуса — причина отказа (для тех, кому она видна в списке) и кто ещё не решил. Проверка: ADMIN открывает отклонённый проект → видит причину; черновик → видит, чьё решение ждём.
-
-## 202. «Drop-проект» рядом с «Отклонён» — роль латиницей против глоссария «Дроп» (COPY-L-1 на #670)
-
-(copy r1 на #670, COPY-L-1, вне диффа): бейдж шапки проекта пишет роль латиницей, глоссарий `CONTEXT.md` — «Дроп»; английское drop («сбросить») на красном соседе читается как второй отказ. Поведение: «Дроп-проект». Проверка: `git grep -n 'Drop-проект' apps/web` пуст.
-
-## 203. Визуал статуса проекта дублируется между `ProjectStatusBadge.tsx` и `ProjectRow.tsx` (CR-L-1 на #670)
-
-(code r2 на #670, CR-L-1, LOW): Tailwind-классы цвета и выбор иконки (`Clock`/`XCircle`) для `DRAFT`/`REJECTED`/архива повторены буквально в двух файлах, общий источник — только комментарий. Поведение: одна функция `projectStatusVisuals(status)` (цвет + иконка + подпись), которую импортируют и строка списка, и шапка страницы. Проверка: `git grep -n 'lucide-clock\|amber-500/10' apps/web/app/components/projects` даёт одно определение.
-
-## 204. Интеграционные спеки собирают сервисы руками и ломаются при смене конструктора в соседнем PR
-
-(2026-09-12: `pending.integration.spec.ts` из #667 упал на слитой ветке #664 с `Cannot read properties of undefined (reading 'emitInTx')` — #664 добавил `NotificationsService` в конструктор `ApprovalsService`; семь других спек уже несут `makeNotificationsStub()` — то есть та же правка повторяется файл за файлом). Ни pre-push (скоуп по диффу), ни кодер слияния (гонял только `notifications`-спеки) этого не увидели — поймал CI. Поведение: одна фабрика тестовых сервисов (`buildApprovalsService(db)` / `buildProjectsService(db)` в `__test-helpers__`), которую импортируют все интеграционные спеки, чтобы новая зависимость добавлялась в одном месте; плюс правило для кодера слияния — гонять полный `integration.spec` на scratch-базе, а не только модуль своего PR. Проверка: `git grep -n 'new ApprovalsService(' apps/api/src --include='*.spec.ts'` даёт одно место — фабрику.
+(#667, head `0a789508`, job `Integration Tests (Postgres)`; on the previous head with the same code — green): `getRenderedPdf` returned `ready: false` — the render queued by the save had not finished by the time of the read; the test waits for completion by time, not by event/state polling. The resume autosubmit code is paused — do not fix the product, fix the test. Behavior: the test waits for `ready: true` by polling with a timeout (or explicitly drains the render queue), not by a single read. Check: five runs of the file in a row on a loaded runner without failures.
 
 ---
 
-## Добавлено 2026-09-13 — отложенное с #673 (позиция 7a), пункты 205–208
+## Added 2026-09-12 (evening) — #670 (project status badge) and the merge of #664/#667, items 201–204
 
-## 205. Имперсонированный ADMIN меняет настройки каналов сотрудника без следа (SR-L-3 на #673)
+## 201. The project page shows «Отклонён» without a reason and «Ждёт решения» without "whose" (COPY-M-3 on #670)
 
-(security r1 на #673, SR-L-3, LOW): `PUT /notifications/preferences` берёт `userId` из сессии, а под «войти как» сессия — сотрудника; `locked`-типы защищены, остальные меняются от имени сотрудника без записи «кто». Поведение: аудит имперсонации — либо запрет изменения настроек под имперсонацией, либо запись `impersonatorId` в журнал; решать вместе с общим следом имперсонации. Проверка: под «войти как» переключение канала либо 403, либо строка аудита с двумя id.
+(copy r1 on #670, COPY-M-3): the list row under ADMIN shows both the rejection reason and "from {senior}", while the project card after #670 — only the status word. The data is already in `ProjectDetailDto` (`rejectionReason`, `seniorApprovalPending`, `dropApprovalPending`). Behavior: next to the status badge — the rejection reason (for those to whom it is visible in the list) and who has not yet decided. Check: ADMIN opens a rejected project → sees the reason; a draft → sees whose decision is awaited.
 
-## 206. Сторонние actions в `deploy.yml` пинятся тегом, не SHA (SR-L-5 на #673)
+## 202. "Drop-проект" next to "Rejected" — role in Latin letters vs. the glossary's «Дроп» (COPY-L-1 on #670)
 
-(security r1 на #673, SR-L-5, LOW; конвенция всего файла): переезд тега = supply-chain-риск. Поведение: все сторонние actions в workflow'ах — по полному SHA с комментарием-версией, одним PR. Проверка: `grep -nE 'uses: .*@v[0-9]' .github/workflows/*.yml` пуст.
+(copy r1 on #670, COPY-L-1, outside the diff): the project header badge writes the role in Latin letters, while the `CONTEXT.md` glossary says «Дроп»; the English word drop ("to discard") next to the red neighbour reads as a second rejection. Behaviour: «Дроп-проект». Check: `git grep -n 'Drop-проект' apps/web` is empty.
 
-## 207. Четыре русские строки `logger.*` в `notifications.service.ts` (COPY-L-7 на #673, из #664)
+## 203. Project status visuals are duplicated between `ProjectStatusBadge.tsx` and `ProjectRow.tsx` (CR-L-1 on #670)
 
-(copy r2 на #673, COPY-L-7, из #664): правило `russian-language.md` — строки журнала по-английски (173 прецедента). Поведение: перевести четыре строки одним коммитом. Проверка: `git grep -nP '(logger|this\.logger)\.(warn|error|log)\(.*[А-Яа-я]' apps/api/src` пуст.
+(code r2 on #670, CR-L-1, LOW): the Tailwind colour classes and icon choice (`Clock`/`XCircle`) for `DRAFT`/`REJECTED`/archive are repeated literally in two files, the only shared source is a comment. Behaviour: a single function `projectStatusVisuals(status)` (colour + icon + label) imported by both the list row and the page header. Check: `git grep -n 'lucide-clock\|amber-500/10' apps/web/app/components/projects` yields one definition.
 
-## 208. Письмо «требующего действия» уходит без проверки актуальности согласования (допущение A1 на #673)
+## 204. Integration specs assemble services by hand and break when a constructor changes in a neighbouring PR
 
-(позиция 7a, допущение A1 оркестратора на #673): крон шлёт письмо «требующего действия» как есть, даже если к моменту тика предложение уже погашено/решено (`notification-subject-resolver.ts` умеет это различать для попапа). Поведение: перед `send` резолвить состояние объекта тем же резолвером; погашено/решено → `SKIPPED/STALE` (новый код причины). Проверка: предложить долю → отменить до тика → строка `SKIPPED/STALE`, письма нет.
+(2026-09-12: `pending.integration.spec.ts` from #667 failed on the merged branch of #664 with `Cannot read properties of undefined (reading 'emitInTx')` — #664 added `NotificationsService` to the `ApprovalsService` constructor; seven other specs already carry `makeNotificationsStub()` — i.e. the same fix is repeated file by file). Neither pre-push (scoped by diff) nor the merge coder (ran only the `notifications` specs) saw this — CI caught it. Behaviour: one test-service factory (`buildApprovalsService(db)` / `buildProjectsService(db)` in `__test-helpers__`) imported by all integration specs, so that a new dependency is added in one place; plus a rule for the merge coder — run the full `integration.spec` on a scratch database, not just the module of their own PR. Check: `git grep -n 'new ApprovalsService(' apps/api/src --include='*.spec.ts'` yields one place — the factory.
 
-## Добавлено 2026-09-19 — хвосты эпика уведомлений (#677, #678) и сессия 2026-09-13, пункты 209–214
+---
 
-Закрываются в этих же PR: 168 и 201 — #677 (ярлык «Ждут решения», подпись согласования в шапке проекта);
-205 и 208 — #678 (настройки уведомлений под «войти как» только для просмотра; `SKIPPED/STALE` перед отправкой).
+## Added 2026-09-13 — deferred from #673 (position 7a), items 205–208
 
-## 209. Фоновые циклы ожидания субагентов переживают агента и копятся в сессии оркестратора
+## 205. An impersonated ADMIN changes an employee's channel settings with no trace (SR-L-3 on #673)
 
-(наблюдение 2026-09-12/13 и 2026-09-19: за сутки до семи мёртвых `until … sleep` от кодеров fix-раундов — «Wait for mutation gate», «Collect unit suite numbers» по 5–13 часов; владелец дважды просил убрать). Механика: кодер запускает гейт мутаций или сьют в фон и ждёт циклом `until ! pgrep -f mutation-gate.mjs` (ловит собственную команду по подстроке — не завершается никогда) либо `until grep … <лог в worktree>` (worktree снесён харнессом после завершения агента — файл не дописывается). Харнесс сносит worktree, но не процессы агента. Поведение: (1) в `pm-snippets.md` и промптах кодера — ждать по PID (`wait <pid>` / `kill -0 <pid>`), не по подстроке `pgrep -f`, и перед финальным отчётом гасить свои фоновые команды; (2) скрипт уборки после завершения агента — убить процессы, чей `cwd` или команда указывает на его worktree либо чей лог лежит в снесённом каталоге (образец — `reap-zombie-devservers.sh`; зона Architect). Проверка: через час после завершения кодера среди потомков процесса claude нет `until … sleep` старше десяти минут.
+(security r1 on #673, SR-L-3, LOW): `PUT /notifications/preferences` takes `userId` from the session, and under "log in as" the session is the employee's; `locked` types are protected, the rest are changed on behalf of the employee with no "who" record. Behaviour: impersonation audit — either forbid changing settings under impersonation, or record `impersonatorId` in the log; decide together with the general impersonation trail. Check: under "log in as", toggling a channel is either 403 or an audit row with two ids.
 
-## 210. Персист запросов хранит `GET /projects/:id` целиком — вместе с `effectiveTeam` и e-mail участников (SR-M-1 на #677)
+## 206. Third-party actions in `deploy.yml` are pinned by tag, not SHA (SR-L-5 on #673)
 
-(security r1 на #677, SR-M-1, предсуществующее): префикс `projects` в `PERSISTED_KEY_PREFIXES` (`__root.tsx`) покрывает и ключ страницы `['projects', projectId]`, поэтому ответ `findOne` уходит в IndexedDB `crm-query-cache`, хотя комментарий allow-list прямо запрещает персистить данные участников команды (ради этого оттуда убраны `teams`/`team`/`user-team`). Поведение: список проектов персистится, детальная страница — нет (отдельный префикс для `findOne` вне allow-list либо `shouldDehydrateQuery` по длине ключа); pin-тест в `persisted-key-prefixes.test.ts` через реальный `shouldDehydrateQuery`. Проверка: после открытия страницы проекта в IndexedDB нет `effectiveTeam`.
+(security r1 on #673, SR-L-5, LOW; the convention of the whole file): a moved tag is a supply-chain risk. Behaviour: all third-party actions in workflows pinned by full SHA with a version comment, in one PR. Check: `grep -nE 'uses: .*@v[0-9]' .github/workflows/*.yml` is empty.
 
-## 211. Auto-merge по лейблу не деплоит signal-plus — подтверждено по коду (дополнение к 161)
+## 207. Four Russian `logger.*` strings in `notifications.service.ts` (COPY-L-7 on #673, from #664)
 
-(2026-09-19, деплой #676 вручную): `auto-merge-on-label.yml` после сквоша делает `gh workflow run deploy.yml` и только его; `deploy-signal-plus.yml` слушает `push: main` с `paths:`, а сквош под GITHUB_TOKEN push-события не даёт. Поведение: в шаге «Dispatch production deploy» — если в сквоше есть `services/signal-plus/**` или сам workflow, дополнительно `gh workflow run deploy-signal-plus.yml`. Проверка: мерж по лейблу docs-правки в `services/signal-plus/README.md` → появляется run `deploy-signal-plus.yml` с `event=workflow_dispatch`.
+(copy r2 on #673, COPY-L-7, from #664): per the `russian-language.md` rule, log strings are in English (173 precedents). Behaviour: translate the four strings in one commit. Check: `git grep -nP '(logger|this\.logger)\.(warn|error|log)\(.*[А-Яа-я]' apps/api/src` is empty.
 
-## 212. Решения по согласованиям под «войти как» никак не ограничены (SR-L-2 на #678) — решение владельца
+## 208. The "action-required" email goes out without checking that the approval is still current (assumption A1 on #673)
 
-(security r1–r3 на #678, SR-L-2, LOW; A3 — деньги и доли): после #678 настройки уведомлений под имперсонацией только для просмотра, а `approve|reject` по доле (`senior-share-routes.ts`) и по проекту `impersonatorId` не проверяют — админ под «войти как» может подтвердить или отклонить от имени сотрудника без следа. Поведение — по решению владельца (вопрос в decision brief): либо запрет (403 как у настроек), либо разрешить с записью `impersonatorId` в строку согласования или аудит. Не заводить задачу до ответа. Проверка: под «войти как» `POST …/approve` → 403 либо строка аудита с двумя id.
+(position 7a, orchestrator's assumption A1 on #673): the cron sends the "action-required" email as is, even if by the time of the tick the proposal has already been withdrawn/decided (`notification-subject-resolver.ts` can tell these apart for the popup). Behaviour: before `send`, resolve the object's state with the same resolver; withdrawn/decided → `SKIPPED/STALE` (a new reason code). Check: propose a share → cancel before the tick → row `SKIPPED/STALE`, no email.
 
-## 213. Шапка проекта на 320: длинная причина отказа читается столбиком (COPY-L-4 на #677)
+## Added 2026-09-19 — tails of the notifications epic (#677, #678) and the 2026-09-13 session, items 209–214
 
-(copy r3 на #677, COPY-L-4, LOW, предсуществующее): колонка текста ~150 px рядом с аватаром 56 px; причина отказа от 200 символов даёт 11 строк. Раскладка «аватар + колонка» существовала до PR; #677 поправил 640–1023 (стек шапки до `lg`), мобильную ширину не трогал. Поведение: на мобиле аватар над текстом либо меньше, чтобы причина занимала ширину экрана. Проверка: `/projects/:id` REJECTED-проекта с причиной 200+ символов на 320 px — причина не уже 80 % ширины шапки.
+Closed in these same PRs: 168 and 201 — #677 (the "Ждут решения" label, approval caption in the project header);
+205 and 208 — #678 (notification settings under "log in as" are view-only; `SKIPPED/STALE` before sending).
 
-## 214. `TelemetryErrorsService.recordError` не санитизирует `meta` (SR-L-5 на #678)
+## 209. Background wait loops of subagents outlive the agent and pile up in the orchestrator's session
 
-(security r3 на #678, SR-L-5, LOW, свойство телеметрии): `recordError` режет и чистит `message`/`stack`, а `meta` кладёт сырым и `mapErrorRow` отдаёт его дайджесту наружу; безопасность `meta.reason` держится на дисциплине вызывающих (`safeErrorReason` у пути Resend, фиксированная строка у пути `decideDelivery`), а не на механике. Поведение: строковые поля `meta` проходят тот же `sanitizeAndTruncate` внутри `recordError`. Проверка: `meta.reason` с e-mail и 10 КБ текста → в строке телеметрии нет адреса, длина ограничена.
+(observation 2026-09-12/13 and 2026-09-19: in a day, up to seven dead `until … sleep` loops from fix-round coders — "Wait for mutation gate", "Collect unit suite numbers" for 5–13 hours; the owner asked twice to clean them up). Mechanics: the coder starts the mutation gate or a suite in the background and waits with a loop `until ! pgrep -f mutation-gate.mjs` (catches its own command by substring — never terminates) or `until grep … <log in the worktree>` (the worktree was removed by the harness after the agent finished — the file is no longer appended to). The harness removes the worktree but not the agent's processes. Behaviour: (1) in `pm-snippets.md` and coder prompts — wait by PID (`wait <pid>` / `kill -0 <pid>`), not by `pgrep -f` substring, and kill your own background commands before the final report; (2) a cleanup script after the agent finishes — kill processes whose `cwd` or command points at its worktree or whose log lies in a removed directory (model — `reap-zombie-devservers.sh`; Architect zone). Check: an hour after a coder finishes, among the descendants of the claude process there is no `until … sleep` older than ten minutes.
 
-## Добавлено 2026-09-19 (вечер) — #680 (решения под «войти как») и аудит i18n, пункты 215–221
+## 210. Query persistence stores `GET /projects/:id` whole — with `effectiveTeam` and participants' e-mails (SR-M-1 on #677)
 
-Контекст: владелец 2026-09-19 решил, что под «войти как» админ не принимает решений за сотрудника; #680 закрыл контракт,
-условия использования и счёт (доля и проект были закрыты раньше). Ниже — то, что ревью нашло рядом и что не вошло в PR.
+(security r1 on #677, SR-M-1, pre-existing): the `projects` prefix in `PERSISTED_KEY_PREFIXES` (`__root.tsx`) also covers the page key `['projects', projectId]`, so the `findOne` response goes into the IndexedDB `crm-query-cache`, although the allow-list comment explicitly forbids persisting team member data (that is why `teams`/`team`/`user-team` were removed from it). Behaviour: the project list is persisted, the detail page is not (a separate prefix for `findOne` outside the allow-list, or `shouldDehydrateQuery` by key length); a pin test in `persisted-key-prefixes.test.ts` via the real `shouldDehydrateQuery`. Check: after opening a project page there is no `effectiveTeam` in IndexedDB.
 
-## 215. Отказы под «войти как» на consent-путях не оставляют следа (SR-L на #680)
+## 211. Auto-merge by label does not deploy signal-plus — confirmed from the code (addendum to 161)
 
-(security r1/r2 на #680, LOW): 403 для доли, проекта, контракта, условий и счёта не пишутся в аудит — админ, попытавшийся решить за сотрудника, невидим. Поведение: одна запись аудита «отказ: актор, цель, путь» на все пять путей, из одного хелпера. Проверка: попытка под «войти как» → строка аудита с двумя id и именем пути.
+(2026-09-19, manual deploy of #676): `auto-merge-on-label.yml` after the squash does `gh workflow run deploy.yml` and only that; `deploy-signal-plus.yml` listens to `push: main` with `paths:`, and a squash under GITHUB_TOKEN produces no push events. Behaviour: in the "Dispatch production deploy" step — if the squash contains `services/signal-plus/**` or the workflow itself, additionally `gh workflow run deploy-signal-plus.yml`. Check: merging by label a docs edit in `services/signal-plus/README.md` → a `deploy-signal-plus.yml` run with `event=workflow_dispatch` appears.
 
-## 216. `POST /payout-requests` под «войти как» не блокируется (SR-L на #680)
+## 212. Decisions on approvals under "log in as" are not restricted in any way (SR-L-2 on #678) — owner's decision
 
-(security r2 на #680, LOW): пятая поверхность того же класса — заявка на выплату создаётся от имени сотрудника; артефакт обратим и атрибутирует реального оператора, поэтому LOW. Решение владельца общее → 403 тем же паттерном (общий литерал в `packages/shared`, проверка первой строкой сервиса, disabled-кнопка с пояснением на клиенте, тест на пропагацию `impersonatorId` из контроллера). Проверка: `POST /payout-requests` с JWT, где есть `impersonatorId`, → 403, строки нет.
+(security r1–r3 on #678, SR-L-2, LOW; A3 — money and shares): after #678 notification settings under impersonation are view-only, while `approve|reject` for a share (`senior-share-routes.ts`) and for a project do not check `impersonatorId` — an admin under "log in as" can confirm or reject on behalf of an employee with no trace. Behaviour — per the owner's decision (question in the decision brief): either forbid (403 as for settings), or allow with `impersonatorId` recorded in the approval row or in an audit. Do not create a task until answered. Check: under "log in as" `POST …/approve` → 403 or an audit row with two ids.
 
-## 217. Язык договора определяется эвристикой «есть ли pipe-таблица в теле» (аудит i18n, срез `api`)
+## 213. Project header at 320: a long rejection reason reads as a column (COPY-L-4 on #677)
 
-(аудит `docs/architecture/2026-09-19-crm-i18n-audit.md`): `contract-pdf.service.ts` выбирает язык документа по форме тела шаблона; внутрь украинского договора подставляются русские `'не указано'`. Поведение: явное поле языка у шаблона контракта; подстановки — по нему. Вне вехи i18n (контракты — отдельно, см. спеку §1 п.5). Проверка: шаблон без таблицы, помеченный `uk`, рендерится по-украински.
+(copy r3 on #677, COPY-L-4, LOW, pre-existing): a text column of ~150 px next to a 56 px avatar; a 200-character rejection reason makes 11 lines. The "avatar + column" layout existed before the PR; #677 fixed 640–1023 (header stack up to `lg`), left the mobile width untouched. Behaviour: on mobile the avatar above the text, or smaller, so that the reason takes the screen width. Check: `/projects/:id` of a REJECTED project with a reason of 200+ characters at 320 px — the reason is not narrower than 80% of the header width.
 
-## 218. Четыре 403 под «войти как» не называют выход (COPY-L-2 на #680, решение владельца)
+## 214. `TelemetryErrorsService.recordError` does not sanitize `meta` (SR-L-5 on #678)
 
-(copy r2 на #680, LOW): тексты доля/контракт/условия/счёт объясняют «почему нельзя», но не «выйдите из режима «войти как» — и сделайте от себя». Правка тянет все четыре литерала разом и форму семьи; решение владельца. Проверка: каждый из четырёх текстов заканчивается действием.
+(security r3 on #678, SR-L-5, LOW, a telemetry property): `recordError` trims and cleans `message`/`stack`, but puts `meta` in raw and `mapErrorRow` hands it out to the digest; the safety of `meta.reason` rests on callers' discipline (`safeErrorReason` on the Resend path, a fixed string on the `decideDelivery` path), not on mechanics. Behaviour: string fields of `meta` go through the same `sanitizeAndTruncate` inside `recordError`. Check: `meta.reason` with an e-mail and 10 KB of text → the telemetry row has no address, the length is bounded.
 
-## 219. Баннер «нельзя» на 320 оставляет «сам.» одним словом; скриншоты 320 снимать полной страницей (COPY-L-3 на #680)
+## Added 2026-09-19 (evening) — #680 (decisions under "log in as") and the i18n audit, items 215–221
 
-(copy r3 на #680, LOW): на 320 последняя строка баннера счёта — одно слово; во вьюпортных снимках баннер вне кадра, и ревью сверяло по снимку прошлого круга. Поведение: (а) при правке семьи литералов (218) проверить переносы на 320; (б) в задании кодеру — «скриншот 320 полной страницей (`fullPage: true`)». Проверка: скриншот 320 содержит баннер целиком, последняя строка не из одного слова.
+Context: on 2026-09-19 the owner decided that under "log in as" an admin does not make decisions on behalf of an employee; #680 closed the contract,
+terms of use and invoice (share and project were closed earlier). Below is what review found nearby and what did not make it into the PR.
 
-## 220. Тип счёта дважды в шапке диалога счёта (COPY-L-6 на #680, предсуществующее)
+## 215. Denials under "log in as" on consent paths leave no trace (SR-L on #680)
 
-(copy r3 на #680, LOW): заголовок диалога и бейдж рядом печатают один и тот же тип; на 320 дублирование заметнее. Поведение: тип — один раз (бейдж), заголовок — «Счёт» + номер/сумма. Проверка: в шапке диалога слово типа встречается один раз.
+(security r1/r2 on #680, LOW): the 403s for share, project, contract, terms and invoice are not written to the audit — an admin who tried to decide for an employee is invisible. Behaviour: one audit record "denial: actor, target, path" for all five paths, from one helper. Check: an attempt under "log in as" → an audit row with two ids and the path name.
 
-## 221. Остаток «инвойс» вразрез с глоссарием «Счёт» (copy r3 на #680)
+## 216. `POST /payout-requests` under "log in as" is not blocked (SR-L on #680)
 
-(copy r3 на #680; `CONTEXT.md` держит «Счёт», «инвойс» в `_Избегать_`): после #680 «инвойс» остался в `document-card.tsx`, `document-detail-dialog.tsx` и `upload-document-dialog.tsx` (`INVOICE: 'Инвойс'`), `documents.tsx` (фильтр и пустое состояние), публичной странице верификации счёта, `ArchiveConfirmDialog.tsx`, а в API — в заголовке уведомления и текстах исключений `invoices.service.ts`. Закроется волной i18n `web-docs-notify`/`api` либо отдельным PR раньше. Проверка: `git grep -n "нвойс" -- apps/web/app apps/api/src` пуст.
+(security r2 on #680, LOW): the fifth surface of the same class — a payout request is created on behalf of an employee; the artifact is reversible and attributes the real operator, hence LOW. The owner's general decision → 403 with the same pattern (a shared literal in `packages/shared`, check as the first line of the service, a disabled button with an explanation on the client, a test for propagation of `impersonatorId` from the controller). Check: `POST /payout-requests` with a JWT that has `impersonatorId` → 403, no row.
 
-## 222. `AC2 — «Просмотр» открывает диалог с PDF-превью` красный на `origin/main` независимо от i18n-миграции (task-i18n-3c-pr2, fix-round A CI-E2E)
+## 217. Contract language is determined by the heuristic "is there a pipe table in the body" (i18n audit, `api` slice)
 
-(fix-round A на PR #725, изоляция на `origin/main` тем же скретч-стеком): тест ждёт, что `candidate-resume-preview-error` не появится после открытия диалога превью резюме — падает изолированно на `origin/main` (detached checkout, prod-build, тот же scratch-стек), то есть до i18n-правок вакансий. Причина не в тексте, а в пайплайне превью: presigned URL резюме через S3/RustFS не резолвится в тестовом окружении. `VacancySheet.tsx`/`use-vacancies.ts`/`ResumePreviewDialog.tsx` (эта PR) не трогают ни blob-пайплайн, ни `PdfPreview`. Поведение: `PdfPreview`/презайнед-URL резюме резолвится в scratch/CI окружении так же, как в проде. Проверка: тот же тест на `origin/main` зелёный после фикса пайплайна превью.
+(audit `docs/architecture/2026-09-19-crm-i18n-audit.md`): `contract-pdf.service.ts` chooses the document language by the shape of the template body; Russian `'не указано'` is substituted inside a Ukrainian contract. Behaviour: an explicit language field on the contract template; substitutions go by it. Outside the i18n milestone (contracts are separate, see spec §1 item 5). Check: a template without a table, marked `uk`, renders in Ukrainian.
 
-## 223. `CandidateCard` — ряд кнопок в подвале карточки клипается на 320px (uk) (task-i18n-3c-pr2, fix-round A WIDTHS)
+## 218. Four 403s under "log in as" do not name the way out (COPY-L-2 on #680, owner's decision)
 
-**Закрыто в fix-round B того же PR #725 — чинилось текстом, не отдельной задачей.**
-`CandidateCard`'s статус-тоггл и кнопка резюме получили breakpoint-swap (короткие формы
-«Перегляд»/«Відмова»/«Завантажити» на <640px, те же catalog-записи, что уже есть в `$vacancyId.tsx`
-и в самой `CandidateCard`'s кнопке предпросмотра — не новые id) — тот же приём, которым
-`$vacancyId.tsx`'s applications-фильтр уже решал идентичный дефект (PR #396). Перепроверено живым
-Playwright-проходом 320/375 (uk): `document.documentElement.scrollWidth === clientWidth` на каждом
-экране, ряд действий в кадре целиком.
+(copy r2 on #680, LOW): the share/contract/terms/invoice texts explain "why not", but not «выйдите из режима «войти как» — и сделайте от себя». The fix pulls in all four literals at once and the shape of the family; owner's decision. Check: each of the four texts ends with an action.
 
-(fix-round A на PR #725, живой Playwright-проход 320/375/1440 × uk/en на `/vacancies/:id?tab=applications`): украинский текст кнопок подвала карточки кандидата длиннее исходного русского — на 320px ряд обрезается визуально (не горизонтальный скролл страницы, а локальное клипание внутри карточки). Остальные экраны вакансий (список, форма, детали, SEO, переводы) чисты на всех протестированных ширинах × локалях. Поведение: ряд действий `CandidateCard` не обрезается на 320px ни на одной из локалей uk/en. Проверка: скриншот `/vacancies/:id?tab=applications` на 320px (uk) — ряд кнопок карточки кандидата целиком в кадре.
+## 219. The "not allowed" banner at 320 leaves «сам.» as a single word; take 320 screenshots as a full page (COPY-L-3 on #680)
 
-## 224. `@xmldom/xmldom` 0.8.x high-CVE транзитивно из `mammoth` — простой override ломает парсинг DOCX (gardener #8, 2026-10-05)
+(copy r3 on #680, LOW): at 320 the last line of the invoice banner is a single word; in viewport screenshots the banner is out of frame, and the review checked against the previous round's screenshot. Behaviour: (a) when editing the literal family (218), check the line wraps at 320; (b) in the coder's task — "320 screenshot as a full page (`fullPage: true`)". Check: the 320 screenshot contains the whole banner, the last line is not a single word.
 
-(codebase-gardener, категория #8 Безопасность; проверено фактом): `pnpm audit --prod` даёт серию HIGH/MODERATE по `@xmldom/xmldom` (injection + ReDoS/quadratic-parsing, DoS-класс). Источник — прямой dep `mammoth` (DOCX→текст для резюме, `resume-text-extraction.service`): mammoth требует `@xmldom/xmldom@^0.8.6`, патченной 0.8.x нет (фикс только в 0.9.x), бамп mammoth до latest не спасает. **Проверено:** `pnpm.overrides` на `@xmldom/xmldom@^0.9.12` закрывает CVE в аудите, но ломает извлечение (10 спек `resume-text-extraction.service.spec.ts` краснеют: AC1/zip-bomb-guard/AC5/лимит параллелизма; воркер `sandboxed-process` падает exit 1); на чистом main тот же файл зелёный. Значит mammoth 1.12 несовместим с xmldom 0.9 API. **Экспозиция (почему не блокер):** серверный разбор DOCX только от аутентифицированных пользователей; вход ограничен zip-bomb guard и изолированным воркером с лимитами памяти/времени; неаутентифицированной поверхности нет. **Решение владельца (вынесено в decision brief 2026-10-05):** (1) принять bounded-риск до перехода mammoth upstream на xmldom 0.9; (2) Coder-задача — root-cause exit 1 при xmldom 0.9, при необходимости `pnpm patch` mammoth; (3) заменить mammoth. Проверка закрытия: `pnpm audit --prod` без @xmldom/xmldom HIGH И `resume-text-extraction.service.spec` зелёный.
+## 220. Invoice type twice in the invoice dialog header (COPY-L-6 on #680, pre-existing)
 
-## 225. `resume-glyphs.ts` — O(n) `includes()`+`push()` вместо Set в трёх хелперах (gardener #9, bounded — заметка, 2026-10-05)
+(copy r3 on #680, LOW): the dialog title and the badge next to it print the same type; at 320 the duplication is more noticeable. Behaviour: the type once (the badge), the title — «Счёт» + number/amount. Check: in the dialog header the type word appears once.
 
-(codebase-gardener, категория #9 Производительность; severity LOW — ограниченные данные): в `findUnrenderable`/`toRenderableText`/`toRenderableDeep` накопление уникальных символов идёт через `string[]` + `if (!arr.includes(ch)) arr.push(ch)` — O(n²) по числу уникальных глифов. Данные ограничены (текст резюме, обычно <5 КБ), поэтому по рубрике рулбука (`code-reviewer.md` Шаг-3: ограниченные коллекции = заметка, не блокер) — **намеренно НЕ фиксится**: Set-замена даёт нулевой реальный выигрыш на 5 КБ, а файл — санитайзер глифов (прошлая security-находка обхода проверки глифов, PR #504), где сохранение поведения важнее микрооптимизации. Поведение при закрытии (если функцию расширят на большие тексты): `out`/`dropped` → `Set<string>`, `.includes`/`.push` → `.has`/`.add`, результат идентичен. Проверка: тесты `resume-glyphs` зелёные, выход функций побайтово тот же.
+## 221. The leftover «инвойс» against the glossary's «Счёт» (copy r3 on #680)
 
-## 226. Остаток гардинер-трала 2026-10-05 — хвост (non-giant) + гиганты human-planned
+(copy r3 on #680; `CONTEXT.md` keeps «Счёт», with «инвойс» under `_Avoid_`): after #680 «инвойс» remained in `document-card.tsx`, `document-detail-dialog.tsx` and `upload-document-dialog.tsx` (`INVOICE: 'Инвойс'`), `documents.tsx` (filter and empty state), the public invoice verification page, `ArchiveConfirmDialog.tsx`, and in the API — in the notification title and the exception texts of `invoices.service.ts`. It will be closed by the i18n wave `web-docs-notify`/`api` or by a separate earlier PR. Check: `git grep -n "нвойс" -- apps/web/app apps/api/src` is empty.
 
-(codebase-gardener; детальный список из прошлой сессии, сверен фактом — аудит системно завышал объёмы, проверять grep/du перед диспатчем). Смёржено: #1 скоуп rules/common (#776), #2 CONTEXT.md (#773), #3 dead root docs (#772), #5/#6 CI (#780), #8 dead-code e2e (#778), #10 дедуп (#779), #11 мёртвые экспорты (#778), #18 prod-any (#781); + efficiency-ось в code-reviewer (#777), снос PM (#775), рулбук (#782); #7/#9 deps = PR #783. **Остаток (non-giant):** #16 де-флейк E2E misc — **премиса «стабильно флачит» рекордами 2026-10-05 НЕ подтверждена** (недавние падения misc = реальный регресс #783 resume-paste/CodeMirror, не флейк); дo де-флейка нужна улика (intermittent pass/fail на одном коммите). #17 сжатие агенто-доков (`coder.md` 418 / `code-reviewer.md` 358 / `skills-invocation.md` 169 строк) через writing-for-agents — Architect-зона, token-ROI; **отложено: реформа живых агенто-доков mid-loop вакансий рискованна** (эти агенты активно гоняют Phase 2). #12 composite CI action (6 workflow дублируют node-setup) — low-ROI + workflows-scope merge-risk. #19 уборка `.claude/worktrees` (git list ~50) + `.claude/tasks` (**592K, не 2.4МБ**) — снос worktree из main блокируется хуком agent-isolation → owner-прерогатива литеральными путями. #20 стале-ссылки/комментарии — большей частью сделано #778/#779, остаток точечный. **Гиганты — HUMAN-PLANNED, НЕ авто:** #13 split `schema.ts` (~3.6k), #14 split `transactions.service.ts` (~9.4k), #15 split `users.service`/`projects.service`/`$projectId.tsx`/`UserDialog.tsx`. Еженедельный `codebase-gardener-weekly` (пн 06:01) переоткрывает аудит сам — хвост #12/#16/#17/#19/#20 он и подберёт. Новые находки этой сессии: [[224]] xmldom CVE, [[225]] resume-glyphs O(n).
+## 222. `AC2 — «Просмотр» открывает диалог с PDF-превью` is red on `origin/main` independently of the i18n migration (task-i18n-3c-pr2, fix-round A CI-E2E)
+
+(fix-round A on PR #725, isolation on `origin/main` with the same scratch stack): the test expects `candidate-resume-preview-error` not to appear after opening the resume preview dialog — it fails in isolation on `origin/main` (detached checkout, prod-build, same scratch stack), i.e. before the vacancies i18n edits. The cause is not the text but the preview pipeline: the presigned resume URL via S3/RustFS does not resolve in the test environment. `VacancySheet.tsx`/`use-vacancies.ts`/`ResumePreviewDialog.tsx` (this PR) touch neither the blob pipeline nor `PdfPreview`. Behaviour: `PdfPreview`/the presigned resume URL resolves in the scratch/CI environment the same way as in prod. Check: the same test on `origin/main` is green after the preview pipeline fix.
+
+## 223. `CandidateCard` — the button row in the card footer is clipped at 320px (uk) (task-i18n-3c-pr2, fix-round A WIDTHS)
+
+**Closed in fix-round B of the same PR #725 — fixed in the text, not as a separate task.**
+`CandidateCard`'s status toggle and resume button got a breakpoint swap (short forms
+«Перегляд»/«Відмова»/«Завантажити» at <640px, the same catalog entries already present in `$vacancyId.tsx`
+and in `CandidateCard`'s own preview button — not new ids) — the same technique by which
+the `$vacancyId.tsx` applications filter had already solved an identical defect (PR #396). Re-verified with a live
+Playwright pass at 320/375 (uk): `document.documentElement.scrollWidth === clientWidth` on every
+screen, the action row fully in frame.
+
+(fix-round A on PR #725, live Playwright pass 320/375/1440 × uk/en on `/vacancies/:id?tab=applications`): the Ukrainian text of the candidate card footer buttons is longer than the original Russian — at 320px the row is visually truncated (not a horizontal page scroll, but local clipping inside the card). The other vacancy screens (list, form, details, SEO, translations) are clean at all tested widths × locales. Behaviour: the `CandidateCard` action row is not clipped at 320px in any of the uk/en locales. Check: a screenshot of `/vacancies/:id?tab=applications` at 320px (uk) — the candidate card button row fully in frame.
+
+## 224. `@xmldom/xmldom` 0.8.x high CVE transitively from `mammoth` — a simple override breaks DOCX parsing (gardener #8, 2026-10-05)
+
+(codebase-gardener, category #8 Security; verified by fact): `pnpm audit --prod` gives a series of HIGH/MODERATE on `@xmldom/xmldom` (injection + ReDoS/quadratic-parsing, DoS class). The source is the direct dep `mammoth` (DOCX→text for resumes, `resume-text-extraction.service`): mammoth requires `@xmldom/xmldom@^0.8.6`, there is no patched 0.8.x (the fix is only in 0.9.x), bumping mammoth to latest does not help. **Verified:** `pnpm.overrides` on `@xmldom/xmldom@^0.9.12` closes the CVE in the audit but breaks extraction (10 specs of `resume-text-extraction.service.spec.ts` go red: AC1/zip-bomb-guard/AC5/concurrency limit; the `sandboxed-process` worker fails with exit 1); on a clean main the same file is green. So mammoth 1.12 is incompatible with the xmldom 0.9 API. **Exposure (why not a blocker):** server-side DOCX parsing only from authenticated users; input is bounded by the zip-bomb guard and an isolated worker with memory/time limits; there is no unauthenticated surface. **Owner's decision (put into the decision brief 2026-10-05):** (1) accept the bounded risk until mammoth upstream moves to xmldom 0.9; (2) a Coder task — root-cause the exit 1 under xmldom 0.9, `pnpm patch` mammoth if needed; (3) replace mammoth. Closing check: `pnpm audit --prod` without @xmldom/xmldom HIGH AND `resume-text-extraction.service.spec` green.
+
+## 225. `resume-glyphs.ts` — O(n) `includes()`+`push()` instead of a Set in three helpers (gardener #9, bounded — a note, 2026-10-05)
+
+(codebase-gardener, category #9 Performance; severity LOW — bounded data): in `findUnrenderable`/`toRenderableText`/`toRenderableDeep` unique characters are accumulated through `string[]` + `if (!arr.includes(ch)) arr.push(ch)` — O(n²) in the number of unique glyphs. The data is bounded (resume text, usually <5 KB), so by the runbook rubric (`code-reviewer.md` Step 3: bounded collections = a note, not a blocker) — **deliberately NOT fixed**: a Set replacement gives zero real gain at 5 KB, and the file is a glyph sanitizer (a past security finding of a glyph-check bypass, PR #504), where preserving behaviour matters more than micro-optimisation. Behaviour on closing (if the function is extended to large texts): `out`/`dropped` → `Set<string>`, `.includes`/`.push` → `.has`/`.add`, result identical. Check: `resume-glyphs` tests green, function output byte-for-byte the same.
+
+## 226. Remainder of the gardener sweep of 2026-10-05 — tail (non-giant) + giants human-planned
+
+(codebase-gardener; detailed list from the previous session, verified by fact — the audit systematically overstated volumes, check with grep/du before dispatch). Merged: #1 scope of rules/common (#776), #2 CONTEXT.md (#773), #3 dead root docs (#772), #5/#6 CI (#780), #8 dead-code e2e (#778), #10 dedup (#779), #11 dead exports (#778), #18 prod-any (#781); + efficiency axis in code-reviewer (#777), PM removal (#775), runbook (#782); #7/#9 deps = PR #783. **Remainder (non-giant):** #16 de-flake E2E misc — **the premise "flakes steadily" is NOT confirmed by the 2026-10-05 records** (recent misc failures = a real regression of #783 resume-paste/CodeMirror, not a flake); evidence is needed before de-flaking (intermittent pass/fail on one commit). #17 compressing agent docs (`coder.md` 418 / `code-reviewer.md` 358 / `skills-invocation.md` 169 lines) via writing-for-agents — Architect zone, token ROI; **deferred: reforming live agent docs mid-loop of vacancies is risky** (these agents are actively running Phase 2). #12 composite CI action (6 workflows duplicate node-setup) — low ROI + workflows-scope merge risk. #19 cleanup of `.claude/worktrees` (git list ~50) + `.claude/tasks` (**592K, not 2.4MB**) — removing a worktree from main is blocked by the agent-isolation hook → owner's prerogative with literal paths. #20 stale references/comments — mostly done by #778/#779, the remainder is pointwise. **Giants — HUMAN-PLANNED, NOT auto:** #13 split `schema.ts` (~3.6k), #14 split `transactions.service.ts` (~9.4k), #15 split `users.service`/`projects.service`/`$projectId.tsx`/`UserDialog.tsx`. The weekly `codebase-gardener-weekly` (Mon 06:01) reopens the audit by itself — it will pick up the tail #12/#16/#17/#19/#20. New findings of this session: [[224]] xmldom CVE, [[225]] resume-glyphs O(n).

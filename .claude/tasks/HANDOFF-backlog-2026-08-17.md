@@ -1,123 +1,123 @@
-# HANDOFF — продолжение бэклога, 2026-08-17
+# HANDOFF — continuing the backlog, 2026-08-17
 
-> **Исторический документ.** Передача от 2026-08-17, замещена
-> `HANDOFF-architect-2026-08-22.md`. Утверждение ниже про то, что бэклог не
-> версионируется, было верным на дату написания — исключение для `BACKLOG-*` /
-> `HANDOFF-*` появилось позже.
+> **Historical document.** The handoff of 2026-08-17, superseded by
+> `HANDOFF-architect-2026-08-22.md`. The claim below that the backlog is not
+> versioned was true at the time of writing — the exception for `BACKLOG-*` /
+> `HANDOFF-*` appeared later.
 
-Передача новой сессии-оркестратору. Источник истины по находкам —
-`.claude/tasks/BACKLOG-followups.md` (69 пунктов, **не версионируется**, живёт только
-на диске владельца).
-
----
-
-## Что уже сделано (14 PR смержено 16-17.08)
-
-`#530` Skill-инструмент всем агентам · `#531` сводка видит обязательства ·
-`#532` три ограничителя · `#533` одна тема · `#534` гигиена (3/6/7/12/13) ·
-`#535` приватный корень теста песочницы · `#536` уязвимости прода + гейт `pnpm audit` ·
-`#537` рамки лендинга + оболочка профиля · `#538` GitHub блокирует и APPROVE ·
-`#539` честный 404 вместо главной · `#540` рамки CRM · `#542` четыре стража ·
-`#541` маскировка джуниора закрыта во всех местах · `#543` пол денежных сумм
-
-## Незакрытого от прошлой сессии не осталось
-
-Все PR прошлой сессии смержены. Свежие пункты, найденные в самом конце и ещё не начатые:
-**70** и **71** (гранулярность подавлений Stryker), **72** (закрепить тестом законный
-нулевой оклад), **73** (нет ретрая у чтения защиты ветки в автомерже — уже один раз убило
-мерж во время сбоя GitHub).
-
-## Что ждёт владельца (не начинать без ответа)
-
-- **пункт 2** — самоссылочные записи доли дропа: профильный баланс считает `+amount`,
-  сводка дропа — нетто-нулём. Какое представление верное — решение владельца.
-- **пункт 4** — сверка сумм доли компании у дропов на проде: нужен его доступ.
-- **A/B/C** — три пункта закрываются в момент переключения фильтра по источнику
-  в блокирующий режим, не раньше.
-
-## Решения владельца, принятые 16-17.08 (не пересматривать)
-
-- Светлой темы нет → требование «проверять обе темы» снято правилом.
-- 52/53/55 («осознанные размены») → чинить, не закрывать.
-- Дизайн-перенос в Claude Design **отложен намеренно**; UI-дефекты чинятся **точечно,
-  без редизайна**, tier 3.
-- Маскировка джуниора → **скрывать везде**, вкладка «Команда» тоже была утечкой.
-- Рамки CRM → отдельным PR после лендинга (сделано, `#540`).
-- **Нулевой оклад — законный случай.** Пункт 72: поведение верное, нужно ЗАКРЕПИТЬ его
-  тестом (одна спека), а не чинить. Пол отвергает суммы ниже единицы масштаба, ноль проходит
-  намеренно.
+A handoff to the new orchestrator session. The source of truth for findings is
+`.claude/tasks/BACKLOG-followups.md` (69 items, **not versioned**, lives only
+on the owner's disk).
 
 ---
 
-## Рабочие правила, выведенные за эту сессию
+## What is already done (14 PRs merged 16-17.08)
 
-Они дороже списка пунктов: каждое стоило нам реального промаха.
+`#530` Skill tool for all agents · `#531` summary sees obligations ·
+`#532` three limiters · `#533` one topic · `#534` hygiene (3/6/7/12/13) ·
+`#535` private root of the sandbox test · `#536` prod vulnerabilities + `pnpm audit` gate ·
+`#537` landing frames + profile shell · `#538` GitHub blocks APPROVE too ·
+`#539` honest 404 instead of the home page · `#540` CRM frames · `#542` four guards ·
+`#541` junior masking closed everywhere · `#543` floor of money amounts
 
-**1. Страж проверяется запуском, а не чтением.**
-Дважды за сессию поверхностное совпадение дало неверный вывод: аудит зачёл файл по имени
-(`app.module.spec.ts` существует → пункт закрыт, хотя тест намеренно не собирает контейнер),
-а я зачёл строку из **докстроки** за реализацию (`check-prod-ddl-wiring.py`).
-Оба раза правду дал запуск: подделать вход и посмотреть, краснеет ли.
+## Nothing left unclosed from the previous session
 
-**2. Подавление мутанта проверяется снятием — и почти всегда накрывает больше, чем думает автор.**
-Установлено чтением исходника Stryker: `IgnoreRule.matches()` сопоставляет по паре
-**«строка × имя мутатора»** и о конкретной замене не знает вовсе — `true` и `false` для него
-одно и то же. Написать «подавить только эту замену» **невозможно**.
-За сутки это выстрелило трижды: `#531` — восемь мутантов вместо двух (шесть убивались
-существующими тестами); `#534` — доказательство про одного, директива на двоих; `#541` —
-**9 из 12** подавлений глушили обоих, при снятии 16 из 32 мутантов оказались убиваемыми.
-Рабочая форма одна: перестроить код так, чтобы под директивой остался ровно доказываемый
-мутант — именованная константа на своей строке, разделённое выражение, либо убрать причину
-существования мутанта совсем (`#534`: параметр был нужен только тесту).
-**И отдельно:** директива сразу после закрывающей `}` перед `else if` этой версией Stryker
-**молча игнорируется**. Сейчас в репозитории таких нет (проверены все 100), но ни один гейт
-эту позицию не проверяет. Пункты бэклога **70** и **71**.
+All PRs of the previous session are merged. Fresh items found at the very end and not yet started:
+**70** and **71** (granularity of Stryker suppressions), **72** (pin a legitimate
+zero salary with a test), **73** (no retry on reading branch protection in the automerge — it has already once killed
+a merge during a GitHub outage).
 
-**3. Гейт может засчитать убийство, которого не заработал.**
-На `#535` мутант «убивался» тем, что на Linux `tmpdir()` — это `/tmp`, и мутация падала по
-правам, роняя посторонние тесты. На macOS тот же мутант выживал молча. В отчёте это выглядело
-как честное убийство.
+## What waits on the owner (do not start without an answer)
 
-**4. Прибор, не исполняющий скрипты, не видит того, что ставят скрипты.**
-`curl` не нашёл ни одного `noindex` на лендинге, и я едва не закрыл вопрос как несуществующий.
-В браузере с JS всё было на месте (`#539`).
+- **item 2** — self-referential drop-share records: the profile balance counts `+amount`,
+  the drop summary — net zero. Which representation is correct is the owner's decision.
+- **item 4** — reconciling company-share amounts of drops in prod: needs his access.
+- **A/B/C** — three items are closed at the moment the source filter is switched
+  to blocking mode, not earlier.
 
-**5. Ложное срабатывание стоит доверия, а не минуты.**
-Наш `live-db-guard` блокирует безобидный `grep`, если в тексте команды есть слово `vite`.
-Обход дешёвый и напечатан в самом отказе → рефлекс «обойти» вырабатывается за пару раз
-и срабатывает потом на настоящем запуске (пункт 63).
+## Owner decisions made 16-17.08 (do not revisit)
 
-**6. Локальный `main` тухнет посреди сессии.**
-Был на 26 коммитов позади origin. Читать факты через `git show origin/main:<путь>`,
-не через рабочий чекаут. Эта же мина снесла нам таблицу в августе.
-
-**7. Перед диспатчем по пункту бэклога — проверка против `origin/main`.**
-Запись стареет молча. За сессию дважды заводил задачу на уже починенное и ловил это
-на последнем шаге.
-
-**8. Ревьюер, наткнувшийся на отказ инструмента, должен сообщить отказ, а не обойти.**
-Так нашлось, что GitHub при `author == reviewer` блокирует **и `APPROVE`**, а три наших
-файла годами обещали обратное (`#538`). Рабочая форма ровно одна:
-`event: COMMENT` + вердикт первой строкой.
-
-**9. Находки ревью закрываются все, включая MED и LOW,** до мержа. Дважды за сессию
-именно MED оказывался важнее вердикта.
+- There is no light theme → the requirement "check both themes" was lifted by a rule.
+- 52/53/55 ("deliberate trade-offs") → fix, do not close.
+- The design migration to Claude Design is **deliberately postponed**; UI defects are fixed **pointwise,
+  without a redesign**, tier 3.
+- Junior masking → **hide everywhere**, the "Team" tab was also a leak.
+- CRM frames → a separate PR after the landing (done, `#540`).
+- **Zero salary is a legitimate case.** Item 72: the behavior is correct, it needs to be PINNED
+  with a test (one spec), not fixed. The floor rejects amounts below the scale unit, zero passes
+  deliberately.
 
 ---
 
-## Механика, которую стоит унаследовать
+## Working rules derived during this session
 
-- Диспатч агентов волнами **≤ 3-4**; всегда `isolation: worktree`; после каждого —
-  проверка чистоты главного чекаута.
-- Пуш feature-веток: `DATABASE_URL= git push`. Prettier — **отдельной командой** от коммита.
-- PR, трогающий `.github/workflows/**`, автомерж не возьмёт (у токена нет права) →
-  ручной `gh pr merge --squash`, без `--admin`.
-- Мерж — только по явному «мерджим» владельца; лейбл `merge-approved` ставит оркестратор,
-  сквош делает CI. Снять `do-not-merge`/`awaiting-pm-review` **до** установки лейбла.
-- Свежий worktree: `pnpm install --frozen-lockfile`, затем `pnpm --filter @crm/web build`
-  (иначе typecheck веба падает на пустых типах роутера).
-- К `crm_db` не подключаться никогда; `API_PORT`/`DATABASE_URL` задавать явно инлайном.
-  > **Устарело.** Абсолютный запрет ниже действовал на дату написания. Действующее правило —
-  > `.claude/rules/common/live-db-access.md`: **чтение разрешено, запись запрещена.** Граница
-  > проведена по «читать / писать» именно потому, что абсолютный запрет нарушали ради полезной
-  > работы, а нарушаемое правило воспитывает обход.
+They are worth more than the list of items: each cost us a real miss.
+
+**1. A guard is verified by running, not by reading.**
+Twice during the session a superficial match gave a wrong conclusion: the audit counted a file by name
+(`app.module.spec.ts` exists → item closed, although the test deliberately does not build the container),
+and I counted a line from a **docstring** as the implementation (`check-prod-ddl-wiring.py`).
+Both times the truth came from running: forge the input and see whether it goes red.
+
+**2. A mutant suppression is verified by removing it — and almost always covers more than the author thinks.**
+Established by reading the Stryker source: `IgnoreRule.matches()` matches by the pair
+**"line × mutator name"** and knows nothing of the specific replacement — `true` and `false` are
+the same to it. Writing "suppress only this replacement" is **impossible**.
+Within a day this fired three times: `#531` — eight mutants instead of two (six were killed by
+existing tests); `#534` — proof about one, a directive for two; `#541` —
+**9 of 12** suppressions silenced both, and on removal 16 of 32 mutants turned out killable.
+There is one working form: restructure the code so that exactly the provable
+mutant remains under the directive — a named constant on its own line, a split expression, or remove the reason
+for the mutant's existence entirely (`#534`: the parameter was needed only by the test).
+**And separately:** a directive right after the closing `}` before `else if` is **silently ignored**
+by this Stryker version. There are none in the repository right now (all 100 checked), but no gate
+checks this position. Backlog items **70** and **71**.
+
+**3. A gate can count a kill it did not earn.**
+On `#535` a mutant was "killed" because on Linux `tmpdir()` is `/tmp`, and the mutation failed on
+permissions, taking down unrelated tests. On macOS the same mutant survived silently. In the report it looked
+like an honest kill.
+
+**4. An instrument that does not execute scripts does not see what scripts set.**
+`curl` did not find a single `noindex` on the landing, and I almost closed the question as nonexistent.
+In a browser with JS everything was in place (`#539`).
+
+**5. A false positive costs trust, not a minute.**
+Our `live-db-guard` blocks a harmless `grep` if the command text contains the word `vite`.
+The workaround is cheap and printed in the refusal itself → the "bypass" reflex develops in a couple of times
+and then fires on a real run (item 63).
+
+**6. Local `main` goes stale in the middle of a session.**
+It was 26 commits behind origin. Read facts via `git show origin/main:<path>`,
+not through the working checkout. The same mine took out a table for us in August.
+
+**7. Before dispatching on a backlog item — check against `origin/main`.**
+An entry ages silently. Twice during the session I opened a task for something already fixed and caught it
+at the last step.
+
+**8. A reviewer who runs into a tool refusal must report the refusal, not bypass it.**
+That is how it was found that GitHub with `author == reviewer` blocks **`APPROVE` too**, while three of our
+files had been promising the opposite for years (`#538`). There is exactly one working form:
+`event: COMMENT` + the verdict on the first line.
+
+**9. Review findings are all closed, including MED and LOW,** before merge. Twice during the session
+a MED turned out to matter more than the verdict.
+
+---
+
+## Mechanics worth inheriting
+
+- Dispatch agents in waves of **≤ 3-4**; always `isolation: worktree`; after each —
+  check that the main checkout is clean.
+- Push of feature branches: `DATABASE_URL= git push`. Prettier — **a separate command** from the commit.
+- A PR touching `.github/workflows/**` will not be taken by automerge (the token lacks the right) →
+  manual `gh pr merge --squash`, without `--admin`.
+- Merge — only on the owner's explicit "merge it"; the orchestrator sets the `merge-approved` label,
+  CI does the squash. Remove `do-not-merge`/`awaiting-pm-review` **before** setting the label.
+- Fresh worktree: `pnpm install --frozen-lockfile`, then `pnpm --filter @crm/web build`
+  (otherwise the web typecheck fails on empty router types).
+- Never connect to `crm_db`; set `API_PORT`/`DATABASE_URL` explicitly inline.
+  > **Obsolete.** The absolute ban below was in force at the time of writing. The current rule —
+  > `.claude/rules/common/live-db-access.md`: **reading is allowed, writing is forbidden.** The boundary
+  > is drawn at "read / write" precisely because the absolute ban was violated for the sake of useful
+  > work, and a violated rule breeds workarounds.
