@@ -2129,7 +2129,7 @@ msgstr "From"
 msgid "Відв’язати"
 msgstr "Detach"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Відв’язати дропа від проєкту"
 msgstr "Detach the drop from the project"
 
@@ -2846,7 +2846,7 @@ msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION"
 msgstr "The payout date can't be earlier than the obligation's creation date"
 
 #. placeholder {0}: formatDate(member.leftAt, locale, 'short')
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "дата виходу: {0}"
 msgstr "left on: {0}"
 
@@ -2980,7 +2980,7 @@ msgid "Джуніор"
 msgstr "Junior"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Джуніор не призначений"
 msgstr "No junior assigned"
 
@@ -3662,7 +3662,7 @@ msgstr "Drops can't access interviews"
 msgid "invoicePdf.signature.methodClick"
 msgstr "Electronic click signature"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
 msgstr "Effective team<0>(HR/accountant — from the senior’s current team)</0>"
 
@@ -6382,7 +6382,7 @@ msgid "Немає джуніора"
 msgstr "No junior"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Немає доступних дропів"
 msgstr "No drops available"
 
@@ -7239,7 +7239,7 @@ msgstr "Password added"
 msgid "Пароль скопійовано"
 msgstr "Password copied"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Партнерам (50 / 50)"
 msgstr "To partners (50 / 50)"
 
@@ -8325,7 +8325,7 @@ msgid "Прибуток за останній місяць"
 msgstr "Net profit for the last month"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Прив’язати дропа"
 msgstr "Attach a drop"
 
@@ -9199,7 +9199,7 @@ msgid "Розпізнати текст"
 msgstr "Recognize the text"
 
 #. placeholder {0}: fmt(exampleIncome)
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Розподіл доходу (приклад {0})"
 msgstr "Income distribution (example {0})"
 
@@ -9287,7 +9287,7 @@ msgstr "Senior"
 msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
 msgstr "Seniors and admins are paid in USDT ERC-20 only"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Сеньйор не призначений"
 msgstr "No senior assigned"
 
@@ -11093,7 +11093,7 @@ msgstr "Project share is now {percent}%"
 msgid "Частка дропа"
 msgstr "Drop’s share"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Частка дропа ({dropPct}%)"
 msgstr "Drop’s share ({dropPct}%)"
 
@@ -11171,7 +11171,7 @@ msgstr "Partner share"
 msgid "Частка сеньйора"
 msgstr "Senior’s share"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Частка сеньйора ({seniorPct}%)"
 msgstr "Senior’s share ({seniorPct}%)"
 

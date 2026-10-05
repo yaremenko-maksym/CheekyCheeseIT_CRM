@@ -192,3 +192,11 @@ export const STATUS_FILTER_LABEL_MESSAGES_MOBILE = {
   REJECTED: msg`Відмова`,
   ARCHIVED: msg`Архів`,
 } satisfies Record<ProjectStatusFilter, MessageDescriptor>
+
+export const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' | 'accountant'> = {
+  ADMIN: 'admin',
+  SENIOR: 'senior',
+  JUNIOR: 'junior',
+  HR: 'hr',
+  ACCOUNTANT: 'accountant',
+}
