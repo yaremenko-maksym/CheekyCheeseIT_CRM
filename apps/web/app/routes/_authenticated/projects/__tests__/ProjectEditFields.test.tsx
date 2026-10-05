@@ -19,11 +19,13 @@
  * 4. Surface C — selecting an option makes the form dirty and the value
  *    reaches submit.
  */
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor, cleanup } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { useForm } from '@tanstack/react-form'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
+import { IT_DOMAINS } from '@crm/shared'
+import { api } from '@/lib/axios'
 import { ProjectEditFields } from '../ProjectEditFields'
 
 // task-i18n-stage3a (Task 1) blast-radius: `ProjectEditFields` renders
@@ -91,8 +93,16 @@ function Harness({
   viewerRole,
   defaultDropSharePercent = 5,
   pendingShare,
+  mode = 'info',
+  initial,
+  noProject = false,
 }: {
   onSubmit: (values: HarnessValues) => void
+  mode?: 'info' | 'members'
+  /** Overrides for the form's default values (leaf-5 mutation coverage). */
+  initial?: Record<string, unknown>
+  /** Render without a `projectId` prop (the create-flow shape). */
+  noProject?: boolean
   canEditOverride: boolean
   dropId: string | null
   viewerRole: string | undefined
@@ -106,7 +116,7 @@ function Harness({
   } | null
 }) {
   const form = useForm({
-    defaultValues: defaultHarnessValues,
+    defaultValues: { ...defaultHarnessValues, ...initial } as HarnessValues,
     onSubmit: async ({ value }) => onSubmit(value),
   })
   return (
@@ -114,13 +124,13 @@ function Harness({
       <QueryClientProvider client={new QueryClient()}>
         <ProjectEditFields
           form={form}
-          mode="info"
+          mode={mode}
           canEditOverride={canEditOverride}
           defaultSharePercent={26}
           defaultDropSharePercent={defaultDropSharePercent}
           dropId={dropId}
           viewerRole={viewerRole}
-          projectId="project-1"
+          {...(noProject ? {} : { projectId: 'project-1' })}
           pendingShare={pendingShare ?? null}
         />
         <button type="button" data-testid="harness-submit" onClick={() => void form.handleSubmit()}>
@@ -477,5 +487,292 @@ describe('ProjectEditFields — live proposal notice', () => {
     // on that; only reading the joint does not. (Found by the mutation gate
     // on this very line, not guessed.)
     expect(hint).toContain('За замовчуванням — 26%: те саме значення знімає')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Mikado leaf 5 (extraction of ProjectEditFields into its own file). The
+// mutation gate now evaluates this component as changed code and found the
+// pre-existing coverage gaps below: mode gating, the logo field, validators,
+// the senior/drop RBAC gating and the plain inputs. Pure assertions on the
+// existing behaviour — nothing here changes it.
+// ---------------------------------------------------------------------------
+
+const adminHint = 'Змінювати можуть лише Адміністратор або Бухгалтер.'
+/** The red validation-error paragraphs inside `root` (whole document by default). */
+const errParas = (root: HTMLElement = document.body) =>
+  within(root).queryAllByText((_content, el) => {
+    return el?.tagName === 'P' && el.classList.contains('text-destructive')
+  })
+
+async function submitValues(onSubmit: ReturnType<typeof vi.fn>): Promise<HarnessValues> {
+  fireEvent.click(screen.getByTestId('harness-submit'))
+  await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1))
+  return onSubmit.mock.calls[0]![0] as HarnessValues
+}
+
+describe('ProjectEditFields — mode gating', () => {
+  it('renders nothing for mode="members"', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId="drop-1"
+        viewerRole="ADMIN"
+        mode="members"
+      />,
+    )
+    expect(screen.queryByText('Назва проєкту')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('project-edit-senior-share-section')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('textbox')).toHaveLength(0)
+    expect(screen.queryAllByRole('combobox')).toHaveLength(0)
+  })
+})
+
+describe('ProjectEditFields — logo field', () => {
+  it('seeds the logo field from the form values (external URL -> url mode)', () => {
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        initial={{ logoExternalUrl: 'https://example.com/logo-1.png' }}
+      />,
+    )
+    expect(screen.getByTestId('image-upload-field-url-input')).toHaveValue(
+      'https://example.com/logo-1.png',
+    )
+  })
+
+  it('a URL typed into the logo field reaches the form (onChange wiring)', async () => {
+    const onSubmit = vi.fn()
+    render(<Harness onSubmit={onSubmit} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    fireEvent.click(screen.getByTestId('image-upload-field-mode-url'))
+    const input = screen.getByTestId('image-upload-field-url-input')
+    fireEvent.change(input, { target: { value: 'https://example.com/new.png' } })
+    fireEvent.blur(input)
+    const values = await submitValues(onSubmit)
+    expect(values.logoExternalUrl).toBe('https://example.com/new.png')
+    expect(values.logoDocumentId).toBeNull()
+  })
+
+  async function uploadLogo(noProject: boolean): Promise<FormData> {
+    vi.mocked(api.post).mockClear()
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={true}
+        dropId={null}
+        viewerRole="ADMIN"
+        noProject={noProject}
+      />,
+    )
+    const file = new File(['x'], 'logo.png', { type: 'image/png' })
+    fireEvent.change(screen.getByTestId('image-upload-field-file-input'), {
+      target: { files: [file] },
+    })
+    await waitFor(() => expect(api.post).toHaveBeenCalledTimes(1))
+    return vi.mocked(api.post).mock.calls[0]![1] as FormData
+  }
+
+  it('scopes a logo upload to the project when a projectId is given', async () => {
+    const fd = await uploadLogo(false)
+    expect(fd.get('projectId')).toBe('project-1')
+    expect(fd.get('category')).toBe('LOGO')
+  })
+
+  it('sends no projectId when the form has none (create flow)', async () => {
+    const fd = await uploadLogo(true)
+    expect(fd.has('projectId')).toBe(false)
+  })
+})
+
+describe('ProjectEditFields — name / company validation', () => {
+  it.each([
+    ['AI Platform v2', 'Назва проєкту'],
+    ['TechCorp AI', 'Компанія'],
+  ])('%s field: whitespace-only is rejected and the error is styled', (placeholder) => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText(placeholder)
+    // Pristine: no error paragraph, no destructive border.
+    expect(errParas()).toHaveLength(0)
+    expect(input.className).not.toContain('border-destructive')
+
+    fireEvent.change(input, { target: { value: '   ' } })
+    fireEvent.blur(input)
+
+    const errs = errParas()
+    expect(errs).toHaveLength(1)
+    expect(errs[0]).toHaveTextContent(/\S/)
+    expect(input.className).toContain('border-destructive')
+  })
+
+  it.each([
+    ['AI Platform v2', 'Назва проєкту'],
+    ['TechCorp AI', 'Компанія'],
+  ])('%s field: a valid value (surrounded by spaces) raises no error', (placeholder) => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const input = screen.getByPlaceholderText(placeholder)
+    fireEvent.change(input, { target: { value: '  Valid  ' } })
+    fireEvent.blur(input)
+    expect(errParas()).toHaveLength(0)
+    expect(input.className).not.toContain('border-destructive')
+  })
+})
+
+describe('ProjectEditFields — plain inputs reach the form', () => {
+  it('domain select lists every IT domain and writes the choice', async () => {
+    const onSubmit = vi.fn()
+    render(<Harness onSubmit={onSubmit} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const select = screen.getByDisplayValue('Other')
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual([...IT_DOMAINS])
+    const other = IT_DOMAINS.find((d) => d !== 'Other')!
+    fireEvent.change(select, { target: { value: other } })
+    expect((await submitValues(onSubmit)).domain).toBe(other)
+  })
+
+  it('free-text field inputs and the notes textarea write to the form', async () => {
+    const onSubmit = vi.fn()
+    render(<Harness onSubmit={onSubmit} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    // DOM order of the textboxes: name, company, techStack, teamSize,
+    // benefits, salaryReview, corpTech, notes (textarea), amount.
+    const boxes = screen.getAllByRole('textbox')
+    expect(boxes).toHaveLength(9)
+    fireEvent.change(boxes[2]!, { target: { value: 'React, Nest' } })
+    expect(boxes[7]!.tagName).toBe('TEXTAREA')
+    fireEvent.change(boxes[7]!, { target: { value: 'hello notes' } })
+    const values = await submitValues(onSubmit)
+    expect(values.techStack).toBe('React, Nest')
+    expect(values.notesGeneral).toBe('hello notes')
+  })
+
+  it('the payment-type hint is absent for an editor', () => {
+    render(<Harness onSubmit={vi.fn()} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    expect(screen.queryByText(adminHint)).not.toBeInTheDocument()
+  })
+})
+
+describe('ProjectEditFields — rate and currency', () => {
+  it('shows the current rate and currency, and writes edits back', async () => {
+    const onSubmit = vi.fn()
+    render(<Harness onSubmit={onSubmit} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const amount = screen.getByTestId('amount-currency-amount-input')
+    expect(amount).toHaveValue('5000')
+    fireEvent.change(amount, { target: { value: '7500' } })
+
+    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USDT')!
+    fireEvent.click(currencyTrigger)
+    fireEvent.click(within(screen.getByRole('listbox')).getByText('EUR'))
+
+    const values = await submitValues(onSubmit)
+    expect(values.rate).toBe(7500)
+    expect(values.currency).toBe('EUR')
+  })
+})
+
+describe.each([
+  {
+    name: 'senior',
+    sectionId: 'project-edit-senior-share-section',
+    inputId: 'project-edit-senior-share-override',
+    field: 'seniorSharePercentOverride',
+    dropId: null as string | null,
+    defaultPct: 26,
+  },
+  {
+    name: 'drop',
+    sectionId: 'project-edit-drop-share-section',
+    inputId: 'project-edit-drop-share-override',
+    field: 'dropSharePercentOverride',
+    dropId: 'drop-1' as string | null,
+    defaultPct: 5,
+  },
+])('ProjectEditFields — $name share section', (c) => {
+  const renderIt = (
+    over: { canEdit?: boolean; role?: string | undefined; initial?: Record<string, unknown> } = {},
+  ) =>
+    render(
+      <Harness
+        onSubmit={vi.fn()}
+        canEditOverride={over.canEdit ?? true}
+        dropId={c.dropId}
+        viewerRole={'role' in over ? over.role : 'ADMIN'}
+        initial={over.initial ?? {}}
+      />,
+    )
+
+  it('shows the default percent when there is no override, and the override when set', () => {
+    renderIt()
+    expect(screen.getByTestId(c.inputId)).toHaveValue(c.defaultPct)
+    cleanup()
+    renderIt({ initial: { [c.field]: 40 } })
+    expect(screen.getByTestId(c.inputId)).toHaveValue(40)
+  })
+
+  it('treats an undefined override like no override (default shown, no error)', () => {
+    renderIt({ initial: { [c.field]: undefined } })
+    const input = screen.getByTestId(c.inputId)
+    expect(input).toHaveValue(c.defaultPct)
+    fireEvent.blur(input)
+    expect(errParas(screen.getByTestId(c.sectionId))).toHaveLength(0)
+  })
+
+  it('is hidden for HR and JUNIOR viewers, visible for others', () => {
+    renderIt({ role: 'HR' })
+    expect(screen.queryByTestId(c.sectionId)).not.toBeInTheDocument()
+    cleanup()
+    renderIt({ role: 'JUNIOR' })
+    expect(screen.queryByTestId(c.sectionId)).not.toBeInTheDocument()
+    cleanup()
+    renderIt({ role: 'SENIOR', canEdit: false })
+    expect(screen.getByTestId(c.sectionId)).toBeInTheDocument()
+    cleanup()
+    renderIt({ role: undefined })
+    expect(screen.getByTestId(c.sectionId)).toBeInTheDocument()
+  })
+
+  it('input is enabled for editors and disabled (with hint) for everyone else', () => {
+    renderIt({ canEdit: true })
+    expect(screen.getByTestId(c.inputId)).not.toBeDisabled()
+    expect(within(screen.getByTestId(c.sectionId)).queryByText(adminHint)).toBeNull()
+    cleanup()
+    renderIt({ canEdit: false, role: 'SENIOR' })
+    expect(screen.getByTestId(c.inputId)).toBeDisabled()
+    expect(within(screen.getByTestId(c.sectionId)).getByText(adminHint)).toBeInTheDocument()
+  })
+
+  it.each([0, 100, 37])('accepts the in-range integer %i without an error', (n) => {
+    renderIt({ initial: { [c.field]: 40 } })
+    const input = screen.getByTestId(c.inputId)
+    fireEvent.change(input, { target: { value: String(n) } })
+    fireEvent.blur(input)
+    const section = screen.getByTestId(c.sectionId)
+    expect(errParas(section)).toHaveLength(0)
+    expect(input.className).not.toContain('border-destructive')
+  })
+
+  it.each([-1, 101])('rejects the out-of-range integer %i with an error and red border', (n) => {
+    renderIt({ initial: { [c.field]: n } })
+    const input = screen.getByTestId(c.inputId)
+    fireEvent.blur(input)
+    const section = screen.getByTestId(c.sectionId)
+    expect(within(section).getByText('Введіть ціле число від 0 до 100')).toBeInTheDocument()
+    expect(input.className).toContain('border-destructive')
+  })
+
+  it('a non-integer shows the error paragraph and red border; a valid blur shows neither', () => {
+    renderIt()
+    const input = screen.getByTestId(c.inputId)
+    const section = screen.getByTestId(c.sectionId)
+    expect(errParas(section)).toHaveLength(0)
+    fireEvent.change(input, { target: { value: '50.5' } })
+    fireEvent.blur(input)
+    expect(errParas(section)).toHaveLength(1)
+    expect(input.className).toContain('border-destructive')
   })
 })
