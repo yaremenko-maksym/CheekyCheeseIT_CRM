@@ -1,6 +1,6 @@
 # RULES — Cross-Agent Rules (TOC + references)
 
-Single source of truth для правил, применимых ко всем агентам (PM, Coder, AutoTest, Reviewer, DevOps, BA, Architect, Legal). **Phase 5 миграции** разнёс топики по отдельным файлам в `.claude/rules/common/`. Этот документ — точка входа: TOC + краткие резюме + ссылки.
+Single source of truth для правил, применимых ко всем агентам (Coder, AutoTest, Reviewer, DevOps, Architect, Legal). Оркестрацию ведёт Master (USER-сессия) — отдельного PM-агента нет (удалён 2026-10-05). **Phase 5 миграции** разнёс топики по отдельным файлам в `.claude/rules/common/`. Этот документ — точка входа: TOC + краткие резюме + ссылки.
 
 **Кому читать:** всем агентам upfront при старте сессии. Сначала этот файл (~3 KB), потом релевантные `.claude/rules/common/<topic>.md` файлы on-demand.
 
@@ -59,12 +59,11 @@ CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-v
 3. `tail -5 .claude/coder-activity.log | grep INTENT` — что планировал
 4. Resume: если milestone N completed — продолжай с N+1. Если intent был "starting test run" без push после — проверь не сломал ли локально.
 
-**PM (after compaction):**
+**Master / оркестратор (after compaction):**
 
-1. `cat .claude/state/pm-state.json` — текущее состояние работы
-2. `ls .claude/tasks/*.blocked.md` — есть ли blocked задачи
-3. `gh pr list --state open` — open PRs от агентов
-4. Проверить `next_action` в каждом active task — если есть и `scheduled_at` < now, выполнить немедленно (ScheduleWakeup не выжил session boundary).
+1. `ls .claude/tasks/*.md` — активные задачи; `ls .claude/tasks/*.blocked.md` — blocked
+2. `gh pr list --state open` — open PRs от агентов + их labels / checks
+3. Для cross-session wait — внешний планировщик (`mcp__scheduled-tasks__*`), а не in-session `ScheduleWakeup` (не выживает session boundary). См. §4.3.
 
 **Reviewer / AutoTest / DevOps (after compaction):**
 
@@ -73,7 +72,7 @@ CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-v
 
 ### 4.3 Wake-up layers — какой когда
 
-PM использует два слоя для cross-session waits.
+Master использует два слоя для cross-session waits.
 
 | Слой                                 | Выживает session? | Когда                            |
 | ------------------------------------ | ----------------- | -------------------------------- |
@@ -86,16 +85,15 @@ PM использует два слоя для cross-session waits.
 
 ## 5. Zone-of-write — `.claude/rules/common/zone-of-write.md`
 
-**Резюме:** Каждый агент пишет ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на cross-zone diffs. Active hook `.claude/hooks/pre-edit-write-zone-of-write.sh` блокирует Coder из main repo при попытке `apps/**` / `packages/**` без PM-разрешения (live с Phase 2.5).
+**Резюме:** Каждый агент пишет ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на cross-zone diffs. Active hook `.claude/hooks/pre-edit-write-zone-of-write.sh` блокирует Coder из main repo при попытке `apps/**` / `packages/**` без разрешения оркестратора (live с Phase 2.5).
 
 **Zone highlights:**
 
 - **Coder** → `apps/**`, `packages/**`, своих task progress / blocked
-- **AutoTest** → `apps/e2e/**`
-- **DevOps** → `.github/workflows/`, root scripts
-- **PM** → `.claude/briefs/`, `.claude/agents/memory/<X>/lessons.md` (append), `scripts/pm/**`
-- **BA** → `docs/business/`, `.claude/briefs/pm-brief-<slug>.md`
-- **Architect** → `docs/architecture/**`, `rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `<agent>.md` frontmatter + golden rules при ECC migration
+- **AutoTest** → любой тестовый файл в репо (`**/*.spec.ts(x)` / `__tests__/` / `apps/e2e/**`), НЕ продуктовый код
+- **DevOps** → `.github/workflows/`, root scripts, `scripts/devops/**`
+- **Master (оркестратор)** → `.claude/tasks/`, `.claude/briefs/`, `.claude/agents/memory/<X>/lessons.md` (append), `scripts/pm/**`
+- **Architect** → `docs/architecture/**`, `rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/RULES.md`, `<agent>.md` frontmatter + golden rules, `.claude/settings*.json` (hook registration)
 
 См. полную матрицу + enforcement + worktree caveat + Architect-specific notes: **[`.claude/rules/common/zone-of-write.md`](rules/common/zone-of-write.md)**.
 
@@ -103,17 +101,17 @@ PM использует два слоя для cross-session waits.
 
 ## 6. Memory & lessons protocol
 
-Полное описание — `.claude/agents/memory/README.md`. (Этот раздел остаётся в RULES.md как навигационный к workflow PM, не extracted в `.claude/rules/common/` — он tightly coupled к PM Mode 2.A.)
+Полное описание — `.claude/agents/memory/README.md`. (Этот раздел остаётся в RULES.md как навигационный к workflow оркестратора, не extracted в `.claude/rules/common/`.)
 
 ### 6.1 Когда писать (trigger-based)
 
-**После каждого merged PR (no exceptions)** PM ОБЯЗАН append 1-3 урока в `.claude/agents/memory/<agent>/lessons.md`:
+**После каждого merged PR (no exceptions)** Master ОБЯЗАН append 1-3 урока в `.claude/agents/memory/<agent>/lessons.md`:
 
 ```
 <YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic) <конкретный урок одной фразой>
 ```
 
-Это не optional — это часть PM workflow Mode 2.A (completed).
+Это не optional — это часть workflow оркестратора на приёмке merged PR.
 
 ### 6.2 Что считать уроком
 
@@ -128,14 +126,14 @@ PM использует два слоя для cross-session waits.
 
 ### 6.4 Consolidation (promote-and-prune, БЕЗ архива)
 
-Когда `lessons.md` достигает **20 строк** ИЛИ после batch merged PRs PM консолидирует (дедуп → промоут → прун; **архивных файлов нет — история живёт в git**):
+Когда `lessons.md` достигает **20 строк** ИЛИ после batch merged PRs Master консолидирует (дедуп → промоут → прун; **архивных файлов нет — история живёт в git**):
 
 1. Дедуп / упрощение / выделение паттернов.
 2. **P0 (5+ повторений)** → promote в Golden rules соответствующего `<agent>.md`.
 3. **P1** → consolidate в `rules/common/<topic>.md` (cross-agent) или `<agent>.md` (agent-specific).
 4. **Остальное (одноразовое / поглощённое промоутом)** → **удалить** (не архивировать).
 
-> In-repo консолидация `lessons.md` — отдельная операция PM, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`, другое дерево).
+> In-repo консолидация `lessons.md` — отдельная операция Master, НЕ скилл `anthropic-skills:consolidate-memory` (тот дедупит личную user-memory `~/.claude`, другое дерево).
 > **Чтобы не ржавело:** non-blocking warn в `.husky/pre-push` (`scripts/check-lessons-cap.sh`) флагует over-cap `lessons.md` на каждом push; плюс structure-conformance плечо воркфлоу #10 ловит их при аудите. CI-аннотацию можно добавить отдельно (нужен workflow-scope токен — DevOps).
 
 ### 6.5 Структура
@@ -167,9 +165,9 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 - **Russian language for user-facing output** — **[`.claude/rules/common/russian-language.md`](rules/common/russian-language.md)** (Phase 2.5 / ADR Q7 Option C). Все агенты общаются с user на русском; код / commits / variable names — английский.
 - **ESLint MCP-first** — **[`.claude/rules/common/eslint-mcp-first.md`](rules/common/eslint-mcp-first.md)** (Phase 2.5 supersedes post-edit hook). Перед Edit / Write на `.ts` / `.tsx` → `mcp__eslint__lint-files`.
-- **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](rules/common/orchestration-routing.md)** (2026-06-22). Master / PM выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (`pm.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
+- **Orchestration routing (агент vs воркфлоу vs light-track)** — **[`.claude/rules/common/orchestration-routing.md`](rules/common/orchestration-routing.md)** (2026-06-22). Master выбирает степень параллелизма: single-pipeline vs wave-fanout vs read-only audit-fanout. Cost-of-error (critical-path zones, `contracts.md`) + light-track + тир модели (`model-routing.md`) НЕ дублируются — отрабатывают раньше. Энфорсмент процедурный (judgment, как `design-gate`).
 - **Model routing (тир модели на задачу)** — **[`rules/common/model-routing.md`](rules/common/model-routing.md)** (2026-06-11). Самая дешёвая достаточная модель; эскалация по триггеру.
-- **Light-track (лёгкий трек master-сессии)** — **[`rules/common/light-track.md`](rules/common/light-track.md)**. Мелкие правки без PM-церемонии + потолок concurrency ≈ 3-4.
+- **Light-track (лёгкий трек master-сессии)** — **[`rules/common/light-track.md`](rules/common/light-track.md)**. Мелкие правки без оркестрационной церемонии + потолок concurrency ≈ 3-4.
 - **Design-gate (дизайнер-в-контуре для ЛЮБОГО UI)** — **[`rules/common/design-gate.md`](rules/common/design-gate.md)** (2026-06-22). До кода — генерация / conformance (tier 1/2/3).
 - **Responsive design (4 класса устройств)** — **[`rules/common/responsive-design.md`](rules/common/responsive-design.md)** (2026-06-23). Любой UI пригоден на mobile / tablet / laptop / large; hard-гейт.
 - **Design-fidelity review (макет ↔ localhost на всех экранах)** — **[`rules/common/design-fidelity-review.md`](rules/common/design-fidelity-review.md)** (2026-06-23). Обязательный гейт перед merge UI.
@@ -184,28 +182,25 @@ Phase 4 (см. `docs/architecture/2026-06-03-phase4-deliverable.md`) лифтн�
 
 ## 9. Quick reference — agent entry points
 
-| Doc                                         | Кому                | Размер | Что внутри                                          |
-| ------------------------------------------- | ------------------- | ------ | --------------------------------------------------- |
-| `RULES.md` (этот файл)                      | All                 | ~5 KB  | TOC + summary + ссылки на .claude/rules/common/     |
-| `.claude/rules/common/*.md`                 | On-demand           | varies | Per-topic detailed rules (MCP / git / skills / ...) |
-| `project-state.md`                          | All                 | ~7 KB  | Phases, migrations, RBAC, tech stack                |
-| `contracts.md`                              | PM, Coder, Reviewer | ~6 KB  | Cross-agent state-machine + labels + sequences      |
-| `coder.md`                                  | Coder               | ~11 KB | Golden rules + workflow + recovery                  |
-| `pm.md`                                     | PM                  | ~11 KB | 4 режима + dispatch decision                        |
-| `pm-snippets.md`                            | PM (on-demand)      | ~16 KB | Готовые Agent() / gh / E2E сниппеты                 |
-| `code-reviewer.md` + `security-reviewer.md` | Reviewer            | ~10 KB | Workflow + security + write-then-post               |
-| `autotest.md`                               | AutoTest            | ~10 KB | 3 режима + AC-first + anti-patterns                 |
-| `devops.md`                                 | DevOps              | ~9 KB  | Workflow + CI pipeline + secrets                    |
-| `../business/roles/ba.md`                   | BA (human)          | ~10 KB | Сценарий 1 (новая фича) + role boundaries (Phase 6) |
-| `architect.md`                              | Architect           | ~12 KB | ECC migration workflow + zone-of-write              |
-| `legal.md`                                  | Legal               | ~17 KB | 4 modes A/B/C/D + UA jurisdictional                 |
-| `memory/<agent>/lessons.md`                 | Each agent          | varies | Накопленные уроки (Phase 4: skills primary)         |
-| `.claude/skills/<name>/SKILL.md`            | All (via Skill)     | varies | Invocable knowledge primitives (Phase 4 lift)       |
+| Doc                                         | Кому                    | Размер | Что внутри                                                    |
+| ------------------------------------------- | ----------------------- | ------ | ------------------------------------------------------------- |
+| `RULES.md` (этот файл)                      | All                     | ~5 KB  | TOC + summary + ссылки на .claude/rules/common/               |
+| `.claude/rules/common/*.md`                 | On-demand               | varies | Per-topic detailed rules (MCP / git / skills / ...)           |
+| `project-state.md`                          | All                     | ~7 KB  | Phases, migrations, RBAC, tech stack                          |
+| `contracts.md`                              | Master, Coder, Reviewer | ~6 KB  | Master-direct-dispatch contracts + labels + verdict semantics |
+| `coder.md`                                  | Coder                   | ~11 KB | Golden rules + workflow + recovery                            |
+| `code-reviewer.md` + `security-reviewer.md` | Reviewer                | ~10 KB | Workflow + security + write-then-post                         |
+| `autotest.md`                               | AutoTest                | ~10 KB | 3 режима + AC-first + anti-patterns                           |
+| `devops.md`                                 | DevOps                  | ~9 KB  | Workflow + CI pipeline + secrets                              |
+| `architect.md`                              | Architect               | ~12 KB | ADR / agent-infra workflow + zone-of-write                    |
+| `legal.md`                                  | Legal                   | ~17 KB | 4 modes A/B/C/D + UA jurisdictional                           |
+| `memory/<agent>/lessons.md`                 | Each agent              | varies | Накопленные уроки (Phase 4: skills primary)                   |
+| `.claude/skills/<name>/SKILL.md`            | All (via Skill)         | varies | Invocable knowledge primitives (Phase 4 lift)                 |
 
 ---
 
 ## Phase 5 migration note
 
-Этот документ — результат **Phase 5 ECC migration (2026-06-03)**. Топики 1 / 2 / 3 / 5 / 7 экстрагированы из inline content в `.claude/rules/common/<topic>.md`. Топики 4 / 6 / 9 остались inline (навигационные / tightly coupled к PM workflow). Подробности — `docs/architecture/2026-06-03-phase5-deliverable.md` (extraction map).
+Этот документ — результат **Phase 5 ECC migration (2026-06-03)**. Топики 1 / 2 / 3 / 5 / 7 экстрагированы из inline content в `.claude/rules/common/<topic>.md`. Топики 4 / 6 / 9 остались inline (навигационные / tightly coupled к workflow оркестратора). Подробности — `docs/architecture/2026-06-03-phase5-deliverable.md` (extraction map).
 
 Per ADR §2.8: rules extraction позволяет shorter agent prompts (через `@rule` references), single source of truth, и cross-harness portability (Phase 7+).

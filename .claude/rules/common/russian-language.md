@@ -1,7 +1,7 @@
 # Rule: Russian language for user-facing output
 
 **Status:** Always-on
-**Applies to:** All agents (PM, BA, Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project)
+**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project) + Master (оркестратор)
 **Source:** Project hard requirement (CLAUDE.md), confirmed via ADR Q7 = Option C (per-agent prepend + shared rule, belt-and-suspenders)
 
 ---
@@ -13,7 +13,7 @@
 **Русский (обязательно):**
 
 - Все assistant-сообщения в чате с владельцем
-- Все PM dispatches к sub-agent'ам (чтобы владелец мог читать transcript)
+- Все dispatch-промпты Master к sub-agent'ам (чтобы владелец мог читать transcript)
 - Все agent self-descriptions / status updates / отчёты / тела review в PR
 - Task-файлы, брифы, ADR, бэклог, память
 
@@ -54,7 +54,7 @@
 
 ## ECC-imported agents
 
-Если PM / Architect / Coder invoke ECC catalog agent, и output этого agent попадает к владельцу —
+Если Master / Architect / Coder invoke ECC catalog agent, и output этого agent попадает к владельцу —
 переводить в русский. Каждый ported agent имеет prepend `**ВАЖНО: Всегда отвечай на русском языке.**`;
 этот файл — single shared source of truth (belt-and-suspenders per ADR Q7).
 

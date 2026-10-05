@@ -1,7 +1,7 @@
 # Rule: Design-gate — обязательный дизайнер-в-контуре для любого UI
 
 **Status:** Always-on
-**Applies to:** PM (dispatch), Coder, ui-ux-designer, code-reviewer
+**Applies to:** Master (dispatch), Coder, ui-ux-designer, code-reviewer
 **Source:** `docs/architecture/2026-06-22-claude-design-integration.md` (§4.7 + §4.8) + утверждено владельцем 2026-06-22 («любое UI-решение должно задействовать дизайнера»).
 
 ---
@@ -25,7 +25,7 @@
 | **2** | Правка существующего экрана                              | Правка существующего дизайна в Claude Design ИЛИ ui-ux-designer conformance-проверка → обновлённый spec                            |
 | **3** | Тривиальная косметика (текст, один отступ / цвет токена) | ui-ux-designer conformance-проверка против засинхроненной design-system `CheekyCheeseIT CRM` (без браузерного раунда)              |
 
-- **Tier задаёт PM / оркестратор** при создании задачи — поле `## Design tier:` в task-файле
+- **Tier задаёт Master / оркестратор** при создании задачи — поле `## Design tier:` в task-файле
   (`.claude/tasks/<task>.md`). Если поле отсутствует на UI-задаче — дефолт **Tier 1** (safe).
 
 ## Контракт артефакта (единственный интерфейс для headless-кодера)
@@ -42,10 +42,9 @@
 
 ## Энфорсмент
 
-- **PM-dispatch гейт:** PM НЕ диспатчит UI-кодера без `docs/design/<slug>.md` (Tier 1/2) или
+- **Dispatch гейт:** Master НЕ диспатчит UI-кодера без `docs/design/<slug>.md` (Tier 1/2) или
   записанной Tier-3 conformance-отметки. Dispatch-промпт кодера содержит путь к артефакту +
   «строй нашими shadcn/ui компонентами, соответствуй `design.png`; НЕ вставляй сырой HTML».
-  Сниппет — `.claude/agents/pm-snippets.md`.
 - **Reviewer-чек:** на PR, трогающем `apps/web/**` / `apps/landing/**` визуальную поверхность,
   code-reviewer проверяет наличие дизайн-артефакта (`docs/design/<slug>.md`) **и** комментария
   fidelity-аудита (Mode B), **покрывающего ВСЕ классы устройств** (`Fidelity: PASS|ISSUES|BLOCK` —
@@ -57,7 +56,7 @@
   см. `.claude/agents/copy-reviewer.md`). Проверка визуала не заменяет проверку текста:
   ui-ux-designer смотрит, как строка выглядит, copy-reviewer — что она говорит и на всех ли
   пяти языках говорит одинаково хорошо. Вердикта нет → `Verdict: BLOCK`.
-- **`merge-approved` — без изменений:** ставит ТОЛЬКО PM / owner по явному «мерджим» владельца.
+- **`merge-approved` — без изменений:** ставит ТОЛЬКО Master / owner по явному «мерджим» владельца.
   Reviewer / любой агент `merge-approved` НЕ трогает (см. [[feedback_reviewer_self_merge_incident]]).
 
 ## Тема одна — тёмная. Светлую НЕ проверять

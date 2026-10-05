@@ -42,22 +42,23 @@ Main branch: `main`
 
 | Можно                                                         | Нельзя                                                 |
 | ------------------------------------------------------------- | ------------------------------------------------------ |
-| `.claude/tasks/task-legal-*.md` (append `## Ответ юриста`) | `.claude/knowledge/legal/**` (knowledge base — User/PM maintenance) |
+| `.claude/tasks/task-legal-*.md` (append `## Ответ юриста`) | `.claude/knowledge/legal/**` (knowledge base — User/Master maintenance) |
 | `.claude/knowledge/legal-consultations/*.md`                         | `apps/**`, `packages/**`, `scripts/**`, `.github/**`   |
-| `.claude/briefs/pm-brief-legal-check.md`                          | `.claude/agents/**`                                       |
+| `.claude/briefs/brief-legal-check.md`                          | `.claude/agents/**`                                       |
 | `/tmp/legal-output/pr-*.md`                                   | `docs/business/**`                                     |
 | PR review (через MCP, event=COMMENT only)                     | Любые labels кроме `legal-noted`                       |
 
-## События в pm-state.json
+## Отчёт Master по результату
 
-PM пишет в `pm-state.json.events[]` следующие event types при работе с Legal:
+Master, запустивший Legal, фиксирует результат в task-файле / заметках (отдельного
+event-stream нет — `pm-state.json` удалён вместе с PM-агентом 2026-10-05):
 
-| Event                      | Поля                                       | Когда                                                                                              |
-| -------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `legal_dispatched`         | `{at, type, mode, target}`                 | PM запустил Legal через Agent(). `target` = task-file / pr-number / brief-file / consultation-file |
-| `legal_review_posted`      | `{at, type, pr, confidence}`               | Mode B: review запостен на PR. `confidence` = HIGH/MED/LOW                                         |
-| `legal_pre_feature_done`   | `{at, type, brief, recommendations_count}` | Mode C: Legal вернул recommendations                                                               |
-| `legal_escalated_to_human` | `{at, type, reason}`                       | Mode B/A: Confidence: LOW + hard zone → User informed эскалировать                                 |
+| Результат                  | Что отметить                               | Когда                                                                   |
+| -------------------------- | ------------------------------------------ | ----------------------------------------------------------------------- |
+| `legal_dispatched`         | mode, target                               | Master запустил Legal. `target` = task-file / pr-number / brief / consultation |
+| `legal_review_posted`      | pr, confidence (HIGH/MED/LOW)              | Mode B: review запостен на PR                                            |
+| `legal_pre_feature_done`   | brief, recommendations_count               | Mode C: Legal вернул recommendations                                    |
+| `legal_escalated_to_human` | reason                                     | Mode B/A: Confidence: LOW + hard zone → User informed эскалировать      |
 
 ## Label workflow
 
@@ -122,7 +123,7 @@ Topic-tags для Legal:
 
 ## Recovery после hung
 
-Поскольку Legal append'ит в файлы секциями — даже если обрыв на середине, secции до обрыва уже на диске. PM при recovery:
+Поскольку Legal append'ит в файлы секциями — даже если обрыв на середине, secции до обрыва уже на диске. Master при recovery:
 
 ```bash
 # Mode A — проверить task-файл

@@ -3,7 +3,7 @@
 Каталог **read-only audit/research воркфлоу** (Решение 2 из `rules/common/orchestration-routing.md`).
 Движок — `Workflow` tool ИЛИ skill `codebase-audit` (N×haiku explore волнами ≤ 3-4 → opus synthesis → adversarial verify).
 
-**PM не читает upfront** — сверяется с этим файлом, когда событие похоже на trigger ниже.
+**Master не читает upfront** — сверяется с этим файлом, когда событие похоже на trigger ниже.
 
 ---
 
@@ -13,9 +13,9 @@
 
 1. **Default-deny.** Запуск ТОЛЬКО при (а) явном trigger-match из таблицы ниже, подтверждённом machine-checkable якорем Решения 2 (≥ 3 независимых модуля, read-only, материал > одного контекст-окна), ИЛИ (б) явном запросе владельца («запусти воркфлоу X» / ultracode on). Никогда «на всякий случай».
 2. **Middle-path ПЕРЕД fan-out.** Неоднозначная-но-ограниченная задача → сначала дешёвый тир (haiku разведка / sonnet работа, `model-routing.md`); полный fan-out — только при настоящем breadth.
-3. **Опт-ин владельца на тяжёлый прогон.** ultracode off → PM предлагает воркфлоу + примерную стоимость, запускает после «да». ultracode on → запускает по trigger-match.
-4. **Лог `routing_decision`** в `pm-state.json.events[]` (`{ at, type: "audit-fanout", track: "audit-fanout", workflow, reason }`) — только нестандартный трек (не light-track / single-pipeline).
-5. **Это НЕ dev-pipeline.** Воркфлоу не реализуют фичи (это PM → Coder). Только read-only аудит/разведка → ledger, который PM триажит и роутит в light-track / pipeline.
+3. **Опт-ин владельца на тяжёлый прогон.** ultracode off → Master предлагает воркфлоу + примерную стоимость, запускает после «да». ultracode on → запускает по trigger-match.
+4. **Лог `routing_decision`** в task-файле / заметках Master (`{ track: "audit-fanout", workflow, reason }`) — только нестандартный трек (не light-track / single-pipeline).
+5. **Это НЕ dev-pipeline.** Воркфлоу не реализуют фичи (это Master → Coder). Только read-only аудит/разведка → ledger, который Master триажит и роутит в light-track / pipeline.
 
 ---
 
@@ -35,7 +35,7 @@
 | 10  | **md-coherence + AI-infra reinforcement** | после большого изменения agent-инфры; месячная гигиена; lessons → rules                            | docs-vs-docs когерентность (дубли / мёртвые ссылки / противоречия) + петля «работа над ошибками» (lessons → правила) |
 
 > Бэклог-статус и детали дизайна каждого — память владельца `project_candidate_workflows`.
-> Trigger-карта эволюционирует: новый воркфлоу → строка сюда (+ если нужно — trigger в `pm.md`).
+> Trigger-карта эволюционирует: новый воркфлоу → строка сюда (+ если нужно — trigger в `contracts.md`).
 
 ---
 

@@ -9,7 +9,7 @@ model: sonnet
 
 ## Роль
 
-Ты — DevOps инженер для CRM Cheeky Cheese IT. Создаёшь и поддерживаешь инфраструктуру: Docker, GitHub Actions, настройки деплоя. Задачи получаешь от PM через `.claude/tasks/task-infra-*.md`.
+Ты — DevOps инженер для CRM Cheeky Cheese IT. Создаёшь и поддерживаешь инфраструктуру: Docker, GitHub Actions, настройки деплоя. Задачи получаешь от Master через `.claude/tasks/task-infra-*.md`.
 
 ---
 
@@ -54,7 +54,7 @@ model: sonnet
 
 ### 1. Читай задачу
 
-Прочитай файл из `task_file` параметра. PM описал: что изменить в инфраструктуре, обоснование, конкретные файлы, AC.
+Прочитай файл из `task_file` параметра. Master описал: что изменить в инфраструктуре, обоснование, конкретные файлы, AC.
 
 ### 2. Настрой ветку
 
@@ -294,7 +294,7 @@ cat > .claude/tasks/<task_name>.blocked.md << 'EOF'
 ## Проблема
 <что неясно>
 
-## Вопрос к PM / пользователю
+## Вопрос к Master / пользователю
 <конкретный вопрос>
 EOF
 
@@ -355,7 +355,7 @@ ECC sub-agents — _augmentation_ для build / harness tuning. DevOps оста
 ```
 1. DevOps читает `gh run view <id> --log-failed`
 2. Если ошибка build-related (pnpm/TS/Vite) → invoke build-error-resolver с логом
-3. Получает фикс предложения → применяет в production code (если в Coder zone — eskalate в PM)
+3. Получает фикс предложения → применяет в production code (если в Coder zone — eskalate в Master)
    или в DevOps zone (если в `.github/workflows`, `scripts/devops/**`) — делает сам.
 4. Push + verify CI зелёный.
 ```
