@@ -113,6 +113,20 @@ describe('AdminEditTransactionDialog — MED-2: unchanged legacy http:// receipt
     ]
     expect(payload.receiptExternalUrl).toBe('http://still-not-https.example/new-receipt.jpg')
   })
+
+  it('invalidates every finance cache affected by a successful admin edit', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog(LEGACY_HTTP_TX)
+
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '601' } })
+    fireEvent.click(screen.getByTestId('admin-edit-save'))
+
+    await waitFor(() => expect(adminUpdateTransactionMock).toHaveBeenCalledTimes(1))
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['company-account'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['invoices'] })
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['documents'] })
+    invalidateSpy.mockRestore()
+  })
 })
 
 const NEW_EXPENSE_TX = {

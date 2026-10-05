@@ -106,6 +106,15 @@ describe('mySalaryStateSchema (E-6 fix — the new 4-state field)', () => {
 })
 
 describe('mySalaryAggregateStateSchema (additive multipart field)', () => {
+  it('EXISTS accepts every multipart salary status', () => {
+    for (const status of ['PENDING', 'PARTIALLY_PAID', 'PAID', 'LOCKED'] as const) {
+      expect(mySalaryAggregateStateSchema.parse({ ...AGGREGATE_EXISTS, status })).toEqual({
+        ...AGGREGATE_EXISTS,
+        status,
+      })
+    }
+  })
+
   it('parses aggregate metadata and PARTIALLY_PAID', () => {
     const result = mySalaryAggregateStateSchema.parse({
       ...AGGREGATE_EXISTS,

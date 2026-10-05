@@ -80,6 +80,9 @@ interface StubData {
   // Receiver ids whose durable initialization marker already exists. Marker
   // claim returns no row, so createMonthlySalaries performs no salary insert.
   conflictReceiverIds?: string[]
+  // Simulate the defensive edge where INSERT ... RETURNING unexpectedly
+  // produces no row after a successful marker claim.
+  missingInsertedReceiverIds?: string[]
 }
 
 function makeService(data: StubData = {}): {
@@ -89,6 +92,12 @@ function makeService(data: StubData = {}): {
   getProjectMembersArgs: () => { where: unknown; with: unknown } | undefined
   getSelectColumns: () => Record<string, unknown> | undefined
   getExistingRowsWhere: () => unknown
+  getMarkerSelectColumns: () => Record<string, unknown> | undefined
+  getMarkerRowsWhere: () => unknown
+  getMarkerConflictArgs: () => Record<string, unknown> | undefined
+  getMarkerReturningProjection: () => Record<string, unknown> | undefined
+  getAutomaticFindFirstArgs: () => { where: unknown; columns?: Record<string, unknown> } | undefined
+  getTransactionReturningProjection: () => Record<string, unknown> | undefined
   getSelectCallCount: () => number
 } {
   const insertedValues: Record<string, unknown>[] = []
@@ -96,17 +105,24 @@ function makeService(data: StubData = {}): {
   let insertedRowCounter = 0
   const initializedReceiverIds = new Set(data.conflictReceiverIds ?? [])
   const automaticReceiverIds = new Set(data.existingSalaryReceiverIds ?? [])
+  const missingInsertedReceiverIds = new Set(data.missingInsertedReceiverIds ?? [])
   let claimedReceiverId: string | undefined
+  let markerConflictArgs: Record<string, unknown> | undefined
+  let markerReturningProjection: Record<string, unknown> | undefined
+  let automaticFindFirstArgs: { where: unknown; columns?: Record<string, unknown> } | undefined
+  let transactionReturningProjection: Record<string, unknown> | undefined
 
   const dbtx = {
     query: {
       transactions: {
-        findFirst: () =>
-          Promise.resolve(
+        findFirst: (args: { where: unknown; columns?: Record<string, unknown> }) => {
+          automaticFindFirstArgs = args
+          return Promise.resolve(
             claimedReceiverId && automaticReceiverIds.has(claimedReceiverId)
               ? { id: `existing-${claimedReceiverId}` }
               : undefined,
-          ),
+          )
+        },
       },
     },
     insert: (table: unknown) => ({
@@ -115,13 +131,17 @@ function makeService(data: StubData = {}): {
           const receiverId = values['receiverId'] as string
           claimedReceiverId = receiverId
           return {
-            onConflictDoNothing: () => ({
-              returning: async () => {
-                if (initializedReceiverIds.has(receiverId)) return []
-                initializedReceiverIds.add(receiverId)
-                return [{ id: `marker-${receiverId}` }]
-              },
-            }),
+            onConflictDoNothing: (args: Record<string, unknown>) => {
+              markerConflictArgs = args
+              return {
+                returning: async (projection: Record<string, unknown>) => {
+                  markerReturningProjection = projection
+                  if (initializedReceiverIds.has(receiverId)) return []
+                  initializedReceiverIds.add(receiverId)
+                  return [{ id: `marker-${receiverId}` }]
+                },
+              }
+            },
           }
         }
         if (table === transactions) {
@@ -130,6 +150,8 @@ function makeService(data: StubData = {}): {
           automaticReceiverIds.add(receiverId)
           return {
             returning: async (projection: Record<string, unknown> | undefined) => {
+              transactionReturningProjection = projection
+              if (missingInsertedReceiverIds.has(receiverId)) return []
               const row: Record<string, unknown> = {}
               if (projection && 'id' in projection) row['id'] = `fake-tx-${++insertedRowCounter}`
               return [row]
@@ -144,6 +166,8 @@ function makeService(data: StubData = {}): {
   let projectMembersArgs: { where: unknown; with: unknown } | undefined
   let selectColumns: Record<string, unknown> | undefined
   let existingRowsWhere: unknown
+  let markerSelectColumns: Record<string, unknown> | undefined
+  let markerRowsWhere: unknown
   let selectCallCount = 0
 
   const dbStub = {
@@ -173,6 +197,8 @@ function makeService(data: StubData = {}): {
                 )
               }
               if (table === salaryMonthInitializations) {
+                markerSelectColumns = columns
+                markerRowsWhere = whereArg
                 return Promise.resolve(
                   [...initializedReceiverIds].map((receiverId) => ({ receiverId })),
                 )
@@ -199,6 +225,12 @@ function makeService(data: StubData = {}): {
     getSelectCallCount: () => selectCallCount,
     getSelectColumns: () => selectColumns,
     getExistingRowsWhere: () => existingRowsWhere,
+    getMarkerSelectColumns: () => markerSelectColumns,
+    getMarkerRowsWhere: () => markerRowsWhere,
+    getMarkerConflictArgs: () => markerConflictArgs,
+    getMarkerReturningProjection: () => markerReturningProjection,
+    getAutomaticFindFirstArgs: () => automaticFindFirstArgs,
+    getTransactionReturningProjection: () => transactionReturningProjection,
   }
 }
 
@@ -590,19 +622,27 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
   // `.where()` ignores its argument cannot tell `receiverIds.map(() =>
   // undefined)` from the real ids, or `eq(type, 'SALARY')` from `eq(type,
   // '')`, or `.select({})` from `.select({ receiverId: ... })`.
-  it('the existing-rows read selects only receiverId, scoped to type=SALARY/month/the expected receiverIds', async () => {
-    const { svc, getSelectColumns, getExistingRowsWhere } = makeService({
+  it('the existing-rows reads select only receiverId and scope both marker + automatic evidence to the expected month/receivers', async () => {
+    const {
+      svc,
+      getSelectColumns,
+      getExistingRowsWhere,
+      getMarkerSelectColumns,
+      getMarkerRowsWhere,
+    } = makeService({
       hrAccountantEmployees: [hrEmployee(), hrEmployee({ id: 'hr-2', displayName: 'HR Two' })],
     })
     await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
 
     expect(Object.keys(getSelectColumns() ?? {})).toEqual(['receiverId'])
+    expect(Object.keys(getMarkerSelectColumns() ?? {})).toEqual(['receiverId'])
 
     const { sql, params } = compileWhere(getExistingRowsWhere())
     expect(sql).toContain('"type" = $1')
     expect(sql).toContain('"salary_month" = $2')
     expect(params).toContain('SALARY')
     expect(params).toContain(MONTH)
+    expect(params).toContain('CRON')
     // The REAL receiver ids the resolver computed, not `undefined`×2 (kills
     // `expected.map(() => undefined)`). `compileWhere`'s own params list is
     // used here (not the generic `collectParamValues` walker) — that walker
@@ -610,6 +650,20 @@ describe('getSalaryMonthGapReport — AC5: exactly the configured-and-missing, n
     // blows the call stack; `PgDialect().sqlToQuery()` handles the same view
     // correctly since it is the REAL code path that builds runnable SQL.
     expect(params).toEqual(expect.arrayContaining(['hr-1', 'hr-2']))
+
+    const marker = compileWhere(getMarkerRowsWhere())
+    expect(marker.params).toContain(MONTH)
+    expect(marker.params).toEqual(expect.arrayContaining(['hr-1', 'hr-2']))
+  })
+
+  it('a durable initialization marker by itself excludes that receiver from the gap', async () => {
+    const { svc } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      conflictReceiverIds: ['hr-1'],
+    })
+
+    const result = await svc.getSalaryMonthGapReport(user('ADMIN'), MONTH)
+    expect(result.missing).toEqual([])
   })
 })
 
@@ -633,9 +687,86 @@ describe('backfillSalaryMonth — re-invokes the idempotent cron insert, then re
       status: 'PENDING',
       receiverId: 'hr-1',
       salaryMonth: MONTH,
+      salaryOrigin: 'CRON',
       amount: '1500',
     })
     expect(result.month).toBe(MONTH)
+  })
+
+  it('claims the cron marker and queries/inserts with the exact idempotency contract', async () => {
+    const {
+      svc,
+      insertedValues,
+      getMarkerConflictArgs,
+      getMarkerReturningProjection,
+      getAutomaticFindFirstArgs,
+      getTransactionReturningProjection,
+    } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+    })
+
+    await svc.createMonthlySalaries(MONTH, user('ADMIN', 'backfill-admin'))
+
+    expect(getMarkerConflictArgs()?.['target']).toEqual([
+      salaryMonthInitializations.receiverId,
+      salaryMonthInitializations.salaryMonth,
+    ])
+    expect(getMarkerReturningProjection()).toEqual({ id: salaryMonthInitializations.id })
+
+    const automaticArgs = getAutomaticFindFirstArgs()
+    expect(automaticArgs?.columns).toEqual({ id: true })
+    const automaticWhere = compileWhere(automaticArgs?.where)
+    expect(automaticWhere.params).toEqual(expect.arrayContaining(['SALARY', 'hr-1', MONTH, 'CRON']))
+
+    expect(getTransactionReturningProjection()).toEqual({ id: transactions.id })
+    expect(insertedValues).toHaveLength(1)
+    expect(insertedValues[0]).toMatchObject({
+      type: 'SALARY',
+      receiverId: 'hr-1',
+      salaryMonth: MONTH,
+      salaryOrigin: 'CRON',
+    })
+  })
+
+  it('a marker-claim conflict alone stops before the automatic-row lookup and salary insert', async () => {
+    const { svc, insertedValues, getAutomaticFindFirstArgs } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      conflictReceiverIds: ['hr-1'],
+    })
+
+    await svc.createMonthlySalaries(MONTH, user('ADMIN'))
+
+    expect(getAutomaticFindFirstArgs()).toBeUndefined()
+    expect(insertedValues).toHaveLength(0)
+  })
+
+  it('a legacy/CRON automatic row blocks a second automatic insert even after this process claimed the marker', async () => {
+    const { svc, insertedValues, getAutomaticFindFirstArgs } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      existingSalaryReceiverIds: ['hr-1'],
+    })
+
+    await svc.createMonthlySalaries(MONTH, user('ADMIN'))
+
+    expect(getAutomaticFindFirstArgs()).toBeDefined()
+    expect(insertedValues).toHaveLength(0)
+  })
+
+  it('treats an unexpected empty salary INSERT RETURNING result as no created row instead of turning it into a cron failure', async () => {
+    const { svc, insertedValues, auditValues } = makeService({
+      hrAccountantEmployees: [hrEmployee()],
+      missingInsertedReceiverIds: ['hr-1'],
+    })
+    const loggerError = vi.spyOn(
+      (svc as unknown as { logger: { error: (...args: unknown[]) => void } }).logger,
+      'error',
+    )
+
+    await svc.createMonthlySalaries(MONTH, user('ADMIN'))
+
+    expect(insertedValues).toHaveLength(1)
+    expect(auditValues).toHaveLength(0)
+    expect(loggerError).not.toHaveBeenCalled()
   })
 
   it('backfilling a month with nothing missing reports a clean post-backfill gap', async () => {
