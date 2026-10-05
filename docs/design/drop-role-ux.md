@@ -106,12 +106,12 @@ apps/web/app/routes/crm/routing/          → hub components directory
 │  <h1>Мой роутинг</h1>  text-muted-foreground: «Платёжный хаб»│
 ├───────────────────┬──────────────────────────────────────────┤
 │  DropBalanceCard  │  DropActionRequiredBlock                  │
-│  (баланс·доля·    │  (validated приходы → CTA «Платить»)     │
+│  (баланс·доля·    │  (validated incomes → CTA «Платить»)     │
 │   ставка·долг)    │                                          │
 ├───────────────────┴──────────────────────────────────────────┤
-│  DropProjectsList  (drop-проекты: компания · синьор · N пр.)  │
+│  DropProjectsList  (drop projects: company · senior · N inc.)  │
 ├──────────────────────────────────────────────────────────────┤
-│  DropQuickActions  (2 кнопки)                                 │
+│  DropQuickActions  (2 buttons)                                 │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -167,12 +167,12 @@ Two states:
 ```
 ┌─ Card border-border/40 ─────────────────────────────────────┐
 │  [AlertCircle icon text-primary] ТРЕБУЕТ ДЕЙСТВИЯ           │
-│  Badge variant="default" (primary жёлтый): "N приходов"     │
+│  Badge variant="default" (primary yellow): "N приходов"     │
 │  ─────────────────────────────────────────────────────────  │
-│  [список validated приходов — max 3 строки]                  │
+│  [list of validated incomes — max 3 rows]                  │
 │  ┌ $1,500  TechCorp · 12 июн  → Button "Платить" sm ghost   │
 │  ├ $800    StartupA · 10 июн  → Button "Платить" sm ghost   │
-│  └ +N ещё...                   (link к /crm/finance)        │
+│  └ +N ещё...                   (link to /crm/finance)        │
 │  ─────────────────────────────────────────────────────────  │
 │  Button variant="default" w-full: "Платить компании"        │
 └─────────────────────────────────────────────────────────────┘
@@ -247,12 +247,12 @@ An implementation option: in `finance.tsx` add `if (user.role === 'DROP') return
 ┌──────────────────────────────────────────────────────────────┐
 │  <h1>Финансы</h1>                                            │
 ├──────────────────────────────────────────────────────────────┤
-│  DropBalanceSummaryCard  (переиспользовать из хаба, col-full) │
+│  DropBalanceSummaryCard  (reuse from the hub, col-full) │
 ├──────────────────────────────────────────────────────────────┤
 │  Лента приходов (DropIncomesTable)              [Фильтры ↓]   │
 │  фильтры: тип DROP_INCOME · статус · период                   │
 ├──────────────────────────────────────────────────────────────┤
-│  DropPaymentsHistory  (исходящие платежи компании)           │
+│  DropPaymentsHistory  (outgoing payments of the company)           │
 └──────────────────────────────────────────────────────────────┘
 ```
 
@@ -509,10 +509,10 @@ CSS grid `grid-cols-1 md:grid-cols-2` → at 400% zoom a correct mobile layout. 
 ```
 GET /api/finance/drop/me/summary
 → DropSummaryDto {
-    balance: number           // накопленная доля, USD
-    dropSharePercent: number  // процентная ставка дропа (5 по умолчанию)
-    pendingIncomesCount: number  // приходов в статусе validated (требуют оплаты)
-    debtToCompany: number    // долг компании перед дропом (доля синьора к выплате)
+    balance: number           // accumulated share, USD
+    dropSharePercent: number  // the drop's percentage rate (5 by default)
+    pendingIncomesCount: number  // incomes in the validated status (require payment)
+    debtToCompany: number    // the company's debt to the drop (the senior's share to be paid out)
   }
 
 GET /api/finance/drop/me/incomes?status=validated&limit=3
@@ -529,7 +529,7 @@ GET /api/projects/drop/me
 → DropProjectDto[] {
     id: string
     companyName: string
-    seniorDisplayName: string  // displayName синьора (НЕ реальное имя если маска)
+    seniorDisplayName: string  // the senior's displayName (NOT the real name if masked)
     incomesCount: number
     status: 'active' | 'closed'
   }
@@ -552,7 +552,7 @@ GET /api/finance/drop/me/payments
     id: string
     amount: number
     currency: string
-    txHash?: string          // крипто-хэш если крипто-платёж
+    txHash?: string          // crypto hash if a crypto payment
     status: 'pending' | 'confirmed' | 'failed'
     createdAt: string
   }

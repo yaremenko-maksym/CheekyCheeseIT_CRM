@@ -457,11 +457,11 @@ If GET /credentials returned 403 → the section is not rendered (similar to the
 The section is added to `<HubCards>` as the last card before the quick links. The pattern of existing cards: `motion.div` with `card` variants + `col-span-full`.
 
 ```tsx
-{/* Пароли проекта */}
+{/* Project passwords */}
 <motion.div variants={card} className="col-span-full">
   <ProjectCredentialsSection
     projectId={projectId}
-    canEdit={false}  {/* JUNIOR — только просмотр и reveal */}
+    canEdit={false}  {/* JUNIOR — view and reveal only */}
   />
 </motion.div>
 ```
@@ -474,7 +474,7 @@ The section is added to the «Обзор» tab next to `ProjectLegendSection`. P
 
 ```tsx
 {
-  /* Пароли — для ADMIN/HR */
+  /* Passwords — for ADMIN/HR */
 }
 {
   canViewCredentials && (
@@ -491,12 +491,12 @@ The section is added to the «Обзор» tab next to `ProjectLegendSection`. P
 
 ```tsx
 interface ProjectCredentialsSectionProps {
-  /** UUID проекта */
+  /** Project UUID */
   projectId: string
 
   /**
-   * Управляет видимостью кнопок добавления/редактирования/удаления.
-   * JUNIOR → false (только reveal/copy)
+   * Controls the visibility of the add/edit/delete buttons.
+   * JUNIOR → false (reveal/copy only)
    * ADMIN/HR → true
    */
   canEdit: boolean
@@ -593,7 +593,7 @@ export function useCredentials(projectId: string) // list query
 export function useCreateCredential(projectId: string) // mutation
 export function useUpdateCredential(projectId: string) // mutation
 export function useDeleteCredential(projectId: string) // mutation
-export function useRevealCredential(projectId: string) // manual query (не auto-fetch)
+export function useRevealCredential(projectId: string) // manual query (not auto-fetch)
 ```
 
 `useRevealCredential` — **manual trigger**, not a `useQuery` with `enabled`. Use `useMutation` or `useQuery` with `enabled: false` + `refetch()` on the eye click. Do not cache the response in the QueryClient (plaintext in memory only in component state).

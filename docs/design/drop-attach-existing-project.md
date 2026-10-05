@@ -149,8 +149,8 @@ This prevents a 400 from the API when trying to add a drop via the regular membe
 
 ```
 ┌─ CardHeader pb-3 ─────────────────────────────────────────────┐
-│  Эффективный состав  (HR/бухгалтер — из текущей команды синьора)
-│                                              [+ Привязать дропа]│  ← новая кнопка
+│  Эффективный состав  (HR/accountant — from the senior's current team)
+│                                              [+ Привязать дропа]│  ← new button
 └───────────────────────────────────────────────────────────────┘
 ```
 
@@ -241,12 +241,12 @@ The drop row stays read-only, visible as usual.
 ├───────────────────────────────────────────────────────────────┤
 │  CrmDialogBody                                                │
 │  ┌ max-h-72 overflow-y-auto space-y-1.5 ───────────────────┐ │
-│  │  [если нет кандидатов]                                   │ │
+│  │  [if there are no candidates]                                   │ │
 │  │  <p className="text-sm text-muted-foreground py-2">      │ │
 │  │    Нет доступных дропов                                  │ │
 │  │  </p>                                                    │ │
 │  │                                                          │ │
-│  │  [для каждого DROP-кандидата]                            │ │
+│  │  [for each DROP candidate]                            │ │
 │  │  div flex items-center gap-2.5 rounded-md px-3 py-2     │ │
 │  │    Avatar h-7 w-7                                        │ │
 │  │      AvatarFallback text-[10px]                          │ │

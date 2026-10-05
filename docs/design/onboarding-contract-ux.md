@@ -183,8 +183,8 @@ iOS detection: `navigator.platform.includes('iPhone') || navigator.userAgent.inc
 │                                                                   │
 │  ┌───────────────────────────────────────────────────────────┐   │
 │  │                                                           │   │
-│  │          [Skeleton overlay или iframe PDF]                │   │
-│  │              высота: 480px desktop / 360px mobile         │   │
+│  │          [Skeleton overlay or iframe PDF]                │   │
+│  │              height: 480px desktop / 360px mobile         │   │
 │  │                                                           │   │
 │  └───────────────────────────────────────────────────────────┘   │
 │                                                                   │
@@ -313,10 +313,10 @@ Visibility: show for all roles except ADMIN (ADMIN does not sign a contract).
 │  Информация для MSA-контракта. Задаётся администратором.         │
 │  Используется в юридическом документе (не для отображения в UI). │
 │                                                                   │
-│  Поле: Юридическое ФИО                     [required for signing] │
+│  Field: Юридическое ФИО                     [required for signing] │
 │  Placeholder: «Марченко Дмитро Олексійович»                      │
-│  Hint: Кириллица, порядок: Фамилия Имя Отчество                  │
-│  Validation: min 5 символов, max 200                             │
+│  Hint: Кириллица, порядок: Фамилия Имя Отчество (Cyrillic, order: Surname Name Patronymic)                  │
+│  Validation: min 5 characters, max 200                             │
 │  data-testid: "user-dialog-legal-full-name"                      │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -481,7 +481,7 @@ Requires a migration to change the comment in the DB (data stays).
 │       Подпись — юридическое ФИО из профиля                  │
 └─────────────────────────────────────────────────────────────┘
 
-[ Подписать контракт ]  ← disabled пока !confirmed || !blobUrl || legalNameMissing
+[ Подписать контракт ]  ← disabled while !confirmed || !blobUrl || legalNameMissing
 ```
 
 **State variables (simplified, without typed-name):**

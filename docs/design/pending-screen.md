@@ -86,11 +86,11 @@ PendingItem:
   kind: 'PROJECT_APPROVAL' | 'SHARE_APPROVAL' | 'CONTRACT_TO_SIGN'
   approvalId?: string
   subjectId: string
-  title: string                         // название проекта / «Контракт сотрудника»
-  proposedBy?: string                   // имя — для mine
-  waitingFor?: string[]                 // имена — для proposedByMe
-  currentPercent?: number               // SHARE_APPROVAL, только если доля зрителя
-  pendingPercent?: number               // SHARE_APPROVAL — см. врезку ниже про null-override
+  title: string                         // project name / «Контракт сотрудника»
+  proposedBy?: string                   // name — for mine
+  waitingFor?: string[]                 // names — for proposedByMe
+  currentPercent?: number               // SHARE_APPROVAL, only if it is the viewer's share
+  pendingPercent?: number               // SHARE_APPROVAL — see the note below about null-override
   createdAt: string                     // ISO
   actions: Array<'approve' | 'reject' | 'cancel' | 'open'>
   link: string

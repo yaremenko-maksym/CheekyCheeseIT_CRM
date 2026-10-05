@@ -145,7 +145,7 @@ const showReceipt =
   type === 'SENIOR_INCOME' ||
   type === 'DROP_INCOME' ||
   type === 'EXPENSE' ||
-  // НОВОЕ — mandatory-чек добавляется этим тикетом (было: без чека вовсе)
+  // NEW — the mandatory receipt is added by this ticket (was: no receipt at all)
   type === 'USDT_INCOME' ||
   type === 'ADMIN_TRANSFER' ||
   type === 'DIVIDEND'
@@ -188,7 +188,7 @@ client/server (no duplication of copy/regex on the front end).
     <ReceiptInput
       state={receipt}
       onChange={(s) => { setReceipt(s); clearFieldError('receipt') }}
-      label="Чек / подтверждение *"   {/* НОВОЕ: звёздочка ВСЕГДА теперь — поле mandatory для всех 7 типов, не только SENIOR_INCOME */}
+      label="Чек / подтверждение *"   {/* NEW: the asterisk is ALWAYS present now — the field is mandatory for all 7 types, not only SENIOR_INCOME */}
       explorerOnly={isExplorerOnly}
       error={fieldErrors.receipt}
     />
@@ -297,16 +297,16 @@ interface ReceiptInputProps {
   label?: string
   ownerId?: string
   /**
-   * НОВОЕ. Когда true — компонент показывает ТОЛЬКО url-режим (без
-   * tab-toggle, без «Файл»). Явный explorer-hint под инпутом. Если
-   * `state.mode === 'file'` в момент включения — авто-сброс в пустой
-   * url-режим (см. эффект ниже).
+   * NEW. When true — the component shows ONLY the url mode (without
+   * the tab-toggle, without «Файл»). An explicit explorer hint under the input. If
+   * `state.mode === 'file'` at the moment of enabling — an auto-reset to an empty
+   * url mode (see the effect below).
    */
   explorerOnly?: boolean
   /**
-   * НОВОЕ. Внешняя ошибка валидации (напр. non-allowlist домен) — красный
-   * ring на url-инпуте. Текст ошибки родитель рендерит сам (существующий
-   * паттерн `fieldErrors.receipt`) — компонент не дублирует сообщение.
+   * NEW. An external validation error (e.g. a non-allowlist domain) — a red
+   * ring on the url input. The parent renders the error text itself (the existing
+   * `fieldErrors.receipt` pattern) — the component does not duplicate the message.
    */
   error?: string
 }
@@ -328,7 +328,7 @@ useEffect(() => {
       mimeType: '',
     })
   }
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- триггер по explorerOnly, не по всему state (паттерн :119-123)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- trigger on explorerOnly, not on the whole state (pattern :119-123)
 }, [explorerOnly])
 ```
 
@@ -336,7 +336,7 @@ useEffect(() => {
 is treated as always `'url'`:
 
 ```tsx
-{!explorerOnly && (/* существующий tab-toggle :199-226, без изменений */)}
+{!explorerOnly && (/* existing tab-toggle :199-226, unchanged */)}
 
 {(explorerOnly || state.mode === 'url') && (
   <div>
@@ -355,7 +355,7 @@ is treated as always `'url'`:
   </div>
 )}
 
-{!explorerOnly && state.mode === 'file' && (/* существующий file-режим :229-321, без изменений */)}
+{!explorerOnly && state.mode === 'file' && (/* existing file mode :229-321, unchanged */)}
 ```
 
 ### 4.2 Allowlist — a single source (landed, `packages/shared`)
@@ -411,9 +411,9 @@ export function canAttachReceipt(
   const isPrivileged = role === 'ADMIN' || role === 'ACCOUNTANT'
   const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
   const isAuthor = !!currentUserId && tx.createdBy === currentUserId
-  // Первичный attach (нет чека) — автор МОЖЕТ независимо от статуса (брифовый §6:
-  // «Первичный attach — RBAC как выше», статус НЕ упомянут как ограничитель).
-  // Replace (чек уже есть) при PAID — ТОЛЬКО ADMIN/ACCOUNTANT.
+  // A primary attach (no receipt) — the author CAN regardless of status (brief §6:
+  // «Первичный attach — RBAC как выше», status is NOT mentioned as a restriction).
+  // Replace (a receipt already exists) at PAID — ONLY ADMIN/ACCOUNTANT.
   return isPrivileged || (isAuthor && (!hasReceipt || tx.status !== 'PAID'))
 }
 ```
@@ -480,7 +480,7 @@ consistency «this symbol = receipt» across the whole module).
 
 ```tsx
 interface AttachReceiptSheetProps {
-  tx: TransactionDto | null // null = закрыт
+  tx: TransactionDto | null // null = closed
   onClose: () => void
 }
 
@@ -678,11 +678,11 @@ quick vs. contextual).
 const RECEIPT_ELIGIBLE_TYPES = new Set<TransactionDto['type']>([
   'ADMIN_INCOME',
   'SENIOR_INCOME',
-  'DROP_INCOME', // ФИКС — раньше отсутствовал, хотя DROP_INCOME уже мог иметь чек (SENIOR_INCOME/DROP_INCOME оба обязательны с самого начала)
+  'DROP_INCOME', // FIX — was previously missing, although DROP_INCOME could already have a receipt (SENIOR_INCOME/DROP_INCOME are both mandatory from the very start)
   'EXPENSE',
-  'SALARY', // НОВОЕ
-  'ADMIN_TRANSFER', // НОВОЕ
-  'DIVIDEND_TO_ADMIN', // НОВОЕ — реальный ledger-тип дивиденда (не синтетический 'DIVIDEND' диалога)
+  'SALARY', // NEW
+  'ADMIN_TRANSFER', // NEW
+  'DIVIDEND_TO_ADMIN', // NEW — the real ledger type of a dividend (not the dialog's synthetic 'DIVIDEND')
 ])
 const showReceiptPanel = t ? RECEIPT_ELIGIBLE_TYPES.has(t.type) : false
 ```
