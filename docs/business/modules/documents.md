@@ -1,206 +1,206 @@
-# Модуль: Файловое хранилище (Documents)
+# Module: File storage (Documents)
 
-## Статус: ✅ Реализован (PHASE 6) + ужесточение task-file-storage-hardening (2026-08-01, доработано по security-review round 2 — 2026-08-03)
+## Status: ✅ Implemented (PHASE 6) + task-file-storage-hardening tightening (2026-08-01, refined after security-review round 2 — 2026-08-03)
 
-Хранилище файлов для двух доменов: внутренние документы сотрудников (`documents` —
-резюме/сканы/договоры/чеки/аватары/логотипы/инвойсы) и публичные отклики на вакансии
-(`vacancy_applications` — резюме кандидатов). Оба используют один и тот же S3-совместимый
-бакет (dev: локальный S3-стенд RustFS, prod: Cloudflare R2), разные S3-префиксы (`documents/` и
+File storage for two domains: employees' internal documents (`documents` —
+resumes/scans/contracts/receipts/avatars/logos/invoices) and public vacancy applications
+(`vacancy_applications` — candidates' resumes). Both use the same S3-compatible
+bucket (dev: the local S3 stand RustFS, prod: Cloudflare R2), with different S3 prefixes (`documents/` and
 `vacancy-applications/`).
 
-Происхождение раздела: аудит хранилища 2026-08-01 нашёл, что прямых путей «получить чужой
-файл» нет (ключ объекта серверный, подпись покрывает путь, права проверяются до выдачи
-ссылки), но штатные права были шире задуманного, а срок жизни данных — не ограничен. Ниже —
-зафиксированная владельцем матрица, которой раньше не было нигде, кроме комментария в коде
-(поэтому аудит и не смог отличить задумку от дефекта).
+Origin of the section: the 2026-08-01 storage audit found that there are no direct paths to "get someone else's
+file" (the object key is server-side, the signature covers the path, permissions are checked before the
+link is issued), but the standard permissions were wider than intended, and the data lifetime was not limited. Below is the
+matrix fixed by the owner, which previously existed nowhere except a code comment
+(which is why the audit could not tell the intent from a defect).
 
-## Категории документов (`documents` таблица)
+## Document categories (`documents` table)
 
 `RESUME` · `SCAN` · `CONTRACT` · `RECEIPT` · `INVOICE` · `AVATAR` · `LOGO`
 
-## Матрица доступа на чтение (список + скачивание/превью)
+## Read access matrix (list + download/preview)
 
-Гейт единый для списка (`GET /api/documents`) и для выдачи ссылки на скачивание/превью
-(`GET /api/documents/:id/download|preview`) — оба пути идут через одну и ту же RBAC-проверку
-в `DocumentsService` (`buildVisibilityClause` для списка, `findActiveOrThrow` для
-одиночного документа). Отказ в доступе — **всегда 404** ("Документ не найден"), никогда
-403 — код ответа не должен позволять установить факт существования документа у стороннего
-наблюдателя.
+The gate is single for the list (`GET /api/documents`) and for issuing the download/preview link
+(`GET /api/documents/:id/download|preview`) — both paths go through the same RBAC check
+in `DocumentsService` (`buildVisibilityClause` for the list, `findActiveOrThrow` for
+a single document). A denial of access is **always 404** ("Документ не найден"), never
+403 — the response code must not let an outside
+observer establish the fact that a document exists.
 
-| Категория    | ADMIN | SENIOR                         | JUNIOR | HR                             | ACCOUNTANT         | DROP |
-| ------------ | ----- | ------------------------------ | ------ | ------------------------------ | ------------------ | ---- |
-| **RESUME**   | все   | **команда+проекты** (см. ниже) | свои   | **команда+проекты** (см. ниже) | ❌                 | свои |
-| **SCAN**     | все   | **команда+проекты**            | свои   | **команда+проекты**            | **все** (см. ниже) | свои |
-| **CONTRACT** | все   | свои                           | ❌     | своих SENIOR (своя команда)    | ❌                 | свои |
-| **RECEIPT**  | все   | свои                           | ❌     | ❌                             | все                | ❌   |
-| **INVOICE**  | все   | свои (как контрагент)          | свои   | свои                           | все                | свои |
-| **AVATAR**   | все   | свой                           | свой   | свой                           | свой               | свой |
-| **LOGO**     | все   | все (read)                     | ❌     | все (read)                     | ❌                 | ❌   |
+| Category     | ADMIN | SENIOR                        | JUNIOR | HR                            | ACCOUNTANT          | DROP |
+| ------------ | ----- | ----------------------------- | ------ | ----------------------------- | ------------------- | ---- |
+| **RESUME**   | all   | **team+projects** (see below) | own    | **team+projects** (see below) | ❌                  | own  |
+| **SCAN**     | all   | **team+projects**             | own    | **team+projects**             | **all** (see below) | own  |
+| **CONTRACT** | all   | own                           | ❌     | their SENIORs' (own team)     | ❌                  | own  |
+| **RECEIPT**  | all   | own                           | ❌     | ❌                            | all                 | ❌   |
+| **INVOICE**  | all   | own (as a counterparty)       | own    | own                           | all                 | own  |
+| **AVATAR**   | all   | own                           | own    | own                           | own                 | own  |
+| **LOGO**     | all   | all (read)                    | ❌     | all (read)                    | ❌                  | ❌   |
 
-**Собственные документы у всех ролей доступны всегда**, независимо от команды —
-это не строка таблицы, а отдельный fast-path (`doc.ownerId === actor.id`).
+**Own documents are always available to all roles**, regardless of team —
+this is not a table row but a separate fast-path (`doc.ownerId === actor.id`).
 
-### Решение владельца 2026-08-01: RESUME/SCAN сужены до команды + проектов команды (транзитивно)
+### Owner decision 2026-08-01: RESUME/SCAN narrowed to the team + the team's projects (transitively)
 
-**До:** любой SENIOR или HR видел и скачивал RESUME/SCAN **любого** сотрудника компании,
-включая других SENIOR и ADMIN, без привязки к проектам/командам.
+**Before:** any SENIOR or HR saw and downloaded the RESUME/SCAN of **any** company employee,
+including other SENIORs and ADMIN, with no tie to projects/teams.
 
-**После:** SENIOR и HR видят RESUME/SCAN **своей команды И проектов этой команды**, а не
-только буквальных `team_members`-строк — потому что JUNIOR **никогда** не является
-`team_members`-строкой (JUNIOR входит в компанию исключительно через `project_members`;
-`TeamsService.addMember` отклоняет добавление JUNIOR с активным проектом в
-`team_members`). Предикат построен как две ступени (`getTeammateIds`,
+**After:** SENIOR and HR see the RESUME/SCAN of **their team AND the projects of that team**, not
+only the literal `team_members` rows — because a JUNIOR is **never** a
+`team_members` row (a JUNIOR joins the company exclusively via `project_members`;
+`TeamsService.addMember` rejects adding a JUNIOR with an active project to
+`team_members`). The predicate is built as two steps (`getTeammateIds`,
 `apps/api/src/documents/documents.service.ts`):
 
-1. **Ступень «команда»:** актор + все, с кем у него есть **активное** членство в одной и
-   той же команде (`team_members.leftAt IS NULL`) — `HrAccessService.getActiveTeamPeers`.
-   Это даёт прямых коллег (SENIOR/HR/ADMIN и т.д. в команде), но НЕ джунов.
-2. **Ступень «проект»:** для самого актора (если он SENIOR) и/или каждого SENIOR среди
-   найденных на ступени 1 коллег — берутся их **неархивные** проекты
-   (`projects.archivedAt IS NULL`), и с этих проектов — все **действующие** участники
-   (`project_members.leftAt IS NULL`). Это и есть путь, которым SENIOR/HR доходят до
-   JUNIOR: команда → SENIOR внутри неё → проекты этого SENIOR → джуны на них.
+1. **"Team" step:** the actor + everyone who has an **active** membership in the same
+   team as the actor (`team_members.leftAt IS NULL`) — `HrAccessService.getActiveTeamPeers`.
+   This yields direct colleagues (SENIOR/HR/ADMIN etc. in the team), but NOT juniors.
+2. **"Project" step:** for the actor themselves (if a SENIOR) and/or each SENIOR among
+   the colleagues found in step 1 — take their **non-archived** projects
+   (`projects.archivedAt IS NULL`), and from those projects — all **current** participants
+   (`project_members.leftAt IS NULL`). This is exactly the path by which SENIOR/HR reach
+   a JUNIOR: team → a SENIOR inside it → that SENIOR's projects → the juniors on them.
 
-Итоговый охват — объединение обеих ступеней. Важные следствия этой модели:
+The resulting coverage is the union of both steps. Important consequences of this model:
 
-- SENIOR/HR, у которого сейчас нет активной команды — всё равно видит джунов **своих**
-  проектов: ступень 2 запускается для самого актора независимо от результата ступени 1
-  (нулевая команда не блокирует проектный путь).
-- Уволенный из команды HR/SENIOR (`leftAt` проставлен) теряет доступ ко всей цепочке —
-  тот же принцип, что уже действовал для HR→CONTRACT.
-- Бывший участник проекта (`project_members.leftAt` проставлен) — недостижим, даже если
-  формально когда-то состоял в команде/проекте.
-- **Архивный проект исключён явно, по `projects.archivedAt`, а не по `leftAt` его
-  участников** (MED, security-review round 2, 2026-08-03): `ProjectsService.archive()`
-  проставляет `leftAt` активным джунам в момент архивации, но `unarchive()` сознательно
-  **не восстанавливает** `leftAt` обратно (см. комментарий в самом методе) — то есть после
-  разархивации проект может оказаться в состоянии «участник формально всё ещё активен
-  (`leftAt IS NULL`), а проект уже был архивирован». Фильтр по `leftAt` в одиночку не
-  различает эту связку, поэтому предикат проверяет `projects.archivedAt` напрямую —
-  тот же приём, что уже используется в `UsersAccessService.isJuniorUnderLegendSubject`.
+- A SENIOR/HR who currently has no active team still sees the juniors of **their own**
+  projects: step 2 runs for the actor themselves regardless of the result of step 1
+  (a zero team does not block the project path).
+- An HR/SENIOR removed from a team (`leftAt` set) loses access to the whole chain —
+  the same principle that already applied to HR→CONTRACT.
+- A former project participant (`project_members.leftAt` set) is unreachable, even if
+  they formally were once in the team/project.
+- **An archived project is excluded explicitly, by `projects.archivedAt`, not by the `leftAt` of its
+  participants** (MED, security-review round 2, 2026-08-03): `ProjectsService.archive()`
+  sets `leftAt` on active juniors at the moment of archiving, but `unarchive()` deliberately
+  **does not restore** `leftAt` back (see the comment in the method itself) — that is, after
+  unarchiving a project may end up in the state "the participant is formally still active
+  (`leftAt IS NULL`), but the project was already archived". A filter on `leftAt` alone does not
+  distinguish this combination, so the predicate checks `projects.archivedAt` directly —
+  the same technique already used in `UsersAccessService.isJuniorUnderLegendSubject`.
 
-### Решение владельца 2026-08-03: ACCOUNTANT по SCAN — все, безусловно (не транзакционно)
+### Owner decision 2026-08-03: ACCOUNTANT on SCAN — all, unconditionally (not transactional)
 
-**Промежуточное состояние (round 1, отменено):** при первой итерации этой задачи агент
-самостоятельно сузил доступ ACCOUNTANT к SCAN критерием «есть хотя бы одна транзакция с
-владельцем документа» — намерение было исключить «просто любой SCAN компании» по аналогии
-с RESUME/SCAN-сужением для SENIOR/HR. Второй раунд security-review отклонил этот критерий
-и владелец принял решение вернуть безусловный доступ. Ниже — обоснование ОТКАЗА от
-транзакционного критерия, чтобы следующий аудит не поднимал вопрос заново.
+**Intermediate state (round 1, cancelled):** in the first iteration of this task the agent
+on its own narrowed ACCOUNTANT's access to SCAN by the criterion "there is at least one transaction with
+the document owner" — the intent was to exclude "just any company SCAN", by analogy
+with the RESUME/SCAN narrowing for SENIOR/HR. The second round of security-review rejected this criterion
+and the owner decided to restore unconditional access. Below is the rationale for REJECTING the
+transactional criterion, so that the next audit does not raise the question again.
 
-**Почему критерий «есть транзакция» не работает — сразу по двум причинам:**
+**Why the "has a transaction" criterion does not work — for two reasons at once:**
 
-1. **Он самоудовлетворяем.** ACCOUNTANT сам создаёт транзакции (это часть его штатной
-   работы) — то есть может разблокировать себе доступ к чужому SCAN одним действием
-   (создать любую, даже нулевую/тестовую транзакцию с этим человеком). Это не ограничение,
-   а иллюзия ограничения.
-2. **Он ломает онбординг.** По факту на проде на момент проверки транзакции были только у
-   5 из 21 пользователя; у HR и у роли DROP — ни у одного. Свежепринятый сотрудник, чей SCAN
-   как раз нужно сверить ДО первой выплаты (типовая причина, по которой ACCOUNTANT вообще
-   открывает SCAN), получил бы 404 именно тогда, когда доступ нужнее всего.
+1. **It is self-satisfiable.** An ACCOUNTANT creates transactions themselves (it is part of their regular
+   work) — that is, they can unlock access to someone else's SCAN with a single action
+   (create any, even a zero/test transaction with that person). It is not a restriction,
+   but an illusion of one.
+2. **It breaks onboarding.** In fact in prod at the time of the check transactions existed only for
+   5 of 21 users; HR and the DROP role had none at all. A newly hired employee whose SCAN
+   needs to be checked BEFORE the first payout (the typical reason an ACCOUNTANT opens a SCAN at all) would have
+   got a 404 exactly when access is needed most.
 
-**Итоговое решение владельца: ACCOUNTANT видит ВСЕ сканы, без привязки к команде, проекту
-или наличию транзакций.** Обоснование:
+**The owner's final decision: ACCOUNTANT sees ALL scans, with no tie to a team, project
+or the presence of transactions.** Rationale:
 
-1. Роль **аудиторская и только читающая** — ACCOUNTANT не загружает RESUME/SCAN за других
-   (`assertCanUpload` не даёт ACCOUNTANT такого права), поэтому широкий доступ создаёт риск
-   «прочитал файл постороннего», но не риск «подменил/залил чужой файл». Тот же паттерн уже
-   применён к RECEIPT и INVOICE — обе категории ACCOUNTANT видит целиком.
-2. С этой же задачи (§7) каждая выдача ссылки на SCAN пишется в `document_access_log` — то
-   есть широкий доступ теперь сопровождается журналом «кто и когда открыл чей скан», что
-   раньше отсутствовало и было единственным реальным способом ограничить злоупотребление
-   без разрушения онбординга.
+1. The role is **audit and read-only** — an ACCOUNTANT does not upload RESUME/SCAN for others
+   (`assertCanUpload` gives ACCOUNTANT no such right), so wide access creates the risk
+   of "read an outsider's file", but not the risk of "substituted/uploaded someone else's file". The same pattern is already
+   applied to RECEIPT and INVOICE — ACCOUNTANT sees both categories in full.
+2. Since this same task (§7) every issuance of a SCAN link is written to `document_access_log` — that
+   is, wide access is now accompanied by a log of "who opened whose scan and when", which
+   was previously absent and was the only real way to limit abuse
+   without destroying onboarding.
 
-Команда/проект/транзакционные предикаты для ACCOUNTANT **сознательно не вводятся** — это
-не пробел, а закрытый вопрос.
+Team/project/transactional predicates for ACCOUNTANT are **deliberately not introduced** — this is
+not a gap, but a closed question.
 
-## Загрузка (`assertCanUpload`) — не менялась в этом раунде
+## Upload (`assertCanUpload`) — not changed in this round
 
-Право **загрузить** RESUME/SCAN за другого человека (ADMIN/SENIOR/HR — для любого owner;
-JUNIOR/DROP — только для себя; ACCOUNTANT — не может) осталось прежним. Сужение 2026-08-01
-касается только **чтения** (список + скачивание/превью) — в аудите не было находки о том,
-что загрузка "за другого" сама по себе является утечкой (загружающий и так уже владеет
-файлом).
+The right to **upload** a RESUME/SCAN for another person (ADMIN/SENIOR/HR — for any owner;
+JUNIOR/DROP — only for themselves; ACCOUNTANT — cannot) remained as before. The 2026-08-01 narrowing
+concerns only **reading** (list + download/preview) — the audit had no finding
+that uploading "for another" is by itself a leak (the uploader already owns
+the file anyway).
 
-## Срок хранения
+## Retention period
 
-| Что                                            | Срок                                 | Что происходит                                                                                                                                                                                                                                             |
-| ---------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Отклик на вакансию, `REJECTED`                 | 90 дней с момента создания           | Удаляется вся строка + файл (`VacanciesRetentionCronService.purgeExpiredApplications`)                                                                                                                                                                     |
-| Отклик на вакансию, вакансия закрыта > 90 дней | 90 дней с момента закрытия вакансии  | Удаляется вся строка + файл (тот же метод)                                                                                                                                                                                                                 |
-| **Любой** отклик на вакансию (любой статус)    | **180 дней** с момента создания (§2) | Удаляется **только файл** (`resumeS3Key`/`resumeSizeBytes` → `null`); строка отклика (ФИО, email, телефон/telegram, статус) остаётся — историческая ценность найма важнее удаления записи о том, что человек вообще откликался (`purgeExpiredResumeFiles`) |
-| Прочие документы (`documents` таблица)         | Бессрочно (soft/hard delete вручную) | —                                                                                                                                                                                                                                                          |
+| What                                          | Period                                   | What happens                                                                                                                                                                                                                                                            |
+| --------------------------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Vacancy application, `REJECTED`               | 90 days from creation                    | The whole row + file is deleted (`VacanciesRetentionCronService.purgeExpiredApplications`)                                                                                                                                                                              |
+| Vacancy application, vacancy closed > 90 days | 90 days from the vacancy's closing       | The whole row + file is deleted (the same method)                                                                                                                                                                                                                       |
+| **Any** vacancy application (any status)      | **180 days** from creation (§2)          | **Only the file** is deleted (`resumeS3Key`/`resumeSizeBytes` → `null`); the application row (full name, email, phone/telegram, status) remains — the historical value of hiring outweighs deleting the record that a person applied at all (`purgeExpiredResumeFiles`) |
+| Other documents (`documents` table)           | Indefinitely (soft/hard delete manually) | —                                                                                                                                                                                                                                                                       |
 
-**До 2026-08-01:** отклик в статусе «новый»/«на рассмотрении» на вечнозелёной (никогда не
-закрываемой) вакансии хранился бесконечно — вместе с файлом резюме, email, телефоном и
-сопроводительным письмом. Правило 180 дней закрывает этот пробел независимо от статуса
-отклика или состояния вакансии.
+**Before 2026-08-01:** an application in status "new"/"under review" on an evergreen (never
+closed) vacancy was stored indefinitely — together with the resume file, email, phone and
+cover letter. The 180-day rule closes this gap regardless of the status of the
+application or the state of the vacancy.
 
-`GET /resume-url` для отклика с уже вычищенным файлом отвечает **404** ("Резюме удалено по
-истечении срока хранения") — та же логика "не найдено, а не нет доступа".
+`GET /resume-url` for an application whose file has already been purged responds **404** ("Резюме удалено по
+истечении срока хранения") — the same logic of "not found, rather than no access".
 
-## Кеширование объектов в S3/R2
+## Object caching in S3/R2
 
-| Категория                                              | `Cache-Control`                                | TTL подписанной ссылки |
-| ------------------------------------------------------ | ---------------------------------------------- | ---------------------- |
-| `CONTRACT` / `RECEIPT` / `INVOICE` / `RESUME` / `SCAN` | `private, no-store` (не кешируется вообще)     | 30 минут               |
-| `AVATAR` / `LOGO`                                      | `public, max-age=31536000, immutable`          | 24 часа                |
-| Отклик на вакансию (`vacancy-applications/`)           | `private, no-store` (та же логика, что RESUME) | 10 минут               |
+| Category                                               | `Cache-Control`                            | Signed link TTL |
+| ------------------------------------------------------ | ------------------------------------------ | --------------- |
+| `CONTRACT` / `RECEIPT` / `INVOICE` / `RESUME` / `SCAN` | `private, no-store` (not cached at all)    | 30 minutes      |
+| `AVATAR` / `LOGO`                                      | `public, max-age=31536000, immutable`      | 24 hours        |
+| Vacancy application (`vacancy-applications/`)          | `private, no-store` (same logic as RESUME) | 10 minutes      |
 
-**До 2026-08-01:** заголовок был `public, max-age=31536000, immutable` для ВСЕХ категорий —
-срок жизни ССЫЛКИ для чувствительных категорий был честно урезан до 30 минут, но сами БАЙТЫ
-лежали в кеше браузера (и любого промежуточного прокси) год.
+**Before 2026-08-01:** the header was `public, max-age=31536000, immutable` for ALL categories —
+the lifetime of the LINK for sensitive categories was honestly cut to 30 minutes, but the BYTES themselves
+sat in the browser cache (and any intermediate proxy) for a year.
 
-## Санация загруженных PDF
+## Sanitizing uploaded PDFs
 
-Резюме, поступающее через публичный (анонимный, без авторизации) `POST /apply` — единственная
-точка входа файлов извне компании. Метаданные PDF (author/title/producer/creator — часто
-содержат реальное имя кандидата и «отпечаток» софта, которым он готовил документ) снимаются
-**безусловно в первом проходе сжатия** для любого PDF (`CompressionService.compressPdf`), и
-для этого конкретного публичного пути защита от разрастания файла **не** откатывается на
-исходный буфер (`neverFallbackToOriginal: true`) — иначе анти-bloat guard периодически возвращал
-бы байт-в-байт то, что прислал аноним, отменяя санацию.
+A resume arriving through the public (anonymous, no authorization) `POST /apply` is the only
+entry point for files from outside the company. PDF metadata (author/title/producer/creator — often
+containing the candidate's real name and a "fingerprint" of the software they prepared the document with) is stripped
+**unconditionally in the first compression pass** for any PDF (`CompressionService.compressPdf`), and
+for this specific public path the file-growth protection does **not** roll back to the
+original buffer (`neverFallbackToOriginal: true`) — otherwise the anti-bloat guard would periodically return
+byte-for-byte what the anonymous user sent, cancelling the sanitization.
 
-**Остаток риска (осознанно не берём в эту задачу):** активное содержимое PDF (`/OpenAction`,
-встроенный JavaScript, вложенные файлы) — pdf-lib не даёт поддерживаемого способа снять это, не
-рискуя сломать легитимные PDF. Антивирус-класс задачи — отдельное решение владельца, вне
-этой итерации.
+**Residual risk (deliberately not taken into this task):** active PDF content (`/OpenAction`,
+embedded JavaScript, attached files) — pdf-lib offers no supported way to remove it without
+risking breaking legitimate PDFs. The antivirus class of task is a separate owner decision, outside
+this iteration.
 
-## Журнал выдачи ссылок
+## Link issuance log
 
-Каждая выдача presigned-ссылки на скачивание/превью/**миниатюру** (уточнено по итогам
-security-review round 1, MED-5) **чувствительной** категории
-(`CONTRACT`/`RECEIPT`/`INVOICE`/`RESUME`/`SCAN`, включая резюме кандидатов) пишет запись в
-`document_access_log` (`actorId` — индексирован, `targetId` — id документа/отклика, `action`
-`DOWNLOAD`/`PREVIEW`/`THUMBNAIL`, `category` в `metadata`, `createdAt`). Сама ссылка в журнал
-никогда не попадает. Запись — best-effort (сбой записи не блокирует выдачу файла). AVATAR/LOGO
-не логируются — подгружаются постоянно как часть обычного рендера списков, вопрос «кто скачал»
-для них не имеет смысла.
+Every issuance of a presigned link for download/preview/**thumbnail** (clarified following
+security-review round 1, MED-5) of a **sensitive** category
+(`CONTRACT`/`RECEIPT`/`INVOICE`/`RESUME`/`SCAN`, including candidates' resumes) writes a record to
+`document_access_log` (`actorId` — indexed, `targetId` — the document/application id, `action`
+`DOWNLOAD`/`PREVIEW`/`THUMBNAIL`, `category` in `metadata`, `createdAt`). The link itself
+never reaches the log. The write is best-effort (a write failure does not block issuing the file). AVATAR/LOGO
+are not logged — they are loaded constantly as part of ordinary list rendering, and the question "who downloaded"
+makes no sense for them.
 
-**Срок хранения журнала — 365 дней** (`DocumentAccessLogRetentionCronService`, ежедневный cron,
-чистая DELETE без внешнего хранилища для компенсации). Это осознанный дефолт агента (аудиторский
-след живёт дольше, чем PII, которое он описывает), а не решение владельца — пересмотреть при
-необходимости.
+**The log retention period is 365 days** (`DocumentAccessLogRetentionCronService`, a daily cron,
+a plain DELETE with no external storage to compensate). This is a deliberate agent default (the audit
+trail lives longer than the PII it describes), not an owner decision — to be revisited if
+needed.
 
-## Осиротевшие объекты (orphan reconciliation)
+## Orphaned objects (orphan reconciliation)
 
-`POST /api/documents/reconcile-orphans` (ADMIN-only) сканирует **оба** управляемых префикса
-бакета (`documents/` и `vacancy-applications/`, добавлено §4) и сверяет с известными ключами
-из **обеих** таблиц (`documents.s3Key`/`thumbnailS3Key` и `vacancy_applications.resumeS3Key`,
-исключая `NULL` — файл, вычищенный ретеншном, не «известный», а легитимно отсутствующий).
+`POST /api/documents/reconcile-orphans` (ADMIN-only) scans **both** managed bucket prefixes
+(`documents/` and `vacancy-applications/`, added in §4) and reconciles them with the known keys
+from **both** tables (`documents.s3Key`/`thumbnailS3Key` and `vacancy_applications.resumeS3Key`,
+excluding `NULL` — a file purged by retention is not "known" but legitimately absent).
 
-Ручное удаление отклика (`ApplicationsService.remove`) удаляет R2-объект **первым**
-(`deleteOrThrow`, бросает при сбое) и только потом строку — тот же порядок, что уже был у
-ретеншн-крона: сбой удаления файла оставляет строку на месте вместо того, чтобы молча
-осиротить файл с персональными данными.
+Manual deletion of an application (`ApplicationsService.remove`) deletes the R2 object **first**
+(`deleteOrThrow`, throws on failure) and only then the row — the same order that the
+retention cron already had: a file-deletion failure leaves the row in place instead of silently
+orphaning a file with personal data.
 
-## Сущности
+## Entities
 
 - **documents** — `id, ownerId, projectId?, category, name, originalName, s3Key,
 thumbnailS3Key?, sizeBytes, mimeType, uploadedBy, deletedAt?, deletedBy?, createdAt`
 - **vacancy_applications** — `id, vacancyId, fullName, email, telegram?, linkedinUrl?,
 githubUrl?, coverLetter?, resumeS3Key?` (nullable, §2), `resumeSizeBytes?` (nullable, §2),
   `status, createdAt`
-- **document_access_log** (новая, §7) — `id, actorId?, targetId, action, metadata, createdAt`
-  — без FK на `targetId` (журнал должен пережить удаление/ретеншн документа, на который
-  ссылается)
+- **document_access_log** (new, §7) — `id, actorId?, targetId, action, metadata, createdAt`
+  — no FK on `targetId` (the log must outlive the deletion/retention of the document it
+  refers to)

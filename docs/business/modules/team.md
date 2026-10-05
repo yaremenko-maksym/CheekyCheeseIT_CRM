@@ -1,64 +1,64 @@
-# Модуль: Команды (Teams)
+# Module: Teams
 
-## Статус: ✅ Реализован (PHASE 2)
+## Status: ✅ Implemented (PHASE 2)
 
-## Бизнес-логика
+## Business logic
 
-### Структура команды
+### Team structure
 
-- HR(ы) + SENIOR(ы) + ACCOUNTANT (общий) + JUNIOR (производное состояние)
-- JUNIOR в команде — **производное**: берётся из `project_members` WHERE `leftAt IS NULL` AND `project.seniorId` = синьор команды
-- JUNIOR не хранится в `team_members` напрямую
-- ADMIN исключён из всех команд (управляет, но не является членом)
-- Максимум 10 команд на всю компанию
+- HR(s) + SENIOR(s) + ACCOUNTANT (shared) + JUNIOR (a derived state)
+- A JUNIOR in a team is **derived**: taken from `project_members` WHERE `leftAt IS NULL` AND `project.seniorId` = the team's senior
+- A JUNIOR is not stored in `team_members` directly
+- ADMIN is excluded from all teams (manages, but is not a member)
+- At most 10 teams for the whole company
 
-### Защита от удаления
+### Deletion protection
 
-- Нельзя удалить: SENIOR (нужно удалять команду целиком), последнего HR, последнего ACCOUNTANT
+- Cannot be deleted: a SENIOR (the whole team must be deleted), the last HR, the last ACCOUNTANT
 
 ### RBAC
 
-| Действие | ADMIN | HR | SENIOR | JUNIOR | ACCOUNTANT |
-|----------|-------|----|--------|--------|------------|
-| Создать команду | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Редактировать | ✅ | ✅ (свою) | ❌ | ❌ | ❌ |
-| Удалить | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Добавить/удалить члена | ✅ | ✅ (свою) | ❌ | ❌ | ❌ |
-| Просмотр | ✅ (все) | ✅ (свои) | ✅ (свои) | ✅ (свои) | ✅ (все) |
+| Action              | ADMIN    | HR       | SENIOR   | JUNIOR   | ACCOUNTANT |
+| ------------------- | -------- | -------- | -------- | -------- | ---------- |
+| Create a team       | ✅       | ✅       | ❌       | ❌       | ❌         |
+| Edit                | ✅       | ✅ (own) | ❌       | ❌       | ❌         |
+| Delete              | ✅       | ❌       | ❌       | ❌       | ❌         |
+| Add/remove a member | ✅       | ✅ (own) | ❌       | ❌       | ❌         |
+| View                | ✅ (all) | ✅ (own) | ✅ (own) | ✅ (own) | ✅ (all)   |
 
-## Таблицы БД
+## DB tables
 
 ```sql
 teams: id, name, createdAt
 team_members: id, teamId, userId, joinedAt
--- Хранит только: HR, SENIOR, ACCOUNTANT. НЕ JUNIOR.
--- "Своя команда" HR = команда где он есть в team_members
+-- Stores only: HR, SENIOR, ACCOUNTANT. NOT JUNIOR.
+-- An HR's "own team" = a team where they are in team_members
 ```
 
-### JUNIOR RBAC — фильтрация состава
+### JUNIOR RBAC — filtering the roster
 
-- `GET /api/teams/:id` — если `viewer.role === 'JUNIOR'`: сервер убирает из `members[]` всех остальных JUNIOR-ов перед ответом
-- Все остальные роли получают полный список участников
+- `GET /api/teams/:id` — if `viewer.role === 'JUNIOR'`: the server removes all other JUNIORs from `members[]` before responding
+- All other roles get the full list of participants
 
-### SENIOR/JUNIOR — авто-редирект
+### SENIOR/JUNIOR — auto-redirect
 
-- `GET /api/teams` для SENIOR/JUNIOR возвращает одну команду → frontend делает redirect на `/crm/team/:id`
-- ADMIN, HR, ACCOUNTANT остаются на странице списка
+- `GET /api/teams` for SENIOR/JUNIOR returns a single team → the frontend redirects to `/crm/team/:id`
+- ADMIN, HR, ACCOUNTANT stay on the list page
 
 ## UI
 
-- **Список команд** (`/crm/team`): карточки с аватарами первых 4 участников + "+N", количество активных проектов, hover-эффект → клик открывает `/crm/team/:id`
-- **Детальная страница** (`/crm/team/:id`): название + дата создания, список участников с аватаром/именем/ролью, кнопки управления (только ADMIN и HR-owner)
+- **Team list** (`/crm/team`): cards with the avatars of the first 4 participants + "+N", the number of active projects, a hover effect → a click opens `/crm/team/:id`
+- **Detail page** (`/crm/team/:id`): the name + creation date, a list of participants with avatar/name/role, management buttons (only ADMIN and the HR-owner)
 
 ## Endpoints
 
 ```
-GET    /api/teams                       → список (ADMIN/ACCOUNTANT: все, HR: свои, SENIOR/JUNIOR: свои)
-POST   /api/teams                       → создать (ADMIN, HR)
-PATCH  /api/teams/:id                   → редактировать (ADMIN, HR-owner)
-DELETE /api/teams/:id                   → удалить (ADMIN only)
-GET    /api/teams/:id                   → детали команды (все аутентифицированные роли)
-GET    /api/users                       → пользователи для select
-POST   /api/teams/:id/members           → добавить участника
-DELETE /api/teams/:id/members/:userId   → удалить участника
+GET    /api/teams                       → list (ADMIN/ACCOUNTANT: all, HR: own, SENIOR/JUNIOR: own)
+POST   /api/teams                       → create (ADMIN, HR)
+PATCH  /api/teams/:id                   → edit (ADMIN, HR-owner)
+DELETE /api/teams/:id                   → delete (ADMIN only)
+GET    /api/teams/:id                   → team details (all authenticated roles)
+GET    /api/users                       → users for select
+POST   /api/teams/:id/members           → add a participant
+DELETE /api/teams/:id/members/:userId   → remove a participant
 ```

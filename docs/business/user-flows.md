@@ -1,8 +1,8 @@
 # User Flows
 
-## Как читать этот файл
+## How to read this file
 
-Каждый flow — пошаговый сценарий для конкретной роли. QA-агент использует это как основу для тестирования. AutoTest-агент генерирует тесты отсюда.
+Each flow is a step-by-step scenario for a specific role. The QA agent uses it as a basis for testing. The AutoTest agent generates tests from it.
 
 ---
 
@@ -10,151 +10,151 @@
 
 ### Flow: Google SSO Login
 
-**Роль:** Любой
+**Role:** Any
 
-1. Пользователь открывает `/login`
-2. Нажимает "Войти через Google"
-3. Редирект на `GET /api/auth/google` → Google OAuth
-4. Google возвращает на `GET /api/auth/google/callback`
-5. Сервер проверяет email в таблице `users`
-   - Email есть → JWT cookie → redirect на `/crm`
-   - Email нет → redirect на `/login?error=unauthorized`
-6. `/crm` — показывает dashboard
+1. The user opens `/login`
+2. Clicks "Sign in with Google"
+3. Redirect to `GET /api/auth/google` → Google OAuth
+4. Google returns to `GET /api/auth/google/callback`
+5. The server checks the email in the `users` table
+   - Email exists → JWT cookie → redirect to `/crm`
+   - Email does not exist → redirect to `/login?error=unauthorized`
+6. `/crm` — shows the dashboard
 
 ### Flow: Logout
 
-1. Пользователь нажимает "Выйти" в header dropdown
-2. Запрос `POST /api/auth/logout`
-3. Cookie очищается → redirect на `/login`
+1. The user clicks "Sign out" in the header dropdown
+2. Request `POST /api/auth/logout`
+3. The cookie is cleared → redirect to `/login`
 
-### Flow: Прямой доступ к /crm без сессии
+### Flow: Direct access to /crm without a session
 
-1. Пользователь открывает `/crm/anything`
-2. `/crm/route.tsx` проверяет auth state
-3. Если не аутентифицирован → redirect `/login`
-
----
-
-## Команды (Teams)
-
-### Flow: ADMIN создаёт команду
-
-1. ADMIN переходит на `/crm/team`
-2. Нажимает "Создать команду"
-3. Вводит название команды
-4. Выбирает HR из списка пользователей с ролью HR
-5. Выбирает SENIOR(ов)
-6. Выбирает ACCOUNTANT (автозаполнение — один на компанию)
-7. Сохраняет → команда появляется в списке
-
-### Flow: HR управляет составом команды
-
-1. HR видит только свои команды
-2. Может добавить SENIOR в команду
-3. Может удалить SENIOR (если не последний)
-4. НЕ может удалить себя (последнего HR)
-5. НЕ может видеть/редактировать чужие команды
-
-### Flow: SENIOR/JUNIOR открывает свою команду
-
-1. SENIOR или JUNIOR переходит на `/crm/team`
-2. Запрос `GET /api/teams` возвращает одну команду
-3. Frontend делает redirect на `/crm/team/:id` автоматически
-4. На детальной странице SENIOR видит всех участников (read-only)
-5. JUNIOR видит всех участников кроме других JUNIOR (фильтрация на сервере)
-
-### Flow: Просмотр детальной страницы команды
-
-1. ADMIN/HR/ACCOUNTANT нажимают на карточку команды в списке
-2. Открывается `/crm/team/:id`
-3. Показан состав (аватар, имя, роль badge) + дата создания команды
-4. ADMIN/HR-owner видит кнопки "Добавить" / "Удалить" для управления составом
+1. The user opens `/crm/anything`
+2. `/crm/route.tsx` checks the auth state
+3. If not authenticated → redirect `/login`
 
 ---
 
-## Проекты (Projects)
+## Teams
 
-### Flow: ADMIN/HR создаёт проект
+### Flow: ADMIN creates a team
 
-1. Переход на `/crm/projects`
-2. Кнопка "Создать проект"
-3. Форма: название, компания-клиент, домен, дата начала, SENIOR, ставка, валюта
-4. Создать → проект со статусом ACTIVE
+1. ADMIN goes to `/crm/team`
+2. Clicks "Create team"
+3. Enters the team name
+4. Selects an HR from the list of users with the HR role
+5. Selects SENIOR(s)
+6. Selects an ACCOUNTANT (autofill — one per company)
+7. Saves → the team appears in the list
 
-### Flow: Добавить JUNIOR в проект
+### Flow: HR manages the team roster
 
-1. ADMIN/HR открывает проект
-2. Кнопка "Добавить участника"
-3. Выбрать пользователя с ролью JUNIOR
-4. JUNIOR теперь видит проект в своём списке
+1. HR sees only their own teams
+2. Can add a SENIOR to the team
+3. Can remove a SENIOR (if not the last one)
+4. CANNOT remove themselves (the last HR)
+5. CANNOT see/edit other teams
 
-### Flow: Закрыть проект
+### Flow: SENIOR/JUNIOR opens their team
 
-1. ADMIN/HR в карточке проекта → "Закрыть проект"
-2. Подтверждение
-3. Проект получает статус CLOSED и `endDate = now`
-4. Проект остаётся в архиве (soft delete)
+1. A SENIOR or JUNIOR goes to `/crm/team`
+2. Request `GET /api/teams` returns a single team
+3. The frontend automatically redirects to `/crm/team/:id`
+4. On the detail page the SENIOR sees all participants (read-only)
+5. The JUNIOR sees all participants except other JUNIORs (server-side filtering)
 
----
+### Flow: Viewing the team detail page
 
-## Собеседования Kanban (Interviews)
-
-### Flow: HR создаёт карточку собеседования
-
-1. HR на `/crm/interviews` выбирает доску синьора (`?seniorId=uuid`)
-2. Кнопка "Создать собеседование"
-3. Форма: компания, ссылка на вакансию, ссылка на звонок
-4. Карточка появляется в колонке `HR_SCREEN`
-
-### Flow: Продвижение карточки (DnD или кнопка)
-
-1. HR/SENIOR перетаскивает карточку в следующую колонку
-   **ИЛИ** открывает диалог → кнопка "Переместить →"
-2. Стейджи: `HR_SCREEN` → `ENGLISH_CHECK` → `TECH_INTERVIEW` → `FINAL_INTERVIEW` → `OFFER_RECEIVED`
-3. Терминальные: `HIRED`, `REJECTED`, `ARCHIVED`
-
-### Flow: SENIOR заполняет данные после интервью
-
-1. SENIOR открывает карточку
-2. В форме заметок вводит: домен, технологии, техника, состав команды, бенефиты, тип оплаты
-3. Сохраняет заметки (не меняет стейдж)
+1. ADMIN/HR/ACCOUNTANT click a team card in the list
+2. `/crm/team/:id` opens
+3. The roster is shown (avatar, name, role badge) + the team creation date
+4. ADMIN/HR-owner sees "Add" / "Remove" buttons to manage the roster
 
 ---
 
-## Финансы (Finance)
+## Projects
 
-### Flow: SENIOR вносит транзакцию
+### Flow: ADMIN/HR creates a project
 
-1. SENIOR на `/crm/finance`
-2. Кнопка "Добавить транзакцию"
-3. Форма: проект, дата, сумма, валюта, загрузить чек (файл)
-4. Транзакция создаётся со статусом `PENDING`
+1. Go to `/crm/projects`
+2. The "Create project" button
+3. Form: name, client company, domain, start date, SENIOR, rate, currency
+4. Create → a project with status ACTIVE
 
-### Flow: ACCOUNTANT валидирует транзакцию
+### Flow: Add a JUNIOR to a project
 
-1. ACCOUNTANT видит все транзакции со статусом PENDING
-2. Открывает транзакцию → просматривает чек
-3. Кнопка "Валидировать" → статус `VALIDATED`
-   ИЛИ "Отклонить" → статус `REJECTED` + причина
+1. ADMIN/HR opens the project
+2. The "Add participant" button
+3. Select a user with the JUNIOR role
+4. The JUNIOR now sees the project in their list
 
-### Flow: SENIOR оплачивает услуги
+### Flow: Close a project
 
-1. После VALIDATED транзакции у SENIOR появляется кнопка "Оплатить услуги"
-2. SENIOR нажимает → статус `PENDING_PAYMENT`
-3. После подтверждения оплаты → `PAID`
+1. ADMIN/HR in the project card → "Close project"
+2. Confirmation
+3. The project gets status CLOSED and `endDate = now`
+4. The project stays in the archive (soft delete)
 
 ---
 
-## Профиль (Profile)
+## Interviews Kanban (Interviews)
 
-### Flow: Редактирование своего профиля
+### Flow: HR creates an interview card
 
-1. Пользователь на `/crm/profile`
-2. Редактирует: телефон, Telegram
-3. Сохраняет → данные обновляются
+1. HR on `/crm/interviews` selects a senior's board (`?seniorId=uuid`)
+2. The "Create interview" button
+3. Form: company, vacancy link, call link
+4. The card appears in the `HR_SCREEN` column
 
-### Flow: Просмотр профиля другого пользователя
+### Flow: Advancing a card (DnD or button)
 
-1. Клик по имени пользователя в Команде / Проекте / Интервью
-2. Открывается `/crm/users/:id`
-3. Только чтение (не своя страница)
+1. HR/SENIOR drags the card to the next column
+   **OR** opens the dialog → the "Move →" button
+2. Stages: `HR_SCREEN` → `ENGLISH_CHECK` → `TECH_INTERVIEW` → `FINAL_INTERVIEW` → `OFFER_RECEIVED`
+3. Terminal: `HIRED`, `REJECTED`, `ARCHIVED`
+
+### Flow: SENIOR fills in data after the interview
+
+1. The SENIOR opens the card
+2. In the notes form enters: domain, technologies, technique, team composition, benefits, payment type
+3. Saves the notes (does not change the stage)
+
+---
+
+## Finance
+
+### Flow: SENIOR enters a transaction
+
+1. The SENIOR on `/crm/finance`
+2. The "Add transaction" button
+3. Form: project, date, amount, currency, upload a receipt (file)
+4. The transaction is created with status `PENDING`
+
+### Flow: ACCOUNTANT validates a transaction
+
+1. The ACCOUNTANT sees all transactions with status PENDING
+2. Opens a transaction → views the receipt
+3. The "Validate" button → status `VALIDATED`
+   OR "Reject" → status `REJECTED` + reason
+
+### Flow: SENIOR pays for services
+
+1. After a VALIDATED transaction the SENIOR gets the "Pay for services" button
+2. The SENIOR clicks → status `PENDING_PAYMENT`
+3. After the payment is confirmed → `PAID`
+
+---
+
+## Profile
+
+### Flow: Editing your own profile
+
+1. The user on `/crm/profile`
+2. Edits: phone, Telegram
+3. Saves → the data is updated
+
+### Flow: Viewing another user's profile
+
+1. A click on a user's name in a Team / Project / Interview
+2. `/crm/users/:id` opens
+3. Read-only (not their own page)

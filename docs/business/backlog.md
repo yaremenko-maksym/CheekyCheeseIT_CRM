@@ -1,67 +1,67 @@
-# Product backlog (отложенные фичи)
+# Product backlog (deferred features)
 
-> Running-беклог идей и фич, отложенных владельцем «на потом». Не план к немедленной реализации —
-> входная точка, когда дойдём. Каждый пункт: контекст, желаемое поведение, затронутые места в коде,
-> открытые вопросы. При взятии в работу → BA-бриф → PM → задачи (полный пайплайн).
+> A running backlog of ideas and features deferred by the owner "for later". Not a plan for immediate implementation —
+> an entry point for when we get to it. Each item: context, desired behavior, affected places in the code,
+> open questions. When taken into work → BA brief → PM → tasks (full pipeline).
 
 ---
 
-## Собеседования (Interviews) — логика расписания + виды
+## Interviews — scheduling logic + views
 
-**Заведено:** 2026-06-23 (владелец, при ревью редизайна канбана). **Приоритет:** низкий («намного позже»).
-**Почему отложено:** редизайн канбана идёт сейчас как чистый визуал; эта логика — отдельная фича с
-миграцией схемы и edge-cases, не смешиваем с визуальным шагом.
+**Added:** 2026-06-23 (owner, while reviewing the kanban redesign). **Priority:** low ("much later").
+**Why deferred:** the kanban redesign is going now as a purely visual change; this logic is a separate feature with a
+schema migration and edge cases, not mixed with the visual step.
 
-**Текущая модель** (для справки): таблица `interviews` (`apps/api/src/database/schema.ts:352`) —
-`companyName · vacancyUrl · callUrl · hrId · stage · position · createdAt · notes*`. Стадии в
-`apps/web/app/routes/_authenticated/interviews/constants.ts`. Доска per-senior; перенос в
+**Current model** (for reference): the `interviews` table (`apps/api/src/database/schema.ts:352`) —
+`companyName · vacancyUrl · callUrl · hrId · stage · position · createdAt · notes*`. Stages in
+`apps/web/app/routes/_authenticated/interviews/constants.ts`. The board is per-senior; the move is in
 `InterviewsService.move()` (`apps/api/src/interviews/interviews.service.ts:214`).
 
-### 1. Сброс ссылки на звонок при переносе стадии
+### 1. Reset the call link when moving stage
 
-- При переносе карточки между **активными** стадиями — поле `callUrl` (и будущие поля расписания)
-  **сбрасывается**: новая стадия = новая встреча, которую надо назначить заново.
-- Реализация: в `move()` при `oldStage !== newStage` (и newStage не терминальная) очищать поля встречи.
-- Терминальные стадии (HIRED/REJECTED/ARCHIVED) встречу не требуют — не сбрасывать/не предупреждать.
+- When moving a card between **active** stages — the `callUrl` field (and future scheduling fields)
+  is **reset**: a new stage = a new meeting that has to be arranged again.
+- Implementation: in `move()` when `oldStage !== newStage` (and newStage is not terminal), clear the meeting fields.
+- Terminal stages (HIRED/REJECTED/ARCHIVED) do not require a meeting — do not reset/do not warn.
 
-### 2. Предупреждение «встреча не назначена» + дозаполнение
+### 2. "Meeting not scheduled" warning + completion
 
-- После переноса на новую активную стадию карточка **подсвечивает предупреждение** «встреча не назначена».
-- Дозаполнить: **дату + время** встречи (новое поле `scheduledAt: timestamp`) и **способ связи**:
-  - **видео-звонок** → ссылка (`callUrl`, Google Meet / Teams), ЛИБО
-  - **мессенджер** → отметка + **контакт** (новое поле `messengerContact`: ссылка на Telegram или номер телефона).
-- Модель способа связи: `meetingMethod: 'video' | 'messenger'` (новый enum/поле) — определяет, какое поле
-  обязательно. Валидация на клиенте + сервере (Zod в `@crm/shared`).
+- After moving to a new active stage the card **highlights a warning** "meeting not scheduled".
+- To fill in: the meeting **date + time** (new field `scheduledAt: timestamp`) and the **contact method**:
+  - **video call** → link (`callUrl`, Google Meet / Teams), OR
+  - **messenger** → a marker + **contact** (new field `messengerContact`: a Telegram link or a phone number).
+- Contact method model: `meetingMethod: 'video' | 'messenger'` (new enum/field) — determines which field is
+  required. Validation on the client + server (Zod in `@crm/shared`).
 
-### 3. Напоминание «состоялось N дней назад»
+### 3. "Took place N days ago" reminder
 
-- Когда `scheduledAt` в прошлом — карточка показывает relative-time («состоялось 4 дня назад», «неделю назад»).
-- Владельцу понравились «напоминалки» в редизайне — это их функциональное наполнение.
-- Хелпер relative-time (ru-локаль); без тяжёлых зависимостей (`Intl.RelativeTimeFormat`).
+- When `scheduledAt` is in the past — the card shows relative-time ("took place 4 days ago", "a week ago").
+- The owner liked the "reminders" in the redesign — this is their functional content.
+- A relative-time helper (ru locale); no heavy dependencies (`Intl.RelativeTimeFormat`).
 
-### 4. Списочный вид собеседований
+### 4. List view of interviews
 
-- Альтернатива канбану — список (таблица/строки). Спроектировать дизайн (наш data-table паттерн).
-- В UI — **тумблер вида** (Канбан / Список), **задизейблен-заглушка** пока не сделано.
+- An alternative to the kanban — a list (table/rows). Design it (our data-table pattern).
+- In the UI — a **view toggle** (Kanban / List), a **disabled placeholder** until it is done.
 
-### 5. Календарный вид + интеграция Google Calendar
+### 5. Calendar view + Google Calendar integration
 
-- Календарный вид встреч (по `scheduledAt`). При показе календаря — **интеграция Google Calendar**
-  (OAuth + Calendar API: создание/синк событий встреч). Отдельная крупная фича (свой OAuth-scope, ADR).
-- В UI — пункт вида **задизейблен-заглушка** пока не сделано.
+- A calendar view of meetings (by `scheduledAt`). When the calendar is shown — **Google Calendar integration**
+  (OAuth + Calendar API: creating/syncing meeting events). A separate large feature (its own OAuth scope, ADR).
+- In the UI — the view item is a **disabled placeholder** until it is done.
 
-### Открытые вопросы (решить при взятии в работу)
+### Open questions (decide when taken into work)
 
-- `meetingMethod` — отдельный enum-столбец или вывод из заполненного поля? (рекомендация: явный enum).
-- Хранить ли историю встреч по стадиям (audit) или только текущую встречу на карточке? (сейчас — текущую).
-- Нужны ли уведомления (in-app/email/Telegram) о неназначенной/предстоящей встрече? (вероятно, позже).
-- Google Calendar: двусторонний синк или односторонний (CRM → GCal)? OAuth per-user vs сервисный аккаунт.
+- `meetingMethod` — a separate enum column or derived from the filled field? (recommendation: an explicit enum).
+- Store the meeting history per stage (audit) or only the current meeting on the card? (now — the current one).
+- Are notifications (in-app/email/Telegram) needed about an unscheduled/upcoming meeting? (probably later).
+- Google Calendar: two-way sync or one-way (CRM → GCal)? OAuth per-user vs a service account.
 
-### Затронется при реализации
+### Affected on implementation
 
-- Schema + миграция (`interviews`: `scheduledAt`, `meetingMethod`, `messengerContact`).
-- `@crm/shared` (Zod-схемы `InterviewDto` / Create / Update / Move + валидация способа связи).
-- API: `InterviewsService.move()` (сброс), `update()` (дозаполнение), новые валидации.
-- Web: карточка (зона напоминания: warning / дата-время / ссылка-звонок / мессенджер-контакт / relative-time),
-  форма дозаполнения, тумблеры вида (disabled), `InterviewDetailSheet`.
-- Тесты: unit (move-reset, relative-time, валидация), E2E (warning-flow, дозаполнение).
+- Schema + migration (`interviews`: `scheduledAt`, `meetingMethod`, `messengerContact`).
+- `@crm/shared` (Zod schemas `InterviewDto` / Create / Update / Move + contact-method validation).
+- API: `InterviewsService.move()` (reset), `update()` (completion), new validations.
+- Web: the card (reminder zone: warning / date-time / call link / messenger contact / relative-time),
+  the completion form, view toggles (disabled), `InterviewDetailSheet`.
+- Tests: unit (move-reset, relative-time, validation), E2E (warning-flow, completion).

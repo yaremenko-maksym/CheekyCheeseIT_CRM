@@ -1,50 +1,50 @@
-# Модуль: Финансы (Finance)
+# Module: Finance
 
-## Статус: ✅ Реализован (PHASE 5)
+## Status: ✅ Implemented (PHASE 5)
 
-## Финансовый поток
+## Financial flow
 
 ```
-SENIOR вносит транзакцию (PENDING)
-→ ACCOUNTANT валидирует (VALIDATED)
-→ SENIOR нажимает "Оплатить" (PENDING_PAYMENT)
-→ SENIOR платит 74% через смарт-контракт (Phase 8)
-  ├── JUNIOR: фиксированная сумма (из project_finance_settings)
-  └── Остаток: 50% ADMIN + 50% партнёр
-→ SENIOR оставляет 26% → статус PAID
+SENIOR enters a transaction (PENDING)
+→ ACCOUNTANT validates (VALIDATED)
+→ SENIOR clicks "Pay" (PENDING_PAYMENT)
+→ SENIOR pays 74% via a smart contract (Phase 8)
+  ├── JUNIOR: a fixed amount (from project_finance_settings)
+  └── The remainder: 50% ADMIN + 50% partner
+→ SENIOR keeps 26% → status PAID
 ```
 
 ## RBAC
 
-| Роль | Доступ |
-|------|--------|
-| ADMIN | Все транзакции, все отчёты |
-| ACCOUNTANT | Все транзакции, валидация, расходы, выплаты |
-| SENIOR | Только свои транзакции и баланс |
-| HR | Свои зарплатные выплаты |
-| JUNIOR | ❌ Нет доступа к финансам |
+| Role       | Access                                          |
+| ---------- | ----------------------------------------------- |
+| ADMIN      | All transactions, all reports                   |
+| ACCOUNTANT | All transactions, validation, expenses, payouts |
+| SENIOR     | Only their own transactions and balance         |
+| HR         | Their own salary payouts                        |
+| JUNIOR     | ❌ No access to finance                         |
 
-## Сущности
+## Entities
 
-- **transactions** — доход SENIOR от проекта (PENDING → VALIDATED → PENDING_PAYMENT → PAID / REJECTED)
-- **expenses** — расходы компании (ADMIN/ACCOUNTANT)
-- **junior_payments** — выплаты JUNIOR по проекту
-- **invoices** + **invoice_transactions** — инвойс объединяет транзакции (DRAFT → SIGNED / CANCELLED)
-- **payouts** + **payout_transactions** — выплаты партнёрам MAKSYM/KOSTYA (PENDING_PAYMENT → PAID)
+- **transactions** — a SENIOR's income from a project (PENDING → VALIDATED → PENDING_PAYMENT → PAID / REJECTED)
+- **expenses** — company expenses (ADMIN/ACCOUNTANT)
+- **junior_payments** — payments to a JUNIOR for a project
+- **invoices** + **invoice_transactions** — an invoice combines transactions (DRAFT → SIGNED / CANCELLED)
+- **payouts** + **payout_transactions** — payouts to the partners MAKSYM/KOSTYA (PENDING_PAYMENT → PAID)
 
-## Дополнительные сервисы
+## Additional services
 
-- **NBU rates** — ежедневный cron, курсы валют из API НБУ
-- **Etherscan** — верификация крипто-транзакций по хэшу (read-only)
-- **PDF invoice** — генерация через pdfkit
+- **NBU rates** — a daily cron, currency rates from the NBU API
+- **Etherscan** — verification of crypto transactions by hash (read-only)
+- **PDF invoice** — generation via pdfkit
 
-## Endpoints (ключевые)
+## Endpoints (key)
 
 ```
-POST   /api/transactions                  → создать (SENIOR)
-PATCH  /api/transactions/:id/validate     → валидировать (ACCOUNTANT)
-PATCH  /api/transactions/:id/reject       → отклонить (ACCOUNTANT)
-POST   /api/transactions/:id/pay          → оплатить (SENIOR)
-GET    /api/invoices/:id/pdf              → скачать PDF
-POST   /api/payouts/:id/pay              → отметить выплату оплаченной
+POST   /api/transactions                  → create (SENIOR)
+PATCH  /api/transactions/:id/validate     → validate (ACCOUNTANT)
+PATCH  /api/transactions/:id/reject       → reject (ACCOUNTANT)
+POST   /api/transactions/:id/pay          → pay (SENIOR)
+GET    /api/invoices/:id/pdf              → download PDF
+POST   /api/payouts/:id/pay              → mark the payout as paid
 ```
