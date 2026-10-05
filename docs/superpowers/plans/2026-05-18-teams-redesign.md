@@ -12,21 +12,22 @@
 
 ## File Map
 
-| File | Action | What changes |
-|------|-----|---------------|
-| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | CREATE | SQL migration |
-| `apps/api/src/database/schema.ts` | MODIFY | `+telegram`, `+notes` in the `teams` table |
-| `packages/shared/src/schemas/teams.ts` | MODIFY | `+telegram?`, `+notes?` in `teamSchema` and `updateTeamSchema` |
-| `apps/api/src/teams/teams.service.ts` | MODIFY | `mapTeam` returns the fields; `update` accepts telegram/notes; `addMember` checks the SENIOR duplicate and a JUNIOR with a project |
-| `apps/api/src/teams/teams.controller.ts` | MODIFY | `update` passes `telegram`, `notes` to the service |
-| `apps/web/app/routes/crm/team/index.tsx` | MODIFY | Row list, toolbar, remove the add/delete buttons |
-| `apps/web/app/routes/crm/team/$teamId.tsx` | MODIFY | Single-column, projects section, edit/addMember dialogs, RBAC |
+| File                                                       | Action | What changes                                                                                                                       |
+| ---------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `apps/api/drizzle/migrations/0002_team_telegram_notes.sql` | CREATE | SQL migration                                                                                                                      |
+| `apps/api/src/database/schema.ts`                          | MODIFY | `+telegram`, `+notes` in the `teams` table                                                                                         |
+| `packages/shared/src/schemas/teams.ts`                     | MODIFY | `+telegram?`, `+notes?` in `teamSchema` and `updateTeamSchema`                                                                     |
+| `apps/api/src/teams/teams.service.ts`                      | MODIFY | `mapTeam` returns the fields; `update` accepts telegram/notes; `addMember` checks the SENIOR duplicate and a JUNIOR with a project |
+| `apps/api/src/teams/teams.controller.ts`                   | MODIFY | `update` passes `telegram`, `notes` to the service                                                                                 |
+| `apps/web/app/routes/crm/team/index.tsx`                   | MODIFY | Row list, toolbar, remove the add/delete buttons                                                                                   |
+| `apps/web/app/routes/crm/team/$teamId.tsx`                 | MODIFY | Single-column, projects section, edit/addMember dialogs, RBAC                                                                      |
 
 ---
 
 ## Task 1: DB Migration + Schema + Shared Types
 
 **Files:**
+
 - Create: `apps/api/drizzle/migrations/0002_team_telegram_notes.sql`
 - Modify: `apps/api/src/database/schema.ts`
 - Modify: `packages/shared/src/schemas/teams.ts`
@@ -106,6 +107,7 @@ git commit -m "feat(teams): add telegram and notes fields to teams table"
 ## Task 2: Backend — Service + Controller
 
 **Files:**
+
 - Modify: `apps/api/src/teams/teams.service.ts`
 - Modify: `apps/api/src/teams/teams.controller.ts`
 
@@ -232,6 +234,7 @@ git commit -m "feat(teams): update service — telegram/notes, SENIOR dedup, JUN
 ## Task 3: Frontend — Team list (index.tsx)
 
 **Files:**
+
 - Modify: `apps/web/app/routes/crm/team/index.tsx`
 
 Keep all dialog logic (CreateSenior, EditTeam, DeleteTeam, AddMember) — only change the markup and remove the UserPlus and Trash2 buttons from the cards.
@@ -261,9 +264,7 @@ const filteredTeams = useMemo(() => {
   }
 
   if (filterRole !== 'all') {
-    result = result.filter((t) =>
-      t.members.some((m) => m.role === filterRole),
-    )
+    result = result.filter((t) => t.members.some((m) => m.role === filterRole))
   }
 
   result.sort((a, b) => {
@@ -272,12 +273,16 @@ const filteredTeams = useMemo(() => {
     if (sortBy === 'projects') {
       const aProjects = projects
         ? projects.filter(
-            (p) => p.status === 'ACTIVE' && a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+            (p) =>
+              p.status === 'ACTIVE' &&
+              a.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
           ).length
         : 0
       const bProjects = projects
         ? projects.filter(
-            (p) => p.status === 'ACTIVE' && b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+            (p) =>
+              p.status === 'ACTIVE' &&
+              b.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
           ).length
         : 0
       return bProjects - aProjects
@@ -294,6 +299,7 @@ Also make sure `useMemo` is added to the imports at the top of the file along wi
 - [ ] **Step 3.3: Replace the page heading — without a subtitle**
 
 Find:
+
 ```typescript
 <div>
   <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
@@ -302,6 +308,7 @@ Find:
 ```
 
 Replace with:
+
 ```typescript
 <h1 className="text-2xl font-bold tracking-tight">Команда</h1>
 ```
@@ -351,6 +358,7 @@ Add `Search` to the lucide-react imports.
 - [ ] **Step 3.5: Replace the grid with a row list**
 
 Find the block:
+
 ```typescript
 <motion.div
   className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
@@ -491,6 +499,7 @@ pnpm dev
 ```
 
 Open http://localhost:3000/crm/team, make sure:
+
 - The heading without a subtitle
 - A list of fixed-height rows (even with 3 HR — the height does not change)
 - Toolbar: search, role filter, sort
@@ -516,6 +525,7 @@ git commit -m "feat(teams): redesign list — row layout, toolbar, remove add/de
 ## Task 4: Frontend — Team page ($teamId.tsx)
 
 **Files:**
+
 - Modify: `apps/web/app/routes/crm/team/$teamId.tsx`
 
 - [ ] **Step 4.1: Add imports**
@@ -591,17 +601,21 @@ const { data: allUsers } = useQuery<UserOption[]>({
 After `const canManage = ...` add:
 
 ```typescript
-const activeProjects = projects?.filter(
-  (p) =>
-    p.status === 'ACTIVE' &&
-    team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
-) ?? []
+const activeProjects =
+  projects?.filter(
+    (p) =>
+      p.status === 'ACTIVE' &&
+      team?.members.some((m) => m.role === 'SENIOR' && m.userId === p.seniorId),
+  ) ?? []
 
 // Junior sees only their own project
 const visibleProjects =
   user?.role === 'JUNIOR'
     ? activeProjects.filter((p) =>
-        p.members?.some((m: { userId: string; leftAt: string | null }) => m.userId === user.id && m.leftAt === null),
+        p.members?.some(
+          (m: { userId: string; leftAt: string | null }) =>
+            m.userId === user.id && m.leftAt === null,
+        ),
       )
     : activeProjects
 ```
@@ -614,9 +628,7 @@ After `const orderedRoles = ...` add:
 // Junior does not see other juniors
 const visibleMembersByRole =
   user?.role === 'JUNIOR'
-    ? Object.fromEntries(
-        Object.entries(membersByRole).filter(([role]) => role !== 'JUNIOR'),
-      )
+    ? Object.fromEntries(Object.entries(membersByRole).filter(([role]) => role !== 'JUNIOR'))
     : membersByRole
 
 const visibleOrderedRoles = roleOrder.filter(
@@ -633,9 +645,9 @@ const teamHasSenior = team?.members.some((m) => m.role === 'SENIOR') ?? false
 const juniorIdsWithProjects = new Set(
   projects?.flatMap((p) =>
     p.status === 'ACTIVE'
-      ? p.members
+      ? (p.members
           ?.filter((m: { leftAt: string | null }) => m.leftAt === null)
-          .map((m: { userId: string }) => m.userId) ?? []
+          .map((m: { userId: string }) => m.userId) ?? [])
       : [],
   ) ?? [],
 )
@@ -647,7 +659,8 @@ const candidateUsers: CandidateUser[] = (allUsers ?? [])
   .map((u): CandidateUser => {
     if (memberUserIds.has(u.id)) return { ...u, disabledReason: 'в команді' }
     if (u.role === 'SENIOR' && teamHasSenior) return { ...u, disabledReason: 'вже є синьор' }
-    if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id)) return { ...u, disabledReason: 'має проект' }
+    if (u.role === 'JUNIOR' && juniorIdsWithProjects.has(u.id))
+      return { ...u, disabledReason: 'має проект' }
     return u
   })
   .sort((a, b) => {
@@ -662,7 +675,11 @@ const candidateUsers: CandidateUser[] = (allUsers ?? [])
 
 ```typescript
 const editForm = useForm({
-  defaultValues: { name: team?.name ?? '', telegram: team?.telegram ?? '', notes: team?.notes ?? '' },
+  defaultValues: {
+    name: team?.name ?? '',
+    telegram: team?.telegram ?? '',
+    notes: team?.notes ?? '',
+  },
   validators: {
     onChange: z.object({
       name: z.string().min(1, 'Назва обовʼязкова').max(255),
@@ -1071,6 +1088,7 @@ Make sure the whole `{/* Sidebar - Team Stats */}` block (`<motion.div variants=
 Open http://localhost:3000/crm/team → click on a team.
 
 Check:
+
 - The heading + the "Add" and "Edit" buttons (for ADMIN/HR)
 - SENIOR: sees all members and all projects, no buttons
 - JUNIOR: sees Senior/HR/Accountant, other juniors hidden, only their own project
