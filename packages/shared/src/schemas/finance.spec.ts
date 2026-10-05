@@ -38,6 +38,12 @@ describe('createPayoutRequestSchema — optional payout business date', () => {
       createPayoutRequestSchema.safeParse({ transactionIds, txDate: '05.10.2026' }).success,
     ).toBe(false)
   })
+
+  it('rejects a syntactically valid but non-existent calendar date', () => {
+    expect(
+      createPayoutRequestSchema.safeParse({ transactionIds, txDate: '2026-02-31' }).success,
+    ).toBe(false)
+  })
 })
 
 describe('finance payment schemas — optional business date', () => {
@@ -64,6 +70,7 @@ describe('finance payment schemas — optional business date', () => {
   ] as const)('%s accepts YYYY-MM-DD and rejects another date format', (_name, schema, base) => {
     expect(schema.safeParse({ ...base, txDate: validDate }).success).toBe(true)
     expect(schema.safeParse({ ...base, txDate: invalidDate }).success).toBe(false)
+    expect(schema.safeParse({ ...base, txDate: '2026-02-31' }).success).toBe(false)
   })
 })
 

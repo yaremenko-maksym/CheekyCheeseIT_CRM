@@ -427,6 +427,14 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
     expect(issue?.message).toBe('zod.DATE_FORMAT_YYYYMMDD')
   })
 
+  it('rejects a syntactically valid but non-existent calendar date', () => {
+    const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: '2026-02-31' })
+    expect(result.success).toBe(false)
+    if (result.success) return
+    const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
+    expect(issue?.message).toBe('zod.DATE_FORMAT_YYYYMMDD')
+  })
+
   // Regex anchor coverage — a bare `\d{4}-\d{2}-\d{2}` (no `^`/`$`) would
   // accept these via a substring match; the schema must not.
   it('rejects a date string with trailing junk (missing $ anchor)', () => {

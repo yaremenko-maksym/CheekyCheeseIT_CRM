@@ -38,6 +38,7 @@ import {
   settlementConsumesTransfer,
 } from './onchain-tx'
 import { assertFoundAndVisible } from './transaction-visibility.util'
+import { resolveTransactionDate } from './transaction-date.util'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -76,29 +77,6 @@ export class CompanyAccountService {
     private readonly db: DatabaseService,
     private readonly etherscan: EtherscanService,
   ) {}
-
-  private resolveTxDate(rawTxDate: string | null | undefined): Date {
-    const now = new Date()
-    if (!rawTxDate) return now
-    const picked = new Date(rawTxDate)
-    if (Number.isNaN(picked.getTime())) return now
-    const sameDay =
-      picked.getUTCFullYear() === now.getUTCFullYear() &&
-      picked.getUTCMonth() === now.getUTCMonth() &&
-      picked.getUTCDate() === now.getUTCDate()
-    if (!sameDay) return picked
-    return new Date(
-      Date.UTC(
-        picked.getUTCFullYear(),
-        picked.getUTCMonth(),
-        picked.getUTCDate(),
-        now.getUTCHours(),
-        now.getUTCMinutes(),
-        now.getUTCSeconds(),
-        now.getUTCMilliseconds(),
-      ),
-    )
-  }
 
   /** The single company_account row, created in seed. Throws if missing. */
   private async getRow() {
@@ -403,7 +381,7 @@ export class CompanyAccountService {
             receiverLabel: COMPANY_ACCOUNT_LABEL,
             txHash,
             txFromAddress: onChainFromAddress,
-            txDate: this.resolveTxDate(input.txDate),
+            txDate: resolveTransactionDate(input.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -769,7 +747,7 @@ export class CompanyAccountService {
             // receiptDocumentId is always null here).
             receiptDocumentId: input.receiptDocumentId ?? null,
             receiptExternalUrl: input.receiptExternalUrl ?? null,
-            txDate: this.resolveTxDate(input.txDate),
+            txDate: resolveTransactionDate(input.txDate),
             // BIZ-19: persist the key so the unique index enforces idempotency
             // as a DB-level backstop (concurrent races that bypass the SELECT above).
             idempotencyKey: input.idempotencyKey ?? null,

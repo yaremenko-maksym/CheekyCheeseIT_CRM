@@ -99,6 +99,7 @@ import { resolveSeniorShare } from './senior-share-resolver'
 import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStates } from './salary-status.helper'
 import { previousSalaryMonthKey } from './salary-month.util'
+import { resolveTransactionDate } from './transaction-date.util'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
@@ -695,50 +696,6 @@ export class TransactionsService {
         `path=${params.path} transactionId=${params.transactionId} actorId=${params.actorId}. ` +
         `The receipt link carries no 0x+64hex tx hash, so the transfer stays spendable ` +
         `by another settlement path. Verify the receipt.`,
-    )
-  }
-
-  /**
-   * Resolve the business-time of a transaction from a user-supplied input.
-   *
-   * Frontend sends `txDate` from `<input type="date">` (YYYY-MM-DD) which the
-   * Date constructor parses to midnight UTC (00:00:00.000Z). This breaks
-   * sort-by-date — all "today's" rows tie at 00:00 and order falls back to
-   * unrelated keys (e.g. payouts with txDate=null land first because their
-   * `createdAt` carries the real time-of-day).
-   *
-   * Rule:
-   * - User picked nothing → `new Date()` (now, with full time-of-day).
-   * - User picked a *past* day (different YYYY-MM-DD vs today UTC) → keep
-   *   their pick as-is (midnight is correct for "this happened on day X").
-   * - User picked *today* → merge today's calendar date with current
-   *   time-of-day so the row sorts above same-day rows created earlier.
-   *
-   * This is fix-forward: legacy midnight rows are not migrated. The frontend
-   * sort tie-breaker handles them by falling through to `createdAt`.
-   */
-  private resolveTxDate(rawTxDate: string | null | undefined): Date {
-    const now = new Date()
-    if (!rawTxDate) return now
-    const picked = new Date(rawTxDate)
-    if (Number.isNaN(picked.getTime())) return now
-    // Compare UTC calendar dates (matches how the input is parsed).
-    const sameDay =
-      picked.getUTCFullYear() === now.getUTCFullYear() &&
-      picked.getUTCMonth() === now.getUTCMonth() &&
-      picked.getUTCDate() === now.getUTCDate()
-    if (!sameDay) return picked
-    // Same calendar day: keep picked date, fold in current time-of-day.
-    return new Date(
-      Date.UTC(
-        picked.getUTCFullYear(),
-        picked.getUTCMonth(),
-        picked.getUTCDate(),
-        now.getUTCHours(),
-        now.getUTCMinutes(),
-        now.getUTCSeconds(),
-        now.getUTCMilliseconds(),
-      ),
     )
   }
 
@@ -1981,7 +1938,7 @@ export class TransactionsService {
             txHash: onChainTxHash,
             notes: data.notes ?? null,
             fundingSource,
-            txDate: this.resolveTxDate(data.txDate),
+            txDate: resolveTransactionDate(data.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -2194,7 +2151,7 @@ export class TransactionsService {
             // registry claim below has a visible counterpart on the ledger.
             txHash: extractOnChainTxHash(data.receiptExternalUrl) ?? null,
             notes: data.notes ?? null,
-            txDate: this.resolveTxDate(data.txDate),
+            txDate: resolveTransactionDate(data.txDate),
             createdBy: currentUser.id,
           })
           .returning()
@@ -2439,7 +2396,7 @@ export class TransactionsService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -2590,7 +2547,7 @@ export class TransactionsService {
           receiptDocumentId: data.receiptDocumentId ?? null,
           receiptExternalUrl: data.receiptExternalUrl ?? null,
           notes: data.notes ?? null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -5270,7 +5227,7 @@ export class TransactionsService {
     const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
 
     const now = new Date()
-    const confirmationTxDate = this.resolveTxDate(options.txDate)
+    const confirmationTxDate = resolveTransactionDate(options.txDate)
     const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
@@ -5444,7 +5401,7 @@ export class TransactionsService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       fundingSource,
-      txDate: this.resolveTxDate(data.txDate),
+      txDate: resolveTransactionDate(data.txDate),
       createdBy: currentUser.id,
     }
 
@@ -5619,7 +5576,7 @@ export class TransactionsService {
           idempotencyKey: data.idempotencyKey,
           notes: data.notes ?? null,
           fundingSource: null,
-          txDate: this.resolveTxDate(data.txDate),
+          txDate: resolveTransactionDate(data.txDate),
           createdBy: currentUser.id,
         })
         .returning()
@@ -5758,7 +5715,7 @@ export class TransactionsService {
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
-        txDate: this.resolveTxDate(data.txDate),
+        txDate: resolveTransactionDate(data.txDate),
         createdBy: currentUser.id,
       })
       .returning()
@@ -6033,7 +5990,7 @@ export class TransactionsService {
         // Persist the operator-selected business date on the ledger row.
         // Omitting txDate stays backward-compatible at the API boundary and
         // resolves to "now", matching the old createdAt-based business day.
-        txDate: this.resolveTxDate(txDate),
+        txDate: resolveTransactionDate(txDate),
         createdBy: currentUser.id,
       })
 
@@ -6609,7 +6566,7 @@ export class TransactionsService {
             throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
           }
         }
-        const paymentTxDate = txDate ? this.resolveTxDate(txDate) : undefined
+        const paymentTxDate = txDate ? resolveTransactionDate(txDate) : undefined
 
         // ── SECURITY (LOW #6, defense-in-depth): in-transaction txHash-reuse guard.
         // For the manual COMPANY_ACCOUNT path the on-chain hash credits the company
@@ -8663,7 +8620,7 @@ export class TransactionsService {
         : null
 
     // task-salary-pay-flow: stamp txDate = the actual payment business date.
-    // When legacy callers omit it, resolveTxDate preserves the old "now"
+    // When legacy callers omit it, resolveTransactionDate preserves the old "now"
     // behaviour; the UI supplies the operator-selected calendar day.
     const paidSet = {
       status: 'PAID' as const,
@@ -8688,7 +8645,7 @@ export class TransactionsService {
       receiptDocumentId: data.receiptDocumentId ?? null,
       receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
-      txDate: this.resolveTxDate(data.txDate),
+      txDate: resolveTransactionDate(data.txDate),
       updatedAt: new Date(),
     }
 
