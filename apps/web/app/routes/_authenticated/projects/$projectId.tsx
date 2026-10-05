@@ -22,20 +22,13 @@ import {
   Users,
 } from 'lucide-react'
 import { useState } from 'react'
-import type {
-  ProjectDto,
-  ProjectDetailDto,
-  ProjectMemberDto,
-  UpdateProjectDto,
-  Role,
-} from '@crm/shared'
+import type { ProjectDto, ProjectDetailDto, ProjectMemberDto, UpdateProjectDto } from '@crm/shared'
 import { IT_DOMAINS, type ItDomain, formatDate, formatNumber } from '@crm/shared'
 import { type ExchangeRates, fmtUsd } from '@/routes/_authenticated/finance/constants'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
 import { useLocale } from '@/lib/i18n'
-import { cn } from '@/lib/utils'
 import { getInitialsBySpaceSplit } from '@/lib/initials'
 import { ROLE_LABEL_MESSAGES } from '@/components/ui/role-select'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
@@ -56,7 +49,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/crm-dialog'
-import { EDIT_FIELD_LABEL_MESSAGES, PAYMENT_TYPE_MESSAGES, ROLE_VARIANT } from './constants'
+import { EDIT_FIELD_LABEL_MESSAGES, PAYMENT_TYPE_MESSAGES } from './constants'
 import { ProjectEditFields } from './ProjectEditFields'
 import { InfoRow, ProjectShareInfo, ProjectDropShareInfo } from './ProjectInfoRows'
 import { PendingShareApprovalBanner, ProjectHeaderApprovalNote } from './ProjectApprovalBanners'
@@ -64,6 +57,7 @@ import { ProjectEffectiveTeamCard, MemberRow } from './ProjectTeamCards'
 import { ProjectTransactions } from './ProjectTransactions'
 import { useProjectPermissions } from './use-project-permissions'
 import { ProjectDropDialogs } from './ProjectDropDialogs'
+import { ProjectMemberDialogs, type UserForAdd } from './ProjectMemberDialogs'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -101,7 +95,6 @@ function ProjectDetailPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [addedMemberIds, setAddedMemberIds] = useState<Set<string>>(new Set())
-  const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set())
   const [removeMemberTarget, setRemoveMemberTarget] = useState<ProjectMemberDto | null>(null)
   const [activeTab, setActiveTab] = useState<'overview' | 'members' | 'finance'>('overview')
   // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
@@ -222,51 +215,10 @@ function ProjectDetailPage() {
   // therefore removed.
   // Archive is triggered via the explicit Archive button → ArchiveConfirmDialog.
 
-  const removeMemberMutation = useMutation({
-    mutationFn: (userId: string) => api.delete(`/projects/${projectId}/members/${userId}`),
-    onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId] })
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      setRemoveMemberTarget(null)
-    },
-  })
-
-  type UserForAdd = {
-    id: string
-    displayName: string
-    email: string
-    role: string
-    avatarUrl: string | null
-    avatarDocumentId: string | null
-    hasActiveProject: boolean
-  }
-
   const { data: allUsers } = useQuery({
     queryKey: ['users'],
     queryFn: () => api.get<UserForAdd[]>('/users').then((r) => r.data),
     enabled: canManage,
-  })
-
-  const addMemberMutation = useMutation({
-    mutationFn: (userId: string) => api.post(`/projects/${projectId}/members`, { userId }),
-    onSuccess: (_, userId) => {
-      void qc.invalidateQueries({ queryKey: ['projects', projectId] })
-      void qc.invalidateQueries({ queryKey: ['projects'] })
-      void qc.invalidateQueries({ queryKey: ['users'] })
-      setAddedMemberIds((prev) => new Set(prev).add(userId))
-      setPendingMemberIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
-    },
-    onError: (_, userId) => {
-      setPendingMemberIds((prev) => {
-        const next = new Set(prev)
-        next.delete(userId)
-        return next
-      })
-    },
   })
 
   function openEdit() {
@@ -967,109 +919,16 @@ function ProjectDetailPage() {
             )}
           </CrmDialogContent>
         </Dialog>
-        {/* ── Remove member confirm ── */}
-        <Dialog open={!!removeMemberTarget} onOpenChange={(v) => !v && setRemoveMemberTarget(null)}>
-          <CrmDialogContent maxWidth="sm:max-w-sm">
-            <CrmDialogHeader>
-              <DialogTitle>
-                <Trans>Прибрати зі складу?</Trans>
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                <Trans>Підтвердження видалення учасника зі складу проєкту.</Trans>
-              </DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody className="pb-2">
-              <p className="text-sm text-muted-foreground">
-                <Trans>
-                  <span className="font-medium text-foreground">
-                    {removeMemberTarget?.displayName}
-                  </span>{' '}
-                  більше не буде у складі проєкту.
-                </Trans>
-              </p>
-            </CrmDialogBody>
-            <CrmDialogFooter>
-              <Button variant="outline" onClick={() => setRemoveMemberTarget(null)}>
-                <Trans>Скасувати</Trans>
-              </Button>
-              <Button
-                variant="destructive"
-                onClick={() =>
-                  removeMemberTarget && removeMemberMutation.mutate(removeMemberTarget.userId)
-                }
-                disabled={removeMemberMutation.isPending}
-              >
-                <Trans>Прибрати</Trans>
-              </Button>
-            </CrmDialogFooter>
-          </CrmDialogContent>
-        </Dialog>
-        {/* ── Add member ── */}
-        <Dialog
-          open={addMemberOpen}
-          onOpenChange={(v) => {
-            if (!v) setAddMemberOpen(false)
-          }}
-        >
-          <CrmDialogContent maxWidth="max-w-sm">
-            <CrmDialogHeader>
-              <DialogTitle>
-                <Trans>Додати до складу</Trans>
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                <Trans>Вибір учасників для додавання до складу проєкту.</Trans>
-              </DialogDescription>
-            </CrmDialogHeader>
-            <CrmDialogBody>
-              <div className="max-h-72 space-y-1.5 overflow-y-auto">
-                {availableToAdd.length === 0 && (
-                  <p className="text-sm text-muted-foreground py-2">
-                    <Trans>Немає кого додати</Trans>
-                  </p>
-                )}
-                {availableToAdd.map((u) => {
-                  const isAdded = addedMemberIds.has(u.id)
-                  const isPending = pendingMemberIds.has(u.id)
-                  return (
-                    <div key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
-                      <Avatar className="h-7 w-7 shrink-0">
-                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                        <AvatarFallback className="text-[10px]">
-                          {getInitialsBySpaceSplit(u.displayName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{u.displayName}</p>
-                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                      </div>
-                      <Badge
-                        variant={ROLE_VARIANT[u.role] ?? 'junior'}
-                        className="shrink-0 text-[9px]"
-                      >
-                        {i18n._(ROLE_LABEL_MESSAGES[u.role as Role])}
-                      </Badge>
-                      <Button
-                        size="sm"
-                        variant={isAdded ? 'outline' : 'default'}
-                        className={cn(
-                          'shrink-0 h-7 text-xs px-2.5',
-                          isAdded && 'text-emerald-500 border-emerald-500/40',
-                        )}
-                        disabled={isAdded || isPending}
-                        onClick={() => {
-                          setPendingMemberIds((prev) => new Set(prev).add(u.id))
-                          addMemberMutation.mutate(u.id)
-                        }}
-                      >
-                        {isAdded ? t`Додано` : isPending ? t`Додаємо…` : t`Додати`}
-                      </Button>
-                    </div>
-                  )
-                })}
-              </div>
-            </CrmDialogBody>
-          </CrmDialogContent>
-        </Dialog>
+        <ProjectMemberDialogs
+          projectId={projectId}
+          removeMemberTarget={removeMemberTarget}
+          onCloseRemoveMember={() => setRemoveMemberTarget(null)}
+          addMemberOpen={addMemberOpen}
+          onCloseAddMember={() => setAddMemberOpen(false)}
+          availableToAdd={availableToAdd}
+          addedMemberIds={addedMemberIds}
+          onMemberAdded={(userId) => setAddedMemberIds((prev) => new Set(prev).add(userId))}
+        />
         <ProjectDropDialogs
           projectId={projectId}
           currentDropDisplayName={project.effectiveTeam?.drop?.displayName}
