@@ -91,8 +91,10 @@ function project(overrides: Record<string, unknown> = {}): ProjectDetailDto {
 
 const TXS = [{ id: 'tx-1' }, { id: 'tx-2' }]
 
+let qc: QueryClient
+
 function renderIt(p: ProjectDetailDto = project()) {
-  const qc = new QueryClient({
+  qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
   return render(
@@ -126,6 +128,30 @@ describe('ProjectTransactions', () => {
     expect(mocks.getTransactions).toHaveBeenCalledTimes(1)
     expect(mocks.getTransactions).toHaveBeenCalledWith({ projectId: PROJECT_ID })
     expect(mocks.apiGet).toHaveBeenCalledWith('/finance/exchange-rate')
+  })
+
+  it('caches the transactions and the rate under their exact keys with the exact stale times', async () => {
+    renderIt()
+    await screen.findByTestId('row-tx-1')
+    await waitFor(() =>
+      expect(screen.getByTestId('row-btn-tx-1')).toHaveAttribute('data-rate', '41.5'),
+    )
+    expect(qc.getQueryData(['transactions', { projectId: PROJECT_ID }])).toEqual(TXS)
+    expect(qc.getQueryData(['exchange-rate', 'today'])).toEqual({ usdToUah: 41.5 })
+    const staleTimeOf = (key: unknown[]) =>
+      (
+        qc.getQueryCache().find({ queryKey: key })?.observers[0]?.options as
+          { staleTime?: number } | undefined
+      )?.staleTime
+    expect(staleTimeOf(['transactions', { projectId: PROJECT_ID }])).toBe(30000)
+    expect(staleTimeOf(['exchange-rate', 'today'])).toBe(3600000)
+  })
+
+  it('falls back to the empty message when the transactions query failed (no data, not loading)', async () => {
+    mocks.getTransactions.mockRejectedValue(new Error('boom'))
+    renderIt()
+    expect(await screen.findByText('Транзакцій по проєкту ще немає')).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
   })
 
   it('shows the card title and three skeleton rows while loading', () => {
@@ -228,6 +254,13 @@ describe('ProjectTransactions', () => {
       mocks.user = { id: DROP_ID, role: 'DROP' }
       renderIt()
       expect(screen.getByTestId('drop-distribution')).toBeInTheDocument()
+      await screen.findByTestId('row-tx-1')
+    })
+
+    it('a DROP whose id equals the project senior id does not get senior visibility', async () => {
+      mocks.user = { id: SENIOR_ID, role: 'DROP' }
+      renderIt()
+      expect(screen.queryByTestId('drop-distribution')).not.toBeInTheDocument()
       await screen.findByTestId('row-tx-1')
     })
 

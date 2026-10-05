@@ -78,6 +78,7 @@ export function ProjectTransactions({
                 testId="project-transactions-senior-share"
                 badgeTestId="project-transactions-senior-share-override-badge"
                 canCancelPendingShare={canEditOverride}
+                // Stryker disable next-line OptionalChaining: `user` is narrowed non-null by the early return above, so `user?.id` and `user.id` are indistinguishable at runtime
                 viewerId={user?.id}
               />
             </div>
