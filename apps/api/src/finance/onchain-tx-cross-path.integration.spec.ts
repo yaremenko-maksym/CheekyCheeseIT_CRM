@@ -14,7 +14,6 @@ import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
-import { uniqueViolationConstraint } from '../database/pg-errors'
 import { CompanyAccountService } from './company-account.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -795,21 +794,13 @@ describe.skipIf(!hasDatabaseUrl())(
         expect(audit).toBeDefined()
       })
 
-      // ── MED-Q (round 6): only a REGISTRY conflict may blame the hash ─────────
-      // The reviewer's counterexample: an admin edit that also sets `salaryMonth`
-      // can trip `uq_transactions_salary_receiver_month`. Reporting that as
-      // «хеш уже использован» sends the operator hunting a hash they never
-      // touched — the same "confidently wrong message" class fixed elsewhere.
-      it('admin-edit does NOT report an unrelated unique violation as a hash reuse', async () => {
+      // Multipart salary deliberately removes the old receiver/month uniqueness.
+      // Pin that the admin-edit path now accepts moving an unpaid salary onto a
+      // month that already contains another part for the same receiver.
+      it('admin-edit allows multiple salary parts for one receiver/month', async () => {
         const takenMonth = '2031-03'
         const freeMonth = '2031-04'
 
-        // `uq_transactions_salary_receiver_month` is PARTIAL — it binds only rows
-        // with `type='SALARY' AND salary_month IS NOT NULL`. So the row under
-        // edit must itself be a SALARY, and it must be UNPAID: a PAID row is
-        // rejected by the settled-fields guard long before the claim handler this
-        // test is about. (Round 6 used a PAID ADMIN_INCOME and therefore proved
-        // nothing — MED-R.)
         await dbSvc.db.insert(transactions).values({
           type: 'SALARY',
           status: 'PENDING',
@@ -832,25 +823,18 @@ describe.skipIf(!hasDatabaseUrl())(
           })
           .returning()
 
-        // Moving it onto the taken month trips the SALARY index — a conflict that
-        // has nothing to do with any tx hash.
-        const err = await svc
-          .adminUpdateTransaction(editable!.id, { salaryMonth: takenMonth }, ADMIN)
-          .then(
-            () => null,
-            (e: unknown) => e,
-          )
+        await expect(
+          svc.adminUpdateTransaction(editable!.id, { salaryMonth: takenMonth }, ADMIN),
+        ).resolves.toBeDefined()
 
-        expect(err).not.toBeNull()
-        // The whole point: the operator must NOT be sent hunting a hash.
-        expect(String((err as Error).message)).not.toMatch(/уже использован/)
-        // Positive assert (item 13, BACKLOG-followups.md): a negative match alone
-        // proves nothing about WHICH check actually fired — an early return before
-        // ever reaching `isRegistryConflict` would leave this test green while
-        // silently losing the coverage it claims to have. Pin the actual violated
-        // constraint so the test only passes when execution genuinely reached the
-        // salary-month unique index (not some unrelated/no-op failure).
-        expect(uniqueViolationConstraint(err)).toBe('uq_transactions_salary_receiver_month')
+        const rows = await dbSvc.db.query.transactions.findMany({
+          where: and(
+            eq(transactions.type, 'SALARY'),
+            eq(transactions.receiverId, SENIOR.id),
+            eq(transactions.salaryMonth, takenMonth),
+          ),
+        })
+        expect(rows).toHaveLength(2)
 
         await dbSvc.db
           .delete(transactions)

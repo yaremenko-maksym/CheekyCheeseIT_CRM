@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
@@ -231,7 +232,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await cleanup()
       // No company deposit seeded — createSalary must NOT gate on the balance now.
       const tx = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 400, currency: 'USD', salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 400,
+          currency: 'USD',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       expect(tx.status).toBe('PENDING')
@@ -248,7 +255,12 @@ describe.skipIf(!hasDatabaseUrl())(
       // must succeed (no funding source chosen at creation).
       const big = (await liveBalance()) + 1_000_000
       const tx = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: big, salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: big,
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       expect(tx.status).toBe('PENDING')
@@ -261,7 +273,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await seedCompanyDeposit(1000)
       const before = await myContribution() // +1000 deposit, 0 salary
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: 600, currency: 'USD', salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: 600,
+          currency: 'USD',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       // Pay it from the company account. A non-USDT currency is overridden to USDT.
@@ -296,7 +314,12 @@ describe.skipIf(!hasDatabaseUrl())(
       // No deposit → ask for far more than the live balance so the gate trips.
       const tooMuch = (await liveBalance()) + 1_000_000
       const pending = await svc.createSalary(
-        { receiverId: JUNIOR.id, amount: tooMuch, salaryMonth: '2026-06' },
+        {
+          receiverId: JUNIOR.id,
+          amount: tooMuch,
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await expect(
@@ -325,7 +348,13 @@ describe.skipIf(!hasDatabaseUrl())(
       await seedCompanyDeposit(1000)
       const before = await myContribution()
       const pending = await svc.createSalary(
-        { receiverId: SENIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-06' },
+        {
+          receiverId: SENIOR.id,
+          amount: 100,
+          currency: 'USD',
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
@@ -354,7 +383,12 @@ describe.skipIf(!hasDatabaseUrl())(
     it('paySalary ADMIN_PERSONAL with a NON-ADMIN payerAdminId → BadRequest', async () => {
       await cleanup()
       const pending = await svc.createSalary(
-        { receiverId: SENIOR.id, amount: 100, salaryMonth: '2026-06' },
+        {
+          receiverId: SENIOR.id,
+          amount: 100,
+          salaryMonth: '2026-06',
+          idempotencyKey: randomUUID(),
+        },
         ADMIN,
       )
       await expect(
@@ -378,7 +412,15 @@ describe.skipIf(!hasDatabaseUrl())(
     it('#222 invariant preserved: ADMIN receiver rejected at createSalary', async () => {
       await cleanup()
       await expect(
-        svc.createSalary({ receiverId: ADMIN2.id, amount: 100, salaryMonth: '2026-06' }, ADMIN),
+        svc.createSalary(
+          {
+            receiverId: ADMIN2.id,
+            amount: 100,
+            salaryMonth: '2026-06',
+            idempotencyKey: randomUUID(),
+          },
+          ADMIN,
+        ),
       ).rejects.toMatchObject({
         response: expect.objectContaining({ code: 'FINANCE_ADMIN_NO_SALARY' }),
       })

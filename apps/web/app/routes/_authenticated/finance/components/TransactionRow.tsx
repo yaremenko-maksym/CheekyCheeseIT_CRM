@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   Receipt,
   RotateCcw,
+  Plus,
 } from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
@@ -336,6 +337,7 @@ type TransactionRowProps = {
   onAdminEdit?: (tx: TransactionDto) => void
   onDelete?: (tx: TransactionDto) => void
   onPaySalary?: (tx: TransactionDto) => void
+  onAddSalaryPart?: (tx: TransactionDto) => void
   /**
    * task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT clicks «Выплатить» on a
    * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) to pay the senior their
@@ -406,6 +408,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onAdminEdit,
       onDelete,
       onPaySalary,
+      onAddSalaryPart,
       onSettleSeniorPayout,
       onInitiatePayout,
       onOpenPayoutDetail,
@@ -453,6 +456,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     const canEdit =
       !isDeleted && isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
     const canPaySalary = !isDeleted && isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
+    const canAddSalaryPart = !isDeleted && (isAdmin || isAccountant) && tx.type === 'SALARY'
     // task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT see «Выплатить» on a
     // SENIOR_PENDING_PAYOUT row (the company's IOU to a senior from a
     // drop-project) while it is still PENDING_PAYMENT. Clicking settles the IOU
@@ -763,6 +767,18 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 data-testid={`tx-row-pay-salary-${tx.id}`}
               >
                 {t`Розрахуватися`}
+              </Button>
+            )}
+            {canAddSalaryPart && onAddSalaryPart && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                onClick={() => onAddSalaryPart(tx)}
+                data-testid={`tx-row-add-salary-part-${tx.id}`}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                {t`Додати частину зарплати`}
               </Button>
             )}
             {canSettleSeniorPayout && onSettleSeniorPayout && (

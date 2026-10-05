@@ -965,7 +965,7 @@ export type CascadeLedgerFactReason = z.infer<typeof cascadeLedgerFactReasonSche
 export const PAID_ROW_LOCKED_FIELD_ERROR_CODES = {
   /** One PAID non-USDT company-shaped row halts every payout in the system (`assertNoOffCurrencyCompanyRows`). */
   CURRENCY: 'FINANCE_PAID_ROW_CURRENCY_LOCKED',
-  /** Keys monthly aggregates and a unique index (`uq_transactions_salary_receiver_month`). */
+  /** Keys historical monthly salary aggregates and invoice/reporting context. */
   SALARY_MONTH: 'FINANCE_PAID_ROW_SALARY_MONTH_LOCKED',
 } as const satisfies Record<'CURRENCY' | 'SALARY_MONTH', FinanceInvoicesErrorCode>
 

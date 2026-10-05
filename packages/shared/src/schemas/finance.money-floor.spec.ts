@@ -303,7 +303,21 @@ describe('createExpenseSchema.amount — floor', () => {
 
 // ── AC2 — the headline case from the task file, verbatim ───────────────────
 describe('createSalarySchema.amount — floor (AC2, the field flagged in the task)', () => {
-  const base = { receiverId: RECEIVER_ID, salaryMonth: '2026-08' }
+  const base = {
+    receiverId: RECEIVER_ID,
+    salaryMonth: '2026-08',
+    idempotencyKey: IDEMPOTENCY_KEY,
+  }
+
+  it('requires an idempotency key for every manual salary intent', () => {
+    const { idempotencyKey: _omitted, ...withoutKey } = base
+    expect(createSalarySchema.safeParse({ ...withoutKey, amount: 100 }).success).toBe(false)
+    expect(
+      createSalarySchema.safeParse({ ...withoutKey, amount: 100, idempotencyKey: 'not-a-uuid' })
+        .success,
+    ).toBe(false)
+    expect(createSalarySchema.safeParse({ ...base, amount: 100 }).success).toBe(true)
+  })
 
   it('createSalary(amount: 1e-7) is REJECTED, not written as an obligation for zero', () => {
     const result = createSalarySchema.safeParse({ ...base, amount: TOO_SMALL })

@@ -267,13 +267,10 @@ describe.skipIf(!hasDatabaseUrl())(
 
     const tokenFor = (u: SessionUser) => jwt.sign(u)
 
-    // Audit 2026-06-27 (LOW #5): the partial unique index
-    // `uq_transactions_salary_receiver_month` allows at most ONE SALARY per
-    // (receiver, month). Each test seeds its own fresh PENDING salary, so the
-    // month MUST be unique per seed — otherwise the 2nd seed would hit the unique
-    // constraint. A monotonic month counter keeps every seeded row distinct.
+    // Keep every seeded salary on a distinct synthetic month so each RBAC case
+    // remains isolated even though multipart salary now permits shared months.
     let salaryMonthSeq = 0
-    /** Seed a fresh PENDING SALARY tx authored by ADMIN (unique month), return id. */
+    /** Seed a fresh PENDING SALARY tx authored by ADMIN, return id. */
     async function seedPendingSalary(): Promise<string> {
       salaryMonthSeq += 1
       // 2030-01 .. 2030-12 .. then wrap into 2031 — always a valid YYYY-MM, always

@@ -96,7 +96,21 @@ export type MoveInterviewDto = z.infer<typeof moveInterviewSchema>
 //   activeProjects  — number of non-archived projects whose seniorId belongs to
 //                     the HR's accessible seniors (HR-scoped; ADMIN sees all).
 //                     Uses the same team-scope logic as openInterviews.
+// Existing wire contract. Keep this byte-compatible for already-loaded
+// frontend bundles: mySalaryState used this enum before multipart salary.
 export const salaryStatusSchema = z.enum(['PENDING', 'PAID', 'LOCKED'])
+
+// Multipart-only aggregate status. This is exposed through a NEW additive
+// field below so old clients never have to parse a value they do not know.
+export const multipartSalaryStatusSchema = z.enum(['PENDING', 'PARTIALLY_PAID', 'PAID', 'LOCKED'])
+
+export const salaryCurrencyTotalSchema = z.object({
+  currency: currencySchema,
+  amount: z.number(),
+  paidAmount: z.number(),
+  pendingAmount: z.number(),
+  lockedAmount: z.number(),
+})
 
 // DEPRECATED — kept BYTE-IDENTICAL to the pre-E-6 shape (nullable, no `state`
 // key) for backward compatibility with an already-loaded OLD frontend bundle.
@@ -175,6 +189,25 @@ export const mySalaryStateSchema = z.discriminatedUnion('state', [
   }),
 ])
 
+// Multipart salary details live on an additive field rather than reshaping
+// mySalaryState. A browser tab running the pre-multipart bundle parses
+// mySalaryState strictly; changing its EXISTS shape/status enum would make the
+// entire senior-summary query fail on the first refetch after deployment.
+export const mySalaryAggregateStateSchema = z.discriminatedUnion('state', [
+  z.object({ state: z.literal('NOT_CONFIGURED') }),
+  z.object({ state: z.literal('NOT_CRON_ELIGIBLE') }),
+  z.object({ state: z.literal('AWAITING_CREATION') }),
+  z.object({
+    state: z.literal('EXISTS'),
+    // Convenience aggregate only when every part uses the same currency.
+    amount: z.number().nullable(),
+    currency: currencySchema.nullable(),
+    status: multipartSalaryStatusSchema,
+    transactionCount: z.number().int().positive(),
+    totals: z.array(salaryCurrencyTotalSchema).min(1),
+  }),
+])
+
 export const hrSummarySchema = z.object({
   openInterviews: z.number().int().nonnegative(),
   hiredThisMonth: z.number().int().nonnegative(),
@@ -182,8 +215,11 @@ export const hrSummarySchema = z.object({
 })
 
 export type SalaryStatus = z.infer<typeof salaryStatusSchema>
+export type MultipartSalaryStatus = z.infer<typeof multipartSalaryStatusSchema>
+export type SalaryCurrencyTotal = z.infer<typeof salaryCurrencyTotalSchema>
 export type MySalaryStatusDto = z.infer<typeof mySalaryStatusSchema>
 export type MySalaryStateDto = z.infer<typeof mySalaryStateSchema>
+export type MySalaryAggregateStateDto = z.infer<typeof mySalaryAggregateStateSchema>
 export type HrSummaryDto = z.infer<typeof hrSummarySchema>
 
 // ---------------------------------------------------------------------------

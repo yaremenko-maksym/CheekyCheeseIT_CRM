@@ -490,7 +490,13 @@ test.describe('Transaction receipts — pay/settle без чека → блок'
     // other specs/runs have accumulated.
     const receiverId = await userIdByEmail(page, SEED_EMAILS.juniorA)
     const createRes = await page.request.post(`${REAL_API}/transactions/salary`, {
-      data: { receiverId, amount: 654, currency: 'USD', salaryMonth: randomSalaryMonth() },
+      data: {
+        receiverId,
+        amount: 654,
+        currency: 'USD',
+        salaryMonth: randomSalaryMonth(),
+        idempotencyKey: crypto.randomUUID(),
+      },
     })
     expect(createRes.status()).toBeLessThan(300)
     const salaryTx = (await createRes.json()) as { id: string }
@@ -586,7 +592,13 @@ test.describe('Transaction receipts — attach/replace (RBAC + статусы)',
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const receiverId = await userIdByEmail(page, SEED_EMAILS.hrA)
     const createRes = await page.request.post(`${REAL_API}/transactions/salary`, {
-      data: { receiverId, amount: 500, currency: 'USD', salaryMonth: randomSalaryMonth() },
+      data: {
+        receiverId,
+        amount: 500,
+        currency: 'USD',
+        salaryMonth: randomSalaryMonth(),
+        idempotencyKey: crypto.randomUUID(),
+      },
     })
     const salaryTx = (await createRes.json()) as { id: string }
 
@@ -766,7 +778,13 @@ test.describe('Transaction receipts — регрессия истории', () =
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     const receiverId = await userIdByEmail(page, SEED_EMAILS.hrB)
     const createRes = await page.request.post(`${REAL_API}/transactions/salary`, {
-      data: { receiverId, amount: 111, currency: 'USD', salaryMonth: randomSalaryMonth() },
+      data: {
+        receiverId,
+        amount: 111,
+        currency: 'USD',
+        salaryMonth: randomSalaryMonth(),
+        idempotencyKey: crypto.randomUUID(),
+      },
     })
     const salaryTx = (await createRes.json()) as { id: string }
 
