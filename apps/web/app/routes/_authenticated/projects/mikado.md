@@ -25,9 +25,10 @@
   (предпосылка `ROLE_VARIANT` вынесена в `constants.ts` — общая для `MemberRow` и страницы)
 - [todo] `ProjectTransactions`
 - [done] `ProjectUnarchiveHeaderButton`, `ProjectCascadeUnarchiveModal` -> `ProjectUnarchive.tsx`
-- [todo] константы/типы -> существующий `constants.ts`: `EDIT_FIELD_LABEL_MESSAGES`, (`ROLE_VARIANT` — done),
-  `coerceDomain`, `AnyField`, `AnyForm`
-- [todo] `ProjectEditFields` (+ константы выше как предпосылка) -> свой файл
+- [done] `EDIT_FIELD_LABEL_MESSAGES` -> `constants.ts` (общая для страницы и `ProjectEditFields`);
+  `AnyField`/`AnyForm` переехали в `ProjectEditFields.tsx` (нужны только ему); `coerceDomain` остаётся в странице
+  (используется только ею)
+- [done] `ProjectEditFields` -> `ProjectEditFields.tsx` (лист 5)
 - [todo] хук `useProjectPermissions(user, project)` (7 производных RBAC-флагов; риск-зона `canSeeProjectFinance`)
 - [todo] хук `useProjectDropMutations`
 
