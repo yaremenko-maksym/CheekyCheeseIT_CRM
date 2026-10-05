@@ -14,7 +14,7 @@ English is the language of **collaboration and the repository**. Ukrainian and E
 
 **English (required) — everything an agent writes or that lands in the repo:**
 
-- Every assistant / agent message, status update, report, and the body of every PR review
+- Every assistant / agent message, status update, report, and the body of every PR review — **except the owner↔Claude chat (see below)**
 - Every Master dispatch prompt to a sub-agent
 - PR titles and bodies, commit message bodies, code comments
 - Task files, briefs, ADRs, the backlog, agent memory, and everything under `.claude/**`
@@ -34,7 +34,7 @@ The product ships in **`uk` (default) and `en`** through Lingui catalogs (owner 
 - All visible text in `apps/web` (headings, buttons, toasts, empty states, `aria-label`, `title`, `placeholder`)
 - Emails and in-app notifications — by the recipient's locale
 - Invoice PDFs — by the recipient's locale
-- API error texts — codes live in `packages/shared/src/schemas/api-errors.ts`; the displayed text comes from the client-side catalog
+- API error texts — codes live in `packages/shared/src/schemas/api-errors.ts`; the displayed text comes from the client-side catalog. The fallback `message` in the error envelope stays **English** (for logs and clients without a catalog)
 
 Russian product text is **removed module by module** (stage 3 of the spec). Until a module is migrated, its existing Russian strings are left untouched; **new and changed** strings are written in `uk` + `en` and wrapped in Lingui macros right away — a literal string in any language inside a migrated module is a review finding.
 
