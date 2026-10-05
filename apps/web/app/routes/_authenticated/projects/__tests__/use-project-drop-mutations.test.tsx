@@ -43,10 +43,12 @@ describe('useProjectDropMutations', () => {
   it('attach: PATCHes { dropId } to the project and returns data', async () => {
     patch.mockResolvedValue({ data: { id: 'proj-1' } })
     const { hook } = setup()
+    let data: unknown
     await act(async () => {
-      await hook.result.current.dropMutation.mutateAsync('drop-9')
+      data = await hook.result.current.dropMutation.mutateAsync('drop-9')
     })
     expect(patch).toHaveBeenCalledWith('/projects/proj-1', { dropId: 'drop-9' })
+    expect(data).toEqual({ id: 'proj-1' })
   })
 
   it('detach: PATCHes { dropId: null }', async () => {
