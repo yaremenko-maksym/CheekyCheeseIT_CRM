@@ -57,7 +57,7 @@ If you catch yourself thinking "I have a better idea" — STOP, re-read the rela
 | Priority    | Constraint                                                                                   |
 | ----------- | -------------------------------------------------------------------------------------------- |
 | 1 (highest) | **Hard safety/legal** (no secrets in code, escalation zones, no destructive ops without user OK) |
-| 2           | **Explicit project requirements** (Russian language, RBAC/finance invariants, version-pins) |
+| 2           | **Explicit project requirements** (language policy: English for repo/collaboration, product i18n uk/en, Russian only in the owner↔Claude chat; RBAC/finance invariants; version-pins) |
 | 3           | **Battle-tested external patterns** (adopt as-is)                                            |
 | 4 (lowest)  | **Local conventions / taste**                                                                |
 

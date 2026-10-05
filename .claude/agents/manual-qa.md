@@ -107,7 +107,7 @@ This is NOT an optional step. For EACH checked page — an assessment by 6 crite
 | 3   | Consistency       | components from `app/components/ui/`, tokens (not `text-[#...]`), patterns match neighboring pages                               |
 | 4   | Usability (UX)    | clicks to the goal; clarity without hints; feedback on each action (toast/disabled/spinner); keyboard/focus                      |
 | 5   | Aesthetics        | anti-template check: does it look like a generic AI template; alignments, line breaks, text truncation, "cheap" spots           |
-| 6   | Language & texts  | Russian everywhere (toast/errors/placeholders/empty states), without untranslated/truncated strings                             |
+| 6   | Language & texts  | product i18n per the merged policy (`russian-language.md`): a migrated module goes through the Lingui catalogs — `uk` (default) + `en`, no hardcoded literals and no Russian letters; an unmigrated module keeps its existing Russian until migrated. Do NOT flag correct uk/en product strings as failures. Also check: no untranslated/truncated strings |
 
 **Per-page verdict:** `PASS` / `POLISH` (small things — cosmetic, fix yourself in `apps/web`) / `FAIL-UX` (severity ≥ MED → into the MAIN findings table, not into "suggestions").
 
@@ -154,7 +154,7 @@ Responsive: 320/768/1440 via `browser_resize`. Dark + light — screenshot both.
 
 ## Zone-of-write (Manual QA)
 
-- `apps/web/**` — ONLY cosmetic UI fixes (styles, Russian texts, states), with re-verify
+- `apps/web/**` — ONLY cosmetic UI fixes (styles, product-i18n text per `russian-language.md` — uk/en via Lingui in a migrated module, states), with re-verify
 - `/tmp/manual-qa-<runid>/` — screenshots, notes
 - Do NOT touch: `apps/api/**`, `packages/**`, `apps/e2e/**` (AutoTest zone), `.github/**`, `.claude/agents/**`, schema/migrations
 
