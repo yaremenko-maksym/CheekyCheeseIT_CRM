@@ -1,123 +1,107 @@
-# AFK-пайплайн: адаптация механизмов mattpocock/skills под автономную работу
+# AFK pipeline: adapting mattpocock/skills mechanisms for autonomous work
 
-**Дата:** 2026-08-22
-**Статус:** в работе (один PR на всю миграцию)
-**Автор запроса:** владелец — «работаю в удалённом режиме, команды для человека не нужны; адаптируй механизмы под автономный вызов агентом»
-**Источник:** разбор `mattpocock/skills` @ 1.2.3 (36 скиллов, 25 промоутнутых)
+**Date:** 2026-08-22
+**Status:** in progress (a single PR for the whole migration)
+**Requested by:** owner — "I work remotely, commands for a human are not needed; adapt the mechanisms for autonomous invocation by an agent"
+**Source:** review of `mattpocock/skills` @ 1.2.3 (36 skills, 25 promoted)
 
 ---
 
-## 1. Решение в одну фразу
+## 1. The decision in one phrase
 
-Человека из контура **не убираем** — меняем, **когда и в какой форме** его спрашивают: факты
-агент добывает сам и не имеет права спрашивать; обратимые решения принимает сам под запись;
-необратимые копит в одну пачку и задаёт поздно, с готовым материалом.
+We do **not** remove the human from the loop — we change **when and in what form** they are asked: the agent gathers facts itself and has no right to ask; it makes reversible decisions itself under a written record; irreversible ones it accumulates into a single batch and asks late, with the material ready.
 
-Граница взята у автора (`grilling`): **«Поиск фактов — работа агента, никогда пользователя.
-Решения — пользователя»**. Всё остальное — следствия.
+The boundary is taken from the author (`grilling`): **"Fact-finding is the agent's job, never the user's. Decisions are the user's"**. Everything else follows from it.
 
-## 2. Что именно не переносится (и почему)
+## 2. What exactly is NOT ported (and why)
 
-| Механизм источника             | Почему не переносим                                                                                                                                                                                                                 |
+| Source mechanism               | Why we do not port it                                                                                                                                                                                                                 |
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Класс **user-invoked** целиком | Его главный приём — снять context load, спрятав скилл от модели. В AFK скилл, вызываемый только человеком, не вызывается **никогда**. Нам нужно всё model-invoked, а экономить — точностью формулировки триггера.                   |
-| Роутер **`ask-matt`**          | Существует потому, что у user-invoked скиллов нет описаний и человек — единственный индекс. У нас индексом должна быть машина (см. §5 пункт 16).                                                                                    |
-| Запрет путей/строк в спеке     | У него тикет лежит неделями. Наши task-файлы исполняются в тот же день, и coordinator-дисциплина (`pm.md`) **требует** путей и номеров строк как доказательства синтеза. Правило применимо только к долгоживущим записям (пункт 9). |
-| **`teach`**                    | Обучающий воркспейс для человека. Не наш сценарий.                                                                                                                                                                                  |
+| The whole **user-invoked** class | Its main trick is to shed context load by hiding the skill from the model. In AFK a skill invoked only by a human is **never** invoked. We need everything model-invoked, and we save instead on the precision of the trigger wording. |
+| The **`ask-matt`** router       | It exists because user-invoked skills have no descriptions and the human is the only index. For us the index must be a machine (see §5 item 16).                                                                                     |
+| Forbidding paths/lines in a spec | In its case the ticket sits around for weeks. Our task-files are executed the same day, and coordinator discipline (`pm.md`) **requires** paths and line numbers as proof of synthesis. The rule applies only to long-lived records (item 9). |
+| **`teach`**                     | A teaching workspace for a human. Not our scenario.                                                                                                                                                                                 |
 
-## 3. Ось автономии A1 / A2 / A3
+## 3. The autonomy axis A1 / A2 / A3
 
-Новая ось решения рядом с существующими (cost-of-error → трек → тир модели). Отвечает на
-вопрос, которого не было: **сколько человека нужно этому решению**.
+A new decision axis alongside the existing ones (cost-of-error → track → model tier). It answers the question that was missing: **how much human does this decision need**.
 
-Канон — `.claude/rules/common/autonomy-levels.md`. Здесь только якорь:
+The canon is `.claude/rules/common/autonomy-levels.md`. Here only the anchor:
 
-- **A1 — решить и записать.** Обратимо (откат ≤ одного PR), не деньги / RBAC / прод-данные /
-  публичный текст. Агент берёт свою же рекомендацию, пишет строку в `## Допущения` task-файла.
-- **A2 — накопить и спросить.** Всё независимое доделывается; вопросы копятся в **decision
-  brief**: одна пачка, у каждого вопроса рекомендация и дедлайн авто-принятия.
-- **A3 — стоп.** Необратимо и блокирует. Встаёт **только эта ветка** — соседние задачи фронтира
-  идут дальше.
+- **A1 — decide and record.** Reversible (rollback ≤ one PR), not money / RBAC / prod data /
+  public text. The agent takes its own recommendation and writes a line into the `## Assumptions` section of the task-file.
+- **A2 — accumulate and ask.** Everything independent is finished; the questions accumulate into a **decision brief**: one batch, each question with a recommendation and an auto-acceptance deadline.
+- **A3 — stop.** Irreversible and blocking. **Only this branch** halts — neighboring frontier tasks keep going.
 
-Параллелизм при A2/A3 — из правила фронтира `grilling`: запущенная разведка это неразрешённая
-предпосылка, поэтому ждут только вопросы **ниже неё по дереву**. С вопросами к владельцу так же:
-блокируется поддерево, не сессия.
+Parallelism under A2/A3 — from the `grilling` frontier rule: a launched reconnaissance is an unresolved premise, so only the questions **below it in the tree** wait. It is the same with questions to the owner: a subtree is blocked, not the session.
 
-## 4. Порядок внедрения (по зависимостям, не по важности)
+## 4. Rollout order (by dependencies, not by importance)
 
-| Волна | Содержание                                                        | Пункты                                      |
-| ----- | ----------------------------------------------------------------- | ------------------------------------------- |
-| 1     | Язык и ось автономии — фундамент, на который опирается всё дальше | 1, 3, 4, 9, 17                              |
-| 2     | Вторая ось ревью и полнота канала находок                         | 2, 8, 12                                    |
-| 3     | Скиллы дисциплины (независимы друг от друга)                      | 7, 10, 11, 13, 14, 19 + `decision-frontier` |
-| 4     | Механика: фронтир, реестр скиллов, human-only, шаблон задачи      | 5, 15, 16, 18                               |
-| —     | **Отложено** (см. §6)                                             | 6                                           |
+| Wave | Content                                                              | Items                                       |
+| ---- | ------------------------------------------------------------------- | ------------------------------------------- |
+| 1    | Language and the autonomy axis — the foundation everything else rests on | 1, 3, 4, 9, 17                              |
+| 2    | The second review axis and completeness of the findings channel     | 2, 8, 12                                    |
+| 3    | Discipline skills (independent of each other)                       | 7, 10, 11, 13, 14, 19 + `decision-frontier` |
+| 4    | Mechanics: frontier, skill registry, human-only, task template      | 5, 15, 16, 18                               |
+| —    | **Deferred** (see §6)                                               | 6                                           |
 
-## 5. Пункты
+## 5. Items
 
-Полный разбор с доказательствами — артефакт «AFK-пайплайн» (ссылка в PR). Здесь — что именно
-делается и где живёт результат.
+A full breakdown with proofs — the "AFK pipeline" artifact (link in the PR). Here — what exactly is done and where the result lives.
 
-| #   | Пункт                                    | Артефакт                                                     |
+| #   | Item                                     | Artifact                                                     |
 | --- | ---------------------------------------- | ------------------------------------------------------------ |
-| 1   | Глоссарий проекта                        | `CONTEXT.md` (корень)                                        |
-| 2   | Вторая ось ревью — соответствие заданию  | `.claude/agents/spec-reviewer.md` + агрегат в `contracts.md` |
-| 3   | Ось автономии + контракт decision brief  | `.claude/rules/common/autonomy-levels.md`                    |
-| 4   | Позитивная формулировка рядом с запретом | `git-policy.md`, golden rules `pm.md` / `coder.md`           |
-| 5   | Машинно-вычислимый фронтир задач         | `task.md.tpl` + `scripts/architect/task-frontier.mjs`        |
-| 6   | Триаж бэклога                            | **отложено**, см. §6                                         |
-| 7   | Гейт «нет красной команды — нет гипотез» | `.claude/skills/diagnosing-bugs/`                            |
-| 8   | Нумерация находок на все четыре оси      | `review-findings-transfer.md` (+`QA-`, `UX-`, `SPEC-`)       |
-| 9   | Долговечность долгоживущих записей       | `.claude/rules/common/doc-durability.md`                     |
-| 10  | Словарь глубоких модулей                 | `.claude/skills/codebase-design/`                            |
-| 11  | Тавтологический тест + декларация швов   | `coder.md` §2.6 + поле `## Швы под тестами` в шаблоне        |
-| 12  | Baseline из двенадцати смеллов           | `code-reviewer.md` §3 (MED-раздел)                           |
-| 13  | Дисциплина разрешения конфликтов слияния | `.claude/skills/resolving-merge-conflicts/`                  |
-| 14  | Прототип как ответ на вопрос дизайна     | `.claude/skills/prototype/`                                  |
-| 15  | Прополка правил                          | `.claude/skills/writing-for-agents/` (инструмент прополки)   |
-| 16  | Реестр скиллов генерируется              | `scripts/architect/check-skill-registry.mjs` + CI            |
-| 17  | Дерево фазовых границ                    | `.claude/rules/common/phase-boundaries.md`                   |
-| 18  | Реестр «только человек»                  | `docs/runbooks/human-only.md`                                |
-| 19  | Внешняя разведка по первоисточникам      | `.claude/skills/external-research/`                          |
+| 1   | Project glossary                         | `CONTEXT.md` (root)                                          |
+| 2   | Second review axis — conformance to the task | `.claude/agents/spec-reviewer.md` + aggregate in `contracts.md` |
+| 3   | Autonomy axis + decision brief contract  | `.claude/rules/common/autonomy-levels.md`                    |
+| 4   | Positive phrasing alongside the prohibition | `git-policy.md`, golden rules `pm.md` / `coder.md`           |
+| 5   | Machine-computable task frontier         | `task.md.tpl` + `scripts/architect/task-frontier.mjs`        |
+| 6   | Backlog triage                           | **deferred**, see §6                                         |
+| 7   | "No red command — no hypotheses" gate     | `.claude/skills/diagnosing-bugs/`                            |
+| 8   | Numbering findings across all four axes   | `review-findings-transfer.md` (+`QA-`, `UX-`, `SPEC-`)       |
+| 9   | Durability of long-lived records          | `.claude/rules/common/doc-durability.md`                     |
+| 10  | Vocabulary of deep modules                | `.claude/skills/codebase-design/`                            |
+| 11  | Tautology test + seam declaration         | `coder.md` §2.6 + the `## Seams under tests` field in the template |
+| 12  | Baseline of twelve smells                 | `code-reviewer.md` §3 (MED section)                          |
+| 13  | Merge-conflict resolution discipline      | `.claude/skills/resolving-merge-conflicts/`                  |
+| 14  | Prototype as the answer to a design question | `.claude/skills/prototype/`                                  |
+| 15  | Weeding the rules                         | `.claude/skills/writing-for-agents/` (the weeding tool)      |
+| 16  | The skill registry is generated           | `scripts/architect/check-skill-registry.mjs` + CI            |
+| 17  | Phase-boundary tree                       | `.claude/rules/common/phase-boundaries.md`                   |
+| 18  | The "human only" registry                 | `docs/runbooks/human-only.md`                                |
+| 19  | External reconnaissance from primary sources | `.claude/skills/external-research/`                          |
 
-## 6. Что отложено и почему
+## 6. What is deferred and why
 
-**Пункт 6 (механический разбор `BACKLOG-followups.md` на трекер) в этот PR не входит.**
+**Item 6 (mechanically breaking `BACKLOG-followups.md` into a tracker) is not part of this PR.**
 
-Причина не в объёме, а в изоляции: на момент работы соседняя сессия
-(`claude/cheekycheeseit-crm-backlog-6e44ec`, worktree `keen-robinson-82c9a0`) работает **ровно по
-этому файлу**. Правка 3259-строчного файла из двух сессий одновременно — это гарантированный
-конфликт и потерянные решения владельца, то есть ровно тот класс дефекта, который чинит
-`agent-isolation.md`.
+The reason is not volume but isolation: at the time of this work a neighboring session
+(`claude/cheekycheeseit-crm-backlog-6e44ec`, worktree `keen-robinson-82c9a0`) is working **on exactly this file**. Editing a 3259-line file from two sessions at once is a guaranteed conflict and lost owner decisions — that is to say exactly the class of defect `agent-isolation.md` fixes.
 
-Что из пункта 6 **всё же сделано** здесь: конвенция `.out-of-scope/` (институциональная память
-отказов) — она аддитивна, файла бэклога не касается и нужна остальным пунктам.
+What from item 6 **is nonetheless done** here: the `.out-of-scope/` convention (institutional memory of refusals) — it is additive, does not touch the backlog file, and is needed by the other items.
 
-Механический разбор ставится отдельной задачей после того, как соседняя сессия закончит проход и
-её PR смёржится.
+The mechanical breakdown is filed as a separate task after the neighboring session finishes its pass and its PR merges.
 
-## 7. Дисциплина этого PR
+## 7. Discipline of this PR
 
-- Одна ветка `infra/afk-pipeline-migration`, один PR на всю миграцию, **мерж только по явному
-  «мерджим» владельца** и **после** мержа PR соседней сессии.
-- Diff — docs-only плюс два скрипта и один аддитивный CI-workflow. Продуктовый код
-  (`apps/**`, `packages/**`) не трогается вообще.
-- E2E локально не гоняется: light-track освобождает docs-only diff. Скрипты покрыты собственным
-  смоуком.
-- `BACKLOG-followups.md` не трогается ни одной строкой.
+- One branch `infra/afk-pipeline-migration`, one PR for the whole migration, **merge only on the owner's explicit "merge it"** and **after** the neighboring session's PR merges.
+- The diff is docs-only plus two scripts and one additive CI workflow. Product code
+  (`apps/**`, `packages/**`) is not touched at all.
+- E2E is not run locally: light-track exempts a docs-only diff. The scripts are covered by their own smoke test.
+- `BACKLOG-followups.md` is not touched by a single line.
 
-## 8. Как узнаем, что миграция сработала
+## 8. How we know the migration worked
 
-Не «правила написаны», а наблюдаемые следствия. Проверять через месяц:
+Not "the rules are written" but observable consequences. To check in a month:
 
-| Пункт | Наблюдаемое следствие                                                                          |
-| ----- | ---------------------------------------------------------------------------------------------- |
-| 1     | Термин из `_Избегать_` в теле PR / имени переменной = находка ревью (греп)                     |
-| 2     | Появились расхождения `ac_verified` ↔ вердикт Spec-оси. Сегодня они физически необнаружимы     |
-| 3     | Каждое A1-решение существует строкой в `## Допущения`; решение без строки видно арифметикой    |
-| 5     | Диспатч задачи, которой нет в выводе `task-frontier.mjs`, = нарушение                          |
-| 7     | В отчёте о фиксе бага есть строка с вызовом красной команды и её выводом                       |
-| 8     | Число идентификаторов в вердикте = в fix-задаче = в отчёте, по всем четырём осям               |
-| 15    | Суммарные строки `rules/common/**` за месяц не выросли                                         |
-| 16    | Расхождение диска и таблицы скиллов роняет CI, а не всплывает как «Skill not found» в рантайме |
-| 18    | Реестр human-only сокращается; пункт без попытки автоматизации за два месяца = долг            |
+| Item | Observable consequence                                                                         |
+| ---- | ---------------------------------------------------------------------------------------------- |
+| 1    | A term from the `_Avoid_` list in a PR body / variable name = a review finding (grep)           |
+| 2    | Discrepancies `ac_verified` ↔ the Spec-axis verdict have appeared. Today they are physically undetectable |
+| 3    | Every A1 decision exists as a line in `## Assumptions`; a decision without a line is visible by arithmetic |
+| 5    | Dispatching a task that is not in the output of `task-frontier.mjs` = a violation               |
+| 7    | The bug-fix report contains a line with the red-command invocation and its output               |
+| 8    | The number of identifiers in the verdict = in the fix-task = in the report, across all four axes |
+| 15   | The total line count of `rules/common/**` has not grown over the month                          |
+| 16   | A disk↔skill-table discrepancy fails CI, rather than surfacing as "Skill not found" at runtime  |
+| 18   | The human-only registry shrinks; an item without an automation attempt for two months = debt    |

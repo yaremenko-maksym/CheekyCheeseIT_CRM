@@ -1,86 +1,86 @@
-# Роль DROP — дизайн (2026-06-10)
+# DROP role — design (2026-06-10)
 
-> Статус: DRAFT на ревью владельца. Источник — brainstorming-сессия 2026-06-10.
-> Параллельно `2026-06-10-junior-ux-refactor-design.md`.
+> Status: DRAFT under owner review. Source — brainstorming session 2026-06-10.
+> In parallel with `2026-06-10-junior-ux-refactor-design.md`.
 
-## 1. Контекст и цель
+## 1. Context and goal
 
-Дроп — узкая роль роутинга платежей. Сейчас: 3 раздела (Профиль/Команда/Финансы), нет хаба, агрегат баланса скрыт (DropBalanceCard — только ADMIN), **видит ВСЕ команды вместо своей одной (баг)**, нет списка drop-проектов, риск dead-link на payment-flow.
+The drop is a narrow payment-routing role. Currently: 3 sections (Profile/Team/Finance), no hub, the balance aggregate is hidden (DropBalanceCard — ADMIN only), **sees ALL teams instead of their own single one (a bug)**, no list of drop projects, risk of a dead-link in the payment flow.
 
-**Цель — роутинг-центричный хаб** + полный финансовый кабинет дропа + корректная видимость.
+**Goal — a routing-centric hub** + a full financial cabinet for the drop + correct visibility.
 
-## 2. Принципы
+## 2. Principles
 
-1. **Роутинг-центричность.** Дом дропа — хаб платежей.
-2. **Компартментализация вокруг джуна.** Внутренний круг (дроп + синьор + HR + бухгалтер) видит друг друга и координируется; джун изолирован, видит «синьора»-персону, дропа для него не существует.
-3. Дроп видит **только своё**; полная **финансовая прозрачность** для себя.
+1. **Routing-centricity.** The drop's home is the payment hub.
+2. **Compartmentalization around the junior.** The inner circle (drop + senior + HR + accountant) see each other and coordinate; the junior is isolated, sees a "senior" persona, the drop does not exist for them.
+3. The drop sees **only their own**; full **financial transparency** for themselves.
 
-## 3. Суть роли (роутинг платежей)
+## 3. Essence of the role (payment routing)
 
-Клиент платит дропу → дроп регистрирует `DROP_INCOME` → бухгалтер валидирует → дроп инициирует платёж компании (крипта: дроп шлёт txHashes; нал: подтверждает бухгалтер) → распределение: доля синьора (`seniorSharePercent`, деф. 26%) + **доля дропа** (`dropSharePercent`, деф. 5%) + сплит ADMIN/партнёры (остаток 50/50). Свою долю дроп оставляет себе; долю синьора компания гасит отдельно (`settleByCompany`).
+The client pays the drop → the drop registers `DROP_INCOME` → the accountant validates → the drop initiates the payment to the company (crypto: the drop sends txHashes; cash: the accountant confirms) → distribution: the senior's share (`seniorSharePercent`, default 26%) + **the drop's share** (`dropSharePercent`, default 5%) + the ADMIN/partners split (the remaining 50/50). The drop keeps their own share; the senior's share is settled separately by the company (`settleByCompany`).
 
-## 4. Модель видимости (решено)
+## 4. Visibility model (decided)
 
-|                                                                               | Дроп видит                       |
-| ----------------------------------------------------------------------------- | -------------------------------- |
-| Свои drop-проекты (`dropId=self`)                                             | ✓                                |
-| Своя drop-team (синьор / HR / бухгалтер, **реальные** контакты — координация) | ✓                                |
-| Свои финансы (полный кабинет)                                                 | ✓                                |
-| Легенды                                                                       | ✗ (субъект исключён, как синьор) |
-| Джуны                                                                         | ✗                                |
-| Чужие дропы / профили / команды                                               | ✗                                |
+|                                                                               | Drop sees                           |
+| ----------------------------------------------------------------------------- | ----------------------------------- |
+| Their drop projects (`dropId=self`)                                           | ✓                                   |
+| Their drop-team (senior / HR / accountant, **real** contacts — coordination)  | ✓                                   |
+| Their finances (full cabinet)                                                 | ✓                                   |
+| Legends                                                                       | ✗ (subject excluded, like a senior) |
+| Juniors                                                                       | ✗                                   |
+| Others' drops / profiles / teams                                              | ✗                                   |
 
-- **Синьор ↔ дроп: видят друг друга** (drop-team, координируются напрямую).
-- **Джун дропа не видит** — видит «синьора»-персону (легенда); слова «дроп» в мире джуна нет.
-- **Фикс:** `teams` для DROP сейчас возвращает все команды → только свою одну drop-team.
+- **Senior ↔ drop: see each other** (drop-team, coordinate directly).
+- **The junior does not see the drop** — sees a "senior" persona (legend); the word "drop" does not exist in the junior's world.
+- **Fix:** `teams` for DROP currently returns all teams → only their own single drop-team.
 
-## 5. Целевой UX (4 раздела)
+## 5. Target UX (4 sections)
 
-`Мой роутинг · Финансы · Команда · Профиль`
+`My routing · Finance · Team · Profile`
 
-### 🏠 Мой роутинг (хаб; заменяет отсутствующий дашборд)
+### 🏠 My routing (hub; replaces the absent dashboard)
 
-- **Карточка баланса:** моя доля (накоплено) · ставка % · в работе (N приходов) · долг компании.
-- **Требует действия:** валидированные приходы → кнопка «Платить компании»; зависшие шаги.
-- **Мои drop-проекты:** компания · синьор · кол-во приходов.
-- **Быстрые действия:** «Зарегистрировать приход» · «Платить компании».
+- **Balance card:** my share (accumulated) · rate % · in progress (N incomes) · company debt.
+- **Requires action:** validated incomes → "Pay the company" button; stalled steps.
+- **My drop projects:** company · senior · number of incomes.
+- **Quick actions:** "Register an income" · "Pay the company".
 
-### 💰 Финансы (полный кабинет)
+### 💰 Finance (full cabinet)
 
-- Баланс/доля breakdown.
-- Приходы: лента `pending → validated → paid` с фильтрами (тип/статус/период).
-- Долг компании · статусы платежей.
-- Действия: регистрация прихода · инициировать crypto-платёж (confirm txHashes).
+- Balance/share breakdown.
+- Incomes: a `pending → validated → paid` feed with filters (type/status/period).
+- Company debt · payment statuses.
+- Actions: register an income · initiate a crypto payment (confirm txHashes).
 
-### 👥 Команда (своя одна drop-team)
+### 👥 Team (their own single drop-team)
 
-Синьор · HR(s) · бухгалтер с реальными контактами — для координации. Read-only (состав ведёт ADMIN/HR).
+Senior · HR(s) · accountant with real contacts — for coordination. Read-only (the roster is maintained by ADMIN/HR).
 
-### 👤 Профиль
+### 👤 Profile
 
-Свои данные, реквизиты (кошельки — критично для роутинга), свой контракт/онбординг.
+Their own data, requisites (wallets — critical for routing), their own contract/onboarding.
 
-## 6. Данные / RBAC
+## 6. Data / RBAC
 
-- **Фикс own-team:** `TeamsService.findAll` для DROP → только команда, где он owner (сейчас не фильтрует).
-- **Drop-facing агрегат:** баланс/доля/долг компании для self — drop-версия DropBalanceCard / `getSummary`-подобный self-only эндпоинт (`GET /api/balances/drop/me` или фильтр в существующем). Только свой агрегат, не чужих дропов.
-- **Payment-flow роут** `/crm/payments/initiate/:incomeId` — проверить, что доступен дропу и не dead-link.
-- **Унификация** двух точек «зарегистрировать приход» (finance page + profile finance tab).
-- **Backend-тесты:** DROP видит только свою команду (403/фильтр), агрегат — только self, payment RBAC (`resolveIncome`: только свой income).
+- **Own-team fix:** `TeamsService.findAll` for DROP → only the team where they are the owner (currently does not filter).
+- **Drop-facing aggregate:** balance/share/company-debt for self — a drop version of DropBalanceCard / a `getSummary`-like self-only endpoint (`GET /api/balances/drop/me` or a filter in the existing one). Only their own aggregate, not others' drops.
+- **Payment-flow route** `/crm/payments/initiate/:incomeId` — verify it is accessible to the drop and not a dead-link.
+- **Unification** of the two "register an income" entry points (finance page + profile finance tab).
+- **Backend tests:** DROP sees only their own team (403/filter), aggregate — self only, payment RBAC (`resolveIncome`: only their own income).
 
-## 7. Фазы внедрения
+## 7. Rollout phases
 
-1. **Бэкенд.** Фикс own-team фильтра; drop-facing агрегат (balance/share/debt self-only); проверка/починка payment-роута; RBAC-тесты.
-2. **UX ядро.** Хаб «Мой роутинг» + полный кабинет «Финансы».
-3. **UX чистка.** «Команда» (своя одна), Профиль, унификация кнопок прихода.
+1. **Backend.** Fix the own-team filter; drop-facing aggregate (balance/share/debt self-only); check/fix the payment route; RBAC tests.
+2. **UX core.** The "My routing" hub + the full "Finance" cabinet.
+3. **UX cleanup.** "Team" (their own single one), Profile, unification of the income buttons.
 
-## 8. Решения (зафиксировано)
+## 8. Decisions (fixed)
 
-1. **Дроп ↔ синьор** — видят друг друга (координируются напрямую, drop-team с реальными контактами).
-2. **Финансовый расклад дропа** — полный кабинет (баланс/доля, приходы, долг компании, статусы).
-3. **UX-скоуп** — полный хаб роутинга (дашборд + кабинет + действия + команда).
+1. **Drop ↔ senior** — see each other (coordinate directly, drop-team with real contacts).
+2. **The drop's financial layout** — full cabinet (balance/share, incomes, company debt, statuses).
+3. **UX scope** — full routing hub (dashboard + cabinet + actions + team).
 
-## 9. Не входит в scope
+## 9. Out of scope
 
-- Изменения системы легенд (дроп с ними не работает; легенда — джун-facing, ведётся в junior-рефакторе).
-- UX других ролей (кроме того, что дроп скрыт от джуна — в junior-рефакторе).
+- Changes to the legend system (the drop does not work with them; the legend is junior-facing, maintained in the junior refactor).
+- UX of other roles (except that the drop is hidden from the junior — in the junior refactor).
