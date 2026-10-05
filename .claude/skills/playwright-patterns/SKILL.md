@@ -1,7 +1,7 @@
 ---
 name: playwright-patterns
-description: 'When AutoTest или Coder пишет Playwright E2E / flow тесты для CRM (apps/e2e). Содержит CRM-specific cookbook поверх ECC playwright knowledge: strict-mode resolution, radix-radio async submit, retries policy, testid конвенции, screenshot hygiene. Использовать перед каждым новым spec.ts файлом и при diagnosis flaky тестов.'
-when_to_use: "Use when AutoTest or Coder writes or edits a Playwright .spec.ts in apps/e2e, or diagnoses a flaky E2E. Examples: 'пишу E2E на новую страницу', 'getByRole не находит', 'strict-mode violation', 'radix radio submit флакает', 'тест нестабилен в CI', 'нужен data-testid для спеки'."
+description: 'When AutoTest or Coder writes Playwright E2E / flow tests for the CRM (apps/e2e). Contains a CRM-specific cookbook on top of ECC playwright knowledge: strict-mode resolution, radix-radio async submit, retries policy, testid conventions, screenshot hygiene. Use before every new spec.ts file and when diagnosing flaky tests.'
+when_to_use: "Use when AutoTest or Coder writes or edits a Playwright .spec.ts in apps/e2e, or diagnoses a flaky E2E. Examples: 'writing E2E for a new page', 'getByRole does not find it', 'strict-mode violation', 'radix radio submit is flaky', 'the test is unstable in CI', 'need a data-testid for the spec'."
 allowed-tools:
   - Read
   - Edit
@@ -12,76 +12,76 @@ allowed-tools:
 
 # Playwright Patterns (CRM)
 
-Custom cookbook поверх ECC playwright slot. CRM использует Playwright @1.40+, Radix UI, mock-based fixtures (`apps/e2e/tests/fixtures/`). Уроки лифтнуты из `.claude/agents/memory/autotest/lessons.md` + `coder/lessons.md` (2026-05-19 — 2026-06-02).
+A custom cookbook on top of the ECC playwright slot. The CRM uses Playwright @1.40+, Radix UI, mock-based fixtures (`apps/e2e/tests/fixtures/`). Lessons lifted from `.claude/agents/memory/autotest/lessons.md` + `coder/lessons.md` (2026-05-19 — 2026-06-02).
 
 ## When to invoke
 
-- Перед написанием нового `.spec.ts` в `apps/e2e/tests/`
-- Перед редактированием существующего spec'а если меняются UI тексты / role labels
-- При исследовании flaky теста (CI fail, локально passes)
-- При работе с Radix компонентами (Dialog, RadioGroup, Select, DropdownMenu)
-- При исправлении strict-mode locator errors
-- Перед добавлением `data-testid` к новому компоненту (см. naming convention ниже)
+- Before writing a new `.spec.ts` in `apps/e2e/tests/`
+- Before editing an existing spec if UI texts / role labels change
+- When investigating a flaky test (CI fail, passes locally)
+- When working with Radix components (Dialog, RadioGroup, Select, DropdownMenu)
+- When fixing strict-mode locator errors
+- Before adding a `data-testid` to a new component (see the naming convention below)
 
 ## Patterns
 
-### 1. Strict-mode + `getByText` — конфликт с описательными текстами
+### 1. Strict-mode + `getByText` — conflict with descriptive texts
 
-**Правило:** `getByText('...')` без `exact: true` падает strict mode, если новый описательный текст совпадает substring'ом с существующим `<label>`. Real incident: добавление подсказки «Новая команда синьора с выбранным HR и бухгалтером» в RadioGroup сломало `users.spec.ts` потому что existing `<label>Бухгалтер</label>` matched.
+**Rule:** `getByText('...')` without `exact: true` fails strict mode if the new descriptive text matches as a substring with an existing `<label>`. Real incident: adding the hint "New senior team with the selected HR and accountant" to a RadioGroup broke `users.spec.ts` because the existing `<label>Accountant</label>` matched.
 
 **Decision rule:**
 
-- Перед добавлением role-слов («HR», «Бухгалтер», «Синьор», «Адмін», «Джун») в новый помощник-текст — `grep -rn "getByText" apps/e2e/tests/*.spec.ts` для проверки конфликтов.
-- Если конфликт неизбежен — использовать `getByText('...', { exact: true })` или `getByRole('...', { name: '...' })`.
-- В spec'е тоже предпочесть `getByRole('button', { name: 'X' })` вместо `getByText('X')` для UI elements.
+- Before adding role words ("HR", "Accountant", "Senior", "Admin", "Junior") to a new helper text — `grep -rn "getByText" apps/e2e/tests/*.spec.ts` to check for conflicts.
+- If the conflict is unavoidable — use `getByText('...', { exact: true })` or `getByRole('...', { name: '...' })`.
+- In the spec, too, prefer `getByRole('button', { name: 'X' })` over `getByText('X')` for UI elements.
 
 ### 2. Radix RadioGroupItem + async submit — flaky POST verification
 
-**Правило:** В mock-based E2E submit-кнопка диалога с Zod `safeParse` часто молча падает в `toast.error` из-за гонки между Radix `RadioGroupItem` click и form.state update. POST-body тест `JOIN_DROP_TEAM` был flaky на CI.
+**Rule:** In a mock-based E2E, a dialog submit button with Zod `safeParse` often silently falls into `toast.error` due to a race between the Radix `RadioGroupItem` click and the form.state update. The POST-body test `JOIN_DROP_TEAM` was flaky on CI.
 
 **Decision rule:**
 
-- Вместо `waitForRequest(POST)` тестировать UI contract: «при выборе radio surface drop-team picker», «toast.success появился».
-- Полная shape POST body — лежит на Vitest unit-тестах (Coder zone), не E2E.
-- Если действительно нужен POST body в E2E:
-  1. Fill ВСЕ поля до радио.
-  2. Click `label` (не `radio.click()`).
-  3. НЕ ставить `waitForRequest` ДО submit-click — race condition.
+- Instead of `waitForRequest(POST)`, test the UI contract: "selecting the radio surfaces the drop-team picker", "toast.success appeared".
+- The full shape of the POST body belongs on Vitest unit tests (Coder zone), not E2E.
+- If the POST body is genuinely needed in E2E:
+  1. Fill ALL fields before the radio.
+  2. Click the `label` (not `radio.click()`).
+  3. Do NOT place `waitForRequest` BEFORE the submit click — race condition.
 
 ### 3. CI retries policy
 
-**Правило:** На GHA — `retries: 2` под `CI=1`. Локально retries=0 (видим flake сразу).
+**Rule:** On GHA — `retries: 2` under `CI=1`. Locally retries=0 (we see the flake right away).
 
-**Источник:** `apps/e2e/playwright.config.ts` секция `retries: process.env.CI ? 2 : 0`. Real incident 2026-05-30: 4 теста (team-redirect, team-empty, finance-flow, tech-autocomplete) на дефолтной локальной матрице падали из-за parallel race с TEAMS fixtures расширениями. Под CI=1 retry все прошли. Для локального dev — флак допустим, GHA shard её закроет.
+**Source:** `apps/e2e/playwright.config.ts` section `retries: process.env.CI ? 2 : 0`. Real incident 2026-05-30: 4 tests (team-redirect, team-empty, finance-flow, tech-autocomplete) on the default local matrix failed due to a parallel race with TEAMS fixtures extensions. Under CI=1 retry they all passed. For local dev — the flake is acceptable, the GHA shard will close it.
 
 ### 4. data-testid convention
 
-**Правило:** `data-testid` ОБЯЗАТЕЛЕН для:
+**Rule:** `data-testid` is MANDATORY for:
 
-- back-button / dialog-close / cancel-button (Playwright strict mode падает на дублях с sidebar/content nav-элементами)
-- submit / confirm buttons в диалогах
-- form fields (особенно autocomplete / combobox)
+- back-button / dialog-close / cancel-button (Playwright strict mode fails on duplicates with sidebar/content nav elements)
+- submit / confirm buttons in dialogs
+- form fields (especially autocomplete / combobox)
 
 **Naming:**
 
-- `kebab-case` всегда.
-- Префикс компонента: `team-form-submit`, `archive-confirm-input`.
-- Не использовать role-слова в `data-testid` если они уже в UI text (избегать конфликта с getByText).
+- `kebab-case` always.
+- Component prefix: `team-form-submit`, `archive-confirm-input`.
+- Do not use role words in `data-testid` if they are already in the UI text (avoid the conflict with getByText).
 
-### 5. Двойные archive-confirm dialogs
+### 5. Two archive-confirm dialogs
 
-**Правило:** В CRM есть ДВА разных компонента архивирования:
+**Rule:** The CRM has TWO different archiving components:
 
-| Компонент                                 | testids                                                                 | Использование        |
+| Component                                 | testids                                                                 | Usage                |
 | ----------------------------------------- | ----------------------------------------------------------------------- | -------------------- |
-| `components/users/ArchiveConfirmDialog`   | `archive-confirm-dialog`                                                | Архив user'а         |
-| `components/archive/ArchiveConfirmDialog` | `archive-confirm-input` + `archive-confirm-submit` (БЕЗ wrapper testid) | Архив team / project |
+| `components/users/ArchiveConfirmDialog`   | `archive-confirm-dialog`                                                | User archive         |
+| `components/archive/ArchiveConfirmDialog` | `archive-confirm-input` + `archive-confirm-submit` (NO wrapper testid)  | Team / project archive |
 
-При написании spec'а — определи какой именно компонент рендерится. НЕ копируй testids между ними.
+When writing a spec — determine exactly which component renders. Do NOT copy testids between them.
 
 ### 6. Screenshot hygiene
 
-**Правило:** Debug screenshots — В `/tmp/autotest-<runid>/`, **НЕ** в `apps/e2e/`. Чужие commit'ы потом подметают их через `git add .`.
+**Rule:** Debug screenshots — in `/tmp/autotest-<runid>/`, **NOT** in `apps/e2e/`. Others' commits later sweep them via `git add .`.
 
 **Implementation:**
 
@@ -91,51 +91,51 @@ const debugDir = `/tmp/autotest-${runId}`
 await page.screenshot({ path: `${debugDir}/team-form.png` })
 ```
 
-### 7. Atomicity UI text + spec
+### 7. Atomicity of UI text + spec
 
-**Правило:** При смене UI текстов — обновить selector'ы в `spec.ts` В ТОМ ЖЕ commit'е что и UI. Расхождение → flaky E2E на main.
+**Rule:** When changing UI texts — update the selectors in `spec.ts` IN THE SAME commit as the UI. A mismatch → a flaky E2E on main.
 
-**Mechanism:** Coder в задаче «изменить UI text» включает 2 файла в diff (component.tsx + spec.ts) или явно отмечает в task что spec тоже обновлён.
+**Mechanism:** The Coder, in a "change UI text" task, includes 2 files in the diff (component.tsx + spec.ts) or explicitly notes in the task that the spec was also updated.
 
-### 8. Interaction tests для autocomplete / combobox
+### 8. Interaction tests for autocomplete / combobox
 
-**Правило (для Vitest, но релевантно как контекст):** Interaction tests обязательны для autocomplete/combobox/dropdown — `Tab + ArrowDown` коммит highlighted option должен быть unit-тестом, не только Enter. Smoke-test «Enter добавляет» пропустил Tab-баг в TechAutocomplete.
+**Rule (for Vitest, but relevant as context):** Interaction tests are mandatory for autocomplete/combobox/dropdown — `Tab + ArrowDown` committing the highlighted option must be a unit test, not only Enter. The smoke test "Enter adds" missed the Tab bug in TechAutocomplete.
 
-**E2E side:** Не полагаться на «type X → submit». Проверять что выбор happens через keyboard navigation (`page.keyboard.press('ArrowDown')` + `Enter`) + через mouse click — оба пути.
+**E2E side:** Do not rely on "type X → submit". Verify that the choice happens via keyboard navigation (`page.keyboard.press('ArrowDown')` + `Enter`) + via mouse click — both paths.
 
-### 9. userEvent setup для unit testing (cross-reference)
+### 9. userEvent setup for unit testing (cross-reference)
 
-**Правило (Vitest+RTL):** `userEvent.setup({ delay: null })` стабилизирует тесты — иначе race conditions с `act()` warnings.
+**Rule (Vitest+RTL):** `userEvent.setup({ delay: null })` stabilizes tests — otherwise race conditions with `act()` warnings.
 
-Применять во всех Vitest interaction тестах (по умолчанию).
+Apply in all Vitest interaction tests (by default).
 
-### 10. Текст в ассертах — из каталога, не литералом (i18n, с 2026-09-19)
+### 10. Text in assertions — from the catalog, not as a literal (i18n, since 2026-09-19)
 
-**Правило (E2E и Vitest):** элементы ищутся по `data-testid` и ролям; там, где нужен текст, строка берётся
-из каталога `uk` (`i18n._(descriptor)` / импорт дескриптора), а не пишется литералом. Смена формулировки
-или языка не должна красить тесты. `data-testid` не строится из переводимого текста (инцидент
-`pending-kind-heading-<zone>-<title>`, аудит i18n §2).
+**Rule (E2E and Vitest):** elements are found by `data-testid` and roles; where text is needed, the string is taken
+from the `uk` catalog (`i18n._(descriptor)` / importing the descriptor), not written as a literal. Changing the wording
+or the language must not color the tests. A `data-testid` is not built from translatable text (incident
+`pending-kind-heading-<zone>-<title>`, i18n audit §2).
 
 ## Anti-patterns
 
 | ❌ Don't                                                  | ✅ Do                                                                                    |
 | --------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `page.getByText('Бухгалтер')` для button click            | `page.getByRole('button', { name: i18n._(ROLE_LABELS.ACCOUNTANT) })` — текст из каталога |
-| `radio.click()` + immediate `waitForRequest(POST)`        | Click label → wait for UI contract (toast/visible field) → assertions без waitForRequest |
-| Debug screenshots в `apps/e2e/debug-*.png` в репо         | `/tmp/autotest-<runid>/*.png` (git-ignored)                                              |
-| UI text change без spec.ts update в том же commit         | Atomic commit: component.tsx + spec.ts вместе                                            |
-| `it.skip('...flaky...')` для пропуска нестабильного теста | Изолировать root cause (race / timing / async) + добавить retry в config                 |
-| `--no-verify` чтобы пропихнуть push с failing E2E         | Запустить тест в isolation, добавить `it.retry(2)` локально, push без --no-verify        |
+| `page.getByText('Accountant')` for a button click         | `page.getByRole('button', { name: i18n._(ROLE_LABELS.ACCOUNTANT) })` — text from the catalog |
+| `radio.click()` + immediate `waitForRequest(POST)`        | Click label → wait for UI contract (toast/visible field) → assertions without waitForRequest |
+| Debug screenshots in `apps/e2e/debug-*.png` in the repo   | `/tmp/autotest-<runid>/*.png` (git-ignored)                                              |
+| UI text change without a spec.ts update in the same commit | Atomic commit: component.tsx + spec.ts together                                          |
+| `it.skip('...flaky...')` to skip an unstable test         | Isolate the root cause (race / timing / async) + add a retry in the config               |
+| `--no-verify` to shove through a push with a failing E2E  | Run the test in isolation, add `it.retry(2)` locally, push without --no-verify           |
 
 ## References
 
 - Source lessons (lifted 2026-06-03):
   - `.claude/agents/memory/autotest/lessons.md` (2026-05-18 — 2026-05-30)
-  - `.claude/agents/memory/coder/lessons.md` (2026-05-19, 2026-05-21, 2026-05-30, 2026-06-02 строки про testids / strict-mode / no-verify ban)
+  - `.claude/agents/memory/coder/lessons.md` (2026-05-19, 2026-05-21, 2026-05-30, 2026-06-02 lines on testids / strict-mode / no-verify ban)
 - Project config: `apps/e2e/playwright.config.ts`, `apps/e2e/tests/fixtures/`
 - Related agent docs:
-  - `.claude/agents/autotest.md` секция "Anti-patterns" (Phase 4 будет вычищена в пользу этого skill)
-  - `.claude/agents/coder.md` §6.1 (testids checklist по типам компонентов)
+  - `.claude/agents/autotest.md` section "Anti-patterns" (Phase 4 will be cleaned up in favor of this skill)
+  - `.claude/agents/coder.md` §6.1 (testids checklist by component type)
 - Related skills:
-  - `dev-flow-resilience` (для E2E + watchdog interaction)
+  - `dev-flow-resilience` (for E2E + watchdog interaction)
   - `superpowers:test-driven-development`, `superpowers:systematic-debugging`

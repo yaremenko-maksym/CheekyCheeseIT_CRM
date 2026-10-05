@@ -1,7 +1,7 @@
 ---
 name: decision-frontier
-description: 'Автономная версия grilling-сессии: агент сам строит дерево решений задачи, гасит каждую ветку фактами из репозитория, и только неснимаемый остаток классифицирует по уровням автономии A1/A2/A3. Обратимое решает сам под запись, необратимое копит в decision brief. Заменяет интервью с владельцем там, где владелец недоступен.'
-when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: Master task decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'непонятно, какой из двух вариантов делать', 'задание не описывает edge-case', 'хочу спросить владельца', 'собрать вопросы в одну пачку', 'какие решения тут вообще есть', 'нужно ли это блокировать'."
+description: 'Autonomous version of a grilling session: the agent builds the task''s decision tree itself, extinguishes each branch with facts from the repository, and classifies only the irreducible remainder by autonomy levels A1/A2/A3. The reversible it decides itself on the record, the irreversible it accumulates into a decision brief. Replaces interviewing the owner where the owner is unavailable.'
+when_to_use: "Use when an agent hits a fork it cannot resolve from the task file: Master task decomposition, a Coder facing an unspecified case, any agent about to write '.blocked.md' or ask the owner. Examples: 'unclear which of the two options to do', 'the task does not describe the edge-case', 'I want to ask the owner', 'gather questions into one batch', 'what decisions are there even here', 'does this need to be blocked'."
 allowed-tools:
   - Read
   - Grep
@@ -13,96 +13,96 @@ allowed-tools:
   - mcp__github__get_pull_request
 ---
 
-# Decision frontier — дерево решений без владельца за клавиатурой
+# Decision frontier — a decision tree without the owner at the keyboard
 
-Механика правила `rules/common/autonomy-levels.md`. Правило говорит **что** делать с решением;
-этот скилл — **как** к нему прийти.
+The mechanics of the rule `rules/common/autonomy-levels.md`. The rule says **what** to do with a decision;
+this skill is **how** to arrive at it.
 
-Исходник приёма — `grilling` из `mattpocock/skills`, где интервью ведут раундами по «фронтиру»
-дерева решений. У нас интервьюировать некого, поэтому раунды ведёт агент сам с собой, а к владельцу
-уходит только неснимаемый остаток.
+The source of the technique is `grilling` from `mattpocock/skills`, where the interview runs in rounds over the
+"frontier" of the decision tree. We have no one to interview, so the agent runs the rounds with itself, and only
+the irreducible remainder goes to the owner.
 
-## Шаг 1. Построй дерево, а не список
+## Step 1. Build a tree, not a list
 
-Развилки не плоские: часть вопросов **зависит** от ответов на другие. Выпиши их деревом.
+Forks are not flat: some questions **depend** on the answers to others. Write them out as a tree.
 
-**Фронтир** — вопросы, чьи предпосылки уже разрешены; только их и обрабатывай в этом раунде.
-Вопрос, ответ на который зависит от другого открытого вопроса, относится к следующему раунду.
+**Frontier** — the questions whose premises are already resolved; process only those in this round.
+A question whose answer depends on another open question belongs to the next round.
 
-Готово, когда каждая развилка задачи записана и у каждой видно, от чего она зависит.
+Done when every fork of the task is written down and each shows what it depends on.
 
-## Шаг 2. Погаси всё, что на самом деле факт
+## Step 2. Extinguish everything that is actually a fact
 
-**Это главный шаг.** Большинство «вопросов к владельцу» — факты, которые агент обязан добыть сам.
-Пройди по фронтиру и по каждому вопросу спроси: **отвечает ли на него команда?**
+**This is the main step.** Most "questions for the owner" are facts the agent is obliged to obtain itself.
+Walk the frontier and for each question ask: **does a command answer it?**
 
-| Где искать                          | Чем                                                                       |
+| Where to look                       | With what                                                                 |
 | ----------------------------------- | ------------------------------------------------------------------------- |
-| Язык и понятия проекта              | `CONTEXT.md`                                                              |
-| Уже принятые решения                | `docs/architecture/**` (ADR), `.out-of-scope/**`                          |
-| Решения владельца по этой теме      | `.claude/tasks/BACKLOG-followups.md` (секции «Решения владельца»)         |
-| Прошлые грабли                      | `.claude/agents/memory/<agent>/lessons.md`                                |
-| Как это устроено сейчас             | `codegraph_explore`, `ast-grep find_code`                                 |
-| Что реально в данных                | `postgres query` — **только `SELECT`** (`rules/common/live-db-access.md`) |
-| Что решили в прошлый раз на похожем | `gh pr list --search`, `git log --grep`                                   |
+| Project language and concepts       | `CONTEXT.md`                                                              |
+| Decisions already made              | `docs/architecture/**` (ADR), `.out-of-scope/**`                          |
+| Owner's decisions on this topic     | `.claude/tasks/BACKLOG-followups.md` ("Owner decisions" sections)         |
+| Past gotchas                        | `.claude/agents/memory/<agent>/lessons.md`                                |
+| How it is built now                 | `codegraph_explore`, `ast-grep find_code`                                 |
+| What is actually in the data        | `postgres query` — **`SELECT` only** (`rules/common/live-db-access.md`)   |
+| What was decided last time on a similar case | `gh pr list --search`, `git log --grep`                          |
 
-Погашенная фактом ветка **исчезает из дерева** — она не была решением. Запиши найденный факт
-рядом с веткой: он понадобится, чтобы обосновать рекомендацию.
+A branch extinguished by a fact **disappears from the tree** — it was not a decision. Record the found fact
+next to the branch: you will need it to justify the recommendation.
 
-Готово, когда по каждой оставшейся ветке ты можешь сказать, **какую именно команду прогнал** и
-почему она не дала ответа.
+Done when for every remaining branch you can say **exactly which command you ran** and
+why it did not give an answer.
 
-## Шаг 3. К каждой оставшейся ветке — рекомендация
+## Step 3. For each remaining branch — a recommendation
 
-Ветка без рекомендации не готова к классификации: A1 буквально означает «взять свою же
-рекомендацию», а в брифе рекомендация обязательна.
+A branch without a recommendation is not ready for classification: A1 literally means "take your own
+recommendation", and in the brief a recommendation is mandatory.
 
-Рекомендация опирается на что-то из шага 2 (существующий паттерн в коде, ADR, прошлое решение
-владельца) — иначе это вкус, а не рекомендация. Одна строка «почему».
+The recommendation rests on something from step 2 (an existing pattern in the code, an ADR, a past owner
+decision) — otherwise it is taste, not a recommendation. One line of "why".
 
-## Шаг 4. Классифицируй по A1 / A2 / A3
+## Step 4. Classify by A1 / A2 / A3
 
-По таблице `autonomy-levels.md`. Три вопроса по каждой ветке:
+Per the table in `autonomy-levels.md`. Three questions per branch:
 
-1. **Цена отката** — переделка укладывается в один PR?
-2. **Задета ли чувствительная поверхность** — деньги, RBAC, прод-данные, публичный текст,
-   необратимая миграция, отправка наружу? Любое «да» → минимум A2, а вместе с блокировкой → A3.
-3. **Блокирует ли остальную работу** — есть ли ветки задачи, которые можно делать, не зная ответа?
+1. **Cost of rollback** — does the rework fit within one PR?
+2. **Is a sensitive surface touched** — money, RBAC, prod data, public text,
+   an irreversible migration, sending outward? Any "yes" → at minimum A2, and together with blocking → A3.
+3. **Does it block the rest of the work** — are there branches of the task that can be done without knowing the answer?
 
-Сомнение между уровнями решается **в сторону вопроса**: A1→A2, A2→A3.
+Doubt between levels is resolved **toward the question**: A1→A2, A2→A3.
 
-## Шаг 5. Действуй по уровням, не останавливая остальное
+## Step 5. Act by levels without stopping the rest
 
-- **A1** — прими рекомендацию, добавь строку в `## Допущения` task-файла:
-  `- <решение> — <почему> · обратимо, откат: <цена>`. Продолжай.
-- **A2** — положи вопрос в накопитель брифа и **иди дальше по независимым веткам**. Бриф уходит
-  одной пачкой на границе фазы (`rules/common/phase-boundaries.md`).
-- **A3** — отправь вопрос немедленно, встань **только по этой ветке**. Остальные ветки задачи и
-  все соседние задачи продолжают идти.
+- **A1** — accept the recommendation, add a line to `## Assumptions` of the task file:
+  `- <decision> — <why> · reversible, rollback: <cost>`. Continue.
+- **A2** — put the question into the brief accumulator and **go on with the independent branches**. The brief goes
+  out in one batch at the phase boundary (`rules/common/phase-boundaries.md`).
+- **A3** — send the question immediately, stand **only on this branch**. The task's other branches and
+  all neighboring tasks keep going.
 
-Агент, вставший целиком из-за одного A3-вопроса, применил скилл неправильно.
+An agent that stood still entirely because of a single A3 question applied the skill incorrectly.
 
-## Шаг 6. Перед отправкой брифа — вычистка фактов
+## Step 6. Before sending the brief — a fact scrub
 
-Последний проход по брифу: для каждого вопроса ещё раз спроси, отвечает ли на него команда.
-Вопрос, доживший до брифа, но добываемый `grep`/`gh`/`psql`, **удаляется**, а ответ добывается.
+A final pass over the brief: for each question ask again whether a command answers it.
+A question that survived to the brief but is obtainable by `grep`/`gh`/`psql` is **deleted**, and the answer obtained.
 
-Это дешевле, чем кажется: владелец отвечает с задержкой, и один лишний вопрос стоит часов.
+This is cheaper than it seems: the owner answers with a delay, and one extra question costs hours.
 
-## Анти-паттерны
+## Anti-patterns
 
-- **Плоский список вместо дерева.** Даёт ложное «всё блокировано»: на деле блокирует один
-  вопрос, а остальные просто стоят за ним в очереди.
-- **Вопрос без рекомендации.** Перекладывает работу на владельца и удваивает переписку.
-- **Пакетирование A3 вместе с A2.** Необратимое и блокирующее ждёт границы фазы — это и есть
-  остановка пайплайна, которую скилл должен предотвращать.
-- **A1 без строки в «Допущениях».** Решение, о котором нельзя узнать, неотличимо от забытого.
-- **Классификация до шага 2.** Половина «решений» окажется фактами; классифицировать их — работа
-  впустую и лишний шум владельцу.
+- **A flat list instead of a tree.** Gives a false "everything is blocked": in reality one
+  question blocks, and the rest merely queue behind it.
+- **A question without a recommendation.** Offloads the work onto the owner and doubles the correspondence.
+- **Bundling A3 together with A2.** The irreversible and blocking waits for the phase boundary — this is exactly
+  the pipeline stall the skill is supposed to prevent.
+- **A1 without a line in "Assumptions".** A decision that cannot be learned about is indistinguishable from a forgotten one.
+- **Classification before step 2.** Half the "decisions" will turn out to be facts; classifying them is wasted
+  work and extra noise for the owner.
 
-## Связанное
+## Related
 
-- `rules/common/autonomy-levels.md` — канон уровней и формат decision brief.
-- `rules/common/phase-boundaries.md` — когда отправлять накопленный бриф.
-- `rules/common/live-db-access.md` — читать живую БД можно, писать нельзя.
-- `CONTEXT.md` — словарь, которым разворачивается жаргон в вопросах.
+- `rules/common/autonomy-levels.md` — the canon of levels and the decision brief format.
+- `rules/common/phase-boundaries.md` — when to send the accumulated brief.
+- `rules/common/live-db-access.md` — reading the live DB is allowed, writing is not.
+- `CONTEXT.md` — the vocabulary that unpacks jargon in the questions.

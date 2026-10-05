@@ -2,7 +2,7 @@
 name: design-system
 description: Use this skill to generate or audit design systems, check visual consistency, and review PRs that touch styling.
 origin: ECC
-when_to_use: "Use when UI/UX Designer runs a visual audit (Mode B/C) or reviews a PR touching styling — 10-dimension consistency check + AI-slop detection. Examples: 'визуальный аудит страницы', 'проверь дизайн на консистентность', 'это выглядит как AI-slop?', 'PR трогает Tailwind/стили', 'design-system проверка'."
+when_to_use: "Use when UI/UX Designer runs a visual audit (Mode B/C) or reviews a PR touching styling — 10-dimension consistency check + AI-slop detection. Examples: 'visual audit of the page', 'check the design for consistency', 'does this look like AI-slop?', 'PR touches Tailwind/styles', 'design-system check'."
 allowed-tools:
   - Read
   - Grep

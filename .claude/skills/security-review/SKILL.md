@@ -1,7 +1,7 @@
 ---
 name: security-review
-description: 'Project-local security-review для CRM: рецидивирующие классы утечек, которые generic OWASP-чеклист не ловит — NO-OP RolesGuard, RBAC в теле сервиса, denylist-маскировка, mocked-E2E поверх global guards, prod-DDL без SSH, токены в CI. DELTA поверх OWASP/secrets/npm-audit в security-reviewer.md — не дублирует их. Каждый паттерн подтверждён реальным инцидентом с номером PR.'
-when_to_use: "Use when a PR touches auth / RBAC / finance / wallets / transactions / company-account, or when a Coder is about to write an endpoint or DTO on those paths. Examples: 'PR трогает finance — что проверить', 'добавляю поле в профиль, кто его увидит', 'новый junior-facing экран переиспользует DTO', 'endpoint за global guard', 'нужно применить DDL на проде', 'ревью CI/workflow с токенами'."
+description: 'Project-local security-review for the CRM: recurring classes of leaks that a generic OWASP checklist does not catch — a NO-OP RolesGuard, RBAC in the service body, denylist masking, mocked-E2E over global guards, prod-DDL without SSH, tokens in CI. A DELTA on top of the OWASP/secrets/npm-audit in security-reviewer.md — it does not duplicate them. Each pattern is confirmed by a real incident with a PR number.'
+when_to_use: "Use when a PR touches auth / RBAC / finance / wallets / transactions / company-account, or when a Coder is about to write an endpoint or DTO on those paths. Examples: 'PR touches finance — what to check', 'adding a field to the profile, who will see it', 'a new junior-facing screen reuses a DTO', 'endpoint behind a global guard', 'need to apply DDL on prod', 'review of CI/workflow with tokens'."
 allowed-tools:
   - Read
   - Grep
@@ -12,151 +12,151 @@ allowed-tools:
   - mcp__github__get_pull_request_files
 ---
 
-# Security review — проектная дельта (CRM)
+# Security review — the project delta (CRM)
 
-**Это НЕ замена** OWASP Top 10 / secrets-detection / npm audit — они уже расписаны
-по шагам в `.claude/agents/security-reviewer.md` (Шаги 2-4). Здесь — только те
-классы, на которых проект **реально горел**, и которые generic-чеклист пропускает.
-У каждого паттерна указан инцидент: если сомневаешься, что это важно — открой его.
+**This is NOT a replacement** for OWASP Top 10 / secrets-detection / npm audit — they are already spelled out
+step by step in `.claude/agents/security-reviewer.md` (Steps 2-4). Here — only those
+classes on which the project **actually got burned**, and which the generic checklist misses.
+Each pattern cites an incident: if you doubt that it matters — open it.
 
 ## When to invoke
 
-- security-reviewer: на КАЖДОМ dispatch (PR трогает auth / finance / RBAC / wallets / transactions / company-account).
-- Coder: ДО того как писать endpoint / DTO / маскировку на этих путях — дешевле, чем round-trip ревью.
-- code-reviewer: только чтобы понять, нужен ли отдельный security-reviewer. Findings по этим классам — его зона, не твоя.
+- security-reviewer: on EVERY dispatch (the PR touches auth / finance / RBAC / wallets / transactions / company-account).
+- Coder: BEFORE writing an endpoint / DTO / masking on these paths — cheaper than a round-trip review.
+- code-reviewer: only to understand whether a separate security-reviewer is needed. Findings on these classes — his zone, not yours.
 
 ---
 
 ## Patterns
 
-### 1. `RolesGuard` — NO-OP без `@Roles()`
+### 1. `RolesGuard` — NO-OP without `@Roles()`
 
-`JwtAuthGuard` **глобальный** (`APP_GUARD` в `app.module.ts`) — каждый роут
-аутентифицирован, если нет `@Public()`. А `RolesGuard` — opt-in и **ничего не
-защищает сам по себе**: `@UseGuards(RolesGuard)` без `@Roles(...)` = пустышка.
+`JwtAuthGuard` is **global** (`APP_GUARD` in `app.module.ts`) — every route is
+authenticated unless there is a `@Public()`. But `RolesGuard` is opt-in and **protects
+nothing on its own**: `@UseGuards(RolesGuard)` without `@Roles(...)` = a dud.
 
-Видишь `@UseGuards(RolesGuard)` — ищи рядом `@Roles(...)`. Нет его → роут открыт
-всем аутентифицированным, независимо от того, как убедительно выглядит декоратор.
+You see `@UseGuards(RolesGuard)` — look for `@Roles(...)` next to it. It is absent → the route is open
+to everyone authenticated, regardless of how convincing the decorator looks.
 
-**Инцидент:** RBAC-sweep 21 контроллера (2026-06-10) — 3 кластера утечек: #159
-(HR cross-team write-IDOR на projects create/update/addMember), #160 (HR видит
-все зарплаты компании + IDOR в payout-request getById), #161 (over-projection в
+**Incident:** RBAC-sweep of 21 controllers (2026-06-10) — 3 clusters of leaks: #159
+(HR cross-team write-IDOR on projects create/update/addMember), #160 (HR sees
+all company salaries + IDOR in payout-request getById), #161 (over-projection in
 `buildProfileView`).
 
-### 2. RBAC живёт в теле сервиса — контроллер не показывает правду
+### 2. RBAC lives in the service body — the controller does not show the truth
 
-Значительная часть авторизации в этом проекте — внутри методов сервиса
-(`svc.method(user)`), а не в декораторах. **Судить об утечке по контроллеру
-нельзя.** Открывай тело сервиса и смотри, что реально делает фильтрация по
-`viewer`.
+A significant part of authorization in this project is inside service methods
+(`svc.method(user)`), not in decorators. **You cannot judge a leak by the controller.**
+Open the service body and look at what the filtering by
+`viewer` actually does.
 
-Практика ревью: для каждого затронутого эндпоинта — «кто смотрит → чьи данные
-видит», явной строкой. Матрица ролей слишком сложна, чтобы держать её в голове:
-пять ролей (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`) плюс `DROP`-роутинг
-поверх них.
+Review practice: for each affected endpoint — "who is looking → whose data
+they see", as an explicit line. The role matrix is too complex to keep in your head:
+five roles (`ADMIN`, `SENIOR`, `JUNIOR`, `HR`, `ACCOUNTANT`) plus `DROP` routing
+on top of them.
 
-### 3. Проекция — только allow-list, никогда denylist
+### 3. Projection — allow-list only, never denylist
 
-Маскировка «перечислим, что скрыть» — игра в whack-a-mole, которая всегда
-проигрывает при следующем добавлении поля.
+Masking by "let's list what to hide" is a game of whack-a-mole that always
+loses at the next field addition.
 
-**Инцидент:** junior-маскировка проектов (#164). Первый заход был denylist:
-финансы скрыли, а **личность синьора и дропа — нет**. Поймали только
-field-by-field аудитом + manual-qa. Итог: `mapProject(viewerRole==='JUNIOR')`
-занулил `seniorId/seniorName/dropId/dropName/dropSharePercent/rate/currency/
+**Incident:** junior masking of projects (#164). The first attempt was a denylist:
+finances were hidden, but **the senior's and the drop's identity — not**. It was caught only by a
+field-by-field audit + manual-qa. The result: `mapProject(viewerRole==='JUNIOR')`
+nulled out `seniorId/seniorName/dropId/dropName/dropSharePercent/rate/currency/
 seniorSharePercent*/paymentType/salaryReview/notesGeneral`, `members → []`,
-`effectiveTeam → undefined` — последнее особенно: оно несло идентичности
-senior/drop/HR/accountant **вместе с email**.
+`effectiveTeam → undefined` — the last especially: it carried the identities
+of senior/drop/HR/accountant **together with the email**.
 
-Правила, которые из этого следуют:
+The rules that follow from this:
 
-- `buildProfileView` (`apps/api/src/users/users.service.ts:1440`) — explicit
-  allow-list проекция. **Никогда не регрессировать в `{ ...target }`.** Ровно это
-  написано комментарием на месте: «use an explicit field list rather than
-  `{ ...target }` so that future DB columns do NOT leak automatically».
-- Новая чувствительная колонка в `User` гейтится в ДВУХ местах: в проекции **и**
-  флагом в `getViewPermissions` — а он в ДРУГОМ файле,
-  `apps/api/src/users/users-access.service.ts` (флаги `realContacts` / `fopPii` /
-  `adminNote` / `legalName`). Правка только одного из двух мест — типовая утечка.
-- Любая новая surface, переиспользующая management-DTO для менее привилегированного
-  зрителя, маскируется allow-list'ом — и на пути списка (`findAll`), и на пути
-  детали (`findOne`). Забыть один путь — типовая ошибка.
+- `buildProfileView` (`apps/api/src/users/users.service.ts:1440`) — an explicit
+  allow-list projection. **Never regress into `{ ...target }`.** This is exactly
+  what is written in the comment at the spot: "use an explicit field list rather than
+  `{ ...target }` so that future DB columns do NOT leak automatically".
+- A new sensitive column in `User` is gated in TWO places: in the projection **and**
+  by a flag in `getViewPermissions` — and that one is in ANOTHER file,
+  `apps/api/src/users/users-access.service.ts` (the flags `realContacts` / `fopPii` /
+  `adminNote` / `legalName`). Editing only one of the two places — a typical leak.
+- Any new surface reusing a management DTO for a less-privileged
+  viewer is masked by an allow-list — both on the list path (`findAll`) and on the
+  detail path (`findOne`). Forgetting one path — a typical mistake.
 
-### 4. Mocked E2E ничего не знает про global guards
+### 4. A mocked E2E knows nothing about global guards
 
-Mocked Playwright-спека возвращает то, что **ожидал разработчик**, а не то, что
-отдаёт backend. Поэтому она структурно слепа к взаимодействию с глобальными
-guard'ами.
+A mocked Playwright spec returns what **the developer expected**, not what
+the backend serves. So it is structurally blind to the interaction with global
+guards.
 
-**Инцидент (рецидив ×3, первый — PR #110, 2026-06-04):** `preview-rendered`
-403'ился за глобальным `OnboardingGuard` (не был в bypass-list). Mocked E2E
-замокала его как 200 и прошла **зелёной**. Оба ревьюера — code и security —
-поставили APPROVE, потому что смотрели authz на уровне контроллера, а не
-взаимодействие с глобальным guard'ом. Поймал только Manual QA на живом стеке.
+**Incident (recurrence ×3, the first — PR #110, 2026-06-04):** `preview-rendered`
+403'd behind the global `OnboardingGuard` (it was not in the bypass-list). The mocked E2E
+mocked it as 200 and passed **green**. Both reviewers — code and security —
+put APPROVE, because they looked at authz at the controller level, not
+the interaction with the global guard. Caught only by Manual QA on the live stack.
 
-Что требовать в ревью: для эндпоинта за global guard — **integration-спека против
-реального guard-chain** (`*.integration.spec.ts`, реальная БД), проверяющая 200/403
-без моков. Зелёная mocked-E2E — не доказательство.
+What to require in review: for an endpoint behind a global guard — **an integration spec against
+the real guard-chain** (`*.integration.spec.ts`, a real DB), checking 200/403
+without mocks. A green mocked-E2E is not proof.
 
-Диагностический ход, если «в тестах работает, в браузере нет»: проверь `APP_GUARD`
-в `app.module.ts` и bypass-list соответствующего guard'а.
+The diagnostic move, if "it works in tests, not in the browser": check `APP_GUARD`
+in `app.module.ts` and the bypass-list of the corresponding guard.
 
-### 5. Проверка = real-DB integration-тест на каждое чувствительное поле
+### 5. Verification = a real-DB integration test for each sensitive field
 
-Для любой маскировки/RBAC-правки требуй спеку, которая на реальной БД ассертит
-**null у каждого** чувствительного поля для непривилегированного зрителя
-(образец: `projects-junior-masking.rbac.integration.spec.ts`, кейсы MASK-1..10,
-включая regression-guard на `effectiveTeam`).
+For any masking/RBAC edit require a spec that, on a real DB, asserts
+**null for each** sensitive field for an unprivileged viewer
+(model: `projects-junior-masking.rbac.integration.spec.ts`, cases MASK-1..10,
+including a regression-guard on `effectiveTeam`).
 
-Отсутствие такой спеки на PR с маскировкой — самостоятельная находка, а не
-придирка: без неё следующее добавленное поле утечёт молча.
+The absence of such a spec on a PR with masking is a standalone finding, not a
+nitpick: without it the next added field will leak silently.
 
-### 6. Прод-БД: DDL только через `deploy.yml`, SSH нет
+### 6. Prod DB: DDL only via `deploy.yml`, there is no SSH
 
-У оркестратора **нет SSH к VPS** (ключ первого деплоя одноразовый). Единственный
-путь к прод-БД — шаги manual-SQL в `deploy.yml`
+The orchestrator **has no SSH to the VPS** (the first deploy's key was one-time). The only
+path to the prod DB is the manual-SQL steps in `deploy.yml`
 (`psql -v ON_ERROR_STOP=1 < file`).
 
-Отсюда два требования к ревью:
+Hence two requirements for review:
 
-- Появился файл `apps/api/drizzle/manual/*.sql` — проверь, что он **завайрен** в
-  `deploy.yml`. Дрейф этих двух зон уже ронял прод в 500
-  (vacancy-i18n DDL, 2026-07-25); теперь есть CI-гард
-  `scripts/devops/check-prod-ddl-wiring.py`, но гард проверяет факт ссылки, а не смысл.
-- Разовый data-fix — идемпотентный и fail-loud (`RAISE` при verify ≠ ожидаемому),
-  применяется один раз, потом шаг **снимается** из `deploy.yml` (де-вайринг).
+- A file `apps/api/drizzle/manual/*.sql` appeared — check that it is **wired** into
+  `deploy.yml`. Drift of these two zones has already brought prod down to a 500
+  (vacancy-i18n DDL, 2026-07-25); there is now a CI guard
+  `scripts/devops/check-prod-ddl-wiring.py`, but the guard checks the fact of the reference, not the meaning.
+- A one-off data-fix is idempotent and fail-loud (`RAISE` when verify ≠ expected),
+  applied once, then the step is **removed** from `deploy.yml` (de-wiring).
 
-### 7. CI / workflow — отдельная поверхность атаки
+### 7. CI / workflow — a separate attack surface
 
-Проверять на PR, трогающих `.github/workflows/**`:
+To check on PRs touching `.github/workflows/**`:
 
-- **Недоверенный ввод в `run:`** — commit subject / PR title / branch name.
-  Только через `env:` и `"$VAR"`, никогда прямой интерполяцией `${{ }}`.
-- **Скоуп токена.** Дефолт репо — `read`, а job-level `permissions:` его
-  **заменяет**, а не дополняет. `contents: write` в workflow с триггером
-  `pull_request` = вектор self-merge: для веток этого репо исполняется версия
-  workflow из merge-ref, то есть ветка может переписать собственное условие
-  (инцидент 2026-06-21, #271; job `auto_merge` удалён по этой причине, #446).
-- **Оживление триггера будит подписчиков.** Прежде чем чинить неработающий
-  триггер — посмотри, кто ещё слушает это событие (`workflow_run`, `push`) и что
-  он делает с правами (#446: post-merge CI разбудил watchdog, пушивший в main
-  под owner-PAT).
-- **Секрет: проверять валидность, а не наличие.** Протухший PAT — непустая
-  строка; `[ -n "$PAT" ]` его примет, `gh` вернёт 401, `set -e` уронит скрипт —
-  и алерт исчезнет в тишину.
+- **Untrusted input in `run:`** — commit subject / PR title / branch name.
+  Only via `env:` and `"$VAR"`, never direct interpolation of `${{ }}`.
+- **Token scope.** The repo default is `read`, and a job-level `permissions:`
+  **replaces** it, not supplements. `contents: write` in a workflow with the trigger
+  `pull_request` = a self-merge vector: for this repo's branches the version of the
+  workflow from the merge-ref executes, i.e. the branch can rewrite its own condition
+  (incident 2026-06-21, #271; the `auto_merge` job was removed for this reason, #446).
+- **Reviving a trigger wakes the subscribers.** Before fixing a non-working
+  trigger — look at who else listens to this event (`workflow_run`, `push`) and what
+  it does with permissions (#446: post-merge CI woke a watchdog that pushed to main
+  under an owner-PAT).
+- **Secret: check validity, not presence.** A stale PAT is a non-empty
+  string; `[ -n "$PAT" ]` will accept it, `gh` will return 401, `set -e` will crash the script —
+  and the alert will vanish into silence.
 
 ---
 
 ## Anti-patterns
 
-- **«Контроллер выглядит правильно» как основание для APPROVE.** См. паттерн 2 — читай сервис.
-- **Ставить APPROVE, потому что mocked E2E зелёная** на PR с guard-поверхностью. См. паттерн 4: ровно так и прошёл #110.
-- **Дублировать сюда OWASP-чеклист.** Он в `security-reviewer.md` Шаг 2. Этот файл — только про то, на чём горел ЭТОТ проект.
-- **Трогать метку `merge-approved`.** Её ставит только Master/владелец по явному «мерджим» — независимо от вердикта (инцидент #271).
+- **"The controller looks right" as grounds for APPROVE.** See pattern 2 — read the service.
+- **Putting APPROVE because the mocked E2E is green** on a PR with a guard surface. See pattern 4: that is exactly how #110 passed.
+- **Duplicating the OWASP checklist here.** It is in `security-reviewer.md` Step 2. This file is only about what THIS project got burned on.
+- **Touching the `merge-approved` label.** It is placed only by Master/the owner on an explicit "we merge" — regardless of the verdict (incident #271).
 
 ## References
 
-- `.claude/agents/security-reviewer.md` — OWASP Top 10, secrets, npm audit, USDT-паттерны, формат вердикта.
-- `.claude/rules/common/skills-invocation.md` — таблица триггеров (эта строка).
-- `.claude/skills/code-review-discipline/SKILL.md` — как формулировать и постить вердикт.
-- `.claude/agents/project-state.md` — актуальная RBAC-матрица и модель энфорсмента.
+- `.claude/agents/security-reviewer.md` — OWASP Top 10, secrets, npm audit, USDT patterns, the verdict format.
+- `.claude/rules/common/skills-invocation.md` — the trigger table (this line).
+- `.claude/skills/code-review-discipline/SKILL.md` — how to formulate and post the verdict.
+- `.claude/agents/project-state.md` — the current RBAC matrix and the enforcement model.

@@ -1,7 +1,7 @@
 ---
 name: decomposing-large-code
-description: 'Воспроизводимая дисциплина безопасного расщепления гигантских файлов и модулей: Mikado Method (цель → наивная попытка → revert при первом блокере → узел-предпосылка в граф → рекурсия до листьев) поверх characterization-тестов Майкла Фезерса. Исполнение листьями снизу вверх, каждый лист — атомарный PR, база всегда зелёная. Behavior-preserving: ноль изменений наблюдаемого поведения.'
-when_to_use: "Use when about to split a giant file or module whose seam is already chosen (via codebase-design): a >800-line service/route/component, a god file, a module that is 'too big'. Examples: 'разбить гигантский файл', 'decompose god file', 'сплит модуля >800 строк', 'transactions.service.ts слишком большой', 'this file is too big to edit safely', 'расщепить schema.ts', 'как безопасно порезать UserDialog.tsx'."
+description: 'A reproducible discipline for safely splitting giant files and modules: the Mikado Method (goal → naive attempt → revert at the first blocker → prerequisite node into the graph → recursion down to the leaves) on top of Michael Feathers'' characterization tests. Execution by leaves bottom-up, each leaf an atomic PR, the base always green. Behavior-preserving: zero changes to observable behavior.'
+when_to_use: "Use when about to split a giant file or module whose seam is already chosen (via codebase-design): a >800-line service/route/component, a god file, a module that is 'too big'. Examples: 'split a giant file', 'decompose god file', 'split of a module >800 lines', 'transactions.service.ts is too big', 'this file is too big to edit safely', 'split schema.ts', 'how to safely cut up UserDialog.tsx'."
 allowed-tools:
   - Read
   - Grep
@@ -14,144 +14,144 @@ allowed-tools:
   - mcp__codegraph__codegraph_callers
 ---
 
-# Безопасное расщепление гигантов
+# Safely splitting giants
 
-Этот скилл — про **КАК** безопасно исполнить сплит, когда **ГДЕ** ставить шов уже решено.
-Где ставить шов — отдельное решение, оно в `codebase-design` (глубина, deletion-тест, адаптеры).
-Сюда приходят с готовым швом и большим файлом, который страшно трогать: гиганты проекта
-(`transactions.service.ts` ~9.4k строк, `schema.ts`, `users.service`, `projects.service`,
-`$projectId.tsx`, `UserDialog.tsx`) — **human-planned**, владелец санкционирует старт
-(категория #3 рулбука гардинера).
+This skill is about **HOW** to safely execute a split, when **WHERE** to put the seam is already decided.
+Where to put the seam is a separate decision, it is in `codebase-design` (depth, deletion test, adapters).
+People come here with a ready seam and a big file that is scary to touch: the giants of the project
+(`transactions.service.ts` ~9.4k lines, `schema.ts`, `users.service`, `projects.service`,
+`$projectId.tsx`, `UserDialog.tsx`) — **human-planned**, the owner sanctions the start
+(category #3 of the gardener rulebook).
 
-Опасность сплита одна: **изменить поведение, думая, что только двигаешь код.** Два приёма
-снимают её — Mikado даёт откат-как-информацию вместо накопления сломанного состояния;
-characterization-тесты фиксируют поведение до первой правки. Метод воспроизводим: агент повторяет
-**процесс**, а не угадывает швы заново.
+The danger of a split is one: **changing behavior while thinking you are only moving code.** Two techniques
+remove it — Mikado gives rollback-as-information instead of accumulating broken state;
+characterization tests pin the behavior before the first edit. The method is reproducible: the agent repeats
+the **process**, not guesses the seams anew.
 
-## Ведущие слова
+## Leading words
 
-- **Лист** — изменение, которому не нужна ни одна предпосылка; его можно сделать прямо сейчас,
-  оставив базу зелёной. Единица работы и PR.
-- **Граф** (`mikado.md`) — внешняя память стратегии: цель внизу, листья вверху.
-- **Revert-как-информация** — откат ломающей правки не теряет работу, а добывает предпосылку.
-- **Characterization-тест** — тест, фиксирующий **текущее** поведение (даже странное), чтобы
-  сплит доказуемо его сохранил.
-- **Behavior-preserving** — сплит меняет расположение кода, не наблюдаемое поведение.
+- **Leaf** — a change that needs no prerequisite; it can be done right now,
+  leaving the base green. The unit of work and of the PR.
+- **Graph** (`mikado.md`) — the external memory of the strategy: the goal at the bottom, the leaves at the top.
+- **Revert-as-information** — rolling back a breaking edit does not lose work, but obtains a prerequisite.
+- **Characterization test** — a test that pins the **current** behavior (even if strange), so that
+  the split provably preserves it.
+- **Behavior-preserving** — the split changes the placement of the code, not the observable behavior.
 
-## Шаг 1 — цель: конкретная и тестируемая
+## Step 1 — the goal: concrete and testable
 
-Сформулируй одну цель как **проверяемое поведение после сплита**, не как намерение. «Вынести
-расчёт drop-share из `transactions.service.ts` в отдельный модуль, вызовы и поведение неизменны» —
-цель; «почистить transactions» — нет.
+Formulate one goal as a **checkable behavior after the split**, not as an intention. "Extract the
+drop-share calculation from `transactions.service.ts` into a separate module, the calls and behavior unchanged" —
+is a goal; "clean up transactions" — is not.
 
-Запиши цель в самый низ `mikado.md`. **Критерий завершения шага:** цель названа глаголом-действием
-и имеет наблюдаемый признак «готово» (компилируется + те же тесты зелены + вызывающие не тронуты).
+Write the goal at the very bottom of `mikado.md`. **Completion criterion of the step:** the goal is named by an action verb
+and has an observable "done" sign (compiles + the same tests green + the callers untouched).
 
-## Шаг 2 — сеть под кодом ПЕРЕД первой правкой
+## Step 2 — the net under the code BEFORE the first edit
 
-Последовательность Фезерса: найди точки изменения → точки тестирования → разорви зависимости →
-напиши characterization-тесты → только теперь меняй код.
+Feathers' sequence: find change points → test points → break dependencies →
+write characterization tests → only now change the code.
 
-Проверь, что сплитуемое поведение **поймано тестом**. У композиции страниц (`$projectId.tsx`,
-`UserDialog.tsx`) unit-тестов часто нет — опора на E2E; у расчётной логики (`finance`) опора на
-unit. Нашёл дыру — **добери характеризацию**: тест, закрепляющий то, что код делает сейчас, не то,
-что он «должен». Если текущее поведение выглядит багом — всё равно зафиксируй его как есть и
-пометь строкой-маркером; исправление поведения — отдельная задача после сплита, не внутри него.
+Check that the behavior being split is **caught by a test**. Page compositions (`$projectId.tsx`,
+`UserDialog.tsx`) often have no unit tests — the reliance is on E2E; calculation logic (`finance`) relies on
+units. Found a gap — **add characterization**: a test that pins what the code does now, not what
+it "should". If the current behavior looks like a bug — pin it as-is anyway and
+mark it with a marker line; fixing the behavior is a separate task after the split, not inside it.
 
-> Фезерс: «characterization test … documents the actual current behavior.» (≤15 слов)
+> Feathers: "characterization test … documents the actual current behavior." (≤15 words)
 
-**Критерий завершения шага:** каждая ветка сплитуемого поведения краснеет хотя бы одним тестом,
-если его намеренно сломать. Нет красного на поведение — сети нет, сплит не начинать.
+**Completion criterion of the step:** each branch of the behavior being split goes red with at least one test,
+if deliberately broken. No red on the behavior — there is no net, do not start the split.
 
-## Шаг 3 — Mikado: четыре правила
+## Step 3 — Mikado: four rules
 
-1. **Цель — конкретная тестируемая** (шаг 1).
-2. **Наивная попытка прямо.** Сделай изменение к цели напрямую, без предварительного анализа
-   последствий — пусть компилятор и тесты покажут, что отвалится.
-3. **Первый блокер → `git reset --hard`.** Откатывай сразу и полностью. Откат не потеря: tokens
-   дёшевы, wall-clock — секунды, а сломанная попытка уже **сообщила предпосылку**.
-4. **Блокер → узел-предпосылка в граф, рекурсия.** Запиши, что должно быть сделано РАНЬШЕ цели,
-   узлом над ней. Примени те же четыре правила к узлу. Рекурсия до **листьев** — узлов без
-   предпосылок.
+1. **Goal — concrete testable** (step 1).
+2. **Naive attempt straight away.** Make the change toward the goal directly, without a prior analysis of the
+   consequences — let the compiler and the tests show what falls off.
+3. **First blocker → `git reset --hard`.** Roll back immediately and fully. The rollback is not a loss: tokens
+   are cheap, wall-clock is seconds, and the broken attempt already **reported a prerequisite**.
+4. **Blocker → a prerequisite node into the graph, recursion.** Write down what must be done BEFORE the goal,
+   as a node above it. Apply the same four rules to the node. Recursion down to the **leaves** — nodes without
+   prerequisites.
 
-> Источник: «At the first blocker, revert everything.» (≤15 слов)
+> Source: "At the first blocker, revert everything." (≤15 words)
 
-**Критерий завершения шага:** в графе есть хотя бы один лист, и путь от листа до цели прослежен.
+**Completion criterion of the step:** the graph has at least one leaf, and the path from the leaf to the goal is traced.
 
-## Шаг 4 — граф `mikado.md`: внешняя память против дрейфа цели
+## Step 4 — the graph `mikado.md`: external memory against goal drift
 
-Граф живёт файлом в ветке, не в контексте. Он читается в начале **каждой** сессии/агента — это
-единственное, что держит цель неизменной, пока агент правит десятки файлов (модель кодовой базы у
-агента к концу длинной сессии деградирует).
+The graph lives as a file in the branch, not in context. It is read at the start of **every** session/agent — this is
+the only thing that keeps the goal unchanged while the agent edits dozens of files (the agent's model of the codebase
+degrades by the end of a long session).
 
-Формат узлов — **по поведению и именам символов, НЕ по номерам строк** (`doc-durability`:
-`resolveDropShare` переживает переезд файла, `finance.service.ts:412` — нет). Структура: цель
-внизу, стрелки предпосылок вверх, листья сверху, статус у каждого узла (`todo` / `done`).
+The format of the nodes — **by behavior and symbol names, NOT by line numbers** (`doc-durability`:
+`resolveDropShare` survives a file move, `finance.service.ts:412` — not). Structure: the goal
+at the bottom, prerequisite arrows up, the leaves at the top, a status on each node (`todo` / `done`).
 
-> Источник: «The graph survives; the broken code does not.» (≤15 слов)
+> Source: "The graph survives; the broken code does not." (≤15 words)
 
-**Критерий завершения шага:** каждый узел назван символом/поведением, ни одного номера строки,
-цель и листья различимы.
+**Completion criterion of the step:** each node is named by a symbol/behavior, not a single line number,
+the goal and the leaves are distinguishable.
 
-## Шаг 5 — исполнение листьями снизу вверх
+## Step 5 — execution by leaves bottom-up
 
-Гаси листья в порядке от верха графа (без предпосылок) вниз к цели. Каждый лист:
+Extinguish the leaves in order from the top of the graph (without prerequisites) down to the goal. Each leaf:
 
-- **атомарный PR** — 3–5 файлов, один коммит;
-- **база зелёная до и после** — typecheck + затронутые тесты проходят на каждом шаге;
-- **behavior-preserving** — характеризационные тесты из шага 2 остаются зелёными без правок самих
-  тестов.
+- **an atomic PR** — 3–5 files, one commit;
+- **the base green before and after** — typecheck + the affected tests pass at each step;
+- **behavior-preserving** — the characterization tests from step 2 stay green without edits to the tests
+  themselves.
 
-Монстр-PR на весь сплит разбивается на цепочку проверяемых листьев. Отметь лист `done` в графе
-сразу после мёржа — следующая сессия читает актуальное состояние.
+A monster PR for the whole split is broken into a chain of checkable leaves. Mark a leaf `done` in the graph
+right after the merge — the next session reads the current state.
 
-**Критерий завершения шага:** все листья `done`, цель достигнута, ни один characterization-тест не
-был ослаблен ради зелёного.
+**Completion criterion of the step:** all leaves `done`, the goal achieved, no characterization test
+was weakened for the sake of green.
 
-## Три провала агента и контрмеры
+## Three agent failures and countermeasures
 
-| Провал                                                               | Контрмера                                                                                                                          |
+| Failure                                                              | Countermeasure                                                                                                                   |
 | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| **Жадность правок** — агент чинит всё разом, копит сломанное          | Листовое ограничение (3–5 файлов) + `git reset --hard` при первом блокере вместо «ещё одна правка и заработает»                    |
-| **Дрейф цели** — к концу сессии агент правит не то, что начал         | Внешний граф `mikado.md`, читается в начале каждой сессии; узел по символу, не по строке                                          |
-| **Иллюзия зелёного** — тест подкрутили, чтобы прошёл                  | `mutation-gate` ловит ослабленные спеки; правило «никогда не ослаблять спеку» (`.claude/rules/common/*`); behavior-preserving = ноль изменений наблюдаемого поведения, значит и тестов менять не за чем |
+| **Greed of edits** — the agent fixes everything at once, accumulates broken | The leaf constraint (3–5 files) + `git reset --hard` at the first blocker instead of "one more edit and it will work" |
+| **Goal drift** — by the end of the session the agent edits not what it started | The external graph `mikado.md`, read at the start of each session; a node by symbol, not by line |
+| **The illusion of green** — the test was tweaked to pass            | `mutation-gate` catches weakened specs; the rule "never weaken a spec" (`.claude/rules/common/*`); behavior-preserving = zero changes to observable behavior, so there is nothing to change in the tests either |
 
-Контрмера против иллюзии зелёного — положительная: сплит сохраняет поведение, поэтому тесты
-остаются как есть; необходимость тронуть тест при чисто механическом сплите — сигнал, что поведение
-поехало, а не что тест устарел.
+The countermeasure against the illusion of green is positive: the split preserves behavior, so the tests
+stay as they are; the need to touch a test on a purely mechanical split is a signal that the behavior
+has moved, not that the test is outdated.
 
-## Наши гейты поверх метода
+## Our gates on top of the method
 
-- **zone-of-write** — сплит остаётся в своей зоне (Coder: `apps/**`/`packages/**`); тестовые файлы
-  характеризации — зона AutoTest по природе файла.
-- **Каждый лист — `code-reviewer`.** Лист в `finance` / RBAC / `schema.ts` / auth —
-  **`security-reviewer` ОБЯЗАТЕЛЕН** (critical-path zones, `contracts.md` §2.1).
-- **Гиганты — human-planned.** Владелец санкционирует старт расщепления гиганта; агент не начинает
-  слепой авто-PR на >800-строчный гигант по своей инициативе.
-- **`DATABASE_URL= git push`** на feature-ветках (integration-спеки graceful-skip).
-- **Хуки проходятся честно** — доделать AC/формат, pre-push и prettier-гейты не обходить.
+- **zone-of-write** — the split stays in its zone (Coder: `apps/**`/`packages/**`); the characterization test files
+  — the AutoTest zone by the nature of the file.
+- **Each leaf — `code-reviewer`.** A leaf in `finance` / RBAC / `schema.ts` / auth —
+  **`security-reviewer` MANDATORY** (critical-path zones, `contracts.md` §2.1).
+- **Giants — human-planned.** The owner sanctions the start of splitting a giant; the agent does not start
+  a blind auto-PR on a >800-line giant on its own initiative.
+- **`DATABASE_URL= git push`** on feature branches (integration specs graceful-skip).
+- **Hooks are passed honestly** — finish the AC/format, do not bypass the pre-push and prettier gates.
 
-## Источники
+## Sources
 
-Метод внешний; снимок проверяемый, протухает молча — перепроверить при смене подхода.
+The method is external; the snapshot is checkable, goes stale silently — recheck on a change of approach.
 
-- Michael Feathers, «Working Effectively with Legacy Code» (2004) — последовательность
-  legacy-change и characterization-тесты. Книга, обращение 2026-10-05.
-- Mikado + AI-агенты — <https://anischaabani.com/en/blog/mikado-method-ai-agents/>, обращение
+- Michael Feathers, "Working Effectively with Legacy Code" (2004) — the sequence of
+  legacy-change and characterization tests. Book, accessed 2026-10-05.
+- Mikado + AI agents — <https://anischaabani.com/en/blog/mikado-method-ai-agents/>, accessed
   2026-10-05.
-- Mikado + AI-агенты — <https://wellaged.dev/posts/mikado-method-ai-agents/>, обращение 2026-10-05.
-- **Срок годности:** ~2027-04 либо раньше, если меняется подход к декомпозиции гигантов; признак
-  перепроверки — расхождение этого скилла с рулбуком гардинера (категория #3).
+- Mikado + AI agents — <https://wellaged.dev/posts/mikado-method-ai-agents/>, accessed 2026-10-05.
+- **Shelf life:** ~2027-04 or earlier if the approach to decomposing giants changes; the sign
+  for a recheck — a divergence of this skill from the gardener rulebook (category #3).
 
-## Связанное
+## Related
 
-- `.claude/skills/codebase-design/SKILL.md` — ГДЕ ставить шов (глубина, deletion-тест, адаптеры);
-  этот скилл — КАК безопасно исполнить сплит после выбора шва.
-- `.claude/skills/diagnosing-bugs/SKILL.md` — «красная команда» как гейт перед гипотезами (та же
-  дисциплина «нет красного — не трогай»).
-- `.claude/skills/resolving-merge-conflicts/SKILL.md` — разрешение по намерению, никогда `--abort`
-  (родственный приём: довести операцию до конца, а не бросить).
-- `docs/runbooks/codebase-gardener.md` — категория #3 (расщепление гигантов, human-planned).
-- `.claude/rules/common/doc-durability.md` — узлы графа по символам, не по строкам.
-- `.claude/rules/common/zone-of-write.md` · `.claude/agents/contracts.md` §2.1 — зоны и
-  обязательный security-reviewer на critical-path листьях.
+- `.claude/skills/codebase-design/SKILL.md` — WHERE to put the seam (depth, deletion test, adapters);
+  this skill — HOW to safely execute the split after choosing the seam.
+- `.claude/skills/diagnosing-bugs/SKILL.md` — the "red command" as a gate before hypotheses (the same
+  discipline "no red — do not touch").
+- `.claude/skills/resolving-merge-conflicts/SKILL.md` — resolution by intent, never `--abort`
+  (a kindred technique: carry the operation to the end, do not abandon it).
+- `docs/runbooks/codebase-gardener.md` — category #3 (splitting giants, human-planned).
+- `.claude/rules/common/doc-durability.md` — graph nodes by symbol, not by line.
+- `.claude/rules/common/zone-of-write.md` · `.claude/agents/contracts.md` §2.1 — zones and
+  the mandatory security-reviewer on critical-path leaves.

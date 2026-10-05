@@ -1,7 +1,7 @@
 ---
 name: ua-tax-compliance
-description: When Legal-agent отвечает на UA tax / company structure questions для CRM founder — ФОП режимы, ТОВ-Дія Сіті, CFC rules, hybrid offshore структуры, banking caps, обязательный аудит. UA-specific knowledge не покрытое ECC. Использовать в Mode A (consultation) перед любым company-structure advice + в Mode B (PR-review) когда PR трогает payment/tax-related fields в users/transactions.
-when_to_use: "Use when Legal advises on UA tax or company structure for the founder, or reviews a PR touching payment/tax fields. Examples: 'какой режим ФОП выбрать', 'Дія Сіті vs ФОП', 'CFC правила', 'банковские лимиты на ЄП', 'обязательный аудит ТОВ', 'PR трогает transactions/users tax fields'."
+description: When the Legal agent answers UA tax / company structure questions for the CRM founder — FOP regimes, TOV-Diia City, CFC rules, hybrid offshore structures, banking caps, mandatory audit. UA-specific knowledge not covered by ECC. Use in Mode A (consultation) before any company-structure advice + in Mode B (PR-review) when a PR touches payment/tax-related fields in users/transactions.
+when_to_use: "Use when Legal advises on UA tax or company structure for the founder, or reviews a PR touching payment/tax fields. Examples: 'which FOP regime to choose', 'Diia City vs FOP', 'CFC rules', 'banking limits on the Single Tax', 'mandatory TOV audit', 'PR touches transactions/users tax fields'."
 allowed-tools:
   - Read
   - Grep
@@ -10,166 +10,166 @@ allowed-tools:
 
 # UA Tax Compliance (Legal knowledge primitive)
 
-UA-specific tax / company structure знания. Лифтнуто из `.claude/agents/memory/legal/lessons.md` (2026-05-31 consultations). НЕ покрыто ECC — это jurisdictional knowledge.
+UA-specific tax / company structure knowledge. Lifted from `.claude/agents/memory/legal/lessons.md` (2026-05-31 consultations). NOT covered by ECC — this is jurisdictional knowledge.
 
-**Disclaimer:** Этот skill — справочный материал для Legal-agent при формулировании консультаций. Каждая рекомендация на consultation выходе должна иметь stronger disclaimer + IT-corporate lawyer engagement для final sign-off (см. `legal-escalation-patterns` skill).
+**Disclaimer:** This skill is reference material for the Legal agent when formulating consultations. Each recommendation on a consultation output must have a stronger disclaimer + IT-corporate lawyer engagement for final sign-off (see the `legal-escalation-patterns` skill).
 
 ## When to invoke
 
-- Перед Mode A consultation про company structure (ФОП vs ТОВ vs offshore)
-- Перед Mode A consultation про tax optimization
-- Перед Mode B PR-review когда PR трогает finance/transactions/wallets/payouts модули
-- Когда user iterates по евазійним вариантам (отсылка на `legal-escalation-patterns`)
-- Перед советами по banking setup
+- Before a Mode A consultation about company structure (FOP vs TOV vs offshore)
+- Before a Mode A consultation about tax optimization
+- Before a Mode B PR-review when a PR touches the finance/transactions/wallets/payouts modules
+- When the user iterates over evasion variants (refer to `legal-escalation-patterns`)
+- Before advising on banking setup
 
 ## Patterns
 
-### 1. ПнВК 9% (резидент Дія Сіті) vs ЕН-5% — break-even анализ
+### 1. Exit Capital Tax 9% (Diia City resident) vs Single Tax 5% — break-even analysis
 
-**Правило:** ПнВК 9% (Податок на виведений капітал, Дія Сіті) выигрывает у ЕН-5% (Единий податок ФОП-3) даже на малых оборотах при IT-margins 25-35% — 5% від обороту > 9% від прибутку в типичных outsource структурах.
+**Rule:** Exit Capital Tax 9% (Tax on Withdrawn Capital, Diia City) beats the Single Tax 5% (Single Tax FOP-3) even at small turnover at IT margins of 25-35% — 5% of turnover > 9% of profit in typical outsource structures.
 
-**Break-even ЕН vs ПнВК** = только при марже ≥40-50% (нереально для IT-outsource).
+**Break-even Single Tax vs Exit Capital Tax** = only at a margin ≥40-50% (unrealistic for IT-outsource).
 
 **Decision rule:**
 
-- Outsource company с маржой 25-35% → ТОВ-Дія Сіті ПнВК выигрывает уже на mini-scale.
-- Product company с маржой >50% → ФОП-3 может оставаться оптимальным (но banking cap 14.08.2026 blocker — см. §6).
+- An outsource company with a 25-35% margin → TOV-Diia City Exit Capital Tax wins already at mini-scale.
+- A product company with a margin >50% → FOP-3 may remain optimal (but the banking cap 14.08.2026 blocker — see §6).
 
-### 2. Startup-резидент Дія Сіті (24-месячный bridge)
+### 2. Startup resident of Diia City (24-month bridge)
 
-**Правило:** Startup-резидент Дія Сіті даёт 24 месяца льготного периода **без** требования 9 спецов / **без** €1200/міс зарплат — критичный bridge для tech-founder'ів запуска.
+**Rule:** A startup resident of Diia City gets 24 months of a preferential period **without** the requirement of 9 specialists / **without** €1200/month salaries — a critical bridge for a tech founder's launch.
 
-**Pitfall:** ТОВ старше 24 месяцев **НЕ может** подаватись як startup, только full-резидент сразу. Подавать ДО активної деятельності.
+**Pitfall:** A TOV older than 24 months **cannot** apply as a startup, only as a full resident immediately. Apply BEFORE active operations.
 
-**Decision rule:** Новый ТОВ founder → startup-резидент Дія Сіті сразу при регистрации, не позже.
+**Decision rule:** A new TOV founder → startup resident of Diia City immediately at registration, not later.
 
-### 3. CFC (Controlled Foreign Company) — ст. 39² ПКУ
+### 3. CFC (Controlled Foreign Company) — Art. 39² of the Tax Code of Ukraine
 
-**Правило:** CFC fundamentals — game-changer для UA-resident'ів: offshore структура **НЕ означає** «не платити в Україну».
+**Rule:** CFC fundamentals — a game-changer for UA residents: an offshore structure **does NOT mean** "do not pay into Ukraine".
 
-**UA ПДФО 18%+1.5% exemption з CFC profit** можлива тільки якщо:
+**A UA PIT 18%+1.5% exemption from CFC profit** is possible only if:
 
-- **(a)** є treaty Україна↔jurisdiction
-- **І (b)** effective rate ≥13% АБО passive income ≤50%
+- **(a)** there is a treaty Ukraine↔jurisdiction
+- **AND (b)** the effective rate ≥13% OR passive income ≤50%
 
-**Для IT-outsource** active income test PASS, але потрібна documentation. Без exemption — controller платить 19.5% ПДФО на всю нерозподілену прибуток КІК навіть якщо distribution не відбувся.
+**For IT-outsource** the active income test PASSes, but documentation is needed. Without the exemption — the controller pays 19.5% PIT on all undistributed CFC profit even if a distribution did not occur.
 
-**Decision rule:** Tax-avoidance через offshore = міф для UA-residents. Реальна цель offshore = client preferences / brand / FX hedging, **не** tax arbitrage.
+**Decision rule:** Tax avoidance through offshore = a myth for UA residents. The real goal of offshore = client preferences / brand / FX hedging, **not** tax arbitrage.
 
-### 4. Cyprus / UAE — FAIL на CFC effective rate test
+### 4. Cyprus / UAE — FAIL on the CFC effective rate test
 
-**Правило:** Cyprus 12.5% corp tax FAILS UA CFC 13% effective rate test → controller завжди буде платити ПДФО на UA рівні навіть з Cyprus entity. UAE 0%/9% теж FAIL по ставці.
+**Rule:** Cyprus 12.5% corp tax FAILS the UA CFC 13% effective rate test → the controller will always pay PIT at the UA level even with a Cyprus entity. UAE 0%/9% also FAILs on the rate.
 
-**Active income exemption** — єдиний шлях, потребує >50% IT services revenue + documentation. Не нести Cyprus як «надасть tax savings» — це не так для UA-resident UBO.
+**The active income exemption** — the only path, requires >50% IT services revenue + documentation. Do not present Cyprus as "will provide tax savings" — this is not so for a UA-resident UBO.
 
-### 5. ФОП-3 banking caps (Меморандум НБУ 14.05.2026)
+### 5. FOP-3 banking caps (NBU Memorandum 14.05.2026)
 
-**Правило:** Меморандум НБУ + АБУ + 29 банков від 14.05.2026 — structural banking-caps для ФОП-3 **независимый от ПКУ-лімітів і crypto-regulation**:
+**Rule:** The NBU + AUB Memorandum + 29 banks of 14.05.2026 — structural banking caps for FOP-3 **independent of the Tax Code limits and crypto regulation**:
 
-| Дата       | Cap     |
+| Date       | Cap     |
 | ---------- | ------- |
-| 14.08.2026 | ₴3M/міс |
-| 14.11.2026 | ₴1M/міс |
+| 14.08.2026 | ₴3M/month |
+| 14.11.2026 | ₴1M/month |
 
-Це cap — банки просто не процессать. Для scale > ₴10M/рік ФОП vehicle ламається не тільки tax-side, але й banking-side.
+This cap — the banks simply will not process it. For a scale > ₴10M/year the FOP vehicle breaks not only on the tax side but also on the banking side.
 
-### 6. ФОП-3 + USDT — structurally impossible
+### 6. FOP-3 + USDT — structurally impossible
 
-**Правило:** ФОП-3 + USDT в договорі для IT-outsource scale (₴20-30M/рік, команда) = **structurally impossible** через 3 independent blockers:
+**Rule:** FOP-3 + USDT in the contract for an IT-outsource scale (₴20-30M/year, a team) = **structurally impossible** due to 3 independent blockers:
 
-1. **ДПС-заборона крипто на ЄП** (бартер → exclusion + 15% штраф)
-2. **Tax limit ₴10.09M на 2026** (1167 МЗП)
-3. **Banking caps ₴3M/₴1M/міс per Меморандум 14.05.2026** (§5)
+1. **State Tax Service ban on crypto under the Single Tax** (barter → exclusion + 15% penalty)
+2. **Tax limit ₴10.09M for 2026** (1167 minimum wages)
+3. **Banking caps ₴3M/₴1M/month per the Memorandum 14.05.2026** (§5)
 
-**Decision rule (bridge ФОП → ТОВ):** Bridge виноситься тільки при ВСІХ умовах: NULL USDT, < ₴3M/міс, no commingling з ТОВ, ≤ 6 міс hard cutoff. Якщо одна не виконується — bridge ламається.
+**Decision rule (bridge FOP → TOV):** A bridge is considered only under ALL conditions: NULL USDT, < ₴3M/month, no commingling with the TOV, ≤ 6 months hard cutoff. If one is not met — the bridge breaks.
 
-**Recommended alternative:** ТОВ-Дія Сіті startup-резидент сразу на mini-scale (₴30-50k setup) замість bridge ФОП-USDT detour.
+**Recommended alternative:** TOV-Diia City startup resident immediately at mini-scale (₴30-50k setup) instead of a bridge FOP-USDT detour.
 
-### 7. Обов'язковий аудит звіту Дія Сіті
+### 7. Mandatory audit of the Diia City report
 
-**Правило:** Обов'язковий аудит звіту Дія Сіті — **hidden cost** часто пропускається в planning:
+**Rule:** The mandatory audit of the Diia City report — a **hidden cost** often missed in planning:
 
-- Cost: ₴30-80k/рік
-- Deadline: до 1 червня року+1
-- Форма: [blank.dtkt.ua форма 743](https://blank.dtkt.ua/blank/743)
-- Не подача = exclusion із Дія Сіті registry + retroactive перерахунок на загальну систему.
+- Cost: ₴30-80k/year
+- Deadline: by June 1 of year+1
+- Form: [blank.dtkt.ua form 743](https://blank.dtkt.ua/blank/743)
+- Non-submission = exclusion from the Diia City registry + retroactive recalculation to the general system.
 
-**Decision rule:** Включити в monthly accruals (₴3-7k/міс) із самого старту, не як edge cost.
+**Decision rule:** Include in monthly accruals (₴3-7k/month) from the very start, not as an edge cost.
 
-### 8. ТОВ-Дія Сіті + WhiteBIT/Wise — effective tax / banking realities
+### 8. TOV-Diia City + WhiteBIT/Wise — effective tax / banking realities
 
-**Effective consolidated tax burden ТОВ-Дія Сіті + WhiteBIT + Wise:**
+**Effective consolidated tax burden of TOV-Diia City + WhiteBIT + Wise:**
 
-- ~12-16% при 30% dividend / 70% reinvest
-- ~8-10% при aggressive reinvest
-- ~28-30% при 100% distribution (near-paritet з ТОВ-загальна)
+- ~12-16% at 30% dividend / 70% reinvest
+- ~8-10% at aggressive reinvest
+- ~28-30% at 100% distribution (near parity with TOV-general)
 
-**Architecture виграє** через 0%-on-reinvest mechanic, **не** через nominally низькі rates. Дія Сіті ефективна для **scaling companies**, не для cash-out.
+**The architecture wins** through the 0%-on-reinvest mechanic, **not** through nominally low rates. Diia City is effective for **scaling companies**, not for cash-out.
 
-**WhiteBIT Business KYB:** Official 5 робочих днів, **realistic 3-5 тижнів** (RFI rounds + institutional onboarding).
+**WhiteBIT Business KYB:** Officially 5 business days, **realistically 3-5 weeks** (RFI rounds + institutional onboarding).
 
-**Wise Business для UA legal entity:** Success rate variable (30-40% rejection). **Strategy:**
+**Wise Business for a UA legal entity:** Success rate variable (30-40% rejection). **Strategy:**
 
 - Phase A: personal Wise founder
-- Phase B: Wise Business після 3-6 міс ТОВ operations history
+- Phase B: Wise Business after 3-6 months of TOV operations history
 
-**Не all-eggs на Wise** — backup через direct UA bank USD subaccount обов'язково.
+**Not all-eggs on Wise** — a backup via a direct UA bank USD subaccount is mandatory.
 
-### 9. Transfer Pricing для hybrid Дія Сіті + offshore
+### 9. Transfer Pricing for a hybrid Diia City + offshore
 
-**Правило:** TP обов'язковий для будь-якої hybrid UA Diia City + offshore структури. Дія Сіті **НЕ** звільняє від TP rules (підтверджено ДПС 2025). 75% revenue criterion з 1 січня 2025 робить нас prima facie related parties.
+**Rule:** TP is mandatory for any hybrid UA Diia City + offshore structure. Diia City does **NOT** exempt from TP rules (confirmed by the State Tax Service 2025). The 75% revenue criterion from January 1, 2025 makes us prima facie related parties.
 
-**Decision rule:** TP documentation з початку — бюджетувати ₴30-50k/year fees.
+**Decision rule:** TP documentation from the start — budget ₴30-50k/year fees.
 
-### 10. Banking 2025-2026 для UA citizens — bottleneck
+### 10. Banking 2025-2026 for UA citizens — a bottleneck
 
-**Правило:** Banking відкриття — критичний bottleneck. Verify banking **ПЕРЕД** реєстрацією company, не після.
+**Rule:** Opening banking is a critical bottleneck. Verify banking **BEFORE** registering the company, not after.
 
 **Realistic options (2025-2026):**
 
-| Jurisdiction    | Bank                            | Реальність                         |
+| Jurisdiction    | Bank                            | Reality                            |
 | --------------- | ------------------------------- | ---------------------------------- |
-| Estonia LHV     | —                               | Вимагає face-to-face visit         |
-| Cyprus Eurobank | —                               | 6-10 тижнів enhanced DD            |
-| Hong Kong       | —                               | Практично закрите з 2020           |
-| UAE             | Emirates NBD / Mashreq via IFZA | Реалистично відкривається          |
-| Georgia         | TBC                             | Реалистично відкривається          |
-| Delaware LLC    | Mercury / Wise                  | Реалистично відкривається          |
-| —               | Revolut                         | Закрив весь UA ринок в грудні 2025 |
+| Estonia LHV     | —                               | Requires a face-to-face visit      |
+| Cyprus Eurobank | —                               | 6-10 weeks enhanced DD             |
+| Hong Kong       | —                               | Practically closed since 2020      |
+| UAE             | Emirates NBD / Mashreq via IFZA | Realistically opens                |
+| Georgia         | TBC                             | Realistically opens                |
+| Delaware LLC    | Mercury / Wise                  | Realistically opens                |
+| —               | Revolut                         | Closed the entire UA market in December 2025 |
 
-### 11. Substance requirements — жорсткіше з 2025
+### 11. Substance requirements — stricter since 2025
 
-**Правило:** Substance requirements з 2025 жорсткіше скрізь (UAE MD 229/230, Cyprus IP Box DD, Estonia substance audits). Sham office / no employees = втрата всіх benefits + sham accusation risk.
+**Rule:** Substance requirements since 2025 are stricter everywhere (UAE MD 229/230, Cyprus IP Box DD, Estonia substance audits). A sham office / no employees = loss of all benefits + sham accusation risk.
 
-**Decision rule:** Кожна юрисдикція з tax advantages вимагає real office, real employees, real decision-making locally. Дистанційна офшорка з UA в 2025-2026 — **не working** для більших юрисдикцій.
+**Decision rule:** Each jurisdiction with tax advantages requires a real office, real employees, real decision-making locally. Remote offshore from UA in 2025-2026 — **not working** for the larger jurisdictions.
 
-### 12. Recharacterization risk — гіг-контракти → трудові відносини
+### 12. Recharacterization risk — gig contracts → employment relationship
 
-**Правило:** Главный legal risk перехода на ТОВ-Дія Сіті — **переквалификация гіг-контрактов в трудовые отношения**. Шаблон з інтернету = +18% ПДФО + штрафи за 3 года.
+**Rule:** The main legal risk of moving to TOV-Diia City — **recharacterization of gig contracts into an employment relationship**. An internet template = +18% PIT + penalties for 3 years.
 
-**Decision rule:** Specialized IT-юрист (₴15-30k разово) обов'язковий перед запуском Дія Сіті. Економити на legal review = потенциальна потеря ₴1.5M/рік.
+**Decision rule:** A specialized IT lawyer (₴15-30k one-time) is mandatory before launching Diia City. Saving on legal review = a potential loss of ₴1.5M/year.
 
 ## Anti-patterns
 
 | ❌ Don't                                                 | ✅ Do                                                                              |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Радити Cyprus 12.5% / UAE 9% як «tax savings» для UA UBO | Поясняти CFC effective rate test → Cyprus/UAE FAIL без active income exemption     |
-| Skip аудит Дія Сіті у monthly accruals plan              | Включити ₴3-7k/міс із day-1 (обов'язковий)                                         |
-| Радити ФОП-3 + USDT для team scale > ₴10M/рік            | Hard refuse → ТОВ-Дія Сіті startup-резидент                                        |
-| Радити bridge ФОП → ТОВ без 4 conditions check           | Verify NULL USDT + < ₴3M/міс + no commingling + ≤ 6 міс hard cutoff                |
-| Радити offshore без TP documentation budget              | Включити ₴30-50k/рік TP fees + lawyer engagement                                   |
-| Радити open-bank ПОСЛЕ company registration              | Verify banking ПЕРЕД registration (KYC bottleneck)                                 |
-| Радити дистанційну офшорку (без substance)               | Substance requirements 2025 — real office + real employees + local decision-making |
-| Брати шаблон з інтернету для Дія Сіті gig contracts      | IT-corporate lawyer (Juscutum / EQUITY / Avellum) review обов'язково               |
+| Advise Cyprus 12.5% / UAE 9% as "tax savings" for a UA UBO | Explain the CFC effective rate test → Cyprus/UAE FAIL without the active income exemption |
+| Skip the Diia City audit in the monthly accruals plan    | Include ₴3-7k/month from day-1 (mandatory)                                          |
+| Advise FOP-3 + USDT for a team scale > ₴10M/year         | Hard refuse → TOV-Diia City startup resident                                        |
+| Advise a bridge FOP → TOV without the 4 conditions check | Verify NULL USDT + < ₴3M/month + no commingling + ≤ 6 months hard cutoff            |
+| Advise offshore without a TP documentation budget        | Include ₴30-50k/year TP fees + lawyer engagement                                   |
+| Advise opening a bank AFTER company registration         | Verify banking BEFORE registration (KYC bottleneck)                                |
+| Advise remote offshore (without substance)               | Substance requirements 2025 — real office + real employees + local decision-making |
+| Take an internet template for Diia City gig contracts    | IT-corporate lawyer (Juscutum / EQUITY / Avellum) review mandatory                 |
 
 ## References
 
 - Source lessons (lifted 2026-06-03):
   - `.claude/agents/memory/legal/lessons.md` (2026-05-31 — 12+ substantive items #ua-fop #tax)
 - Citations within patterns:
-  - ст. 39² ПКУ (CFC rules)
-  - Меморандум НБУ + АБУ 14.05.2026 (banking caps)
-  - Форма 743 / blank.dtkt.ua (audit form)
+  - Art. 39² of the Tax Code of Ukraine (CFC rules)
+  - NBU + AUB Memorandum 14.05.2026 (banking caps)
+  - Form 743 / blank.dtkt.ua (audit form)
   - UAE MD 229/230 (substance)
 - Related agent docs:
   - `.claude/agents/legal.md` Mode A (consultation)

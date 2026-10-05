@@ -1,7 +1,7 @@
 ---
 name: codebase-design
-description: 'Общий словарь и принципы проектирования глубоких модулей: модуль, интерфейс, глубина, шов, адаптер, рычаг, локальность. Плюс три проверяемых принципа — deletion-тест, «интерфейс = тестовая поверхность», «один адаптер = гипотетический шов, два = настоящий» — и паттерн «спроектируй дважды» через параллельных сабагентов.'
-when_to_use: "Use when designing or reshaping a module's interface, deciding where a seam goes, arguing that code is hard to test, or writing an architectural review finding. Examples: 'куда поставить шов', 'этот модуль слишком мелкий', 'как сделать код тестируемым', 'предложи интерфейс', 'архитектурная находка в ревью', 'нет правильного шва для регрессионного теста'."
+description: 'A shared vocabulary and principles for designing deep modules: module, interface, depth, seam, adapter, leverage, locality. Plus three checkable principles — the deletion test, "interface = test surface", "one adapter = a hypothetical seam, two = a real one" — and the "design it twice" pattern via parallel subagents.'
+when_to_use: "Use when designing or reshaping a module's interface, deciding where a seam goes, arguing that code is hard to test, or writing an architectural review finding. Examples: 'where to put the seam', 'this module is too shallow', 'how to make the code testable', 'propose an interface', 'an architectural finding in review', 'there is no right seam for a regression test'."
 allowed-tools:
   - Read
   - Grep
@@ -11,120 +11,120 @@ allowed-tools:
   - mcp__codegraph__codegraph_callers
 ---
 
-# Проектирование: глубокие модули
+# Design: deep modules
 
-Общий словарь для архитектурных разговоров. Без него ревьюеры и дизайнеры пишут «компонент»,
-«сервис», «слой», «граница» как придётся, и архитектурная находка не имеет проверяемой формы —
-её легко отбить и невозможно подтвердить.
+A shared vocabulary for architectural conversations. Without it reviewers and designers write "component",
+"service", "layer", "boundary" however it falls, and an architectural finding has no checkable form —
+it is easy to deflect and impossible to confirm.
 
-**Цель проектирования:** рычаг для вызывающих, локальность для сопровождающих, тестируемость для
-всех.
+**The goal of design:** leverage for callers, locality for maintainers, testability for
+everyone.
 
-## Словарь — употреблять точно
+## Vocabulary — use it precisely
 
-Не подставлять «компонент», «сервис», «API», «граница». Единообразие языка и есть весь смысл.
+Do not substitute "component", "service", "API", "boundary". The uniformity of the language is the whole point.
 
-**Модуль** — всё, у чего есть интерфейс и реализация. Намеренно безразмерно: функция, класс,
-пакет, вертикальный срез через слои.
-_Избегать_: юнит, компонент, сервис.
+**Module** — anything that has an interface and an implementation. Deliberately sizeless: a function, a class,
+a package, a vertical slice across layers.
+_Avoid_: unit, component, service.
 
-**Интерфейс** — всё, что вызывающий обязан знать, чтобы пользоваться правильно: не только
-сигнатура типов, но и инварианты, порядок вызовов, режимы ошибок, обязательная конфигурация,
-характеристики производительности.
-_Избегать_: API, сигнатура (слишком узко — только типовая поверхность).
+**Interface** — everything the caller must know to use it correctly: not only
+the type signature, but invariants, call order, error modes, mandatory configuration,
+performance characteristics.
+_Avoid_: API, signature (too narrow — only the type surface).
 
-**Реализация** — то, что внутри. Отличается от **адаптера**: бывает маленький адаптер с большой
-реализацией (Postgres-репозиторий) и большой адаптер с крошечной реализацией (in-memory фейк).
-«Адаптер» — когда речь про шов; «реализация» — в остальных случаях.
+**Implementation** — what is inside. Differs from an **adapter**: there is a small adapter with a large
+implementation (a Postgres repository) and a large adapter with a tiny implementation (an in-memory fake).
+"Adapter" — when the matter is a seam; "implementation" — in the other cases.
 
-**Глубина** — рычаг на интерфейсе: сколько поведения вызывающий (или тест) может задействовать на
-единицу интерфейса, который приходится выучить. Модуль **глубокий**, когда за маленьким
-интерфейсом стоит много поведения; **мелкий**, когда интерфейс почти так же сложен, как реализация.
+**Depth** — leverage on the interface: how much behavior the caller (or a test) can engage per
+unit of interface that must be learned. A module is **deep** when behind a small
+interface there is a lot of behavior; **shallow** when the interface is almost as complex as the implementation.
 
-**Шов** (Фезерс) — место, где поведение можно изменить, не правя в этом месте; _расположение_
-интерфейса модуля. Куда поставить шов — отдельное решение, не то же, что «что спрятать за ним».
-_Избегать_: граница (перегружено bounded context из DDD).
+**Seam** (Feathers) — a place where behavior can be changed without editing at that place; the _location_ of
+a module's interface. Where to put the seam is a separate decision, not the same as "what to hide behind it".
+_Avoid_: boundary (overloaded by bounded context from DDD).
 
-**Адаптер** — конкретная вещь, удовлетворяющая интерфейсу на шве. Описывает **роль** (какой слот
-занимает), не содержание.
+**Adapter** — a concrete thing that satisfies the interface at the seam. Describes the **role** (which slot
+it occupies), not the content.
 
-**Рычаг** — что вызывающие получают от глубины: больше возможностей на единицу выученного
-интерфейса. Одна реализация окупается на N местах вызова и M тестах.
+**Leverage** — what callers get from depth: more capability per unit of learned
+interface. One implementation pays off across N call sites and M tests.
 
-**Локальность** — что получают сопровождающие: изменение, баги, знание и проверка
-концентрируются в одном месте, а не размазаны по вызывающим. Починил один раз — починено везде.
+**Locality** — what maintainers get: change, bugs, knowledge and verification
+concentrate in one place rather than being smeared across callers. Fixed once — fixed everywhere.
 
-## Три проверяемых принципа
+## Three checkable principles
 
-**Deletion-тест.** Мысленно удали модуль. Сложность **исчезла** — это был проходной слой, и он не
-окупался. Сложность **всплыла у N вызывающих** — модуль зарабатывал на жизнь.
+**The deletion test.** Mentally delete the module. The complexity **disappeared** — it was a pass-through layer, and it did not
+pay off. The complexity **surfaced at N callers** — the module earned its living.
 
-Архитектурная находка без прогнанного deletion-теста — мнение, а не находка.
+An architectural finding without a run deletion test is an opinion, not a finding.
 
-**Интерфейс — это тестовая поверхность.** Вызывающие и тесты пересекают один и тот же шов.
-Хочется тестировать **за** интерфейсом — скорее всего, у модуля неверная форма.
+**The interface is the test surface.** Callers and tests cross the same seam.
+If you want to test **behind** the interface — most likely the module has the wrong shape.
 
-**Один адаптер — шов гипотетический. Два — настоящий.** Не заводи шов, пока через него что-то
-реально не варьируется (обычно прод + тест). Шов с одним адаптером — просто лишний уровень
-косвенности.
+**One adapter — the seam is hypothetical. Two — it is real.** Do not establish a seam until something
+actually varies through it (usually prod + test). A seam with one adapter is just an extra level of
+indirection.
 
-**Глубина — свойство интерфейса, не реализации.** Глубокий модуль внутри может состоять из
-мелких подменяемых частей — они просто не часть интерфейса. У модуля бывают **внутренние** швы
-(приватные, для его же тестов) и **внешний** шов на интерфейсе. Не выставляй внутренние наружу
-только потому, что ими пользуются тесты.
+**Depth is a property of the interface, not the implementation.** A deep module may internally consist of
+small swappable parts — they are simply not part of the interface. A module has **internal** seams
+(private, for its own tests) and an **external** seam on the interface. Do not expose the internal ones outward
+only because tests use them.
 
-## Проектирование под тестируемость
+## Designing for testability
 
-1. **Принимай зависимости, не создавай их.** `processPayout(request, gateway)` тестируем;
-   `processPayout(request)` с `new EtherscanClient()` внутри — нет.
-2. **Возвращай результат, не порождай побочный эффект.** `calculateDropShare(project): Share`
-   тестируем; `applyDropShare(project): void` — нет.
-3. **Маленькая поверхность.** Меньше методов — меньше тестов; меньше параметров — проще сетап.
+1. **Accept dependencies, do not create them.** `processPayout(request, gateway)` is testable;
+   `processPayout(request)` with `new EtherscanClient()` inside — not.
+2. **Return a result, do not produce a side effect.** `calculateDropShare(project): Share` is
+   testable; `applyDropShare(project): void` — not.
+3. **A small surface.** Fewer methods — fewer tests; fewer parameters — a simpler setup.
 
-## Как углублять с оглядкой на зависимости
+## How to deepen with an eye to dependencies
 
-Категория зависимости определяет, как тестируется углублённый модуль через свой шов:
+The category of the dependency determines how a deepened module is tested through its seam:
 
-| Категория                | Что это                                                | Как тестируется                                                                  |
+| Category                 | What it is                                             | How it is tested                                                                 |
 | ------------------------ | ------------------------------------------------------ | -------------------------------------------------------------------------------- |
-| **In-process**           | чистые вычисления, память, нет I/O                     | всегда углубляемо; тест напрямую через новый интерфейс, адаптер не нужен         |
-| **Локально подменяемая** | есть локальный стенд (Postgres в docker, in-memory ФС) | шов внутренний, порт на внешнем интерфейсе не нужен                              |
-| **Своё, но через сеть**  | свои сервисы за сетевой границей                       | порт на шве: логика в модуле, транспорт впрыскивается адаптером (HTTP / очередь) |
-| **Настоящее внешнее**    | Etherscan, S3/R2, НБУ, почта — не наше                 | зависимость впрыскивается портом, тесты дают мок-адаптер                         |
+| **In-process**           | pure computation, memory, no I/O                       | always deepenable; the test goes directly through the new interface, no adapter needed |
+| **Locally swappable**    | a local stand exists (Postgres in docker, in-memory FS) | the seam is internal, a port on the external interface is not needed             |
+| **Ours, but over the network** | our services behind a network boundary          | a port on the seam: logic in the module, transport injected by an adapter (HTTP / queue) |
+| **Truly external**       | Etherscan, S3/R2, NBU, mail — not ours                 | the dependency is injected by a port, the tests give a mock adapter              |
 
-**Заменяй, не наслаивай.** Старые unit-тесты на мелких модулях становятся мусором, как только
-появились тесты на интерфейсе углублённого — удаляй их. Тест, который приходится менять при
-изменении реализации, тестирует за интерфейсом.
+**Replace, do not layer.** Old unit tests on shallow modules become garbage the moment
+tests on the deepened module's interface appear — delete them. A test that has to change when the
+implementation changes is testing behind the interface.
 
-## Спроектируй дважды
+## Design it twice
 
-Когда форма интерфейса сама под вопросом, первая идея почти наверняка не лучшая.
+When the shape of the interface itself is in question, the first idea is almost certainly not the best.
 
-1. **Сформулируй пространство задачи**: ограничения, зависимости и их категории, набросок кода
-   ради конкретности (не предложение — способ сделать ограничения осязаемыми).
-2. **Запусти 3–4 параллельных сабагента**, каждому — своё ограничение:
-   - «минимизируй интерфейс: 1–3 точки входа, максимум рычага на точку»;
-   - «максимизируй гибкость: много сценариев и расширение»;
-   - «оптимизируй под самого частого вызывающего: дефолтный случай тривиален»;
-   - «спроектируй вокруг портов и адаптеров» (если зависимость сетевая или внешняя).
+1. **State the problem space**: constraints, dependencies and their categories, a code sketch
+   for concreteness (not a proposal — a way to make the constraints tangible).
+2. **Launch 3–4 parallel subagents**, each with its own constraint:
+   - "minimize the interface: 1–3 entry points, maximum leverage per point";
+   - "maximize flexibility: many scenarios and extension";
+   - "optimize for the most frequent caller: the default case is trivial";
+   - "design around ports and adapters" (if the dependency is network or external).
 
-   Каждому в бриф — этот словарь **и** язык `CONTEXT.md`, чтобы называли вещи одинаково.
-   Потолок параллелизма ≈ 3-4 (`orchestration-routing.md`).
+   Each one gets, in the brief, this vocabulary **and** the language of `CONTEXT.md`, so they name things the same.
+   The parallelism ceiling is ≈ 3-4 (`orchestration-routing.md`).
 
-3. **Сравни** по глубине, локальности и месту шва. Дай свою рекомендацию — не меню, а мнение;
-   комбинировать удачные части разных вариантов можно и нужно.
+3. **Compare** by depth, locality and the placement of the seam. Give your recommendation — not a menu, but an opinion;
+   combining the good parts of different variants is allowed and encouraged.
 
-## Отвергнутые формулировки
+## Rejected formulations
 
-- **Глубина как отношение строк реализации к строкам интерфейса** (Оустерхаут): поощряет
-  раздувание реализации. Используем глубину-как-рычаг.
-- **«Интерфейс» = ключевое слово `interface` в TypeScript** или публичные методы класса: слишком
-  узко, интерфейс включает каждый факт, который вызывающий обязан знать.
-- **«Граница»**: перегружено bounded context. Говорим **шов** или **интерфейс**.
+- **Depth as the ratio of implementation lines to interface lines** (Ousterhout): encourages
+  bloating the implementation. We use depth-as-leverage.
+- **"Interface" = the `interface` keyword in TypeScript** or a class's public methods: too
+  narrow, the interface includes every fact the caller must know.
+- **"Boundary"**: overloaded by bounded context. We say **seam** or **interface**.
 
-## Связанное
+## Related
 
-- `.claude/skills/diagnosing-bugs/SKILL.md` — «нет правильного шва» как находка фазы 5.
-- `.claude/skills/codebase-audit/SKILL.md` — механика fan-out для «спроектируй дважды».
-- `.claude/rules/common/orchestration-routing.md` — потолок параллелизма.
-- `CONTEXT.md` — доменные имена для швов и модулей.
+- `.claude/skills/diagnosing-bugs/SKILL.md` — "there is no right seam" as a phase-5 finding.
+- `.claude/skills/codebase-audit/SKILL.md` — the fan-out mechanics for "design it twice".
+- `.claude/rules/common/orchestration-routing.md` — the parallelism ceiling.
+- `CONTEXT.md` — domain names for seams and modules.

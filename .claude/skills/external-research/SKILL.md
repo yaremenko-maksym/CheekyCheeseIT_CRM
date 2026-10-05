@@ -1,7 +1,7 @@
 ---
 name: external-research
-description: 'Разведка ВОВНЕ репозитория по первоисточникам: официальная документация, исходники, спецификации, first-party API, тексты законов. Каждое утверждение прослежено до владельца утверждения, а не до пересказа. Результат — цитируемый markdown-файл в репозитории, а не текст, растворившийся в транскрипте сессии.'
-when_to_use: "Use when the answer lives outside this repo: a library's actual behaviour, a third-party API contract, a spec, a law's status, a vendor's IP ranges. Examples: 'как на самом деле работает X в библиотеке', 'что вернёт этот внешний API', 'какой статус у закона', 'диапазоны IP поставщика', 'проверь, не поменялось ли в новой версии', 'нужна выжимка по спецификации'."
+description: 'Recon OUTSIDE the repository from primary sources: official documentation, source code, specifications, first-party APIs, texts of laws. Every claim is traced to the owner of the claim, not to a retelling. The result is a citable markdown file in the repository, not text dissolved into the session transcript.'
+when_to_use: "Use when the answer lives outside this repo: a library's actual behaviour, a third-party API contract, a spec, a law's status, a vendor's IP ranges. Examples: 'how X actually works in the library', 'what this external API returns', 'what is the status of the law', 'a vendor's IP ranges', 'check whether it changed in the new version', 'need a summary of the spec'."
 allowed-tools:
   - Read
   - Write
@@ -14,90 +14,90 @@ allowed-tools:
   - mcp__context7__query-docs
 ---
 
-# Внешняя разведка — только первоисточники, результат в репозитории
+# External research — primary sources only, result in the repository
 
-`codebase-audit` закрывает разведку **внутрь** репозитория. Наружу (библиотека, чужой API,
-спецификация, закон, диапазоны IP поставщика) разведка шла бессистемно, и её результат оставался
-в транскрипте сессии — то есть исчезал.
+`codebase-audit` covers recon **inside** the repository. Outward (a library, a third-party API,
+a specification, a law, a vendor's IP ranges) recon ran unsystematically, and its result stayed
+in the session transcript — that is, it disappeared.
 
-Две вещи делают этот скилл скиллом: **первоисточник** и **файл в репозитории**.
+Two things make this skill a skill: the **primary source** and the **file in the repository**.
 
-## Что считается первоисточником
+## What counts as a primary source
 
-| Тема                      | Первоисточник                                                           | Не первоисточник                          |
-| ------------------------- | ----------------------------------------------------------------------- | ----------------------------------------- |
-| Поведение библиотеки      | её исходники, changelog, официальная документация (`context7`)          | статья, ответ на Stack Overflow, туториал |
-| Контракт чужого API       | официальная спецификация вендора, OpenAPI, живой ответ на пробный вызов | пример из блога, обёртка на npm           |
-| Стандарт / формат         | RFC, W3C, спецификация                                                  | MDN-пересказ (полезен, но вторичен)       |
-| Право                     | текст акта, реестр законопроектов, разъяснение органа                   | юридический блог, новость                 |
-| Инфраструктура поставщика | опубликованный вендором endpoint / список                               | GitHub gist, скопированный список         |
+| Topic                     | Primary source                                                           | Not a primary source                      |
+| ------------------------- | ------------------------------------------------------------------------ | ----------------------------------------- |
+| Library behaviour         | its source code, changelog, official documentation (`context7`)          | an article, a Stack Overflow answer, a tutorial |
+| Third-party API contract  | the vendor's official spec, OpenAPI, a live response to a trial call     | a blog example, an npm wrapper            |
+| Standard / format         | an RFC, W3C, a specification                                             | an MDN retelling (useful, but secondary)  |
+| Law                       | the text of the act, the bill registry, an agency clarification          | a legal blog, a news item                 |
+| Vendor infrastructure     | the endpoint / list published by the vendor                              | a GitHub gist, a copied list              |
 
-**Правило прослеживания:** любое утверждение в отчёте ведёт к тому, кто им **владеет**. Нашёл
-факт в пересказе — иди к источнику пересказа и цитируй его. Первоисточник недоступен (платный,
-удалён, нет публичной версии) — так и напиши: «первоисточник недоступен, факт по вторичному
-источнику <ссылка>, достоверность ниже». Утверждение без ссылки — **не находка**.
+**Tracing rule:** every claim in the report leads to the party that **owns** it. If you found a
+fact in a retelling, go to the source of the retelling and cite it. The primary source is unavailable
+(paywalled, removed, no public version) — say so: "primary source unavailable, fact per secondary
+source <link>, lower confidence". A claim without a link is **not a finding**.
 
-## Процесс
+## Process
 
-1. **Сформулируй вопрос одной строкой** и то, **какое решение** от него зависит. Это калибрует
-   глубину: «нужно для описания PR» и «нужно, чтобы выбрать библиотеку» — разная работа.
-2. **Разведка идёт фоном.** Запускается сабагентом, пока основная работа продолжается. Владелец и
-   основная сессия не ждут (`phase-boundaries.md`, вариант «сабагент»).
-3. **Собери факты, каждый со ссылкой.** Противоречие между источниками — само по себе находка:
-   зафиксируй оба и скажи, какому веришь и почему.
-4. **Проверь применимость к нам.** Факт верен вообще, но у нас закреплённая версия
-   (`version-pins.md`): «в v7 это чинится» бесполезно, пока мы на v6. Сверяйся с закреплёнными
-   версиями, прежде чем писать «работает так».
-5. **Запиши файл** по существующей конвенции репозитория (`docs/architecture/` для того, что
-   влияет на решения; `.claude/knowledge/legal/` для правовой темы). Есть подходящее место —
-   класть туда; нет — положить в `docs/architecture/` и сказать где.
+1. **State the question in one line** and **which decision** depends on it. This calibrates the
+   depth: "needed for a PR description" and "needed to choose a library" are different work.
+2. **Recon runs in the background.** Launched as a subagent while the main work continues. The owner and
+   the main session do not wait (`phase-boundaries.md`, the "subagent" option).
+3. **Collect facts, each with a link.** A contradiction between sources is itself a finding:
+   record both and say which you believe and why.
+4. **Check applicability to us.** A fact may be true in general, but we have a pinned version
+   (`version-pins.md`): "this is fixed in v7" is useless while we are on v6. Cross-check with the pinned
+   versions before writing "it works like this".
+5. **Write the file** per the repository's existing convention (`docs/architecture/` for things that
+   affect decisions; `.claude/knowledge/legal/` for a legal topic). There is a suitable place —
+   put it there; there is not — put it in `docs/architecture/` and say where.
 
-## Формат файла
+## File format
 
 ```markdown
-# <Вопрос одной строкой>
+# <Question in one line>
 
-**Дата:** <YYYY-MM-DD> · **Зачем:** <какое решение от этого зависит>
-**Срок годности:** <когда перепроверить и по какому признаку>
+**Date:** <YYYY-MM-DD> · **Why:** <which decision depends on this>
+**Shelf life:** <when to recheck and by what signal>
 
-## Короткий ответ
+## Short answer
 
-<2–4 строки. То, ради чего файл открывают через месяц.>
+<2–4 lines. What the file is opened for a month later.>
 
-## Факты
+## Facts
 
-- <утверждение> — [<источник>](url), <дата обращения>
-- <утверждение> — [<источник>](url), <дата обращения>
+- <claim> — [<source>](url), <access date>
+- <claim> — [<source>](url), <access date>
 
-## Применимость к нам
+## Applicability to us
 
-<с учётом наших закреплённых версий, стека и ограничений>
+<accounting for our pinned versions, stack, and constraints>
 
-## Чего выяснить не удалось
+## What could not be established
 
-<честно: где первоисточник недоступен, где источники расходятся>
+<honestly: where the primary source is unavailable, where sources diverge>
 ```
 
-**Срок годности обязателен.** Внешний факт протухает молча, и файл без признака протухания
-опаснее его отсутствия: он выглядит проверенным. Признак — конкретный: «перепроверить при бампе
-мажора», «следить за реестром законопроектов», «сверять список ежемесячно».
+**Shelf life is mandatory.** An external fact goes stale silently, and a file without a staleness
+signal is more dangerous than its absence: it looks verified. The signal is concrete: "recheck on a
+major bump", "watch the bill registry", "cross-check the list monthly".
 
-## Как узнаем, что нарушено
+## How we know it is violated
 
-- Утверждение без ссылки в файле разведки — не находка, вычёркивается.
-- Файл без «Срока годности» — незакончен.
-- Разведка, оставшаяся только в чате, — не выполнена: результат не переживает сессию.
+- A claim without a link in the recon file is not a finding, it is struck out.
+- A file without a "Shelf life" is unfinished.
+- Recon that stayed only in chat is not done: the result does not survive the session.
 
-## Живые применения прямо сейчас
+## Live applications right now
 
-- **Диапазоны IP Cloudflare** — после включения файрвола устаревание списка **роняет сайт**, а не
-  шумит; нужен файл со сроком годности и признаком перепроверки.
-- **Статус закона 2074-IX** (виртуальные активы) — не введён, ждёт связанного законопроекта;
-  правовые скиллы ссылаются на снимок, у которого должен быть срок годности.
+- **Cloudflare IP ranges** — after the firewall is enabled, a stale list **takes the site down**, it does not
+  merely make noise; a file with a shelf life and a recheck signal is needed.
+- **Status of law 2074-IX** (virtual assets) — not enacted, awaiting the related bill;
+  legal skills reference a snapshot that must have a shelf life.
 
-## Связанное
+## Related
 
-- `.claude/skills/codebase-audit/SKILL.md` — разведка **внутрь** репозитория.
-- `.claude/rules/common/version-pins.md` — применимость внешнего факта к нашим версиям.
-- `.claude/rules/common/doc-durability.md` — как писать то, что живёт месяцами.
-- `.claude/rules/common/mcp-first.md` — `context7` вместо угадывания API библиотек.
+- `.claude/skills/codebase-audit/SKILL.md` — recon **inside** the repository.
+- `.claude/rules/common/version-pins.md` — applicability of an external fact to our versions.
+- `.claude/rules/common/doc-durability.md` — how to write what lives for months.
+- `.claude/rules/common/mcp-first.md` — `context7` instead of guessing a library's API.
