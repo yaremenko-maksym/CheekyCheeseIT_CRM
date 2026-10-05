@@ -86,7 +86,7 @@ protected by the balance gate (`settleByCompany:276` throws "Insufficient funds"
 ### D1. `paymentType` free-text → enum — **Confidence: HIGH**
 
 - Shared Zod: `projectPaymentTypeSchema = z.enum(['FOP','GIG_CONTRACT','USDT'])`. Ukrainian labels on
-  the front: `FOP→'ФОП'`, `GIG_CONTRACT→'гіг-контракт'`, `USDT→'USDT'`.
+  the front, in Ukrainian: `FOP→"FOP"`, `GIG_CONTRACT→"gig-contract"`, `USDT→"USDT"` (the live UI strings are the Ukrainian spellings of these).
 - pgEnum `project_payment_type` in `schema.ts`; `projects.paymentType` → `project_payment_type
 NOT NULL DEFAULT 'FOP'`.
 - Field-scoped RBAC in `createProjectSchema`/`updateProjectSchema` + `projects.service.ts`
