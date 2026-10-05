@@ -18,7 +18,9 @@ import {
 /** Strip keys whose value is `undefined` so exactOptionalPropertyTypes is satisfied. */
 
 function compact<T>(obj: T): T {
-  return Object.fromEntries(Object.entries(obj as any).filter(([, v]) => v !== undefined)) as T
+  return Object.fromEntries(
+    Object.entries(obj as Record<string, unknown>).filter(([, v]) => v !== undefined),
+  ) as T
 }
 import {
   adminUpdateUserSchema,
