@@ -1,80 +1,80 @@
-# Rule: Лёгкий трек (master-сессия) vs полный трек (оркестрация Master)
+# Rule: Light track (master session) vs full track (Master orchestration)
 
 **Status:** Always-on
-**Applies to:** USER-сессии (Master). Агенты (Coder/AutoTest/DevOps/...) работают только по полному треку (оркестрация Master: task-файл → dispatch → PR → review).
-**Source:** Context-diet audit 2026-06-11 — легитимизация существующей практики inline-фиксов.
+**Applies to:** USER sessions (Master). Agents (Coder/AutoTest/DevOps/...) work only on the full track (Master orchestration: task file → dispatch → PR → review).
+**Source:** Context-diet audit 2026-06-11 — legitimizing the existing practice of inline fixes.
 
 ---
 
-## Зачем
+## Why
 
-Не каждое изменение требует полный трек (task-файл → dispatch Coder → review). Мелкие правки
-master-сессия делает сама — быстрее и дешевле. Этот файл фиксирует границы, чтобы «лёгкий» не
-расползался на security-поверхность.
+Not every change requires the full track (task file → dispatch Coder → review). Small edits
+the master session makes itself — faster and cheaper. This file fixes the boundaries so that "light" does not
+creep onto the security surface.
 
-## Лёгкий трек разрешён
+## Light track allowed
 
-- Документация и markdown: `CLAUDE.md`, `docs/**`, `.claude/**` (мета-файлы агентов, правила)
-- Конфиги без runtime-эффекта на продукт
-- Однофайловый фикс ≤ ~30 строк БЕЗ бизнес-логики и БЕЗ security-поверхности
-- Косметика UI (тексты, отступы, классы) — с обязательным playwright-скриншотом
+- Documentation and markdown: `CLAUDE.md`, `docs/**`, `.claude/**` (agent meta-files, rules)
+- Configs without a runtime effect on the product
+- A single-file fix ≤ ~30 lines WITHOUT business logic and WITHOUT a security surface
+- UI cosmetics (texts, paddings, classes) — with a mandatory playwright screenshot
 
-## Только полный трек (Master dispatch)
+## Full track only (Master dispatch)
 
-- Фичи и любые multi-file изменения
-- ЛЮБОЕ касание auth / finance / RBAC / wallets / transactions — security-reviewer обязателен
-- Новые таблицы / Drizzle-миграции
-- Изменения `*.spec.ts` — зона AutoTest (master не правит спеки напрямую)
-- Всё, что требует test-AC (см. ecc/common/testing.md + task-шаблоны)
+- Features and any multi-file changes
+- ANY touch of auth / finance / RBAC / wallets / transactions — security-reviewer mandatory
+- New tables / Drizzle migrations
+- Changes to `*.spec.ts` — AutoTest zone (master does not edit specs directly)
+- Everything that requires test-AC (see ecc/common/testing.md + task templates)
 
-## Механика лёгкого трека
+## Light-track mechanics
 
-1. Работа из worktree (`.claude/worktrees/*` — zone-hook allow-путь) или эскейп-хатч
-   `.claude/.allow-direct-edits` (gitignored) для emergency.
-2. Изменённые `.ts`/`.tsx` → `mcp__eslint__lint-files` + `pnpm typecheck` перед commit.
-3. Если в diff есть код — `pnpm --filter @crm/e2e test` локально перед push.
-   **Docs-only diff** (только `.md` / `.claude`-мета) — E2E-прогон НЕ требуется;
-   явно отметить это в PR body («docs-only, E2E skipped per light-track»).
-4. Всегда PR — никогда прямой push в main. Merge — только явное «мерджим» от USER
+1. Work from a worktree (`.claude/worktrees/*` — a zone-hook allow path) or the escape hatch
+   `.claude/.allow-direct-edits` (gitignored) for emergencies.
+2. Changed `.ts`/`.tsx` → `mcp__eslint__lint-files` + `pnpm typecheck` before commit.
+3. If the diff has code — `pnpm --filter @crm/e2e test` locally before push.
+   **Docs-only diff** (only `.md` / `.claude` meta) — the E2E run is NOT required;
+   note it explicitly in the PR body ("docs-only, E2E skipped per light-track").
+4. Always a PR — never a direct push to main. Merge — only an explicit "merge" from USER
    (label `merge-approved`).
-5. UI затронут → playwright-скриншот в PR.
+5. UI touched → a playwright screenshot in the PR.
 
-## Параллельный диспатч (потолок concurrency)
+## Parallel dispatch (concurrency ceiling)
 
-**Status:** добавлено 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-1/FM-6/FM-7).
+**Status:** added 2026-06-16 (ADR `docs/architecture/2026-06-16-agent-infra-wisdom-transfer.md` FM-1/FM-6/FM-7).
 
-При параллельном диспатче агентов (Master-сессия):
+When dispatching agents in parallel (Master session):
 
-- **Потолок ≈ 3-4 одновременных старта.** 5+ агентов, запущенных ОДНИМ сообщением (startup-burst
-  первых API-вызовов), -> часть получает `API Error: 529 Overloaded` и умирает на старте (0 tool_uses).
-  Диспатчить волнами по 2-3, стаггерить; 529-убитых просто перезапускать (работы не сделали).
-- **Тяжёлые Coder'ы (каждый бутит vite+api + full Vitest) + live UT-стек** -> CPU-starvation ->
-  pre-push timeout-флаки (НЕ код). Перед push — sweep zombie dev-портов завершившихся агентов:
-  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` -> kill (сохранив live :3000/:3001).
-- **`DATABASE_URL= git push`** (пустой) для feature-веток — integration-спеки graceful-skip, не бьют
-  live crm_db и не ловят CPU-timeout (см. git-policy.md).
-- **Zombie-профилактика (2026-07-24, механика вместо дисциплины).** Инцидент: 67 зомби nest/vite из
-  worktree 12–15.07 -> swap-трэшинг (LA 70). Три слоя: (1) dev-серверы в worktree/scratchpad стартуют
-  ТОЛЬКО через `scripts/devops/dev-ttl.sh -- <cmd>` (TTL-самоликвидация группы процессов, default 4ч);
-  (2) hook `pre:bash:devserver-ttl-gate` блокирует голый `nest start`/`vite`/`pnpm dev`/`node dist/main`
-  в `.claude/worktrees/**` и claude-scratchpad; (3) launchd-reaper каждые 30 мин добивает node-процессы
-  worktree старше 6ч или с удалённым worktree (установка: `scripts/devops/install-devserver-reaper.sh`;
-  dry-run: `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`). Ручной sweep при надобности:
-  `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — именно xargs: в zsh `kill $VAR` НЕ сплитится
-  (падает «illegal pid» — и это маскируется `2>/dev/null`).
-- **Ожидание без предела запрещено механически (2026-09-25).** Три случая подряд задача висела
-  «Running» часами и сутками уже после смерти агента: `cat` без файла ждал stdin 25 ч; `until`-цикл
-  ждал строку, которую Stryker не печатает; `until`-циклы ждали `tasks/<id>.status` / `.exit`, а
-  харнесс пишет только `<id>.output`. Хук `pre:bash:unbounded-wait` отказывает `until`-циклу и
-  `while`-циклу со `sleep` (или `while true`), если у них нет предела — ни `timeout N bash -c`, ни
-  дедлайна по `$SECONDS` / `date +%s`, ни счётчика итераций; отказывает любому циклу, ждущему
-  `.status` / `.exit`, и голому `cat` на stdin. Как ждать правильно: `run_in_background` и
-  уведомление харнесса о завершении; если цикл всё же нужен — с дедлайном (`timeout` на macOS нет,
-  переносим `$SECONDS`). Таймаут foreground-вызова пределом не считается: харнесс по таймауту
-  уводит команду в фон, а не убивает.
+- **Ceiling ≈ 3-4 simultaneous starts.** 5+ agents launched in ONE message (a startup burst
+  of the first API calls) -> some get `API Error: 529 Overloaded` and die on start (0 tool_uses).
+  Dispatch in waves of 2-3, stagger them; 529-killed ones just restart (they did no work).
+- **Heavy Coders (each boots vite+api + full Vitest) + a live UT stack** -> CPU starvation ->
+  pre-push timeout flakes (NOT code). Before push — sweep the zombie dev ports of finished agents:
+  `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` -> kill (preserving live :3000/:3001).
+- **`DATABASE_URL= git push`** (empty) for feature branches — integration specs graceful-skip, do not hit
+  the live crm_db and do not catch a CPU timeout (see git-policy.md).
+- **Zombie prevention (2026-07-24, mechanics instead of discipline).** Incident: 67 nest/vite zombies from
+  worktrees 12–15.07 -> swap thrashing (LA 70). Three layers: (1) dev servers in a worktree/scratchpad start
+  ONLY via `scripts/devops/dev-ttl.sh -- <cmd>` (TTL self-destruct of the process group, default 4h);
+  (2) the hook `pre:bash:devserver-ttl-gate` blocks a bare `nest start`/`vite`/`pnpm dev`/`node dist/main`
+  in `.claude/worktrees/**` and the claude-scratchpad; (3) a launchd-reaper every 30 min finishes off node processes of a
+  worktree older than 6h or with a removed worktree (install: `scripts/devops/install-devserver-reaper.sh`;
+  dry-run: `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`). Manual sweep when needed:
+  `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — specifically xargs: in zsh `kill $VAR` does NOT split
+  (fails with "illegal pid" — and this is masked by `2>/dev/null`).
+- **Waiting without a limit is mechanically forbidden (2026-09-25).** Three cases in a row a task hung
+  "Running" for hours and days already after the agent's death: `cat` without a file waited on stdin for 25 h; an `until` loop
+  waited for a string Stryker does not print; `until` loops waited for `tasks/<id>.status` / `.exit`, while
+  the harness writes only `<id>.output`. The hook `pre:bash:unbounded-wait` refuses an `until` loop and
+  a `while` loop with `sleep` (or `while true`) if they have no limit — neither `timeout N bash -c`, nor
+  a deadline on `$SECONDS` / `date +%s`, nor an iteration counter; it refuses any loop waiting for
+  `.status` / `.exit`, and a bare `cat` on stdin. How to wait correctly: `run_in_background` and
+  a harness notification on completion; if a loop is still needed — with a deadline (`timeout` does not exist on macOS,
+  carry `$SECONDS`). A foreground-call timeout does not count as a limit: on a timeout the harness
+  moves the command to the background rather than killing it.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/zone-of-write.md` — allow-пути zone-хука (worktree / эскейп-хатч).
-- `.claude/rules/common/git-policy.md` — формат коммитов, explicit `git add`, запреты.
-- `.claude/rules/common/eslint-mcp-first.md` — lint перед правкой `.ts`/`.tsx`.
+- `.claude/rules/common/zone-of-write.md` — zone-hook allow paths (worktree / escape hatch).
+- `.claude/rules/common/git-policy.md` — commit format, explicit `git add`, prohibitions.
+- `.claude/rules/common/eslint-mcp-first.md` — lint before editing `.ts`/`.tsx`.

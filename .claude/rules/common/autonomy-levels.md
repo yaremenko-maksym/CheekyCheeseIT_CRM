@@ -1,112 +1,112 @@
-# Rule: Уровни автономии — сколько человека нужно этому решению
+# Rule: Autonomy levels — how much of a human this decision needs
 
 **Status:** Always-on
-**Applies to:** Все агенты. Классифицирует Master/оркестратор при постановке задачи; применяет исполнитель, когда упирается в развилку.
-**Source:** Запрос владельца 2026-08-22 («работаю удалённо, команды для человека не нужны») + разбор `mattpocock/skills` (`grilling`, `loop-me`). ADR: `docs/architecture/2026-08-22-afk-pipeline-migration.md`.
+**Applies to:** All agents. Master/orchestrator classifies when setting a task; the executor applies it when it hits a fork.
+**Source:** Owner request 2026-08-22 ("I work remotely, commands for a human are not needed") + study of `mattpocock/skills` (`grilling`, `loop-me`). ADR: `docs/architecture/2026-08-22-afk-pipeline-migration.md`.
 
 ---
 
-## Зачем
+## Why
 
-Владелец работает удалённо и отвечает с задержкой. Пайплайн, который на каждой развилке зовёт
-человека, в этом режиме просто стоит. Пайплайн, который не зовёт никогда, тратит деньги на
-необратимых решениях.
+The owner works remotely and answers with a delay. A pipeline that calls the human at every fork
+simply stalls in this mode. A pipeline that never calls spends money on
+irreversible decisions.
 
-До этого правила человеческие точки были разбросаны и бесформенны: блокер от агента
-(`.blocked.md`), Mode 4 User Testing, «уточнить у USER» в таблице классификации правок,
-«мерджим». Ни формата, ни срока, ни различия обратимого и необратимого — поэтому агент либо стоял
-там, где мог решить сам, либо решал там, где не должен был.
+Before this rule the human points were scattered and shapeless: a blocker from an agent
+(`.blocked.md`), Mode 4 User Testing, "clarify with USER" in the edit-classification table,
+"merge". No format, no deadline, no distinction of reversible and irreversible — so the agent either stalled
+where it could decide itself, or decided where it should not have.
 
-## Граница, из которой всё следует
+## The boundary from which everything follows
 
-> **Поиск фактов — работа агента, никогда владельца. Решения — владельца.**
+> **Finding facts is the agent's job, never the owner's. Decisions are the owner's.**
 
-**Факт** — то, что добывается командой: содержимое файла, схема БД, история гита, состояние PR,
-что вернул эндпоинт, есть ли уже такой хелпер. Спрашивать факт у владельца **запрещено**:
-это перекладывание своей работы. Если ответ достаётся `grep`, `git log`, `gh`, `psql` или чтением
-— вопрос удаляется, а не задаётся.
+A **fact** is what is obtained by a command: a file's contents, the DB schema, git history, a PR's state,
+what an endpoint returned, whether such a helper already exists. Asking the owner a fact is **forbidden**:
+it is offloading your own work. If the answer is obtained via `grep`, `git log`, `gh`, `psql` or reading
+— the question is deleted, not asked.
 
-**Решение** — выбор с последствиями, где обе ветки defensible. Оно принадлежит владельцу, но
-**не каждое** он должен видеть лично: дальше — классификатор.
+A **decision** is a choice with consequences where both branches are defensible. It belongs to the owner, but
+**not every one** must he see personally: next — the classifier.
 
-## Три уровня
+## Three levels
 
-| Уровень                      | Когда                                                                                                                                       | Что делает агент                                                                                                         |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| **A1 — решить и записать**   | Откат ≤ одного PR. **И** не деньги, не RBAC, не прод-данные, не публичный текст, не необратимая миграция, не внешняя отправка               | Берёт собственный рекомендованный ответ, пишет строку в `## Допущения` task-файла, продолжает. Строка едет в тело PR     |
-| **A2 — накопить и спросить** | Необратимо, но **не блокирует** остальную работу. Либо обратимо, но переделка дорогая                                                       | Доделывает всё, что не зависит от ответа. Вопрос кладёт в **decision brief**. В конце фазы — одна пачка одним сообщением |
-| **A3 — стоп**                | Необратимо **и** блокирует. Деньги, прод-данные, юридическое, публикация наружу, удаление, всё из critical-path zones (`contracts.md` §2.1) | Спрашивает немедленно, авто-принятия нет. Встаёт **только эта ветка**; соседние задачи фронтира идут дальше              |
+| Level                       | When                                                                                                                                             | What the agent does                                                                                                                                   |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **A1 — decide and record**  | Rollback ≤ one PR. **And** not money, not RBAC, not prod data, not public text, not an irreversible migration, not an external send              | Takes its own recommended answer, writes a line in the `## Assumptions` of the task file, continues. The line rides into the PR body                  |
+| **A2 — accumulate and ask** | Irreversible, but **does not block** the rest of the work. Or reversible, but the redo is expensive                                              | Finishes everything that does not depend on the answer. Puts the question in a **decision brief**. At the end of the phase — one batch in one message |
+| **A3 — stop**               | Irreversible **and** blocking. Money, prod data, legal, publication outward, deletion, everything from critical-path zones (`contracts.md` §2.1) | Asks immediately, no auto-acceptance. **Only this branch** stalls; neighbouring frontier tasks go on                                                  |
 
-**Critical-path zones автоматически дают A3.** Ось автономии не ослабляет cost-of-error, она
-надстраивается над ним: там, где critical-path zones (`contracts.md` §2.1) требуют security-reviewer, решение не может быть A1.
+**Critical-path zones automatically give A3.** The autonomy axis does not weaken cost-of-error, it
+is built on top of it: where critical-path zones (`contracts.md` §2.1) require a security-reviewer, a decision cannot be A1.
 
-**Сомневаешься между A1 и A2 — бери A2.** Сомневаешься между A2 и A3 — бери A3. Ошибка в сторону
-вопроса стоит задержки; ошибка в другую сторону стоит отката.
+**In doubt between A1 and A2 — take A2.** In doubt between A2 and A3 — take A3. An error toward
+the question costs a delay; an error the other way costs a rollback.
 
-## Блокируется поддерево, а не сессия
+## The subtree is blocked, not the session
 
-Из правила фронтира (`grilling`): запущенная разведка — это неразрешённая предпосылка, поэтому
-ждут только вопросы **ниже неё по дереву**, а остальной фронтир спрашивается сейчас.
+From the frontier rule (`grilling`): a launched reconnaissance is an unresolved premise, so
+only the questions **below it in the tree** wait, while the rest of the frontier is asked now.
 
-С вопросами к владельцу так же. A3 останавливает ветку, зависящую от ответа, — не задачу целиком
-и тем более не соседние задачи. Агент, вставший целиком из-за одного A3-вопроса, нарушает
-правило.
+With questions to the owner it is the same. A3 stops the branch depending on the answer — not the whole task,
+and certainly not neighbouring tasks. An agent that stalled entirely because of one A3 question violates the
+rule.
 
-## Контракт decision brief
+## The decision-brief contract
 
-Одна пачка на фазу, читается с телефона.
+One batch per phase, readable on a phone.
 
 ```
-🟠 Решения от тебя — <N> шт. · <task-id> · PR #<N>
-Всё остальное по задаче доделано и ждёт только этого.
-Продолжают идти: <соседние задачи>
+🟠 Decisions from you — <N> pcs · <task-id> · PR #<N>
+Everything else on the task is finished and waits only on this.
+Still running: <neighbouring tasks>
 
-❓ 1 — <заголовок вопроса одной строкой>
-   <контекст: 2-3 строки, жаргон развёрнут, цифры конкретные>
-➡️ Рекомендую: <ответ> — <почему, одна строка>
-🔓 Обратимо · ⏱ молчание до <дата время> → приму рекомендацию, запишу
-   в «Допущения», откат = <цена отката>
+❓ 1 — <question title in one line>
+   <context: 2-3 lines, jargon unfolded, numbers concrete>
+➡️ I recommend: <answer> — <why, one line>
+🔓 Reversible · ⏱ silence until <date time> → I take the recommendation, record it
+   in "Assumptions", rollback = <rollback cost>
 
 ❓ 2 — <...>
-➡️ Рекомендую: <...>
-🔒 Необратимо (<почему>). Без ответа не двигаюсь.
+➡️ I recommend: <...>
+🔒 Irreversible (<why>). Without an answer I do not move.
 ```
 
-Правила формата:
+Format rules:
 
-- **Рекомендация есть всегда.** Вопрос без рекомендации перекладывает работу на владельца.
-- **Один вопрос — одна идея.** Составной вопрос получает составной ответ, который потом никто не
-  может интерпретировать.
-- **Жаргон развёрнут** по `CONTEXT.md`: бриф читает тот, кого не было в сессии.
-- **Ни одного факта.** Перед отправкой пройтись по списку: если на вопрос отвечает команда —
-  вопрос удаляется, а ответ добывается.
-- **Дедлайн только у A2.** У A3 авто-принятия нет по определению.
+- **A recommendation is always present.** A question without a recommendation offloads work onto the owner.
+- **One question — one idea.** A compound question gets a compound answer that then nobody
+  can interpret.
+- **Jargon unfolded** per `CONTEXT.md`: the brief is read by someone who was not in the session.
+- **Not a single fact.** Before sending, go through the list: if a command answers the question —
+  the question is deleted and the answer obtained.
+- **A deadline only on A2.** A3 has no auto-acceptance by definition.
 
-## Как узнаем, что нарушено
+## How we know it is violated
 
-| Что сверяем                                                             | Кто                         |
-| ----------------------------------------------------------------------- | --------------------------- |
-| Каждое A1-решение существует строкой в `## Допущения` task-файла        | Master при приёмке; ревьюер |
-| В теле PR есть блок «Допущения» ровно с этими строками                  | code-reviewer               |
-| В decision brief нет вопроса, отвечаемого командой                      | автор брифа перед отправкой |
-| Задача целиком встала при одном A3-вопросе, хотя были независимые ветки | Master при мониторинге      |
+| What is reconciled                                                                | Who                               |
+| --------------------------------------------------------------------------------- | --------------------------------- |
+| Every A1 decision exists as a line in the `## Assumptions` of the task file       | Master at acceptance; reviewer    |
+| The PR body has an "Assumptions" block with exactly these lines                   | code-reviewer                     |
+| The decision brief has no question answerable by a command                        | the brief's author before sending |
+| The whole task stalled on one A3 question, though there were independent branches | Master during monitoring          |
 
-Решение, принятое без строки, неотличимо от решения, о котором забыли: **строка и есть
-наблюдаемость**. Это тот же приём, что контрольная строка `Findings: … (N)` в
-`review-findings-transfer.md` — арифметика вместо внимательности.
+A decision made without a line is indistinguishable from a decision that was forgotten: **the line is the
+observability**. It is the same device as the control line `Findings: … (N)` in
+`review-findings-transfer.md` — arithmetic instead of attentiveness.
 
-## Что это НЕ меняет
+## What this does NOT change
 
-- **Мерж по-прежнему только по явному «мерджим» владельца.** Мерж — не решение по задаче, а
-  отдельный гейт, и ось автономии его не касается.
-- **`--admin` / `--no-verify` по-прежнему требуют явного согласия в текущем сообщении.**
-- **Блокер-файл (`.blocked.md`) остаётся** для случая «задача не может быть выполнена как
-  описана» — это не развилка, а брак постановки, и он идёт к Master, а не в decision brief.
+- **Merge is still only on the owner's explicit "merge".** A merge is not a decision on the task but
+  a separate gate, and the autonomy axis does not touch it.
+- **`--admin` / `--no-verify` still require explicit consent in the current message.**
+- **The blocker file (`.blocked.md`) remains** for the case "the task cannot be done as
+  described" — this is not a fork but a defect in the task setup, and it goes to Master, not into a decision brief.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/light-track.md` — какой трек (церемония); эта ось — сколько человека.
-- `.claude/rules/common/orchestration-routing.md` — степень параллелизма; ортогонально.
-- `.claude/rules/common/review-findings-transfer.md` — тот же приём наблюдаемости через арифметику.
-- `.claude/skills/decision-frontier/SKILL.md` — механика: как построить дерево и погасить ветки из репозитория до классификации.
-- `CONTEXT.md` — словарь, которым разворачивается жаргон в брифе.
+- `.claude/rules/common/light-track.md` — which track (ceremony); this axis — how much of a human.
+- `.claude/rules/common/orchestration-routing.md` — the degree of parallelism; orthogonal.
+- `.claude/rules/common/review-findings-transfer.md` — the same observability device via arithmetic.
+- `.claude/skills/decision-frontier/SKILL.md` — mechanics: how to build the tree and extinguish branches from the repository before classification.
+- `CONTEXT.md` — the glossary with which the jargon in the brief is unfolded.

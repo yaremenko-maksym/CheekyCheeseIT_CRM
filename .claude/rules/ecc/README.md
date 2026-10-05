@@ -4,7 +4,7 @@ Curated subset of the ECC rules pack, imported 2026-06-03 and **pruned 2026-06-1
 (context-diet audit). This is a local copy — upstream installation instructions do
 not apply here.
 
-## Precedence (важно)
+## Precedence (important)
 
 **Project policy always wins.** On any conflict:
 

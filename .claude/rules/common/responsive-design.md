@@ -7,88 +7,88 @@ paths:
 # Rule: Responsive design — CRM usable on any device (mandatory)
 
 **Status:** Always-on
-**Applies to:** Coder, ui-ux-designer, code-reviewer, manual-qa, Master/оркестратор (dispatch — AC, генерация дизайна)
-**Source:** Запрос владельца 2026-06-23 — «хочу пользовать CRM с любого девайса; весь интерфейс должен иметь мобильный / планшетный / ноутбучный / большой-экран адаптив; дизайн-систему адаптировать под мобильную версию».
+**Applies to:** Coder, ui-ux-designer, code-reviewer, manual-qa, Master/orchestrator (dispatch — AC, design generation)
+**Source:** Owner request 2026-06-23 — "I want to use the CRM from any device; the entire interface must have mobile / tablet / laptop / large-screen adaptivity; adapt the design system to the mobile version".
 
 ---
 
 ## The rule
 
-**ЛЮБАЯ визуальная поверхность `apps/web/**`(и`apps/landing/**`) ОБЯЗАНА быть полностью пригодной к
-использованию и визуально корректной на 4 классах устройств: мобильный · планшет · ноутбук · большой экран.**
+**ANY visual surface in `apps/web/**`(and`apps/landing/**`) MUST be fully usable
+and visually correct on 4 device classes: mobile · tablet · laptop · large screen.**
 
-«Пригодна» = нет горизонтального overflow; ничего не обрезано и не недостижимо; основные действия
-доступны; контролы/таргеты комфортны для тача на мобайле; контент сканируется, а не ломается.
+"Usable" = no horizontal overflow; nothing clipped or unreachable; primary actions
+available; controls/targets comfortable for touch on mobile; content scans rather than breaks.
 
-Это **hard-гейт** — наравне с design-gate. UI-задача без подтверждённого адаптива по всем 4 классам =
+This is a **hard gate** — on par with design-gate. A UI task without confirmed adaptivity across all 4 classes =
 `Verdict: BLOCK`.
 
-## Классы устройств → брейкпоинты (Tailwind) → тест-ширины
+## Device classes → breakpoints (Tailwind) → test widths
 
-| Класс         | Диапазон  | Tailwind     | Тест-ширины (Playwright) |
-| ------------- | --------- | ------------ | ------------------------ |
-| **Мобильный** | 320–639   | base (`<sm`) | 320, 375                 |
-| **Планшет**   | 640–1023  | `sm` / `md`  | 768                      |
-| **Ноутбук**   | 1024–1439 | `lg` / `xl`  | 1024, 1280               |
-| **Большой**   | ≥ 1440    | `xl` / `2xl` | 1440, 1920               |
+| Class      | Range     | Tailwind     | Test widths (Playwright) |
+| ---------- | --------- | ------------ | ------------------------ |
+| **Mobile** | 320–639   | base (`<sm`) | 320, 375                 |
+| **Tablet** | 640–1023  | `sm` / `md`  | 768                      |
+| **Laptop** | 1024–1439 | `lg` / `xl`  | 1024, 1280               |
+| **Large**  | ≥ 1440    | `xl` / `2xl` | 1440, 1920               |
 
-**Mobile-first:** базовые стили — мобайл; наращивать через `sm:`/`md:`/`lg:`/`xl:`/`2xl:`. НЕ десктоп-first
-с откатами.
+**Mobile-first:** base styles — mobile; scale up via `sm:`/`md:`/`lg:`/`xl:`/`2xl:`. NOT desktop-first
+with fallbacks.
 
-## Per-class паттерны (наследуют все экраны; источник — `docs/design/foundation.md`)
+## Per-class patterns (inherited by all screens; source — `docs/design/foundation.md`)
 
-- **Мобайл (<640):** одноколоночно; nav-sidebar → `Sheet`-overlay (бургер в хедере); плотные таблицы →
-  card-стек ИЛИ горизонтальный скролл со sticky первой колонкой (НЕ обрезать); большие модалки →
-  full-screen / bottom-sheet; тач-таргеты **≥44×44px** (крупнее a11y-минимума 24px); НЕ полагаться на
-  hover-only (тач не наводит) — действия видимы/доступны по тапу; длинные лейблы wrap/усечение.
-- **Планшет (640–1023):** 1–2 колонки; sidebar может быть видим (`md:flex`) или collapsible; уплотнённые
-  тулбары; формы — 1–2 колонки.
-- **Ноутбук (1024–1439):** основной desktop-таргет операторов; полная раскладка.
-- **Большой (≥1440):** контент-колонки (списки/детали/формы) — `max-w` кап, чтобы не растягивать строки
-  на сверхширине; таблицы/дашборды могут быть full-width; стабильная сетка, без «дыр».
+- **Mobile (<640):** single column; nav-sidebar → `Sheet` overlay (burger in the header); dense tables →
+  card stack OR horizontal scroll with a sticky first column (do NOT clip); large modals →
+  full-screen / bottom-sheet; touch targets **≥44×44px** (larger than the a11y minimum of 24px); do NOT rely on
+  hover-only (touch does not hover) — actions visible/available on tap; long labels wrap/truncate.
+- **Tablet (640–1023):** 1–2 columns; sidebar may be visible (`md:flex`) or collapsible; condensed
+  toolbars; forms — 1–2 columns.
+- **Laptop (1024–1439):** the main desktop target for operators; full layout.
+- **Large (≥1440):** content columns (lists/details/forms) — `max-w` cap so lines don't stretch
+  at ultra-width; tables/dashboards may be full-width; stable grid, no "holes".
 
 ## Mandatory enforcement
 
-- **Master/оркестратор (dispatch):** каждая UI-задача несёт explicit **responsive AC** (4 класса + тест-ширины).
-- **Генерация дизайна (Claude Design) — дизайн сразу под ВСЕ классы (ОБЯЗАТЕЛЬНО):** бриф ОБЯЗАН требовать
-  фреймы для 4 классов (320 мобайл · 768 планшет · 1024 ноут · 1440 большой) + состояния
-  (default/empty/loading/error) на каждом — НЕ «десктоп, потом адаптив». После генерации проверить, что
-  мобильный фрейм реально присутствует; нет → дорисовать перед handoff. `design.png` экспортируется минимум
-  для мобайла (320) И десктопа (1440). Десктоп-only макет на UI-задаче = нарушение.
-- **Fidelity-приёмка (макет ↔ localhost на всех классах):** после реализации — обязательный fidelity-diff
-  гейт перед merge, см. `.claude/rules/common/design-fidelity-review.md`. Этот файл задаёт ЧТО должно быть
-  адаптивным; fidelity-review — приёмку соответствия макету на каждом классе.
-- **Coder:** mobile-first; верстает все 4 класса; перед «готово» — Playwright-проверка на тест-ширинах
-  (overflow-скан + тач-таргеты на мобайле).
-- **ui-ux-designer Mode B:** fidelity-аудит прогоняется на ВСЕХ тест-ширинах (320/375/768/1024/1280/1440/1920),
-  не только desktop. Дрейф/overflow/обрезание на любом классе → BLOCK.
-- **code-reviewer:** на PR, трогающем `apps/web/**`/`apps/landing/**` визуал — проверяет наличие
-  responsive-обработки (брейкпоинт-классы, отсутствие фикс-ширин, ломающих мобайл) + responsive AC.
-- **manual-qa:** живой проход на мобайл + desktop вьюпортах.
+- **Master/orchestrator (dispatch):** every UI task carries explicit **responsive AC** (4 classes + test widths).
+- **Design generation (Claude Design) — design for ALL classes up front (MANDATORY):** the brief MUST require
+  frames for 4 classes (320 mobile · 768 tablet · 1024 laptop · 1440 large) + states
+  (default/empty/loading/error) on each — NOT "desktop, then adaptive". After generation verify the
+  mobile frame is actually present; if not → draw it before handoff. `design.png` is exported at minimum
+  for mobile (320) AND desktop (1440). A desktop-only mockup on a UI task = a violation.
+- **Fidelity acceptance (mockup ↔ localhost on all classes):** after implementation — a mandatory fidelity-diff
+  gate before merge, see `.claude/rules/common/design-fidelity-review.md`. This file sets WHAT must be
+  adaptive; fidelity-review — the acceptance of mockup conformance on each class.
+- **Coder:** mobile-first; builds all 4 classes; before "done" — a Playwright check on the test widths
+  (overflow scan + touch targets on mobile).
+- **ui-ux-designer Mode B:** the fidelity audit runs on ALL test widths (320/375/768/1024/1280/1440/1920),
+  not just desktop. Drift/overflow/clipping on any class → BLOCK.
+- **code-reviewer:** on a PR touching `apps/web/**`/`apps/landing/**` visuals — verifies the presence of
+  responsive handling (breakpoint classes, no fixed widths that break mobile) + responsive AC.
+- **manual-qa:** live pass on mobile + desktop viewports.
 
-## Дизайн-система — мобильная адаптация
+## Design system — mobile adaptation
 
-«Дизайн-система» = `foundation.md` (наш визуальный язык) + синканная Claude Design система
-`CheekyCheeseIT CRM` + токены/компоненты. Мобильная адаптация:
+"Design system" = `foundation.md` (our visual language) + the synced Claude Design system
+`CheekyCheeseIT CRM` + tokens/components. Mobile adaptation:
 
-- **Паттерны мобильной адаптации компонентов** зафиксированы в `foundation.md` (sidebar→Sheet,
-  table→card-stack/scroll, dialog→sheet, тач-таргеты, responsive type-scale). Все генерации/сборки следуют им.
-- **Токены** (цвет/радиус/шрифт) device-agnostic — не дублируются per-device; адаптив идёт раскладкой +
-  spacing + type-scale (по необходимости `clamp()` для крупных заголовков).
-- **Claude Design re-sync под мобайл** — при необходимости владелец прогоняет `/design-sync` после
-  расширения мобильных паттернов (interactive; см. `claude-design-workflow`).
+- **Component mobile-adaptation patterns** are fixed in `foundation.md` (sidebar→Sheet,
+  table→card-stack/scroll, dialog→sheet, touch targets, responsive type-scale). All generations/builds follow them.
+- **Tokens** (color/radius/font) are device-agnostic — not duplicated per device; adaptivity comes from layout +
+  spacing + type-scale (`clamp()` for large headings where needed).
+- **Claude Design re-sync for mobile** — when needed, the owner runs `/design-sync` after
+  expanding mobile patterns (interactive; see `claude-design-workflow`).
 
 ## Verification (Playwright)
 
-На каждой UI-задаче: пройти тест-ширины → assert нет горизонтального скролла страницы
-(`document.scrollWidth <= clientWidth`), ключевые блоки видимы/достижимы, на мобайле тач-таргеты ≥44px,
-sidebar→Sheet работает. Скриншоты мобайл+desktop в PR/Mode B.
+On every UI task: run the test widths → assert no horizontal page scroll
+(`document.scrollWidth <= clientWidth`), key blocks visible/reachable, on mobile touch targets ≥44px,
+sidebar→Sheet works. Mobile+desktop screenshots in the PR/Mode B.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/design-fidelity-review.md` — fidelity-diff макет↔localhost на всех классах (обязательный гейт перед merge; это правило — его precondition).
-- `.claude/rules/common/design-gate.md` — дизайнер-в-контуре; responsive — часть fidelity-гейта (Mode B по всем классам).
-- `docs/design/foundation.md` §10 — конкретные мобильные паттерны дизайн-системы.
-- `.claude/rules/ecc/web/testing.md` — visual regression на брейкпоинтах 320/375/768/1024/1440/1920.
-- `.claude/skills/accessibility/` — target-size (24px a11y-минимум; на мобайле целимся ≥44px).
-- `.claude/skills/claude-design-workflow/` — генерация фреймов для всех классов устройств.
+- `.claude/rules/common/design-fidelity-review.md` — fidelity-diff mockup↔localhost on all classes (mandatory gate before merge; this rule is its precondition).
+- `.claude/rules/common/design-gate.md` — designer-in-the-loop; responsive — part of the fidelity gate (Mode B over all classes).
+- `docs/design/foundation.md` §10 — concrete mobile patterns of the design system.
+- `.claude/rules/ecc/web/testing.md` — visual regression at breakpoints 320/375/768/1024/1440/1920.
+- `.claude/skills/accessibility/` — target-size (24px a11y minimum; on mobile we aim ≥44px).
+- `.claude/skills/claude-design-workflow/` — generation of frames for all device classes.

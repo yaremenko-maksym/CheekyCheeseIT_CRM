@@ -1079,7 +1079,7 @@ msgid "Бекстори"
 msgstr "Бекстори"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySeoFields.tsx
 msgid "Бенефіти"
@@ -1128,7 +1128,7 @@ msgstr "буде створена частка "
 msgid "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 msgstr "Буде створено акаунт сеньйора та сформовано команду з вами в ролі HR."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням — {defaultSharePercent}%: те саме значення знімає індивідуальну частку по проєкту."
 msgstr "Будь-яка зміна почне діяти після підтвердження сеньйора. За замовчуванням — {defaultSharePercent}%: те саме значення знімає індивідуальну частку по проєкту."
 
@@ -1511,8 +1511,8 @@ msgstr "Введіть суму числом — наприклад 1000.50"
 msgid "zod-error.LEGEND_TEXT_REQUIRED"
 msgstr "Введіть текст"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Введіть ціле число від 0 до 100"
 msgstr "Введіть ціле число від 0 до 100"
 
@@ -1716,8 +1716,8 @@ msgstr "Виберіть сеньйора"
 msgid "Виберіть співробітника"
 msgstr "Виберіть співробітника"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Виберіть тип оплати"
 msgstr "Виберіть тип оплати"
 
@@ -2327,7 +2327,7 @@ msgstr "Відмова"
 #: apps/web/app/components/documents/document-row.tsx
 #: apps/web/app/routes/_authenticated/finance/components/TransactionRow.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectUnarchive.tsx
 #: apps/web/app/routes/_authenticated/team/$teamId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyCard.tsx
@@ -2836,7 +2836,7 @@ msgstr "Дані компанії"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Дата"
 msgstr "Дата"
 
@@ -3397,8 +3397,8 @@ msgstr "Долучити до команди дропа можна лише се
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancyFormFields.tsx
 msgid "Домен"
 msgstr "Домен"
@@ -3740,7 +3740,7 @@ msgstr "За датою початку"
 msgid "за замовчуванням"
 msgstr "за замовчуванням"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає індивідуальну частку дропа по проєкту."
 msgstr "За замовчуванням — {defaultDropSharePercent}%. Те саме значення знімає індивідуальну частку дропа по проєкту."
 
@@ -3922,7 +3922,7 @@ msgstr "Загальний дохід"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Загальні нотатки"
 msgstr "Загальні нотатки"
 
@@ -4518,9 +4518,9 @@ msgstr "Змінну {{{key}}} видалено"
 msgid "Змінювати може тільки адмін або бухгалтер."
 msgstr "Змінювати може тільки адмін або бухгалтер."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Змінювати можуть лише {adminLabel} або {accountantLabel}."
 msgstr "Змінювати можуть лише {adminLabel} або {accountantLabel}."
 
@@ -4908,8 +4908,8 @@ msgstr "компанії"
 #: apps/web/app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Компанія"
 msgstr "Компанія"
@@ -5138,7 +5138,7 @@ msgid "Корп. техніка"
 msgstr "Корп. техніка"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Корпоративна техніка"
 msgstr "Корпоративна техніка"
 
@@ -5266,8 +5266,8 @@ msgid "zod-error.LOGO_SOURCE_XOR"
 msgstr "Логотип — це файл або посилання, не обидва одночасно"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Логотип компанії"
 msgstr "Логотип компанії"
 
@@ -5595,8 +5595,8 @@ msgid "назва проєкту"
 msgstr "назва проєкту"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Назва проєкту"
 msgstr "Назва проєкту"
 
@@ -7327,7 +7327,7 @@ msgid "Перегляд архівної версії v{0}"
 msgstr "Перегляд архівної версії v{0}"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Перегляд зарплати"
 msgstr "Перегляд зарплати"
 
@@ -9525,7 +9525,7 @@ msgstr "Скільки дроп залишає собі з кожної випл
 msgid "Склад"
 msgstr "Склад"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Склад команди"
 msgstr "Склад команди"
@@ -9729,8 +9729,8 @@ msgstr "Спробуйте ще раз"
 
 #: apps/web/app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Ставка"
 msgstr "Ставка"
 
@@ -9790,7 +9790,7 @@ msgstr "Статистика"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Статус"
@@ -9980,7 +9980,7 @@ msgstr "Сторона"
 msgid "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 msgstr "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Сторони"
 msgstr "Сторони"
 
@@ -10002,7 +10002,7 @@ msgstr "Ступінь / спеціальність"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Сума"
 msgstr "Сума"
@@ -10216,7 +10216,7 @@ msgstr "Технічна"
 msgid "Технології"
 msgstr "Технології"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 msgid "Технологічний стек"
 msgstr "Технологічний стек"
 
@@ -10231,7 +10231,7 @@ msgstr "Тиждень"
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Тип"
 msgstr "Тип"
@@ -10253,7 +10253,7 @@ msgid "Тип операції"
 msgstr "Тип операції"
 
 #: apps/web/app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/constants.ts
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 #: apps/web/app/routes/_authenticated/projects/index.tsx
 msgid "Тип оплати"
@@ -10294,7 +10294,7 @@ msgstr "Транзакції переведено в статус ОПЛАЧЕН
 msgid "Транзакції у виплаті ({0})"
 msgstr "Транзакції у виплаті ({0})"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Транзакцій по проєкту ще немає"
 msgstr "Транзакцій по проєкту ще немає"
 
@@ -10804,7 +10804,7 @@ msgstr "Фінальний вигляд документа «Умови вико
 msgid "Фінанси"
 msgstr "Фінанси"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Фінанси по проєкту"
 msgstr "Фінанси по проєкту"
 
@@ -11098,7 +11098,7 @@ msgid "Частка дропа ({dropPct}%)"
 msgstr "Частка дропа ({dropPct}%)"
 
 #: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Частка дропа (%)"
 msgstr "Частка дропа (%)"
 
@@ -11176,7 +11176,7 @@ msgid "Частка сеньйора ({seniorPct}%)"
 msgstr "Частка сеньйора ({seniorPct}%)"
 
 #: apps/web/app/components/users/UserDialog.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Частка сеньйора (%)"
 msgstr "Частка сеньйора (%)"

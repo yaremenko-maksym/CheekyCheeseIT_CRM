@@ -4,77 +4,77 @@ paths:
   - 'apps/landing/**'
 ---
 
-# Rule: Design-fidelity review — макет ↔ localhost diff на ВСЕХ экранах (mandatory gate)
+# Rule: Design-fidelity review — mockup ↔ localhost diff on ALL screens (mandatory gate)
 
-**Status:** Always-on (hard-гейт; reviewer-enforced + Master-aggregate)
-**Applies to:** ui-ux-designer (исполнитель Mode B), Master (aggregate/dispatch), code-reviewer (проверка наличия+покрытия), manual-qa (живое поведение)
-**Source:** Запрос владельца 2026-06-23 — «в тест-пайплайн добавить ревьюера, который сравнивает макет и localhost на различия и на разных экранах» + «дизайн делать сразу под все экраны». Цель программы редизайна: **дизайн = UI source of truth**.
+**Status:** Always-on (hard gate; reviewer-enforced + Master-aggregate)
+**Applies to:** ui-ux-designer (executor of Mode B), Master (aggregate/dispatch), code-reviewer (presence + coverage check), manual-qa (live behaviour)
+**Source:** Owner request 2026-06-23 — "add a reviewer to the test pipeline that compares the mockup and localhost for differences, across different screens" + "design straight away for all screens". Goal of the redesign program: **design = UI source of truth**.
 
 ---
 
 ## The rule
 
-После реализации ЛЮБОГО UI (diff трогает визуальную поверхность `apps/web/**` или `apps/landing/**`) и
-ДО merge — **ОБЯЗАТЕЛЕН fidelity-diff ревью**: сравнение **дизайн-референса** (макет Claude Design /
-`design.png` / spec `docs/design/<slug>.md`) с **живым localhost** на ВСЕХ классах устройств. Расхождение
-ИЛИ неполное покрытие классов = `Fidelity: BLOCK` → merge запрещён, пока не устранено.
+After implementing ANY UI (the diff touches a visual surface in `apps/web/**` or `apps/landing/**`) and
+BEFORE merge — a **fidelity-diff review is MANDATORY**: comparing the **design reference** (Claude Design mockup /
+`design.png` / spec `docs/design/<slug>.md`) against **live localhost** on ALL device classes. A discrepancy
+OR incomplete class coverage = `Fidelity: BLOCK` → merge forbidden until resolved.
 
-Это закрывает петлю «дизайн → код»: гарантирует, что реализованный экран следует утверждённому макету на
-КАЖДОМ устройстве, а не «примерно похоже на десктопе». Без этого гейта дизайн не может быть source of truth.
+This closes the "design → code" loop: it guarantees the implemented screen follows the approved mockup on
+EVERY device, not "roughly similar on desktop". Without this gate, design cannot be the source of truth.
 
-## Тест-ширины (классы устройств)
+## Test widths (device classes)
 
-`320 · 375` (мобайл) · `768` (планшет) · `1024 · 1280` (ноут) · `1440 · 1920` (большой). Соответствуют
-`responsive-design.md`. Fidelity-diff прогоняется на каждой; «desktop-only проверка» = неполный аудит = BLOCK.
+`320 · 375` (mobile) · `768` (tablet) · `1024 · 1280` (laptop) · `1440 · 1920` (large). They match
+`responsive-design.md`. The fidelity-diff runs on each one; a "desktop-only check" = incomplete audit = BLOCK.
 
-## Кто и что делает
+## Who does what
 
-- **Исполнитель — `ui-ux-designer` (Mode B, fidelity-diff).** Грузит дизайн-референс + открывает localhost
-  в Playwright, прогоняет тест-ширины, на каждой сравнивает **expected (макет) ↔ actual (localhost)**:
-  layout, spacing-ритм, типографика, токены, иерархия, обрезание/overflow, поведение брейкпоинтов,
-  тач-таргеты (≥44px на мобайле). Постит в PR per-breakpoint diff-таблицу
-  `[Ширина | Компонент | Ожидалось | По факту | Severity]` + скриншоты состояний.
-- **Вердикт (вторая строка PR-комментария Designer, после `Design Review:`):** `Fidelity: PASS | ISSUES | BLOCK`.
-  - `PASS` — совпадает на всех классах (мелкие нюансы в допуске).
-  - `ISSUES` — найдены расхождения → fix перед merge (по строгости = код-BLOCK).
-  - `BLOCK` — заметный дрейф / класс не покрыт / референса нет там, где он должен быть.
-- **Master (aggregate).** Для UI-PR fidelity-вердикт — ОБЯЗАТЕЛЬНАЯ часть designer-результата
-  (visual verdict + fidelity verdict + список issues). Нет fidelity-комментария с покрытием всех
-  классов → aggregate НЕПОЛНЫЙ, вернуть designer на дорасследование (как Manual QA без design-рубрики).
-  `Fidelity: ISSUES|BLOCK` → `do-not-merge` + fix-task кодеру.
-- **`code-reviewer`.** Проверяет, что fidelity-комментарий есть И покрывает ВСЕ классы (не desktop-only).
-  Отсутствует/частичен на UI-PR (tier ≠ 3) → `Verdict: BLOCK` со ссылкой на это правило.
-- **`manual-qa`.** Проверяет реальное ПОВЕДЕНИЕ на мобайл/десктоп (живой проход) — дополняет fidelity-diff
-  (designer = соответствие макету; manual-qa = работоспособность/RBAC/консоль).
+- **Executor — `ui-ux-designer` (Mode B, fidelity-diff).** Loads the design reference + opens localhost
+  in Playwright, runs the test widths, and on each compares **expected (mockup) ↔ actual (localhost)**:
+  layout, spacing rhythm, typography, tokens, hierarchy, clipping/overflow, breakpoint behaviour,
+  touch targets (≥44px on mobile). Posts a per-breakpoint diff table to the PR
+  `[Width | Component | Expected | Actual | Severity]` + state screenshots.
+- **Verdict (second line of the Designer's PR comment, after `Design Review:`):** `Fidelity: PASS | ISSUES | BLOCK`.
+  - `PASS` — matches on all classes (minor nuances within tolerance).
+  - `ISSUES` — discrepancies found → fix before merge (as strict as a code BLOCK).
+  - `BLOCK` — noticeable drift / a class not covered / no reference where one should exist.
+- **Master (aggregate).** For a UI PR the fidelity verdict is a MANDATORY part of the designer result
+  (visual verdict + fidelity verdict + list of issues). No fidelity comment covering all
+  classes → the aggregate is INCOMPLETE, return the designer for further investigation (like Manual QA without a design rubric).
+  `Fidelity: ISSUES|BLOCK` → `do-not-merge` + fix task for the coder.
+- **`code-reviewer`.** Verifies the fidelity comment exists AND covers ALL classes (not desktop-only).
+  Absent/partial on a UI PR (tier ≠ 3) → `Verdict: BLOCK` with a link to this rule.
+- **`manual-qa`.** Checks real BEHAVIOUR on mobile/desktop (live pass) — complements the fidelity-diff
+  (designer = conformance to the mockup; manual-qa = functionality/RBAC/console).
 
-## Дизайн делается сразу под ВСЕ классы (precondition — обязательно)
+## Design is done for ALL classes up front (precondition — mandatory)
 
-Fidelity-diff невозможен без макетов на все классы. Поэтому (усиливает `responsive-design.md`):
+A fidelity-diff is impossible without mockups for all classes. Therefore (reinforces `responsive-design.md`):
 
-- **Генерация (Claude Design):** бриф ОБЯЗАН требовать фреймы для 4 классов (320 мобайл · 768 планшет ·
-  1024 ноут · 1440 большой) + состояния (default/empty/loading/error) на каждом — НЕ «десктоп, потом
-  адаптив». После генерации проверить, что мобильный фрейм реально присутствует; нет → дорисовать перед
-  handoff. Десктоп-only макет на UI-задаче = нарушение правила.
-- **Spec (`ui-ux-designer` Mode E):** `docs/design/<slug>.md` описывает responsive-поведение per класс
-  (что схлопывается / скроллится / реформатируется).
-- **`design.png`:** экспортируется минимум для мобайла (320) И десктопа (1440) как fidelity-референсы Mode B.
+- **Generation (Claude Design):** the brief MUST require frames for 4 classes (320 mobile · 768 tablet ·
+  1024 laptop · 1440 large) + states (default/empty/loading/error) on each — NOT "desktop, then
+  adaptive". After generation verify the mobile frame is actually present; if not → draw it before
+  handoff. A desktop-only mockup on a UI task = a violation of the rule.
+- **Spec (`ui-ux-designer` Mode E):** `docs/design/<slug>.md` describes responsive behaviour per class
+  (what collapses / scrolls / reflows).
+- **`design.png`:** exported at minimum for mobile (320) AND desktop (1440) as Mode B fidelity references.
 
-## Деградация (fallback)
+## Degradation (fallback)
 
-- **Чистого `design.png` нет** (CD дрейфил / Tier 3) → fidelity-diff против spec `docs/design/<slug>.md` +
-  `foundation.md`; в PR body отметить `fidelity: degraded` с причиной. **Responsive-проверка всех классов
-  на localhost остаётся обязательной** (overflow / обрезание / тач-таргеты) — деградирует только «эталон»,
-  НЕ покрытие устройств.
-- **В артефакте только десктоп-макет** → минимум `320 + 1440` сравнение + эскалация Master (Tier 3 degradation).
+- **No clean `design.png`** (CD drifted / Tier 3) → fidelity-diff against spec `docs/design/<slug>.md` +
+  `foundation.md`; in the PR body note `fidelity: degraded` with the reason. **The responsive check on all classes
+  at localhost stays mandatory** (overflow / clipping / touch targets) — only the "reference" degrades,
+  NOT device coverage.
+- **The artifact has only a desktop mockup** → at minimum a `320 + 1440` comparison + Master escalation (Tier 3 degradation).
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/design-gate.md` — дизайнер-в-контуре ДО (генерация/conformance) и ПОСЛЕ (этот fidelity-аудит); reviewer-чек ссылается сюда.
-- `.claude/rules/common/responsive-design.md` — 4 класса устройств (это правило — приёмка соответствия макету на них).
-- `.claude/rules/common/zone-of-write.md` — `ui-ux-designer` / `manual-qa` cosmetic-fix зона.
+- `.claude/rules/common/design-gate.md` — designer-in-the-loop BEFORE (generation/conformance) and AFTER (this fidelity audit); the reviewer check links here.
+- `.claude/rules/common/responsive-design.md` — 4 device classes (this rule is the acceptance of mockup conformance on them).
+- `.claude/rules/common/zone-of-write.md` — `ui-ux-designer` / `manual-qa` cosmetic-fix zone.
 
-## Источники
+## Sources
 
-- Запрос владельца 2026-06-23 (fidelity-ревьюер + дизайн под все экраны; дизайн = UI source of truth).
-- Карта пайплайна (workflow `redesign-rules-map`, 2026-06-23): Mode B сегодня делает скриншоты, но fidelity-diff
-  НЕ оформлен как обязательный гейт с покрытием всех классов — это правило закрывает gap.
+- Owner request 2026-06-23 (fidelity reviewer + design for all screens; design = UI source of truth).
+- Pipeline map (workflow `redesign-rules-map`, 2026-06-23): Mode B today takes screenshots, but the fidelity-diff
+  is NOT formalized as a mandatory gate with all-class coverage — this rule closes the gap.

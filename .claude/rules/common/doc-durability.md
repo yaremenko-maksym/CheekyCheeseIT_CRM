@@ -1,72 +1,72 @@
-# Rule: Долгоживущая запись описывает поведение, а не координаты
+# Rule: A long-lived record describes behaviour, not coordinates
 
 **Status:** Always-on
-**Applies to:** Все, кто пишет в бэклог, `.out-of-scope/`, ADR, `memory/*/lessons.md`, тело закрытого issue.
-**Source:** Разбор `mattpocock/skills` (`triage/AGENT-BRIEF.md`, «durability over precision»). ADR: `docs/architecture/2026-08-22-afk-pipeline-migration.md` пункт 9.
+**Applies to:** Everyone who writes to the backlog, `.out-of-scope/`, an ADR, `memory/*/lessons.md`, the body of a closed issue.
+**Source:** Study of `mattpocock/skills` (`triage/AGENT-BRIEF.md`, "durability over precision"). ADR: `docs/architecture/2026-08-22-afk-pipeline-migration.md` item 9.
 
 ---
 
-## Зачем
+## Why
 
-Запись со сроком жизни в месяцы, написанная как «`mutation-gate.mjs:154`», перестаёт быть
-правдой раньше, чем до неё дойдут руки, и **не сообщает об этом**. Проверка стоит дороже
-исходной находки: часть сессии 2026-08-17 ушла на живое перечитывание `origin/main` ради ответа
-«какие координаты в бэклоге ещё верны».
+A record with a lifespan of months, written as "`mutation-gate.mjs:154`", stops being
+true before anyone gets to it, and **does not announce it**. Verification costs more than
+the original finding: part of the 2026-08-17 session went to live re-reading of `origin/main` to answer
+"which backlog coordinates are still correct".
 
-Ошибка не в точности, а в **выборе носителя точности**: путь и номер строки — свойство рабочей
-копии на момент письма, а не свойство находки.
+The error is not in precision but in the **choice of carrier for precision**: a path and a line number are a property
+of the working copy at the moment of writing, not a property of the finding.
 
-## Правило
+## The rule
 
-Запись со сроком жизни **больше одного дня** описывает:
+A record with a lifespan of **more than one day** describes:
 
-- **поведение** — что система делает сейчас и что должна делать;
-- **интерфейсы и типы** — имена символов, сигнатуры, форму конфига;
-- **условие проверки** — как убедиться, что находка ещё жива.
+- **behaviour** — what the system does now and what it should do;
+- **interfaces and types** — symbol names, signatures, the shape of config;
+- **a verification condition** — how to confirm the finding is still alive.
 
-и **не** описывает:
+and does **not** describe:
 
-- пути к файлам как единственный адрес находки;
-- номера строк — никогда, ни в каком виде;
-- текущую структуру реализации как данность.
+- file paths as the sole address of a finding;
+- line numbers — never, in any form;
+- the current implementation structure as a given.
 
-**Символ вместо координаты.** `resolveDropShare` находится грепом и переживает переезд файла;
-`finance.service.ts:412` — нет. Если у находки нет ни одного стабильного символа, это признак,
-что находка сформулирована про место, а не про поведение: переформулировать.
+**A symbol instead of a coordinate.** `resolveDropShare` is found with grep and survives a file move;
+`finance.service.ts:412` does not. If a finding has no stable symbol at all, that is a sign
+the finding is phrased about a place, not about behaviour: rephrase it.
 
-## Где действует
+## Where it applies
 
-| Носитель                             | Срок жизни      | Правило действует |
-| ------------------------------------ | --------------- | ----------------- |
-| `.claude/tasks/BACKLOG-followups.md` | месяцы          | **да**            |
-| `.out-of-scope/*.md`                 | навсегда        | **да**            |
-| `docs/architecture/**` (ADR)         | навсегда        | **да**            |
-| `.claude/agents/memory/*/lessons.md` | до консолидации | **да**            |
-| Тело закрытого issue / PR            | навсегда        | **да**            |
-| `.claude/tasks/task-<slug>.md`       | часы            | **нет**           |
-| dispatch-промпт агента               | минуты          | **нет**           |
-| комментарий ревью на живой PR        | дни             | **нет**           |
+| Carrier                              | Lifespan            | Rule applies |
+| ------------------------------------ | ------------------- | ------------ |
+| `.claude/tasks/BACKLOG-followups.md` | months              | **yes**      |
+| `.out-of-scope/*.md`                 | forever             | **yes**      |
+| `docs/architecture/**` (ADR)         | forever             | **yes**      |
+| `.claude/agents/memory/*/lessons.md` | until consolidation | **yes**      |
+| Body of a closed issue / PR          | forever             | **yes**      |
+| `.claude/tasks/task-<slug>.md`       | hours               | **no**       |
+| agent dispatch prompt                | minutes             | **no**       |
+| review comment on a live PR          | days                | **no**       |
 
-## Почему task-файлы намеренно исключены
+## Why task files are deliberately excluded
 
-Их читают в тот же день, и coordinator-дисциплина оркестратора **требует** конкретных путей и
-номеров строк: это доказательство, что Master синтезировал находку сам, а не переложил понимание на
-исполнителя. Запретить их там значило бы чинить одно правило другим.
+They are read the same day, and the orchestrator's coordinator discipline **requires** concrete paths and
+line numbers: it is proof that Master synthesized the finding himself rather than offloading the understanding onto
+the executor. Forbidding them there would mean fixing one rule with another.
 
-Граница проходит по сроку жизни, а не по типу документа.
+The boundary runs along lifespan, not along document type.
 
-## Как узнаем, что нарушено
+## How we know it is violated
 
 ```bash
-# номер строки в долгоживущей записи
+# a line number in a long-lived record
 grep -nE '\.(ts|tsx|mjs|js|sql|sh|md):[0-9]+' .claude/tasks/BACKLOG-followups.md .out-of-scope/*.md docs/architecture/*.md
 ```
 
-Совпадение — находка. Исключение ровно одно: **исторический факт**, где координата и есть суть
-(«инцидент воспроизводился на строке X версии Y»), и он помечен как исторический.
+A match is a finding. There is exactly one exception: a **historical fact**, where the coordinate is the whole point
+("the incident reproduced on line X of version Y"), and it is marked as historical.
 
-## Связанные правила
+## Related rules
 
-- `.claude/rules/common/light-track.md` — что вообще попадает в бэклог.
-- `.claude/agents/contracts.md` — оркестрация задач Master: почему в task-файлах координаты обязательны (coordinator-дисциплина).
-- `CONTEXT.md` — стабильные имена понятий, которыми формулируется поведение.
+- `.claude/rules/common/light-track.md` — what even gets into the backlog.
+- `.claude/agents/contracts.md` — Master task orchestration: why coordinates are mandatory in task files (coordinator discipline).
+- `CONTEXT.md` — stable names of concepts in which behaviour is phrased.

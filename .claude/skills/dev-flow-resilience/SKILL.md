@@ -1,7 +1,7 @@
 ---
 name: dev-flow-resilience
-description: When Coder / Reviewer / Master работают над long-running операцией где может произойти watchdog cutoff, MCP hang, session boundary loss или zone-of-write violation. CRM-specific resilience layer (D1-D4 fixes из 2026-05-23 RCA) — НЕ покрывается ECC. Использовать перед началом long-running work, при подозрении на silent termination и при cross-session ожиданиях.
-when_to_use: "Use when an agent runs a long-running operation, an MCP call hangs > 5s, a session boundary may drop state, a watchdog may cut the agent off mid-task, or a cross-session wait is needed. Examples: 'агент обрезался на лимите', 'MCP завис', 'нужно дождаться review через час', 'completed но не done', 'sentinel recovery', 'write-then-post'."
+description: When Coder / Reviewer / Master work on a long-running operation where a watchdog cutoff, an MCP hang, a session boundary loss or a zone-of-write violation may occur. A CRM-specific resilience layer (D1-D4 fixes from the 2026-05-23 RCA) — NOT covered by ECC. Use before starting long-running work, on suspicion of silent termination, and on cross-session waits.
+when_to_use: "Use when an agent runs a long-running operation, an MCP call hangs > 5s, a session boundary may drop state, a watchdog may cut the agent off mid-task, or a cross-session wait is needed. Examples: 'the agent was cut off at the limit', 'MCP hung', 'need to wait for a review in an hour', 'completed but not done', 'sentinel recovery', 'write-then-post'."
 allowed-tools:
   - Read
   - Bash(git:*)
@@ -10,158 +10,158 @@ allowed-tools:
 
 # Dev-Flow Resilience (D1-D4 lift)
 
-Custom resilience patterns для CRM AI pipeline. ECC покрывает workflow surface (skills/), но НЕ имеет watchdog asymmetry / cross-session state / zone-of-write enforcement primitives — это наш custom layer. Источник — `docs/architecture/2026-05-23-dev-flow-rca.md`.
+Custom resilience patterns for the CRM AI pipeline. ECC covers the workflow surface (skills/), but does NOT have watchdog asymmetry / cross-session state / zone-of-write enforcement primitives — this is our custom layer. Source — `docs/architecture/2026-05-23-dev-flow-rca.md`.
 
 3 root cause classes:
 
-1. **Watchdog asymmetry** (C1, C2) — Coder/Reviewer обрываются раньше, чем успевают завершить I/O.
-2. **Cross-session state loss** (D1) — ScheduleWakeup / MCP results / worktree state теряются на session boundary.
-3. **Implicit zones-of-write** (C3, D2) — Coder перезаписывает Master-scripts, labels отсутствуют без mechanism-level gates.
+1. **Watchdog asymmetry** (C1, C2) — Coder/Reviewer are cut off before they manage to finish I/O.
+2. **Cross-session state loss** (D1) — ScheduleWakeup / MCP results / worktree state are lost at the session boundary.
+3. **Implicit zones-of-write** (C3, D2) — Coder overwrites Master-scripts, labels are absent without mechanism-level gates.
 
 ## When to invoke
 
-- Coder начинает task с > 2 файлами edit
-- Reviewer / Legal перед `mcp__github__create_pull_request_review` (любой MCP I/O > 5 сек)
-- Master перед `ScheduleWakeup(delay > 1800)` (cross-session ожидание > 30 мин)
-- При silent termination diagnosis (Coder завершился без push)
-- Перед добавлением нового label которое используется в .md правилах
-- При worktree checkout failure (`git checkout BRANCH` падает с "checked out elsewhere")
+- Coder starts a task with > 2 files to edit
+- Reviewer / Legal before `mcp__github__create_pull_request_review` (any MCP I/O > 5 sec)
+- Master before `ScheduleWakeup(delay > 1800)` (cross-session wait > 30 min)
+- On silent termination diagnosis (Coder finished without a push)
+- Before adding a new label that is used in .md rules
+- On worktree checkout failure (`git checkout BRANCH` fails with "checked out elsewhere")
 
 ## Patterns
 
 ### C1: Watchdog C1 — chunking + sentinel + intent markers
 
-**Symptom:** Coder читает task → начинает писать → текст обрывается → `git log` worktree пуст. Master ждёт notification, не получает. 200k tokens / 12 мин — typical cutoff.
+**Symptom:** Coder reads the task → starts writing → the text is cut off → `git log` of the worktree is empty. Master waits for a notification, does not get one. 200k tokens / 12 min — a typical cutoff.
 
-**Root cause:** Runtime watchdog (Claude harness) убивает stream без graceful shutdown. У Coder'а нет mechanism «flush in progress to disk» перед kill.
+**Root cause:** The runtime watchdog (the Claude harness) kills the stream without a graceful shutdown. The Coder has no mechanism to "flush in progress to disk" before the kill.
 
 **Applied fix (3-layer):**
 
-1. **Chunking (hard rule):** `wip:` push после **каждых 2 файлов ИЛИ 5 минут**. Раньше было 3/30 — слишком мягко, Coder обрывался ДО первого милстоуна.
-2. **Sentinel file:** `.claude/tasks/<task>.progress.md` — Coder обновляет `last_update` / `last_commit` / `last_push` после каждого милстоуна. Master при таймауте читает sentinel, видит расхождение `last_update` vs `last_push` → забирает работу из worktree.
-3. **Intent markers (opt-in):** Перед длинной операцией (test run > 30 сек, AC start, milestone, rebase, migration) — `bash scripts/coder/coder-intent.sh "<intent>"`. Даёт Master при recovery semantic контекст. Anti-pattern: писать intent на каждый Edit (auto-hook уже покрывает — это spam).
+1. **Chunking (hard rule):** `wip:` push after **every 2 files OR 5 minutes**. Previously it was 3/30 — too soft, the Coder was cut off BEFORE the first milestone.
+2. **Sentinel file:** `.claude/tasks/<task>.progress.md` — the Coder updates `last_update` / `last_commit` / `last_push` after each milestone. Master, on a timeout, reads the sentinel, sees a divergence of `last_update` vs `last_push` → pulls the work out of the worktree.
+3. **Intent markers (opt-in):** Before a long operation (a test run > 30 sec, an AC start, a milestone, a rebase, a migration) — `bash scripts/coder/coder-intent.sh "<intent>"`. Gives Master semantic context at recovery. Anti-pattern: writing an intent on every Edit (an auto-hook already covers this — it is spam).
 
-**Recovery:** Master continuation (см. `contracts.md` §7):
+**Recovery:** Master continuation (see `contracts.md` §7):
 
 ```bash
-# 1. Прочитать sentinel
+# 1. Read the sentinel
 cat .claude/tasks/<task>.progress.md
-# 2. Сравнить last_update vs last_push (timestamps)
-# 3. Если расхождение > 5 мин → достать незакоммиченную работу
+# 2. Compare last_update vs last_push (timestamps)
+# 3. If the divergence > 5 min → pull out the uncommitted work
 cd <coder-worktree>
-git status   # видим untracked / unstaged
-# 4. Master либо commits manually либо dispatches Coder retry с context
+git status   # we see untracked / unstaged
+# 4. Master either commits manually or dispatches a Coder retry with context
 ```
 
 ### C2: Watchdog C2 — write-then-post pattern (MCP hang recovery)
 
-**Symptom:** Reviewer-агент завершил анализ, начал `mcp__github__create_pull_request_review`, вызов завис на 10+ минут → watchdog crash → review не появился на PR.
+**Symptom:** The Reviewer agent finished the analysis, started `mcp__github__create_pull_request_review`, the call hung for 10+ minutes → watchdog crash → the review did not appear on the PR.
 
-**Root cause:** MCP-вызов = network I/O без timeout-обёртки в agent prompt'е. Если GitHub API hangs (rate limit / network) — agent тоже hangs.
+**Root cause:** An MCP call = network I/O without a timeout wrapper in the agent prompt. If the GitHub API hangs (rate limit / network) — the agent also hangs.
 
 **Applied fix:**
 
-1. Сохранить body в файл **ДО** MCP-вызова.
+1. Save the body to a file **BEFORE** the MCP call.
    ```
-   /tmp/reviewer-output/pr-<N>-<TS>.md   — для code-reviewer
-   /tmp/security-reviewer-output/pr-<N>-<TS>.md   — для security-reviewer
-   /tmp/legal-output/pr-<N>-<TS>.md   — для legal Mode B
+   /tmp/reviewer-output/pr-<N>-<TS>.md   — for code-reviewer
+   /tmp/security-reviewer-output/pr-<N>-<TS>.md   — for security-reviewer
+   /tmp/legal-output/pr-<N>-<TS>.md   — for legal Mode B
    ```
 2. **Attempt #1:** MCP (`mcp__github__create_pull_request_review`).
-3. **Attempt #2 (fallback):** `gh api repos/.../pulls/N/reviews -X POST -F body=@<file>` через Bash.
-4. **Attempt #3 (recovery):** Master достаёт body из файла, постит сам.
+3. **Attempt #2 (fallback):** `gh api repos/.../pulls/N/reviews -X POST -F body=@<file>` via Bash.
+4. **Attempt #3 (recovery):** Master pulls the body from the file, posts it itself.
 
-**Why this is enough:** root cause в MCP hang, fix не в том чтобы MCP отвечал быстрее (мы не контролируем GitHub), а в том чтобы работа не терялась когда он hangs. Write-then-post — стандартный durable-write pattern.
+**Why this is enough:** the root cause is in the MCP hang, the fix is not in making MCP respond faster (we do not control GitHub), but in making the work not get lost when it hangs. Write-then-post — a standard durable-write pattern.
 
 ### C3: Zone-of-write (worktree isolation)
 
-**Symptom:** Coder перезаписывает Master-патчи к `scripts/pm/prep-user-testing.sh`. Coder screenshots появляются в чужих worktree (PR подметал `apps/e2e/debug-*.png` от прошлых AutoTest runs).
+**Symptom:** Coder overwrites Master patches to `scripts/pm/prep-user-testing.sh`. Coder screenshots appear in others' worktrees (a PR swept up `apps/e2e/debug-*.png` from past AutoTest runs).
 
-**Root cause:** `git add .` / `git add -A` подметает что попало. Coder не имеет mental model «Master-scripts — это not-mine zone».
+**Root cause:** `git add .` / `git add -A` sweeps up whatever. The Coder has no mental model that "Master-scripts are a not-mine zone".
 
 **Applied fix (Coder-side):**
 
-- В `coder.md` явный список **off-limits zones**:
+- In `coder.md` an explicit list of **off-limits zones**:
   - `scripts/pm/**` — Master scripts
   - `scripts/devops/**` — DevOps scripts
   - `.claude/agents/**` — Architect zone (system prompts)
   - `docs/business/**` — BA zone
   - `.github/workflows/**` — DevOps zone
   - `.claude/hooks/**` — DevOps + Architect zone
-  - Чужие task-файлы
-- В Coder workflow §git: **никогда `git add .`**. Только явный список файлов из task-секции "Конкретные изменения".
+  - Others' task files
+- In the Coder workflow §git: **never `git add .`**. Only an explicit list of files from the task section "Concrete changes".
 
 **Applied fix (Reviewer-side, mechanism gate):**
 
-- Если diff PR содержит изменения вне zone-of-write Coder'а → Verdict: BLOCK с указанием конкретного файла.
-- См. skill `code-review-discipline` §3.
+- If the PR diff contains changes outside the Coder's zone-of-write → Verdict: BLOCK with the specific file named.
+- See the skill `code-review-discipline` §3.
 
 ### D1: ScheduleWakeup boundary (cross-session state loss)
 
-**Symptom:** Master ставит `ScheduleWakeup(delay=7200)` ждать GHA E2E. Session завершилась через 30 мин (token cap). Wake-up в 2 часа не fire'ит — потерян. PR висит без действия пока user не пнёт.
+**Symptom:** Master sets `ScheduleWakeup(delay=7200)` to wait for GHA E2E. The session ended after 30 min (token cap). The wake-up at 2 hours does not fire — lost. The PR hangs without action until the user nudges it.
 
-**Root cause:** ScheduleWakeup state хранится session-scoped (in-process). Без external scheduler wake-up не переживает crash/timeout source-session.
+**Root cause:** ScheduleWakeup state is stored session-scoped (in-process). Without an external scheduler the wake-up does not survive a crash/timeout of the source session.
 
 **Applied fix (2-layer):**
 
-**Layer 1 (in-session, ≤ 30 мин):** `ScheduleWakeup` — для wake-up'ов внутри текущей session.
+**Layer 1 (in-session, ≤ 30 min):** `ScheduleWakeup` — for wake-ups within the current session.
 
-**Layer 2 (cross-session, > 30 мин или критичных):** `mcp__scheduled-tasks__create_scheduled_task` — external scheduler выживает session boundary.
+**Layer 2 (cross-session, > 30 min or critical):** `mcp__scheduled-tasks__create_scheduled_task` — an external scheduler survives the session boundary.
 
-- Master запускает `scripts/pm/pm-schedule.sh` для подготовки параметров (fireAt, taskId, materialized prompt).
-- Потом вызывает MCP-tool.
-- Каждый wake-up создаёт fresh Master-сессию с self-contained prompt из `scripts/pm/wakeup-prompts/<template>.md` — нет утечки контекста из source-сессии.
+- Master runs `scripts/pm/pm-schedule.sh` to prepare the parameters (fireAt, taskId, materialized prompt).
+- Then calls the MCP tool.
+- Each wake-up creates a fresh Master session with a self-contained prompt from `scripts/pm/wakeup-prompts/<template>.md` — no context leak from the source session.
 
-**НЕ смешивать оба слоя на один wait** — это создаёт дубли fire'ов.
+**Do NOT mix both layers on one wait** — this creates duplicate fires.
 
 **Recovery (continuation catch-up):**
 
-- При старте сессии — Master читает активные task-файлы в `.claude/tasks/` и запланированные задачи (`mcp__scheduled-tasks__*`).
-- Если запланированный fire старше `max_age_min` → immediate execute (missed wake-up).
-- См. `contracts.md` §7 (compaction recovery) + `RULES.md` §4.3 (wake-up layers).
+- At session start — Master reads the active task files in `.claude/tasks/` and the scheduled tasks (`mcp__scheduled-tasks__*`).
+- If a scheduled fire is older than `max_age_min` → immediate execute (missed wake-up).
+- See `contracts.md` §7 (compaction recovery) + `RULES.md` §4.3 (wake-up layers).
 
 ### D2: Missing label declarative drift
 
-**Symptom:** правило dispatch ссылается на label `ci-failed`, но он не существует в repo. Master пытается читать label, GitHub возвращает 404. Master не реагирует на CI failures автоматически.
+**Symptom:** a dispatch rule references the label `ci-failed`, but it does not exist in the repo. Master tries to read the label, GitHub returns 404. Master does not react to CI failures automatically.
 
-**Root cause:** Labels управлялись ad-hoc через `gh label create`. Не было declarative source-of-truth → label был задокументирован в `.md` но не существовал.
+**Root cause:** Labels were managed ad-hoc via `gh label create`. There was no declarative source-of-truth → the label was documented in `.md` but did not exist.
 
 **Applied fix:**
 
-- `.github/labels.yml` — declarative source-of-truth для всех labels.
-- `.github/workflows/labels-sync.yml` — GHA workflow `crazy-max/ghaction-github-labeler@v5` синхронизирует yml с repo при push в main.
+- `.github/labels.yml` — a declarative source-of-truth for all labels.
+- `.github/workflows/labels-sync.yml` — a GHA workflow `crazy-max/ghaction-github-labeler@v5` syncs the yml with the repo on push to main.
 
-**Decision rule (для Master/DevOps):** Прежде чем ссылаться на label в .md/.sh — добавить его в `.github/labels.yml`. Тестовый CI пройдёт `labels-sync.yml` → label материализуется в repo.
+**Decision rule (for Master/DevOps):** Before referencing a label in .md/.sh — add it to `.github/labels.yml`. The test CI will pass `labels-sync.yml` → the label materializes in the repo.
 
 ### D3: Conditional AutoTest dispatch (process rigidity)
 
-**Symptom:** Coder в PR добавил полный E2E coverage для AC. Master всё равно диспетчит AutoTest. AutoTest читает spec'ы, видит что покрытие есть → no-op. Потрачено ~10 мин агент-времени.
+**Symptom:** The Coder added full E2E coverage for the AC in the PR. Master still dispatches AutoTest. AutoTest reads the specs, sees that coverage exists → no-op. ~10 min of agent time wasted.
 
-**Root cause:** Pre-2026-05-23 правило «MUST dispatch AutoTest после Coder» было absolute.
+**Root cause:** The pre-2026-05-23 rule "MUST dispatch AutoTest after Coder" was absolute.
 
-**Applied fix:** Decision table в `contracts.md` §3 (AutoTest dispatch):
+**Applied fix:** A decision table in `contracts.md` §3 (AutoTest dispatch):
 
-| Состояние                                 | Действие      | Reason код                    |
+| State                                     | Action        | Reason code                   |
 | ----------------------------------------- | ------------- | ----------------------------- |
-| Coder не добавил spec'ы + PR трогает apps | MUST dispatch | —                             |
-| Coder добавил spec'ы покрывающие AC       | skip          | `coder-added-e2e-covering-ac` |
-| PR только docs/business                   | skip          | `no-product-code-changes`     |
+| Coder did not add specs + PR touches apps | MUST dispatch | —                             |
+| Coder added specs covering the AC         | skip          | `coder-added-e2e-covering-ac` |
+| PR only docs/business                     | skip          | `no-product-code-changes`     |
 
-**Observability:** skip без зафиксированной причины (в task-файле / теле PR) **запрещён** — без записи = пробел в покрытии.
+**Observability:** a skip without a recorded reason (in the task file / PR body) is **forbidden** — without a record = a gap in coverage.
 
 ### D4: Lessons priority (read-side cost)
 
-**Symptom:** 27 уроков в `memory/*/lessons.md` равноправны. Агент при чтении не отличает P0 invariant от P2 optimization.
+**Symptom:** 27 lessons in `memory/*/lessons.md` are of equal weight. The agent, when reading, does not distinguish a P0 invariant from a P2 optimization.
 
-**Root cause:** Append-md формат оптимизирован под write-side (легко добавить). Read-side cost — агенты читают всё одинаково.
+**Root cause:** The append-md format is optimized for the write-side (easy to add). Read-side cost — agents read everything the same way.
 
-**Applied fix:** Формат `<YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic-tag) <урок>`.
+**Applied fix:** The format `<YYYY-MM-DD> [P0|P1|P2] [<task-id>] (#topic-tag) <lesson>`.
 
 **Priority selectors:**
 
-- **P0** — mechanism / safety invariant. Real incident → потеря работы / merge / data. Нарушение = немедленный fix.
-- **P1** — process / coverage gap. Может пропустить regression / coverage hole.
-- **P2** — optimization. Эффективность / token usage / DX.
+- **P0** — mechanism / safety invariant. A real incident → loss of work / merge / data. A violation = an immediate fix.
+- **P1** — process / coverage gap. May miss a regression / coverage hole.
+- **P2** — optimization. Efficiency / token usage / DX.
 
 **Read pattern:**
 
@@ -171,23 +171,23 @@ grep '\[P0\]' .claude/agents/memory/coder/lessons.md
 
 ## Anti-patterns
 
-| ❌ Don't                                                    | ✅ Do                                                                          |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| Long Coder work без wip-push (> 5 мин / > 2 файлов)         | wip: push после каждого порога                                                 |
-| MCP call без предварительного `Write` файла body            | Write → MCP → gh fallback → Master recovery (chain)                            |
-| `ScheduleWakeup(delay > 1800)` для cross-session waits      | `mcp__scheduled-tasks__create_scheduled_task` + self-contained prompt template |
-| `git add .` / `git add -A` в Coder workflow                 | Явный список файлов из task spec                                               |
-| Ссылка на label в .md без добавления в `.github/labels.yml` | Сначала labels.yml + sync workflow, потом ссылка                               |
-| AutoTest skip без зафиксированной причины                   | Skip + причина (reason код) в task-файле / теле PR                             |
-| Append lesson без priority tag                              | `[P0                                                                           | P1                                                                             | P2] [<task-id>] (#tag) <урок>` обязателен |
-| Intent marker на каждый Edit                                | Только перед операцией > 30 сек / milestone / risky moment                     |
-| `pkill -f vite` для cleanup                                 | `lsof -ti :PORT                                                                | xargs -r kill -TERM` (по порту, не по pattern имени) — для macOS совместимости |
-| `git checkout BRANCH` без pre-flight worktree check         | `git worktree list --porcelain` → если есть worktree → `cd` в него             |
-| GNU `timeout`/`mktemp` без macOS shim                       | `_timeout` с perl fallback / `/tmp/<prefix>-$$-$RANDOM.<ext>`                  |
+| ❌ Don't | ✅ Do |
+| ----------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | ------------------------------------------ |
+| Long Coder work without a wip-push (> 5 min / > 2 files) | wip: push after each threshold |
+| An MCP call without a prior `Write` of the body file | Write → MCP → gh fallback → Master recovery (chain) |
+| `ScheduleWakeup(delay > 1800)` for cross-session waits | `mcp__scheduled-tasks__create_scheduled_task` + self-contained prompt template |
+| `git add .` / `git add -A` in the Coder workflow | An explicit list of files from the task spec |
+| A reference to a label in .md without adding it to `.github/labels.yml` | First labels.yml + sync workflow, then the reference |
+| An AutoTest skip without a recorded reason | Skip + reason (reason code) in the task file / PR body |
+| Appending a lesson without a priority tag | `[P0                                                                           | P1                                                                            | P2] [<task-id>] (#tag) <lesson>` mandatory |
+| An intent marker on every Edit | Only before an operation > 30 sec / a milestone / a risky moment |
+| `pkill -f vite` for cleanup | `lsof -ti :PORT                                                                | xargs -r kill -TERM` (by port, not by pattern name) — for macOS compatibility |
+| `git checkout BRANCH` without a pre-flight worktree check | `git worktree list --porcelain` → if there is a worktree → `cd` into it |
+| GNU `timeout`/`mktemp` without a macOS shim | `_timeout` with a perl fallback / `/tmp/<prefix>-$$-$RANDOM.<ext>` |
 
 ## References
 
-- Source RCA: `docs/architecture/2026-05-23-dev-flow-rca.md` (полный D1-D4 + verification + sub-tasks)
+- Source RCA: `docs/architecture/2026-05-23-dev-flow-rca.md` (full D1-D4 + verification + sub-tasks)
 - Lifted lessons (2026-06-03):
   - `.claude/agents/memory/coder/lessons.md` — chunking, intent markers, zone-of-write, sentinel
   - `.claude/agents/memory/reviewer/lessons.md` — write-then-post

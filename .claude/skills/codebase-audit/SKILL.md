@@ -1,73 +1,73 @@
 ---
 name: codebase-audit
-description: Read-only breadth-first аудит ≥3 независимых модулей репозитория через параллельный fan-out (N × haiku explore → opus synthesis → adversarial-проверка). Use when the orchestrator needs a wide sweep that exceeds one context window.
-when_to_use: "Use when Master запускает breadth-first read-only аудит ≥3 независимых модулей, материал превышает одно контекст-окно, БЕЗ записи кода (Решение 2 из orchestration-routing). Examples: 'RBAC-sweep всех контроллеров', 'найди dead-code по всему репо', 'security-поверхность по всем модулям', 'как устроено X по всему коду', 'аудит зависимостей/секретов', 'инвентаризация перед рефактором'."
+description: Read-only breadth-first audit of ≥3 independent repository modules via parallel fan-out (N × haiku explore → opus synthesis → adversarial check). Use when the orchestrator needs a wide sweep that exceeds one context window.
+when_to_use: "Use when Master launches a breadth-first read-only audit of ≥3 independent modules, the material exceeds one context window, with NO code writes (Decision 2 of orchestration-routing). Examples: 'RBAC sweep of all controllers', 'find dead code across the whole repo', 'security surface across all modules', 'how X works across the whole codebase', 'dependency/secrets audit', 'inventory before a refactor'."
 ---
 
 # Codebase Audit — read-only breadth-first fan-out
 
-**Когда:** только когда `orchestration-routing.md` **Решение 2** совпало — ≥3 независимых
-модуля/контроллера, материал > одного контекст-окна, **read-only** (агенты ничего не пишут в код).
-Это ЕДИНСТВЕННЫЙ кейс, где параллельный fan-out несёт новую ценность поверх прямого диспатча Master.
+**When:** only when `orchestration-routing.md` **Decision 2** matched — ≥3 independent
+modules/controllers, material > one context window, **read-only** (agents write nothing to code).
+This is the ONLY case where parallel fan-out carries new value over Master's direct dispatch.
 
-**Когда НЕ запускать (→ обычный single-agent pipeline):**
+**When NOT to launch (→ ordinary single-agent pipeline):**
 
-- < 3 модулей, или участки пересекаются → один агент дешевле и без context-thrash.
-- Нужна ЗАПИСЬ кода (фикс/рефактор) → это обычный pipeline Master (coder → review), не аудит.
-- Вопрос влезает в один контекст («как работает этот один сервис») → прочитай напрямую через `codegraph`/Read.
+- < 3 modules, or the areas overlap → one agent is cheaper and without context-thrash.
+- Code WRITE is needed (fix/refactor) → that is Master's ordinary pipeline (coder → review), not an audit.
+- The question fits one context ("how does this one service work") → read it directly via `codegraph`/Read.
 
-## Форма (fan-out → synth → verify)
+## Shape (fan-out → synth → verify)
 
 ```
-RECON (1 дешёвый проход)  → собрать карту: список модулей/файлов, разбить на N disjoint срезов
+RECON (1 cheap pass)       → build the map: list of modules/files, split into N disjoint slices
    │
-FAN-OUT (волнами ≤ 3-4)   → N × explore-агент (model=haiku), каждый ВЛАДЕЕТ своим срезом,
-   │                          возвращает СТРУКТУРНЫЙ результат (не прозу) по фиксированной схеме
-SYNTH (1 агент, opus)     → собрать все срезы в один отчёт с приоритизацией (H/M/L)
+FAN-OUT (waves ≤ 3-4)      → N × explore agent (model=haiku), each OWNS its slice,
+   │                          returns a STRUCTURED result (not prose) on a fixed schema
+SYNTH (1 agent, opus)      → gather all slices into one report with prioritization (H/M/L)
    │
-VERIFY (опц., свежий)     → adversarial-проверка топ-находок (refute-prompt), отсев false-positive
+VERIFY (opt., fresh)       → adversarial check of the top findings (refute-prompt), cull false-positives
 ```
 
-Движок — **Workflow tool** (`parallel`/`pipeline` со `schema`-выходом) ИЛИ
-`superpowers:dispatching-parallel-agents`. Workflow-скрипт предпочтительнее, когда срезов много
-и нужен детерминированный сбор; dispatching-parallel-agents — для ad-hoc 3-5 агентов.
+The engine is the **Workflow tool** (`parallel`/`pipeline` with a `schema` output) OR
+`superpowers:dispatching-parallel-agents`. The Workflow script is preferable when there are many slices
+and deterministic collection is needed; dispatching-parallel-agents — for ad-hoc 3-5 agents.
 
-## Правила (что делает этот аудит надёжным)
+## Rules (what makes this audit reliable)
 
-1. **Каждый воркер ВЛАДЕЕТ непересекающимся срезом** (явный список файлов/путей в промпте) — иначе
-   агенты дублируют работу и возвращают перекрытия. Disjoint = дешевле и полнее.
-2. **Структурный schema-выход, не проза.** Воркер возвращает типизированный объект (например
-   `{ slice, findings: [{ issue, evidence: "file:line", severity }], coverage }`). Synth ветвится
-   по машинным полям, не парсит нарратив.
-3. **Воркеры — `model=haiku`** (read-only разведка, `model-routing.md` даунгрейд). Synth — `opus`
-   (judgment-heavy приоритизация). Никаких записей: read-only гейт обязателен.
-4. **Волны ≤ 3-4 одновременных** (`light-track.md` «Потолок concurrency»): 5+ стартов одним
-   сообщением → 529/CPU-starvation. Диспатчить волнами, стаггерить. После завершившихся волн —
-   sweep zombie dev-портов, если воркеры что-то поднимали (для read-only обычно не нужно).
-5. **Adversarial verify топ-находок** свежим агентом (scope = «попробуй опровергнуть»), чтобы
-   plausible-but-wrong находки не дожили до отчёта. Прецедент — обе фазы этого аудита и
-   `review-branch`-логика.
-6. **Evidence обязателен:** каждая находка несёт `file:line` или цитату. «Кажется, есть проблема»
-   без пруфа → отсев на synth.
+1. **Each worker OWNS a non-overlapping slice** (explicit list of files/paths in the prompt) — otherwise
+   agents duplicate work and return overlaps. Disjoint = cheaper and more complete.
+2. **Structured schema output, not prose.** A worker returns a typed object (for example
+   `{ slice, findings: [{ issue, evidence: "file:line", severity }], coverage }`). Synth branches
+   on machine fields, does not parse the narrative.
+3. **Workers are `model=haiku`** (read-only recon, `model-routing.md` downgrade). Synth is `opus`
+   (judgment-heavy prioritization). No writes: the read-only gate is mandatory.
+4. **Waves ≤ 3-4 concurrent** (`light-track.md` "Concurrency ceiling"): 5+ starts in one
+   message → 529/CPU-starvation. Dispatch in waves, stagger. After completed waves —
+   sweep zombie dev-ports if the workers brought anything up (for read-only usually not needed).
+5. **Adversarial verify of the top findings** with a fresh agent (scope = "try to refute"), so that
+   plausible-but-wrong findings do not survive into the report. Precedent — both phases of this audit and
+   the `review-branch` logic.
+6. **Evidence is mandatory:** each finding carries `file:line` or a quote. "There seems to be a problem"
+   without proof → culled at synth.
 
-## Анти-паттерны
+## Anti-patterns
 
-- **Fan-out на 1-2 модуля / пересекающиеся участки** — over-spawn (~15× токенов), один агент лучше.
-- **Запись кода во время аудита** — аудит read-only; фиксы идут отдельной задачей в pipeline Master.
-- **Проза вместо схемы** — synth не сможет детерминированно агрегировать; «разойдётся».
-- **Один гигантский воркер на весь репо** — теряется смысл fan-out; либо влезает в контекст (тогда
-  не нужен fan-out), либо нет (тогда нужны disjoint срезы).
-- **Открытый цикл без cap** — фиксируй число волн/воркеров заранее (effort-scaling: обзор = 2-4,
-  глубокий аудит = больше волнами); не «спавнить пока не надоест».
+- **Fan-out on 1-2 modules / overlapping areas** — over-spawn (~15× tokens), one agent is better.
+- **Writing code during the audit** — the audit is read-only; fixes go as a separate task in Master's pipeline.
+- **Prose instead of a schema** — synth cannot aggregate deterministically; it will "drift apart".
+- **One giant worker over the whole repo** — the point of fan-out is lost; either it fits one context (then
+  fan-out is not needed), or it does not (then disjoint slices are needed).
+- **Open loop without a cap** — fix the number of waves/workers in advance (effort-scaling: a survey = 2-4,
+  a deep audit = more in waves); not "spawn until bored".
 
-## Трекинг
+## Tracking
 
-Запуск аудита → `routing_decision` в task-файле / заметках Master (`track: "audit-fanout"`, `reason`) —
-как в `orchestration-routing.md`. Это делает запуск аудируемым (нестандартный трек фиксируется явно).
+Launching an audit → `routing_decision` in the task file / Master's notes (`track: "audit-fanout"`, `reason`) —
+as in `orchestration-routing.md`. This makes the launch auditable (a non-standard track is recorded explicitly).
 
-## Связанные
+## Related
 
-- `.claude/rules/common/orchestration-routing.md` — Решение 2 (когда вообще запускать audit-fanout).
-- `.claude/rules/common/model-routing.md` — haiku для read-only разведки, opus для synth.
-- `.claude/rules/common/light-track.md` — потолок concurrency (волны ≤ 3-4) + zombie-port sweep.
-- `superpowers:dispatching-parallel-agents` — альтернативный движок для ad-hoc 3-5 воркеров.
+- `.claude/rules/common/orchestration-routing.md` — Decision 2 (when to launch audit-fanout at all).
+- `.claude/rules/common/model-routing.md` — haiku for read-only recon, opus for synth.
+- `.claude/rules/common/light-track.md` — concurrency ceiling (waves ≤ 3-4) + zombie-port sweep.
+- `superpowers:dispatching-parallel-agents` — alternative engine for ad-hoc 3-5 workers.

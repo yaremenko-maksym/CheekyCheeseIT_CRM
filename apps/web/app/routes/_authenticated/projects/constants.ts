@@ -200,3 +200,25 @@ export const ROLE_VARIANT: Record<string, 'admin' | 'senior' | 'junior' | 'hr' |
   HR: 'hr',
   ACCOUNTANT: 'accountant',
 }
+
+/**
+ * task-i18n-stage3c-pr4 (Task 4, Step 2, template G). Was a `Record<string,
+ * string>` LOCAL to `ProjectEditFields`'s render — invisible to `lingui
+ * extract`, which only walks module-level `msg` calls. Hoisted to module
+ * level, `satisfies` WITHOUT `as const` (urok #707: `as const` here would
+ * make Stryker report 0 mutants for the whole block). COPY-H-proj-3: the
+ * edit-form label and the read-only `InfoRow` label below both resolve
+ * through this ONE map now, so "Корп. технологии" / "Корп. техника" (two
+ * spellings of the same field) collapse into one canonical text.
+ */
+export const EDIT_FIELD_LABEL_MESSAGES = {
+  techStack: msg`Технологічний стек`,
+  teamSize: msg`Склад команди`,
+  benefits: msg`Бенефіти`,
+  paymentType: msg`Тип оплати`,
+  salaryReview: msg`Перегляд зарплати`,
+  corpTech: msg`Корпоративна техніка`,
+} satisfies Record<
+  'techStack' | 'teamSize' | 'benefits' | 'paymentType' | 'salaryReview' | 'corpTech',
+  MessageDescriptor
+>

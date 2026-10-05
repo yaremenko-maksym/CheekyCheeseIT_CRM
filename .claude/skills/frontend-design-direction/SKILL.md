@@ -2,7 +2,7 @@
 name: frontend-design-direction
 description: Set an ECC-specific frontend design direction for production UI work. Use when building or improving websites, dashboards, applications, components, landing pages, visual tools, or any web UI that needs stronger product-specific design judgment.
 origin: community
-when_to_use: "Use when UI/UX Designer sets pre-feature design direction (Mode A) — purpose, audience, tone, memorable detail — before a new page or major UI is built. Examples: 'какое направление дизайна для дашборда', 'тон и стиль новой страницы', 'design direction перед версткой', 'нужен memorable detail для лендинга'."
+when_to_use: "Use when UI/UX Designer sets pre-feature design direction (Mode A) — purpose, audience, tone, memorable detail — before a new page or major UI is built. Examples: 'what design direction for the dashboard', 'tone and style of the new page', 'design direction before layout', 'need a memorable detail for the landing'."
 allowed-tools:
   - Read
   - Grep

@@ -394,14 +394,14 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/routes/_authenticated/projects/index.tsx#6':
     'Общие заметки — free-text general notes textarea.',
 
-  // ---- routes/_authenticated/projects/$projectId.tsx ----
-  'app/routes/_authenticated/projects/$projectId.tsx#1':
+  // ---- routes/_authenticated/projects/ProjectEditFields.tsx ----
+  'app/routes/_authenticated/projects/ProjectEditFields.tsx#1':
     'Название проекта (edit form) — same free-text project name as projects/index.tsx#2.',
-  'app/routes/_authenticated/projects/$projectId.tsx#2':
+  'app/routes/_authenticated/projects/ProjectEditFields.tsx#2':
     'Компания (edit form) — same free-text company name as projects/index.tsx#3.',
-  'app/routes/_authenticated/projects/$projectId.tsx#3':
+  'app/routes/_authenticated/projects/ProjectEditFields.tsx#3':
     'Dynamic labels[fieldName] (edit form) — same as projects/index.tsx#5.',
-  'app/routes/_authenticated/projects/$projectId.tsx#4':
+  'app/routes/_authenticated/projects/ProjectEditFields.tsx#4':
     'Общие заметки (edit form) — same free-text notes textarea as projects/index.tsx#6.',
 
   // ---- components/projects/ProjectApprovalActions.tsx (task-project-status-filter-ui) ----

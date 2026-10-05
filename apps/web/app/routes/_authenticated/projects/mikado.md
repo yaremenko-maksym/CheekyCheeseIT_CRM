@@ -23,12 +23,16 @@
 - [done] `PendingShareApprovalBanner`, `ProjectHeaderApprovalNote` -> `ProjectApprovalBanners.tsx`
 - [done] `ProjectEffectiveTeamCard`, `MemberRow`, `ProjectDropDistribution` -> `ProjectTeamCards.tsx`
   (предпосылка `ROLE_VARIANT` вынесена в `constants.ts` — общая для `MemberRow` и страницы)
-- [todo] `ProjectTransactions`
-- [todo] `ProjectUnarchiveHeaderButton`, `ProjectCascadeUnarchiveModal`
-- [todo] константы/типы -> существующий `constants.ts`: `EDIT_FIELD_LABEL_MESSAGES`, (`ROLE_VARIANT` — done),
-  `coerceDomain`, `AnyField`, `AnyForm`
-- [todo] `ProjectEditFields` (+ константы выше как предпосылка) -> свой файл
-- [todo] хук `useProjectPermissions(user, project)` (7 производных RBAC-флагов; риск-зона `canSeeProjectFinance`)
+- [done] `ProjectTransactions` -> `ProjectTransactions.tsx` (лист 6; characterization: `__tests__/ProjectTransactions.test.tsx`)
+- [done] `ProjectUnarchiveHeaderButton`, `ProjectCascadeUnarchiveModal` -> `ProjectUnarchive.tsx`
+- [done] `EDIT_FIELD_LABEL_MESSAGES` -> `constants.ts` (общая для страницы и `ProjectEditFields`);
+  `AnyField`/`AnyForm` переехали в `ProjectEditFields.tsx` (нужны только ему); `coerceDomain` остаётся в странице
+  (используется только ею)
+- [done] `ProjectEditFields` -> `ProjectEditFields.tsx` (лист 5)
+- [done] хук `useProjectPermissions(user, project)` -> `use-project-permissions.ts` (лист 7; 8 флагов:
+  `isAdmin`, `canManage`, `canOpenEdit`, `canRemoveMembers`, `canSeeProjectFinance`, `canEditOverride`,
+  `canAccessLegend`, `canManageCredentials`; `isSubject` внутренний; characterization:
+  `__tests__/use-project-permissions.test.ts`, роли x состояния проекта)
 - [todo] хук `useProjectDropMutations`
 
 Уровень 2 — нужен дизайн интерфейса (предпосылки: уровень 1):
