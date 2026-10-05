@@ -235,10 +235,15 @@ describe('MemberRow', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
-  it('exit date is a UTC calendar date regardless of the reader timezone', () => {
-    // 23:30 UTC on the 15th is already the 16th in Auckland; the 'short' style pins UTC.
-    const prevTz = process.env['TZ']
-    process.env['TZ'] = 'Pacific/Auckland'
+  it('exit date is formatted as a UTC calendar date (short style pins timeZone: UTC)', () => {
+    // Not a TZ-env trick (unreliable across runners): observe the options handed to Intl.
+    const Original = Intl.DateTimeFormat
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (
+      locales?: string | string[],
+      options?: Intl.DateTimeFormatOptions,
+    ) {
+      return new Original(locales, options)
+    } as unknown as typeof Intl.DateTimeFormat)
     try {
       wrap(
         <MemberRow
@@ -248,9 +253,10 @@ describe('MemberRow', () => {
         />,
       )
       expect(screen.getByText(/дата виходу/).textContent).toBe('дата виходу: 15.03.2026')
+      const options = spy.mock.calls.map((call) => call[1])
+      expect(options).toContainEqual({ timeZone: 'UTC' })
     } finally {
-      if (prevTz === undefined) delete process.env['TZ']
-      else process.env['TZ'] = prevTz
+      spy.mockRestore()
     }
   })
 
