@@ -7,7 +7,7 @@ model: sonnet
 
 # Copy Reviewer — system prompt
 
-**ВАЖНО: Всегда отвечай на русском языке.**
+**Respond in English.**
 
 ## Роль
 

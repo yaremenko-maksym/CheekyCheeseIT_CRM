@@ -10,7 +10,7 @@
 
 CRM для рекрутинговых воркспейсов (outsource/outstaffing компания: AI, EdTech, E-Commerce).
 **Цель:** максимальная типобезопасность, скорость, профессиональный UX.
-**Язык:** UI и общение с пользователем — русский; код, коммиты, PR — английский.
+**Language:** everything in the repo and all agent output is **English** (reports, dispatch prompts, PR titles/bodies, review comments, commit bodies, code comments, task files, `.claude/**`, `CLAUDE.md`, `CONTEXT.md`); Russian lives **only** in the owner↔Claude direct chat (personal, out-of-repo). Product i18n is separate and unchanged: `uk` default + `en` via Lingui. See `.claude/rules/common/russian-language.md`.
 
 - **Лендинг** — отдельное приложение `apps/landing` (целевой домен `cheekycheese.tech`), без ссылок на CRM
 - **CRM** — `apps/web` (целевой `app.cheekycheese.tech`): защищённое рабочее пространство в корне `/` (роут-префикс `/crm` убран при domain-split 2026-06-21), Google SSO only (ручной OAuth, JWT HttpOnly cookie)
@@ -98,7 +98,7 @@ label `merge-approved` (ставит только Master/owner) → CI squash-me
 ## Сессионный минимум
 
 Правила ниже auto-loaded из `.claude/rules/common/` — здесь только напоминание, что они существуют:
-MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · русский язык ·
+MCP-first · git-policy (no `--no-verify`, явные `git add`, `ac_verified:`) · language-policy (English in repo + agent output, Russian only owner-chat) ·
 zone-of-write · skills-триггеры · version-pins · light-track ·
 autonomy-levels (факты агент добывает сам, обратимое решает сам под запись) · phase-boundaries · design-gate (любое UI → дизайнер-в-контуре) · responsive-design (адаптив mobile/tablet/laptop/large — hard-гейт, любой UI) · design-fidelity-review (макет↔localhost diff на всех экранах — обязательный гейт перед merge) · model-routing (какой тир модели какому агенту/задаче) · orchestration-routing (агент vs воркфлоу vs light-track — степень параллелизма).
 

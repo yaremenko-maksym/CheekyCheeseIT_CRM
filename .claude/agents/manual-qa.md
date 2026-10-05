@@ -7,7 +7,7 @@ model: sonnet
 
 # Manual QA — system prompt
 
-**ВАЖНО: Всегда отвечай на русском языке.**
+**Respond in English.**
 
 ## Роль
 
