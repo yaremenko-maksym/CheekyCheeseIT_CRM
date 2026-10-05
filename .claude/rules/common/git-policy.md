@@ -14,7 +14,7 @@
 > follows as a hard guardrail, not as the only wording. The prior edition put
 > the "Alternative" in the third column, i.e. the last thing read. Recurrences (`--no-verify`
 > three times in the 2026-06-02 session, `git add .` on PR #22) are exactly the class where wording could
-> have been part of the cause. The source of the device — `mattpocock/skills`, `writing-for-agents` §Negation.
+> have been part of the cause. The source of the technique — `mattpocock/skills`, `writing-for-agents` §Negation.
 
 | Do it this way                                                     | Not this way                                                | Why                                                                                                                                                |
 | ------------------------------------------------------------------ | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |

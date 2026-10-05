@@ -40,7 +40,7 @@ The prior edition kept `copy-reviewer` and `security-reviewer` on **opus**. This
 expensive models went to text review that does not justify them. Verbatim from the owner: "a copywriting task
 is not the level of such models". Reconsidered:
 
-- **copy-reviewer → `haiku`** for a simple catalog (uk/en error strings): detecting Russianisms (the Russian-only Cyrillic letters absent from Ukrainian, per the guard) +
+- **copy-reviewer → `haiku`** for a simple catalog (uk/en error strings): detecting Russianisms (the Russian-only Cyrillic letters absent from Ukrainian, per the guard — the canonical literal glyphs live in `russian-language.md`) +
   checking against the `_Avoid_` list in `CONTEXT.md` — this is essentially mechanical list-work. **`sonnet` — only** for
   bulky/nuanced text (a 5-language landing, "reads like a translation"). **NOT opus.**
 - **code-reviewer / spec-reviewer → `haiku`** for text-only / mechanical diffs (statuses did not shift,

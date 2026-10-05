@@ -53,7 +53,7 @@ finding, but two of the four axes in the UI aggregate remained outside its prote
 a new axis. An extension of the existing rule, not a new rule.
 
 The identifier is set **at the moment of writing the review** — not retroactively during
-transfer. Otherwise the one numbering is the same one who loses.
+transfer. Otherwise the same person who loses a finding is the one numbering it.
 
 At the end of the review body — a control line:
 
