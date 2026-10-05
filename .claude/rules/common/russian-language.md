@@ -1,72 +1,64 @@
-# Rule: Russian language for user-facing output
+# Rule: Language policy — English in the repo, Russian only in the owner chat
 
 **Status:** Always-on
-**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project) + Master (оркестратор)
-**Source:** Project hard requirement (CLAUDE.md), confirmed via ADR Q7 = Option C (per-agent prepend + shared rule, belt-and-suspenders)
+**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus any ECC-imported agents invoked in this project) + Master (orchestrator)
+**Source:** Owner decision 2026-10-05 — a colleague collaborates in English, so the shared repo and all agent output are English. Supersedes the prior Russian-output policy (ADR Q7 Option C). The filename stays `russian-language.md` because many files reference it; the rule it holds is now the language policy below.
+
+> **The flip, in one line.** Everything written into the repository or produced by a sub-agent is **English**. Russian survives in exactly one place — the owner↔Claude direct chat — and that chat lives in the owner's personal memory, not in this repository.
 
 ---
 
 ## The rule
 
-Русский — язык **общения**, украинский и английский — языки **продукта**.
+English is the language of **collaboration and the repository**. Ukrainian and English are the languages of the **product** (unchanged — see below).
 
-**Русский (обязательно):**
+**English (required) — everything an agent writes or that lands in the repo:**
 
-- Все assistant-сообщения в чате с владельцем
-- Все dispatch-промпты Master к sub-agent'ам (чтобы владелец мог читать transcript)
-- Все agent self-descriptions / status updates / отчёты / тела review в PR
-- Task-файлы, брифы, ADR, бэклог, память
+- Every assistant / agent message, status update, report, and the body of every PR review — **except the owner↔Claude chat (see below)**
+- Every Master dispatch prompt to a sub-agent
+- PR titles and bodies, commit message bodies, code comments
+- Task files, briefs, ADRs, the backlog, agent memory, and everything under `.claude/**`
+- `CLAUDE.md` and `CONTEXT.md`
 
-**Продукт — `uk` (дефолт) и `en`, через каталоги Lingui (решение владельца 2026-09-19, спека
-`docs/superpowers/specs/2026-09-19-crm-i18n-design.md`):**
+**Russian (the one exception) — the owner↔Claude direct chat only:**
 
-- Весь видимый текст `apps/web` (заголовки, кнопки, тосты, пустые состояния, `aria-label`, `title`, `placeholder`)
-- Письма и in-app уведомления — по локали получателя
-- PDF счетов — по локали получателя
-- Тексты ошибок API — коды (`packages/shared/src/schemas/api-errors.ts`), текст — из каталога на клиенте
+- The owner talks to Claude in Russian in the personal session, and Claude answers in Russian there.
+- That conversation is personal and out-of-repo; it is recorded in the owner's personal memory, never committed to this repository.
 
-Русский текст в продукте **убирается по модулям** (этап 3 спеки). До миграции модуля его существующие
-русские строки не трогаются; **новые и изменённые** строки пишутся сразу на `uk` + `en` и оборачиваются
-макросами Lingui — литерал на любом языке в мигрированном модуле = находка ревью.
+If an agent's output is destined for the repository, a PR, another agent, or the shared transcript, it is English — no exceptions. The Russian exception covers only the owner's own private chat.
 
-Прежняя редакция этого файла запрещала украинский вообще. Запрет относился к языку общения
-владельца с агентами и остаётся в силе там; на продукт он никогда не должен был распространяться.
+## Product i18n — unchanged
 
-## Запрещено
+The product ships in **`uk` (default) and `en`** through Lingui catalogs (owner decision 2026-09-19, spec `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`). Catalogs live in `packages/shared/src/i18n/locales` (`en`, `uk`). This policy flip does **not** touch any of it:
 
-- Украинский или английский в сообщениях владельцу и в отчётах агентов
-- Русский в продуктовом тексте **мигрированного** модуля (см. `no-unlocalized-strings` и guard на буквы `ы э ъ ё` — этап 6)
-- Хардкод видимой строки в обход каталога в мигрированном модуле
+- All visible text in `apps/web` (headings, buttons, toasts, empty states, `aria-label`, `title`, `placeholder`)
+- Emails and in-app notifications — by the recipient's locale
+- Invoice PDFs — by the recipient's locale
+- API error texts — codes live in `packages/shared/src/schemas/api-errors.ts`; the displayed text comes from the client-side catalog. The fallback `message` in the error envelope stays **English** (for logs and clients without a catalog)
 
-## Допустимый English
+Russian product text is **removed module by module** (stage 3 of the spec). Until a module is migrated, its existing Russian strings are left untouched; **new and changed** strings are written in `uk` + `en` and wrapped in Lingui macros right away — a literal string in any language inside a migrated module is a review finding.
 
-- **Code comments** — international future-proof team
-- **Commit messages** — Conventional Commits в английском (`feat(scope): description`)
-- **Variable names, function names, type names** — английский
-- **PR titles + body** — английский
-- **Log strings** для server-side observability — английский (machine-readable)
-- **Fallback `message` в конверте ошибки API** — английский (для логов и клиентов без каталога)
-- **Imported library names, API endpoints, technical identifiers** — английский
+### Forbidden in the product
 
-## Лендинг
+- A literal or Russian visible string inside a **migrated** module (caught by `no-unlocalized-strings` and the guard on the letters `ы э ъ ё` — stage 6)
+- A hardcoded visible string bypassing the catalog inside a migrated module
 
-`apps/landing` — пять языков (en/uk/ru/es/pt) своим словарным механизмом; этот файл его не меняет.
+## Landing
+
+`apps/landing` ships in five languages (en/uk/ru/es/pt) through its own dictionary mechanism; this file does not change it.
 
 ## ECC-imported agents
 
-Если Master / Architect / Coder invoke ECC catalog agent, и output этого agent попадает к владельцу —
-переводить в русский. Каждый ported agent имеет prepend `**ВАЖНО: Всегда отвечай на русском языке.**`;
-этот файл — single shared source of truth (belt-and-suspenders per ADR Q7).
+If Master / Architect / Coder invoke an ECC catalog agent and its output reaches the repo or the owner, that output is English — the same rule as every other agent. (English is already these agents' default, so this is a restatement, not a special case.)
 
-## Проверка соблюдения
+## Enforcement and verification
 
-- Отчёт или сообщение владельцу не на русском → переписать перед отправкой
-- Видимый текст в мигрированном модуле литералом или по-русски → `copy-reviewer` / `code-reviewer` → BLOCK
-- Каталоги `uk`/`en` — вердикт `copy-reviewer` по каждому языку отдельно («два оригинала», скилл `copywriting` §5)
+- An agent report or message written in any language other than English → rewrite before sending.
+- A visible string inside a migrated module left as a literal or in Russian → `copy-reviewer` / `code-reviewer` → `Verdict: BLOCK`.
+- `uk` / `en` catalogs — `copy-reviewer` gives a verdict per language separately ("two originals", skill `copywriting` §5).
 
-## Источники
+## Sources
 
-- CLAUDE.md project memory bank
-- Memory: `feedback_user_profile.md` — общение на русском языке
-- ADR: `docs/architecture/2026-05-31-ecc-migration-design.md` Section 4.1 (Russian language adaptation)
-- Q7 decision: Option C — Both per-agent prepend AND shared rule
+- Owner decision 2026-10-05: English collaboration (colleague works in English); Russian only in the owner's personal chat.
+- Owner decision 2026-09-19: product i18n `uk` + `en` via Lingui — spec `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`.
+- Superseded: ADR `docs/architecture/2026-05-31-ecc-migration-design.md` Section 4.1 (Russian-output adaptation) and its Q7 Option C decision.

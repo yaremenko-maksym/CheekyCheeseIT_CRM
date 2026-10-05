@@ -2129,7 +2129,7 @@ msgstr "Від"
 msgid "Відв’язати"
 msgstr "Відв’язати"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Відв’язати дропа від проєкту"
 msgstr "Відв’язати дропа від проєкту"
 
@@ -2846,7 +2846,7 @@ msgid "api-error.FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION"
 msgstr "Дата виплати не може бути раніше дати виникнення зобов’язання"
 
 #. placeholder {0}: formatDate(member.leftAt, locale, 'short')
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "дата виходу: {0}"
 msgstr "дата виходу: {0}"
 
@@ -2980,7 +2980,7 @@ msgid "Джуніор"
 msgstr "Джуніор"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Джуніор не призначений"
 msgstr "Джуніор не призначений"
 
@@ -3662,7 +3662,7 @@ msgstr "Дропам недоступні співбесіди"
 msgid "invoicePdf.signature.methodClick"
 msgstr "Електронний click-підпис"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
 msgstr "Ефективний склад<0>(HR/бухгалтер — з поточної команди сеньйора)</0>"
 
@@ -6382,7 +6382,7 @@ msgid "Немає джуніора"
 msgstr "Немає джуніора"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Немає доступних дропів"
 msgstr "Немає доступних дропів"
 
@@ -7239,7 +7239,7 @@ msgstr "Пароль додано"
 msgid "Пароль скопійовано"
 msgstr "Пароль скопійовано"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Партнерам (50 / 50)"
 msgstr "Партнерам (50 / 50)"
 
@@ -8325,7 +8325,7 @@ msgid "Прибуток за останній місяць"
 msgstr "Прибуток за останній місяць"
 
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Прив’язати дропа"
 msgstr "Прив’язати дропа"
 
@@ -9199,7 +9199,7 @@ msgid "Розпізнати текст"
 msgstr "Розпізнати текст"
 
 #. placeholder {0}: fmt(exampleIncome)
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Розподіл доходу (приклад {0})"
 msgstr "Розподіл доходу (приклад {0})"
 
@@ -9287,7 +9287,7 @@ msgstr "Сеньйор"
 msgid "zod-error.USDT_ONLY_FOR_SENIOR_ADMIN"
 msgstr "Сеньйор і адмін отримують лише на USDT ERC-20"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Сеньйор не призначений"
 msgstr "Сеньйор не призначений"
 
@@ -11093,7 +11093,7 @@ msgstr "Частка в проєкті тепер {percent}%"
 msgid "Частка дропа"
 msgstr "Частка дропа"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Частка дропа ({dropPct}%)"
 msgstr "Частка дропа ({dropPct}%)"
 
@@ -11171,7 +11171,7 @@ msgstr "Частка партнера"
 msgid "Частка сеньйора"
 msgstr "Частка сеньйора"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTeamCards.tsx
 msgid "Частка сеньйора ({seniorPct}%)"
 msgstr "Частка сеньйора ({seniorPct}%)"
 
