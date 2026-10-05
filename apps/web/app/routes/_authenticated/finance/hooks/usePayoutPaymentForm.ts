@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLingui } from '@lingui/react/macro'
-import type { ManualPayoutMethod } from '@crm/shared'
+import { kyivToday, type ManualPayoutMethod } from '@crm/shared'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { financeApi } from '../api'
 
@@ -54,6 +54,7 @@ export function usePayoutPaymentForm(
   const [manualMethod, setManualMethod] = useState<ManualPayoutMethod>('COMPANY_ACCOUNT')
   const [manualNote, setManualNote] = useState('')
   const [manualTxHash, setManualTxHash] = useState('')
+  const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const onAutoCloseRef = useRef(options?.onAutoClose)
@@ -64,6 +65,11 @@ export function usePayoutPaymentForm(
     queryFn: () => financeApi.getPayoutRequest(payoutId!),
     enabled: active && !!payoutId,
   })
+  const payout = payoutQuery.data
+  const payoutTx = payout?.transactions?.find((tx) => tx.type === 'PAYOUT')
+  const payoutMinDate = payoutTx
+    ? new Date(payoutTx.txDate ?? payoutTx.createdAt).toISOString().slice(0, 10)
+    : (payout?.createdAt.slice(0, 10) ?? '')
 
   // Reset local state whenever this sub-screen becomes active with a
   // (possibly new) payout id — mirrors the original open→open-with-new-id effect.
@@ -76,8 +82,15 @@ export function usePayoutPaymentForm(
       setManualMethod('COMPANY_ACCOUNT')
       setManualNote('')
       setManualTxHash('')
+      setPayoutDate(kyivToday())
     }
   }, [active, payoutId])
+
+  useEffect(() => {
+    if (!active || !payoutMinDate) return
+    const today = kyivToday()
+    setPayoutDate(payoutMinDate > today ? payoutMinDate : today)
+  }, [active, payoutId, payoutMinDate])
 
   useEffect(() => {
     return () => {
@@ -107,6 +120,7 @@ export function usePayoutPaymentForm(
       return financeApi.payPayoutRequest(payoutId!, {
         ...hashField,
         ...(simulateResult !== undefined && { simulateResult }),
+        txDate: payoutDate,
       })
     },
     onMutate: () => {
@@ -138,6 +152,7 @@ export function usePayoutPaymentForm(
         method: manualMethod,
         ...(trimmedNote.length > 0 ? { note: trimmedNote } : {}),
         ...(manualMethod !== 'CASH' && trimmedHash.length > 0 ? { txHash: trimmedHash } : {}),
+        txDate: payoutDate,
       })
     },
     onSuccess: () => {
@@ -177,7 +192,6 @@ export function usePayoutPaymentForm(
     }
   }
 
-  const payout = payoutQuery.data
   const payError = payMutation.error ? getApiErrorMessage(payMutation.error) : null
   const isPaid = payout?.status === 'PAID'
 
@@ -205,6 +219,9 @@ export function usePayoutPaymentForm(
     setManualNote,
     manualTxHash,
     setManualTxHash,
+    payoutDate,
+    setPayoutDate,
+    payoutMinDate,
     payMutation,
     payError,
     manualMutation,

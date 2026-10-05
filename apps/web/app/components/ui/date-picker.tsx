@@ -21,6 +21,9 @@ interface DatePickerFieldProps {
   placeholder?: string
   className?: string
   disabled?: boolean
+  id?: string
+  'aria-describedby'?: string
+  'aria-invalid'?: boolean
   // task-drop-payout-currency (owner addendum, 2026-08): optional bounds,
   // "YYYY-MM-DD" — additive, opt-in props so every EXISTING caller
   // (CreateTransactionDialog, legend.tsx) that never passes them keeps its
@@ -39,6 +42,9 @@ export function DatePickerField({
   placeholder,
   className,
   disabled,
+  id,
+  'aria-describedby': ariaDescribedBy,
+  'aria-invalid': ariaInvalid,
   minDate,
   maxDate,
   'data-testid': dataTestId,
@@ -54,8 +60,11 @@ export function DatePickerField({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
+          id={id}
           variant="outline"
           disabled={disabled}
+          aria-describedby={ariaDescribedBy}
+          aria-invalid={ariaInvalid}
           data-testid={dataTestId}
           className={cn(
             'w-full justify-start text-left font-normal',

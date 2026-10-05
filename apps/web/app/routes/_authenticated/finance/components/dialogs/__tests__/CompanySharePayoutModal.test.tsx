@@ -157,6 +157,62 @@ describe('CompanySharePayoutModal — step 1 selection (AC2)', () => {
     expect(screen.getByTestId('company-share-create-payout')).not.toBeDisabled()
   })
 
+  it('submits today as the payout date by default', async () => {
+    const oldTx = makeTx({
+      id: 'old-date',
+      projectId: PROJECT_A,
+      projectName: 'Project Alpha',
+      txDate: '2020-01-01T00:00:00.000Z',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+    createPayoutRequestMock.mockResolvedValue(makePayout())
+    getPayoutRequestMock.mockResolvedValue(makePayout())
+
+    renderModal({ validatedTxs: [oldTx], preselectedTxIds: [oldTx.id] })
+
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    fireEvent.click(screen.getByTestId('company-share-create-payout'))
+    await waitFor(() =>
+      expect(createPayoutRequestMock).toHaveBeenLastCalledWith({
+        transactionIds: [oldTx.id],
+        txDate: today,
+      }),
+    )
+  })
+
+  it('clamps the payout date when selection raises the minimum', async () => {
+    const oldTx = makeTx({
+      id: 'old-date',
+      projectId: PROJECT_A,
+      projectName: 'Project Alpha',
+      txDate: '2020-01-01T00:00:00.000Z',
+      createdAt: '2020-01-01T00:00:00.000Z',
+    })
+    const futureTx = makeTx({
+      id: 'future-date',
+      projectId: PROJECT_B,
+      projectName: 'Project Beta',
+      txDate: '2099-01-10T00:00:00.000Z',
+      createdAt: '2099-01-10T00:00:00.000Z',
+    })
+    createPayoutRequestMock.mockResolvedValue(makePayout())
+    getPayoutRequestMock.mockResolvedValue(makePayout())
+
+    renderModal({ validatedTxs: [oldTx, futureTx], preselectedTxIds: [oldTx.id] })
+    fireEvent.click(screen.getByTestId(`company-share-income-checkbox-${futureTx.id}`))
+    await waitFor(() =>
+      expect(screen.getByTestId('company-share-payout-date')).toHaveTextContent('10'),
+    )
+    fireEvent.click(screen.getByTestId('company-share-create-payout'))
+    await waitFor(() =>
+      expect(createPayoutRequestMock).toHaveBeenLastCalledWith({
+        transactionIds: [oldTx.id, futureTx.id],
+        txDate: '2099-01-10',
+      }),
+    )
+  })
+
   it('a single row-level preselect selects ONLY that income (unchanged from old PayoutDialog)', () => {
     renderModal({ preselectedTxIds: [TX_A1.id] })
     expect(screen.getByTestId(`company-share-income-checkbox-${TX_A1.id}`)).toBeChecked()

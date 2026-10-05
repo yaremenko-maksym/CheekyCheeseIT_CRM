@@ -10,6 +10,8 @@ import { useAuth } from '@/context/auth'
 import { useLocale } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { DatePickerField } from '@/components/ui/date-picker'
+import { Label } from '@/components/ui/label'
 import {
   Dialog,
   CrmDialogContent,
@@ -31,6 +33,15 @@ import { usePayoutPaymentForm } from '../../hooks/usePayoutPaymentForm'
 import { PayoutPaymentForm } from './PayoutPaymentForm'
 
 type Step = 'select' | 'pay'
+
+function localTodayKey(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function transactionDateKey(tx: TransactionDto): string {
+  return new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10)
+}
 
 /**
  * StepDot — tiny non-clickable progress indicator (design spec §5.3). Three
@@ -184,11 +195,13 @@ export function CompanySharePayoutModal({
   const { t } = useLingui()
   const qc = useQueryClient()
   const { user } = useAuth()
+  const locale = useLocale()
   const canManualConfirm = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   const [step, setStep] = useState<Step>('select')
   const [selected, setSelected] = useState<Set<string>>(() => new Set(preselectedTxIds ?? []))
   const [payoutId, setPayoutId] = useState<string | null>(null)
+  const [payoutDate, setPayoutDate] = useState(localTodayKey)
 
   const step2Ref = useRef<HTMLDivElement>(null)
 
@@ -198,6 +211,7 @@ export function CompanySharePayoutModal({
     if (open) {
       setStep('select')
       setPayoutId(null)
+      setPayoutDate(localTodayKey())
       setSelected(
         new Set(
           preselectedTxIds && preselectedTxIds.length > 0
@@ -232,7 +246,8 @@ export function CompanySharePayoutModal({
   })
 
   const createMutation = useMutation({
-    mutationFn: () => financeApi.createPayoutRequest({ transactionIds: [...selected] }),
+    mutationFn: () =>
+      financeApi.createPayoutRequest({ transactionIds: [...selected], txDate: payoutDate }),
     onSuccess: (payout) => {
       // Seed the cache with the mutation response so step 2 renders
       // instantly (no skeleton flash) while staying independently
@@ -251,6 +266,14 @@ export function CompanySharePayoutModal({
 
   const seniorDefault = user?.seniorSharePercent ?? 26
   const selectedTxs = validatedTxs.filter((tx) => selected.has(tx.id))
+  const minPayoutDate = selectedTxs.reduce((latest, tx) => {
+    const date = transactionDateKey(tx)
+    return date > latest ? date : latest
+  }, '')
+
+  useEffect(() => {
+    if (minPayoutDate && payoutDate < minPayoutDate) setPayoutDate(minPayoutDate)
+  }, [minPayoutDate, payoutDate])
   // selectedTxs is a derived array (new reference per render); depending on
   // `selected` + `validatedTxs` directly keeps this memo correct without an
   // extra dep-churn workaround.
@@ -464,6 +487,37 @@ export function CompanySharePayoutModal({
                     ))}
                   </fieldset>
                 )}
+
+                <div className="space-y-1.5">
+                  <Label
+                    htmlFor="company-share-payout-date"
+                    className="text-xs text-muted-foreground"
+                  >
+                    <Trans>Дата виплати</Trans>
+                  </Label>
+                  <DatePickerField
+                    id="company-share-payout-date"
+                    value={payoutDate}
+                    onChange={setPayoutDate}
+                    {...(minPayoutDate ? { minDate: minPayoutDate } : {})}
+                    {...(minPayoutDate
+                      ? { 'aria-describedby': 'company-share-payout-date-helper' }
+                      : {})}
+                    className="h-9 text-sm max-sm:min-h-11"
+                    data-testid="company-share-payout-date"
+                  />
+                  {minPayoutDate && (
+                    <p
+                      id="company-share-payout-date-helper"
+                      className="text-[11px] text-muted-foreground"
+                    >
+                      <Trans>
+                        Найраніша доступна дата —{' '}
+                        {formatDate(`${minPayoutDate}T00:00:00.000Z`, locale, 'short')}.
+                      </Trans>
+                    </p>
+                  )}
+                </div>
 
                 {selected.size > 0 &&
                   (hasMixedCurrencies ? (

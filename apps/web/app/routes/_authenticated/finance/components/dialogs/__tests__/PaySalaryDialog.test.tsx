@@ -29,6 +29,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { kyivToday } from '@crm/shared'
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -69,6 +70,7 @@ const TX = {
   currency: 'USD',
   receiverName: 'HR Person',
   salaryMonth: '2026-05',
+  txDate: '2026-05-01T00:00:00.000Z',
   createdAt: '2026-05-01T00:00:00.000Z',
 } as never
 
@@ -127,6 +129,7 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
     expect(payload.currency).toBe('USDT')
     expect(payload.payerAdminId).toBeUndefined()
+    expect(payload.txDate).toBe(kyivToday())
     expect(payload.receiptExternalUrl).toBe('https://etherscan.io/tx/0xabc123')
     // fix-round 2 (CI-5/CR-H-2): `setReceiptError(receiptErr ? ... : null)`
     // is unconditional (fixes a stale-error bug — see that call site's own
@@ -170,5 +173,12 @@ describe('PaySalaryDialog — account + currency selectors', () => {
     // formatDate(..., 'shortYY') → day.month.2-digit-year — exact string so
     // a mutation to the style key (silently switching formats) fails.
     expect(screen.getByText('01.05.26')).toBeInTheDocument()
+  })
+
+  it('shows a payout-date picker', async () => {
+    renderDialog()
+    await screen.findByTestId('pay-salary-account-company')
+    expect(screen.getByTestId('pay-salary-txdate')).toBeInTheDocument()
+    expect(screen.getByText(/Найраніша доступна дата/)).toBeInTheDocument()
   })
 })

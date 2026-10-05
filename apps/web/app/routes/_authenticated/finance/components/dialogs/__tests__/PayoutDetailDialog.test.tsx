@@ -107,6 +107,7 @@ describe('PayoutDetailDialog — instruction card (payer surface)', () => {
       'Копіювати адресу',
     )
     expect(screen.getByTestId('payout-detail-payable')).toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-txdate')).toBeInTheDocument()
     expect(screen.getByTestId('payout-detail-tx-hash-input')).toBeInTheDocument()
     // Instruction line interpolates the payable amount into a fixed sentence.
     const instruction = screen.getByText(

@@ -134,14 +134,9 @@ export function SettleSeniorPayoutDialog({
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
-  // task-drop-payout-currency (owner addendum, 2026-08): the date this DROP
-  // settlement is recorded as of — «YYYY-MM-DD». Governs BOTH which day's
-  // NBU rate computes the previewed/settled amount AND the flipped row's
-  // `txDate` column (see the extended comment on `SettleFunding.txDate` in
-  // pending-settlement.service.ts). Defaults to the obligation's own
-  // creation date, NOT today (owner: «по умолчанию — дата создания») — see
-  // the reset effect below. Irrelevant for a SENIOR settle: the picker never
-  // renders there and this stays at its initial ''.
+  // Business date of the settlement. DROP uses it for both the NBU-rate day
+  // and the row's txDate; SENIOR uses it as the row's txDate. Both default to
+  // the source transaction's effective business date.
   // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — the mount-sync effect below (keyed on tx?.id) synchronously overwrites this to tx.createdAt.slice(0,10) on EVERY mount before any render is visible to a consumer/test (the dialog never renders without a tx)
   const [txDate, setTxDate] = useState<string>('')
 
@@ -308,7 +303,7 @@ export function SettleSeniorPayoutDialog({
   // pending-settlement.service.ts), so an untouched picker always passes
   // the server's own lower-bound check trivially.
   useEffect(() => {
-    if (tx) setTxDate(tx.createdAt.slice(0, 10))
+    if (tx) setTxDate((tx.txDate ?? tx.createdAt).slice(0, 10))
   }, [tx?.id])
 
   // Select the account: when switching to «Счёт компании» the currency is
@@ -343,7 +338,8 @@ export function SettleSeniorPayoutDialog({
       return financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
-        ...(isDropPayout ? { currency: effectiveCurrency, txDate } : {}),
+        ...(isDropPayout ? { currency: effectiveCurrency } : {}),
+        txDate,
         receiptDocumentId,
         receiptExternalUrl,
       })
@@ -535,74 +531,71 @@ export function SettleSeniorPayoutDialog({
             </p>
           )}
 
-          {/* task-drop-payout-currency (owner addendum, 2026-08). DROP-only:
-              the date this settlement is recorded as of — governs which
-              day's NBU rate computes the amount below AND becomes the
-              flipped row's `txDate` (see pending-settlement.service.ts).
+          {/* Business date of the settlement for both SENIOR and DROP. For a
+              DROP it also governs which day's NBU rate computes the amount.
+              In both branches it becomes the flipped row's `txDate`.
               Bounded [obligation creation date, today] — the calendar
               itself greys out anything outside that range (no future dates:
               no rate exists yet; not before the obligation existed: nothing
               to backdate a payment of a debt that was not yet booked). */}
-          {isDropPayout && (
-            <div className="space-y-1">
-              <label className="text-xs font-medium text-muted-foreground">
-                <Trans>Дата розрахунку</Trans>
-              </label>
-              <DatePickerField
-                value={txDate}
-                onChange={setTxDate}
-                // Stryker disable next-line MethodExpression: `.slice(0,10)` matters for a REAL browser in a non-UTC local timezone — DatePickerField's parseISO treats a date-only string as LOCAL midnight (matching the operator's own calendar day), while a full ISO instant anchors to UTC and could shift the boundary by the TZ offset. This project's test environment (mutation gate + CI) is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the identical calendar day for every time-of-day; no test run under the mandated TZ can observe the difference, though the slice is still the semantically correct one to ship
-                //
-                // security-review PR #521 round 3 (LOW, decided NOT to fix):
-                // this reads `tx.createdAt` (the SOURCE transaction), while
-                // the SERVER's own lower-bound check in
-                // `pending-settlement.service.ts` reads `obligation.createdAt`
-                // (the paired `pending_obligations` row) — two separate
-                // INSERTs `bookCompanyObligations` issues moments apart, so
-                // in principle their timestamps could straddle a UTC
-                // midnight and disagree by one calendar day. Left
-                // unreconciled: the failure mode is an explicit, loud 400
-                // ("Дата выплаты не может быть раньше даты возникновения
-                // обязательства") on the rare day a picker selection that
-                // looked valid client-side turns out one day too early
-                // server-side — never a silent wrong write. Reconciling
-                // them would mean either making the two inserts share one
-                // timestamp (a `bookCompanyObligations` change out of
-                // proportion here) or having the frontend fetch the
-                // obligation row just for this bound (a shape change to a
-                // dialog that today only holds the transaction). Not worth
-                // it for a coincidence window measured in milliseconds.
-                minDate={tx.createdAt.slice(0, 10)}
-                // security-review PR #578 review (MED-2) — SUPERSEDES the
-                // round-3 "decided NOT to fix" note this used to carry. That
-                // note reasoned UTC "today" was merely ANNOYING (more
-                // restrictive than the operator's own Kyiv clock, never
-                // less) precisely BECAUSE the server validated the same UTC
-                // "today" right behind it (`settleSeniorPayoutSchema`'s
-                // superRefine) — a mismatch could only ever surface as an
-                // explicit 400, never a wrong payout. Backlog 148 changed
-                // that premise: the server's OWN "today" (`getRates()` with
-                // no date) is now the KYIV day, so a UTC picker bound here
-                // would disagree with the server for up to 3 hours a day
-                // instead of merely lagging the operator's own clock.
-                // `kyivToday()` — the SAME function the schema's upper bound
-                // now calls — keeps this picker, the schema, and the actual
-                // priced rate agreed on the same day, closing the gap
-                // instead of merely bounding its blast radius.
-                maxDate={kyivToday()}
-                className="w-full"
-                data-testid="settle-senior-txdate"
-              />
-              {rateDateNote && (
-                <p
-                  className="text-[11px] text-muted-foreground"
-                  data-testid="settle-senior-rate-date-note"
-                >
-                  {rateDateNote}
-                </p>
-              )}
-            </div>
-          )}
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-muted-foreground">
+              <Trans>Дата розрахунку</Trans>
+            </label>
+            <DatePickerField
+              value={txDate}
+              onChange={setTxDate}
+              // Stryker disable next-line MethodExpression: `.slice(0,10)` matters for a REAL browser in a non-UTC local timezone — DatePickerField's parseISO treats a date-only string as LOCAL midnight (matching the operator's own calendar day), while a full ISO instant anchors to UTC and could shift the boundary by the TZ offset. This project's test environment (mutation gate + CI) is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the identical calendar day for every time-of-day; no test run under the mandated TZ can observe the difference, though the slice is still the semantically correct one to ship
+              //
+              // security-review PR #521 round 3 (LOW, decided NOT to fix):
+              // this reads `tx.createdAt` (the SOURCE transaction), while
+              // the SERVER's own lower-bound check in
+              // `pending-settlement.service.ts` reads `obligation.createdAt`
+              // (the paired `pending_obligations` row) — two separate
+              // INSERTs `bookCompanyObligations` issues moments apart, so
+              // in principle their timestamps could straddle a UTC
+              // midnight and disagree by one calendar day. Left
+              // unreconciled: the failure mode is an explicit, loud 400
+              // ("Дата выплаты не может быть раньше даты возникновения
+              // обязательства") on the rare day a picker selection that
+              // looked valid client-side turns out one day too early
+              // server-side — never a silent wrong write. Reconciling
+              // them would mean either making the two inserts share one
+              // timestamp (a `bookCompanyObligations` change out of
+              // proportion here) or having the frontend fetch the
+              // obligation row just for this bound (a shape change to a
+              // dialog that today only holds the transaction). Not worth
+              // it for a coincidence window measured in milliseconds.
+              minDate={(tx.txDate ?? tx.createdAt).slice(0, 10)}
+              // security-review PR #578 review (MED-2) — SUPERSEDES the
+              // round-3 "decided NOT to fix" note this used to carry. That
+              // note reasoned UTC "today" was merely ANNOYING (more
+              // restrictive than the operator's own Kyiv clock, never
+              // less) precisely BECAUSE the server validated the same UTC
+              // "today" right behind it (`settleSeniorPayoutSchema`'s
+              // superRefine) — a mismatch could only ever surface as an
+              // explicit 400, never a wrong payout. Backlog 148 changed
+              // that premise: the server's OWN "today" (`getRates()` with
+              // no date) is now the KYIV day, so a UTC picker bound here
+              // would disagree with the server for up to 3 hours a day
+              // instead of merely lagging the operator's own clock.
+              // `kyivToday()` — the SAME function the schema's upper bound
+              // now calls — keeps this picker, the schema, and the actual
+              // priced rate agreed on the same day, closing the gap
+              // instead of merely bounding its blast radius.
+              maxDate={kyivToday()}
+              className="w-full"
+              data-testid="settle-senior-txdate"
+            />
+            {isDropPayout && rateDateNote && (
+              <p
+                className="text-[11px] text-muted-foreground"
+                data-testid="settle-senior-rate-date-note"
+              >
+                {rateDateNote}
+              </p>
+            )}
+          </div>
 
           {/* task-drop-payout-currency (AC1). DROP-only: the currency the payout
               is settled in is a real choice (USDT/USD/UAH/EUR), but the amount

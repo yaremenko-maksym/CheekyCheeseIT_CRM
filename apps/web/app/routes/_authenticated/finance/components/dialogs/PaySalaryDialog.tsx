@@ -12,6 +12,7 @@ import {
 } from '@crm/shared'
 import { useLocale } from '@/lib/i18n'
 import { Button } from '@/components/ui/button'
+import { DatePickerField } from '@/components/ui/date-picker'
 import { translateZodMessage } from '@/lib/axios-utils'
 import {
   Dialog,
@@ -59,6 +60,7 @@ export function PaySalaryDialog({
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
+  const [payoutDate, setPayoutDate] = useState(kyivToday)
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
   // «Счёт компании» is a USDT-only account — the backend re-forces this, so
@@ -73,6 +75,14 @@ export function PaySalaryDialog({
   // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
   // a stale-by-up-to-3-hours cache thinks is still "today's".
   const todayKey = kyivToday()
+  const sourceDateKey = tx ? new Date(tx.txDate ?? tx.createdAt).toISOString().slice(0, 10) : ''
+
+  useEffect(() => {
+    if (!tx) return
+    const today = kyivToday()
+    setPayoutDate(sourceDateKey > today ? sourceDateKey : today)
+  }, [tx?.id, sourceDateKey])
+
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', todayKey],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
@@ -134,6 +144,7 @@ export function PaySalaryDialog({
     setReceipt(emptyReceiptState())
     setReceiptError(null)
     setNotes('')
+    setPayoutDate(kyivToday())
   }
 
   const mutation = useMutation({
@@ -153,6 +164,7 @@ export function PaySalaryDialog({
         ...(isCompany ? {} : { payerAdminId: account }),
         currency: effectiveCurrency,
         paidAmount: parsedPaidAmount,
+        txDate: payoutDate,
         receiptDocumentId,
         receiptExternalUrl,
         notes: notes || null,
@@ -288,9 +300,32 @@ export function PaySalaryDialog({
                 <Trans>Дата</Trans>
               </span>
               <span className="font-medium text-right">
-                {formatDate(tx.createdAt, locale, 'shortYY')}
+                {formatDate(tx.txDate ?? tx.createdAt, locale, 'shortYY')}
               </span>
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="pay-salary-date" className="text-xs text-muted-foreground">
+              <Trans>Дата виплати</Trans>
+            </Label>
+            <DatePickerField
+              id="pay-salary-date"
+              value={payoutDate}
+              onChange={setPayoutDate}
+              {...(sourceDateKey ? { minDate: sourceDateKey } : {})}
+              {...(sourceDateKey ? { 'aria-describedby': 'pay-salary-date-helper' } : {})}
+              className="w-full h-9 text-sm max-sm:min-h-11"
+              data-testid="pay-salary-txdate"
+            />
+            {sourceDateKey && (
+              <p id="pay-salary-date-helper" className="text-[11px] text-muted-foreground">
+                <Trans>
+                  Найраніша доступна дата —{' '}
+                  {formatDate(`${sourceDateKey}T00:00:00.000Z`, locale, 'short')}.
+                </Trans>
+              </p>
+            )}
           </div>
 
           {/* task-senior-settle-owner: account selection is the shared

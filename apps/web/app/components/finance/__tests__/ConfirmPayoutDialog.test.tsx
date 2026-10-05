@@ -25,6 +25,7 @@ import {
 } from '@testing-library/react'
 import type { ReactElement } from 'react'
 import type { TransactionDto } from '@crm/shared'
+import { kyivToday } from '@crm/shared'
 import { loadCatalog, I18nTestProvider } from '@/test/i18n'
 
 beforeAll(async () => {
@@ -147,6 +148,7 @@ describe('ConfirmPayoutDialog', () => {
 
   it('shows three method options and the recipient selector by default (CRYPTO)', () => {
     render(<ConfirmPayoutDialog tx={makeTx()} onClose={vi.fn()} />)
+    expect(screen.getByTestId('confirm-payout-txdate')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-crypto')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-cash')).toBeInTheDocument()
     expect(screen.getByTestId('confirm-payout-method-company_account')).toBeInTheDocument()
@@ -173,7 +175,11 @@ describe('ConfirmPayoutDialog', () => {
     expect(manualConfirmPayoutMock).not.toHaveBeenCalled()
     const [id, payload] = confirmPayoutMock.mock.calls[0]!
     expect(id).toBe('tx-1')
-    expect(payload).toMatchObject({ method: 'CRYPTO', txHash: '0x1234567890abcdef' })
+    expect(payload).toMatchObject({
+      method: 'CRYPTO',
+      txHash: '0x1234567890abcdef',
+      txDate: kyivToday(),
+    })
   })
 
   it('CASH method calls confirmPayout and omits txHash', async () => {
@@ -216,7 +222,7 @@ describe('ConfirmPayoutDialog', () => {
     expect(confirmPayoutMock).not.toHaveBeenCalled()
     const [payoutRequestId, payload] = manualConfirmPayoutMock.mock.calls[0]!
     expect(payoutRequestId).toBe('pr-1')
-    expect(payload).toMatchObject({ method: 'COMPANY_ACCOUNT' })
+    expect(payload).toMatchObject({ method: 'COMPANY_ACCOUNT', txDate: kyivToday() })
     // txHash is optional + omitted when blank
     expect(payload).not.toHaveProperty('txHash')
   })

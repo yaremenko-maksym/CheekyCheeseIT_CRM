@@ -590,11 +590,15 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(payload['rate']).toBeUndefined()
   })
 
-  // owner addendum (2026-08): the date picker is DROP-only.
-  it('date picker: does not render at all for a SENIOR settle', async () => {
+  it('date picker: renders for a SENIOR settle and sends the source business date', async () => {
     renderDialog(TX)
     await screen.findByTestId('settle-senior-account-company')
-    expect(screen.queryByTestId('settle-senior-txdate')).not.toBeInTheDocument()
+    expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 черв')
+    await fillReceipt('https://etherscan.io/tx/0xseniordate')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('2026-06-01')
   })
 
   // owner addendum (2026-08): defaults to the obligation's own creation date
