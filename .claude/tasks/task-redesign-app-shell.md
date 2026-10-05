@@ -1,60 +1,60 @@
 # Task: Redesign Phase 0 — App-shell (restyle to approved north-star)
 
-## Design tier: 1 (north-star редизайн; артефакт-гейт пройден — `approved`)
+## Design tier: 1 (north-star redesign; artifact gate passed — `approved`)
 
-## Модель: opus (фундаментальный north-star, задаёт визуальный язык всех фаз + high blast-radius — каждый роут наследует shell)
+## Model: opus (foundational north-star, sets the visual language of all phases + high blast-radius — every route inherits the shell)
 
-## Контекст
+## Context
 
-Это **рестайл существующего глобального app-shell** под утверждённый владельцем дизайн (Вариант А
-«сдержанный», плоская навигация). Редизайн = **визуал + UX, функционал 1:1**. Это экран №1
-пофазной redesign-программы (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
+This is a **restyle of the existing global app-shell** to the owner-approved design (Variant A
+"restrained", flat navigation). Redesign = **visual + UX, functionality 1:1**. This is screen No. 1
+of the phased redesign program (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
 
-## Артефакт (единственный визуальный источник — читай по абсолютному пути из master-worktree)
+## Artifact (the only visual source — read by absolute path from the master worktree)
 
-Артефакт закоммичен на ветке `claude/thirsty-brattain-34ab4a`. Если твоего worktree-бранча нет этих
-файлов — читай их по АБСОЛЮТНОМУ пути:
+The artifact is committed on branch `claude/thirsty-brattain-34ab4a`. If your worktree branch does not have these
+files — read them by ABSOLUTE path:
 
-- **Spec (coder-ready):** `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/worktrees/thirsty-brattain-34ab4a/docs/design/screens/_foundation/app-shell.md` — ПОЛНОЕ описание блоков 1:1, token-map, состояния, решение владельца. **Читай первым.**
-- **`design.png`** (главный fidelity-референс — Вариант А): `…/docs/design/screens/_foundation/assets/app-shell/design.png`
-- **`design-states.png`** (4 состояния): `…/docs/design/screens/_foundation/assets/app-shell/design-states.png`
-- **Направление:** `…/docs/design/foundation.md` (визуальный язык: плотность, type-scale, семантика цвета, motion, a11y).
+- **Spec (coder-ready):** `/Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/worktrees/thirsty-brattain-34ab4a/docs/design/screens/_foundation/app-shell.md` — FULL description of the blocks 1:1, token-map, states, owner's decision. **Read first.**
+- **`design.png`** (the main fidelity reference — Variant A): `…/docs/design/screens/_foundation/assets/app-shell/design.png`
+- **`design-states.png`** (4 states): `…/docs/design/screens/_foundation/assets/app-shell/design-states.png`
+- **Direction:** `…/docs/design/foundation.md` (visual language: density, type-scale, color semantics, motion, a11y).
 
-## Файлы (zone: apps/web/\*\* — Coder)
+## Files (zone: apps/web/\*\* — Coder)
 
-Источник истины текущего shell (читай через codegraph/Read перед правкой):
+Source of truth of the current shell (read via codegraph/Read before editing):
 
-- `apps/web/app/routes/_authenticated/route.tsx` — `CrmLayout`: header + body + ambient-фон + loading + onboarding-bare.
+- `apps/web/app/routes/_authenticated/route.tsx` — `CrmLayout`: header + body + ambient background + loading + onboarding-bare.
 - `apps/web/app/components/crm/nav-sidebar.tsx` — `NavSidebar`: desktop aside + mobile Sheet.
-- `apps/web/app/components/layout/notifications-bell.tsx` — колокол + dropdown (если требует визуального рестайла под дизайн).
-- При необходимости: `apps/web/app/components/crm/StickyPageHeader.tsx`. **НЕ менять** `globals.css` токены (рестайл идёт на существующих токенах; если кажется, что нужен новый токен — стоп, отметь в `.blocked.md`).
+- `apps/web/app/components/layout/notifications-bell.tsx` — bell + dropdown (if it needs a visual restyle to match the design).
+- If necessary: `apps/web/app/components/crm/StickyPageHeader.tsx`. **Do NOT change** `globals.css` tokens (the restyle works on existing tokens; if it seems a new token is needed — stop, note it in `.blocked.md`).
 
-## Что делаем (рестайл по `design.png`)
+## What we do (restyle per `design.png`)
 
-Привести app-shell к виду `design.png`: glassy-хедер, плоский сайдбар с активным пунктом
-(тёплый фон + лево-полоса `border-primary` + жёлтая иконка), плотная контент-область. Точная раскладка/
-отступы/иерархия/типографика — по `design.png` + `app-shell.md` §«Реальные блоки» + `foundation.md`.
+Bring the app-shell to the look of `design.png`: glassy header, flat sidebar with an active item
+(warm background + left bar `border-primary` + yellow icon), dense content area. Exact layout/
+spacing/hierarchy/typography — per `design.png` + `app-shell.md` §"Real blocks" + `foundation.md`.
 
 ## Acceptance Criteria
 
-1. **Визуал = `design.png`** (Вариант А): хедер, плоский сайдбар, контент-хром, состояния (свёрнутый/мобайл/уведомления — `design-states.png`). Mode B fidelity PASS.
-2. **Функционал 1:1 (КРИТИЧНО):** сохранены ВСЕ блоки и поведение — 12 пунктов навигации в том же порядке и role-фильтре (`navRolesFor`), teamless-SENIOR-гейт, collapse + localStorage, мобильный Sheet, NotificationsBell (polling + dropdown + mark-read + delete + empty/loading), user-menu (профиль/выйти/роль-бейдж), кнопка поиска (плейсхолдер — оставить), TosUpdateBanner, ambient-фон (можно гармонизировать, не удалять), onboarding-bare режим, loading-skeleton. **Ничего не добавлять/не удалять/не переименовывать.** Роуты/RBAC/бизнес-логику НЕ трогать.
-3. **Навигация ПЛОСКАЯ** — без секций-заголовков (владелец отклонил группировку).
-4. **Только наши компоненты/токены:** shadcn/ui + композиты + семантические токены `globals.css`. Без сырого hex/oklch, без generic-градиентов, без новых зависимостей. **НЕ копировать** сырой экспортный HTML/JSX из CD.
-5. **Responsive** 320/768/1024/1440 без overflow; **a11y** WCAG 2.2 AA (видимый focus, target-size ≥24px, контраст, aria-label на icon-only, focus-trap в Sheet/Dropdown).
-6. **E2E:** `pnpm --filter @crm/e2e test` зелёный локально (навигация по всем разделам, role-фильтр, collapse, мобайл, уведомления). Zero-flaky. app-shell трогает каждый роут — гоняй полно.
-7. **typecheck + lint** чисто (`mcp__eslint__lint-files` на изменённых, `pnpm typecheck`).
+1. **Visual = `design.png`** (Variant A): header, flat sidebar, content chrome, states (collapsed/mobile/notifications — `design-states.png`). Mode B fidelity PASS.
+2. **Functionality 1:1 (CRITICAL):** ALL blocks and behavior preserved — 12 navigation items in the same order and role filter (`navRolesFor`), teamless-SENIOR gate, collapse + localStorage, mobile Sheet, NotificationsBell (polling + dropdown + mark-read + delete + empty/loading), user-menu (profile/log out/role badge), search button (placeholder — keep), TosUpdateBanner, ambient background (may be harmonized, not removed), onboarding-bare mode, loading skeleton. **Do not add/remove/rename anything.** Do NOT touch routes/RBAC/business logic.
+3. **Navigation is FLAT** — no section headings (the owner rejected grouping).
+4. **Only our components/tokens:** shadcn/ui + composites + semantic `globals.css` tokens. No raw hex/oklch, no generic gradients, no new dependencies. **Do NOT copy** the raw exported HTML/JSX from CD.
+5. **Responsive** 320/768/1024/1440 without overflow; **a11y** WCAG 2.2 AA (visible focus, target-size ≥24px, contrast, aria-label on icon-only, focus-trap in Sheet/Dropdown).
+6. **E2E:** `pnpm --filter @crm/e2e test` green locally (navigation across all sections, role filter, collapse, mobile, notifications). Zero-flaky. The app-shell touches every route — run it in full.
+7. **typecheck + lint** clean (`mcp__eslint__lint-files` on changed files, `pnpm typecheck`).
 
-## Worktree-провижн (ОБЯЗАТЕЛЬНО)
+## Worktree provisioning (MANDATORY)
 
-Свежий worktree без node_modules → husky-хуки падают. До работы:
-`pnpm install --frozen-lockfile` + `pnpm --filter @crm/web build` (генерит `routeTree.gen.ts`, gitignored).
-Все Edit/Write — ВНУТРИ своего worktree; после первого edit проверь `git -C <worktree> status`; НЕ писать
-по абсолютным путям master-repo (артефакт читаем по абс.пути — но НЕ писать туда). НЕ `--no-verify`.
-Пуш feature-ветки: `DATABASE_URL= git push`. Коммит с `ac_verified:`.
+A fresh worktree without node_modules → husky hooks fail. Before work:
+`pnpm install --frozen-lockfile` + `pnpm --filter @crm/web build` (generates `routeTree.gen.ts`, gitignored).
+All Edit/Write — INSIDE your own worktree; after the first edit check `git -C <worktree> status`; do NOT write
+to absolute master-repo paths (the artifact is read by abs path — but do NOT write there). NOT `--no-verify`.
+Push of the feature branch: `DATABASE_URL= git push`. Commit with `ac_verified:`.
 
-## Прогресс / блокеры
+## Progress / blockers
 
-Пиши прогресс в `.claude/tasks/task-redesign-app-shell.progress.md`; блокеры — `.claude/tasks/task-redesign-app-shell.blocked.md`.
-По завершении — отчёт: ветка, commit SHA, какие файлы, результат E2E/typecheck/lint, и что именно
-визуально изменено vs текущий shell (для Mode B).
+Write progress to `.claude/tasks/task-redesign-app-shell.progress.md`; blockers — `.claude/tasks/task-redesign-app-shell.blocked.md`.
+On completion — a report: branch, commit SHA, which files, E2E/typecheck/lint result, and what exactly
+changed visually vs the current shell (for Mode B).

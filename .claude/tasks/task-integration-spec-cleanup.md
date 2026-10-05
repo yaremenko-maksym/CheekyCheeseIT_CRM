@@ -1,84 +1,84 @@
 # task-integration-spec-cleanup
 
-## Агент: coder
+## Agent: coder
 
-## Модель: sonnet
+## Model: sonnet
 
-## Ветка: test/integration-spec-cleanup (от origin/main)
+## Branch: test/integration-spec-cleanup (off origin/main)
 
-## Design tier: — (не UI; diff не трогает apps/web / apps/landing)
+## Design tier: — (not UI; the diff does not touch apps/web / apps/landing)
 
-## Контекст
+## Context
 
-Backend-coder на PR #367 (2026-07-13) задокументировал с isolated proof **pre-existing** проблему:
-`apps/api/src/finance/income-compliance.integration.spec.ts` и
-`apps/api/src/admin/admin-summary.integration.spec.ts` падают ТОЛЬКО при полном последовательном
-прогоне integration-набора против общей `crm_qa` (16/16 идентичных падений на чистом base-коде со
-стэшем изменений), а изолированно на свежем re-seed проходят 30/30.
+The backend coder on PR #367 (2026-07-13) documented with isolated proof a **pre-existing** problem:
+`apps/api/src/finance/income-compliance.integration.spec.ts` and
+`apps/api/src/admin/admin-summary.integration.spec.ts` fail ONLY on a full sequential
+run of the integration suite against the shared `crm_qa` (16/16 identical failures on clean base code with
+the changes stashed), while in isolation on a fresh re-seed they pass 30/30.
 
-**Причина** — межспековое загрязнение общей БД: часть integration-спек не убирает за собой данные
-(строки в `transactions` / `pending_obligations` / `projects` / `users` / `project_members` /
-`payout_requests` и др.), а эти две спеки считают company-wide агрегаты (суммы по ВСЕЙ базе),
-которые дрейфуют от чужих остатков.
+**Cause** — cross-spec pollution of the shared DB: some integration specs do not clean up after themselves (rows
+in `transactions` / `pending_obligations` / `projects` / `users` / `project_members` /
+`payout_requests` etc.), while these two specs compute company-wide aggregates (sums over the WHOLE database)
+that drift because of other specs' leftovers.
 
-Технический контекст:
+Technical context:
 
-- Integration-прогоны уже последовательные: `apps/api/vitest.config.mts` ставит
-  `fileParallelism: false` для integration-запусков (см. `isIntegrationRun` в конфиге).
-- БД-таргет: `.env.test` → `crm_qa` (vitest подхватывает автоматически);
-  `apps/api/src/test/integration-db-guard.ts` блокирует запуск против `crm_db` — его семантику НЕ менять.
-- Реальная dev-БД — нативный postgres `localhost:5432` (НЕ docker-контейнер).
-- Эталонный паттерн «убирает за собой» — новая спека PR #367:
-  `apps/api/src/finance/usdt-income-obligations.integration.spec.ts` на ветке
-  `feature/drop-share-override-and-receiver` (читать через
+- Integration runs are already sequential: `apps/api/vitest.config.mts` sets
+  `fileParallelism: false` for integration runs (see `isIntegrationRun` in the config).
+- DB target: `.env.test` → `crm_qa` (vitest picks it up automatically);
+  `apps/api/src/test/integration-db-guard.ts` blocks running against `crm_db` — do NOT change its semantics.
+- The real dev DB is native postgres `localhost:5432` (NOT a docker container).
+- The reference "cleans up after itself" pattern is the new spec of PR #367:
+  `apps/api/src/finance/usdt-income-obligations.integration.spec.ts` on branch
+  `feature/drop-share-override-and-receiver` (read via
   `git fetch origin feature/drop-share-override-and-receiver` +
   `git show origin/feature/drop-share-override-and-receiver:apps/api/src/finance/usdt-income-obligations.integration.spec.ts`).
-  Ветку #367 НЕ трогать и НЕ мержить — только читать как образец.
+  Do NOT touch or merge the #367 branch — only read it as a model.
 
-## Scope / зона
+## Scope / zone
 
-- ТОЛЬКО `apps/api/**`: `*.integration.spec.ts` + при необходимости общий тест-хелпер в
-  `apps/api/src/test/` (например, утилита scoped-фикстур/cleanup).
-- Production-код (не-spec файлы в `apps/api/src`) НЕ менять. Если пришёл к выводу, что загрязнение
-  вызвано багом продакшен-кода (endpoint оставляет сирот) — НЕ фиксить самому, задокументировать в
-  `.claude/tasks/task-integration-spec-cleanup.blocked.md` + отметить в PR.
+- ONLY `apps/api/**`: `*.integration.spec.ts` + if needed a shared test helper in
+  `apps/api/src/test/` (for example, a scoped-fixtures/cleanup utility).
+- Do NOT change production code (non-spec files in `apps/api/src`). If you conclude that the pollution
+  is caused by a production-code bug (an endpoint leaves orphans) — do NOT fix it yourself, document it in
+  `.claude/tasks/task-integration-spec-cleanup.blocked.md` + note it in the PR.
 
-## Конкретные изменения
+## Concrete changes
 
-1. **Аудит cleanup-дисциплины** всех `*.integration.spec.ts` в `apps/api` (~71 файл).
-   Классифицировать каждую: (a) создаёт строки и полностью убирает в afterAll/afterEach;
-   (b) создаёт и НЕ убирает (нарушитель); (c) read-only. Первичный метод — чтение
-   beforeAll/afterAll; при сомнении — эмпирика (row-count снапшоты до/после файла против crm_qa).
-2. **Паттерн A — нарушители:** project-scoped/prefixed фикстуры (уникальный префикс спеки в
-   email/названиях) + `afterAll`-cleanup, удаляющий ВСЁ созданное (children → parents по FK).
-   Образец — спека из PR #367 выше.
-3. **Паттерн B — company-wide агрегатные спеки** (`income-compliance`, `admin-summary`; проверить
-   на ту же хрупкость `senior-summary`, `accountant-summary`, `hr-summary`, `total-earned`,
-   `transactions.summary.rbac` и другие summary-спеки): переписать assert'ы на **дельту**
-   (снапшот агрегата до вставки scoped-фикстур → assert `after == before + ожидаемая дельта`)
-   ЛИБО изолированный расчёт по scoped-фикстурам. Абсолютные company-wide суммы — убрать.
-   Выделенный порядок прогона / отдельная БД — только как fallback с обоснованием в PR.
-4. **Запрещено:** удалять/скипать падающие тесты, ослаблять assert'ы «чтобы прошло»
-   (расширение допусков без scoped-логики), менять `integration-db-guard.ts`, трогать `apps/e2e/**`.
+1. **Audit of cleanup discipline** of all `*.integration.spec.ts` in `apps/api` (~71 files).
+   Classify each one: (a) creates rows and fully cleans them up in afterAll/afterEach;
+   (b) creates and does NOT clean up (offender); (c) read-only. Primary method — reading
+   beforeAll/afterAll; when in doubt — empirics (row-count snapshots before/after the file against crm_qa).
+2. **Pattern A — offenders:** project-scoped/prefixed fixtures (a unique spec prefix in
+   email/names) + an `afterAll` cleanup that deletes EVERYTHING created (children → parents by FK).
+   The model is the spec from PR #367 above.
+3. **Pattern B — company-wide aggregate specs** (`income-compliance`, `admin-summary`; check
+   for the same fragility `senior-summary`, `accountant-summary`, `hr-summary`, `total-earned`,
+   `transactions.summary.rbac` and other summary specs): rewrite the asserts to a **delta**
+   (snapshot the aggregate before inserting scoped fixtures → assert `after == before + expected delta`)
+   OR an isolated calculation over the scoped fixtures. Remove absolute company-wide sums.
+   A dedicated run order / a separate DB — only as a fallback with justification in the PR.
+4. **Forbidden:** deleting/skipping failing tests, weakening asserts "to make it pass"
+   (widening tolerances without scoped logic), changing `integration-db-guard.ts`, touching `apps/e2e/**`.
 
 ## AC
 
-1. [ ] В PR body — аудит-таблица: `спека → какие таблицы пачкает → применённый фикс (A/B/read-only)`
-       по всем ~71 integration-спекам.
-2. [ ] Все спеки-нарушители получили prefixed-фикстуры + afterAll-cleanup (паттерн A).
-3. [ ] Company-wide агрегатные спеки assert'ят дельты / scoped-расчёт, не абсолюты (паттерн B).
-4. [ ] Верификация: re-seed crm_qa один раз (baseline) → полный последовательный integration-прогон
-       **×2 подряд БЕЗ re-seed между прогонами** — оба зелёные. Итоговые summary-строки обоих
-       прогонов — в PR body. (Второй зелёный прогон доказывает cleanup-дисциплину.)
-5. [ ] `pnpm --filter @crm/api test` (unit, без DATABASE_URL) зелёный; `pnpm typecheck` зелёный;
-       `mcp__eslint__lint-files` на всех изменённых файлах чистый.
-6. [ ] `pnpm --filter @crm/e2e test` локально зелёный перед финальным push (в diff есть код).
-7. [ ] Diff не содержит файлов вне `apps/api/**` (spec + test-хелперы) — проверить
+1. [ ] In the PR body — an audit table: `spec → which tables it pollutes → applied fix (A/B/read-only)`
+       for all ~71 integration specs.
+2. [ ] All offender specs received prefixed fixtures + afterAll cleanup (pattern A).
+3. [ ] Company-wide aggregate specs assert deltas / a scoped calculation, not absolutes (pattern B).
+4. [ ] Verification: re-seed crm_qa once (baseline) → a full sequential integration run
+       **×2 in a row WITHOUT re-seed between runs** — both green. The final summary lines of both
+       runs — in the PR body. (The second green run proves the cleanup discipline.)
+5. [ ] `pnpm --filter @crm/api test` (unit, without DATABASE_URL) green; `pnpm typecheck` green;
+       `mcp__eslint__lint-files` on all changed files clean.
+6. [ ] `pnpm --filter @crm/e2e test` green locally before the final push (the diff contains code).
+7. [ ] The diff contains no files outside `apps/api/**` (spec + test helpers) — check
        `git diff --name-only origin/main..HEAD`.
 
-## Верификация / git
+## Verification / git
 
-- Push: `DATABASE_URL= git push` (пустой — git-policy; integration-спеки graceful-skip в pre-push).
+- Push: `DATABASE_URL= git push` (empty — git-policy; integration specs graceful-skip in pre-push).
 - Commit: `test(api): ...` + `ac_verified: ...`.
-- PR: обычный пайплайн, base main. НЕ трогать лейблы merge-approved.
-- Свежий worktree: `pnpm install --frozen-lockfile` перед работой (husky/worktree gotcha).
+- PR: normal pipeline, base main. Do NOT touch the merge-approved labels.
+- Fresh worktree: `pnpm install --frozen-lockfile` before work (husky/worktree gotcha).
