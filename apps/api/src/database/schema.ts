@@ -255,7 +255,52 @@ export const vacancyApplicationStatusEnum = pgEnum('vacancy_application_status',
 // task-job-sourcing-slice1 — external job sourcing (DOU RSS today, aggregators
 // in a later slice). Mirrors packages/shared/src/schemas/job-sourcing.ts, which
 // is the wire-level source of truth for these same value sets.
-export const jobSourceTypeEnum = pgEnum('job_source_type', ['DOU_RSS'])
+export const jobSourceTypeEnum = pgEnum('job_source_type', [
+  'DOU_RSS',
+  'REMOTEOK_API',
+  'REMOTIVE_API',
+  'HIMALAYAS_API',
+  'JOBICY_API',
+  'ARBEITNOW_API',
+  'WORKINGNOMADS_API',
+  'JOBGETHER_API',
+  'HN_HIRING',
+  'GREENHOUSE_ATS',
+  'LEVER_ATS',
+  'ASHBY_ATS',
+  'WORKABLE_ATS',
+  'SMARTRECRUITERS_ATS',
+  'RECRUITEE_ATS',
+  'PERSONIO_ATS',
+  'JOOBLE_API',
+  'JSEARCH_API',
+  'THEIRSTACK_API',
+  'MUSE_API',
+  'REED_API',
+  'DJINNI_RSS',
+  'WWR_RSS',
+  'EUREMOTEJOBS_RSS',
+  'JUSTJOIN_HTML',
+  'NOFLUFF_HTML',
+  'LANDINGJOBS_HTML',
+  'NEXTLEVELJOBS_HTML',
+  'DICE_HTML',
+  'THEHUB_HTML',
+  'WTTJ_HTML',
+])
+// Vacancy queue enums — mirror jobQueueStatusSchema / jobSeniorityLevelSchema /
+// jobSignalKindSchema member for member (asserted in job-queue-schema.spec.ts).
+// Stryker disable next-line StringLiteral: a Postgres TYPE name — it lives in the database, declared by 2026-10-05_vacancy_sourcing_schema.sql; the members are asserted against the shared enums by job-queue-schema.spec.ts
+export const jobQueueStatusEnum = pgEnum('job_queue_status', ['NEW', 'IN_PROGRESS', 'DISMISSED'])
+// Stryker disable next-line StringLiteral: a Postgres TYPE name — see jobQueueStatusEnum
+export const jobSeniorityEnum = pgEnum('job_seniority', ['MIDDLE', 'SENIOR', 'LEAD', 'UNKNOWN'])
+// Stryker disable next-line StringLiteral: a Postgres TYPE name — see jobQueueStatusEnum
+export const jobSignalKindEnum = pgEnum('job_posting_signal_kind', [
+  'OPENED',
+  'TAKEN',
+  'DEAD_LINK',
+  'SPAM',
+])
 export const jobSuggestionStatusEnum = pgEnum('job_suggestion_status', [
   'NEW',
   'APPLIED',
@@ -2687,6 +2732,10 @@ export const jobSources = pgTable(
     // ample when aimed at one senior by hand.
     // Stryker disable next-line StringLiteral: the column DEFAULT is applied by Postgres on INSERT, so no unit test can see it; the default is pinned in the DDL script and exercised by job-matching.integration.spec.ts, which inserts a source without a trigger mode and expects the scheduled cron to pick it up
     triggerMode: jobSourceTriggerModeEnum('trigger_mode').notNull().default('SCHEDULED'),
+    /** Minimum hours between scheduled collections; NULL = every cron tick. */
+    minIntervalHours: integer('min_interval_hours'),
+    /** Why the source was switched off (auto-disable on 403, or by an admin). */
+    disabledReason: text('disabled_reason'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -2729,11 +2778,45 @@ export const jobPostings = pgTable(
     fingerprint: text('fingerprint').notNull(),
     collectedAt: timestamp('collected_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+
+    // --- vacancy queue (vacancy-sourcing phase 1) ----------------------------
+    /** sha256(company_normalized|normalized title) — CROSS-source twin key. NULL = legacy row, invisible to the queue. */
+    dedupeKey: text('dedupe_key'),
+    /** Other places this same job is open: [{ source, url }], capped at 20 by the upsert. */
+    alsoSeenOn: jsonb('also_seen_on')
+      .notNull()
+      .default(sql`'[]'::jsonb`),
+    matchedSeniorIds: uuid('matched_senior_ids')
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    matchedKeywords: text('matched_keywords')
+      .array()
+      .notNull()
+      .default(sql`'{}'::text[]`),
+    // Stryker disable next-line StringLiteral: equivalent mutant — drizzle falls back to the property KEY when a column name is empty, and the key is also `seniority`, so the generated column is identical; the default 'UNKNOWN' on this same line is asserted by job-queue-schema.spec.ts
+    seniority: jobSeniorityEnum('seniority').notNull().default('UNKNOWN'),
+    stackUnknown: boolean('stack_unknown').notNull().default(false),
+    rankScore: integer('rank_score').notNull().default(0),
+    queueStatus: jobQueueStatusEnum('queue_status').notNull().default('NEW'),
+    takenBy: uuid('taken_by').references(() => users.id, { onDelete: 'set null' }),
+    takenAt: timestamp('taken_at', { withTimezone: true }),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     uniqueIndex('uq_job_postings_fingerprint').on(t.fingerprint),
     index('idx_job_postings_published_at').on(t.publishedAt.desc()),
     index('idx_job_postings_company_normalized').on(t.companyNameNormalized),
+    uniqueIndex('uq_job_postings_dedupe_key')
+      .on(t.dedupeKey)
+      .where(sql`${t.dedupeKey} IS NOT NULL`),
+    index('idx_job_postings_queue').on(
+      t.queueStatus,
+      t.rankScore.desc(),
+      t.collectedAt.desc(),
+      t.id.desc(),
+    ),
+    index('idx_job_postings_matched_seniors').using('gin', t.matchedSeniorIds),
   ],
 )
 
@@ -2759,6 +2842,23 @@ export const jobSuggestions = pgTable(
     uniqueIndex('uq_job_suggestions_posting_senior').on(t.postingId, t.seniorId),
     index('idx_job_suggestions_senior_status').on(t.seniorId, t.status),
   ],
+)
+
+/** One row per HR action on a queue posting (opened / taken / dead link / spam). */
+export const jobPostingSignals = pgTable(
+  'job_posting_signals',
+  {
+    // Stryker disable next-line StringLiteral: equivalent mutant — drizzle falls back to the property KEY when a column name is empty, and the key is also `id`, so the generated column is identical
+    id: uuid('id').defaultRandom().primaryKey(),
+    postingId: uuid('posting_id')
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: 'cascade' }),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    kind: jobSignalKindEnum('kind').notNull(),
+    // Stryker disable next-line BooleanLiteral: withTimezone selects timestamptz at the DB level — only observable via a real Postgres round-trip (integration), not a unit test (mutation-gate-integration-specs.md)
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('idx_job_posting_signals_posting').on(t.postingId, t.kind)],
 )
 
 /**
@@ -3358,6 +3458,7 @@ export type NewTransaction = typeof transactions.$inferInsert
 export type JobSource = typeof jobSources.$inferSelect
 export type NewJobSource = typeof jobSources.$inferInsert
 export type JobPosting = typeof jobPostings.$inferSelect
+export type JobPostingSignal = typeof jobPostingSignals.$inferSelect
 export type NewJobPosting = typeof jobPostings.$inferInsert
 export type JobSuggestion = typeof jobSuggestions.$inferSelect
 export type NewJobSuggestion = typeof jobSuggestions.$inferInsert

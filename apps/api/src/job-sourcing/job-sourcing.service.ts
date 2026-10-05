@@ -928,6 +928,9 @@ export class JobSourcingService {
       created: created.length,
       duplicates,
       invalid,
+      // Cross-source merge and the relevance funnel arrive in later phases.
+      merged: 0,
+      filtered: 0,
       suggestionsCreated,
     }
   }
@@ -1015,7 +1018,9 @@ export class JobSourcingService {
    * A posting is kept when any senior applied to it (their application history)
    * OR rejected it (deleting that row would let the vacancy be re-collected and
    * re-offered — see the AC4 note on the query below). Only postings nobody
-   * ever decided on are dropped.
+   * ever decided on are dropped. Queue postings HR has taken (IN_PROGRESS) or
+   * dismissed (DISMISSED) are kept too — see `shouldKeepPosting` in retention.ts,
+   * the unit-level twin of this predicate.
    */
   async purgeStalePostings(now: Date = new Date()): Promise<number> {
     const cutoff = new Date(now.getTime() - POSTING_RETENTION_DAYS * 24 * 60 * 60 * 1000)
@@ -1037,8 +1042,12 @@ export class JobSourcingService {
       .delete(jobPostings)
       .where(
         keep.length > 0
-          ? and(lt(jobPostings.collectedAt, cutoff), notInArray(jobPostings.id, keep))
-          : lt(jobPostings.collectedAt, cutoff),
+          ? and(
+              lt(jobPostings.collectedAt, cutoff),
+              eq(jobPostings.queueStatus, 'NEW'),
+              notInArray(jobPostings.id, keep),
+            )
+          : and(lt(jobPostings.collectedAt, cutoff), eq(jobPostings.queueStatus, 'NEW')),
       )
       .returning({ id: jobPostings.id })
 
@@ -1064,6 +1073,8 @@ export class JobSourcingService {
         enabled: row.enabled,
         triggerMode: row.triggerMode,
         lastCollectedAt: row.lastCollectedAt?.toISOString() ?? null,
+        minIntervalHours: row.minIntervalHours,
+        disabledReason: row.disabledReason,
         budget: {
           // Stated, not inferred by the client (MED-4).
           state: budgetState(budget),
