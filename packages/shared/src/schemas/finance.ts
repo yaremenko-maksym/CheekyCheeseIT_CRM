@@ -1192,6 +1192,11 @@ export const transactionAuditLogListSchema = z.array(transactionAuditLogEntrySch
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
   transactionIds: z.array(z.string().uuid()).min(1),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+    .optional()
+    .nullable(),
 })
 export type CreatePayoutRequestDto = z.infer<typeof createPayoutRequestSchema>
 
@@ -1216,6 +1221,11 @@ export const payPayoutRequestSchema = z
   .object({
     txHash: z.string().max(255).optional(),
     simulateResult: z.enum(['success', 'error']).optional(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+      .optional()
+      .nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.simulateResult === undefined) {
@@ -1307,6 +1317,11 @@ export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+    .optional()
+    .nullable(),
   // HIGH-1 (security-review PR #438): the format is now validated at the write
   // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
   // an explorer link) — previously any string ≥10 chars was accepted verbatim,
@@ -1436,6 +1451,11 @@ export const paySalarySchema = z
         if (message) ctx.addIssue({ code: 'custom', message })
       })
       .optional(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+      .optional()
+      .nullable(),
     txHash: z.string().max(255).optional().nullable(),
     // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
     // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the
@@ -1510,6 +1530,11 @@ export const confirmPayoutSchema = z
     recipientAdminId: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
     method: payoutMethodSchema.default('CRYPTO'),
     txHash: z.string().max(255).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+      .optional()
+      .nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.method === 'CRYPTO') {
@@ -2392,6 +2417,11 @@ export type UpdateRequisitesDto = z.infer<typeof updateRequisitesSchema>
 // while the service does the strict extraction/validation.
 export const createCompanyDepositSchema = z.object({
   txHashOrLink: z.string().min(10, 'zod.TX_HASH_MIN_LENGTH').max(500),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+    .optional()
+    .nullable(),
 })
 export type CreateCompanyDepositDto = z.infer<typeof createCompanyDepositSchema>
 
@@ -2448,6 +2478,11 @@ export const createDividendSchema = z
     amount: withMoneyFloor(z.number().positive()),
     adminId: z.string().uuid().optional(),
     idempotencyKey: z.string().uuid(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'zod.DATE_FORMAT_YYYYMMDD')
+      .optional()
+      .nullable(),
     // task-receipts-backend (#9): a dividend is a USDT withdrawal from the company
     // account → receipt MANDATORY and explorer-only (no currency field: always USDT).
     ...receiptFields,

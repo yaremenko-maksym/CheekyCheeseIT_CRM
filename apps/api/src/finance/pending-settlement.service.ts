@@ -316,6 +316,8 @@ export class PendingSettlementService {
       sourceFundingSource,
       sourceSenderId,
       sourceSenderLabel,
+      sourceTxDate,
+      sourceCreatedAt,
     } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-cascade-apply (task 3, AC10 / addendum §1.11) — how much of this
@@ -551,12 +553,20 @@ export class PendingSettlementService {
     let originalAmount: string | undefined
     let originalCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
     let exchangeRate: string | null | undefined
-    // task-drop-payout-currency (owner addendum, 2026-08): the date this
-    // settlement is recorded as of — see the extended comment on
-    // `SettleFunding.txDate`. `undefined` (⇒ `.set()` below leaves the
-    // column untouched, i.e. whatever it already was) for a SENIOR
-    // settlement or a DROP settle from a caller that predates this feature.
+    // Business date this settlement is recorded as of. Applies to both
+    // SENIOR and DROP settlements; legacy callers that omit it keep the
+    // existing source row date untouched.
     let txDateToWrite: Date | undefined
+    const selectedDateStr = funding?.txDate ?? undefined
+    if (selectedDateStr) {
+      const sourceBusinessDate = (sourceTxDate ?? sourceCreatedAt ?? obligation.createdAt)
+        .toISOString()
+        .slice(0, 10)
+      if (selectedDateStr < sourceBusinessDate) {
+        throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
+      }
+      txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
+    }
     // Stryker disable next-line ConditionalExpression: for a SENIOR settlement this block's four locals are ASSIGNED but never READ — the `.set()` patch below spreads them behind its OWN, separately-tested `isDropObligation` ternary (see the `'originalAmount' in flips[0]!` assertions in pending-settlement.spec.ts), so entering this block unnecessarily has no observable output. It is also provably side-effect-free: a SENIOR obligation is ALWAYS booked in USDT and BIZ-03 restricts a SENIOR settle's currency to USD/USDT — the only pair convertToBase short-circuits WITHOUT calling `this.nbuCurrency.getRates()` — so no stray network call either
     if (isDropObligation) {
       const obligationAmount = parseFloat(obligation.amount)
@@ -647,15 +657,6 @@ export class PendingSettlementService {
       // the frontend comment for the full reasoning (a millisecond-window
       // coincidence, and the failure mode below is a loud, explicit 400,
       // never a silent wrong write).
-      const selectedDateStr = funding?.txDate ?? undefined
-      if (selectedDateStr) {
-        const obligationCreatedStr = obligation.createdAt.toISOString().slice(0, 10)
-        if (selectedDateStr < obligationCreatedStr) {
-          throw apiError('FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', HttpStatus.BAD_REQUEST)
-        }
-        txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
-      }
-
       // Skip the NBU round-trip entirely when there is nothing to convert —
       // i.e. the pair is USD⇄USDT-pegged 1:1 (see `convertToBase`'s own
       // short-circuit). `obligationCurrency` is provably 'USDT' at this
@@ -1480,6 +1481,8 @@ export class PendingSettlementService {
      */
     sourceSenderId: string | null
     sourceSenderLabel: string | null
+    sourceTxDate: Date | null
+    sourceCreatedAt: Date | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
@@ -1510,6 +1513,8 @@ export class PendingSettlementService {
         sourceFundingSource: null,
         sourceSenderId: null,
         sourceSenderLabel: null,
+        sourceTxDate: null,
+        sourceCreatedAt: null,
       }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
@@ -1525,6 +1530,8 @@ export class PendingSettlementService {
       sourceFundingSource: source.fundingSource,
       sourceSenderId: source.senderId,
       sourceSenderLabel: source.senderLabel,
+      sourceTxDate: source.txDate,
+      sourceCreatedAt: source.createdAt,
     }
   }
 

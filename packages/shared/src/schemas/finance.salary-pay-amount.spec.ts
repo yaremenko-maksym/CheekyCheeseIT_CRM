@@ -45,6 +45,11 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
     expect(result.data?.paidAmount).toBe(30_000)
   })
 
+  it('accepts an optional payout business date and rejects malformed dates', () => {
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, txDate: '2026-10-04' }).success).toBe(true)
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, txDate: '04.10.2026' }).success).toBe(false)
+  })
+
   it('rejects zero and negative amounts (a salary is never closed by paying nothing)', () => {
     expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 0 }).success).toBe(false)
     expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: -1 }).success).toBe(false)

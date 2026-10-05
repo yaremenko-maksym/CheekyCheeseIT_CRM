@@ -602,15 +602,25 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
 
 // ── #11: paySalary ADMIN_PERSONAL atomic flip ─────────────────────────────────
 describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)', () => {
-  function makeSvc(updateReturning: Array<{ id: string }>) {
+  function makeSvc(
+    updateReturning: Array<{ id: string }>,
+    txRow: Record<string, unknown> = {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      notes: null,
+    },
+  ) {
     const invoiceSpy = vi.fn().mockResolvedValue(undefined)
     const findOne = vi.fn().mockResolvedValue({ id: 'sal-1' })
+    const setSpy = vi.fn((values: Record<string, unknown>) => ({
+      where: () => ({ returning: () => Promise.resolve(updateReturning) }),
+    }))
     const dbStub = {
       db: {
         query: {
           transactions: {
-            findFirst: () =>
-              Promise.resolve({ id: 'sal-1', type: 'SALARY', status: 'PENDING', notes: null }),
+            findFirst: () => Promise.resolve(txRow),
           },
           users: {
             // payerAdmin resolution for ADMIN_PERSONAL.
@@ -619,7 +629,7 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
           },
         },
         update: () => ({
-          set: () => ({ where: () => ({ returning: () => Promise.resolve(updateReturning) }) }),
+          set: setSpy,
         }),
       },
     }
@@ -627,7 +637,7 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
       invoiceSpy
     ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
-    return { svc, invoiceSpy }
+    return { svc, invoiceSpy, setSpy }
   }
 
   const payData = {
@@ -691,6 +701,46 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     const { svc, invoiceSpy } = makeSvc([{ id: 'sal-1' }])
     await expect(svc.paySalary('sal-1', payData, admin())).resolves.toBeDefined()
     expect(invoiceSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('stores a custom salary payout date on the PAID transaction', async () => {
+    const { svc, setSpy } = makeSvc([{ id: 'sal-1' }], {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500',
+      currency: 'USD',
+      receiverId: null,
+      notes: null,
+      txDate: new Date('2026-10-01T00:00:00.000Z'),
+      createdAt: new Date('2026-10-01T10:00:00.000Z'),
+    })
+
+    await svc.paySalary('sal-1', { ...payData, txDate: '2026-10-04' }, admin())
+
+    const paidSet = setSpy.mock.calls[0]?.[0] as Record<string, unknown>
+    expect((paidSet.txDate as Date).toISOString().slice(0, 10)).toBe('2026-10-04')
+  })
+
+  it('rejects a salary payout date before the salary transaction date', async () => {
+    const { svc, setSpy } = makeSvc([{ id: 'sal-1' }], {
+      id: 'sal-1',
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '500',
+      currency: 'USD',
+      receiverId: null,
+      notes: null,
+      txDate: new Date('2026-10-03T00:00:00.000Z'),
+      createdAt: new Date('2026-10-03T10:00:00.000Z'),
+    })
+
+    await expect(
+      svc.paySalary('sal-1', { ...payData, txDate: '2026-10-02' }, admin()),
+    ).rejects.toMatchObject({
+      response: { code: 'FINANCE_PAYOUT_DATE_BEFORE_OBLIGATION', statusCode: 400 },
+    })
+    expect(setSpy).not.toHaveBeenCalled()
   })
 
   it('loser of the race (0 rows flipped — already PAID) → throws, NO invoice', async () => {
