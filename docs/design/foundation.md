@@ -1,186 +1,186 @@
-# CRM Redesign — Foundation (визуальный язык)
+# CRM Redesign — Foundation (visual language)
 
-> **Status:** approved direction (Phase 0, владелец 2026-06-23) — north-star app-shell = `screens/_foundation/app-shell.md` (Вариант А «сдержанный», плоская навигация). Язык подтверждён генерацией; правок направления не потребовалось.
-> **Applies to:** все фазы редизайна (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
-> **Источник токенов:** `apps/web/app/styles/globals.css` (single source) + `docs/design/assets/_design-system/inventory.md`.
-> **Правило:** этот файл — единый визуальный язык. Каждый экран следует ему → консистентность.
-> Везде ссылаемся на **семантические токены** (`bg-background`, `text-muted-foreground`, `border-border`,
-> `bg-primary` …), НИКОГДА на сырой hex/oklch и НИКОГДА на generic-градиенты.
+> **Status:** approved direction (Phase 0, owner 2026-06-23) — north-star app-shell = `screens/_foundation/app-shell.md` (Variant A "restrained", flat navigation). The language was confirmed by generation; no direction changes were needed.
+> **Applies to:** all redesign phases (`docs/superpowers/specs/2026-06-22-crm-redesign-program.md`).
+> **Token source:** `apps/web/app/styles/globals.css` (single source) + `docs/design/assets/_design-system/inventory.md`.
+> **Rule:** this file is the single visual language. Every screen follows it → consistency.
+> Always reference **semantic tokens** (`bg-background`, `text-muted-foreground`, `border-border`,
+> `bg-primary` …), NEVER raw hex/oklch and NEVER generic gradients.
 
 ---
 
-## 1. Направление (5 вопросов)
+## 1. Direction (5 questions)
 
-| Вопрос               | Ответ                                                                                                                                                                                                                             |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Purpose**          | Внутренний CRM рекрутинг/outstaffing-компании: команды, проекты, собеседования, финансы, документы, контракты. Инструмент ежедневной работы, не маркетинг.                                                                        |
-| **Audience**         | Операторы-power-users 6 ролей (ADMIN/SENIOR/HR/ACCOUNTANT/JUNIOR/DROP). Сканируют таблицы, KPI, статусы; действуют быстро и часто. Money-path — чувствителен, требует ясности и подтверждений.                                    |
-| **Tone**             | **dense · quiet · scannable · professional.** «Спокойная operations-консоль». НЕ editorial, НЕ playful, НЕ marketing-hero. Тишина по умолчанию, энергия — только там, где нужно действие/внимание.                                |
-| **Memorable detail** | Тёплый amber-undertone на тёмных нейтралях (chroma ≈0.04–0.06 hue 85 в `surface`/`border`/`accent`) + бренд-жёлтый как ЕДИНСТВЕННЫЙ высокоэнергетичный акцент против глубоких чёрных → «прожектор» иерархии, не пёстрый дашборд.  |
-| **Constraints**      | Tailwind v4 (`@theme inline`) + shadcn/ui + Radix · Russian UI · WCAG 2.2 AA · responsive 320–1440 · **dark-default** (`.dark` на `<html>`; light/dark parity) · существующая система 218 токенов / 22 примитива / 103 композита. |
+| Question             | Answer                                                                                                                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Purpose**          | Internal CRM of a recruiting/outstaffing company: teams, projects, interviews, finance, documents, contracts. A daily working tool, not marketing.                                                                                   |
+| **Audience**         | Power-user operators across 6 roles (ADMIN/SENIOR/HR/ACCOUNTANT/JUNIOR/DROP). They scan tables, KPIs, statuses; they act quickly and often. The money path is sensitive and requires clarity and confirmations.                      |
+| **Tone**             | **dense · quiet · scannable · professional.** A "calm operations console". NOT editorial, NOT playful, NOT marketing-hero. Quiet by default, energy only where action/attention is needed.                                           |
+| **Memorable detail** | A warm amber undertone on dark neutrals (chroma ≈0.04–0.06 hue 85 in `surface`/`border`/`accent`) + brand yellow as the ONLY high-energy accent against deep blacks → a "spotlight" of hierarchy, not a motley dashboard.            |
+| **Constraints**      | Tailwind v4 (`@theme inline`) + shadcn/ui + Radix · Russian UI · WCAG 2.2 AA · responsive 320–1440 · **dark-default** (`.dark` on `<html>`; light/dark parity) · the existing system of 218 tokens / 22 primitives / 103 composites. |
 
-**Domain-fit:** SaaS operations tool ⇒ плотный, тихий, сканируемый. Никаких лендинг-композиций
-(центрированный hero, blob-градиент, oversized-CTA) на рабочих экранах.
+**Domain-fit:** SaaS operations tool ⇒ dense, quiet, scannable. No landing compositions
+(centered hero, blob gradient, oversized CTA) on working screens.
 
 ---
 
 ## 2. Layout & page chrome (app-shell)
 
-Глобальный каркас, который наследует КАЖДЫЙ экран (Phase 0 north-star = его редизайн):
+The global frame that EVERY screen inherits (Phase 0 north-star = its redesign):
 
-- **Структура:** левый `nav-sidebar` (role-filtered, `bg-surface`) + верхний header (page-context + `notifications-bell` + user-меню) + основная область контента на `bg-background`.
-- **Sidebar:** фиксированная ширина на desktop (≈240–264px), collapsible; на ≤768px — `Sheet`-overlay (триггер в header). Активный пункт — `bg-accent` (тёплый тёмный) + `text-accent-foreground`, лево-бордер/иконка в `text-primary`. Группировка по доменам, не плоский список из 12 пунктов.
-- **Header:** `flex-none`, sticky, opaque-фон (`bg-background`/`bg-card`), `z-20` (паттерн `StickyPageHeader`). Содержит контекст страницы (заголовок + хлебные крошки при глубине) слева, действия/bell/avatar справа.
-- **Content область:** max-width НЕ распирать на сверхшироких — контент-колонка с разумным `max-w` (списки/детали), но таблицы/дашборды могут быть full-width. Вертикальный ритм секций — кратно spacing-шкале (§3).
-- **Плотность:** информационно плотно, но с дыханием — приоритет «сколько полезного видно без скролла», но без клаустрофобии. Не уменьшать hit-area ради плотности (§9).
+- **Structure:** left `nav-sidebar` (role-filtered, `bg-surface`) + top header (page-context + `notifications-bell` + user menu) + main content area on `bg-background`.
+- **Sidebar:** fixed width on desktop (≈240–264px), collapsible; at ≤768px — a `Sheet` overlay (trigger in the header). The active item is `bg-accent` (warm dark) + `text-accent-foreground`, left border/icon in `text-primary`. Grouped by domain, not a flat list of 12 items.
+- **Header:** `flex-none`, sticky, opaque background (`bg-background`/`bg-card`), `z-20` (the `StickyPageHeader` pattern). Contains the page context (title + breadcrumbs when deep) on the left, actions/bell/avatar on the right.
+- **Content area:** do NOT stretch max-width on ultra-wide screens — the content column has a sensible `max-w` (lists/details), but tables/dashboards may be full-width. Vertical rhythm of sections is a multiple of the spacing scale (§3).
+- **Density:** informationally dense, but with room to breathe — priority is "how much useful content is visible without scrolling", but without claustrophobia. Do not shrink the hit area for the sake of density (§9).
 
 ---
 
 ## 3. Spacing rhythm / density
 
-База — Tailwind v4 spacing (шаг 4px). Не «равномерный padding везде» — ритм по иерархии:
+The base is Tailwind v4 spacing (4px step). Not "uniform padding everywhere" — rhythm follows the hierarchy:
 
-| Уровень                         | Token (Tailwind)      | Применение              |
-| ------------------------------- | --------------------- | ----------------------- |
-| Внутри control (кнопка/инпут)   | `px-3 py-2` / `gap-2` | компактно, тактильно    |
-| Внутри карточки (`CardContent`) | `p-4` … `p-6`         | по плотности контента   |
-| Между элементами в списке       | `gap-2` … `gap-3`     | таблично-плотно         |
-| Между секциями страницы         | `gap-6` … `gap-8`     | ясное разделение блоков |
-| Page padding (content)          | `p-4 md:p-6 lg:p-8`   | responsive              |
+| Level                           | Token (Tailwind)      | Application                |
+| ------------------------------- | --------------------- | -------------------------- |
+| Inside a control (button/input) | `px-3 py-2` / `gap-2` | compact, tactile           |
+| Inside a card (`CardContent`)   | `p-4` … `p-6`         | by content density         |
+| Between elements in a list      | `gap-2` … `gap-3`     | table-dense                |
+| Between page sections           | `gap-6` … `gap-8`     | clear separation of blocks |
+| Page padding (content)          | `p-4 md:p-6 lg:p-8`   | responsive                 |
 
-**Принцип:** контраст ритма (плотно внутри блока, просторно между блоками) создаёт сканируемость
-лучше, чем единый отступ. Радиусы — из шкалы `--radius` (sm 4 / md 6.8 / lg 10 / xl 16.4px);
-концентричность: внешний контейнер `rounded-lg`, вложенный — `rounded-md`.
+**Principle:** rhythm contrast (dense inside a block, spacious between blocks) creates scannability
+better than a single spacing. Radii come from the `--radius` scale (sm 4 / md 6.8 / lg 10 / xl 16.4px);
+concentricity: the outer container is `rounded-lg`, the nested one is `rounded-md`.
 
 ---
 
 ## 4. Type scale (Inter)
 
-`--font-sans` = `'Inter', system-ui, sans-serif`. Иерархия через контраст масштаба + веса, не через цвет.
+`--font-sans` = `'Inter', system-ui, sans-serif`. Hierarchy through contrast of scale + weight, not through color.
 
-| Роль                | Класс (Tailwind)                  | Заметка                                                      |
-| ------------------- | --------------------------------- | ------------------------------------------------------------ |
-| Page title          | `text-xl font-semibold`           | один на экран; не oversized hero                             |
-| Section title       | `text-base font-semibold`         | заголовок карточки/секции                                    |
-| Card / KPI label    | `text-sm text-muted-foreground`   | подпись метрики                                              |
-| Body                | `text-sm` (default) / `text-base` | основной текст; в плотных таблицах `text-sm`                 |
-| Caption / hint      | `text-xs text-muted-foreground`   | вторичная инфо, таймстемпы                                   |
-| **Числа/деньги/ID** | `tabular-nums` + `font-medium`    | **обязательно `tabular-nums`** — суммы/счётчики не «прыгают» |
+| Role                  | Class (Tailwind)                  | Note                                                            |
+| --------------------- | --------------------------------- | --------------------------------------------------------------- |
+| Page title            | `text-xl font-semibold`           | one per screen; not an oversized hero                           |
+| Section title         | `text-base font-semibold`         | card/section heading                                            |
+| Card / KPI label      | `text-sm text-muted-foreground`   | metric caption                                                  |
+| Body                  | `text-sm` (default) / `text-base` | main text; in dense tables `text-sm`                            |
+| Caption / hint        | `text-xs text-muted-foreground`   | secondary info, timestamps                                      |
+| **Numbers/money/IDs** | `tabular-nums` + `font-medium`    | **`tabular-nums` is mandatory** — amounts/counters don't "jump" |
 
-Заголовки — `tracking-tight` для крупных; основной текст — нормальный трекинг. Line-height по
-Tailwind-дефолту; в плотных строках — `leading-tight`.
+Headings — `tracking-tight` for large ones; body text — normal tracking. Line-height per the
+Tailwind default; in dense rows — `leading-tight`.
 
 ---
 
-## 5. Color semantics (маппинг на токены)
+## 5. Color semantics (mapping to tokens)
 
-Цвет — **семантически**, не декоративно. Палитра: 3 чёрных фона / 3 белых текста / 3 жёлтых + системные.
+Color is **semantic**, not decorative. Palette: 3 blacks (backgrounds) / 3 whites (text) / 3 yellows + system colors.
 
-| Назначение                           | Token                                                                                              |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Канвас страницы                      | `bg-background`                                                                                    |
-| Поднятая поверхность (карточка)      | `bg-card` + `text-card-foreground`                                                                 |
-| Sidebar/popover/inputs surface       | `bg-surface` (тёплый amber-undertone)                                                              |
-| Основной текст                       | `text-foreground`                                                                                  |
-| Вторичный/подписи                    | `text-muted-foreground`                                                                            |
-| **Бренд / CTA / активное**           | `bg-primary` + `text-primary-foreground` (near-black на жёлтом)                                    |
-| Hover-ring / glow                    | `ring-ring` / `--yellow-muted`                                                                     |
-| Активный пункт sidebar / ghost-hover | `bg-accent` + `text-accent-foreground`                                                             |
-| Границы                              | `border-border` (тёплая в dark)                                                                    |
-| Ошибка / удаление / debt             | `bg-destructive` / `text-destructive`                                                              |
-| Статус/роль бейджи                   | `Badge` варианты (admin/senior/junior/hr/accountant/drop/status-active/status-closed/paid/pending) |
+| Purpose                           | Token                                                                                              |
+| --------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Page canvas                       | `bg-background`                                                                                    |
+| Raised surface (card)             | `bg-card` + `text-card-foreground`                                                                 |
+| Sidebar/popover/inputs surface    | `bg-surface` (warm amber undertone)                                                                |
+| Primary text                      | `text-foreground`                                                                                  |
+| Secondary/captions                | `text-muted-foreground`                                                                            |
+| **Brand / CTA / active**          | `bg-primary` + `text-primary-foreground` (near-black on yellow)                                    |
+| Hover-ring / glow                 | `ring-ring` / `--yellow-muted`                                                                     |
+| Active sidebar item / ghost-hover | `bg-accent` + `text-accent-foreground`                                                             |
+| Borders                           | `border-border` (warm in dark)                                                                     |
+| Error / deletion / debt           | `bg-destructive` / `text-destructive`                                                              |
+| Status/role badges                | `Badge` variants (admin/senior/junior/hr/accountant/drop/status-active/status-closed/paid/pending) |
 
-**Дисциплина бренд-жёлтого:** только primary-действия, активное состояние, бренд-моменты, ключевые KPI-акценты.
-НЕ заливать жёлтым большие площади, НЕ делать жёлтые фоны под текст (контраст), НЕ использовать как
-декоративный фон секций. Жёлтый = «здесь действие/внимание».
+**Brand-yellow discipline:** only primary actions, active state, brand moments, key KPI accents.
+Do NOT flood large areas with yellow, do NOT put yellow backgrounds under text (contrast), do NOT use it as a
+decorative section background. Yellow = "action/attention here".
 
 ---
 
 ## 6. Elevation / depth
 
-Глубина — поверхностями и границами, не тяжёлыми тенями (dark-UI: тени слабо читаются).
+Depth through surfaces and borders, not heavy shadows (dark UI: shadows read poorly).
 
-- Слои: `background` (канвас) → `card`/`surface` (поднятое) → `popover` (плавающее, `shadow` из shadcn).
-- Карточки: `bg-card` + `border-border` (1px) вместо drop-shadow по умолчанию; тень — только для истинно плавающих (popover/dropdown/dialog) через токены shadcn.
-- НЕ «карточка в карточке» (anti-pattern): вложенность — секциями/разделителями (`Separator`), не двойными бордерами.
+- Layers: `background` (canvas) → `card`/`surface` (raised) → `popover` (floating, `shadow` from shadcn).
+- Cards: `bg-card` + `border-border` (1px) instead of a default drop-shadow; shadow only for truly floating elements (popover/dropdown/dialog) via shadcn tokens.
+- NO "card in a card" (anti-pattern): nesting is done with sections/dividers (`Separator`), not double borders.
 
 ---
 
 ## 7. Motion
 
-Только compositor-friendly (`transform`/`opacity`), высокосигнальная, не декоративная.
+Compositor-friendly only (`transform`/`opacity`), high-signal, not decorative.
 
-- Длительность: 150ms (micro: hover/focus) / 200–300ms (переходы панелей, tabs-pill, sheet).
-- Easing: ease-out для появления, существующие паттерны `AnimatedTabs`/`SegmentedToggle` (sliding-pill) — эталон.
-- Уважать `prefers-reduced-motion` (паттерн `credentials-timer-bar` в globals.css).
-- Не анимировать layout-свойства (width/height/top/left). Skeleton (`animate-pulse`) для loading.
+- Duration: 150ms (micro: hover/focus) / 200–300ms (panel transitions, tabs-pill, sheet).
+- Easing: ease-out for appearance; the existing `AnimatedTabs`/`SegmentedToggle` patterns (sliding-pill) are the reference.
+- Respect `prefers-reduced-motion` (the `credentials-timer-bar` pattern in globals.css).
+- Do not animate layout properties (width/height/top/left). Skeleton (`animate-pulse`) for loading.
 
 ---
 
-## 8. Component styling direction (как должны «ощущаться»)
+## 8. Component styling direction (how they should "feel")
 
-Используем СУЩЕСТВУЮЩИЕ shadcn/ui + композиты (inventory) — не вводим новый визуальный язык:
+We use the EXISTING shadcn/ui + composites (inventory) — we do not introduce a new visual language:
 
-- **Button:** `default` = бренд-жёлтый primary (главное действие, 1 на контекст); `outline`/`ghost`/`secondary` — вторичные; `destructive` — для удаления. Иконки для знакомых действий.
-- **Card:** `bg-card` + `border-border`, заголовок `CardHeader`, дыхание `CardContent p-4/6`. Фундамент всех поверхностей.
-- **Table:** плотные строки, sticky-header, `tabular-nums` в числовых колонках, hover-подсветка строки, row-actions справа (icon-button/`DropdownMenu`). Это «хлеб» CRM.
-- **Dialog:** через `CrmDialog` (фикс header/body/footer, scrollable body, `max-h-[90dvh]`) — стандарт для всех модалок.
-- **Badge:** статусы/роли строго через готовые варианты — единый язык статусов по всему приложению.
-- **Input/Select/Tabs:** shadcn-дефолты на наших токенах; focus — видимый `ring-ring`.
+- **Button:** `default` = brand-yellow primary (the main action, 1 per context); `outline`/`ghost`/`secondary` — secondary; `destructive` — for deletion. Icons for familiar actions.
+- **Card:** `bg-card` + `border-border`, `CardHeader` heading, `CardContent p-4/6` breathing room. The foundation of all surfaces.
+- **Table:** dense rows, sticky header, `tabular-nums` in numeric columns, row hover highlight, row actions on the right (icon-button/`DropdownMenu`). This is the "bread and butter" of the CRM.
+- **Dialog:** via `CrmDialog` (fixed header/body/footer, scrollable body, `max-h-[90dvh]`) — the standard for all modals.
+- **Badge:** statuses/roles strictly via the ready-made variants — a single status language across the whole app.
+- **Input/Select/Tabs:** shadcn defaults on our tokens; focus — a visible `ring-ring`.
 
 ---
 
 ## 9. A11y (WCAG 2.2 AA)
 
-- **Target-size:** интерактив ≥ 24×24px (кнопки-иконки — увеличенная hit-area даже при мелкой иконке).
-- **Контраст:** текст 4.5:1, крупный/UI-элементы 3:1. Токены уже выверены (см. avatar-text комментарии в globals.css); не понижать.
-- **Focus:** видимый focus-ring (`ring-ring`) на всех интерактивных; логичный focus order; focus-trap в модалках/sheet.
-- **Иконки-only:** `aria-label`. Семантический HTML (`nav`/`main`/`header`/таблицы) — не div-суп.
-- **Русский UI:** все строки на русском; длинные лейблы wrap/resize, не overflow.
+- **Target-size:** interactive elements ≥ 24×24px (icon buttons — an enlarged hit area even with a small icon).
+- **Contrast:** text 4.5:1, large text/UI elements 3:1. The tokens are already calibrated (see the avatar-text comments in globals.css); do not lower them.
+- **Focus:** a visible focus ring (`ring-ring`) on all interactive elements; logical focus order; focus trap in modals/sheet.
+- **Icon-only:** `aria-label`. Semantic HTML (`nav`/`main`/`header`/tables) — not div soup.
+- **Russian UI:** all strings in Russian; long labels wrap/resize, do not overflow.
 
 ---
 
 ## 10. Responsive
 
-**Hard-гейт** (правило `.claude/rules/common/responsive-design.md`): КАЖДЫЙ экран полностью пригоден на
-4 классах устройств. **Mobile-first:** база — мобайл, наращивать `sm/md/lg/xl/2xl`.
+**Hard gate** (rule `.claude/rules/common/responsive-design.md`): EVERY screen is fully usable on
+4 device classes. **Mobile-first:** the base is mobile, scale up with `sm/md/lg/xl/2xl`.
 
-| Класс         | Ширины (тест) | Поведение                                                                                                                                                             |
-| ------------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Мобильный** | 320 / 375     | одна колонка; nav → `Sheet` (бургер); плотные таблицы → card-стек ИЛИ h-scroll со sticky 1-й колонкой; модалки → full/bottom-sheet; тач-таргеты ≥44px; без hover-only |
-| **Планшет**   | 768           | 1–2 колонки; sidebar видим/collapsible; уплотнённые тулбары; формы 1–2 кол.                                                                                           |
-| **Ноутбук**   | 1024 / 1280   | полная desktop-раскладка (основной таргет операторов)                                                                                                                 |
-| **Большой**   | 1440 / 1920   | контент-колонки `max-w`-кап (не растягивать строки на сверхширине); таблицы/дашборды full-width                                                                       |
+| Class      | Widths (test) | Behavior                                                                                                                                                                           |
+| ---------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mobile** | 320 / 375     | single column; nav → `Sheet` (burger); dense tables → card stack OR h-scroll with a sticky 1st column; modals → full/bottom-sheet; touch targets ≥44px; no hover-only interactions |
+| **Tablet** | 768           | 1–2 columns; sidebar visible/collapsible; condensed toolbars; forms 1–2 cols.                                                                                                      |
+| **Laptop** | 1024 / 1280   | full desktop layout (the operators' main target)                                                                                                                                   |
+| **Large**  | 1440 / 1920   | content columns with a `max-w` cap (do not stretch lines on ultra-wide); tables/dashboards full-width                                                                              |
 
-**Мобильная адаптация компонентов (паттерны дизайн-системы — наследуют все экраны):**
+**Mobile adaptation of components (design-system patterns — inherited by all screens):**
 
-- **NavSidebar:** desktop `<aside>` ↔ мобайл `Sheet`-overlay (бургер). Эталон — app-shell.
-- **Плотная таблица:** desktop — таблица; мобайл — card-стек строк ИЛИ горизонтальный скролл со sticky первой колонкой + индикатор. НЕ обрезать колонки молча.
-- **Dialog / `CrmDialog`:** desktop — центр-модалка; мобайл — full-screen / bottom-sheet (`max-h-[90dvh]`, scroll body).
-- **Фильтры / тулбары:** desktop — в ряд; мобайл — wrap или свёртка в кнопку «Фильтры».
-- **Type-scale:** крупные заголовки — `clamp()` по необходимости; body читаем (≥14px) на мобайле.
-- **Тач:** интерактив ≥44px на мобайле (крупнее a11y-минимума 24px); действия видимы без hover.
+- **NavSidebar:** desktop `<aside>` ↔ mobile `Sheet` overlay (burger). The reference is app-shell.
+- **Dense table:** desktop — a table; mobile — a card stack of rows OR horizontal scroll with a sticky first column + an indicator. Do NOT silently cut off columns.
+- **Dialog / `CrmDialog`:** desktop — a centered modal; mobile — full-screen / bottom-sheet (`max-h-[90dvh]`, scroll body).
+- **Filters / toolbars:** desktop — in a row; mobile — wrap or collapse into a "Фильтры" button.
+- **Type-scale:** large headings — `clamp()` as needed; body readable (≥14px) on mobile.
+- **Touch:** interactive elements ≥44px on mobile (larger than the a11y minimum of 24px); actions visible without hover.
 
-- Стабильные размеры toolbar/grid/counters — не «прыгают» при hover / смене лейбла / класса устройства.
-- **Verification:** Playwright на тест-ширинах — нет горизонтального overflow страницы (`scrollWidth ≤ clientWidth`), всё достижимо, на мобайле тач-таргеты ок.
-
----
-
-## 11. Anti-patterns (AI-slop guardrails — Mode C ловит)
-
-- ❌ Purple-градиенты, decorative blobs, oversized hero, vague marketing-copy на рабочих экранах.
-- ❌ Карточка в карточке; единый радиус/отступ/тень везде без иерархии.
-- ❌ Жёлтый как декоративная заливка площадей / жёлтый фон под текст.
-- ❌ Generic «dashboard-by-numbers» без точки зрения; сырой shadcn-дефолт, выдаваемый за готовый дизайн.
-- ❌ Сырой hex/oklch в коде — только семантические токены.
-- ✅ Требование design-quality: каждый экран демонстрирует ≥4 качеств (иерархия масштабом, ритм, глубина
-  поверхностями, семантический цвет, designed hover/focus/active, данные как часть системы).
+- Stable toolbar/grid/counter sizes — they do not "jump" on hover / label change / device class change.
+- **Verification:** Playwright at the test widths — no horizontal page overflow (`scrollWidth ≤ clientWidth`), everything reachable, touch targets OK on mobile.
 
 ---
 
-## 12. Принцип редизайна (КРИТИЧНО — наследуют все фазы)
+## 11. Anti-patterns (AI-slop guardrails — Mode C catches these)
 
-Редизайн = **рестайл существующих блоков**: те же блоки, лейблы, наполнение данными, что на РЕАЛЬНОМ
-экране. Меняем ТОЛЬКО визуал/отступы/иерархию/расположение по канонам UI/UX. **Ничего нового не добавлять**
-(ни кнопок, ни KPI, ни виджетов), фичи не удалять, бизнес-логику/API/RBAC не трогать. Бриф каждого экрана —
-capture-grounded (реальный экран снят, блоки перечислены, явный запрет «add nothing not listed»).
+- ❌ Purple gradients, decorative blobs, oversized hero, vague marketing copy on working screens.
+- ❌ Card in a card; a single radius/spacing/shadow everywhere with no hierarchy.
+- ❌ Yellow as a decorative fill of large areas / a yellow background under text.
+- ❌ Generic "dashboard-by-numbers" with no point of view; raw shadcn defaults passed off as a finished design.
+- ❌ Raw hex/oklch in code — semantic tokens only.
+- ✅ Design-quality requirement: every screen demonstrates ≥4 qualities (hierarchy via scale, rhythm, depth
+  via surfaces, semantic color, designed hover/focus/active, data as part of the system).
+
+---
+
+## 12. Redesign principle (CRITICAL — inherited by all phases)
+
+Redesign = **restyle of existing blocks**: the same blocks, labels, data content as on the REAL
+screen. We change ONLY visuals/spacing/hierarchy/placement per UI/UX canons. **Add nothing new**
+(no buttons, no KPIs, no widgets), do not remove features, do not touch business logic/API/RBAC. Each screen's brief is
+capture-grounded (the real screen is captured, blocks are listed, an explicit "add nothing not listed" prohibition).
