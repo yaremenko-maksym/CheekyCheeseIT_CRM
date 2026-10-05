@@ -13,6 +13,13 @@ import { ProjectDropDialogs, type DropCandidate } from '../ProjectDropDialogs'
 vi.mock('@/lib/axios', () => ({
   api: { get: vi.fn(), post: vi.fn(), patch: vi.fn(), delete: vi.fn() },
 }))
+// Radix AvatarImage only mounts an <img> after a real image load (never in jsdom);
+// swap the avatar primitives for plain elements so the avatarUrl branch is observable.
+vi.mock('@/components/ui/avatar', () => ({
+  Avatar: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+  AvatarImage: ({ src }: { src: string }) => <img data-testid="avatar-img" src={src} alt="" />,
+  AvatarFallback: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+}))
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
 import { api } from '@/lib/axios'
@@ -67,10 +74,25 @@ describe('ProjectDropDialogs — picker', () => {
     expect(screen.getByText('Прив’язати дропа')).toBeTruthy()
     expect(screen.getByText('Іван Петренко')).toBeTruthy()
     expect(screen.getByText('maria@example.com')).toBeTruthy()
+    expect(screen.queryByText('Немає доступних дропів')).toBeNull()
+    expect(screen.queryByTestId('avatar-img')).toBeNull()
     expect(screen.getByTestId('assign-drop-btn-d1').textContent).toBe('Призначити')
     expect(screen.getByTestId('assign-drop-btn-d2').getAttribute('aria-label')).toBe(
       'Призначити Марія Шевченко дропом',
     )
+  })
+
+  it('renders an avatar image only for candidates that have an avatarUrl', () => {
+    setup({
+      dropPickerOpen: true,
+      dropCandidates: [
+        { ...CANDIDATES[0]!, avatarUrl: 'https://cdn.example.com/a.png' },
+        CANDIDATES[1]!,
+      ],
+    })
+    const imgs = screen.getAllByTestId('avatar-img')
+    expect(imgs).toHaveLength(1)
+    expect(imgs[0]!.getAttribute('src')).toBe('https://cdn.example.com/a.png')
   })
 
   it('shows the empty state when there are no candidates', () => {
@@ -128,6 +150,13 @@ describe('ProjectDropDialogs — detach confirm', () => {
     await waitFor(() => expect(onCloseDetachDropConfirm).toHaveBeenCalled())
     expect(api.patch).toHaveBeenCalledWith('/projects/proj-1', { dropId: null })
     expect(onCloseDropPicker).toHaveBeenCalled()
+  })
+
+  it('Escape closes via onCloseDetachDropConfirm only', async () => {
+    const { onCloseDropPicker, onCloseDetachDropConfirm } = setup({ detachDropConfirmOpen: true })
+    await userEvent.keyboard('{Escape}')
+    expect(onCloseDetachDropConfirm).toHaveBeenCalledTimes(1)
+    expect(onCloseDropPicker).not.toHaveBeenCalled()
   })
 
   it('cancel closes without any request', async () => {
