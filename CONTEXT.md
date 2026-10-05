@@ -7,11 +7,16 @@ Usage rules:
 
 - A term from `_Avoid_` in a PR body, a variable name, a test name or an agent report is a **review
   finding**, not a stylistic remark. We chose one word deliberately.
-- The Russian term is for communication and reports; the identifier in parentheses is how it is
-  named in code. Different languages, one concept; we do not introduce synonyms in either of them.
+- Each entry leads with the **English concept name** — that is the term for communication, reports
+  and the repo. The `product term: «…»` token and the `_Avoid_` list are **data**: they record the
+  ru/uk word the product and its UI actually show (and the ones to reject), not the language of this
+  file. The identifier in parentheses is how the concept is named in code. One concept, one word per
+  surface; we do not introduce synonyms. Russian itself is used only in the owner↔Claude direct chat
+  (see `.claude/rules/common/russian-language.md`), never in the repo or as "the glossary's language".
 - Since 2026-09-19 the product is bilingual (`uk` default / `en`, spec `docs/superpowers/specs/2026-09-19-crm-i18n-design.md`):
   each term will gain `uk` and `en` forms — added by the first PR of stage 3 (`web-core`), and those are
-  the source for the Lingui catalogs and for `copy-reviewer`. Until then the Russian form remains the glossary's language.
+  the source for the Lingui catalogs and for `copy-reviewer`. Until they land, the kept ru product-term
+  token stands in for the product form.
 - A concept is missing here but needed — that is a signal: either a language the project does not have
   is being invented (reconsider), or a real gap (add it here in the same PR).
 
@@ -125,10 +130,14 @@ for these project states
 **Members** (product term: «Состав»; `projectMembers`):
 Who participates in a project. A drop's membership is determined by the project's `dropId` field,
 **not** by a row in the members list — these are different mechanisms, and confusing them is costly.
+Note: the preferred term is the project's membership roster (`projectMembers`); «участники» is avoided as a
+looser synonym, and «команда проекта» is avoided because «команда» is a separate entity (`teams`), not this roster.
 _Avoid_: «команда проекта» («команда» has its own entity `teams`), «участники»
 
 **Interview** (product term: «Собеседование»; `interviews`):
 A candidate on the kanban with a stage (`interviewStageEnum`). A stage is the candidate's state, not a task.
+Note: the preferred term is the hiring process as an entity (the kanban card); «интервью» is avoided as a
+bare loanword synonym for that same thing, and «кандидат» is avoided because it names the person, not the process.
 _Avoid_: «интервью», «кандидат» (a candidate is a person, an interview is a process)
 
 **Vacancy** (product term: «Вакансия»; `vacancies`):
