@@ -7,11 +7,11 @@ Single source of truth для **factual state of the project**: фазы, миг
 
 | Информация               | Update owner | Когда                                  |
 | ------------------------ | ------------ | -------------------------------------- |
-| Phase status             | PM/BA        | После каждого merge                    |
-| Drizzle migrations       | PM/BA        | После `db:generate`                    |
-| RBAC матрица             | BA           | При изменении логики                   |
+| Phase status             | Master       | После каждого merge                    |
+| Drizzle migrations       | Master       | После `db:generate`                    |
+| RBAC матрица             | Master       | При изменении логики                   |
 | Канонические версии      | DevOps       | При upgrade (тогда же — `RULES.md` §7) |
-| Shared schemas inventory | Coder/BA     | При добавлении нового модуля           |
+| Shared schemas inventory | Coder/Master | При добавлении нового модуля           |
 | Tech gotchas             | Coder        | При discovery                          |
 
 ---
@@ -29,7 +29,7 @@ Single source of truth для **factual state of the project**: фазы, миг
 - [x] **DROP роль**: payment-routing (`dropSharePercent`, `payout_requests`, `pending_obligations`)
 - [x] **PHASE 8**: **«Счёт компании» (USDT ERC-20)** ✅ closed — единый кошелёк; верификация прихода по ссылке на tx (etherscan + прогресс-бар блоков, idempotent по `txHash`); ADMIN-дивиденды; salary/expense/admin-income + drop-payout через счёт компании. **НЕ on-chain** (смарт-контракты отменены владельцем 2026-06-17). PR #249–#265 (+ #277 throttle). Детали — §1.1
 - [ ] **PHASE 9**: Дашборд — частично устарел (per-role дашборды уже в корне `/` #223); переопределить = generic ADMIN/SENIOR дашборд (#231 MED-defer) + cross-role аналитика. См. ADR 2026-06-17 Part 3(c)
-- **Текущий фокус (2026-06-22):** плавная миграция дизайна в **Claude Design** (design-gate Tier 1/2, экран за экраном; пилот — HR-дашборд). Cross-cutting UI, не нумерованная фаза. Затем PHASE 9.
+- **Текущий фокус (снэпшот 2026-06-22, мог устареть — сверять с `git log` и бэклогом; сюда перенесён из CLAUDE.md 2026-10-05):** плавная миграция дизайна в **Claude Design** (design-gate Tier 1/2, экран за экраном; пилот — HR-дашборд). Cross-cutting UI, не нумерованная фаза. Затем PHASE 9.
 
 ### 1.1. PHASE 8 — реализовано ✅ (ПЕРЕОПРЕДЕЛЕНО 2026-06-17; смарт-контракты отменены)
 
@@ -237,7 +237,7 @@ Single Source of Truth для всех типов. Frontend и backend импо�
 | `e2e-watchdog.yml`        | scheduled / events                   | Контроль E2E                                      |
 | `labels-sync.yml`         | scheduled                            | Sync labels                                       |
 
-PM диспетчит Coder/Reviewer/AutoTest/DevOps **локально** через `Agent(isolation="worktree")`. Любые упоминания «PM запускает `gh workflow run coder.yml`» в старых docs — устарело.
+Master диспетчит Coder/Reviewer/AutoTest/DevOps **локально** через `Agent(isolation="worktree")`. Любые упоминания «PM запускает `gh workflow run coder.yml`» в старых docs — устарело.
 
 ---
 

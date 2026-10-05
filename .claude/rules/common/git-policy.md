@@ -1,7 +1,7 @@
 # Rule: Git policy — commit hygiene & forbidden patterns
 
 **Status:** Always-on
-**Applies to:** All write-agents (Coder, AutoTest, DevOps), with applicable subset for PM / Architect / Reviewer when they touch git.
+**Applies to:** All write-agents (Coder, AutoTest, DevOps), with applicable subset for Master / Architect / Reviewer when they touch git.
 **Source:** Project hard requirement (CLAUDE.md + `.clauderules`) + 2026-06-02 RCA on `--no-verify` recurrence + 2026-05-23 dev-flow RCA (D3 = AC verification at push).
 
 ---
@@ -28,7 +28,7 @@
 | `git stash` → restore                                                 | `git reset --hard origin/main` без warning                       | Уничтожает локальную работу.                                                                                                        |
 | Дождаться зелёных checks → squash через label `merge-approved`        | `gh pr merge --admin`                                            | Обходит branch protection (required checks).                                                                                        |
 
-CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на PR если в diff появилась строка `--no-verify`. Reviewer выдаёт `Verdict: BLOCK`. PM не приближается к `merge-approved` label.
+CI hard-блок: `.github/workflows/check-no-skip-hooks.yml` падает на PR если в diff появилась строка `--no-verify`. Reviewer выдаёт `Verdict: BLOCK`. `merge-approved` ставит только Master/owner — и только по явному «мерджим» владельца.
 
 ## Commit message format
 

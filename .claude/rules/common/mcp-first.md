@@ -1,7 +1,7 @@
 # Rule: MCP-first tool priority
 
 **Status:** Always-on
-**Applies to:** All agents (PM, BA, Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents)
+**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (оркестратор)
 **Source:** Project hard requirement (CLAUDE.md "MCP серверы — ИСПОЛЬЗОВАТЬ В ПЕРВУЮ ОЧЕРЕДЬ") + Phase 2.5 activation of `eslint` MCP
 
 ---
@@ -35,14 +35,14 @@ MCP-инструмент подходит? → использовать MCP
 
 ## Native tools (когда MCP не подходит)
 
-| Tool    | Когда                                             | Когда НЕ                              |
-| ------- | ------------------------------------------------- | ------------------------------------- |
-| `Read`  | Конкретный файл целиком / диапазон строк          | Поиск (есть ast-grep)                 |
-| `Edit`  | Точечные правки в существующем файле              | Полная перезапись (используй `Write`) |
-| `Write` | Создать новый файл / полная перезапись            | Без `Read` существующего файла        |
-| `Bash`  | `git`, `gh`, `pnpm`, операции без MCP             | Там где есть MCP                      |
-| `Agent` | Параллельная / изолированная задача (PM → агенты) | Простые однофайловые задачи           |
-| `Skill` | Вызов superpowers (см. `skills-invocation.md`)    | —                                     |
+| Tool    | Когда                                                 | Когда НЕ                              |
+| ------- | ----------------------------------------------------- | ------------------------------------- |
+| `Read`  | Конкретный файл целиком / диапазон строк              | Поиск (есть ast-grep)                 |
+| `Edit`  | Точечные правки в существующем файле                  | Полная перезапись (используй `Write`) |
+| `Write` | Создать новый файл / полная перезапись                | Без `Read` существующего файла        |
+| `Bash`  | `git`, `gh`, `pnpm`, операции без MCP                 | Там где есть MCP                      |
+| `Agent` | Параллельная / изолированная задача (Master → агенты) | Простые однофайловые задачи           |
+| `Skill` | Вызов superpowers (см. `skills-invocation.md`)        | —                                     |
 
 ## Конкретные правила (mandatory)
 

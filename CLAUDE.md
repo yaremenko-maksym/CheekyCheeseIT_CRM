@@ -4,7 +4,7 @@
 > Новые факты о проекте (фазы, миграции, RBAC, бизнес-правила, gotchas) пишутся в
 > `.claude/agents/project-state.md` — это single source of truth. Сюда — только если
 > изменилась карта указателей или верхнеуровневый статус.
-> Ревизия: 2026-06-11 (context diet: 537 → ~120 строк; ECC-пак прорежен; добавлен light-track).
+> Ревизия: 2026-10-05 (снят датированный статус-снэпшот; статус — только в project-state.md).
 
 ## Проект
 
@@ -35,7 +35,7 @@ CRM для рекрутинговых воркспейсов (outsource/outstaff
 | Cross-agent state machine                                                                   | `.claude/agents/contracts.md`                                                      |
 | Активные task-файлы                                                                         | `.claude/tasks/`                                                                   |
 | ADR, deliverables, RCA                                                                      | `docs/architecture/`                                                               |
-| Бизнес-доки (BA)                                                                            | `docs/business/`                                                                   |
+| Бизнес-доки                                                                                 | `docs/business/`                                                                   |
 | Юр. драфты контрактов                                                                       | `docs/legal/`                                                                      |
 | Уроки агентов                                                                               | `.claude/agents/memory/<agent>/lessons.md`                                         |
 
@@ -69,33 +69,31 @@ docker-compose up -d                           # Postgres + Redis локальн
 
 ## Multi-agent команда
 
-Все агенты запускаются **локально** через `Agent` tool (PM — `isolation=worktree`).
+**Master (USER-сессия) — оркестратор.** Он напрямую диспатчит агентов **локально** через
+`Agent` tool (`isolation=worktree` для пишущих) и сам исполняет оркестрацию: декомпозиция в
+task-файлы (`.claude/tasks/`), запуск волнами, мониторинг, агрегатный вердикт, label-гейтинг,
+User Testing. Отдельного PM-агента нет (удалён 2026-10-05; детали — `contracts.md`).
 GHA-воркфлоу агентов в `.github/workflows/archive/` — устарели, не использовать.
 
-| Агент                                          | Роль                                                            |
-| ---------------------------------------------- | --------------------------------------------------------------- |
-| Master (user-сессия)                           | Инфраструктура агентов, мета-работа, лёгкий трек                |
-| BA                                             | Бизнес-анализ → `.claude/briefs/pm-brief-<slug>.md`             |
-| PM                                             | Декомпозиция → параллельный диспетч → мониторинг → User Testing |
-| Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write   |
-| spec-reviewer                                  | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep)  |
-| code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC      |
-| manual-qa / ui-ux-designer / legal / architect | Visual QA на реальном стеке / дизайн / юр. / ADR                |
+| Агент                                          | Роль                                                                                                 |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Master (USER-сессия)                           | Оркестратор: декомпозиция → диспетч → мониторинг → User Testing; инфраструктура агентов; лёгкий трек |
+| Coder / AutoTest / DevOps                      | Реализация / E2E-спеки / CI-CD — каждый в своей zone-of-write                                        |
+| spec-reviewer                                  | Вторая ось ревью: дифф ↔ задание (непокрытые AC / scope creep)                                       |
+| code-reviewer + security-reviewer              | Review; security-reviewer ОБЯЗАТЕЛЕН для auth/finance/RBAC                                           |
+| copy-reviewer                                  | Ревью клиентского/кандидатского текста (мультиязычно)                                                |
+| manual-qa / ui-ux-designer / legal / architect | Visual QA на реальном стеке / дизайн / юр. / ADR (ad-hoc)                                            |
 
-**Полный pipeline:** BA → pm-brief → PM → task-файлы (`.claude/tasks/`) → параллельные агенты →
-PR → review (все находки H/M/L резолвятся) → User Testing → явное «мерджим» от USER →
-label `merge-approved` → CI squash-merge.
-**Лёгкий трек** (мелкие правки без PM-церемонии): `.claude/rules/common/light-track.md`.
+**Поток разработки:** Master декомпозирует задачу → task-файлы (`.claude/tasks/`) →
+диспатч агентов (волнами) → PR → review-агенты (все находки H/M/L резолвятся) →
+ad-hoc manual-qa User Testing → явное «мерджим» от USER →
+label `merge-approved` (ставит только Master/owner) → CI squash-merge.
+**Лёгкий трек** (мелкие правки без церемонии): `.claude/rules/common/light-track.md`.
 
-## Статус (снэпшот 2026-06-22)
+## Статус
 
-- **PHASE 1–7 ✅**: Layout · Команда · Проекты · Канбан собеседований · Финансы
-  (рефактор → `payout_requests`/`pending_obligations`) · Документы (S3-совместимо: dev RustFS / prod R2) ·
-  Профили + Легенда per-project (#150, #164)
-- **Контракты + Онбординг ✅** · **DROP-роль ✅** (вне исходного 9-фазного плана)
-- **PHASE 8 ✅** — «Счёт компании» (USDT ERC-20; **НЕ on-chain**, смарт-контракты отменены 2026-06-17): верификация tx по ссылке + дивиденды ADMIN + общий счёт. PR #249–#265.
-- **Сейчас:** плавная миграция дизайна в **Claude Design** (design-gate, экран за экраном). **Дальше:** PHASE 9 — дашборд
-- Детальный чеклист фаз — `project-state.md` §1
+Фазы, текущий фокус и открытые направления — **только** в `.claude/agents/project-state.md` §1.
+Сюда не копируются: датированный снэпшот в always-loaded файле устаревает молча.
 
 ## Сессионный минимум
 

@@ -113,5 +113,37 @@ fi
 # no server, same cost class as every other package's typecheck -- so it is
 # NOT excluded from the first call; a diff limited to apps/e2e/** still gets
 # typechecked, just never gets Playwright.
+# typecheck keeps the "...[$base]" (changed packages AND their dependents):
+# it is cheap (plain tsc --noEmit, no server/browser) and catches the most
+# common cross-package regression there is -- a changed shared type breaking
+# every package that consumes it -- which is exactly the class worth paying
+# for locally before a push.
 pnpm exec turbo run typecheck --filter="...[$base]" --concurrency=1
-pnpm exec turbo run test --filter="...[$base]" --filter="!@crm/e2e" --concurrency=1
+
+# TEST uses "[$base]" (changed packages ONLY, no leading "..." -> no
+# dependents) -- deliberately NARROWER than typecheck above.
+# (durable pre-push lightening, 2026-10-05)
+#
+# Why: this hook was already package-scoped (backlog 140), but a single
+# packages/shared edit still expanded via "...[$base]" to shared+api+web+
+# landing and ran all four full vitest suites sequentially -- the dominant
+# cost left in the hook and the thing that timed pushes out under
+# concurrent-agent CPU load. Narrowing TEST to directly-changed packages
+# keeps the high-value local signal ("the package I actually edited still
+# passes its own tests before I push") while deferring dependents' BEHAVIORAL
+# verification to CI.
+#
+# Why this is safe, not a hole: CI's required checks run the full, unscoped
+# suite on the PR regardless of what this local hook decided (see
+# .github/workflows/ci.yml) -- a dependent-package behavioral regression a
+# shared change introduces is still caught there before merge. And the
+# cross-package regression most likely to slip (a shared type/contract
+# change) is a TYPE break, which the typecheck line above still catches
+# locally with full dependent coverage. What moves to CI-only is the narrow
+# case of a shared change that breaks a dependent's RUNTIME behavior without
+# breaking its types -- rare, and never merged because CI blocks it.
+#
+# Escape hatch: PREPUSH_FULL=1 git push  (runs the full unscoped suite,
+# dependents included -- see run_full_suite above) for anyone who wants the
+# old dependents-included local test run before opening a cross-package PR.
+pnpm exec turbo run test --filter="[$base]" --filter="!@crm/e2e" --concurrency=1

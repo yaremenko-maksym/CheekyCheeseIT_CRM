@@ -41,9 +41,9 @@ mcp__github__create_pull_request_review({
 })
 ```
 
-**Decision rule для PM:**
+**Decision rule для Master:**
 
-- PM парсит `Verdict: BLOCK` в первой строке → снимает `awaiting-pm-review` → ставит `do-not-merge` → создаёт fix-task для Coder.
+- Master парсит `Verdict: BLOCK` в первой строке → снимает `awaiting-pm-review` → ставит `do-not-merge` → создаёт fix-task для Coder.
 - `Verdict: APPROVE` (или отсутствие BLOCK marker) → продолжает Mode 2 aggregate verdict logic.
 
 ### 2. Write-then-post pattern (MCP hang recovery)
@@ -56,7 +56,7 @@ mcp__github__create_pull_request_review({
 2. `Write` файл `/tmp/reviewer-output/pr-<N>-<TS>.md` с body.
 3. `mcp__github__create_pull_request_review` — Attempt #1.
 4. Если MCP hangs / fails → `gh api repos/.../pulls/<N>/reviews -X POST -F event=COMMENT -F body=@/tmp/reviewer-output/pr-<N>-<TS>.md` — Attempt #2 (Bash fallback).
-5. Если оба провалились → PM Mode 2.F recovery: PM читает файл и постит вручную.
+5. Если оба провалились → Master recovery: Master читает файл и постит вручную.
 
 **Для security-reviewer:** Аналогично, путь `/tmp/security-reviewer-output/pr-<N>-<TS>.md`.
 
@@ -66,7 +66,7 @@ mcp__github__create_pull_request_review({
 
 **Coder forbidden zones (от 2026-05-23 D1-D4 RCA):**
 
-- `scripts/pm/**` (PM-only)
+- `scripts/pm/**` (Master-only)
 - `scripts/devops/**` (DevOps-only)
 - `.claude/agents/**` (Architect-only)
 - `docs/business/**` (BA-only)
@@ -94,9 +94,9 @@ gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|script
 
 ### 5. Owner==reviewer also affects approve flow
 
-**Правило:** В CRM единый AI-owner — это значит `event: APPROVE` тоже не может прийти от того же account что author. Когда code-reviewer/security-reviewer хочет APPROVE — использовать `event: COMMENT` + первая строка `Verdict: APPROVE`. PM парсит так же как BLOCK.
+**Правило:** В CRM единый AI-owner — это значит `event: APPROVE` тоже не может прийти от того же account что author. Когда code-reviewer/security-reviewer хочет APPROVE — использовать `event: COMMENT` + первая строка `Verdict: APPROVE`. Master парсит так же как BLOCK.
 
-**Real impact:** GitHub UI на PR покажет review как "comment" с emoji, но aggregate verdict logic в PM Mode 2 работает корректно (парсит Verdict: line, не event type).
+**Real impact:** GitHub UI на PR покажет review как "comment" с emoji, но aggregate verdict logic Master работает корректно (парсит Verdict: line, не event type).
 
 ### 6. Свой чекаут — и доказательство, что он соответствует ревьюируемому коммиту
 
@@ -149,7 +149,7 @@ git worktree remove "$CHECKOUT"
 Checkout: <abs path> @ <sha> (clean)
 ```
 
-Два ревьюера с одинаковым `Checkout:` = коллизия каталогов, видна PM в аггрегате.
+Два ревьюера с одинаковым `Checkout:` = коллизия каталогов, видна Master в аггрегате.
 
 **Красные линии:**
 
@@ -181,9 +181,9 @@ Findings: CR-H-1, CR-H-2, CR-M-1 (3)
 | ❌ Don't                                                                   | ✅ Do                                                                         |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `event: REQUEST_CHANGES` для блокировки ИЛИ `event: APPROVE` для одобрения | `event: COMMENT` + первая строка `Verdict: BLOCK` \| `Verdict: APPROVE`       |
-| `mcp__github__create_pull_request_review` без предварительного `Write`     | Write file → MCP → gh fallback → PM recovery (chain)                          |
+| `mcp__github__create_pull_request_review` без предварительного `Write`     | Write file → MCP → gh fallback → Master recovery (chain)                      |
 | Игнор diff trojan-changes в `scripts/pm/**` / `.github/workflows/**`       | Auto-BLOCK + конкретные file paths в body                                     |
-| Post review с LOW finding в теле                                           | LOW only в summary для PM, НЕ в PR body (см. ECC Pre-Report Gate)             |
+| Post review с LOW finding в теле                                           | LOW only в summary для Master, НЕ в PR body (см. ECC Pre-Report Gate)         |
 | BLOCK без указания конкретной строки кода / link to rule                   | Каждый HIGH finding с file:line + reference на `.clauderules` / coder.md zone |
 | Работать в каталоге из номера PR (`/tmp/rev<PR>`) или в чужом worktree     | Свой чекаут из своего идентификатора + строка `Checkout: <path> @ <sha>` (§6) |
 | Откатывать файл для проверки красноты в живом дереве работающего агента    | Тот же откат в СВОЁМ чекауте нужного коммита (§6)                             |
@@ -198,12 +198,12 @@ Findings: CR-H-1, CR-H-2, CR-M-1 (3)
   - `.claude/agents/code-reviewer.md` §"Confidence policy (Pre-Report Gate)" — HIGH/MED/LOW levels
   - `.claude/agents/security-reviewer.md` §"Confidence policy" — OWASP-tagged HIGH
 - Related agent docs:
-  - `.claude/agents/pm.md` Mode 2 (aggregate verdict logic + Mode 2.F review timeout)
+  - `.claude/agents/contracts.md` §4 (aggregate verdict logic + review-timeout recovery)
   - `.claude/agents/coder.md` §"Zone-of-write" (full forbidden list)
 - Related rules (§6–§7, added 2026-08-17):
   - `.claude/rules/common/agent-isolation.md` — почему каталог выводится из своего идентификатора; что уже гейтит харнесс, а что — хуки
   - `.claude/rules/common/review-findings-transfer.md` — перенос находок по идентификаторам, отчёт по каждой
   - `docs/architecture/2026-08-17-agent-collision-mechanics.md` — разбор инцидентов #493 / #551 / #504
 - Related skills:
-  - `dev-flow-resilience` (write-then-post — same pattern, applied to Coder/PM)
+  - `dev-flow-resilience` (write-then-post — same pattern, applied to Coder/Master)
   - `superpowers:requesting-code-review`

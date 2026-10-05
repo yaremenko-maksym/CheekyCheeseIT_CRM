@@ -1,7 +1,13 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/landing/**'
+---
+
 # Rule: Responsive design — CRM usable on any device (mandatory)
 
 **Status:** Always-on
-**Applies to:** Coder, ui-ux-designer, code-reviewer, manual-qa, PM (dispatch — AC), оркестратор (генерация дизайна)
+**Applies to:** Coder, ui-ux-designer, code-reviewer, manual-qa, Master/оркестратор (dispatch — AC, генерация дизайна)
 **Source:** Запрос владельца 2026-06-23 — «хочу пользовать CRM с любого девайса; весь интерфейс должен иметь мобильный / планшетный / ноутбучный / большой-экран адаптив; дизайн-систему адаптировать под мобильную версию».
 
 ---
@@ -43,7 +49,7 @@
 
 ## Mandatory enforcement
 
-- **PM/оркестратор (dispatch):** каждая UI-задача несёт explicit **responsive AC** (4 класса + тест-ширины).
+- **Master/оркестратор (dispatch):** каждая UI-задача несёт explicit **responsive AC** (4 класса + тест-ширины).
 - **Генерация дизайна (Claude Design) — дизайн сразу под ВСЕ классы (ОБЯЗАТЕЛЬНО):** бриф ОБЯЗАН требовать
   фреймы для 4 классов (320 мобайл · 768 планшет · 1024 ноут · 1440 большой) + состояния
   (default/empty/loading/error) на каждом — НЕ «десктоп, потом адаптив». После генерации проверить, что

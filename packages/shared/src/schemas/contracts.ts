@@ -196,7 +196,7 @@ export interface ContractTemplateRow {
  *
  * This is the single source of truth for variable names used in:
  *   - Backend: SignedContractsService.interpolateVariables() — types the variables map
- *   - Frontend: contract-variables.ts — re-exports braced form for the admin hint panel
+ *   - Frontend: the admin hint panel and template authoring UI (braced form)
  *
  * `contractNumber` is generated server-side (CHK-N-YYYY) and not resolved via
  * interpolateVariables — included for admin documentation purposes only (see
@@ -219,7 +219,7 @@ export interface ContractTemplateRow {
  * (the requesting admin's) locale via `@RequestLocale()`, not
  * `user.locale` (the employee whose contract it is). Every other consumer
  * (`AddCustomVariableDialog.tsx`, `contractTokenHighlight.ts`,
- * `use-contract-tokens.ts`, `contracts.$role.tsx`, `contract-variables.ts`)
+ * `use-contract-tokens.ts`, `contracts.$role.tsx`)
  * reads only `Object.keys(...)` for the known-key set — unaffected by the
  * value type change (verified: `git grep -n CONTRACT_VARIABLE_DESCRIPTIONS`
  * across apps/web + apps/api).

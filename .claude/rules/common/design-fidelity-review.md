@@ -1,7 +1,13 @@
+---
+paths:
+  - 'apps/web/**'
+  - 'apps/landing/**'
+---
+
 # Rule: Design-fidelity review — макет ↔ localhost diff на ВСЕХ экранах (mandatory gate)
 
-**Status:** Always-on (hard-гейт; reviewer-enforced + PM-aggregate)
-**Applies to:** ui-ux-designer (исполнитель Mode B), PM (aggregate/dispatch), code-reviewer (проверка наличия+покрытия), manual-qa (живое поведение), оркестратор/Master
+**Status:** Always-on (hard-гейт; reviewer-enforced + Master-aggregate)
+**Applies to:** ui-ux-designer (исполнитель Mode B), Master (aggregate/dispatch), code-reviewer (проверка наличия+покрытия), manual-qa (живое поведение)
 **Source:** Запрос владельца 2026-06-23 — «в тест-пайплайн добавить ревьюера, который сравнивает макет и localhost на различия и на разных экранах» + «дизайн делать сразу под все экраны». Цель программы редизайна: **дизайн = UI source of truth**.
 
 ---
@@ -32,8 +38,8 @@
   - `PASS` — совпадает на всех классах (мелкие нюансы в допуске).
   - `ISSUES` — найдены расхождения → fix перед merge (по строгости = код-BLOCK).
   - `BLOCK` — заметный дрейф / класс не покрыт / референса нет там, где он должен быть.
-- **PM (aggregate).** Для UI-PR fidelity-вердикт — ОБЯЗАТЕЛЬНАЯ часть `designer_review_done`
-  (`{ visual_verdict, fidelity_verdict, fidelity_issues }`). Нет fidelity-комментария с покрытием всех
+- **Master (aggregate).** Для UI-PR fidelity-вердикт — ОБЯЗАТЕЛЬНАЯ часть designer-результата
+  (visual verdict + fidelity verdict + список issues). Нет fidelity-комментария с покрытием всех
   классов → aggregate НЕПОЛНЫЙ, вернуть designer на дорасследование (как Manual QA без design-рубрики).
   `Fidelity: ISSUES|BLOCK` → `do-not-merge` + fix-task кодеру.
 - **`code-reviewer`.** Проверяет, что fidelity-комментарий есть И покрывает ВСЕ классы (не desktop-only).
@@ -59,7 +65,7 @@ Fidelity-diff невозможен без макетов на все класс�
   `foundation.md`; в PR body отметить `fidelity: degraded` с причиной. **Responsive-проверка всех классов
   на localhost остаётся обязательной** (overflow / обрезание / тач-таргеты) — деградирует только «эталон»,
   НЕ покрытие устройств.
-- **В артефакте только десктоп-макет** → минимум `320 + 1440` сравнение + эскалация PM (Tier 3 degradation).
+- **В артефакте только десктоп-макет** → минимум `320 + 1440` сравнение + эскалация Master (Tier 3 degradation).
 
 ## Связанные правила
 

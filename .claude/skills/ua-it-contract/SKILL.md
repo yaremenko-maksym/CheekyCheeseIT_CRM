@@ -105,7 +105,7 @@ UA-specific IT-contract risk patterns. Лифтнуто из `.claude/agents/mem
 - Defensive registration UA Mintsipo ~₴3-5k госмыта + ₴8-15k юрист
 - Decision о rebrand vs defend
 
-**PM-lesson (cross-cutting):** **Verify brand ownership ДО assumption в consultations** — спрашувати owner-name з WIPO record, не assume з link.
+**Урок (cross-cutting):** **Verify brand ownership ДО assumption в consultations** — спрашувати owner-name з WIPO record, не assume з link.
 
 ### 6. Mode B (PR-review) checklist — contracts triggers
 

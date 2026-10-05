@@ -1,7 +1,7 @@
 # Rule: Skills invocation policy (mandatory triggers)
 
 **Status:** Always-on
-**Applies to:** All agents (PM, BA, Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents)
+**Applies to:** All agents (Coder, AutoTest, Reviewer, DevOps, Legal, Architect, plus ECC-imported agents) + Master (оркестратор)
 **Source:** ECC AGENTS.upstream §"Workflow Surface Policy" (skills as canonical surface) + Phase 4 deliverable (skills lifted from lessons.md) + superpowers framework expectations.
 
 ---
@@ -10,7 +10,7 @@
 
 Если **trigger applies** — агент **обязан** вызвать skill через `Skill` tool, а не «помнить» pattern. Если skill отсутствует в окружении — `Skill` tool падает с ошибкой, это explicit failure (лучше silent skip).
 
-В финальном отчёте — указать какие skills вызывал. PM проверяет.
+В финальном отчёте — указать какие skills вызывал. Master проверяет.
 
 ## `when_to_use` дублируется в самих скиллах
 
@@ -26,7 +26,7 @@
 | Trigger                                                                          | Skill                                        | Agents                               |
 | -------------------------------------------------------------------------------- | -------------------------------------------- | ------------------------------------ |
 | Сессия начинается (любая)                                                        | `superpowers:using-superpowers`              | All                                  |
-| Любая creative задача (фича / UI / behavior change)                              | `superpowers:brainstorming`                  | BA, PM, Coder                        |
+| Любая creative задача (фича / UI / behavior change)                              | `superpowers:brainstorming`                  | Master, Coder                        |
 | Multi-step task — перед implementation                                           | `superpowers:writing-plans`                  | Coder, DevOps                        |
 | Любая feature / fix — перед implementation                                       | `superpowers:test-driven-development`        | Coder                                |
 | Баг / test failure / unexpected behavior                                         | `superpowers:systematic-debugging`           | All                                  |
@@ -37,15 +37,15 @@
 | После написания кода (cleanup)                                                   | `simplify`                                   | Coder                                |
 | Новая страница / сложный UI component                                            | `frontend-design:frontend-design`            | Coder                                |
 | Пишешь / правишь текст, видимый клиенту или кандидату                            | `copywriting`                                | Coder, ui-ux-designer, copy-reviewer |
-| Need isolated workspace (parallel work)                                          | `superpowers:using-git-worktrees`            | PM (Coder dispatch)                  |
-| Implementation plan execution                                                    | `superpowers:executing-plans`                | PM, Coder                            |
-| Multi-task dispatch                                                              | `superpowers:dispatching-parallel-agents`    | PM                                   |
-| Branch ready to merge (готовится PR)                                             | `superpowers:finishing-a-development-branch` | Coder, PM                            |
-| Memory consolidation / dedup (после merged PR)                                   | `anthropic-skills:consolidate-memory`        | PM                                   |
+| Need isolated workspace (parallel work)                                          | `superpowers:using-git-worktrees`            | Master (Coder dispatch)              |
+| Implementation plan execution                                                    | `superpowers:executing-plans`                | Master, Coder                        |
+| Multi-task dispatch                                                              | `superpowers:dispatching-parallel-agents`    | Master                               |
+| Branch ready to merge (готовится PR)                                             | `superpowers:finishing-a-development-branch` | Coder, Master                        |
+| Memory consolidation / dedup (после merged PR)                                   | `anthropic-skills:consolidate-memory`        | Master                               |
 | Развилка, которую не решить из task-файла (до `.blocked.md` / вопроса владельцу) | `decision-frontier`                          | All                                  |
 | Баг сопротивляется / E2E флакает / регрессия / «тормозит»                        | `diagnosing-bugs`                            | All                                  |
 | Проектирование интерфейса модуля / выбор шва / «нет шва под тест»                | `codebase-design`                            | Coder, Architect, code-reviewer      |
-| Идёт merge/rebase с конфликтом; стек на схлопнутой базе                          | `resolving-merge-conflicts`                  | Coder, PM, DevOps                    |
+| Идёт merge/rebase с конфликтом; стек на схлопнутой базе                          | `resolving-merge-conflicts`                  | Coder, Master, DevOps                |
 | Вопрос дизайна не решается на бумаге (как выглядит / как ведёт себя)             | `prototype`                                  | Coder, ui-ux-designer                |
 | Ответ лежит ВНЕ репозитория (библиотека / чужой API / спека / закон)             | `external-research`                          | All                                  |
 | Пишешь или чистишь правило / промпт агента / SKILL.md / CLAUDE.md                | `writing-for-agents`                         | Architect, Master                    |
@@ -63,13 +63,12 @@ Project-local + импортированные skills под `.claude/skills/` (
 | `ua-crypto-compliance`        | Legal mode A / B при упоминании USDT / VASP / AML.                                                                                    |
 | `ua-it-contract`              | Legal mode A / B на IT contract review (SENIOR / клиент).                                                                             |
 | `legal-escalation-patterns`   | Cross-cutting Legal escalation (когда вовлекать external lawyer).                                                                     |
-| `claude-design-workflow`      | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2).             |
-| `pm-dispatching`              | PM диспатчит агента / запускает PR / CI / User Testing — загрузка `pm-snippets.md`. **(project-local)**                               |
+| `claude-design-workflow`      | Оркестратор (Master / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2).                  |
 | `accessibility`               | UI/UX Designer / Coder: WCAG 2.2 AA — ARIA / focus / contrast / target size. **(origin: ECC)**                                        |
 | `design-system`               | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection. **(origin: ECC)**                                           |
 | `frontend-design-direction`   | UI/UX Designer Mode A: purpose / audience / tone / memorable detail. **(origin: community)**                                          |
 | `make-interfaces-feel-better` | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas. **(origin: community)**                  |
-| `codebase-audit`              | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out → synth). **(project-local, 2026-06-22)**                  |
+| `codebase-audit`              | Master: read-only breadth-first аудит ≥3 независимых модулей (fan-out → synth). **(project-local, 2026-06-22)**                       |
 | `security-review`             | security-reviewer (каждый dispatch) / Coder до написания endpoint'а на auth-finance-RBAC путях. **(project-local, 2026-07-28)**       |
 | `copywriting`                 | Любой текст для клиента/кандидата: заголовки, CTA, микрокопия, вакансии. Мультиязычно en/uk/ru/es/pt. **(project-local, 2026-08-04)** |
 | `decision-frontier`           | Развилка без владельца за клавиатурой: дерево решений → гашение фактами → классификация A1/A2/A3. **(project-local, 2026-08-22)**     |
@@ -81,7 +80,7 @@ Project-local + импортированные skills под `.claude/skills/` (
 | `writing-for-agents`          | Письмо и прополка документов, которые читают агенты. **(origin: mattpocock/skills, 2026-08-22)**                                      |
 
 Phase 4 заложила 7 (`playwright-patterns` … `legal-escalation-patterns`); далее добавлены/импортированы:
-`pm-dispatching` (project-local snippet-loader), `claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
+`claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
 (`accessibility`/`design-system` — origin ECC; `frontend-design-direction`/`make-interfaces-feel-better` —
 origin community); `codebase-audit` (project-local, 2026-06-22 — read-only audit-fanout, см.
 `orchestration-routing.md` Решение 2); `security-review` (project-local, 2026-07-28 — см. ниже);
@@ -89,7 +88,7 @@ origin community); `codebase-audit` (project-local, 2026-06-22 — read-only aud
 `diagnosing-bugs`, `codebase-design`, `resolving-merge-conflicts`, `prototype`,
 `writing-for-agents` — адаптированы из `mattpocock/skills`, см.
 `docs/architecture/2026-08-22-afk-pipeline-migration.md`).
-**Итого 23 на диске** (`ls .claude/skills/`); таблица выше —
+**Итого 22 на диске** (`ls .claude/skills/`; скилл диспатча PM удалён 2026-10-05 вместе с PM-агентом); таблица выше —
 источник истины. Каждый — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
 
 ## Дрейф таблицы относительно установленных паков (проверять при обновлении плагинов)
@@ -152,7 +151,7 @@ Per ECC `AGENTS.upstream.md` §"Workflow Surface Policy":
 
 ## Anti-patterns
 
-- **Mandatory table в `<agent>.md` без актуального trigger** — skill становится "discoverable in theory" но never invoked. PM при review агентов проверяет: `grep skill-name .claude/agents/*.md`.
+- **Mandatory table в `<agent>.md` без актуального trigger** — skill становится "discoverable in theory" но never invoked. Master при review агентов проверяет: `grep skill-name .claude/agents/*.md`.
 - **«Помнить» pattern вместо `Skill(name)`** — каждый skill content evolves; sessions без invocation работают со stale знанием.
 - **Создать SKILL.md с < 3 substantive patterns** — Phase 4 deliverable отфильтровала 3 candidate skills как SKIP. Не создавай empty shells.
 
