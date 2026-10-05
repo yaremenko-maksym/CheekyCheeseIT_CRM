@@ -109,6 +109,7 @@ export function ProjectEditFields({
               form.setFieldValue('logoExternalUrl', v.externalUrl)
             }}
             category="LOGO"
+            // Stryker disable next-line ConditionalExpression: `{ projectId: undefined }` and `{}` are indistinguishable downstream — `useUploadDocument` appends projectId only when truthy. The `=== undefined` and object-literal mutants ARE killed (see the "sends no projectId" test).
             {...(projectId !== undefined ? { projectId } : {})}
             urlPlaceholder="https://example.com/logo.png"
             testId="edit-project-logo"
@@ -120,6 +121,7 @@ export function ProjectEditFields({
           validators={{
             onBlur: ({ value }: { value: string }) => {
               const r = createProjectSchema.shape.name.safeParse(value.trim())
+              // Stryker disable next-line OptionalChaining: a failed safeParse always carries at least one issue, so `issues[0]` is never undefined — `?.` is a type-level guard only.
               return r.success ? undefined : r.error.issues[0]?.message
             },
           }}
@@ -149,6 +151,7 @@ export function ProjectEditFields({
           validators={{
             onBlur: ({ value }: { value: string }) => {
               const r = createProjectSchema.shape.companyName.safeParse(value.trim())
+              // Stryker disable next-line OptionalChaining: a failed safeParse always carries at least one issue, so `issues[0]` is never undefined — `?.` is a type-level guard only.
               return r.success ? undefined : r.error.issues[0]?.message
             },
           }}
@@ -316,6 +319,7 @@ export function ProjectEditFields({
             name="seniorSharePercentOverride"
             validators={{
               onBlur: ({ value }: { value: number | null }) => {
+                // Stryker disable next-line ConditionalExpression,StringLiteral: the `null` and `''` guards are redundant with the range check below — `Number(null)` and `Number('')` are both 0, which passes it — so disabling either is unobservable. The `undefined` guard (`Number(undefined)` is NaN) IS observable and is pinned by the "undefined override" test.
                 if (value === null || value === undefined || (value as unknown as string) === '')
                   return undefined
                 const num = Number(value)
@@ -423,6 +427,7 @@ export function ProjectEditFields({
             name="dropSharePercentOverride"
             validators={{
               onBlur: ({ value }: { value: number | null }) => {
+                // Stryker disable next-line ConditionalExpression,StringLiteral: the `null` and `''` guards are redundant with the range check below — `Number(null)` and `Number('')` are both 0, which passes it — so disabling either is unobservable. The `undefined` guard (`Number(undefined)` is NaN) IS observable and is pinned by the "undefined override" test.
                 if (value === null || value === undefined || (value as unknown as string) === '')
                   return undefined
                 const num = Number(value)

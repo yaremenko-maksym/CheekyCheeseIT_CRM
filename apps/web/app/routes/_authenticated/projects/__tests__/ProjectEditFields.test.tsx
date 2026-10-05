@@ -576,6 +576,26 @@ describe('ProjectEditFields — logo field', () => {
     return vi.mocked(api.post).mock.calls[0]![1] as FormData
   }
 
+  it('an uploaded logo document id is written to the form', async () => {
+    vi.mocked(api.post).mockResolvedValueOnce({ data: { id: 'doc-42' } })
+    const onSubmit = vi.fn()
+    render(<Harness onSubmit={onSubmit} canEditOverride={true} dropId={null} viewerRole="ADMIN" />)
+    const file = new File(['x'], 'logo.png', { type: 'image/png' })
+    fireEvent.change(screen.getByTestId('image-upload-field-file-input'), {
+      target: { files: [file] },
+    })
+    await waitFor(() => expect(api.post).toHaveBeenCalled())
+    // `onChange` runs after the awaited upload resolves — let it land before submitting.
+    await waitFor(() => {
+      fireEvent.click(screen.getByTestId('harness-submit'))
+      expect(onSubmit).toHaveBeenCalled()
+      expect(onSubmit.mock.calls.at(-1)![0]).toMatchObject({ logoDocumentId: 'doc-42' })
+    })
+    const values = onSubmit.mock.calls.at(-1)![0] as HarnessValues
+    expect(values.logoDocumentId).toBe('doc-42')
+    expect(values.logoExternalUrl).toBeNull()
+  })
+
   it('scopes a logo upload to the project when a projectId is given', async () => {
     const fd = await uploadLogo(false)
     expect(fd.get('projectId')).toBe('project-1')
