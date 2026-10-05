@@ -18,6 +18,12 @@ describe('canonicalizePostingUrl', () => {
       'https://a.test/j?id=a%26b',
     )
   })
+  it('without keepParams (undefined or empty) no query param survives, whatever its name', () => {
+    expect(canonicalizePostingUrl('https://a.test/j?Stryker%20was%20here=1')).toBe(
+      'https://a.test/j',
+    )
+    expect(canonicalizePostingUrl('https://a.test/j?id=1', [])).toBe('https://a.test/j')
+  })
   it('keeps https-only, host lowercase, trailing slash and fragment stripping', () => {
     expect(canonicalizePostingUrl('http://a.test/j')).toBeNull()
     expect(canonicalizePostingUrl('javascript:alert(1)')).toBeNull()

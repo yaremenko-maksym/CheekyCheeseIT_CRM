@@ -71,7 +71,9 @@ function neutralizeMarkdown(text: string): string {
 }
 
 export function parseDateish(value: Date | string | number | null | undefined): Date | null {
-  if (value === null || value === undefined) return null
+  if (value === null) return null
+  // Stryker disable next-line ConditionalExpression: equivalent mutant, verified with node -e — `new Date(undefined)` is an Invalid Date, so without this guard `undefined` still falls through to the `Number.isNaN(date.getTime())` check below and returns null; the guard is an explicit fast path, unobservable (null, unlike undefined, needs its own guard: `new Date(null)` is the epoch, covered by a test).
+  if (value === undefined) return null
   const date =
     value instanceof Date
       ? value

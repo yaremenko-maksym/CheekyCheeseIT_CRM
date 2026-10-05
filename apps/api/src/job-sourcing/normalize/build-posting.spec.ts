@@ -11,6 +11,81 @@ describe('parseDateish', () => {
   })
 })
 
+describe('parseDateish boundaries', () => {
+  it('null is "no date", not the epoch', () => {
+    expect(parseDateish(null)).toBeNull()
+  })
+  it('1e12 is the first millisecond value; just below is seconds', () => {
+    expect(parseDateish(1e12)?.toISOString()).toBe('2001-09-09T01:46:40.000Z')
+    expect(parseDateish(1e12 - 1)?.toISOString()).toBe('+033658-09-27T01:46:39.000Z')
+  })
+  it('numeric strings are NOT treated as unix seconds', () => {
+    expect(parseDateish('1760000000')).toBeNull()
+  })
+  it('passes a Date through', () => {
+    const d = new Date('2026-01-02T03:04:05Z')
+    expect(parseDateish(d)?.toISOString()).toBe('2026-01-02T03:04:05.000Z')
+  })
+})
+
+describe('buildNormalizedPosting publishedAt typing', () => {
+  const base = { url: 'https://x.test/j/1', title: 'T', companyName: 'C' }
+  const at = (publishedAt: unknown) =>
+    buildNormalizedPosting('REMOTEOK_API', { ...base, publishedAt } as never)!.publishedAt
+  it('accepts Date, ISO string and number', () => {
+    expect(at(new Date('2026-01-02T03:04:05Z'))?.toISOString()).toBe('2026-01-02T03:04:05.000Z')
+    expect(at('2026-01-02T03:04:05Z')?.toISOString()).toBe('2026-01-02T03:04:05.000Z')
+    expect(at(1_760_000_000)?.toISOString()).toBe('2025-10-09T08:53:20.000Z')
+  })
+  it('rejects booleans, objects, null (new Date(true) would be 1ms after epoch)', () => {
+    expect(at(true)).toBeNull()
+    expect(at({})).toBeNull()
+    expect(at(null)).toBeNull()
+    expect(at(undefined)).toBeNull()
+  })
+})
+
+describe('safe slicing boundaries', () => {
+  const title = (t: string) =>
+    buildNormalizedPosting('REMOTEOK_API', {
+      url: 'https://x.test/j/1',
+      title: t,
+      companyName: 'C',
+    })!.title
+  it('keeps a value of exactly the cap even if it ends in a lone high surrogate', () => {
+    expect(title('a'.repeat(499) + '\uD83D')).toHaveLength(500)
+  })
+  it('drops a high surrogate at the cut, including both range edges', () => {
+    expect(title('a'.repeat(499) + '\uD800b')).toBe('a'.repeat(499))
+    expect(title('a'.repeat(499) + '\uDBFFb')).toBe('a'.repeat(499))
+    expect(title('a'.repeat(499) + '\uD83Db')).toBe('a'.repeat(499))
+  })
+  it('keeps a non-high-surrogate at the cut', () => {
+    expect(title('a'.repeat(600))).toHaveLength(500)
+    expect(title('a'.repeat(499) + '\uDC00b')).toHaveLength(500)
+    expect(title('a'.repeat(499) + '퟿b')).toHaveLength(500)
+    expect(title('a'.repeat(499) + 'b')).toHaveLength(500)
+  })
+})
+
+describe('buildNormalizedPosting limits', () => {
+  const ok = { url: 'https://x.test/j/1', title: 'T', companyName: 'C' }
+  it('caps companyNameNormalized at 255 even when normalization expands the name', () => {
+    const p = buildNormalizedPosting('REMOTEOK_API', {
+      ...ok,
+      companyName: 'ﬃ'.repeat(200), // NFKD: 1 ligature -> 'ffi' (3 chars)
+    })!
+    expect(p.companyNameNormalized).toHaveLength(255)
+  })
+  it('html description is cut at 4x the cap BEFORE conversion, not earlier', () => {
+    const p = buildNormalizedPosting('REMOTEOK_API', {
+      ...ok,
+      description: '<p>' + 'word '.repeat(10_000) + '</p>', // ~50k chars raw, < 80k headroom
+    })!
+    expect(p.descriptionMd.length).toBeGreaterThan(19_000)
+  })
+})
+
 describe('buildNormalizedPosting', () => {
   const ok = {
     url: 'https://x.test/j/1?utm=1',
