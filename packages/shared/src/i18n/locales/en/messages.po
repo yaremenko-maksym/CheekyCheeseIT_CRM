@@ -2836,7 +2836,7 @@ msgstr "Company details"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Дата"
 msgstr "Date"
 
@@ -9790,7 +9790,7 @@ msgstr "Statistics"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Статус"
@@ -9980,7 +9980,7 @@ msgstr "Party"
 msgid "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 msgstr "The company's side signed the document automatically. The counterparty has not confirmed their signature yet."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Сторони"
 msgstr "Parties"
 
@@ -10002,7 +10002,7 @@ msgstr "Degree / field"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Сума"
 msgstr "Amount"
@@ -10231,7 +10231,7 @@ msgstr "Week"
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Тип"
 msgstr "Type"
@@ -10294,7 +10294,7 @@ msgstr "The transactions have been moved to PAID status, invoices have been gene
 msgid "Транзакції у виплаті ({0})"
 msgstr "Transactions in the payout ({0})"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Транзакцій по проєкту ще немає"
 msgstr "No transactions for the project yet"
 
@@ -10804,7 +10804,7 @@ msgstr "Final look of the “Terms of Service” document — as a PDF."
 msgid "Фінанси"
 msgstr "Finance"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Фінанси по проєкту"
 msgstr "Project finances"
 

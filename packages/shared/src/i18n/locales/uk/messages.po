@@ -2836,7 +2836,7 @@ msgstr "Дані компанії"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Дата"
 msgstr "Дата"
 
@@ -9790,7 +9790,7 @@ msgstr "Статистика"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/_authenticated/vacancies/$vacancyId.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Статус"
@@ -9980,7 +9980,7 @@ msgstr "Сторона"
 msgid "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 msgstr "Сторона компанії підписала документ автоматично. Контрагент ще не підтвердив підпис."
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Сторони"
 msgstr "Сторони"
 
@@ -10002,7 +10002,7 @@ msgstr "Ступінь / спеціальність"
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Сума"
 msgstr "Сума"
@@ -10231,7 +10231,7 @@ msgstr "Тиждень"
 #: apps/web/app/routes/_authenticated/finance/components/DropFinancePage.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
 #: apps/web/app/routes/_authenticated/finance/index.tsx
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 #: apps/web/app/routes/invoice.v.$transactionId.tsx
 msgid "Тип"
 msgstr "Тип"
@@ -10294,7 +10294,7 @@ msgstr "Транзакції переведено в статус ОПЛАЧЕН
 msgid "Транзакції у виплаті ({0})"
 msgstr "Транзакції у виплаті ({0})"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Транзакцій по проєкту ще немає"
 msgstr "Транзакцій по проєкту ще немає"
 
@@ -10804,7 +10804,7 @@ msgstr "Фінальний вигляд документа «Умови вико
 msgid "Фінанси"
 msgstr "Фінанси"
 
-#: apps/web/app/routes/_authenticated/projects/$projectId.tsx
+#: apps/web/app/routes/_authenticated/projects/ProjectTransactions.tsx
 msgid "Фінанси по проєкту"
 msgstr "Фінанси по проєкту"
 
