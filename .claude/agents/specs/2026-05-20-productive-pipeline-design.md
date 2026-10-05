@@ -1,120 +1,120 @@
 # Productive Multi-Agent Pipeline — Design v2
 
-**Дата:** 2026-05-20
-**Статус:** Proposed (ждёт user-review)
-**Контекст:** PR #22 завершился после 5 раундов UI-правок. Окно для архитектурного рефактора открыто (0 active PR).
+**Date:** 2026-05-20
+**Status:** Proposed (awaiting user-review)
+**Context:** PR #22 finished after 5 rounds of UI edits. A window for an architectural refactor is open (0 active PR).
 
 ---
 
-## Цель
+## Goal
 
-Сократить среднее число раундов на фичу с 3-5 до 1-2, уменьшить cold start PM на ~40%, дать видимость на узкие места пайплайна.
+Reduce the average number of rounds per feature from 3-5 to 1-2, reduce the PM cold start by ~40%, give visibility into the pipeline bottlenecks.
 
-## Данные текущего состояния (факты)
+## Current-state data (facts)
 
-- PR #22 потребовал 5 раундов UI-правок (`task-fix-pr22-ui-round1.md` → `round5.md`)
-- `task-fix-pr22-ui-round5.md` — дословный диктант с line-numbers и git-diff чеклистом (PM пишет код руками)
-- `round4` сделал регрессию: вернул Telegram в среднюю колонку вместо Pills
-- `docs/agents/pm.md` — **688 строк**, из них ~250 (36%) дублируют `CLAUDE-tools.md` или копируют сниппеты из режимов
-- `docs/specs/pm-state.json` десинхронизирован с реальностью (показывает `round4 running` хотя PR смерджен)
-- Дважды подряд в истории: `chore(agent): safety-net — agent forgot to commit changes`
-- **CRITICAL safety hole:** `.github/workflows/ci.yml` → `auto_merge` мерджит на `!= 'failure'` без проверки label → User Testing был обойдён для PR #22
-- **Coder verification gap:** task-файл round4 явно требовал `git diff HEAD` проверку каждого AC — Coder проигнорировал → регрессия. Правило в task-файле не enforced системой.
-- **Worktree pollution:** commit 77b5274 удалил `apps/e2e/debug-*.png`, `test-telegram-ui.{js,mjs}` (521 строка удалений vs 39 вставок) — Coder сделал `git add .` и подмёл артефакты AutoTest. Изолированные worktrees + неаккуратный `git add` = чужие файлы в PR.
+- PR #22 required 5 rounds of UI edits (`task-fix-pr22-ui-round1.md` → `round5.md`)
+- `task-fix-pr22-ui-round5.md` — a verbatim dictation with line numbers and a git-diff checklist (PM writes code by hand)
+- `round4` made a regression: returned Telegram to the middle column instead of Pills
+- `docs/agents/pm.md` — **688 lines**, of which ~250 (36%) duplicate `CLAUDE-tools.md` or copy snippets from the modes
+- `docs/specs/pm-state.json` is desynchronized with reality (shows `round4 running` although the PR is merged)
+- Twice in a row in the history: `chore(agent): safety-net — agent forgot to commit changes`
+- **CRITICAL safety hole:** `.github/workflows/ci.yml` → `auto_merge` merges on `!= 'failure'` without a label check → User Testing was bypassed for PR #22
+- **Coder verification gap:** the round4 task file explicitly required a `git diff HEAD` check of each AC — the Coder ignored it → a regression. The rule in the task file is not enforced by the system.
+- **Worktree pollution:** commit 77b5274 removed `apps/e2e/debug-*.png`, `test-telegram-ui.{js,mjs}` (521 lines of deletions vs 39 insertions) — the Coder did a `git add .` and swept up AutoTest artifacts. Isolated worktrees + a careless `git add` = someone else's files in the PR.
 
-## Корневая причина высоких раундов
+## Root cause of the high rounds
 
-Coder работает **вслепую** — он не открывает браузер до создания PR. AutoTest и Reviewer подключаются только ПОСЛЕ открытия PR. Визуальные регрессии ловятся только глазами пользователя на стадии User Testing → новый раунд.
+The Coder works **blind** — it does not open a browser before creating a PR. AutoTest and the Reviewer connect only AFTER the PR is opened. Visual regressions are caught only by the user's eyes at the User Testing stage → a new round.
 
-PM-bloat — налог на токены/скорость, но НЕ корневая причина раундов.
+PM-bloat — a tax on tokens/speed, but NOT the root cause of the rounds.
 
-## Корневая причина обхода User Testing
+## Root cause of the User Testing bypass
 
-CI auto-merge срабатывает на любом не-failure → нет явного human-in-the-loop гейта. PM не имеет рычага «остановить мердж», кроме как полагаться что quality/e2e упадёт. Это противоречит самой логике Mode 4 (User Testing обязателен) и сохранённой памяти `feedback_pr_merge_approval.md`.
+CI auto-merge fires on any non-failure → there is no explicit human-in-the-loop gate. PM has no lever to "stop the merge", other than relying on quality/e2e to fail. This contradicts the very logic of Mode 4 (User Testing is mandatory) and the saved memory `feedback_pr_merge_approval.md`.
 
 ---
 
-## Архитектурные изменения
+## Architectural changes
 
-### 1. PM slim — 688 → ~300 строк
+### 1. PM slim — 688 → ~300 lines
 
-**Что остаётся в `pm.md`** (стратегия — то, что PM реально решает):
+**What stays in `pm.md`** (strategy — what PM actually decides):
 
-| Блок | Размер | Почему остаётся |
+| Block | Size | Why it stays |
 |---|---|---|
-| Роль + 3 строгих запрета | ~30 | Identity + hard limits |
-| Tool priority — одна таблица + ссылка на CLAUDE-tools.md | ~15 | Без дублей |
-| Обязательное чтение при старте | ~10 | Список из 3 файлов |
-| Режим 1 — Декомпозиция | ~50 | Логика + ссылка на skill `writing-plans` |
-| Режим 2 — **Плоская event-таблица** | ~60 | Вместо 4 вложенных подрежимов |
-| Режим 4 — User Testing | ~70 | Логика сбора правок + классификация |
-| Режим 4.A — Батч-диспетч | ~40 | Группировка по агентам |
-| Циркуит-брейкер (review_rounds) | ~15 | Безопасный лимит |
-| Ссылки на pm-snippets / template / script | ~10 | «Если нужен готовый Agent()-вызов — см. X» |
+| Role + 3 strict prohibitions | ~30 | Identity + hard limits |
+| Tool priority — one table + a link to CLAUDE-tools.md | ~15 | No duplicates |
+| Mandatory reading at startup | ~10 | A list of 3 files |
+| Mode 1 — Decomposition | ~50 | Logic + a link to the skill `writing-plans` |
+| Mode 2 — **A flat event table** | ~60 | Instead of 4 nested sub-modes |
+| Mode 4 — User Testing | ~70 | The logic of collecting edits + classification |
+| Mode 4.A — Batch dispatch | ~40 | Grouping by agents |
+| Circuit breaker (review_rounds) | ~15 | A safe limit |
+| Links to pm-snippets / template / script | ~10 | "If you need a ready Agent() call — see X" |
 
-**Итого:** ~300 строк чистой стратегии.
+**Total:** ~300 lines of pure strategy.
 
-**Что уходит** (механика — переиспользуемое):
+**What leaves** (mechanics — reusable):
 
-| Что | Куда | Размер |
+| What | Where | Size |
 |---|---|---|
-| Готовые `Agent(...)` вызовы | `docs/agents/pm-snippets.md` (читается по запросу) | ~86 строк |
-| `gh pr ...` / `git fetch && pnpm dev &` блоки | `scripts/pm/prep-user-testing.sh` | ~40 строк |
-| Шаблон task-файла (Appendix A) | `docs/specs/tasks/templates/task.md.tpl` | ~40 строк |
-| 3 продублированные MCP-таблицы | Одна короткая со ссылкой на CLAUDE-tools.md | ~50 строк экономии |
-| Mode 2 вложенный (2.A/2.B/2.C) | Плоская branch-by-event таблица в самом pm.md | переструктура |
+| Ready `Agent(...)` calls | `docs/agents/pm-snippets.md` (read on-demand) | ~86 lines |
+| `gh pr ...` / `git fetch && pnpm dev &` blocks | `scripts/pm/prep-user-testing.sh` | ~40 lines |
+| The task-file template (Appendix A) | `docs/specs/tasks/templates/task.md.tpl` | ~40 lines |
+| 3 duplicated MCP tables | One short one with a link to CLAUDE-tools.md | ~50 lines saved |
+| Mode 2 nested (2.A/2.B/2.C) | A flat branch-by-event table in pm.md itself | a restructure |
 
-**Режим 2 рефакторится** из иерархии в плоскую таблицу:
+**Mode 2 is refactored** from a hierarchy into a flat table:
 
 ```
-Событие                          → Действие
+Event                            → Action
 ────────────────────────────────────────────────────────
 agent finished with PR           → Reviewer + AutoTest (parallel)
-agent created .blocked.md        → читать → спросить пользователя → resume
-PR label = ci-failed             → fix-task для Coder
+agent created .blocked.md        → read → ask the user → resume
+PR label = ci-failed             → a fix-task for the Coder
 PR label = awaiting-pm-review    → Mode 2.B (post-review analysis)
-E2E run = failure                → классифицировать (bug vs test) → fix-task
-E2E run = success                → уведомить пользователя → ждать "мерджи"
-review_rounds >= 3               → STOP, эскалация пользователю
+E2E run = failure                → classify (bug vs test) → a fix-task
+E2E run = success                → notify the user → wait for "merge"
+review_rounds >= 3               → STOP, escalate to the user
 ```
 
-**Локальный skill `pm-dispatching`** — `.claude/skills/pm-dispatching/SKILL.md`. PM вызывает skill когда реально диспетчит — snippets не лежат постоянно в контексте.
+**A local skill `pm-dispatching`** — `.claude/skills/pm-dispatching/SKILL.md`. PM invokes the skill when it actually dispatches — the snippets do not sit permanently in the context.
 
-### 2. Coder vision + AC-in-diff verification — закрытие UI feedback loop ⭐
+### 2. Coder vision + AC-in-diff verification — closing the UI feedback loop ⭐
 
-**Главный killer раундов.** В `docs/agents/coder.md` добавляется обязательный **двойной чеклист** до открытия PR.
+**The main killer of rounds.** A mandatory **double checklist** is added to `docs/agents/coder.md` before opening a PR.
 
-#### A. Vision check — visual feedback loop
-Для задач трогающих `apps/web/`:
+#### A. Vision check — a visual feedback loop
+For tasks touching `apps/web/`:
 
-1. После всех code-правок, до `git push`:
-   - `mcp__playwright__browser_navigate` → http://localhost:3000/crm/<затронутый-роут>
-   - `mcp__playwright__browser_take_screenshot` — визуальная сверка
-   - Для каждого AC где упоминается UI — отметить «видно/не видно» в DOM через `mcp__playwright__browser_snapshot`
-2. Если AC говорит «русский текст» / «pills layout» / «bg-muted» — Coder проверяет это в DOM до push
+1. After all code edits, before `git push`:
+   - `mcp__playwright__browser_navigate` → http://localhost:3000/crm/<affected-route>
+   - `mcp__playwright__browser_take_screenshot` — a visual check
+   - For each AC where a UI is mentioned — mark "visible/not visible" in the DOM via `mcp__playwright__browser_snapshot`
+2. If an AC says "Russian text" / "pills layout" / "bg-muted" — the Coder checks this in the DOM before the push
 
-#### B. AC-in-diff check — текстовая верификация (для ВСЕХ задач)
-Перед каждым `git push`:
+#### B. AC-in-diff check — a text verification (for ALL tasks)
+Before each `git push`:
 
-1. `git diff HEAD --name-only` — список изменённых файлов
-2. Для каждого пункта AC из task-файла:
-   - Если AC указывает конкретный паттерн (class, prop, function name) → `grep -n "<pattern>" <file>` подтверждает наличие
-   - Если паттерна нет в diff → **STOP, AC не выполнен**, не пушить
-3. В commit message — **обязательные** строки:
+1. `git diff HEAD --name-only` — the list of changed files
+2. For each AC item from the task file:
+   - If the AC specifies a concrete pattern (a class, prop, function name) → `grep -n "<pattern>" <file>` confirms its presence
+   - If the pattern is not in the diff → **STOP, the AC is not done**, do not push
+3. In the commit message — the **mandatory** lines:
    ```
    vision: ✓ /crm/team, /crm/team/$teamId
    ac_verified: 1,2,3,4,5
    ```
-   Где `ac_verified` — номера выполненных AC из task-файла. Если все AC не выполнены — отметить какие.
+   Where `ac_verified` — the numbers of the completed AC from the task file. If not all AC are completed — mark which.
 
-#### Hook gate (страховка)
-PreToolUse Bash hook на `git push`: проверяет что последний commit message содержит `ac_verified:`. Если нет — блокирует push, агент должен либо доделать AC, либо явно отметить отсутствующие.
+#### Hook gate (a safeguard)
+A PreToolUse Bash hook on `git push`: checks that the last commit message contains `ac_verified:`. If not — it blocks the push, the agent must either finish the AC, or explicitly mark the missing ones.
 
-**Это решает round4 проблему:** task-файл уже требовал git diff проверку, но это не было enforced. Теперь — hook.
+**This solves the round4 problem:** the task file already required a git diff check, but it was not enforced. Now — a hook.
 
-### 3. State schema v2 — события + метрики (часть Approach C, без хуков)
+### 3. State schema v2 — events + metrics (part of Approach C, without hooks)
 
-`pm-state.json` обогащается. Формат:
+`pm-state.json` is enriched. The format:
 
 ```json
 {
@@ -146,91 +146,91 @@ PreToolUse Bash hook на `git push`: проверяет что последни
 }
 ```
 
-PM пишет event при каждом действии. Через 5-10 фич видим:
-- `avg(rounds)` per task — норма ли 1-2 раунда?
-- `regression_count` per agent — кто чаще ломает
-- `duration_min` per phase — где затыки
-- `agent_invocations.coder` per round — сколько раз PM перезапускал Coder
+PM writes an event on each action. After 5-10 features we see:
+- `avg(rounds)` per task — is 1-2 rounds the norm?
+- `regression_count` per agent — who breaks things more often
+- `duration_min` per phase — where the bottlenecks are
+- `agent_invocations.coder` per round — how many times PM restarted the Coder
 
-### 4. Per-agent memory (минимальная)
+### 4. Per-agent memory (minimal)
 
-`docs/agents/memory/<agent>/lessons.md` — по файлу на агента (Coder, AutoTest, Reviewer, DevOps). После merged PR — PM аппендит одну строку:
+`docs/agents/memory/<agent>/lessons.md` — a file per agent (Coder, AutoTest, Reviewer, DevOps). After a merged PR — PM appends one line:
 
 ```
-2026-05-20 [task-fix-pr22-ui-round5] При правке layout — сначала читать существующие классы, потом заменять. Round4 регрессия = добавил элемент без проверки контекста.
+2026-05-20 [task-fix-pr22-ui-round5] When editing layout — first read the existing classes, then replace. The round4 regression = added an element without checking the context.
 ```
 
-Каждый агент при старте читает свой `lessons.md`. Малый overhead (5-10 строк после месяца), накапливается со временем.
+Each agent reads its own `lessons.md` at startup. A small overhead (5-10 lines after a month), accumulates over time.
 
-### 5. Worktree hygiene + git add discipline (новое)
+### 5. Worktree hygiene + git add discipline (new)
 
-**Проблема:** commit 77b5274 показал — Coder сделал `git add .` или `git add -A` и подмёл `apps/e2e/debug-*.png`, `test-telegram-ui.{js,mjs}` из чужого worktree.
+**Problem:** commit 77b5274 showed — the Coder did a `git add .` or `git add -A` and swept up `apps/e2e/debug-*.png`, `test-telegram-ui.{js,mjs}` from someone else's worktree.
 
-**Решение в трёх местах:**
+**The solution in three places:**
 
-1. **`.gitignore` усиление** (DevOps): добавить
+1. **`.gitignore` reinforcement** (DevOps): add
    ```
    apps/e2e/debug-*.png
    apps/e2e/screenshot-*.png
    apps/e2e/test-*.{js,mjs}
    output.txt
    ```
-   Чтобы debug-артефакты вообще не попадали в репо.
+   So that debug artifacts do not get into the repo at all.
 
-2. **`coder.md` — git add discipline:** запретить `git add .` / `git add -A`. Только `git add <конкретный-файл>` из списка изменений task-файла. Список файлов берётся из секции «Конкретные изменения».
+2. **`coder.md` — git add discipline:** forbid `git add .` / `git add -A`. Only `git add <specific-file>` from the task file's change list. The list of files is taken from the section "Concrete changes".
 
-3. **`autotest.md` — никаких debug-коммитов:** screenshots и временные тестовые скрипты НЕ коммитятся. Если AutoTest нужно сохранить screenshot для отладки — путь в `/tmp/autotest-<runid>/`, не в репо.
+3. **`autotest.md` — no debug commits:** screenshots and temporary test scripts are NOT committed. If AutoTest needs to save a screenshot for debugging — the path in `/tmp/autotest-<runid>/`, not in the repo.
 
 ---
 
-## Шаги миграции
+## Migration steps
 
-Каждый — отдельный PR, реверсивный.
+Each is a separate PR, reversible.
 
-| PR | Что | Риск | Эффект |
+| PR | What | Risk | Effect |
 |---|---|---|---|
-| **PR-0** ⚠️ | **Merge gate** — `ci.yml` + label `merge-approved` + pm.md Mode 4 апрув-шаг. **Делается ПЕРЕД всем остальным.** Task уже создан: `docs/specs/tasks/task-infra-merge-gate.md` | низкий | критическая safety дыра закрыта |
-| **PR-1** | Извлечение из `pm.md` → `pm-snippets.md` + `task.md.tpl` + `prep-user-testing.sh` (механический вынос) | низкий | -150 строк PM |
-| **PR-2** | Рефактор Mode 2 в плоскую таблицу | средний | -100 строк PM, навигация быстрее |
-| **PR-3** | Локальный skill `pm-dispatching` + обновление ссылок в pm.md | низкий | snippets on-demand |
-| **PR-4** | **Coder vision + AC-in-diff** — coder.md обновление + Playwright + hook на git push | средний | **главный killer раундов + закрытие round4 verification gap** |
-| **PR-5** | Worktree hygiene — `.gitignore` + git add discipline в coder.md + autotest.md | низкий | предотвращение pollution |
-| **PR-6** | State schema v2 — миграция pm-state.json + обновление PM логики записи events | низкий | видимость метрик |
-| **PR-7** | Memory структура + auto-append после merge | низкий | долгосрочный compound effect |
+| **PR-0** ⚠️ | **Merge gate** — `ci.yml` + the label `merge-approved` + a pm.md Mode 4 approve step. **Done BEFORE everything else.** The task is already created: `docs/specs/tasks/task-infra-merge-gate.md` | low | the critical safety hole is closed |
+| **PR-1** | Extraction from `pm.md` → `pm-snippets.md` + `task.md.tpl` + `prep-user-testing.sh` (a mechanical extraction) | low | -150 lines of PM |
+| **PR-2** | Refactor Mode 2 into a flat table | medium | -100 lines of PM, faster navigation |
+| **PR-3** | A local skill `pm-dispatching` + updating the links in pm.md | low | snippets on-demand |
+| **PR-4** | **Coder vision + AC-in-diff** — a coder.md update + Playwright + a hook on git push | medium | **the main killer of rounds + closing the round4 verification gap** |
+| **PR-5** | Worktree hygiene — `.gitignore` + git add discipline in coder.md + autotest.md | low | prevention of pollution |
+| **PR-6** | State schema v2 — migration of pm-state.json + updating the PM events-writing logic | low | visibility of metrics |
+| **PR-7** | Memory structure + auto-append after merge | low | a long-term compound effect |
 
-**Порядок изменён:** PR-0 первый и срочный (safety). PR-1,2,3 — рефактор PM (быстро, безопасно). PR-4 отдельно — главный effect Coder vision измерить чисто. PR-5 идёт сразу после PR-4 (та же область — Coder/AutoTest workflow). PR-6,7 — фундамент видимости.
+**The order is changed:** PR-0 first and urgent (safety). PR-1,2,3 — the PM refactor (fast, safe). PR-4 separately — to measure the main effect of Coder vision cleanly. PR-5 goes right after PR-4 (the same area — the Coder/AutoTest workflow). PR-6,7 — the foundation of visibility.
 
 ---
 
-## Критерии успеха
+## Success criteria
 
-- **0 PR смерджено** без лейбла `merge-approved` за следующие 10 PR (safety инвариант)
-- **Avg rounds per feature ≤ 2** за следующие 3 фичи (сейчас 3-5)
-- **Cold start PM** (`pm.md` + `CLAUDE-pm.md` + obligatory reads) ≤ **1000 строк** (сейчас ~1100)
-- `pm-state.json` содержит events/metrics, синхронен с реальностью в течение часа после merge
-- **Регрессии** (round_N ломает что-то из round_{N-1}) ≤ 1 за 5 фич
-- Coder ни разу не открывает PR без `vision: ✓` и `ac_verified:` строк за следующие 5 фич
-- **0 debug-артефактов** (`debug-*.png`, `test-*.{js,mjs}`, `output.txt`) в коммитах за следующие 10 PR
+- **0 PRs merged** without the `merge-approved` label over the next 10 PRs (a safety invariant)
+- **Avg rounds per feature ≤ 2** over the next 3 features (currently 3-5)
+- **PM cold start** (`pm.md` + `CLAUDE-pm.md` + obligatory reads) ≤ **1000 lines** (currently ~1100)
+- `pm-state.json` contains events/metrics, synchronous with reality within an hour after merge
+- **Regressions** (round_N breaks something from round_{N-1}) ≤ 1 per 5 features
+- The Coder never opens a PR without the `vision: ✓` and `ac_verified:` lines over the next 5 features
+- **0 debug artifacts** (`debug-*.png`, `test-*.{js,mjs}`, `output.txt`) in commits over the next 10 PRs
 
-## Риски и откат
+## Risks and rollback
 
-| Риск | Митигация |
+| Risk | Mitigation |
 |---|---|
-| Coder с Playwright станет медленнее | `duration_min` в state schema v2 покажет — откатим vision-step если +3min не оправдывает скип раунда |
-| pm-snippets.md устареет от pm.md | Один integration test: pm.md должен ссылаться на все секции pm-snippets.md (можно сделать `pnpm pm:lint`) |
-| State schema v2 ломает существующий PM | Все поля nullable, миграция read-write совместимая. Старые поля (`tasks`, `merged`) остаются как алиасы первый раунд |
-| Memory lessons превратятся в шум | Лимит 10 последних lessons в файле; ротация старых в `lessons.archive.md` |
+| The Coder with Playwright will become slower | `duration_min` in state schema v2 will show it — we roll back the vision-step if +3min does not justify skipping a round |
+| pm-snippets.md will go stale from pm.md | One integration test: pm.md must reference all sections of pm-snippets.md (can be done as `pnpm pm:lint`) |
+| State schema v2 breaks the existing PM | All fields nullable, a read-write compatible migration. The old fields (`tasks`, `merged`) stay as aliases for the first round |
+| Memory lessons will turn into noise | A limit of the 10 latest lessons in a file; rotation of the old ones into `lessons.archive.md` |
 
-**Полный откат:** каждый PR независим, можно revert любого без каскадных эффектов.
+**Full rollback:** each PR is independent, any can be reverted without cascading effects.
 
 ---
 
-## Что НЕ входит в этот дизайн (явный out-of-scope)
+## What is NOT part of this design (explicit out-of-scope)
 
-- **Architect-агент** — не нужен пока PHASE 6 не стартует
-- **BA как агент** (вместо документа) — пользователь не жаловался
-- **Auto-trigger AutoTest по затронутым роутам** — это отдельная история про CI, не про агентов
-- **Split PM на 3 субагента** (Approach A) — оставляем как опцию на потом, если slim-PM упрётся в потолок
-- **Event-driven через хуки** (Approach C полная) — слишком тяжело, добавляем только пассивную часть (state v2 с events)
+- **An Architect agent** — not needed until PHASE 6 starts
+- **BA as an agent** (instead of a document) — the user did not complain
+- **Auto-trigger of AutoTest by affected routes** — this is a separate story about CI, not about agents
+- **Splitting PM into 3 sub-agents** (Approach A) — we leave it as an option for later, if slim-PM hits a ceiling
+- **Event-driven via hooks** (the full Approach C) — too heavy, we add only the passive part (state v2 with events)
 
-Если что-то из этого надо — отдельный design-doc.
+If anything of this is needed — a separate design-doc.
