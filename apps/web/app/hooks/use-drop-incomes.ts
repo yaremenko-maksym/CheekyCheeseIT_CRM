@@ -11,14 +11,12 @@ import {
 import { api } from '@/lib/axios'
 
 /**
- * Namespaced query-keys for all DROP data hooks.
+ * Query-key convention for all DROP data hooks below (inline `['drop', ...]` keys).
  *
  * ALL keys start with `'drop'` — which is NOT in PERSISTED_KEY_PREFIXES
  * in __root.tsx, so none of this financial data is ever written to
  * IndexedDB. Do NOT add `'drop'` to the allow-list.
  */
-export const DROP_INCOMES_QUERY_KEY_PREFIX = 'drop' as const
-
 export interface DropIncomesFilters {
   status?: DropIncomeStatus
   from?: string
