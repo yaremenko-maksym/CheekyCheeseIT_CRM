@@ -94,19 +94,15 @@ function assertAllowed(rawUrl: string, allowedHosts: readonly string[]): string 
   } catch {
     throw new Error('host not allowed')
   }
-  // Stryker disable all: explicit scheme/userinfo/port refusal is deliberate defence in depth. It is
-  // fully subsumed by the authority comparison below (a non-https scheme, `user@` or `:port` each make
-  // the written authority differ from `parsed.host`), so no input can tell these conditions apart
-  // from their mutants.
-  if (
-    parsed.protocol !== 'https:' ||
-    parsed.username !== '' ||
-    parsed.password !== '' ||
-    parsed.port !== ''
-  ) {
-    throw new Error('host not allowed')
-  }
-  // Stryker restore all
+  // The three explicit refusals below are deliberate defence in depth: each is fully subsumed by the
+  // authority comparison after them (a non-https scheme, `user@` or `:port` makes the written
+  // authority differ from `parsed.host`), so no input can tell them apart from their mutants.
+  // Stryker disable next-line all: equivalent mutants — scheme refusal is subsumed by the authority comparison below (its regex only matches `https://`)
+  if (parsed.protocol !== 'https:') throw new Error('host not allowed')
+  // Stryker disable next-line all: equivalent mutants — userinfo refusal is subsumed by the authority comparison below (`user@` makes the written authority differ from parsed.host)
+  if (parsed.username !== '' || parsed.password !== '') throw new Error('host not allowed')
+  // Stryker disable next-line all: equivalent mutants — port refusal is subsumed by the authority comparison below (`:port` makes the written authority differ from parsed.host)
+  if (parsed.port !== '') throw new Error('host not allowed')
   const authority = /^https:\/\/([^/?#\\]*)/i.exec(rawUrl)?.[1]
   if (authority !== parsed.host || !allowedHosts.includes(parsed.host)) {
     throw new Error('host not allowed')
