@@ -80,6 +80,7 @@ export function ProjectOverviewTab({
           // null when backend masks it (admin-project + non-privileged viewer)
           userId: project.seniorId ?? null,
           displayName: project.seniorName ?? '',
+          // Stryker disable next-line StringLiteral: `role` is carried over verbatim from the page but never read by the render below
           role: 'SENIOR',
           avatarUrl: null as string | null,
           avatarDocumentId: null as string | null,
@@ -96,8 +97,11 @@ export function ProjectOverviewTab({
     <>
       <motion.div
         className="grid grid-cols-1 gap-4 lg:grid-cols-2"
+        // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior (jsdom does not run framer-motion tweens)
         initial={{ opacity: 0, y: 12 }}
+        // Stryker disable next-line ObjectLiteral: entrance-animation keyframes only, no behavior
         animate={{ opacity: 1, y: 0 }}
+        // Stryker disable next-line ObjectLiteral: animation timing only, no behavior
         transition={{ duration: 0.3, delay: 0.08 }}
       >
         {/* Details card */}
@@ -265,7 +269,9 @@ export function ProjectOverviewTab({
                       userId is not consumed by ProfileNameLink (renders span). Pass it only when
                       navigation is possible (exactOptionalPropertyTypes: conditional spread). */}
                 <ProfileNameLink
+                  // Stryker disable next-line ConditionalExpression: equivalent — when userId is null `nonNavigable` is true and ProfileNameLink never reads userId
                   {...(senior.userId != null ? { userId: senior.userId } : {})}
+                  // Stryker disable next-line StringLiteral: equivalent — ProfileNameLink only special-cases DROP/SENIOR, so any other fallback renders the same link
                   viewerRole={viewerRole ?? 'JUNIOR'}
                   nonNavigable={senior.userId == null}
                   className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
@@ -296,6 +302,7 @@ export function ProjectOverviewTab({
                 <div className="pb-3" data-testid="team-card-drop-row">
                   <ProfileNameLink
                     userId={dropMember.id}
+                    // Stryker disable next-line LogicalOperator: equivalent — this row only renders for ADMIN/HR/ACCOUNTANT, never DROP/SENIOR, so the role passed does not change the rendered link
                     viewerRole={viewerRole ?? 'JUNIOR'}
                     className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
                   >

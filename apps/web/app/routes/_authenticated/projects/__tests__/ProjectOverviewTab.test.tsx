@@ -135,7 +135,7 @@ function setup(
 ) {
   const handlers = { onAddMember: vi.fn<() => void>(), onRemoveMember: vi.fn() }
   render(
-    <TooltipProvider>
+    <TooltipProvider delayDuration={0}>
       <ProjectOverviewTab
         project={makeProject(projectOver)}
         projectId="proj-1"
@@ -283,6 +283,8 @@ describe('ProjectOverviewTab — team card: senior row', () => {
     setup({}, { seniorId: 'sen-1', seniorName: null })
     expect(screen.getByTestId('profile-link')).toHaveAttribute('href', '/profile/sen-1')
     expect(screen.getByText('Сеньйор')).toBeInTheDocument()
+    // empty name → «?» initials fallback
+    expect(screen.getByText('?')).toBeInTheDocument()
   })
 
   it('renders no senior row when neither id nor name is present', () => {
@@ -340,6 +342,7 @@ describe('ProjectOverviewTab — team card: drop row', () => {
 describe('ProjectOverviewTab — team card: members', () => {
   it('shows placeholders when no HR / accountants / junior are assigned', () => {
     setup()
+    expect(screen.getByText('Склад')).toBeInTheDocument()
     expect(screen.getAllByText('Не призначено')).toHaveLength(2)
     expect(screen.getByText('Джуніор не призначений')).toBeInTheDocument()
     expect(screen.queryByText('Залишили проєкт')).toBeNull()
@@ -449,6 +452,8 @@ describe('ProjectOverviewTab — add-member button', () => {
     setup({ canManage: true, availableToAddCount: 1 })
     const btn = screen.getByRole('button', { name: 'Додати до складу' })
     await userEvent.hover(btn.parentElement as HTMLElement)
+    // delayDuration is 0, so an open tooltip would already be in the DOM; give it a tick to be sure
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByText('Немає кого додати')).toBeNull()
   })
 })
