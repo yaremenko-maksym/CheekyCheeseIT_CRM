@@ -43,8 +43,11 @@
 
 - [todo] `ProjectEditDialog` (владеет `editForm`; риск: field-scoped RBAC в `onSubmit` — `paymentType`/override
   только при `canEditOverride`) <- `ProjectEditFields`, константы, `useProjectPermissions`
-- [todo] диалоги remove-member / add-member / drop-picker / detach-drop
-  <- `useProjectDropMutations`, `useProjectPermissions`
+- [done] диалоги drop-picker + detach-drop -> `ProjectDropDialogs.tsx` (лист 9; компонент владеет
+  `useProjectDropMutations`, успех закрывает оба диалога через `onCloseDropPicker`/`onCloseDetachDropConfirm`;
+  страница держит open-состояния, `dropCandidates` и гейт `canManageDrop` на кнопках-триггерах;
+  characterization: `__tests__/ProjectDropDialogs.test.tsx`)
+- [todo] диалоги remove-member / add-member <- `useProjectPermissions`
 - [todo] overview-таб (вынос) <- `ProjectInfoRows`, `PendingShareApprovalBanner`, `ProjectEffectiveTeamCard`
 - [todo] hero-хедер <- `ProjectHeaderApprovalNote`, `ProjectUnarchive*`
 
