@@ -2,421 +2,421 @@
 
 ## Mode: strategic
 
-## Дата: 2026-05-31
+## Date: 2026-05-31
 
-## Запросил: User direct → PM
+## Requested by: User direct → PM
 
-## Контекст
+## Context
 
-CRM Cheeky Cheese IT — outsource/outstaffing компания (Украина). Команды: ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT. SENIOR'ы работают на международных клиентов (US/EU), JUNIOR'ы участвуют в проектах синьоров.
+CRM Cheeky Cheese IT — an outsource/outstaffing company (Ukraine). Teams: ADMIN, SENIOR, JUNIOR, HR, ACCOUNTANT. SENIORs work for international clients (US/EU), JUNIORs participate in the seniors' projects.
 
-### Текущая структура (PHASE 5, реализовано)
+### Current structure (PHASE 5, implemented)
 
-1. Клиент платит SENIOR'у напрямую (USD/USDT/EUR на его реквизиты)
-2. SENIOR вносит транзакцию в CRM (дата, сумма, валюта, проект, прикреплённый чек)
-3. ACCOUNTANT валидирует транзакцию
-4. После валидации — у SENIOR разблокируется кнопка «Оплатить услуги»
-5. SENIOR оставляет 26% себе, остальные **74%** платит на смарт-контракт (фаза 8)
+1. The client pays the SENIOR directly (USD/USDT/EUR to their requisites)
+2. The SENIOR enters the transaction in the CRM (date, amount, currency, project, attached receipt)
+3. The ACCOUNTANT validates the transaction
+4. After validation — the "Pay for services" button is unlocked for the SENIOR
+5. The SENIOR keeps 26% for themselves, the remaining **74%** is paid to the smart contract (phase 8)
 
-### PHASE 8 — планируемая crypto-структура
+### PHASE 8 — the planned crypto structure
 
-- **Smart contract:** `PaymentSplitter` на Ethereum mainnet
-- **Деплой:** Hardhat, контракт деплоится один раз (или per-project)
-- **Валюта:** USDT ERC-20
-- **Распределение** (автоматически в момент получения):
-  1. JUNIOR'у — фиксированная сумма (из `project_finance_settings.juniorSalary`), первым
-  2. Остаток 50/50:
-     - ADMIN кошелёк (компания)
-     - Партнёр кошелёк (co-founder)
-- **Адреса:** конфигурируются при деплое проекта (`adminWallet`, `partnerWallet`, `juniorWallet`)
-- **Frontend:** ethers.js v6, подписание через MetaMask/WalletConnect
+- **Smart contract:** `PaymentSplitter` on Ethereum mainnet
+- **Deployment:** Hardhat, the contract is deployed once (or per-project)
+- **Currency:** USDT ERC-20
+- **Distribution** (automatically at the moment of receipt):
+  1. To the JUNIOR — a fixed amount (from `project_finance_settings.juniorSalary`), first
+  2. The remainder 50/50:
+     - ADMIN wallet (company)
+     - Partner wallet (co-founder)
+- **Addresses:** configured at project deployment (`adminWallet`, `partnerWallet`, `juniorWallet`)
+- **Frontend:** ethers.js v6, signing via MetaMask/WalletConnect
 
-### Профиль пользователей
+### User profile
 
-- Каждый user в CRM хранит свой USDT-кошелёк в профиле (поле `walletAddress` либо новая структура с multi-method: USDT ERC-20 + Bank UAH ФОП + preferredMethod)
-- Кошельки можно менять (с подтверждением)
-- Кошельки JUNIOR и SENIOR используются смарт-контрактом
+- Each user in the CRM stores their USDT wallet in the profile (field `walletAddress` or a new multi-method structure: USDT ERC-20 + Bank UAH FOP + preferredMethod)
+- Wallets can be changed (with confirmation)
+- JUNIOR and SENIOR wallets are used by the smart contract
 
-### Employment структура (текущая)
+### Employment structure (current)
 
-- SENIOR и JUNIOR работают как ФОП 3-я группа (5% единый налог)
-- ADMIN — основатель ТОВ + ФОП
-- Partner — отдельная фигура (вероятно ФОП также)
-- HR / ACCOUNTANT — гипотеза: ФОП или ТОВ workers (точно не знаем)
+- SENIOR and JUNIOR work as FOP group 3 (5% single tax)
+- ADMIN — founder of a TOV (LLC) + FOP
+- Partner — a separate figure (probably also a FOP)
+- HR / ACCOUNTANT — hypothesis: FOP or TOV workers (we do not know exactly)
 
-## Вопрос
+## Question
 
-**Основной:** Какие legal риски (UA законодательство + AML/KYC + crypto regulation + налогообложение) для этой схемы выплат? Какая лучшая структура для compliance + минимизации налоговых рисков?
+**Main:** What legal risks (UA legislation + AML/KYC + crypto regulation + taxation) does this payout scheme carry? What is the best structure for compliance + minimizing tax risks?
 
 **Sub-questions:**
 
-1. **UA crypto law.** Закон України «Про віртуальні активи» (2022) — какие требования к нам как (a) сервісу провайдеру операцій з ВА, (b) пользователю VA? Нужна ли регистрация / лицензия от НКЦПФР? Если да — какой объём операций триггерит обязательства?
+1. **UA crypto law.** The Law of Ukraine "On Virtual Assets" (2022) — what requirements apply to us as (a) a provider of services for VA operations, (b) a VA user? Do we need registration / a license from the NSSMC? If so — what volume of operations triggers obligations?
 
-2. **Налогообложение USDT доходов в UA.**
-   - Получение USDT клиентом → SENIOR на ФОП 3 группе — это считается доходом ФОП? Курс USDT/USD/UAH — как фиксировать дату/курс?
-   - Распределение через smart contract автоматическое — момент возникновения налогового обязательства для JUNIOR / ADMIN / partner?
-   - Двойное налогообложение: 5% ЕН + ВЗ (вiйськовий збір 1.5% з 2024)?
+2. **Taxation of USDT income in UA.**
+   - A client sending USDT → a SENIOR on FOP group 3 — is this counted as FOP income? The USDT/USD/UAH rate — how to fix the date/rate?
+   - Distribution via smart contract is automatic — the moment a tax liability arises for JUNIOR / ADMIN / partner?
+   - Double taxation: 5% single tax + military levy (1.5% since 2024)?
 
-3. **AML/KYC.** Финмоніторинг — какие транзакции триггерят обязательство screening? USDT > X в день одному получателю? Нужно ли нам как операторам smart contract'а вести KYC получателей (JUNIOR / partner)? Какие риски при выплатах в blacklisted addresses (UA / OFAC)?
+3. **AML/KYC.** Financial Monitoring — which transactions trigger a screening obligation? USDT > X per day to one recipient? Do we, as operators of the smart contract, need to run KYC on the recipients (JUNIOR / partner)? What are the risks of payouts to blacklisted addresses (UA / OFAC)?
 
-4. **Smart contract как «оператор операцій з ВА».** Деплой PaymentSplitter с возможностью получения и распределения USDT — это нас делает оператором / провайдером? Или это просто self-custody pass-through (не triggers regulation)?
+4. **Smart contract as a "VA operations operator".** Deploying a PaymentSplitter with the ability to receive and distribute USDT — does this make us an operator / provider? Or is it just a self-custody pass-through (does not trigger regulation)?
 
-5. **Договорная база.** Должны ли быть отдельные договоры между:
-   - SENIOR ↔ ADMIN (на «оплату послуг» 74%)
-   - ADMIN ↔ JUNIOR (зарплата через distribution)
+5. **Contractual basis.** Should there be separate agreements between:
+   - SENIOR ↔ ADMIN (for "payment for services" 74%)
+   - ADMIN ↔ JUNIOR (salary via distribution)
    - ADMIN ↔ partner (50/50 split)?
-     Какая правовая природа этих платежей (gift / services / dividend)?
+     What is the legal nature of these payments (gift / services / dividend)?
 
-6. **Risk mitigation предложения.** Что мы можем сделать ДО запуска PHASE 8 чтобы минимизировать legal exposure?
+6. **Risk mitigation proposals.** What can we do BEFORE launching PHASE 8 to minimize legal exposure?
 
-## Релевантные ссылки
+## Relevant links
 
-- CLAUDE.md → секция «PHASE 8 — Смарт-контракти (USDT ERC-20)» — текущий план
-- CLAUDE.md → секция «Финансовый флоу» — структура распределения 26%/74%, 50/50
-- (Возможно) `docs/business/modules/finance.md` если существует
+- CLAUDE.md → section "PHASE 8 — Smart contracts (USDT ERC-20)" — the current plan
+- CLAUDE.md → section "Financial flow" — the distribution structure 26%/74%, 50/50
+- (Possibly) `docs/business/modules/finance.md` if it exists
 
-## Что НЕ хочется услышать
+## What we do NOT want to hear
 
-- Общая теория crypto / blockchain — мы понимаем технику
-- General compliance theory без UA-специфики (мы в UA, не в EU/US)
-- Recommendations требующих миллионных юридических бюджетов (мы small business)
+- General crypto / blockchain theory — we understand the technology
+- General compliance theory without UA specifics (we are in UA, not EU/US)
+- Recommendations requiring multimillion legal budgets (we are a small business)
 
-## Что важно для решения
+## What matters for the decision
 
-- Решение должно быть actionable — конкретные шаги, не «consult expert»
-- Готовы потратить разумно (десятки тысяч грн, не сотни) на compliance setup
-- PHASE 8 деплой — в ближайшие 3-6 месяцев, надо понимать что готовить заранее
-- Главный приоритет — **минимизация налоговых рисков** (ФОП лимиты, double taxation, audit risk)
-- Второй приоритет — **AML compliance** чтобы не попасть под санкции / Финмоніторинг
+- The decision must be actionable — concrete steps, not "consult an expert"
+- Ready to spend reasonably (tens of thousands of UAH, not hundreds) on a compliance setup
+- The PHASE 8 deploy — in the next 3-6 months, we need to understand what to prepare in advance
+- The main priority — **minimizing tax risks** (FOP limits, double taxation, audit risk)
+- The second priority — **AML compliance** to avoid falling under sanctions / Financial Monitoring
 
 ---
 
-<!-- Legal-агент добавит секцию `## Ответ юриста` ниже -->
+<!-- The Legal agent will add the `## Lawyer answer` section below -->
 
-## Ответ юриста
+## Lawyer answer
 
-**Confidence:** LOW (общий) — с разбивкой по sub-questions:
+**Confidence:** LOW (overall) — with a breakdown by sub-questions:
 
-- Q1 (crypto-law / VASP) — **LOW** (закон 2074-IX не введён в действие, ждёт изменений ПКУ; статус 10225-д подвижный)
-- Q2 (taxation) — **LOW→MED** (текущая позиция ДПС известна, но грядут изменения с 01.01.2026)
-- Q3 (AML / Финмон) — **LOW** (поріг 30k грн известен, но конкретика VASP-обязательств — будущая)
-- Q4 (smart contract / VASP-статус) — **LOW** (нет правозастосовчої практики, чисто hypothetical analysis)
-- Q5 (contract structure) — **MED** (применимо общее зобов'язальне право, ЦКУ)
-- Q6 (risk mitigation) — **MED** (actionable рекомендации общего характера)
+- Q1 (crypto-law / VASP) — **LOW** (Law 2074-IX not in force, awaiting changes to the Tax Code; the status of 10225-d is fluid)
+- Q2 (taxation) — **LOW→MED** (the current DPS position is known, but changes are coming on 01.01.2026)
+- Q3 (AML / Fin Mon) — **LOW** (the 30k UAH threshold is known, but the specifics of VASP obligations are future)
+- Q4 (smart contract / VASP status) — **LOW** (no enforcement practice, pure hypothetical analysis)
+- Q5 (contract structure) — **MED** (general law of obligations applies, the Civil Code of Ukraine)
+- Q6 (risk mitigation) — **MED** (actionable recommendations of a general nature)
 
 **Mode:** strategic
-**Дата:** 2026-05-31
+**Date:** 2026-05-31
 
-**Важно перед чтением:** Это первая консультация Legal-агента (knowledge base в Phase 0 — пустая по topic-folders). Primary source = WebSearch + общие принципы. Регуляторный ландшафт криптовалют в Украине в 2025–2026 находится в **переходном состоянии** — Закон 2074-IX принят, но не введён в действие; законопроект 10225-д прошёл первое чтение 03.09.2025 и должен вступить в силу 01.01.2026 (но это плановая дата, не гарантия). Любая HIGH-уверенная рекомендация в такой среде = overconfident. Минимум по 5 из 6 sub-questions нужна верификация у practicing UA tax/crypto lawyer **до запуска PHASE 8**.
+**Important before reading:** This is the first consultation of the Legal agent (the knowledge base in Phase 0 is empty by topic folders). Primary source = WebSearch + general principles. The regulatory landscape of cryptocurrencies in Ukraine in 2025–2026 is in a **transitional state** — Law 2074-IX is adopted but not in force; draft law 10225-d passed the first reading on 03.09.2025 and should take effect on 01.01.2026 (but this is a planned date, not a guarantee). Any HIGH-confidence recommendation in such an environment = overconfident. For at least 5 of the 6 sub-questions, verification with a practicing UA tax/crypto lawyer is needed **before launching PHASE 8**.
 
 ### TL;DR
 
-**Текущая схема (74% SENIOR → smart contract → JUNIOR + ADMIN + partner) несёт три фундаментальных юридических риска под действующей редакцией закона:** (1) ФОП 3-я группа фактически **не имеет права** на расчёты в криптовалюте до вступления в силу налоговых изменений (риск принудительного перевода на общую систему + штраф 15%), (2) Smart contract `PaymentSplitter` с автоматическим распределением средств между несколькими получателями **с высокой вероятностью** будет квалифицирован как VASP-операция «переказ ВА від імені клієнта» (требует регистрации/лицензии после введения закона в действие), (3) пороги Финмоніторинга (30k грн / ~720 USD) триггерятся практически на каждой типичной транзакции — без KYC-процедур есть AML-риск. **Рекомендуется отложить PHASE 8 launch до Q3 2026** (после реальной активации 10225-д) либо **реструктуризировать через ТОВ + договорную сетку** с прямыми банковскими / USDT переводами без on-chain автосплита.
+**The current scheme (74% SENIOR → smart contract → JUNIOR + ADMIN + partner) carries three fundamental legal risks under the current wording of the law:** (1) FOP group 3 effectively **does not have the right** to settle in cryptocurrency until the tax changes take effect (risk of forced transfer to the general system + a 15% penalty), (2) the `PaymentSplitter` smart contract with automatic distribution of funds among several recipients **will very likely** be qualified as a VASP operation "transfer of VA on behalf of a client" (requires registration/a license after the law takes effect), (3) the Financial Monitoring thresholds (30k UAH / ~720 USD) are triggered on practically every typical transaction — without KYC procedures there is an AML risk. **It is recommended to postpone the PHASE 8 launch until Q3 2026** (after the real activation of 10225-d) or **restructure via a TOV (LLC) + a contractual network** with direct bank / USDT transfers without an on-chain auto-split.
 
-### Анализ
+### Analysis
 
-#### Q1 — UA crypto law (Закон 2074-IX, законопроект 10225-д)
+#### Q1 — UA crypto law (Law 2074-IX, draft law 10225-d)
 
-**Текущий статус закона:**
+**Current status of the law:**
 
-[Закон України «Про віртуальні активи» № 2074-IX від 17.02.2022](https://zakon.rada.gov.ua/laws/show/2074-20) формально прийнятий, но **не введён в действие**. Согласно п. 4 Прикінцевих та перехідних положень — закон набирає чинності з дня набрання чинності змінами до Податкового кодексу України щодо особливостей оподаткування операцій з ВА. Эти изменения сейчас оформляются [законопроектом 10225-д](https://itd.rada.gov.ua/billinfo/Bills/Card/56271), который **прошёл только перше читання 03.09.2025** (WebSearch: https://itd.rada.gov.ua/billinfo/Bills/Card/56271, дата сбора: 2026-05-31). Плановая дата вступления в силу — 01.01.2026, но это таргет, а не данность.
+[The Law of Ukraine "On Virtual Assets" No. 2074-IX dated 17.02.2022](https://zakon.rada.gov.ua/laws/show/2074-20) is formally adopted, but **not in force**. Per paragraph 4 of the Final and Transitional Provisions — the law takes effect from the day the changes to the Tax Code of Ukraine regarding the specifics of taxation of VA operations take effect. These changes are now being formalized in [draft law 10225-d](https://itd.rada.gov.ua/billinfo/Bills/Card/56271), which **passed only the first reading on 03.09.2025** (WebSearch: https://itd.rada.gov.ua/billinfo/Bills/Card/56271, collection date: 2026-05-31). The planned effective date is 01.01.2026, but this is a target, not a given.
 
-**Регулятор:** [НКЦПФР (Національна комісія з цінних паперів та фондового ринку)](https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/) определена как основной регулятор рынка ВА (WebSearch: https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/, дата сбора: 2026-05-31).
+**Regulator:** [NSSMC (the National Securities and Stock Market Commission)](https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/) is designated as the main regulator of the VA market (WebSearch: https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/, collection date: 2026-05-31).
 
-**Объём операций, который триггерит лицензирование:** На текущий момент (до введения закона в действие) **сам факт лицензирования VASP в Украине не работает** — режим находится в legal vacuum. После введения в действие концептуально VASP — это юрособи, які професійно надають послуги з обігу ВА клієнтам, включаючи «зберігання та адміністрування ВА від імені клієнтів» та «переказ ВА від імені клієнтів» (WebSearch: https://golaw.ua/insights/publication/novij-etap-regulyuvannya-virtualnih-aktiviv-v-ukrayini-shho-zminyuyetsya-dlya-biznesu-ta-investoriv/, дата сбора: 2026-05-31).
+**The volume of operations that triggers licensing:** At the moment (before the law takes effect), **VASP licensing in Ukraine itself does not work** — the regime is in a legal vacuum. After it takes effect, conceptually a VASP is a legal entity that professionally provides VA circulation services to clients, including "custody and administration of VA on behalf of clients" and "transfer of VA on behalf of clients" (WebSearch: https://golaw.ua/insights/publication/novij-etap-regulyuvannya-virtualnih-aktiviv-v-ukrayini-shho-zminyuyetsya-dlya-biznesu-ta-investoriv/, collection date: 2026-05-31).
 
-**Применимость к нашему кейсу (Confidence: LOW):**
+**Applicability to our case (Confidence: LOW):**
 
-- Если SENIOR'ы платят свои собственные USDT через свой собственный кошелёк в PaymentSplitter — это аргументированно self-custody, не VASP-сервис для третьих лиц.
-- НО: если ADMIN (компания) **деплоит и владеет** PaymentSplitter контрактом, который автоматически перенаправляет средства JUNIOR'ам и партнёру — это, ИМХО, выглядит как «переказ ВА від імені клієнта» (клиент = SENIOR; получатели = JUNIOR / partner). Это серая зона, требующая authoritative verification.
-- Существующая практика в EU под MiCA: non-custodial infrastructure (платформа никогда не контролирует средства user'ов) обычно избегает VASP/CASP лицензии (WebSearch: https://www.crossmint.com/learn/eoas-vs-smart-wallets, дата сбора: 2026-05-31), но это **не UA закон**, а EU аналогия.
+- If SENIORs pay their own USDT through their own wallet into the PaymentSplitter — this is arguably self-custody, not a VASP service for third parties.
+- BUT: if the ADMIN (company) **deploys and owns** the PaymentSplitter contract, which automatically redirects funds to JUNIORs and the partner — this, IMHO, looks like "transfer of VA on behalf of a client" (client = SENIOR; recipients = JUNIOR / partner). This is a gray area requiring authoritative verification.
+- Existing practice in the EU under MiCA: non-custodial infrastructure (the platform never controls users' funds) usually avoids a VASP/CASP license (WebSearch: https://www.crossmint.com/learn/eoas-vs-smart-wallets, collection date: 2026-05-31), but this is **not UA law**, but an EU analogy.
 
-#### Q2 — Налогообложение USDT доходов в UA
+#### Q2 — Taxation of USDT income in UA
 
-**Позиция ДПС по ФОП и крипто (текущая, дореформенная):**
+**DPS position on FOP and crypto (current, pre-reform):**
 
-> ФОП — платники єдиного податку **другої — третьої груп**, крім е-резидентів, **не можуть здійснювати продаж або реалізацію криптовалюти**. ДПС пояснює це тим, що криптовалюта не має визначеного правового статусу.
+> FOPs — single-tax payers of **groups two and three**, except e-residents, **may not sell or realize cryptocurrency**. The DPS explains this by the fact that cryptocurrency has no defined legal status.
 
-(WebSearch: https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep, дата сбора: 2026-05-31; та news.dtkt.ua/simple/individual-single-tax/85485)
+(WebSearch: https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep, collection date: 2026-05-31; and news.dtkt.ua/simple/individual-single-tax/85485)
 
-> ФОП на єдиному податку І-ІІІ групи використовувати криптовалюти в розрахунках не можна, що може призвести до **примусового переведення на загальну систему** оподаткування та сплати єдиного податку за штрафною ставкою — **15%**.
+> FOPs on the single tax, groups I-III, cannot use cryptocurrencies in settlements, which may lead to a **forced transfer to the general system** of taxation and payment of the single tax at a penalty rate — **15%**.
 
-(WebSearch: https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep, дата сбора: 2026-05-31)
+(WebSearch: https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep, collection date: 2026-05-31)
 
-**Это критический риск для всей текущей схемы PHASE 5 + PHASE 8.** Сейчас SENIOR'ы получают USDT и вносят их как доход ФОП — формально это **уже** может быть оспорено ДПС как «розрахунки в криптовалюті».
+**This is a critical risk for the entire current scheme PHASE 5 + PHASE 8.** Right now SENIORs receive USDT and enter it as FOP income — formally this **may already** be contested by the DPS as "settlements in cryptocurrency".
 
-**Грядущие изменения (10225-д, после введения):**
+**Upcoming changes (10225-d, after it takes effect):**
 
-> Для віртуальних активів, придбаних до набрання чинності законом, у разі продажу протягом 2026 — пільгова ставка **5% ПДФО** (плюс 5% ВЗ). З 2026 і далі — стандартна ставка **18% ПДФО + 5% військового збору**.
+> For virtual assets acquired before the law takes effect, in case of sale during 2026 — a preferential rate of **5% PIT** (plus 5% military levy). From 2026 and onward — the standard rate of **18% PIT + 5% military levy**.
 
-(WebSearch: https://www.ey.com/uk_ua/it-tax-law-digest/the-draft-law-on-the-taxation-of-income-from-virtual-assets-approved-by-the-parliamentary-committee, дата сбора: 2026-05-31)
+(WebSearch: https://www.ey.com/uk_ua/it-tax-law-digest/the-draft-law-on-the-taxation-of-income-from-virtual-assets-approved-by-the-parliamentary-committee, collection date: 2026-05-31)
 
-**Важно:** Эти ставки касаются **фізичних осіб**, не ФОП. Будут ли ФОП-режимы интегрированы с операциями ВА — на данный момент **открытый вопрос** (commentary указывает, что отдельный режим для ФОП с крипто пока не предусмотрен в 10225-д).
+**Important:** These rates concern **individuals**, not FOPs. Whether FOP regimes will be integrated with VA operations is at the moment an **open question** (commentary indicates that a separate regime for FOPs with crypto is not yet envisaged in 10225-d).
 
-**Курс / момент возникновения дохода (общая логика для валютных доходов ФОП):**
+**Rate / moment income arises (general logic for FOP foreign-currency income):**
 
-> Дохід ФОП на єдиному податку, отриманий в іноземній валюті, визначається за **курсом НБУ на дату надходження коштів** на рахунок ФОП.
+> The income of a FOP on the single tax received in foreign currency is determined at the **NBU rate on the date funds arrive** in the FOP's account.
 
-(WebSearch: https://i.factor.ua/ukr/journals/nibu/2026/january/issue-9/article-135899.html, дата сбора: 2026-05-31)
+(WebSearch: https://i.factor.ua/ukr/journals/nibu/2026/january/issue-9/article-135899.html, collection date: 2026-05-31)
 
-**Применимость к USDT:** проблема в том, что USDT не «надходить на рахунок» — он приходит на blockchain-кошелёк. У ДПС нет ясной позиции о моменте налогового события для крипто на самокастоди (на 2026-05-31). Скорее всего — момент конвертации USDT в фиат через лицензированную биржу/обмінник + банк-перевод на счёт ФОП.
+**Applicability to USDT:** the problem is that USDT does not "arrive in an account" — it comes to a blockchain wallet. The DPS has no clear position on the moment of the tax event for crypto in self-custody (as of 2026-05-31). Most likely — the moment of conversion of USDT into fiat through a licensed exchange/exchanger + a bank transfer to the FOP's account.
 
-**Военный сбор:**
+**Military levy:**
 
-> Для ФОП **3 групи** военный сбор в 2026 році сплачують за ставкою **1% від всього отриманого за звітний період доходу**.
+> For FOPs of **group 3** the military levy in 2026 is paid at a rate of **1% of all income received for the reporting period**.
 
-(WebSearch: https://bip.net.ua/articles/vijskovij-zbir/, дата сбора: 2026-05-31)
+(WebSearch: https://bip.net.ua/articles/vijskovij-zbir/, collection date: 2026-05-31)
 
-Это в дополнение к 5% единого налога. Итого для ФОП 3 группы: **5% ЕН + 1% ВЗ = 6%** от валового дохода (на 2025-2026 период военного стану).
+This is in addition to the 5% single tax. In total for a FOP of group 3: **5% single tax + 1% military levy = 6%** of gross income (for the 2025-2026 period of martial law).
 
-**Двойное налогообложение через smart contract автосплит (Confidence: LOW, гипотеза):**
+**Double taxation via smart contract auto-split (Confidence: LOW, hypothesis):**
 
-- Момент 1: SENIOR получает USDT → налоговое событие для SENIOR (как минимум по будущему закону).
-- Момент 2: PaymentSplitter перенаправляет JUNIOR'у фиксированную сумму → формально это **второе** налоговое событие для JUNIOR (доход физлица или ФОП).
-- Момент 3: ADMIN/partner получают свои 50/50 → третье событие.
+- Moment 1: the SENIOR receives USDT → a tax event for the SENIOR (at least under the future law).
+- Moment 2: the PaymentSplitter redirects a fixed amount to the JUNIOR → formally this is a **second** tax event for the JUNIOR (income of an individual or FOP).
+- Moment 3: ADMIN/partner receive their 50/50 → a third event.
 
-Если SENIOR уже декларировал 100% дохода (потому что получил его на свой адрес), а затем 74% «пошли» в smart contract — формально SENIOR **уже уплатил налог с этих 74%**, а потом JUNIOR/ADMIN/partner платят налог снова. Это **тройное обложение** одного и того же money flow, если не оформить договорную природу (см. Q5).
+If the SENIOR has already declared 100% of the income (because they received it to their own address), and then 74% "went" into the smart contract — formally the SENIOR **has already paid tax on those 74%**, and then JUNIOR/ADMIN/partner pay tax again. This is **triple taxation** of the same money flow, unless the contractual nature is formalized (see Q5).
 
-#### Q3 — AML / Финмоніторинг
+#### Q3 — AML / Financial Monitoring
 
-**Закон 361-IX и пороги:**
+**Law 361-IX and thresholds:**
 
-> Поріг здійснення заходів належної перевірки у разі здійснення **переказів** становить **30 тисяч грн**.
+> The threshold for carrying out due diligence measures in the case of **transfers** is **30 thousand UAH**.
 
-(WebSearch: https://buhplatforma.com.ua/article/7558-fnansoviy-montoring, дата сбора: 2026-05-31)
+(WebSearch: https://buhplatforma.com.ua/article/7558-fnansoviy-montoring, collection date: 2026-05-31)
 
-> Під фінансовий моніторинг підпадають операції з віртуальними активами; якщо біржі, обмінники, банки або інші компанії здійснюють платежі у криптовалютах на суму **більше 30 тис. грн**, вони піддаються моніторингу.
+> Operations with virtual assets fall under financial monitoring; if exchanges, exchangers, banks or other companies make payments in cryptocurrencies in an amount **greater than 30 thousand UAH**, they are subject to monitoring.
 
-(WebSearch: https://buhplatforma.com.ua/article/7558-fnansoviy-montoring, дата сбора: 2026-05-31; та [Закон № 361-IX](https://zakon.rada.gov.ua/go/361-20))
+(WebSearch: https://buhplatforma.com.ua/article/7558-fnansoviy-montoring, collection date: 2026-05-31; and [Law No. 361-IX](https://zakon.rada.gov.ua/go/361-20))
 
-**Применимость:**
+**Applicability:**
 
-- 30k грн ≈ 720 USD по курсу ~41.5. Типичная ставка SENIOR в IT outsource = $3000-8000/мес → каждая выплата SENIOR'у **в десятки раз** превышает порог.
-- Под Финмон попадают **суб'єкти первинного фінансового моніторингу** (СПФМ): банки, біржі, обмінники, VASP'и (после введения 2074-IX).
-- **Сами SENIOR'ы как физлица или ФОП — не СПФМ.** Но банк / биржа через которых пройдёт USDT/UAH конвертация — да, и они уведомят Финмон.
-- **PaymentSplitter** на самокастоди адресе ADMIN'а: формально, если ADMIN — не VASP, он не СПФМ → нет обязанности KYC. НО (см. Q4) — статус ADMIN как «оператора» при автосплите — спорный.
+- 30k UAH ≈ 720 USD at a rate of ~41.5. A typical SENIOR rate in IT outsource = $3000-8000/month → each payout to a SENIOR is **dozens of times** over the threshold.
+- Financial Monitoring covers **primary financial monitoring entities** (SPFM): banks, exchanges, exchangers, VASPs (after the introduction of 2074-IX).
+- **The SENIORs themselves, as individuals or FOPs, are not SPFM.** But the bank / exchange through which the USDT/UAH conversion passes — yes, and they will notify Financial Monitoring.
+- **PaymentSplitter** at the ADMIN's self-custody address: formally, if the ADMIN is not a VASP, they are not an SPFM → no obligation to do KYC. BUT (see Q4) — the ADMIN's status as an "operator" in an auto-split is disputable.
 
 **Blacklisted addresses (UA / OFAC):**
 
-- UA санкционные списки: [Указы Президента 2014-2024 + рішення РНБО](https://zakon.rada.gov.ua/laws/main/index/all/sanctions). USDT перевод на санкционный адрес = админ + потенциально уголовная (ст. 209 ККУ — легалізація).
-- OFAC SDN list: для cross-border перевода с участием US-резидентов/USD-номинала — riskbearing. USDT issuer (Tether) при запросе **может заморозить** средства на blacklisted адресах. Сам факт деплоя smart contract'а на Ethereum mainnet не делает компанию автоматически subject of OFAC, но если в blockchain-истории смарт-контракта появится транзакция с SDN-адресом — это compliance incident.
+- UA sanctions lists: [Presidential decrees 2014-2024 + NSDC decisions](https://zakon.rada.gov.ua/laws/main/index/all/sanctions). A USDT transfer to a sanctioned address = administrative + potentially criminal (Art. 209 of the Criminal Code of Ukraine — legalization).
+- OFAC SDN list: for a cross-border transfer involving US residents/USD denomination — risk-bearing. The USDT issuer (Tether), upon request, **may freeze** funds at blacklisted addresses. The mere fact of deploying a smart contract on Ethereum mainnet does not automatically make the company a subject of OFAC, but if a transaction with an SDN address appears in the smart contract's blockchain history — this is a compliance incident.
 
-**Это попадает в § 5 escalation-zones.md (Sanctions / OFAC) → human escalation обязательно для конкретного screening procedure.**
+**This falls into § 5 of escalation-zones.md (Sanctions / OFAC) → human escalation is mandatory for a specific screening procedure.**
 
-#### Q4 — Smart contract как «оператор операцій з ВА»
+#### Q4 — Smart contract as a "VA operations operator"
 
-**Confidence: LOW** — нет правозастосовчої практики в Украине по этому конкретному кейсу.
+**Confidence: LOW** — there is no enforcement practice in Ukraine for this specific case.
 
-**Аргументы «PaymentSplitter = self-custody pass-through, не VASP»:**
+**Arguments "PaymentSplitter = self-custody pass-through, not a VASP":**
 
-- Контракт не держит средства долгосрочно — input → instant split → output.
-- Нет custody (нет user accounts, нет private keys пользователей в контракте).
-- Source of funds — сам отправитель (SENIOR), он же подписывает транзакцию.
+- The contract does not hold funds long-term — input → instant split → output.
+- There is no custody (no user accounts, no users' private keys in the contract).
+- The source of funds is the sender themselves (the SENIOR), who also signs the transaction.
 
-**Аргументы «PaymentSplitter = переказ ВА від імені клієнта»:**
+**Arguments "PaymentSplitter = transfer of VA on behalf of a client":**
 
-- Контракт деплоит ADMIN. ADMIN — это сторона, которая **системно** организует распределение средств для нескольких получателей.
-- Получатели (JUNIOR, partner) — не подписывают входящую транзакцию; они «клиенты» с точки зрения регулятора.
-- В 10225-д «послуги з переказу ВА» определены широко — включают любого, кто professionally делает transfer от имени третьих лиц.
-- Регулярность операций (каждый месяц, каждый SENIOR) = «професійна діяльність».
+- The contract is deployed by the ADMIN. The ADMIN is the party that **systematically** organizes the distribution of funds to several recipients.
+- The recipients (JUNIOR, partner) do not sign the incoming transaction; they are "clients" from the regulator's point of view.
+- In 10225-d "VA transfer services" are defined broadly — including anyone who professionally makes a transfer on behalf of third parties.
+- The regularity of the operations (every month, every SENIOR) = "professional activity".
 
-**Моё чтение (subject to verification):** PaymentSplitter, **деплоенный ADMIN'ом**, с **регулярными** автосплитами на JUNIOR/partner — **скорее всего** будет квалифицирован НКЦПФР как VASP-сервис после введения 2074-IX. Если бы каждый SENIOR деплоил свой собственный контракт со своими собственными адресами получателей — аргумент self-custody был бы сильнее.
+**My reading (subject to verification):** PaymentSplitter, **deployed by the ADMIN**, with **regular** auto-splits to JUNIOR/partner — **will most likely** be qualified by the NSSMC as a VASP service after the introduction of 2074-IX. If each SENIOR deployed their own contract with their own recipient addresses — the self-custody argument would be stronger.
 
-#### Q5 — Договорная база
+#### Q5 — Contractual basis
 
-**Confidence: MED** — здесь работает общее зобов'язальне право ЦКУ, оно стабильно.
+**Confidence: MED** — here the general law of obligations of the Civil Code of Ukraine works, it is stable.
 
-Без договорной базы все три cashflow'а (SENIOR↔ADMIN, ADMIN↔JUNIOR, ADMIN↔partner) — это **дарування** ([ст. 717 ЦКУ](https://zakon.rada.gov.ua/laws/show/435-15)). Дарування между физлицами/ФОП — не лучший legal frame: налоговая природа неясна, нет defensive position если ДПС спросит «почему деньги ходят туда-сюда».
+Without a contractual basis, all three cashflows (SENIOR↔ADMIN, ADMIN↔JUNIOR, ADMIN↔partner) are a **gift** ([Art. 717 of the Civil Code of Ukraine](https://zakon.rada.gov.ua/laws/show/435-15)). A gift between individuals/FOPs is not the best legal frame: the tax nature is unclear, there is no defensive position if the DPS asks "why does money move back and forth".
 
-**Рекомендуемая правовая природа:**
+**Recommended legal nature:**
 
-| Cashflow                      | Природа                                                                                                              | Договор                                                                                   | Налоговая характеристика                                                                 |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| SENIOR → ADMIN (74%)          | Послуги (маркетинг, рекрутинг, business development) — **ADMIN надає SENIOR'у послугу пошуку та супроводу клієнтів** | Договір про надання послуг                                                                | Доход ФОП ADMIN (5% ЕН + 1% ВЗ)                                                          |
-| ADMIN → JUNIOR (fixed amount) | Послуги (JUNIOR надає послуги розробки в проекті, ADMIN — координатор/подрядчик)                                     | Договір субпідряду / ЦПХ                                                                  | Доход ФОП JUNIOR (5% + 1%)                                                               |
-| ADMIN → partner (50/50)       | Корпоративные отношения — дивіденди ТОВ, або «послуги co-founder'a» через ФОП partner'а                              | Засновницький договір ТОВ + рішення про розподіл прибутку, або договір послуг ФОП partner | Дивіденди (5% ПДФО + 1.5% ВЗ для нерезидентів 9% + 1.5%) ИЛИ ФОП-послуги (5% ЕН + 1% ВЗ) |
+| Cashflow                      | Nature                                                                                                                                  | Agreement                                                                                         | Tax characterization                                                                                                                  |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| SENIOR → ADMIN (74%)          | Services (marketing, recruiting, business development) — **ADMIN provides the SENIOR with a service of finding and supporting clients** | Services agreement                                                                                | Income of the ADMIN's FOP (5% single tax + 1% military levy)                                                                          |
+| ADMIN → JUNIOR (fixed amount) | Services (the JUNIOR provides development services on the project, ADMIN — coordinator/contractor)                                      | Subcontracting / civil-law (CPH) agreement                                                        | Income of the JUNIOR's FOP (5% + 1%)                                                                                                  |
+| ADMIN → partner (50/50)       | Corporate relations — TOV dividends, or "co-founder services" via the partner's FOP                                                     | TOV founding agreement + a decision on profit distribution, or a partner's FOP services agreement | Dividends (5% PIT + 1.5% military levy for residents; 9% + 1.5% for non-residents) OR FOP services (5% single tax + 1% military levy) |
 
-**Ключевое (Confidence: MED):** правовая природа НЕ должна быть «дарування». Должен быть identifiable service exchange или corporate-distribution rationale. Иначе при налоговой проверке схема **разваливается** как «безпідставне збагачення».
+**Key (Confidence: MED):** the legal nature must NOT be a "gift". There must be an identifiable service exchange or a corporate-distribution rationale. Otherwise, under a tax audit the scheme **falls apart** as "unjust enrichment".
 
-#### Q6 — Risk mitigation (детально в секции «Рекомендация»)
+#### Q6 — Risk mitigation (in detail in the "Recommendation" section)
 
-См. секцию «Рекомендация» ниже.
+See the "Recommendation" section below.
 
-### Риски
+### Risks
 
-| #   | Risk                                                                                                                                                                            | Severity     | Probability | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Принудительный перевод SENIOR'ов с ФОП 3 на общую систему + штраф 15%** за расчёты в крипто (текущая позиция ДПС: ФОП на ЕП не имеет права на крипто-расчёты)                 | **Critical** | High        | (a) Конвертировать USDT → UAH через лицензированную биржу до зачисления на счёт ФОП (доход ФОП = UAH, не USDT); (b) дождаться вступления в силу 10225-д и спец. режима для ФОП; (c) альтернативно — переход SENIOR'ов на ТОВ-структуру (см. рекомендацию #3)                                                                                                                                                                                    |
-| 2   | **VASP-квалификация PaymentSplitter** контракта, деплоенного ADMIN'ом → требование лицензии НКЦПФР после введения в действие 2074-IX (~Q3 2026)                                 | High         | Medium-High | (a) Деплой контракта **каждым SENIOR'ом отдельно** для своих собственных проектов (self-custody argument); (b) альтернативно — отказ от smart contract автосплита, ручные USDT-переводы через биржу с тегированием purpose в memo                                                                                                                                                                                                               |
-| 3   | **AML / Финмоніторинг блокировка** при USDT→UAH конвертации (банк/биржа квалифицирует операцию как подозрительную из-за multi-party flow без identifiable договорной базы)      | High         | Medium      | (a) Договорная сетка ДО запуска (см. Q5); (b) использование лицензированных UA-бирж с KYC (Whitebit, Kuna) — они уже СПФМ, у них установленные процедуры; (c) ведение собственного journal'а транзакций с приложенными договорами                                                                                                                                                                                                               |
-| 4   | **Двойное/тройное налогообложение** одного money flow (SENIOR декларирует 100% доход → потом JUNIOR/ADMIN/partner декларируют свою часть как собственный доход)                 | High         | High        | Чёткий договорной flow: SENIOR — это **доход за свои услуги клиенту**, 74% — это **расход** SENIOR'а на услуги ADMIN'а (договір про надання послуг). Расходы ФОП 3 группы для ЕН не уменьшают базу (ЕН = валовий дохід), но они защищают **последующую** характеризацию: ADMIN потом получит этот доход как свой и заплатит свой 5% + 1%. Net effect: налог уплачен дважды по одной цепочке, но это **legal**, а не «удвоение того же платежа». |
-| 5   | **Уголовные риски ст. 209 ККУ (легалізація)** при попадании на blacklisted адрес или работу с подсанкционным контрагентом                                                       | Critical     | Low         | (a) OFAC SDN screening для каждого клиента ДО подписания контракта; (b) USDT-переводы только на whitelist адреса (своих JUNIOR'ов / partner'а); (c) AML-policy документ с procedures; (d) **этот пункт = hard escalation zone (§ 5 escalation-zones.md), human compliance lawyer обязателен**                                                                                                                                                   |
-| 6   | **GDPR/UA persona data риски** хранения wallet addresses пользователей в CRM                                                                                                    | Medium       | Medium      | (a) USDT wallet — pseudonymous, формально не personal data sole; (b) НО в комбинации с email/телефон/имя — становится personal data → ст. 5 [Закону про захист персональних даних](https://zakon.rada.gov.ua/laws/show/2297-17); (c) encryption-at-rest для wallet полей; (d) audit log changes (кто/когда меняет wallet)                                                                                                                       |
-| 7   | **Smart contract bug → потеря средств** (PaymentSplitter с багом → JUNIOR получит 0, остаток уйдёт куда не надо)                                                                | Critical     | Low-Medium  | (a) Аудит контракта у Hacken/CertiK перед mainnet деплоем; (b) Hardhat тесты с 100% coverage scenario'ев; (c) testnet pilot ≥3 месяца; (d) реентрабельность защита (OpenZeppelin ReentrancyGuard); (e) на старте — manual review каждой транзакции через MultiSig (Safe), не fully автомат                                                                                                                                                      |
-| 8   | **Невозможность валидации курса USDT/UAH** для налогового учёта при самокастоди (нет «дати надходження на рахунок» в банке — есть только blockchain timestamp)                  | Medium       | High        | (a) Конвертация USDT→UAH через биржу = banking event с definite датой и курсом для ДПС; (b) ведение собственного журнала с курсом НБУ на дату blockchain confirmation — как fallback позиция                                                                                                                                                                                                                                                    |
-| 9   | **Партнёрский конфликт без формализации** — если partner не имеет четкого правового статуса (физлицо/ФОП/co-founder ТОВ), партнёрский 50/50 split = бомба замедленного действия | High         | Medium      | Регистрация ТОВ с partner как засновник, либо нотариально заверенное партнёрское соглашение с фиксацией % distribution                                                                                                                                                                                                                                                                                                                          |
-| 10  | **Изменение регуляторной среды до Q3 2026** (10225-д ещё подвижный, может измениться по результатам 2-3 чтений)                                                                 | Medium       | High        | Ежеквартальный re-review legal-агентом + practicing lawyer; не запускать PHASE 8 до финального принятия закона                                                                                                                                                                                                                                                                                                                                  |
+| #   | Risk                                                                                                                                                                                         | Severity     | Probability | Mitigation                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| --- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Forced transfer of SENIORs from FOP 3 to the general system + a 15% penalty** for settlements in crypto (current DPS position: a FOP on the single tax has no right to crypto settlements) | **Critical** | High        | (a) Convert USDT → UAH through a licensed exchange before crediting to the FOP's account (FOP income = UAH, not USDT); (b) wait for 10225-d and a special regime for FOPs to take effect; (c) alternatively — transfer of SENIORs to a TOV structure (see recommendation #3)                                                                                                                                                                                                                                                             |
+| 2   | **VASP qualification of the PaymentSplitter** contract deployed by the ADMIN → requirement of an NSSMC license after 2074-IX takes effect (~Q3 2026)                                         | High         | Medium-High | (a) Deploy the contract **by each SENIOR separately** for their own projects (self-custody argument); (b) alternatively — refusal of the smart contract auto-split, manual USDT transfers through an exchange with tagging the purpose in a memo                                                                                                                                                                                                                                                                                         |
+| 3   | **AML / Financial Monitoring block** on USDT→UAH conversion (the bank/exchange qualifies the operation as suspicious due to a multi-party flow without an identifiable contractual basis)    | High         | Medium      | (a) The contractual network BEFORE launch (see Q5); (b) use of licensed UA exchanges with KYC (Whitebit, Kuna) — they are already SPFM, they have established procedures; (c) keeping one's own journal of transactions with attached agreements                                                                                                                                                                                                                                                                                         |
+| 4   | **Double/triple taxation** of a single money flow (the SENIOR declares 100% of the income → then JUNIOR/ADMIN/partner declare their part as their own income)                                | High         | High        | A clear contractual flow: the SENIOR's — this is **income for their services to the client**, 74% — this is an **expense** of the SENIOR for the ADMIN's services (a services agreement). Expenses of a FOP group 3 do not reduce the base for the single tax (single tax = gross income), but they protect the **subsequent** characterization: the ADMIN then receives this income as their own and pays their own 5% + 1%. Net effect: tax is paid twice down one chain, but this is **legal**, not a "doubling of the same payment". |
+| 5   | **Criminal risks of Art. 209 of the Criminal Code of Ukraine (legalization)** on hitting a blacklisted address or working with a sanctioned counterparty                                     | Critical     | Low         | (a) OFAC SDN screening for each client BEFORE signing a contract; (b) USDT transfers only to whitelist addresses (one's own JUNIORs / partner); (c) an AML-policy document with procedures; (d) **this item = a hard escalation zone (§ 5 escalation-zones.md), a human compliance lawyer is mandatory**                                                                                                                                                                                                                                 |
+| 6   | **GDPR/UA personal data risks** of storing users' wallet addresses in the CRM                                                                                                                | Medium       | Medium      | (a) A USDT wallet is pseudonymous, formally not personal data on its own; (b) BUT in combination with email/phone/name — it becomes personal data → Art. 5 of the [Law on the Protection of Personal Data](https://zakon.rada.gov.ua/laws/show/2297-17); (c) encryption-at-rest for wallet fields; (d) audit log of changes (who/when changes a wallet)                                                                                                                                                                                  |
+| 7   | **Smart contract bug → loss of funds** (a PaymentSplitter with a bug → the JUNIOR gets 0, the remainder goes to the wrong place)                                                             | Critical     | Low-Medium  | (a) Audit of the contract by Hacken/CertiK before mainnet deployment; (b) Hardhat tests with 100% coverage of scenarios; (c) a testnet pilot ≥3 months; (d) reentrancy protection (OpenZeppelin ReentrancyGuard); (e) at the start — a manual review of each transaction via MultiSig (Safe), not fully automatic                                                                                                                                                                                                                        |
+| 8   | **Inability to validate the USDT/UAH rate** for tax accounting in self-custody (there is no "date of arrival in an account" at a bank — there is only a blockchain timestamp)                | Medium       | High        | (a) Conversion USDT→UAH through an exchange = a banking event with a definite date and rate for the DPS; (b) keeping one's own journal with the NBU rate on the date of blockchain confirmation — as a fallback position                                                                                                                                                                                                                                                                                                                 |
+| 9   | **A partner conflict without formalization** — if the partner has no clear legal status (individual/FOP/TOV co-founder), the partner 50/50 split = a time bomb                               | High         | Medium      | Registering a TOV with the partner as a founder, or a notarized partnership agreement fixing the % distribution                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| 10  | **Change of the regulatory environment before Q3 2026** (10225-d is still fluid, may change as a result of the 2nd-3rd readings)                                                             | Medium       | High        | A quarterly re-review by the Legal agent + a practicing lawyer; do not launch PHASE 8 until the final adoption of the law                                                                                                                                                                                                                                                                                                                                                                                                                |
 
-### Рекомендация (best for business, в priority order)
+### Recommendation (best for business, in priority order)
 
-#### 0. ОБЯЗАТЕЛЬНО ДО ВСЕГО ОСТАЛЬНОГО — human escalation для трёх hard zones
+#### 0. MANDATORY BEFORE EVERYTHING ELSE — human escalation for three hard zones
 
-Эти три темы AI Legal не может покрыть с достаточной уверенностью. **До любого PHASE 8 действия:**
+These three topics AI Legal cannot cover with sufficient confidence. **Before any PHASE 8 action:**
 
-1. **Tax counsel (UA crypto/ФОП специализация)** — для финализации налоговой структуры, проверки расчётов на пилотных 2-3 SENIOR'ах. Бюджет: 15-30k грн initial consultation + 5-10k грн квартальный review.
-2. **AML/compliance consultant** — для OFAC/UA sanctions screening procedures + Финмон policy документации. Бюджет: 20-40k грн initial setup.
-3. **Smart contract auditor** (Hacken, CertiK, Trail of Bits) — для audit PaymentSplitter до mainnet деплоя. Бюджет: 100-300k грн в зависимости от scope.
+1. **Tax counsel (UA crypto/FOP specialization)** — to finalize the tax structure, to check the calculations on a pilot of 2-3 SENIORs. Budget: 15-30k UAH initial consultation + 5-10k UAH quarterly review.
+2. **AML/compliance consultant** — for OFAC/UA sanctions screening procedures + Financial Monitoring policy documentation. Budget: 20-40k UAH initial setup.
+3. **Smart contract auditor** (Hacken, CertiK, Trail of Bits) — to audit PaymentSplitter before mainnet deployment. Budget: 100-300k UAH depending on scope.
 
-Итого compliance budget на старт: **150-400k грн** (укладывается в «десятки тысяч грн» если выбрать low-cost варианты, но реалистично — низший edge выйдет в 150k+).
+Total compliance budget at the start: **150-400k UAH** (fits within "tens of thousands of UAH" if low-cost options are chosen, but realistically — the lower edge comes out to 150k+).
 
-#### 1. Отложить PHASE 8 launch до Q3 2026 (после реальной активации 10225-д)
+#### 1. Postpone the PHASE 8 launch until Q3 2026 (after the real activation of 10225-d)
 
-**Обоснование:** запускать smart contract автосплит **до** введения 2074-IX в действие — это работа в legal vacuum, где ДПС может in retrospect объявить любую крипто-операцию незаконной. После 01.01.2026 (плановая дата) появится определённость по налогам, после Q3 2026 — реальная VASP-регистрация (закон даёт existing providers срок до 01.07.2026 на регистрацию, см. EY commentary, WebSearch: ey.com/uk_ua/it-tax-law-digest/...).
+**Rationale:** launching a smart contract auto-split **before** 2074-IX takes effect is work in a legal vacuum, where the DPS can retrospectively declare any crypto operation illegal. After 01.01.2026 (the planned date) there will be certainty on taxes, and after Q3 2026 — real VASP registration (the law gives existing providers a deadline of 01.07.2026 to register, see EY commentary, WebSearch: ey.com/uk_ua/it-tax-law-digest/...).
 
-**Меры до Q3 2026:**
+**Measures until Q3 2026:**
 
-- PHASE 5 продолжает работать в текущем виде (ручная фиксация транзакций в CRM, manual выплата через биржу).
-- Заранее подготовить договорную сетку (см. рекомендация #2).
-- Подготовить и тестировать PaymentSplitter в testnet.
-- Мониторить статус 10225-д ежемесячно (WebSearch итерация в Legal-agent).
+- PHASE 5 continues to work in its current form (manual recording of transactions in the CRM, manual payout via an exchange).
+- Prepare the contractual network in advance (see recommendation #2).
+- Prepare and test PaymentSplitter in testnet.
+- Monitor the status of 10225-d monthly (a WebSearch iteration in the Legal agent).
 
-#### 2. Подготовить договорную сетку (Q5) — независимо от PHASE 8
+#### 2. Prepare the contractual network (Q5) — regardless of PHASE 8
 
-Минимальный набор шаблонов (готовится **до** запуска):
+The minimal set of templates (prepared **before** launch):
 
-1. **Договір про надання послуг між SENIOR (як ФОП-замовник) і ADMIN (як ФОП-виконавець)** — «послуги пошуку та супроводу клієнтів, бізнес-development»; ставка = 74% від клієнтського доходу SENIOR'а; період = щомісяця; розрахунки = USDT ERC-20 на адресу ADMIN'а **або** UAH на банк ФОП ADMIN'а.
+1. **A services agreement between the SENIOR (as a FOP customer) and the ADMIN (as a FOP provider)** — "services of finding and supporting clients, business development"; rate = 74% of the SENIOR's client income; period = monthly; settlements = USDT ERC-20 to the ADMIN's address **or** UAH to the ADMIN's FOP bank account.
 
-2. **Договір субпідряду / ЦПХ між ADMIN (як замовник) і JUNIOR (як виконавець)** — «послуги розробки в проекті X»; ставка = фіксована сума з `project_finance_settings.juniorSalary`; розрахунки = USDT або UAH.
+2. **A subcontracting / civil-law (CPH) agreement between the ADMIN (as customer) and the JUNIOR (as provider)** — "development services on project X"; rate = a fixed amount from `project_finance_settings.juniorSalary`; settlements = USDT or UAH.
 
-3. **Засновницький договір ТОВ або партнёрське соглашение ADMIN ↔ partner** — фіксація 50/50 розподілу прибутку. Если ТОВ — стандартная процедура реєстрації + рішення про розподіл дивідендів. Если ФОП partner — договір про спільну діяльність (хоть и слабше юридично, но допустимо для small business).
+3. **A TOV founding agreement or a partnership agreement ADMIN ↔ partner** — fixing the 50/50 profit distribution. If a TOV — a standard registration procedure + a decision on dividend distribution. If a partner FOP — a joint activity agreement (weaker legally, but acceptable for a small business).
 
-4. **Опционально:** Master agreement з клієнтом → SENIOR (template для outsource контрактов), фиксирующий **что 100% оплаты идёт SENIOR'у**, а internal distribution с ADMIN — это не concern клиента.
+4. **Optionally:** A master agreement with the client → SENIOR (a template for outsource contracts), fixing **that 100% of the payment goes to the SENIOR**, and the internal distribution with the ADMIN is not the client's concern.
 
-**Это сразу снижает риск №4 (двойное налогообложение) и №3 (AML легализация flow).**
+**This immediately reduces risk #4 (double taxation) and #3 (AML legalization of the flow).**
 
-#### 3. Реструктуризировать через ТОВ (если рост >20M грн/год и/или >5 активных проектов)
+#### 3. Restructure via a TOV (if growth >20M UAH/year and/or >5 active projects)
 
-**Когда:** если совокупный доход ФОП всех SENIOR'ов превышает 20M грн/год (это ~4-5 SENIOR'ов на ставке $5k+/мес), либо подключается >5 активных проектов.
+**When:** if the total income of all SENIORs' FOPs exceeds 20M UAH/year (this is ~4-5 SENIORs at a rate of $5k+/month), or if >5 active projects are connected.
 
-**Что:** регистрация ТОВ → клиентские контракты заключаются от ТОВ → ТОВ платит SENIOR'ам как ФОП-подрядчикам → ТОВ распределяет дивиденды партнёрам.
+**What:** registering a TOV → client contracts are concluded by the TOV → the TOV pays SENIORs as FOP contractors → the TOV distributes dividends to the partners.
 
-**Плюсы:**
+**Pros:**
 
-- ТОВ может быть VASP'ом (или работать с лицензированной VASP) — нет нужды в self-deployment smart contract.
-- Налоговая защита лучше: дивіденди (5% ПДФО + 1.5% ВЗ для резидентов) предсказуемее чем смесь ФОП-ЦПХ-крипто.
-- Корпоративная защита: limited liability vs. полная personal liability ФОП.
+- A TOV can be a VASP (or work with a licensed VASP) — no need for a self-deployment of a smart contract.
+- Tax protection is better: dividends (5% PIT + 1.5% military levy for residents) are more predictable than a mix of FOP-CPH-crypto.
+- Corporate protection: limited liability vs. full personal liability of a FOP.
 
-**Минусы:**
+**Cons:**
 
-- 18% ПДВ при превышении 1M грн/год оборота (но IT-послуги для нерезидентов = 0% ПДВ ст. 195.1.1 ПКУ).
-- 18% податок на прибуток ТОВ перед дивідендами → fakti­chno double taxation: 18% прибуток + 5% дивіденди = 22% effective.
-- Сравнить: ФОП 3 группа = 6% (5+1) — для outsource на small/medium scale **ФОП выгоднее**.
+- 18% VAT upon exceeding 1M UAH/year of turnover (but IT services for non-residents = 0% VAT, Art. 195.1.1 of the Tax Code of Ukraine).
+- 18% corporate profit tax of the TOV before dividends → de facto double taxation: 18% profit + 5% dividends = 22% effective.
+- Compare: FOP group 3 = 6% (5+1) — for outsource at a small/medium scale **a FOP is more advantageous**.
 
-**Verdict:** ТОВ оправдан только при scale > 20M грн/год оборота **либо** при необходимости иметь VASP-license. Иначе ФОП-структура + договорная сетка достаточна.
+**Verdict:** a TOV is justified only at a scale > 20M UAH/year of turnover **or** when it is necessary to hold a VASP license. Otherwise a FOP structure + contractual network is sufficient.
 
-#### 4. Альтернатива smart contract'у: ручная распределённая выплата через биржу
+#### 4. An alternative to the smart contract: a manual distributed payout via an exchange
 
-**Vместо** PaymentSplitter на mainnet:
+**Instead of** PaymentSplitter on mainnet:
 
-1. SENIOR конвертирует USDT → UAH через лицензированную UA-биржу (Whitebit/Kuna — оба СПФМ).
-2. UAH зачисляется на банк ФОП SENIOR'а — это **чистый налоговый event** ФОП по существующим правилам.
-3. SENIOR делает банк-перевод 74% на UAH-счёт ФОП ADMIN'а с указанием «оплата послуг за договором № X».
-4. ADMIN делает банк-перевод JUNIOR'у фиксированной суммы и партнёру 50%/50% от остатка.
+1. The SENIOR converts USDT → UAH through a licensed UA exchange (Whitebit/Kuna — both SPFM).
+2. UAH is credited to the SENIOR's FOP bank — this is a **clean tax event** of the FOP under the existing rules.
+3. The SENIOR makes a bank transfer of 74% to the UAH account of the ADMIN's FOP with the note "payment for services under agreement No. X".
+4. The ADMIN makes a bank transfer to the JUNIOR of a fixed amount and to the partner 50%/50% of the remainder.
 
-**Плюсы:**
+**Pros:**
 
-- Полностью соответствует текущей UA tax/banking практике.
-- KYC сделан биржей + банком автоматически.
-- Нет VASP-риска (нет smart contract'а вообще).
-- Audit trail в банковской выписке (idéal для ДПС проверки).
+- Fully compliant with current UA tax/banking practice.
+- KYC done by the exchange + bank automatically.
+- No VASP risk (no smart contract at all).
+- Audit trail in the bank statement (ideal for a DPS audit).
 
-**Минусы:**
+**Cons:**
 
-- Manual work (но CRM уже есть для tracking).
-- Биржевая комиссия (0.1-0.5%) + банковская комиссия.
-- Скорость: 1-3 дня вместо 30 секунд on-chain.
+- Manual work (but the CRM already exists for tracking).
+- Exchange fee (0.1-0.5%) + bank fee.
+- Speed: 1-3 days instead of 30 seconds on-chain.
 
-**Бюджетный effective cost для compliance:** ~1% от объёма (биржа + банк) vs. 100-300k грн audit + ongoing VASP registration ≥10k грн/мес после введения закона. Для outsource на сумму <100k USD/месяц — manual выгоднее.
+**Budget effective cost for compliance:** ~1% of the volume (exchange + bank) vs. 100-300k UAH audit + ongoing VASP registration ≥10k UAH/month after the law takes effect. For outsource at an amount <100k USD/month — manual is more advantageous.
 
-#### 5. Если всё же PHASE 8 необходим — гибридная архитектура
+#### 5. If PHASE 8 is still necessary — a hybrid architecture
 
-Если фундаментально нужно smart contract автосплит:
+If a smart contract auto-split is fundamentally needed:
 
-1. **Каждый SENIOR деплоит свой собственный PaymentSplitter** (Hardhat скрипт из CRM, deploy fee платит SENIOR из своего кошелька). Адреса получателей задаёт сам SENIOR. ADMIN — просто один из получателей, такой же как partner.
-2. **Self-custody argument:** контракт — extension собственной wallet SENIOR'а, не VASP-сервис для третьих лиц.
-3. **MultiSig (Gnosis Safe) на адресе ADMIN/partner** — добавляет KYC checkpoint и защищает от bug PaymentSplitter'а.
-4. **Audit + testnet pilot ≥3 мес.** перед mainnet.
-5. **Договорная сетка из рекомендации #2 — обязательна.**
-6. **AML procedure document** — описывает что делать если обнаружен blacklisted address; кто approve'ит nyaya wallet.
+1. **Each SENIOR deploys their own PaymentSplitter** (a Hardhat script from the CRM, the deploy fee is paid by the SENIOR from their own wallet). The recipient addresses are set by the SENIOR themselves. The ADMIN is just one of the recipients, the same as the partner.
+2. **Self-custody argument:** the contract is an extension of the SENIOR's own wallet, not a VASP service for third parties.
+3. **MultiSig (Gnosis Safe) on the ADMIN/partner address** — adds a KYC checkpoint and protects against a PaymentSplitter bug.
+4. **Audit + a testnet pilot ≥3 months** before mainnet.
+5. **The contractual network from recommendation #2 — mandatory.**
+6. **An AML procedure document** — describes what to do if a blacklisted address is detected; who approves a new wallet.
 
-#### 6. Ежеквартальный legal review
+#### 6. A quarterly legal review
 
-10225-д подвижный, регуляторная среда — fluid. После начальной реструктуризации:
+10225-d is fluid, the regulatory environment is fluid. After the initial restructuring:
 
-- **Q3 2026:** статус-чек 10225-д (введён в действие? уведённый по налогам?), статус VASP-регистрации.
-- **Q1 2027:** review первого года под новым режимом, корректировка структуры если нужно.
-- **Каждые 6 мес.:** WebSearch ключевых разъяснений ДПС + НКЦПФР + Финмон.
+- **Q3 2026:** a status check of 10225-d (in force? informed by taxes?), the status of VASP registration.
+- **Q1 2027:** a review of the first year under the new regime, correction of the structure if needed.
+- **Every 6 months:** a WebSearch of key clarifications of the DPS + NSSMC + Financial Monitoring.
 
-Эти review'ы — Mode D strategic consultations Legal-агента с обязательным human follow-up для high-impact изменений.
+These reviews — Mode D strategic consultations of the Legal agent with mandatory human follow-up for high-impact changes.
 
-### Источники
+### Sources
 
-**Первичные нормативные акты (UA):**
+**Primary regulatory acts (UA):**
 
-- [Закон України «Про віртуальні активи» № 2074-IX від 17.02.2022 (редакція 15.11.2024)](https://zakon.rada.gov.ua/laws/show/2074-20) — основной закон по ВА, не введён в действие.
-- [Закон України «Про запобігання та протидію легалізації (відмиванню) доходів...» № 361-IX від 06.12.2019](https://zakon.rada.gov.ua/go/361-20) — Финмоніторинг, поріг 30k грн.
-- [Податковий кодекс України, Стаття 291 (Розділ XIV — спрощена система оподаткування)](https://zakon.rada.gov.ua/laws/show/2755-17) — ФОП 3 группа, лимиты.
-- [Цивільний кодекс України](https://zakon.rada.gov.ua/laws/show/435-15) — основа договорной природы (ст. 717 дарування, ст. 901 послуги).
-- [Закон України «Про захист персональних даних» № 2297-VI](https://zakon.rada.gov.ua/laws/show/2297-17) — UA аналог GDPR для wallet-полей.
-- [Кримінальний кодекс України, ст. 209 (легалізація)](https://zakon.rada.gov.ua/laws/show/2341-14) — крипто-AML уголовное измерение.
+- [The Law of Ukraine "On Virtual Assets" No. 2074-IX dated 17.02.2022 (version 15.11.2024)](https://zakon.rada.gov.ua/laws/show/2074-20) — the main VA law, not in force.
+- [The Law of Ukraine "On Prevention and Counteraction of Legalization (Laundering) of Proceeds..." No. 361-IX dated 06.12.2019](https://zakon.rada.gov.ua/go/361-20) — Financial Monitoring, the 30k UAH threshold.
+- [The Tax Code of Ukraine, Article 291 (Section XIV — the simplified taxation system)](https://zakon.rada.gov.ua/laws/show/2755-17) — FOP group 3, limits.
+- [The Civil Code of Ukraine](https://zakon.rada.gov.ua/laws/show/435-15) — the basis of the contractual nature (Art. 717 gift, Art. 901 services).
+- [The Law of Ukraine "On the Protection of Personal Data" No. 2297-VI](https://zakon.rada.gov.ua/laws/show/2297-17) — the UA analog of GDPR for wallet fields.
+- [The Criminal Code of Ukraine, Art. 209 (legalization)](https://zakon.rada.gov.ua/laws/show/2341-14) — the crypto-AML criminal dimension.
 
-**Законопроекты в работе:**
+**Draft laws in progress:**
 
-- [Законопроект 10225-д — Картка ВРУ](https://itd.rada.gov.ua/billinfo/Bills/Card/56271) — первое чтение 03.09.2025, плановое введение в действие 01.01.2026. WebSearch (дата сбора: 2026-05-31).
+- [Draft law 10225-d — VRU Card](https://itd.rada.gov.ua/billinfo/Bills/Card/56271) — first reading 03.09.2025, planned entry into force 01.01.2026. WebSearch (collection date: 2026-05-31).
 
-**Регулятор и официальные разъяснения:**
+**Regulator and official clarifications:**
 
-- WebSearch: [NSSMC — Virtual assets in the law](https://www.nssmc.gov.ua/en/virtualni-aktyvy-v-zakoni-v-ukraini-predstavlenyi-dovhoochikuvanyi-dokument-dlia-zapusku-rynku/) (дата сбора: 2026-05-31).
-- WebSearch: [NSSMC — How VA market will be regulated](https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/) (дата сбора: 2026-05-31).
-- WebSearch: [NSSMC — Taxation of cryptocurrencies (interview)](https://www.nssmc.gov.ua/en/nktspfr-pro-opodatkuvannia-kryptovaliut-v-ukraini-ta-zminy-do-zakonu-pro-virtualni-aktyvy-interv-iu/) (дата сбора: 2026-05-31).
+- WebSearch: [NSSMC — Virtual assets in the law](https://www.nssmc.gov.ua/en/virtualni-aktyvy-v-zakoni-v-ukraini-predstavlenyi-dovhoochikuvanyi-dokument-dlia-zapusku-rynku/) (collection date: 2026-05-31).
+- WebSearch: [NSSMC — How VA market will be regulated](https://www.nssmc.gov.ua/en/u-nktspfr-rozpovily-iak-rehuliuvatymut-rynok-virtualnykh-aktyviv-v-ukraini/) (collection date: 2026-05-31).
+- WebSearch: [NSSMC — Taxation of cryptocurrencies (interview)](https://www.nssmc.gov.ua/en/nktspfr-pro-opodatkuvannia-kryptovaliut-v-ukraini-ta-zminy-do-zakonu-pro-virtualni-aktyvy-interv-iu/) (collection date: 2026-05-31).
 
 **Authoritative commentary (secondary, classified Commentary):**
 
-- Commentary: [EY Ukraine — Бил 10225 одобрен парламентским комитетом](https://www.ey.com/uk_ua/it-tax-law-digest/the-draft-law-on-the-taxation-of-income-from-virtual-assets-approved-by-the-parliamentary-committee) (дата сбора: 2026-05-31).
-- Commentary: [GoLaw — Новий етап регулювання ВА в Україні](https://golaw.ua/insights/publication/novij-etap-regulyuvannya-virtualnih-aktiviv-v-ukrayini-shho-zminyuyetsya-dlya-biznesu-ta-investoriv/) (дата сбора: 2026-05-31).
-- Commentary: [DTKT — Позиція ДПС по ФОП-єдинникам і крипто](https://news.dtkt.ua/simple/individual-single-tax/85485-ci-mozut-fizosobi-jedinniki-otrimuvati-doxid-u-kriptovaliuti-poziciia-dps) (дата сбора: 2026-05-31).
-- Commentary: [DTKT — Що чекає бухгалтерів з 01.01.2026](https://news.dtkt.ua/state/other/103083-virtualni-aktivi-v-ukrayini-shho-cekaje-buxgalteriv-z-1-sicnia-2026-roku) (дата сбора: 2026-05-31).
-- Commentary: [Taxer.ua — Криптовалюта та ФОП на ЕП](https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep) (дата сбора: 2026-05-31).
-- Commentary: [Yankiv — Зміни для ФОП у 2026](https://yankiv.com/zminy-dlya-fop-u-2026/) (дата сбора: 2026-05-31).
-- Commentary: [Factor — Валютний дохід ФОП на спрощенці: курс НБУ](https://i.factor.ua/ukr/journals/nibu/2026/january/issue-9/article-135899.html) (дата сбора: 2026-05-31).
-- Commentary: [BIP.net.ua — Військовий збір 2026](https://bip.net.ua/articles/vijskovij-zbir/) (дата сбора: 2026-05-31).
-- Commentary: [BuhPlatforma — Фінмоніторинг 2025: суб'єкти, операції, штрафи](https://buhplatforma.com.ua/article/7558-fnansoviy-montoring) (дата сбора: 2026-05-31).
-- Commentary: [Global Legal Insights — Blockchain & Cryptocurrency Laws 2026 / Ukraine](https://www.globallegalinsights.com/practice-areas/blockchain-cryptocurrency-laws-and-regulations/ukraine/) (дата сбора: 2026-05-31).
-- Commentary: [CMS Legal — Crypto Regulation in Ukraine](https://cms.law/en/int/expert-guides/cms-expert-guide-to-crypto-regulation/ukraine) (дата сбора: 2026-05-31).
+- Commentary: [EY Ukraine — Bill 10225 approved by the parliamentary committee](https://www.ey.com/uk_ua/it-tax-law-digest/the-draft-law-on-the-taxation-of-income-from-virtual-assets-approved-by-the-parliamentary-committee) (collection date: 2026-05-31).
+- Commentary: [GoLaw — A new stage of VA regulation in Ukraine](https://golaw.ua/insights/publication/novij-etap-regulyuvannya-virtualnih-aktiviv-v-ukrayini-shho-zminyuyetsya-dlya-biznesu-ta-investoriv/) (collection date: 2026-05-31).
+- Commentary: [DTKT — The DPS position on FOP single-tax payers and crypto](https://news.dtkt.ua/simple/individual-single-tax/85485-ci-mozut-fizosobi-jedinniki-otrimuvati-doxid-u-kriptovaliuti-poziciia-dps) (collection date: 2026-05-31).
+- Commentary: [DTKT — What awaits accountants from 01.01.2026](https://news.dtkt.ua/state/other/103083-virtualni-aktivi-v-ukrayini-shho-cekaje-buxgalteriv-z-1-sicnia-2026-roku) (collection date: 2026-05-31).
+- Commentary: [Taxer.ua — Cryptocurrency and a FOP on the single tax](https://taxer.ua/uk/kb/kryptovalyuta-u-fop-na-ep) (collection date: 2026-05-31).
+- Commentary: [Yankiv — Changes for FOPs in 2026](https://yankiv.com/zminy-dlya-fop-u-2026/) (collection date: 2026-05-31).
+- Commentary: [Factor — Foreign-currency income of a FOP on the simplified system: the NBU rate](https://i.factor.ua/ukr/journals/nibu/2026/january/issue-9/article-135899.html) (collection date: 2026-05-31).
+- Commentary: [BIP.net.ua — The military levy 2026](https://bip.net.ua/articles/vijskovij-zbir/) (collection date: 2026-05-31).
+- Commentary: [BuhPlatforma — Financial monitoring 2025: entities, operations, penalties](https://buhplatforma.com.ua/article/7558-fnansoviy-montoring) (collection date: 2026-05-31).
+- Commentary: [Global Legal Insights — Blockchain & Cryptocurrency Laws 2026 / Ukraine](https://www.globallegalinsights.com/practice-areas/blockchain-cryptocurrency-laws-and-regulations/ukraine/) (collection date: 2026-05-31).
+- Commentary: [CMS Legal — Crypto Regulation in Ukraine](https://cms.law/en/int/expert-guides/cms-expert-guide-to-crypto-regulation/ukraine) (collection date: 2026-05-31).
 
-**Внутренняя knowledge base:**
+**Internal knowledge base:**
 
-- `docs/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability ст. 209/212), §2 (споры с ДПС), §5 (Sanctions/OFAC) — все три применяются к этой консультации.
-- `docs/legal/cross-cutting/citation-rules.md` — формат цитации соблюдён.
-- `docs/legal/ua-fop/`, `docs/legal/crypto-usdt/` — **пустые** (Phase 0), не использованы.
-- `CLAUDE.md` (root) — секции «PHASE 8 — Смарт-контракти», «Финансовый флоу», «Бизнес-логика».
+- `docs/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability Art. 209/212), §2 (disputes with the DPS), §5 (Sanctions/OFAC) — all three apply to this consultation.
+- `docs/legal/cross-cutting/citation-rules.md` — the citation format is followed.
+- `docs/legal/ua-fop/`, `docs/legal/crypto-usdt/` — **empty** (Phase 0), not used.
+- `CLAUDE.md` (root) — sections "PHASE 8 — Smart contracts", "Financial flow", "Business logic".
 
 ### Disclaimer
 
-**Confidence: LOW (общий).** Эта консультация — preliminary AI check, НЕ binding legal advice. Текущий момент (2026-05-31) — переходный для UA crypto-регулирования: основной закон (2074-IX) принят, но не введён в действие; запускающий его налоговый законопроект (10225-д) прошёл только первое чтение. Никакая HIGH-уверенная рекомендация по PHASE 8 в такой среде невозможна.
+**Confidence: LOW (overall).** This consultation is a preliminary AI check, NOT binding legal advice. The current moment (2026-05-31) is transitional for UA crypto regulation: the main law (2074-IX) is adopted but not in force; the tax draft law that triggers it (10225-d) has passed only the first reading. No HIGH-confidence recommendation on PHASE 8 is possible in such an environment.
 
-**ОБЯЗАТЕЛЬНАЯ человеческая верификация ДО любого PHASE 8 действия:**
+**MANDATORY human verification BEFORE any PHASE 8 action:**
 
-1. **UA tax/crypto practising lawyer** — для финализации налоговой структуры (особенно ФОП 3 группа + крипто), договорной сетки, и проверки конкретных сумм налогов (попадают в § 4 escalation-zones.md → если >100k грн обязательств/период, точные расчёты — за tax-консультантом, не AI).
-2. **AML/sanctions compliance consultant** — для OFAC screening procedures, UA санкционных проверок, KYC policy (§ 5 escalation-zones.md, hard escalation).
-3. **Smart contract auditor (Hacken / CertiK / Trail of Bits)** — для PaymentSplitter аудита перед mainnet деплоем.
+1. **A UA tax/crypto practicing lawyer** — to finalize the tax structure (especially FOP group 3 + crypto), the contractual network, and to check specific tax amounts (they fall into § 4 of escalation-zones.md → if >100k UAH of obligations/period, the exact calculations are for a tax consultant, not AI).
+2. **An AML/sanctions compliance consultant** — for OFAC screening procedures, UA sanctions checks, a KYC policy (§ 5 escalation-zones.md, hard escalation).
+3. **A smart contract auditor (Hacken / CertiK / Trail of Bits)** — for a PaymentSplitter audit before mainnet deployment.
 
-**Эта консультация не покрывает (hard escalation per docs/legal/cross-cutting/escalation-zones.md):**
+**This consultation does not cover (hard escalation per docs/legal/cross-cutting/escalation-zones.md):**
 
-- § 1 — Уголовно-правовые риски ст. 209 ККУ (легалізація) при попадании на blacklisted адреса. AI указал на риск, конкретный criminal defense / procedure — за адвокатом.
-- § 4 — Конкретные суммы налогов > 100k грн / период. Дана общая framework (5% ЕН + 1% ВЗ), но точный расчёт обязательств с учётом курсовых разниц и multi-party flow — за tax-консультантом.
-- § 5 — Sanctions / OFAC specifics. Дано общее предупреждение, конкретные screening procedures и vendor approval — за специализированным compliance lawyer'ом.
+- § 1 — Criminal-law risks of Art. 209 of the Criminal Code of Ukraine (legalization) on hitting blacklisted addresses. AI pointed out the risk, the specific criminal defense / procedure is for a lawyer.
+- § 4 — Specific tax amounts > 100k UAH / period. A general framework is given (5% single tax + 1% military levy), but the exact calculation of obligations taking into account exchange-rate differences and a multi-party flow is for a tax consultant.
+- § 5 — Sanctions / OFAC specifics. A general warning is given, the specific screening procedures and vendor approval are for a specialized compliance lawyer.
 
-**Использовать этот ответ как:** brainstorming map, чтобы понять scope рисков и подготовиться к разговору с practising lawyer'ом. НЕ использовать как: основание для action без human review.
+**Use this answer as:** a brainstorming map to understand the scope of the risks and prepare for a conversation with a practicing lawyer. Do NOT use it as: a basis for action without human review.
 
-**Дополнительно для PM:** учитывая что это **первая реальная Legal-консультация** в системе — PM должен зафиксировать в `docs/agents/memory/legal/lessons.md` лессоны по структуре output (особенно: было ли понятно разбиение на 6 sub-questions с individual confidence). Для будущих strategic-консультаций по PHASE 8 evolution — re-trigger Legal-агента каждый квартал после прогресса 10225-д.
+**Additionally for PM:** given that this is the **first real Legal consultation** in the system — PM should record in `docs/agents/memory/legal/lessons.md` lessons on the structure of the output (especially: was the breakdown into 6 sub-questions with individual confidence clear). For future strategic consultations on PHASE 8 evolution — re-trigger the Legal agent every quarter after progress on 10225-d.

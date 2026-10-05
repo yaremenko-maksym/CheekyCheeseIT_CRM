@@ -1,54 +1,54 @@
 # task-<slug>
 
-## Агент: coder | autotest | devops
-## Статус: ready | in-progress | blocked | draft (ждёт решений владельца) | done
-## Блокеры: none | task-<slug>, task-<slug>
-## Приоритет: critical | high | medium | low
-## Модель: sonnet (default) | opus — только по триггерам rules/common/model-routing.md, добавить строку-обоснование
-## Зависит от: (человекочитаемое пояснение; машиночитаемый источник истины — «Блокеры» выше)
-## Ветка: feature/<slug>
-## (Для фиксов в существующей ветке — указать её имя)
+## Agent: coder | autotest | devops
+## Status: ready | in-progress | blocked | draft (awaiting owner decisions) | done
+## Blockers: none | task-<slug>, task-<slug>
+## Priority: critical | high | medium | low
+## Model: sonnet (default) | opus — only per the triggers in rules/common/model-routing.md, add a justification line
+## Depends on: (human-readable explanation; machine-readable source of truth — "Blockers" above)
+## Branch: feature/<slug>
+## (For fixes in an existing branch — give its name)
 
-## Контекст
+## Context
 
-<Зачем эта задача, какую проблему решает. 2-4 строки максимум.>
+<Why this task, what problem it solves. 2-4 lines maximum.>
 
-## Конкретные изменения
+## Concrete changes
 
-Список файлов с краткими описаниями что делать. Если правка точечная — указать функцию/блок:
+List of files with brief descriptions of what to do. If the change is pinpoint — specify the function/block:
 
-1. `packages/shared/src/schemas/<module>.ts` — добавить/изменить <что>
-2. `apps/api/src/<module>/<file>.ts` — реализовать <что>
-3. `apps/web/app/routes/crm/<module>/` — UI <что>
+1. `packages/shared/src/schemas/<module>.ts` — add/change <what>
+2. `apps/api/src/<module>/<file>.ts` — implement <what>
+3. `apps/web/app/routes/crm/<module>/` — UI <what>
 
-## Переиспользование / Regression scope (PM заполняет, Coder обязан проверить — coder.md §1.7)
+## Reuse / Regression scope (PM fills in, Coder must verify — coder.md §1.7)
 
-**Существующий код для переиспользования** (Coder: ast-grep ДО написания нового):
+**Existing code for reuse** (Coder: ast-grep BEFORE writing new):
 
-- `<путь>` — <что переиспользовать: хук / хелпер / компонент / паттерн>
+- `<path>` — <what to reuse: hook / helper / component / pattern>
 
-**Shared-код который будет затронут** (blast-radius → pinning-тесты до изменения):
+**Shared code that will be affected** (blast-radius → pinning tests before the change):
 
-- `<экспортируемый символ>` → call-sites: <известные места ИЛИ «Coder найдёт через ast-grep»>
+- `<exported symbol>` → call-sites: <known places OR "Coder will find via ast-grep">
 
-**Не должно сломаться** (существующие фичи рядом, проверяемо тестами):
+**Must not break** (existing features nearby, verifiable by tests):
 
-- <фича / флоу>
+- <feature / flow>
 
-## API endpoints (если новые)
+## API endpoints (if new)
 
-- `GET /api/...` — описание. RBAC: ADMIN/SENIOR видят все, JUNIOR — только свои.
-- `POST /api/...` — описание + body schema.
+- `GET /api/...` — description. RBAC: ADMIN/SENIOR see all, JUNIOR — only their own.
+- `POST /api/...` — description + body schema.
 
-## DB schema (если новые таблицы / миграции)
+## DB schema (if new tables / migrations)
 
 ```sql
--- Указать enum'ы, таблицы, FK, индексы
+-- Specify enums, tables, FKs, indexes
 ```
 
 ## RBAC
 
-| Роль | Доступ |
+| Role | Access |
 |------|--------|
 | ADMIN | full |
 | SENIOR | filtered |
@@ -56,63 +56,63 @@
 | HR | filtered |
 | ACCOUNTANT | full read |
 
-## Швы под тестами (PM предлагает, Coder подтверждает ДО написания тестов)
+## Seams under test (PM proposes, Coder confirms BEFORE writing tests)
 
-Тест не пишется на несогласованном шве. Шов — публичная граница, через которую наблюдается
-поведение; см. `.claude/skills/codebase-design/SKILL.md`. Предпочитать существующий шов новому и
-брать самый высокий из достаточных: чем меньше швов в кодовой базе, тем лучше.
+A test is not written against an unagreed seam. A seam is a public boundary through which
+behavior is observed; see `.claude/skills/codebase-design/SKILL.md`. Prefer an existing seam to a new one and
+take the highest of the sufficient ones: the fewer seams in the codebase, the better.
 
-- `<модуль / функция / эндпоинт>` — что через него проверяется
-- `<модуль>` — ...
+- `<module / function / endpoint>` — what is verified through it
+- `<module>` — ...
 
-Если задача не добавляет поведения (чистый рефактор под pinning-тестами) — отметить «Швы N/A,
-поведение не меняется».
+If the task adds no behavior (a pure refactor under pinning tests) — note "Seams N/A,
+behavior does not change".
 
 ## Acceptance criteria
 
-Каждый пункт ДОЛЖЕН быть проверяем через `git diff HEAD` или grep:
+Each item MUST be verifiable via `git diff HEAD` or grep:
 
-- [ ] <конкретное изменение №1 — указать паттерн/класс/функцию для grep>
-- [ ] <изменение №2>
-- [ ] <изменение №3>
+- [ ] <concrete change #1 — specify the pattern/class/function for grep>
+- [ ] <change #2>
+- [ ] <change #3>
 
-## Interaction tests (ОБЯЗАТЕЛЬНО для UI с keyboard/focus/debouncing)
+## Interaction tests (MANDATORY for UI with keyboard/focus/debouncing)
 
-Если задача трогает Autocomplete, Combobox, Modal, Form с validation, Drag-and-drop, Tooltip — указать конкретные сценарии:
+If the task touches Autocomplete, Combobox, Modal, Form with validation, Drag-and-drop, Tooltip — specify concrete scenarios:
 
-- [ ] <Например: Autocomplete — Tab коммитит highlighted option>
-- [ ] <Например: Autocomplete — ArrowDown/ArrowUp навигация по списку>
-- [ ] <Например: Autocomplete — Escape закрывает dropdown без потери query>
-- [ ] <Например: Modal — Escape закрывает; focus restore на trigger button>
+- [ ] <For example: Autocomplete — Tab commits the highlighted option>
+- [ ] <For example: Autocomplete — ArrowDown/ArrowUp navigation through the list>
+- [ ] <For example: Autocomplete — Escape closes the dropdown without losing the query>
+- [ ] <For example: Modal — Escape closes; focus restore to the trigger button>
 
-См. `.claude/agents/coder.md` §6 (E2E правила при UI-изменениях) — чек-лист по типам компонентов.
+See `.claude/agents/coder.md` §6 (E2E rules for UI changes) — checklist by component type.
 
-**Если interaction-логика отсутствует** (чистый CRUD без keyboard/focus) — отметить: «Interaction tests N/A — компонент без интерактивных элементов».
+**If interaction logic is absent** (pure CRUD without keyboard/focus) — note: "Interaction tests N/A — component without interactive elements".
 
-## Допущения (заполняет исполнитель по ходу — A1-решения)
+## Assumptions (the executor fills in as they go — A1 decisions)
 
-Каждое обратимое решение, принятое агентом самостоятельно (`rules/common/autonomy-levels.md`,
-уровень A1), существует здесь строкой. Решение без строки неотличимо от забытого.
+Every reversible decision the agent made on its own (`rules/common/autonomy-levels.md`,
+level A1) exists here as a line. A decision without a line is indistinguishable from a forgotten one.
 
-- `<решение>` — `<почему>` · обратимо, откат: `<цена>`
+- `<decision>` — `<why>` · reversible, rollback: `<cost>`
 
-Строки отсюда едут в тело PR блоком «Допущения»: владелец опротестовывает любое одной строкой.
-Пусто — так и написать «Допущений нет».
+Lines from here travel into the PR body as an "Assumptions" block: the owner contests any of them with a single line.
+Empty — then write "No assumptions".
 
-## Запрещено трогать
+## Do not touch
 
-- `<файлы не входящие в задачу>`
-- `<другие модули которые могут пересечься>`
+- `<files not part of the task>`
+- `<other modules that might overlap>`
 
-## Verification (Coder перед `git push`)
+## Verification (Coder before `git push`)
 
-После всех правок:
+After all edits:
 
-1. `git diff HEAD --name-only` — только файлы из «Конкретные изменения»
-2. Для каждого AC: `grep -n "<expected pattern>" <file>` подтверждает наличие
-3. Если UI — `mcp__playwright__browser_navigate` на роут + `browser_take_screenshot`
-4. Commit message ОБЯЗАН содержать:
+1. `git diff HEAD --name-only` — only files from "Concrete changes"
+2. For each AC: `grep -n "<expected pattern>" <file>` confirms presence
+3. If UI — `mcp__playwright__browser_navigate` to the route + `browser_take_screenshot`
+4. Commit message MUST contain:
    ```
    ac_verified: 1,2,3
-   vision: ✓ /crm/<route>  # только для UI задач
+   vision: ✓ /crm/<route>  # only for UI tasks
    ```

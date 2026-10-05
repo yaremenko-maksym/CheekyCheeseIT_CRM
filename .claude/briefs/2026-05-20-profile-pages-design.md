@@ -1,84 +1,84 @@
 # Profile Pages Redesign — Design Spec
 
-**Дата:** 2026-05-20
-**Скоуп:** `/crm/profile` + `/crm/users/:userId` (страницы профилей)
-**Реализация в первом PR:** A+B+C+D+G (см. секцию «Rollout»)
+**Date:** 2026-05-20
+**Scope:** `/crm/profile` + `/crm/users/:userId` (profile pages)
+**Implemented in the first PR:** A+B+C+D+G (see the "Rollout" section)
 
 ---
 
-## 1. Цель и контекст
+## 1. Goal and context
 
-Текущие страницы профилей минимальны и не отражают всю бизнес-логику ролевой модели CRM:
+The current profile pages are minimal and do not reflect the whole business logic of the CRM's role model:
 
-- `/crm/profile` — только Telegram + телефон редактируются. Нет техстека, аватара, реквизитов.
-- `/crm/users/:userId` — sparse view: аватар, имя, контакты, роль и дата создания. Не показывает финансы, проекты, команды, историю.
+- `/crm/profile` — only Telegram + phone are editable. No tech stack, avatar, requisites.
+- `/crm/users/:userId` — a sparse view: avatar, name, contacts, role and creation date. Does not show finances, projects, teams, history.
 
-**Цели:**
+**Goals:**
 
-1. Единый info-rich shell для обеих страниц с role-aware секциями.
-2. Self-edit для своего профиля (включая реквизиты с предупреждением).
-3. Admin actions panel для управления любым пользователем.
-4. Audit log изменений (видит только ADMIN).
-5. Замена `walletAddress` на multi-method payment requisites (USDT ERC-20 + Bank UAH ФОП).
+1. A single info-rich shell for both pages with role-aware sections.
+2. Self-edit for your own profile (including requisites with a warning).
+3. An Admin actions panel for managing any user.
+4. An Audit log of changes (only the ADMIN sees it).
+5. Replacing `walletAddress` with multi-method payment requisites (USDT ERC-20 + Bank UAH FOP).
 
 ---
 
 ## 2. Scope
 
-### In scope (первый PR)
+### In scope (first PR)
 
-| Код | Фича                     | Описание                                                              |
-| --- | ------------------------ | --------------------------------------------------------------------- |
-| A   | Tabs + per-role sections | `<UserProfileShell>` с табами, контент зависит от viewer×target.      |
-| B   | /profile self-edit       | displayName, telegram, phone, techStack — debounce autosave + toast.  |
-| C   | Payment requisites       | DB-миграция + UI (USDT/Bank UAH) + modal warning перед сохранением.   |
-| D   | Admin actions panel      | 8 действий (impersonate отложен).                                     |
-| G   | Audit log                | Новая таблица + audit interceptor + tab «История» (только для ADMIN). |
+| Code | Feature                  | Description                                                          |
+| ---- | ------------------------ | -------------------------------------------------------------------- |
+| A    | Tabs + per-role sections | `<UserProfileShell>` with tabs, content depends on viewer×target.    |
+| B    | /profile self-edit       | displayName, telegram, phone, techStack — debounce autosave + toast. |
+| C    | Payment requisites       | DB migration + UI (USDT/Bank UAH) + modal warning before saving.     |
+| D    | Admin actions panel      | 8 actions (impersonate deferred).                                    |
+| G    | Audit log                | New table + audit interceptor + "History" tab (only for the ADMIN).  |
 
-### Out of scope (отдельные PR-ы)
+### Out of scope (separate PRs)
 
-| Код | Фича                         | Причина откладывания                                          |
-| --- | ---------------------------- | ------------------------------------------------------------- |
-| E   | Avatar S3 upload             | Требует S3 bucket + credentials. Пока остаётся Google-аватар. |
-| F   | Documents tab                | Phase 6 (отдельная фича документов с ACL).                    |
-| H   | `/crm/users` (list) refactor | Не входит в текущий scope, монолит 1360 строк остаётся.       |
-| —   | Hard delete из архива        | Архив-страница — отдельная фича.                              |
-| —   | Impersonate action           | Требует отдельной модели сессии.                              |
+| Code | Feature                      | Reason for deferral                                                   |
+| ---- | ---------------------------- | --------------------------------------------------------------------- |
+| E    | Avatar S3 upload             | Requires an S3 bucket + credentials. For now the Google avatar stays. |
+| F    | Documents tab                | Phase 6 (a separate documents feature with ACL).                      |
+| H    | `/crm/users` (list) refactor | Not in the current scope, the 1360-line monolith stays.               |
+| —    | Hard delete from the archive | The archive page — a separate feature.                                |
+| —    | Impersonate action           | Requires a separate session model.                                    |
 
 ---
 
-## 3. Архитектура
+## 3. Architecture
 
-### 3.1 Один shell для двух страниц
+### 3.1 One shell for two pages
 
-Обе страницы — это один компонент `<UserProfileShell>` с режимом:
+Both pages are one component `<UserProfileShell>` with a mode:
 
 - `/crm/profile` → `mode='self'`, `userId=me.id`
 - `/crm/users/:userId` → `mode='view'`, `userId=:id`
 
-Различаются только тем, какие поля можно редактировать inline и какие табы доступны (определяется на бэке через `permissions`).
+They differ only in which fields can be edited inline and which tabs are available (determined on the backend via `permissions`).
 
-### 3.2 Layout: компактный horizontal header (variant B + крупный аватар)
+### 3.2 Layout: compact horizontal header (variant B + large avatar)
 
 ```
 ┌─ Header (scrollable) ─────────────────────────────────────────┐
-│ [Аватар 128×128]  Артём Петренко · JUNIOR                     │
+│ [Avatar 128×128]  Artem Petrenko · JUNIOR                     │
 │                   📧 email · 📱 phone · 🟦 telegram           │
-│                                          [← К списку] [⚡ Действия ▾] │
+│                                          [← To list] [⚡ Actions ▾] │
 ├─ Tabs row (sticky) ───────────────────────────────────────────┤
-│ Обзор · Финансы · Проекты · Команда · Реквизиты · История    │
+│ Overview · Finance · Projects · Team · Requisites · History   │
 ├─ Content area ────────────────────────────────────────────────┤
-│ ... контент активного таба                                    │
+│ ... content of the active tab                                 │
 └───────────────────────────────────────────────────────────────┘
 ```
 
-- Аватар: 128×128 (закреплено пожеланием «аватарка должна быть крупная»).
-- Header **не sticky** (скроллится вместе с контентом).
-- **Tabs row — sticky** (по решению): при скролле остаётся вверху, чтоб всегда был доступ к переключению табов.
-- Action dropdown — справа в header'е (видим только если у viewer есть `permissions.actions`).
-- Tabs — горизонтальный ряд под header'ом, активный таб подсвечен accent-цветом.
+- Avatar: 128×128 (fixed by the wish "the avatar should be large").
+- The header is **not sticky** (scrolls together with the content).
+- **Tabs row — sticky** (by decision): on scroll it stays on top, so there is always access to switching tabs.
+- Action dropdown — on the right in the header (visible only if the viewer has `permissions.actions`).
+- Tabs — a horizontal row under the header, the active tab highlighted with the accent color.
 
-### 3.3 Состояние таба в URL
+### 3.3 Tab state in the URL
 
 ```ts
 validateSearch: z.object({
@@ -88,59 +88,59 @@ validateSearch: z.object({
 })
 ```
 
-- Активный таб в query: `?tab=finance`.
-- Невалидное значение → редирект на `overview`.
-- Дип-линки удобно расшаривать в чате.
+- The active tab in the query: `?tab=finance`.
+- An invalid value → redirect to `overview`.
+- Deep links are convenient to share in chat.
 
 ---
 
-## 4. Табы и видимость
+## 4. Tabs and visibility
 
-### 4.1 Список табов
+### 4.1 List of tabs
 
-| Tab               | Контент                                                                                           |
-| ----------------- | ------------------------------------------------------------------------------------------------- |
-| **Обзор**         | KPI cards (зарплата/выплаты/проекты/команда) + tech stack + текущий проект + последняя активность |
-| **Финансы**       | Таблица транзакций/выплат с фильтрами по периоду/статусу                                          |
-| **Проекты**       | Активные + история (карточки)                                                                     |
-| **Команда**       | Состав команды, связи (HR ↔ SENIOR ↔ JUNIOR)                                                      |
-| **Собеседования** | Kanban-данные (только если target = SENIOR)                                                       |
-| **Реквизиты**     | Payment requisites: USDT ERC-20 + Bank UAH ФОП                                                    |
-| **История**       | Audit log изменений (только ADMIN видит)                                                          |
+| Tab            | Content                                                                                   |
+| -------------- | ----------------------------------------------------------------------------------------- |
+| **Overview**   | KPI cards (salary/payouts/projects/team) + tech stack + current project + latest activity |
+| **Finance**    | Table of transactions/payouts with filters by period/status                               |
+| **Projects**   | Active + history (cards)                                                                  |
+| **Team**       | Team composition, relations (HR ↔ SENIOR ↔ JUNIOR)                                        |
+| **Interviews** | Kanban data (only if target = SENIOR)                                                     |
+| **Requisites** | Payment requisites: USDT ERC-20 + Bank UAH FOP                                            |
+| **History**    | Audit log of changes (only the ADMIN sees it)                                             |
 
-### 4.2 Матрица видимости (viewer × target → tabs)
+### 4.2 Visibility matrix (viewer × target → tabs)
 
-Обозначения: «—» = header only (`tabs = []`). «self = …» = свой собственный профиль.
+Notation: "—" = header only (`tabs = []`). "self = …" = one's own profile.
 
-| viewer / target →            | ADMIN                                 | SENIOR                                                                       | JUNIOR                                                   | HR                                                       | ACCOUNTANT                                               |
-| ---------------------------- | ------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- | -------------------------------------------------------- |
-| **ADMIN viewing**            | self = 6 (no Собеседования, +История) | 7 (вкл. Собеседования, История)                                              | 6 (Обзор, Финансы, Проекты, Команда, Реквизиты, История) | 6 (Обзор, Финансы, Проекты, Команда, Реквизиты, История) | 6 (Обзор, Финансы, Проекты, Команда, Реквизиты, История) |
-| **ACCOUNTANT viewing**       | Обзор, Финансы, Реквизиты             | Обзор, Финансы, Проекты, Команда, Реквизиты                                  | Обзор, Финансы, Проекты, Команда, Реквизиты              | Обзор, Команда                                           | self = Обзор, Финансы, Проекты, Команда, Реквизиты       |
-| **HR viewing (in own team)** | —                                     | Обзор, Проекты, Команда, Собеседования                                       | Обзор, Проекты, Команда                                  | self = Обзор, Финансы (own), Команды, Реквизиты          | —                                                        |
-| **SENIOR viewing**           | —                                     | self = Обзор, Финансы, Проекты, Команда, Собеседования, Реквизиты; other = — | Обзор, Проекты, Команда (если в общем проекте)           | —                                                        | —                                                        |
-| **JUNIOR viewing**           | —                                     | —                                                                            | self = Обзор, Проекты, Команда, Реквизиты; other = —     | —                                                        | —                                                        |
+| viewer / target →            | ADMIN                              | SENIOR                                                                      | JUNIOR                                                     | HR                                                         | ACCOUNTANT                                                 |
+| ---------------------------- | ---------------------------------- | --------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------- |
+| **ADMIN viewing**            | self = 6 (no Interviews, +History) | 7 (incl. Interviews, History)                                               | 6 (Overview, Finance, Projects, Team, Requisites, History) | 6 (Overview, Finance, Projects, Team, Requisites, History) | 6 (Overview, Finance, Projects, Team, Requisites, History) |
+| **ACCOUNTANT viewing**       | Overview, Finance, Requisites      | Overview, Finance, Projects, Team, Requisites                               | Overview, Finance, Projects, Team, Requisites              | Overview, Team                                             | self = Overview, Finance, Projects, Team, Requisites       |
+| **HR viewing (in own team)** | —                                  | Overview, Projects, Team, Interviews                                        | Overview, Projects, Team                                   | self = Overview, Finance (own), Teams, Requisites          | —                                                          |
+| **SENIOR viewing**           | —                                  | self = Overview, Finance, Projects, Team, Interviews, Requisites; other = — | Overview, Projects, Team (if in a common project)          | —                                                          | —                                                          |
+| **JUNIOR viewing**           | —                                  | —                                                                           | self = Overview, Projects, Team, Requisites; other = —     | —                                                          | —                                                          |
 
-**Tabs для self (по ролям):**
+**Tabs for self (by role):**
 
-- ADMIN self → Обзор, Финансы, Проекты, Команда, Реквизиты, История (всё, кроме Собеседования — у ADMIN их нет)
-- SENIOR self → Обзор, Финансы, Проекты, Команда, Собеседования, Реквизиты
-- JUNIOR self → Обзор, Проекты, Команда, Реквизиты
-- HR self → Обзор, Финансы (own salary), Команды, Реквизиты
-- ACCOUNTANT self → Обзор, Финансы, Проекты, Команда, Реквизиты
+- ADMIN self → Overview, Finance, Projects, Team, Requisites, History (everything except Interviews — the ADMIN does not have them)
+- SENIOR self → Overview, Finance, Projects, Team, Interviews, Requisites
+- JUNIOR self → Overview, Projects, Team, Requisites
+- HR self → Overview, Finance (own salary), Teams, Requisites
+- ACCOUNTANT self → Overview, Finance, Projects, Team, Requisites
 
-История появляется в self-табах **только у ADMIN** (правило закреплено).
+History appears in the self-tabs **only for the ADMIN** (rule fixed).
 
-**Важные правила (закреплены):**
+**Important rules (fixed):**
 
-- **HR не видит финансы синьора** (бизнес-правило, payroll делает ACCOUNTANT).
-- **HR не видит реквизиты вообще** на чужих профилях — даже синьоров своей команды.
-- **JUNIOR на чужом профиле** видит **только header** (имя, роль, контакты). `permissions.tabs = []` → tabs row не рендерится вовсе. Это применяется и к случаям, когда другой viewer (например, JUNIOR смотрит на ACCOUNTANT'а) не имеет доступа ни к одному табу.
-- **История** — только ADMIN, у других даже таба нет.
-- **Собеседования** — таб появляется только если target = SENIOR.
+- **HR does not see a senior's finances** (business rule, payroll is done by the ACCOUNTANT).
+- **HR does not see requisites at all** on other profiles — even seniors of their own team.
+- **JUNIOR on another's profile** sees **only the header** (name, role, contacts). `permissions.tabs = []` → the tabs row does not render at all. This also applies to cases where another viewer (for example, a JUNIOR looking at an ACCOUNTANT) has access to no tab.
+- **History** — only the ADMIN, others do not even have the tab.
+- **Interviews** — the tab appears only if target = SENIOR.
 
 ### 4.3 Default tab
 
-`overview`. Можно переопределить через query-param `?tab=finance` для дип-линков (например, из уведомления о валидации транзакции).
+`overview`. Can be overridden via the query-param `?tab=finance` for deep links (for example, from a notification about transaction validation).
 
 ---
 
@@ -148,13 +148,13 @@ validateSearch: z.object({
 
 ### 5.1 Schema migration `0012_payment_requisites_audit_log.sql`
 
-**Single-step миграция** (решение пользователя):
+**Single-step migration** (user decision):
 
 ```sql
--- 1. Новый enum
+-- 1. New enum
 CREATE TYPE payment_method AS ENUM ('USDT_ERC20', 'BANK_UAH_FOP');
 
--- 2. Добавляем колонки в users
+-- 2. Add columns to users
 ALTER TABLE users ADD COLUMN payment_method payment_method;
 ALTER TABLE users ADD COLUMN wallet_usdt_erc20 TEXT;
 ALTER TABLE users ADD COLUMN wallet_usdt_label TEXT;
@@ -166,16 +166,16 @@ ALTER TABLE users ADD COLUMN tech_stack TEXT[];
 ALTER TABLE users ADD COLUMN archived_at TIMESTAMP;
 ALTER TABLE users ADD COLUMN admin_note TEXT;
 
--- 3. Backfill из legacy wallet_address
+-- 3. Backfill from the legacy wallet_address
 UPDATE users
 SET wallet_usdt_erc20 = wallet_address,
     payment_method = 'USDT_ERC20'
 WHERE wallet_address IS NOT NULL;
 
--- 4. DROP legacy column
+-- 4. DROP the legacy column
 ALTER TABLE users DROP COLUMN wallet_address;
 
--- 5. Новая таблица audit log
+-- 5. New audit log table
 CREATE TABLE user_audit_log (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   actor_id UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -189,60 +189,60 @@ CREATE INDEX idx_audit_log_target ON user_audit_log (target_id, created_at DESC)
 
 **Soft delete plan:**
 
-- `archived_at` — пользователь в архиве, скрыт из основного списка и UI. Может быть восстановлен.
-- Hard delete (DELETE FROM users) — отдельная фича (`/crm/users/archive`), не в первом PR.
-- При hard delete: CASCADE на `user_audit_log` (target_id), но это будет реализовано позже. Сейчас архивированных не удаляем.
+- `archived_at` — the user is in the archive, hidden from the main list and UI. Can be restored.
+- Hard delete (DELETE FROM users) — a separate feature (`/crm/users/archive`), not in the first PR.
+- On hard delete: CASCADE on `user_audit_log` (target_id), but this will be implemented later. For now we do not delete archived ones.
 
-**`admin_note`** — одно текстовое поле (по решению пользователя), перезаписывается. Не таблица заметок.
+**`admin_note`** — a single text field (user decision), overwritten. Not a notes table.
 
 ### 5.2 Endpoints
 
 #### Self (`/users/me*`)
 
-| Method  | Path                       | Body                                            | Описание                          |
-| ------- | -------------------------- | ----------------------------------------------- | --------------------------------- |
-| `PATCH` | `/api/users/me`            | `{displayName?, phone?, telegram?, techStack?}` | Inline self-edit с debounce 800ms |
-| `PATCH` | `/api/users/me/requisites` | `{paymentMethod, ...method-specific fields}`    | Modal warning перед save          |
+| Method  | Path                       | Body                                            | Description                          |
+| ------- | -------------------------- | ----------------------------------------------- | ------------------------------------ |
+| `PATCH` | `/api/users/me`            | `{displayName?, phone?, telegram?, techStack?}` | Inline self-edit with debounce 800ms |
+| `PATCH` | `/api/users/me/requisites` | `{paymentMethod, ...method-specific fields}`    | Modal warning before save            |
 
 #### Admin (`/users/:id*`)
 
-| Method   | Path                                    | Body                                            | Доступ                                               |
-| -------- | --------------------------------------- | ----------------------------------------------- | ---------------------------------------------------- |
-| `GET`    | `/api/users/:id`                        | —                                               | Authenticated (response фильтрован по `permissions`) |
-| `GET`    | `/api/users/:id/audit-log?page=&limit=` | —                                               | ADMIN only (403 для остальных)                       |
-| `PATCH`  | `/api/users/:id`                        | `{displayName?, phone?, telegram?, techStack?}` | ADMIN                                                |
-| `PATCH`  | `/api/users/:id/role`                   | `{role}`                                        | ADMIN                                                |
-| `PATCH`  | `/api/users/:id/salary`                 | `{salary?, sharePct?}`                          | ADMIN                                                |
-| `PATCH`  | `/api/users/:id/requisites`             | `{paymentMethod, ...}`                          | ADMIN                                                |
-| `PATCH`  | `/api/users/:id/note`                   | `{note}`                                        | ADMIN                                                |
-| `POST`   | `/api/users/:id/team-membership`        | `{teamId, op: 'add'\|'remove'}`                 | ADMIN                                                |
-| `POST`   | `/api/users/:id/project-reassign`       | `{projectId, action}`                           | ADMIN                                                |
-| `DELETE` | `/api/users/:id`                        | — (soft delete → archived_at)                   | ADMIN                                                |
+| Method   | Path                                    | Body                                            | Access                                             |
+| -------- | --------------------------------------- | ----------------------------------------------- | -------------------------------------------------- |
+| `GET`    | `/api/users/:id`                        | —                                               | Authenticated (response filtered by `permissions`) |
+| `GET`    | `/api/users/:id/audit-log?page=&limit=` | —                                               | ADMIN only (403 for the rest)                      |
+| `PATCH`  | `/api/users/:id`                        | `{displayName?, phone?, telegram?, techStack?}` | ADMIN                                              |
+| `PATCH`  | `/api/users/:id/role`                   | `{role}`                                        | ADMIN                                              |
+| `PATCH`  | `/api/users/:id/salary`                 | `{salary?, sharePct?}`                          | ADMIN                                              |
+| `PATCH`  | `/api/users/:id/requisites`             | `{paymentMethod, ...}`                          | ADMIN                                              |
+| `PATCH`  | `/api/users/:id/note`                   | `{note}`                                        | ADMIN                                              |
+| `POST`   | `/api/users/:id/team-membership`        | `{teamId, op: 'add'\|'remove'}`                 | ADMIN                                              |
+| `POST`   | `/api/users/:id/project-reassign`       | `{projectId, action}`                           | ADMIN                                              |
+| `DELETE` | `/api/users/:id`                        | — (soft delete → archived_at)                   | ADMIN                                              |
 
-### 5.3 Response shape: `permissions` block
+### 5.3 Response shape: the `permissions` block
 
-`GET /api/users/:id` возвращает:
+`GET /api/users/:id` returns:
 
 ```ts
 {
-  user: User;                           // фильтрованные поля
+  user: User;                           // filtered fields
   permissions: {
-    tabs: TabKey[];                     // что viewer видит
-    actions: ActionKey[];               // что viewer может делать
-    fields: Record<string, boolean>;    // какие поля видны
+    tabs: TabKey[];                     // what the viewer sees
+    actions: ActionKey[];               // what the viewer can do
+    fields: Record<string, boolean>;    // which fields are visible
   };
   data: {
     overview: OverviewData;
-    finance?: FinanceData;              // только если в permissions.tabs
+    finance?: FinanceData;              // only if in permissions.tabs
     projects?: ProjectData[];
     team?: TeamData;
-    interviews?: InterviewData[];       // только если target=SENIOR
+    interviews?: InterviewData[];       // only if target=SENIOR
     requisites?: PaymentRequisites;
   };
 }
 ```
 
-**`UsersAccessService.getViewPermissions(viewer, target)`** — единая функция, определяющая `tabs`, `actions`, `fields` для пары viewer×target. RBAC-логика **в одном месте** на сервере. Фронт лишь рендерит то, что разрешено.
+**`UsersAccessService.getViewPermissions(viewer, target)`** — a single function determining `tabs`, `actions`, `fields` for a viewer×target pair. The RBAC logic is **in one place** on the server. The front only renders what is allowed.
 
 ### 5.4 Audit interceptor (NestJS)
 
@@ -254,18 +254,18 @@ async changeRole(@Param('id') id: string, @Body() dto: ChangeRoleDto) {
 }
 ```
 
-**Логика интерцептора:**
+**Interceptor logic:**
 
-1. До handler — snapshot target user (через `users.repository.findById`).
-2. Выполняет handler в транзакции.
-3. После успеха — snapshot ещё раз.
-4. Diff'ит изменённые поля → `{ field: { before, after } }`.
-5. INSERT в `user_audit_log` в той же транзакции.
+1. Before the handler — snapshot the target user (via `users.repository.findById`).
+2. Executes the handler in a transaction.
+3. After success — snapshot once more.
+4. Diffs the changed fields → `{ field: { before, after } }`.
+5. INSERT into `user_audit_log` in the same transaction.
 
-**Action types** (значения `action` в логе):
+**Action types** (values of `action` in the log):
 
-- `profile_edit` — self или admin изменил displayName/phone/telegram/techStack
-- `requisites_edit` — изменены реквизиты (важно для money trail)
+- `profile_edit` — self or admin changed displayName/phone/telegram/techStack
+- `requisites_edit` — requisites changed (important for the money trail)
 - `role_change`
 - `salary_change`
 - `note_set`
@@ -273,9 +273,9 @@ async changeRole(@Param('id') id: string, @Body() dto: ChangeRoleDto) {
 - `project_reassignment`
 - `user_archived` (soft delete)
 
-**Хранится только diff (не полные снапшоты)** — по решению пользователя.
+**Only the diff is stored (not full snapshots)** — user decision.
 
-### 5.5 Zod schemas (в `@crm/shared`)
+### 5.5 Zod schemas (in `@crm/shared`)
 
 ```ts
 // payment-requisites.ts
@@ -329,19 +329,19 @@ const viewPermissionsSchema = z.object({
 })
 ```
 
-### 5.6 USDT rule (роли)
+### 5.6 USDT rule (roles)
 
-**Закреплено (вариант C):**
+**Fixed (variant C):**
 
-- **SENIOR, ADMIN** — только USDT ERC-20. Опция Bank UAH в UI отсутствует.
-- **JUNIOR, HR, ACCOUNTANT** — выбирают radio: USDT или Bank UAH.
-- **Required** при создании пользователя — backend валидация на `POST /api/users` (admin) и `PATCH /api/users/me/requisites` (self).
+- **SENIOR, ADMIN** — only USDT ERC-20. The Bank UAH option is absent in the UI.
+- **JUNIOR, HR, ACCOUNTANT** — choose via radio: USDT or Bank UAH.
+- **Required** when creating a user — backend validation on `POST /api/users` (admin) and `PATCH /api/users/me/requisites` (self).
 
 ---
 
 ## 6. Frontend
 
-### 6.1 Структура файлов
+### 6.1 File structure
 
 ```
 apps/web/app/routes/crm/
@@ -371,26 +371,26 @@ apps/web/app/components/user-profile/
 │   └── ArchiveUserDialog.tsx
 └── self-edit/
     ├── ProfileEditFields.tsx   → inline debounce autosave
-    └── RequisitesEditForm.tsx  → с modal warning
+    └── RequisitesEditForm.tsx  → with modal warning
 ```
 
 ### 6.2 Data flow (TanStack Query)
 
 **Queries:**
 
-- `useUser(userId)` → `GET /api/users/:id` — возвращает `{user, permissions, data}` блок
-- `useUserAuditLog(userId, {page, limit})` → `GET /api/users/:id/audit-log` (запрос делается только если `permissions.tabs.includes('audit')`)
+- `useUser(userId)` → `GET /api/users/:id` — returns the `{user, permissions, data}` block
+- `useUserAuditLog(userId, {page, limit})` → `GET /api/users/:id/audit-log` (the request is made only if `permissions.tabs.includes('audit')`)
 
-`staleTime: 30s`. Каждый таб использует данные из `data.{tabKey}` — отдельных queries на табы не делаем (всё в одном response, кроме audit-log который пагинированный).
+`staleTime: 30s`. Each tab uses data from `data.{tabKey}` — we do not make separate queries per tab (everything is in one response, except audit-log which is paginated).
 
 **Mutations:**
 
 - `useUpdateMe()`, `useUpdateMeRequisites()`
 - `useAdminUpdateUser(userId)`, `useAdminChangeRole`, `useAdminChangeSalary`, `useAdminChangeRequisites`, `useAdminNote`, `useArchiveUser`
 
-После успеха → `queryClient.invalidateQueries(['user', userId])` + `['user-audit-log', userId]`.
+After success → `queryClient.invalidateQueries(['user', userId])` + `['user-audit-log', userId]`.
 
-### 6.3 URL state и табы
+### 6.3 URL state and tabs
 
 ```ts
 const { tab } = useSearch({ from: '/crm/users/$userId' })
@@ -399,17 +399,17 @@ const navigate = useNavigate({ from: '/crm/users/$userId' })
 const handleTabChange = (next: TabKey) => navigate({ search: { tab: next } })
 ```
 
-Невалидные / недоступные табы (отсутствующие в `permissions.tabs`) при попытке открыть → редирект на `overview`.
+Invalid / unavailable tabs (absent from `permissions.tabs`) on an attempt to open → redirect to `overview`.
 
 ### 6.4 Inline self-edit (debounce autosave)
 
-Поля редактируются прямо в табе «Обзор» (для self-mode). Логика (по решению пользователя):
+Fields are edited right in the "Overview" tab (for self-mode). Logic (user decision):
 
 ```ts
 const debouncedSave = useDebouncedCallback((data) => {
   updateMeMutation.mutate(data, {
-    onSuccess: () => toast.success('Сохранено'),
-    onError: (e) => toast.error(`Ошибка: ${e.message}`),
+    onSuccess: () => toast.success('Saved'),
+    onError: (e) => toast.error(`Error: ${e.message}`),
   });
 }, 800);
 
@@ -419,45 +419,45 @@ const debouncedSave = useDebouncedCallback((data) => {
 />
 ```
 
-**Очередь:** если предыдущий save ещё в полёте, следующий waits, не отменяется — иначе можно потерять последний keystroke. Использовать TanStack Query `useMutation` с `mutationKey` — он сам очередит.
+**Queue:** if the previous save is still in flight, the next one waits, is not cancelled — otherwise the last keystroke could be lost. Use TanStack Query `useMutation` with `mutationKey` — it queues on its own.
 
-### 6.5 Requisites edit (с modal warning)
+### 6.5 Requisites edit (with modal warning)
 
-Реквизиты — отдельный таб с формой. После заполнения и клика «Сохранить»:
+Requisites — a separate tab with a form. After filling in and clicking "Save":
 
-1. Показать `<AlertDialog>`:
-   > «Изменение реквизитов повлияет на следующие выплаты. Продолжить?»
-2. На confirm — PATCH запрос.
-3. На success — toast «Реквизиты обновлены».
+1. Show an `<AlertDialog>`:
+   > "Changing requisites will affect the following payouts. Continue?"
+2. On confirm — PATCH request.
+3. On success — toast "Requisites updated".
 
 ### 6.6 Admin actions
 
-`AdminActionsMenu` (shadcn `<DropdownMenu>`) в правом углу header'а. Видим только если `permissions.actions.length > 0`. Каждый action открывает свой диалог (см. файловую структуру).
+`AdminActionsMenu` (shadcn `<DropdownMenu>`) in the right corner of the header. Visible only if `permissions.actions.length > 0`. Each action opens its own dialog (see the file structure).
 
-**ArchiveUserDialog** — confirmation: показывает связанные записи (проекты, выплаты) и требует ввод имени пользователя для подтверждения (anti-misclick).
+**ArchiveUserDialog** — confirmation: shows the related records (projects, payouts) and requires entering the user's name to confirm (anti-misclick).
 
 ---
 
 ## 7. RBAC enforcement
 
-**Три слоя:**
+**Three layers:**
 
-1. **Endpoint guards** — `@Roles('ADMIN')` декораторы NestJS на admin endpoints.
-2. **Response filtering** — `UsersAccessService.getViewPermissions(viewer, target)` определяет, какие поля и табы возвращаются.
-3. **UI** — рендерит только то, что есть в `permissions.tabs` / `permissions.actions`.
+1. **Endpoint guards** — `@Roles('ADMIN')` NestJS decorators on admin endpoints.
+2. **Response filtering** — `UsersAccessService.getViewPermissions(viewer, target)` determines which fields and tabs are returned.
+3. **UI** — renders only what is in `permissions.tabs` / `permissions.actions`.
 
-Server — единственный источник правды. Mutation guards остаются активными — даже если на UI можно нажать кнопку, сервер проверит `permissions.actions` ещё раз.
+The server is the only source of truth. Mutation guards stay active — even if a button can be pressed in the UI, the server will check `permissions.actions` once more.
 
 ---
 
 ## 8. Error handling
 
-- **Validation:** Zod errors → 400 с field errors → inline под полями (react-hook-form + zodResolver для модалок).
-- **Permission errors:** 403 → toast «Нет доступа». Страница не редиректит — viewer уже на разрешённом контенте.
-- **Network errors:** TanStack Query retry x1, потом toast.
-- **Requisites change:** modal warning обязателен.
-- **Archive user:** confirmation dialog с вводом имени.
-- **Self-edit autosave:** очередь mutations, toast on each success/error.
+- **Validation:** Zod errors → 400 with field errors → inline under the fields (react-hook-form + zodResolver for modals).
+- **Permission errors:** 403 → toast "No access". The page does not redirect — the viewer is already on allowed content.
+- **Network errors:** TanStack Query retry x1, then toast.
+- **Requisites change:** the modal warning is mandatory.
+- **Archive user:** a confirmation dialog with name entry.
+- **Self-edit autosave:** a queue of mutations, toast on each success/error.
 
 ---
 
@@ -465,55 +465,55 @@ Server — единственный источник правды. Mutation guar
 
 ### Backend (Vitest, `apps/api`)
 
-- `users-access.service.spec.ts` — снимки `getViewPermissions` для всех 25 комбинаций viewer×target.
+- `users-access.service.spec.ts` — snapshots of `getViewPermissions` for all 25 viewer×target combinations.
 - `audit-interceptor.spec.ts` — diff logic, transaction atomicity.
-- `users.controller.spec.ts` — guards (403 для не-ADMIN на admin endpoints).
+- `users.controller.spec.ts` — guards (403 for non-ADMIN on admin endpoints).
 - `migrations/0012.spec.ts` — backfill wallet_address → wallet_usdt_erc20.
 
 ### Frontend (Vitest, `apps/web`)
 
-- `UserProfileShell.test.tsx` — render табов из permissions.
-- `RequisitesEditForm.test.tsx` — switching USDT/Bank UAH, валидация IBAN/РНОКПП.
-- `AuditLogTab.test.tsx` — пагинация, фильтры.
+- `UserProfileShell.test.tsx` — rendering tabs from permissions.
+- `RequisitesEditForm.test.tsx` — switching USDT/Bank UAH, IBAN/RNOKPP validation.
+- `AuditLogTab.test.tsx` — pagination, filters.
 - `ProfileEditFields.test.tsx` — debounce 800ms, queueing.
 
 ### E2E (Playwright, `apps/e2e`)
 
-- `profile-self-edit.spec.ts` — debounce autosave, toast после сохранения, refresh → данные сохранены.
-- `admin-actions.spec.ts` — dropdown, изменение роли, проверка лога создаётся.
-- `rbac-hr-on-senior.spec.ts` — HR логинится, идёт на `/users/:senior-id`, проверяет отсутствие табов «Финансы», «Реквизиты», «История».
-- `rbac-junior-on-other.spec.ts` — JUNIOR на чужом, только header виден.
-- `requisites-warning.spec.ts` — modal появляется → confirm → save.
+- `profile-self-edit.spec.ts` — debounce autosave, toast after saving, refresh → data preserved.
+- `admin-actions.spec.ts` — dropdown, role change, verify the log is created.
+- `rbac-hr-on-senior.spec.ts` — HR logs in, goes to `/users/:senior-id`, verifies the absence of the "Finance", "Requisites", "History" tabs.
+- `rbac-junior-on-other.spec.ts` — JUNIOR on another's, only the header is visible.
+- `requisites-warning.spec.ts` — the modal appears → confirm → save.
 
 ---
 
 ## 10. Migration & rollout
 
-### Первый PR (this spec)
+### First PR (this spec)
 
 - Drizzle migration 0012 (single-step) + backfill + drop wallet_address.
-- Drizzle migration для `user_audit_log` (создание таблицы).
-- Backend: `users-access.service`, audit interceptor, новые endpoints, Zod schemas в `@crm/shared`.
-- Frontend: `UserProfileShell` + табы + admin-actions + self-edit + requisites form.
-- Seed обновить: новые поля для test fixtures.
+- Drizzle migration for `user_audit_log` (creating the table).
+- Backend: `users-access.service`, audit interceptor, new endpoints, Zod schemas in `@crm/shared`.
+- Frontend: `UserProfileShell` + tabs + admin-actions + self-edit + requisites form.
+- Update the seed: new fields for test fixtures.
 - Tests (Vitest + Playwright).
 
-### Не в этом PR (отдельные итерации)
+### Not in this PR (separate iterations)
 
-- **Avatar S3 upload** — требует bucket setup (env, IAM, sharp pipeline).
-- **Documents tab** — Phase 6, отдельная фича документов с ACL.
-- **Users list refactor** — `/crm/users/index.tsx` (1360 строк монолита) — отдельный technical-debt PR.
+- **Avatar S3 upload** — requires bucket setup (env, IAM, sharp pipeline).
+- **Documents tab** — Phase 6, a separate documents feature with ACL.
+- **Users list refactor** — `/crm/users/index.tsx` (1360 lines of monolith) — a separate technical-debt PR.
 - **Archive page** + hard delete UI — `/crm/users/archive`.
-- **Impersonate** action — требует session model изменения.
+- **Impersonate** action — requires a session model change.
 
 ---
 
-## 11. Open questions (для имплементации)
+## 11. Open questions (for implementation)
 
-- Hard delete с архива: каскад на FK или soft-only forever (`deleted_forever_at`)? — обсуждается при имплементации archive-страницы.
-- Audit log retention: храним вечно или auto-cleanup через N дней? — пока вечно, оптимизация позже.
-- `tech_stack` UI: текстовое поле с auto-suggest (на базе уникальных значений из БД) или просто chip-input freeform? — текущее предложение: chip-input freeform.
+- Hard delete from the archive: cascade on FK or soft-only forever (`deleted_forever_at`)? — discussed when implementing the archive page.
+- Audit log retention: store forever or auto-cleanup after N days? — forever for now, optimization later.
+- `tech_stack` UI: a text field with auto-suggest (based on unique values from the DB) or just a chip-input freeform? — current proposal: chip-input freeform.
 
 ---
 
-**Подписано:** дизайн обсуждён через Visual Companion и итеративные clarifying questions (2026-05-20). Готов к imploplementation planning.
+**Signed off:** the design was discussed via Visual Companion and iterative clarifying questions (2026-05-20). Ready for implementation planning.

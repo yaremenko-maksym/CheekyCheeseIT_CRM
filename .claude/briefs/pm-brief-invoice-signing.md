@@ -1,68 +1,68 @@
 # Invoice Signing Epic — Master Spec
 
-**Feature:** Автоматическая генерация инвойсов + двусторонняя подпись (компания + контрагент) для двух типов транзакций: Senior payout (74% компании) + Employee salary (компания → сотрудник).
+**Feature:** Automatic invoice generation + two-sided signing (company + counterparty) for two transaction types: Senior payout (74% of the company) + Employee salary (company → employee).
 
 **Started:** 2026-05-26
 
-## Бизнес-логика
+## Business logic
 
-### Триггеры генерации инвойса
+### Invoice generation triggers
 
-**1. Senior payout (74% на смарт-контракт):**
+**1. Senior payout (74% to the smart contract):**
 
-- SENIOR создаёт транзакцию SENIOR_INCOME → ACCOUNTANT валидирует → SENIOR кликает «Оплатить»
-- В момент successful `POST /api/transactions/:id/submit-payment`:
-  - Генерируется PDF (только подпись COMPANY/ADMIN)
+- SENIOR creates a SENIOR_INCOME transaction → ACCOUNTANT validates → SENIOR clicks "Pay"
+- At the moment of a successful `POST /api/transactions/:id/submit-payment`:
+  - A PDF is generated (only the COMPANY/ADMIN signature)
   - Auto-sign ADMIN (method=AUTO_COMPANY)
-  - Notification SENIOR: «Инвойс ожидает вашей подписи»
+  - Notification SENIOR: "The invoice awaits your signature"
 
-**2. Employee salary (компания → JUNIOR/SENIOR/HR):**
+**2. Employee salary (company → JUNIOR/SENIOR/HR):**
 
-- ADMIN/ACCOUNTANT создаёт SALARY transaction → проходит весь workflow → status=PAID
-- В момент перехода status → PAID:
-  - Генерируется PDF
+- ADMIN/ACCOUNTANT creates a SALARY transaction → goes through the whole workflow → status=PAID
+- At the moment of the status → PAID transition:
+  - A PDF is generated
   - Auto-sign ADMIN
-  - Notification employee: «Инвойс ожидает вашей подписи»
+  - Notification employee: "The invoice awaits your signature"
 
-### Жизненный цикл инвойса
+### Invoice lifecycle
 
 ```
 [Generated]
    ↓ auto-sign COMPANY
-[Ожидает подписи] ──┐
-                    │ counterparty clicks "Подписать"
-                    │ → hash verify → insert COUNTERPARTY signature
-                    │ → re-gen PDF c обеими подписями
-                    │ → upload new Document, soft-delete old
-                    │ → update transactions.invoice_document_id FK
-                    ↓
-              [Подписано всеми] (immutable)
+[Awaiting signature] ─┐
+                      │ counterparty clicks "Sign"
+                      │ → hash verify → insert COUNTERPARTY signature
+                      │ → re-gen PDF with both signatures
+                      │ → upload new Document, soft-delete old
+                      │ → update transactions.invoice_document_id FK
+                      ↓
+              [Signed by all] (immutable)
 ```
 
-**После SIGNED:** invoice immutable. Если нужна правка — создаётся **amendment** (новый invoice с ref на старый через поле `amends_transaction_id` — out of scope для v1, отложено).
+**After SIGNED:** invoice immutable. If an edit is needed — an **amendment** is created (a new invoice with a ref to the old one via the `amends_transaction_id` field — out of scope for v1, deferred).
 
-### Подпись (Click + audit)
+### Signing (Click + audit)
 
-При клике «Подписать»:
+On clicking "Sign":
 
-1. Backend выгружает текущий PDF из S3 → compute SHA-256 hash
-2. Compare с `pdf_hash` первой подписи (AUTO_COMPANY) → если mismatched → 409 Conflict (защита от tampering)
-3. Insert `invoice_signatures` row: `signer_role=COUNTERPARTY`, `signer_id=user.id`, `pdf_hash=current`, `ip_address=req.ip`, `user_agent=req.headers['user-agent']`, `method=MANUAL_CLICK`
-4. Re-gen PDF с обеими подписями (имя ADMIN + timestamp, имя counterparty + timestamp + short hash)
-5. Upload new PDF as Document (category=INVOICE) → update `transactions.invoice_document_id` → soft-delete old Document
+1. Backend downloads the current PDF from S3 → compute SHA-256 hash
+2. Compare with the `pdf_hash` of the first signature (AUTO_COMPANY) → if mismatched → 409 Conflict (protection against tampering)
+3. Insert an `invoice_signatures` row: `signer_role=COUNTERPARTY`, `signer_id=user.id`, `pdf_hash=current`, `ip_address=req.ip`, `user_agent=req.headers['user-agent']`, `method=MANUAL_CLICK`
+4. Re-gen the PDF with both signatures (ADMIN name + timestamp, counterparty name + timestamp + short hash)
+5. Upload the new PDF as a Document (category=INVOICE) → update `transactions.invoice_document_id` → soft-delete the old Document
 
-**Юр.значимость:** click-signature НЕ заменяет КЭП (квалифицированная электронная подпись Украина), но достаточно для internal accountability + аудита.
+**Legal significance:** a click-signature does NOT replace the KEP (qualified electronic signature, Ukraine), but is sufficient for internal accountability + audit.
 
 ## RBAC
 
-| Действие                                   | ADMIN               | SENIOR   | JUNIOR   | HR       | ACCOUNTANT |
-| ------------------------------------------ | ------------------- | -------- | -------- | -------- | ---------- |
-| Auto-sign COMPANY (system)                 | ✓                   | —        | —        | —        | —          |
-| Подписать как COUNTERPARTY (SENIOR_PAYOUT) | —                   | ✓ (свои) | —        | —        | —          |
-| Подписать как COUNTERPARTY (SALARY)        | —                   | ✓ (свои) | ✓ (свои) | ✓ (свои) | —          |
-| View все invoices                          | ✓                   | —        | —        | —        | ✓          |
-| View свои invoices                         | ✓                   | ✓        | ✓        | ✓        | ✓          |
-| Public verify endpoint (без auth)          | публичный read-only |          |          |          |            |
+| Action                               | ADMIN            | SENIOR  | JUNIOR  | HR      | ACCOUNTANT |
+| ------------------------------------ | ---------------- | ------- | ------- | ------- | ---------- |
+| Auto-sign COMPANY (system)           | ✓                | —       | —       | —       | —          |
+| Sign as COUNTERPARTY (SENIOR_PAYOUT) | —                | ✓ (own) | —       | —       | —          |
+| Sign as COUNTERPARTY (SALARY)        | —                | ✓ (own) | ✓ (own) | ✓ (own) | —          |
+| View all invoices                    | ✓                | —       | —       | —       | ✓          |
+| View own invoices                    | ✓                | ✓       | ✓       | ✓       | ✓          |
+| Public verify endpoint (no auth)     | public read-only |         |         |         |            |
 
 ## DB Schema
 
@@ -120,24 +120,24 @@ CREATE INDEX idx_notifications_user_created ON notifications(user_id, created_at
 
 ## PDF Template
 
-Содержимое (русский язык, A4 portrait):
+Contents (Russian language, A4 portrait):
 
-1. **Header:** Лого компании (`projects.logoDocId` reuse OR компани logo от `/admin/settings` — out of scope v1) + название «CheekyCheese IT»
-2. **Title:** «АКТ ВЫПОЛНЕННЫХ РАБОТ» (для SENIOR_PAYOUT) или «ВЫПЛАТА ЗАРПЛАТЫ» (для SALARY)
-3. **Side A — Компания:**
-   - Название: CheekyCheese IT
-   - Адрес/Реквизиты: из constants (TBD) или из `.env`
-4. **Side B — Контрагент (counterparty):**
-   - ФИО (из `users.displayName` + опционально legal name из `legends` если есть для SENIOR)
-   - Реквизиты: USDT ERC-20 wallet ИЛИ UAH банковский счёт (зависит от `users.preferredPaymentMethod` — добавлено в Phase 7 ранее)
+1. **Header:** Company logo (`projects.logoDocId` reuse OR company logo from `/admin/settings` — out of scope v1) + the name "CheekyCheese IT"
+2. **Title:** "АКТ ВЫПОЛНЕННЫХ РАБОТ" (for SENIOR_PAYOUT) or "ВЫПЛАТА ЗАРПЛАТЫ" (for SALARY)
+3. **Side A — Company:**
+   - Name: CheekyCheese IT
+   - Address/Requisites: from constants (TBD) or from `.env`
+4. **Side B — Counterparty:**
+   - Full name (from `users.displayName` + optionally legal name from `legends` if present for a SENIOR)
+   - Requisites: USDT ERC-20 wallet OR UAH bank account (depends on `users.preferredPaymentMethod` — added earlier in Phase 7)
 5. **Body:**
-   - Описание: для SENIOR_PAYOUT → «Доля по проекту {projectName}, период {salaryMonth}»; для SALARY → «Заработная плата сотрудника за {salaryMonth}»
-   - Сумма + currency (например `1234.56 USDT`)
-   - Эквивалент в UAH (через NBU rate если currency != UAH)
+   - Description: for SENIOR_PAYOUT → "Share for project {projectName}, period {salaryMonth}"; for SALARY → "Employee wage for {salaryMonth}"
+   - Amount + currency (for example `1234.56 USDT`)
+   - Equivalent in UAH (via the NBU rate if currency != UAH)
 6. **Signatures block:**
-   - **Подпись 1 — Компания:** ADMIN displayName, timestamp, method «Автоматическая (электронная)»
-   - **Подпись 2 — Контрагент:** displayName + timestamp + short hash (8 chars) + IP last octet (privacy) ИЛИ «Ожидает подписи» если ещё не подписан
-7. **Footer:** QR-код → ссылка `https://{FRONTEND_URL}/invoice/v/{transactionId}` для независимой верификации hash
+   - **Signature 1 — Company:** ADMIN displayName, timestamp, method "Automatic (electronic)"
+   - **Signature 2 — Counterparty:** displayName + timestamp + short hash (8 chars) + IP last octet (privacy) OR "Awaiting signature" if not yet signed
+7. **Footer:** QR code → link `https://{FRONTEND_URL}/invoice/v/{transactionId}` for independent hash verification
 
 ### Verification endpoint (public, no auth)
 
@@ -157,38 +157,38 @@ CREATE INDEX idx_notifications_user_created ON notifications(user_id, created_at
 }
 ```
 
-UI verification page `/invoice/v/:id` — публичная (без login), показывает «✓ Документ верифицирован» + детали.
+UI verification page `/invoice/v/:id` — public (no login), shows "✓ Document verified" + details.
 
-## Notifications система
+## Notifications system
 
 ### Backend events
 
-- `INVOICE_SIGN_REQUIRED` — counterparty получает после auto-sign COMPANY
-- `INVOICE_SIGNED` — ADMIN получает после counterparty sign (для tracking)
+- `INVOICE_SIGN_REQUIRED` — the counterparty receives it after auto-sign COMPANY
+- `INVOICE_SIGNED` — the ADMIN receives it after the counterparty signs (for tracking)
 
-### UI Header колокольчик
+### UI Header bell
 
-PHASE 1 NotificationsContext был front-end stub (in-memory). Расширяем:
+In PHASE 1 NotificationsContext was a front-end stub (in-memory). We extend:
 
-- Backend `GET /api/notifications?unreadOnly=true&limit=10` (TanStack Query, polling 30s ИЛИ WebSocket — v1 использует polling)
+- Backend `GET /api/notifications?unreadOnly=true&limit=10` (TanStack Query, polling 30s OR WebSocket — v1 uses polling)
 - Backend `PATCH /api/notifications/:id/read`
 - Backend `PATCH /api/notifications/read-all`
-- Frontend: Badge with unread count, dropdown с 10 последними, клик на item → mark read + navigate to link
+- Frontend: Badge with unread count, dropdown with the 10 latest, click on an item → mark read + navigate to link
 
-## Endpoints (новые)
+## Endpoints (new)
 
 ```
-GET    /api/invoices                              — список (по фильтрам status/type/period)
+GET    /api/invoices                              — list (by filters status/type/period)
 GET    /api/invoices/:transactionId               — detail (transaction + document URL + signatures)
 POST   /api/invoices/:transactionId/sign          — counterparty signing
-GET    /api/invoices/:transactionId/verify        — PUBLIC (no auth) — hash + signatures для QR
+GET    /api/invoices/:transactionId/verify        — PUBLIC (no auth) — hash + signatures for the QR
 
-GET    /api/notifications?unreadOnly=true         — список
+GET    /api/notifications?unreadOnly=true         — list
 PATCH  /api/notifications/:id/read                — mark single
 PATCH  /api/notifications/read-all                — mark all
 ```
 
-Internal helper (вызывается из `transactions.service.ts`):
+Internal helper (called from `transactions.service.ts`):
 
 ```
 InvoicesService.autoCreateInvoiceForPayout(transactionId)   — trigger 1
@@ -197,43 +197,43 @@ InvoicesService.autoCreateInvoiceForSalary(transactionId)   — trigger 2 (when 
 
 ## UI
 
-### Новая страница `/crm/finance/invoices`
+### New page `/crm/finance/invoices`
 
-- Tabs: «Ожидает подписи» (badge с count) / «Подписано всеми» / «Все»
-- Filter dropdown: тип (Senior payout / Salary / Все)
-- Сортировка: по дате создания desc
-- Карточка: тип badge + сумма + currency + контрагент (ФИО) + дата + статус
+- Tabs: "Awaiting signature" (badge with count) / "Signed by all" / "All"
+- Filter dropdown: type (Senior payout / Salary / All)
+- Sorting: by creation date desc
+- Card: type badge + amount + currency + counterparty (full name) + date + status
 - Click → InvoiceDetailDialog
 
 ### InvoiceDetailDialog (modal)
 
-- PDF preview (iframe или PDF.js)
-- Таблица подписей: role, signer name, signed at, method (Авто/Ручная)
-- Если viewer ≠ counterparty OR уже подписал: кнопка «Подписать» скрыта
-- Кнопка «Подписать» (active только если viewer == counterparty AND нет COUNTERPARTY signature):
-  - Открывает confirm dialog: «Я согласен с содержимым инвойса» (checkbox) + «Подписать»
+- PDF preview (iframe or PDF.js)
+- Signatures table: role, signer name, signed at, method (Auto/Manual)
+- If viewer ≠ counterparty OR already signed: the "Sign" button is hidden
+- "Sign" button (active only if viewer == counterparty AND there is no COUNTERPARTY signature):
+  - Opens a confirm dialog: "I agree with the contents of the invoice" (checkbox) + "Sign"
   - Submit → spinner → success toast → close dialog → invalidate queries
 
-### Header колокольчик enhancement
+### Header bell enhancement
 
-- Badge с количеством unread (server-side count)
-- Dropdown с 10 последних
-- Item: title + body preview + relative time («2 минуты назад»)
-- Клик на item → mark read + navigate to link (`/crm/finance/invoices/:id`)
-- «Прочитать всё» button внизу dropdown
+- Badge with the number of unread (server-side count)
+- Dropdown with the 10 latest
+- Item: title + body preview + relative time ("2 minutes ago")
+- Click on an item → mark read + navigate to link (`/crm/finance/invoices/:id`)
+- "Read all" button at the bottom of the dropdown
 
 ### Public verification page `/invoice/v/:id`
 
-- Полностью без auth
-- Большая зелёная «✓ Документ верифицирован»
-- Таблица подписей: signer name + signed at
-- PDF hash short (8 chars) для cross-check
-- Транзакция: тип, сумма, currency, дата
-- НЕТ raw IP / user-agent / прочих private data
+- Fully without auth
+- A big green "✓ Document verified"
+- Signatures table: signer name + signed at
+- PDF hash short (8 chars) for cross-check
+- Transaction: type, amount, currency, date
+- NO raw IP / user-agent / other private data
 
-## Декомпозиция задач (5 tasks)
+## Task decomposition (5 tasks)
 
-| #   | Task                      | Зависит от | Агент    | Branch                       |
+| #   | Task                      | Depends on | Agent    | Branch                       |
 | --- | ------------------------- | ---------- | -------- | ---------------------------- |
 | 1   | `task-invoice-data-layer` | —          | Coder    | `feature/invoice-data-layer` |
 | 2   | `task-invoice-pdf-gen`    | 1          | Coder    | `feature/invoice-pdf-gen`    |
@@ -241,32 +241,32 @@ InvoicesService.autoCreateInvoiceForSalary(transactionId)   — trigger 2 (when 
 | 4   | `task-invoice-ui`         | 3          | Coder    | `feature/invoice-ui`         |
 | 5   | `task-invoice-e2e`        | 4          | AutoTest | `tests/invoice-e2e`          |
 
-**Dispatch стратегия:** 4 rounds.
+**Dispatch strategy:** 4 rounds.
 
 - **Round 1:** dispatch task 1 (data-layer)
-- **Round 2:** после merge #1 — dispatch task 2 (pdf-gen) + task 3 (api) параллельно (task 3 ждёт task 2 PDF service stub, но schema-уровень уже готов)
-- **Round 3:** после merge #2 + #3 — dispatch task 4 (ui)
-- **Round 4:** после merge #4 — dispatch task 5 (e2e)
+- **Round 2:** after merge #1 — dispatch task 2 (pdf-gen) + task 3 (api) in parallel (task 3 waits for the task 2 PDF service stub, but the schema level is already ready)
+- **Round 3:** after merge #2 + #3 — dispatch task 4 (ui)
+- **Round 4:** after merge #4 — dispatch task 5 (e2e)
 
-**Estimate:** ~7-8 часов product code total. С review/testing — ~5-7 дней до полного merge.
+**Estimate:** ~7-8 hours of product code total. With review/testing — ~5-7 days to full merge.
 
-## Out of scope для v1 (фиксируем для будущих итераций)
+## Out of scope for v1 (recorded for future iterations)
 
-- ❌ КЭП через Дія/Diia.app — отдельный эпик
-- ❌ Cancellation/amendments — только через manual ADMIN intervention в БД
-- ❌ Partner payouts (MAKSYM/KOSTYA 50/50) — пока без invoice
-- ❌ Expense invoices — пока без подписи
-- ❌ WebSocket для notifications — v1 polling 30s
-- ❌ Email + Telegram notifications — только in-app колокольчик
-- ❌ Multi-ADMIN auto-sign selection — hardcoded на single ADMIN (если 2+ — берётся first by created_at)
+- ❌ KEP via Diia/Diia.app — a separate epic
+- ❌ Cancellation/amendments — only via manual ADMIN intervention in the DB
+- ❌ Partner payouts (MAKSYM/KOSTYA 50/50) — without an invoice for now
+- ❌ Expense invoices — without a signature for now
+- ❌ WebSocket for notifications — v1 polling 30s
+- ❌ Email + Telegram notifications — only the in-app bell
+- ❌ Multi-ADMIN auto-sign selection — hardcoded to a single ADMIN (if 2+ — the first by created_at is taken)
 
 ## Acceptance (PHASE-level)
 
-- [ ] Все 5 tasks merged
-- [ ] Локально: создать SALARY transaction → status PAID → invoice auto-created → counterparty подписал → status SIGNED → PDF re-generated
-- [ ] Локально: SENIOR submits payout → invoice auto-created → SENIOR подписал → SIGNED
-- [ ] Колокольчик в Header показывает unread count + dropdown с deep links работает
-- [ ] Public verify page `/invoice/v/:id` доступна без login, показывает корректные signatures
-- [ ] QR код в PDF ведёт на public verify page
+- [ ] All 5 tasks merged
+- [ ] Locally: create a SALARY transaction → status PAID → invoice auto-created → counterparty signed → status SIGNED → PDF re-generated
+- [ ] Locally: SENIOR submits payout → invoice auto-created → SENIOR signed → SIGNED
+- [ ] The bell in the Header shows the unread count + the dropdown with deep links works
+- [ ] Public verify page `/invoice/v/:id` is accessible without login, shows correct signatures
+- [ ] The QR code in the PDF leads to the public verify page
 - [ ] E2E coverage: auto-create, sign, RBAC, hash mismatch error, verify endpoint
 - [ ] No regressions: PHASE 6 documents tests still pass

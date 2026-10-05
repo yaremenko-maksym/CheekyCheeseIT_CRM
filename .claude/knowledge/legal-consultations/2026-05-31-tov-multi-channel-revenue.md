@@ -1,305 +1,305 @@
-# Legal Consultation: ТОВ-структура + Multi-Channel Revenue + Invoice Issuer
+# Legal Consultation: TOV structure + Multi-Channel Revenue + Invoice Issuer
 
 ## Mode: strategic
 
-## Дата: 2026-05-31
+## Date: 2026-05-31
 
-## Запросил: User direct → PM
+## Requested by: User direct → PM
 
-## Контекст
+## Context
 
-CRM Cheeky Cheese IT — outsource/outstaffing компания (Украина). Бизнес-модель:
+CRM Cheeky Cheese IT — an outsource/outstaffing company (Ukraine). Business model:
 
-- SENIOR'ы работают на иностранных клиентов (US/EU)
-- JUNIOR'ы — субподрядчики SENIOR'ов в проектах
-- Распределение доходов: SENIOR оставляет 26%, остальные 74% идут JUNIOR (fixed) + остаток 50/50 ADMIN/partner
-- Скейл на горизонте 12 месяцев: до 10 команд × 3-5 человек = ~30-50 эффективных contributor'ов
+- SENIORs work for foreign clients (US/EU)
+- JUNIORs — subcontractors of the SENIORs on projects
+- Income distribution: the SENIOR keeps 26%, the remaining 74% go to the JUNIOR (fixed) + the remainder 50/50 ADMIN/partner
+- Scale on a 12-month horizon: up to 10 teams × 3-5 people = ~30-50 effective contributors
 
-Текущая структура (which user хочет менять):
+Current structure (which the user wants to change):
 
-- ADMIN — founder с ТОВ + ФОП
-- SENIOR, JUNIOR — ФОП 3-я группа (5% единый налог)
-- Все client payments → SENIOR-ФОП напрямую
-- Доходы «компании» = доля ADMIN от 74% после partner-split
+- ADMIN — a founder with a TOV + a FOP
+- SENIOR, JUNIOR — FOP group 3 (5% single tax)
+- All client payments → the SENIOR-FOP directly
+- The "company's" income = the ADMIN's share of the 74% after the partner split
 
-## Намерение перестройки
+## Restructuring intent
 
-User хочет **сделать ТОВ основной entity** (не ФОП-centric), через которую проходят все business flows.
+The user wants to **make a TOV the main entity** (not FOP-centric), through which all business flows pass.
 
-**Multi-channel revenue** — клиент может платить тремя способами:
+**Multi-channel revenue** — a client can pay in three ways:
 
-1. **Bank account ТОВ** (UAH или FX через валютный субсчёт)
-2. **Crypto на смарт-контракт** → автоматический split на admin кошельки (вопрос связан с [предыдущей USDT консультацией](2026-05-31-usdt-payouts-phase8.md))
-3. **Cash к admin** (напрямую, без банка)
+1. **The TOV's bank account** (UAH or FX via a currency sub-account)
+2. **Crypto to a smart contract** → an automatic split to admin wallets (the question is related to the [previous USDT consultation](2026-05-31-usdt-payouts-phase8.md))
+3. **Cash to the admin** (directly, without a bank)
 
-**Все инвойсы должны иметь юридический вес.** Условия должны быть зафиксированы:
+**All invoices must have legal weight.** The terms must be fixed:
 
-- В **договорах с клиентами** (Services Agreement)
-- В **пользовательском соглашении** (Terms of Service для CRM-платформы)
+- In the **client contracts** (Services Agreement)
+- In the **user agreement** (Terms of Service for the CRM platform)
 
-## Вопросы
+## Questions
 
-### Q1 — Какая модель компании в Украине подходит лучше всего? (НЕ ФОП)
+### Q1 — Which company model in Ukraine is best suited? (NOT FOP)
 
-Опции которые знаем (User open для других):
+Options we know (the User is open to others):
 
-- **ТОВ на общей системе** (18% податок на прибуток + 19.5% дивідендний дохід для физлица-учасника)
-- **ТОВ на единому податку 3-я группа** (5% від обороту, лимит ~8.4M грн / 2026, без ПДВ; либо 3% + ПДВ)
-- **ТОВ на едином 4-я группа** (сельхоз — не наш кейс)
-- **АТ / ПТ / КТ** — overkill для нашего масштаба?
-- Combo: ТОВ + supporting ФОП'ы — если это легитимно
+- **A TOV on the general system** (18% corporate profit tax + 19.5% dividend income for an individual participant)
+- **A TOV on the single tax group 3** (5% of turnover, limit ~8.4M UAH / 2026, without VAT; or 3% + VAT)
+- **A TOV on the single tax group 4** (agricultural — not our case)
+- **JSC / full partnership / limited partnership** — overkill for our scale?
+- Combo: a TOV + supporting FOPs — if this is legitimate
 
-**Critical критерии:**
+**Critical criteria:**
 
-- Поддерживает международные расчёты от foreign клиентов (USD/EUR/USDT) с минимальной валютной нагрузкой
-- Поддерживает наличный оборот (если legally можно)
-- Совместима с будущими крипто-операциями (когда Закон 2074-IX заработает)
-- Минимизирует налоговую нагрузку при reasonable compliance overhead
-- Может масштабироваться до ~50 contributor'ов (employees vs ФОП-subcontractors — какая модель работы с командой?)
+- Supports international settlements from foreign clients (USD/EUR/USDT) with a minimal currency burden
+- Supports cash turnover (if legally possible)
+- Compatible with future crypto operations (when Law 2074-IX takes effect)
+- Minimizes the tax burden with reasonable compliance overhead
+- Can scale to ~50 contributors (employees vs FOP subcontractors — what model of working with the team?)
 
 ### Q2 — Multi-channel revenue legalization
 
-**Как легально оформить приём оплат через 3 канала одновременно, чтобы invoice имел юр. вес?**
+**How to legally arrange the acceptance of payments through 3 channels simultaneously so that an invoice has legal weight?**
 
-#### Q2.1 — Bank account ТОВ
+#### Q2.1 — The TOV's bank account
 
-- Какие требования к invoice'у (нумерация ДПС? печать? электронная подпись?)
-- ПДВ-обов'язки если ТОВ — VAT payer; альтернативы без ПДВ
-- Валютный контроль для FX поступлений (паспорт сделки если применимо, лимиты 400k EUR/quarter?)
+- What requirements for the invoice (DPS numbering? a seal? an electronic signature?)
+- VAT obligations if the TOV is a VAT payer; alternatives without VAT
+- Currency control for FX receipts (a transaction passport if applicable, limits of 400k EUR/quarter?)
 
-#### Q2.2 — Crypto на smart contract → admin wallets
+#### Q2.2 — Crypto to a smart contract → admin wallets
 
-- Что считается «моментом оплаты» с точки зрения revenue recognition (на ТОВ side)?
-- Курс конверсии USDT→UAH — какая дата фиксации (день получения on-chain?)
-- Как ТОВ отражает crypto income в bookkeeping когда деньги в smart contract / на private кошельках?
-- Возможно ли вообще без VASP-регистрации после введения Закона 2074-IX?
+- What is considered the "moment of payment" from the point of view of revenue recognition (on the TOV side)?
+- The USDT→UAH conversion rate — which fixation date (the day of on-chain receipt?)
+- How does the TOV reflect crypto income in bookkeeping when the money is in a smart contract / on private wallets?
+- Is it even possible without VASP registration after Law 2074-IX takes effect?
 
-#### Q2.3 — Cash к admin
+#### Q2.3 — Cash to the admin
 
-- Лимиты cash operations через РРО / ПРРО для ТОВ
-- Чем оформляется получение от клиента (приходный касовий ордер? чек ПРРО? налоговая накладна?)
-- Как этот cash попадает в bookkeeping ТОВ (внесок на банк счёт? или альтернативные легитимные пути?)
-- Лимит cash в день / месяц для ТОВ от одного контрагента
+- Limits on cash operations through an RRO / PRRO for a TOV
+- How is the receipt from the client arranged (a cash receipt order? a PRRO receipt? a tax invoice?)
+- How does this cash get into the TOV's bookkeeping (a deposit to the bank account? or alternative legitimate paths?)
+- The cash limit per day / month for a TOV from one counterparty
 
-#### Q2.4 — Договорные требования
+#### Q2.4 — Contractual requirements
 
-- Что прописать в **Services Agreement с клиентом** чтобы любой из 3 каналов был валидным?
-- Что в **Terms of Service** платформы CRM (для users которые работают через нашу систему)?
-- Multi-payment-method клауза — конкретный шаблон/wording
+- What to specify in the **Services Agreement with the client** so that any of the 3 channels is valid?
+- What in the **Terms of Service** of the CRM platform (for users who work through our system)?
+- A multi-payment-method clause — a specific template/wording
 
-#### Q2.5 — Юр. вес invoice'а
+#### Q2.5 — The legal weight of the invoice
 
-- Минимальные обязательные реквизиты invoice'а в UA
-- Печать / квалифікований електронний підпис — что обязательно
-- Нумерация и реестрация (ДПС / податкова накладна)
-- Сроки оплаты по invoice'у — что прописать
+- The minimum mandatory details of an invoice in UA
+- A seal / a qualified electronic signature — what is mandatory
+- Numbering and registration (DPS / tax invoice)
+- Payment terms of the invoice — what to specify
 
-### Q3 — Cash/Crypto — issuer invoice'а ≠ CheekyCheeseIT?
+### Q3 — Cash/Crypto — the invoice issuer ≠ CheekyCheeseIT?
 
-**User assumption:** «если человек оплачивает наличными или криптой, то в инвойсе не должно быть указано что оплата идет компании CheekyCheeseIT».
+**User assumption:** "if a person pays in cash or crypto, then the invoice should not indicate that the payment goes to the company CheekyCheeseIT".
 
-**Просим Legal:**
+**We ask Legal:**
 
-1. **Верна ли эта assumption?** Если invoice от ТОВ — можно ли его оплатить наличкой / криптой при правильном оформлении? Если нет — почему конкретно?
+1. **Is this assumption correct?** If the invoice is from the TOV — can it be paid in cash / crypto with proper arrangement? If not — why specifically?
 
-2. **Если assumption верна** (cash/crypto требуют другого issuer'а):
-   - Кто легитимно может быть issuer'ом (ФОП ADMIN? ФОП partner? отдельный ФОП «for non-bank flows»? smart contract как «технический исполнитель»?)
-   - Как структурировать так, чтобы это было audit-proof и не выглядело как схема профит-шифтинга или налогового уклонения
-   - Какие договорные связи между разными issuer'ами и ТОВ необходимы
+2. **If the assumption is correct** (cash/crypto require a different issuer):
+   - Who can legitimately be the issuer (the ADMIN's FOP? the partner's FOP? a separate FOP "for non-bank flows"? a smart contract as a "technical executor"?)
+   - How to structure it so that it is audit-proof and does not look like a profit-shifting or tax evasion scheme
+   - What contractual links between the different issuers and the TOV are necessary
 
-3. **Если assumption неверна:**
-   - Как правильно от ТОВ выставлять invoice который оплачивается налом / криптой
-   - Какие дополнительные документы нужны на стороне ТОВ
+3. **If the assumption is incorrect:**
+   - How to correctly issue an invoice from the TOV that is paid in cash / crypto
+   - What additional documents are needed on the TOV's side
 
-**Важно для User:** не ищем схему уклонения. Хотим legitimate structure где cash/crypto channels имеют формальное оформление, всё прозрачно audit'абельно и юр. отделимо если кто-то начнёт раскапывать.
+**Important for the User:** we are not looking for an evasion scheme. We want a legitimate structure where the cash/crypto channels have formal arrangement, everything is transparently auditable and legally separable if someone starts digging.
 
-## Что важно для решения
+## What matters for the decision
 
-- Решение **audit-proof** (выдержит ДПС проверку без раскрытия compromising connections)
-- **Scalable** до ~50 contributor'ов в течение года
-- **Без criminal risk** (ст. 212 ПКУ уклонение, ст. 209 отмывание — не наш профиль)
-- Бюджет на initial setup до **200k грн** (licensing + договорные пакеты + bookkeeping setup)
-- Минимум ongoing admin overhead — мы tech-company, не финансовая
+- The solution is **audit-proof** (will withstand a DPS audit without revealing compromising connections)
+- **Scalable** to ~50 contributors within a year
+- **Without criminal risk** (Art. 212 of the Tax Code — evasion, Art. 209 — laundering — not our profile)
+- A budget for the initial setup up to **200k UAH** (licensing + contract packages + bookkeeping setup)
+- Minimum ongoing admin overhead — we are a tech company, not a financial one
 
-## Что НЕ обсуждаем
+## What we do NOT discuss
 
-- Общая теория бухучёта UA — нам нужны конкретные decisions
-- Crypto в общем — уже разобрано в [предыдущей консультации](2026-05-31-usdt-payouts-phase8.md)
-- Зарубежные структуры (Эстония e-Residency, Кипр, Дубай) — only UA scope для этой консультации (будем обсуждать offshore options отдельно если применимо)
+- The general theory of UA accounting — we need concrete decisions
+- Crypto in general — already covered in the [previous consultation](2026-05-31-usdt-payouts-phase8.md)
+- Foreign structures (Estonia e-Residency, Cyprus, Dubai) — only UA scope for this consultation (we will discuss offshore options separately if applicable)
 
 ---
 
-<!-- Legal-агент добавит секцию `## Ответ юриста` ниже -->
+<!-- The Legal agent will add the `## Lawyer answer` section below -->
 
-## Ответ юриста
+## Lawyer answer
 
-**Confidence:** MED (общий) — с разбивкой по вопросам:
+**Confidence:** MED (overall) — with a breakdown by question:
 
-- Q1 (выбор ОПФ) — **MED** (нормы стабильные: ПКУ, режим Дія Сіті — закон 1667-IX; но конкретная рекомендация зависит от стратегии scale, требует human-tax review для финальной модели)
-- Q2 (multi-channel revenue) — **MED → LOW** для Q2.2 (crypto в bookkeeping ТОВ — legal vacuum до активации 2074-IX, см. предыдущую консультацию)
-- Q3 (issuer ≠ CheekyCheeseIT для cash/crypto) — **LOW** (этот вопрос имеет direct overlap с § 1 escalation-zones.md — потенциальный criminal risk ст. 212 ККУ при попытке split issuer'ов между несколькими entity для обхода налогов)
+- Q1 (choice of legal form) — **MED** (the norms are stable: the Tax Code, the Diia City regime — Law 1667-IX; but a specific recommendation depends on the scale strategy, requires a human-tax review for the final model)
+- Q2 (multi-channel revenue) — **MED → LOW** for Q2.2 (crypto in TOV bookkeeping — a legal vacuum until the activation of 2074-IX, see the previous consultation)
+- Q3 (issuer ≠ CheekyCheeseIT for cash/crypto) — **LOW** (this question has direct overlap with § 1 escalation-zones.md — potential criminal risk of Art. 212 of the Criminal Code of Ukraine when attempting to split issuers across several entities to circumvent taxes)
 
 **Mode:** strategic
-**Дата:** 2026-05-31
+**Date:** 2026-05-31
 
-**КРИТИЧНО перед чтением:** Этот ответ затрагивает зоны hard-escalation per [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md):
+**CRITICAL before reading:** This answer touches on hard-escalation zones per [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md):
 
-- **§ 1 (Уголовно-правовые риски ст. 212 ККУ)** — Q3 (issuer ≠ CheekyCheeseIT) требует extreme caution. Структура где cash/crypto оформляется на отдельный entity «чтобы не светить ТОВ» может быть квалифицирована ДПС/слідчими як **умисне ухилення від сплати податків шляхом штучного дроблення доходу між пов'язаними особами**. User эксплицитно подчеркнул «не ищем схему уклонения» — в Анализе Q3 показано **где проходит red line** и какая структура её НЕ пересекает.
-- **§ 4 (Конкретные суммы налогов > 100k грн)** — Q2.3 (cash) при объёме > 100k грн/period — точные расчёты обязательств за tax-консультантом.
-- Crypto-часть (Q2.2) полностью унаследована из предыдущей консультации [`2026-05-31-usdt-payouts-phase8.md`](./2026-05-31-usdt-payouts-phase8.md) — повторного анализа здесь нет, есть **integration** с ТОВ-структурой.
+- **§ 1 (Criminal-law risks of Art. 212 of the Criminal Code of Ukraine)** — Q3 (issuer ≠ CheekyCheeseIT) requires extreme caution. A structure where cash/crypto is arranged on a separate entity "so as not to expose the TOV" may be qualified by the DPS/investigators as **intentional tax evasion through artificial splitting of income among related parties**. The User explicitly emphasized "we are not looking for an evasion scheme" — in the Analysis of Q3 it is shown **where the red line runs** and which structure does NOT cross it.
+- **§ 4 (Specific tax amounts > 100k UAH)** — Q2.3 (cash) at a volume > 100k UAH/period — the exact calculations of obligations are for a tax consultant.
+- The crypto part (Q2.2) is fully inherited from the previous consultation [`2026-05-31-usdt-payouts-phase8.md`](./2026-05-31-usdt-payouts-phase8.md) — there is no repeated analysis here, there is **integration** with the TOV structure.
 
 ### TL;DR
 
-**Прямая рекомендация по структуре:** **ТОВ — резидент Дія Сіті с ПнВК-ставкой 9%** (для reinvest-стратегии) **+ контрактная сетка с командой через гіг-контракти** (5% ПДФО + 5% ВЗ + 22% ЄСВ від мінзарплати, ~₴418/міс per гіг-спец) — это **единственный** legitimate путь масштабироваться до 30-50 contributor'ов в IT-outsource UA, который одновременно даёт low-tax + valid invoice'ы + currency-control exemption для экспорта услуг + резерв для будущей crypto-интеграции. **Multi-channel revenue (Q2) — bank-only рекомендуется**: cash и crypto через ТОВ в 2026 — это **major compliance risk** без proportional бизнес-выгоды. **Q3 user assumption «issuer ≠ CheekyCheeseIT для cash/crypto» — категорически НЕ рекомендуется** — это direct path к ст. 212 ККУ; правильный подход — все три канала **идут через одно entity** с правильным оформлением каждого.
+**Direct recommendation on the structure:** **A TOV — a resident of Diia City with an exit-capital tax rate of 9%** (for a reinvest strategy) **+ a contractual network with the team via gig contracts** (5% PIT + 5% military levy + 22% USC of the minimum wage, ~₴418/month per gig specialist) — this is the **only** legitimate path to scale to 30-50 contributors in UA IT outsource, which simultaneously gives low-tax + valid invoices + a currency-control exemption for the export of services + a reserve for a future crypto integration. **Multi-channel revenue (Q2) — bank-only is recommended**: cash and crypto through a TOV in 2026 is a **major compliance risk** without a proportional business benefit. **Q3 user assumption "issuer ≠ CheekyCheeseIT for cash/crypto" — categorically NOT recommended** — this is a direct path to Art. 212 of the Criminal Code of Ukraine; the correct approach is for all three channels to **go through one entity** with the proper arrangement of each.
 
-### Анализ
+### Analysis
 
-#### Q1 — Какая ОПФ компании в Украине подходит лучше всего
+#### Q1 — Which legal form of company in Ukraine is best suited
 
-**Сравнительная матрица режимов для IT-outsource (~30-50 contributor'ов, ~$1-5M годового оборота):**
+**A comparative matrix of regimes for IT outsource (~30-50 contributors, ~$1-5M of annual turnover):**
 
-| Режим                                              | Налог на доход entity                                                                                                                                                                                                                                                                    | Налог на «вывод» собственнику                                                                             | ЛИМИТ оборота                                                                                                                                                                              | Совместимость с гіг/employees                                                                                                                  | Crypto-готовность                                                                           | Verdict                                                                                                                |
-| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **ТОВ 3-я группа єдиного податку (5%, без ПДВ)**   | 5% з обороту + 1% ВЗ = **6% від валового**                                                                                                                                                                                                                                               | Дивіденди: 9% ПДФО + 5% ВЗ для резидента-учасника (нерезидент: 15%+5%)                                    | **~10 091 049 грн** (1167 МЗП на 01.01.2026) ([WebSearch: bip.net.ua/yedinij-podatok-dlya-fop-i-tov](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/), дата сбора: 2026-05-31) | Працівники без обмежень, але виплати — за трудовим/ЦПХ → доп. навантаження (18% ПДФО + 5% ВЗ + 22% ЄСВ для employees)                          | Низька — формальна заборона для ЄП-режимів на крипто-розрахунки (поки 10225-д не введений)  | **Ліміт ~10M грн = ~$240k/рік. Для 30-50 contributor'ов на $3-5k/міс — мало.** Прогорить лимит на 2-3 проектах за рік. |
-| **ТОВ загальна система (18% податок на прибуток)** | 18% з оподатковуваного прибутку ([Стаття 134 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17#n3299)) ([WebSearch: tax.gov.ua/nk/spisok3](https://tax.gov.ua/nk/spisok3/), дата сбора: 2026-05-31)                                                                                       | Дивіденди: 5% ПДФО (резидент) + 5% ВЗ ([Стаття 167.5.4 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17)) | Без обмежень                                                                                                                                                                               | Працівники + ФОП-підрядчики OK; стандартні податкові навантаження                                                                              | Concept-OK для крипто **після введення 2074-IX**; зараз — невизначеність                    | Безлімітно, але **effective tax 18% + 10% = ~26%** при виводі прибутку. Дорого.                                        |
-| **ТОВ — резидент Дія Сіті, ПнВК (9%)**             | **0% поки прибуток reinvest'иться**; **9% ПнВК** тільки на момент виведення (дивіденди, фрі-фондовий продаж, виплати нерезидентам) ([WebSearch: i.factor.ua/2026/march/issue-18](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html), дата сбора: 2026-05-31) | Резидент: 5% ПДФО + 5% ВЗ (через зарплату), 9% ПнВК на дивіденди (на момент виплати)                      | Без обмежень                                                                                                                                                                               | **Гіг-контракти** — унікальний інструмент Дія Сіті: 5% ПДФО + 5% ВЗ + 22% ЄСВ з мінзарплати (~₴418/міс) для гіг-спеца. Працівники також можна. | High — Дія Сіті спеціально проектувалась під IT, включаючи крипто-pay-flows (концептуально) | **WINNER** для нашого кейсу                                                                                            |
-| **ТОВ — резидент Дія Сіті, прибуток (18%)**        | 18% від прибутку на загальних підставах                                                                                                                                                                                                                                                  | Дивіденди: стандартні 5%+5%                                                                               | Без обмежень                                                                                                                                                                               | Гіг-контракти + employees                                                                                                                      | High                                                                                        | Альтернатива якщо багато distribution (тоді 18%+10% ≈ 26% сумарно, як на загальній; gig-льготи окремо все одно діють)  |
-| **АТ / ПТ / КТ**                                   | Залежить від форми                                                                                                                                                                                                                                                                       | Залежить                                                                                                  | Без                                                                                                                                                                                        | Так                                                                                                                                            | High                                                                                        | **Overkill** для нашого масштабу — складна корпоративка, дорого administer                                             |
-| **Combo ТОВ + ФОП'и (як зараз)**                   | ТОВ-share + ФОП 5%+1% кожен                                                                                                                                                                                                                                                              | Залежно від конфіг                                                                                        | ТОВ обмежень — як вище; ФОП ліміт ~₴8.4M/рік                                                                                                                                               | Так                                                                                                                                            | Слабкa — для ФОП на ЄП крипто заборонено                                                    | Працює для small scale (≤5 SENIOR'ов), але не масштабується                                                            |
+| Regime                                                | Tax on the entity's income                                                                                                                                                                                                                                                                                        | Tax on the "withdrawal" to the owner                                                                                                        | TURNOVER LIMIT                                                                                                                                                                                               | Compatibility with gig/employees                                                                                                                                            | Crypto readiness                                                                                  | Verdict                                                                                                                                   |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| **TOV single tax group 3 (5%, without VAT)**          | 5% of turnover + 1% military levy = **6% of gross**                                                                                                                                                                                                                                                               | Dividends: 9% PIT + 5% military levy for a resident participant (non-resident: 15%+5%)                                                      | **~10 091 049 UAH** (1167 minimum wages as of 01.01.2026) ([WebSearch: bip.net.ua/yedinij-podatok-dlya-fop-i-tov](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/), collection date: 2026-05-31) | Employees without limits, but payments — under an employment/civil-law contract → additional burden (18% PIT + 5% military levy + 22% USC for employees)                    | Low — a formal ban for single-tax regimes on crypto settlements (while 10225-d is not introduced) | **Limit ~10M UAH = ~$240k/year. For 30-50 contributors at $3-5k/month — too little.** Will burn the limit on 2-3 projects per year.       |
+| **TOV general system (18% corporate profit tax)**     | 18% of taxable profit ([Article 134 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17#n3299)) ([WebSearch: tax.gov.ua/nk/spisok3](https://tax.gov.ua/nk/spisok3/), collection date: 2026-05-31)                                                                                             | Dividends: 5% PIT (resident) + 5% military levy ([Article 167.5.4 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17)) | No limits                                                                                                                                                                                                    | Employees + FOP contractors OK; standard tax burdens                                                                                                                        | Concept-OK for crypto **after the introduction of 2074-IX**; now — uncertainty                    | Unlimited, but the **effective tax is 18% + 10% = ~26%** when withdrawing profit. Expensive.                                              |
+| **TOV — a Diia City resident, exit-capital tax (9%)** | **0% while the profit is reinvested**; **9% exit-capital tax** only at the moment of withdrawal (dividends, free-fund sale, payments to non-residents) ([WebSearch: i.factor.ua/2026/march/issue-18](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html), collection date: 2026-05-31) | Resident: 5% PIT + 5% military levy (via salary), 9% exit-capital tax on dividends (at the moment of payment)                               | No limits                                                                                                                                                                                                    | **Gig contracts** — a unique Diia City instrument: 5% PIT + 5% military levy + 22% USC of the minimum wage (~₴418/month) for a gig specialist. Employees are also possible. | High — Diia City was specifically designed for IT, including crypto-pay-flows (conceptually)      | **WINNER** for our case                                                                                                                   |
+| **TOV — a Diia City resident, profit (18%)**          | 18% of profit on general grounds                                                                                                                                                                                                                                                                                  | Dividends: standard 5%+5%                                                                                                                   | No limits                                                                                                                                                                                                    | Gig contracts + employees                                                                                                                                                   | High                                                                                              | An alternative if a lot of distribution (then 18%+10% ≈ 26% in total, as on the general system; the gig benefits apply separately anyway) |
+| **JSC / full partnership / limited partnership**      | Depends on the form                                                                                                                                                                                                                                                                                               | Depends                                                                                                                                     | None                                                                                                                                                                                                         | Yes                                                                                                                                                                         | High                                                                                              | **Overkill** for our scale — complex corporate governance, expensive to administer                                                        |
+| **Combo TOV + FOPs (as now)**                         | TOV-share + FOP 5%+1% each                                                                                                                                                                                                                                                                                        | Depending on the config                                                                                                                     | TOV limits — as above; FOP limit ~₴8.4M/year                                                                                                                                                                 | Yes                                                                                                                                                                         | Weak — for a FOP on the single tax crypto is prohibited                                           | Works for small scale (≤5 SENIORs), but does not scale                                                                                    |
 
-**Розгорнуто per опцію:**
+**Expanded per option:**
 
-1. **ТОВ 3-я група єдиного податку (5% / 3%+ПДВ) — ОТКЛОНЕНО для нашого scale.**
+1. **TOV single tax group 3 (5% / 3%+VAT) — REJECTED for our scale.**
 
-   Ліміт **10 091 049 грн** ([Стаття 291.4.1 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17#n4877); WebSearch: [bip.net.ua/yedinij-podatok-dlya-fop-i-tov](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/), дата сбора: 2026-05-31) — это ~$240k/рік по курсу ₴42. При 10 командах × $50k/команду — лимит уже превышен на старте. Перевищення = **позбавлення статусу спрощенця** + перехід на загальну систему з квартальним розрахунком + штрафи. Для тестового запуска на 1-2 SENIOR'ах подойдёт, для **запланированных 30-50 contributor'ов — НЕТ**.
+   The limit is **10 091 049 UAH** ([Article 291.4.1 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17#n4877); WebSearch: [bip.net.ua/yedinij-podatok-dlya-fop-i-tov](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/), collection date: 2026-05-31) — this is ~$240k/year at a rate of ₴42. At 10 teams × $50k/team — the limit is already exceeded at the start. Exceeding it = **loss of single-tax-payer status** + transfer to the general system with a quarterly calculation + penalties. For a test launch on 1-2 SENIORs it will do, for the **planned 30-50 contributors — NO**.
 
-2. **ТОВ загальна система — рабочий fallback, но дорогий.**
+2. **TOV general system — a working fallback, but expensive.**
 
-   18% з прибутку + 5% ПДФО + 5% ВЗ на дивіденди (для резидента-учасника) = **effective ~26%** від чистого прибутку перед виводом. Якщо ADMIN + partner — обидва резиденти UA, для них так. Для нерезидентів (Q1.partner) ставка ПДФО на дивіденди — **15%** + 5% ВЗ ([Стаття 167.5.1 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17)). Без обмеження по обороту, без специфічних ліцензійних вимог. Можна (з реєстрацією) бути ПДВ-платником при обороті > ₴1M/рік (експорт IT-послуг — **0% ПДВ** за [ст. 195.1.1 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17), reverse-charge не applicable до експорту → no real-life ПДВ-нагрузки на доход).
+   18% of profit + 5% PIT + 5% military levy on dividends (for a resident participant) = **effective ~26%** of the net profit before withdrawal. If ADMIN + partner are both UA residents, that holds for them. For non-residents (Q1.partner) the PIT rate on dividends is **15%** + 5% military levy ([Article 167.5.1 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17)). No turnover limit, no specific licensing requirements. One can (with registration) be a VAT payer at a turnover > ₴1M/year (the export of IT services — **0% VAT** per [Art. 195.1.1 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17), reverse-charge not applicable to exports → no real-life VAT burden on income).
 
-3. **ТОВ — резидент Дія Сіті — REKOMMENDЮ як основну структуру.**
+3. **TOV — a Diia City resident — I RECOMMEND it as the main structure.**
 
-   Дія Сіті — спеціальний правовий режим за **[Законом № 1667-IX «Про стимулювання розвитку цифрової економіки в Україні»](https://zakon.rada.gov.ua/laws/show/1667-20)** (введений 14.10.2021). Параметри (підтверджено WebSearch):
-   - **Резидентство:**
-     - Мін. 9 працівників (включаючи гіг-спеців) на момент входу в режим (для stardup можна початок 0; для full-resident — must hit 9 в межах терміна) ([WebSearch: bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/), дата сбора: 2026-05-31)
-     - Середньомісячна винагорода кожного спеца ≥ **€1200** в еквіваленті
-     - Кваліфіковані КВЕД'и (для IT — основні 62.01 «комп'ютерне програмування», 62.02, 63.11 і т.д.) — для нас applicable
-     - ≥ 90% доходу від кваліфікованої діяльності
+   Diia City is a special legal regime under **[Law No. 1667-IX "On Stimulating the Development of the Digital Economy in Ukraine"](https://zakon.rada.gov.ua/laws/show/1667-20)** (introduced 14.10.2021). Parameters (confirmed via WebSearch):
+   - **Residency:**
+     - Min. 9 employees (including gig specialists) at the moment of entering the regime (for a startup it can start at 0; for a full resident — must hit 9 within the term) ([WebSearch: bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/), collection date: 2026-05-31)
+     - The average monthly remuneration of each specialist ≥ **€1200** equivalent
+     - Qualified business-activity codes (for IT — the main ones 62.01 "computer programming", 62.02, 63.11, etc.) — applicable for us
+     - ≥ 90% of income from the qualified activity
 
-   - **Податковий режим (опції):**
-     - **Опція А — ПнВК 9%:** податок на прибуток платиться **тільки на момент виплати дивідендів** або інших операцій вивдення капіталу. До цього моменту — **0% податок** на reinvest. ([WebSearch: kpmg.com/ua/uk/blogs/2024/03/diya-siti-ta-vidstrocheni-podatky](https://kpmg.com/ua/uk/blogs/home/posts/2024/03/diya-siti-ta-vidstrocheni-podatky.html), дата сбора: 2026-05-31; [WebSearch: i.factor.ua/2026/march/issue-18](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html), дата сбора: 2026-05-31)
-     - **Опція Б — 18% звичайний податок на прибуток:** має сенс якщо ви постійно виводити большую частину прибутку як дивіденди (тоді 18% + 5% ПДФО + 5% ВЗ дивідендів ≈ 26%; vs ПнВК 9% при кожному вивіді = ~14% сумарно, тобто ПнВК виграє при будь-якому раціональному соотношении reinvest/distribute)
+   - **Tax regime (options):**
+     - **Option A — exit-capital tax 9%:** the profit tax is paid **only at the moment of dividend payment** or other capital-withdrawal operations. Until that moment — **0% tax** on reinvest. ([WebSearch: kpmg.com/ua/uk/blogs/2024/03/diya-siti-ta-vidstrocheni-podatky](https://kpmg.com/ua/uk/blogs/home/posts/2024/03/diya-siti-ta-vidstrocheni-podatky.html), collection date: 2026-05-31; [WebSearch: i.factor.ua/2026/march/issue-18](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html), collection date: 2026-05-31)
+     - **Option B — 18% regular profit tax:** makes sense if you constantly withdraw a large part of the profit as dividends (then 18% + 5% PIT + 5% military levy on dividends ≈ 26%; vs exit-capital tax 9% on each withdrawal = ~14% in total, i.e., the exit-capital tax wins at any rational reinvest/distribute ratio)
 
-   - **Гіг-контракт — ключевий інструмент:**
-     - Гіг-спеціаліст = **fizособа** з юридичною природою «змішана» (труд + ЦПХ)
-     - Резидент Дія Сіті як податковий агент платить: **5% ПДФО + 5% ВЗ + 22% ЄСВ з мінзарплати (₴1902.34 у 2026)** = ЄСВ ~ **₴418/міс per спеціаліст** ([WebSearch: bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/), дата сбора: 2026-05-31)
-     - Сравним: ФОП 3 група = 5% ЄН + 1% ВЗ + ЄСВ ₴1760/міс — практично **аналогічно по cash flow**, але:
-       - Гіг-контракт дає **соцгарантії** (відпустка, лікарняні, страхування)
-       - Гіг-контракт **можна суміщати з ФОП** (фізособа може бути одночасно гіг-спецом резидента Дія Сіті + ФОП у іншій діяльності, [WebSearch: news.dtkt.ua/simple/individual-single-tax/88330](https://news.dtkt.ua/simple/individual-single-tax/88330-ci-moze-fizosoba-jedinnik-iii-grupi-uklasti-gig-kontrakt-na-vikonannia-robit-z-rezidentom-diia-siti), дата сбора: 2026-05-31) — дає flexibility для current SENIOR'ов: вони можуть зберегти свій ФОП для якихось паралельних активностей і одночасно бути гіг-спецами в ТОВ-резиденті Дія Сіті
+   - **The gig contract — a key instrument:**
+     - A gig specialist = an **individual** with a "mixed" legal nature (labor + civil-law)
+     - A Diia City resident as a tax agent pays: **5% PIT + 5% military levy + 22% USC of the minimum wage (₴1902.34 in 2026)** = USC ~ **₴418/month per specialist** ([WebSearch: bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/), collection date: 2026-05-31)
+     - Compare: FOP group 3 = 5% single tax + 1% military levy + USC ₴1760/month — practically **analogous in cash flow**, but:
+       - A gig contract gives **social guarantees** (vacation, sick leave, insurance)
+       - A gig contract **can be combined with a FOP** (an individual can simultaneously be a gig specialist of a Diia City resident + a FOP in another activity, [WebSearch: news.dtkt.ua/simple/individual-single-tax/88330](https://news.dtkt.ua/simple/individual-single-tax/88330-ci-moze-fizosoba-jedinnik-iii-grupi-uklasti-gig-kontrakt-na-vikonannia-robit-z-rezidentom-diia-siti), collection date: 2026-05-31) — gives flexibility for the current SENIORs: they can keep their FOP for some parallel activities and simultaneously be gig specialists in the TOV Diia City resident
 
-   - **Виплата дивідендів партнёру:** через ПнВК — на момент виплати 9% ПнВК від суми + дивіденди отримувача 5% ПДФО + 5% ВЗ для резидента (для нерезидента — 15% + 5%, але є договори про уникнення подвійного оподаткування з більшістю країн EU/US, що знижує до 5-10%).
+   - **Dividend payment to the partner:** via the exit-capital tax — at the moment of payment, 9% exit-capital tax on the amount + the recipient's dividends 5% PIT + 5% military levy for a resident (for a non-resident — 15% + 5%, but there are double taxation treaties with most EU/US countries, which lower it to 5-10%).
 
-   - **Криптовалюта:**
-     Дія Сіті концептуально передбачає **спеціальні умови для ВА-операцій** після введення 2074-IX. Detail регулювання — у законопроекті 10225-д ([див. предыдущую консультацию](./2026-05-31-usdt-payouts-phase8.md) Q1, Q2). На 2026-05-31 — **status invariant**: до введення в дію базового закону ВА — операції з USDT в ТОВ-режимі формалізуються через конвертацію через ліцензовану біржу, не через прямий on-chain receipt. **Дія Сіті НЕ створює exemption** з цього.
+   - **Cryptocurrency:**
+     Diia City conceptually provides for **special conditions for VA operations** after the introduction of 2074-IX. The detailed regulation is in draft law 10225-d ([see the previous consultation](./2026-05-31-usdt-payouts-phase8.md) Q1, Q2). As of 2026-05-31 — **status invariant**: until the base VA law takes effect — operations with USDT in a TOV regime are formalized through conversion via a licensed exchange, not through a direct on-chain receipt. **Diia City does NOT create an exemption** from this.
 
-**Verdict Q1:** **ТОВ — резидент Дія Сіті, ПнВК 9%, з командою на гіг-контрактах** — це найкраща структура для нашого scale + IT-outsource профілю + майбутньої crypto-інтеграції.
+**Verdict Q1:** **A TOV — a Diia City resident, exit-capital tax 9%, with the team on gig contracts** — this is the best structure for our scale + IT-outsource profile + future crypto integration.
 
-**Альтернатива if Дія Сіті недосяжний на старті** (нема 9 спеців, нема €1200 платежу): **ТОВ на загальній системі** з планом переходу до Дія Сіті при reaching mínimum thresholds.
+**An alternative if Diia City is unreachable at the start** (no 9 specialists, no €1200 payment): **A TOV on the general system** with a plan to transition to Diia City upon reaching the minimum thresholds.
 
 #### Q2 — Multi-channel revenue legalization
 
-##### Q2.1 — Bank account ТОВ (recommended primary channel)
+##### Q2.1 — The TOV's bank account (recommended primary channel)
 
-**Реквізити інвойсу (рахунок-фактури) для оплати на банк ТОВ:**
+**Invoice details (invoice-factura) for payment to the TOV's bank:**
 
-[Стаття 9 Закону № 996-XIV «Про бухгалтерський облік та фінансову звітність в Україні»](https://zakon.rada.gov.ua/laws/show/996-14) встановлює перелік **обов'язкових реквізитів первинного документа** ([WebSearch: kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm](https://kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm), дата сбора: 2026-05-31):
+[Article 9 of Law No. 996-XIV "On Accounting and Financial Reporting in Ukraine"](https://zakon.rada.gov.ua/laws/show/996-14) establishes the list of **mandatory details of a primary document** ([WebSearch: kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm](https://kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm), collection date: 2026-05-31):
 
-1. Назва документа (форма)
-2. Дата складання
-3. Назва підприємства, від імені якого складено документ
-4. Зміст і обсяг господарської операції, одиниця виміру
-5. Посади осіб, відповідальних за здійснення операції і правильність її оформлення
-6. Особистий підпис або інші дані, що дають змогу ідентифікувати особу, яка брала участь у операції
+1. The name of the document (form)
+2. The date of drawing up
+3. The name of the enterprise on whose behalf the document is drawn up
+4. The content and volume of the economic operation, the unit of measurement
+5. The positions of the persons responsible for carrying out the operation and the correctness of its arrangement
+6. A personal signature or other data that make it possible to identify the person who participated in the operation
 
-**Для invoice'а нерезиденту специфічно:**
+**For an invoice to a non-resident specifically:**
 
-Лист ДПС (наприклад, [Лист ДПС в Одеській області від 2024 «Про застосування рахунків-фактур (інвойсів)»](https://od.tax.gov.ua/media-ark/news-ark/669798.html); WebSearch дата сбора: 2026-05-31) роз'яснює: invoice ТОВ нерезиденту, який містить основні умови договору (опис, ціна, реквізити), **має силу зовнішньоекономічного контракту** і **акт виконаних робіт окремо не потрібен**. Цей механізм закріплено [Постановою КМУ № 1186 від 15.09.2017](https://zakon.rada.gov.ua/laws/show/1186-2017-%D0%BF) (актуально на 2026).
+A DPS letter (for example, [Letter of the DPS in the Odesa region from 2024 "On the application of invoices-facturas (invoices)"](https://od.tax.gov.ua/media-ark/news-ark/669798.html); WebSearch collection date: 2026-05-31) clarifies: an invoice from the TOV to a non-resident, which contains the main terms of the contract (description, price, requisites), **has the force of a foreign economic contract** and **an acceptance act is not separately needed**. This mechanism is fixed by [Cabinet of Ministers Resolution No. 1186 dated 15.09.2017](https://zakon.rada.gov.ua/laws/show/1186-2017-%D0%BF) (relevant as of 2026).
 
-**Що це означає для нас:**
+**What this means for us:**
 
-- Інвойс ТОВ → клієнту (US/EU) у форматі PDF з обов'язковими реквізитами + ціна + банкінські реквізити → клієнт оплачує → банк зараховує без потреби окремого договору-контракту з мокрими підписами.
-- **Кваліфікований електронний підпис (КЕП)** обов'язковий тільки якщо інвойс електронний і використовується для документообігу між сторонами в Україні. Для зовнішньоекономічних інвойсів — простий PDF з підписом директора (mole signature OK) + печатка (з 2018 печатка не обов'язкова, але **рекомендована** для нерезидентських інвойсів — банкам комфортніше при FX-перевірках).
+- An invoice from the TOV → to the client (US/EU) in PDF format with mandatory details + price + bank requisites → the client pays → the bank credits it without the need for a separate contract with wet signatures.
+- **A qualified electronic signature (KEP)** is mandatory only if the invoice is electronic and is used for document flow between the parties in Ukraine. For foreign economic invoices — a simple PDF with the director's signature (a sole signature is OK) + a seal (since 2018 the seal is not mandatory, but **recommended** for non-resident invoices — banks are more comfortable during FX checks).
 
-**Нумерація:** Послідовна, без пропусків, у форматі який зрозумілий бухгалтерії (наприклад, `INV-2026-00001`). Не потрібна реєстрація в ДПС (для платників не-ПДВ). Якщо ТОВ — ПДВ-платник (оборот > ₴1M/рік), то на додаток до інвойсу для **резидентських** клієнтів — обов'язково **податкова накладна** в ЄРПН ([Стаття 201 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17#n5283); WebSearch: [ibuhgalter.net/tax-codex/203](https://ibuhgalter.net/tax-codex/203), дата сбора: 2026-05-31). Для нерезидентів-клієнтів — **експорт послуг 0% ПДВ за [ст. 195.1.1 ПКУ](https://zakon.rada.gov.ua/laws/show/2755-17)**, податкова накладна реєструється з кодом 0% ставки.
+**Numbering:** Sequential, without gaps, in a format that is clear to accounting (for example, `INV-2026-00001`). Registration with the DPS is not needed (for non-VAT payers). If the TOV is a VAT payer (turnover > ₴1M/year), then in addition to the invoice for **resident** clients — a **tax invoice** in the Unified Register of Tax Invoices (ERPN) is mandatory ([Article 201 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17#n5283); WebSearch: [ibuhgalter.net/tax-codex/203](https://ibuhgalter.net/tax-codex/203), collection date: 2026-05-31). For non-resident clients — **the export of services is 0% VAT per [Art. 195.1.1 of the Tax Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2755-17)**, the tax invoice is registered with a 0% rate code.
 
-**Валютний контроль для FX-поступлень:**
+**Currency control for FX receipts:**
 
-[Закон № 2473-VIII «Про валюту і валютні операції»](https://zakon.rada.gov.ua/laws/show/2473-19) визначає базові правила. Поточна практика (на 2026-05-31, WebSearch: [export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv](https://export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv) дата сбора: 2026-05-31):
+[Law No. 2473-VIII "On Currency and Currency Operations"](https://zakon.rada.gov.ua/laws/show/2473-19) defines the basic rules. The current practice (as of 2026-05-31, WebSearch: [export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv](https://export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv) collection date: 2026-05-31):
 
-- **Експорт послуг — без валютного контролю на надходження** (це not import, для якого є term-of-payment-180-days rule)
-- Ліміт «без валютного контролю розрахунків» — операції < **₴400k** в еквіваленті за один контракт (це для імпорту; для експорту послуг лібералізація ширше)
-- Конкретний кейс «IT-послуги нерезиденту»: банк може запитати інвойс + договір (або інвойс-як-договір per Постанова 1186) для зачисления на валютний рахунок. Це **routine compliance check**, не barrier.
+- **The export of services — without currency control on receipts** (this is not an import, for which there is a term-of-payment-180-days rule)
+- The limit of "settlements without currency control" — operations < **₴400k** equivalent per one contract (this is for imports; for the export of services the liberalization is broader)
+- The specific case "IT services to a non-resident": the bank may request an invoice + a contract (or an invoice-as-contract per Resolution 1186) to credit to the currency account. This is a **routine compliance check**, not a barrier.
 
-**Висновок Q2.1:** Bank channel — straightforward, legal, scalable. Це **primary channel** для всіх клієнтів.
+**Conclusion Q2.1:** The bank channel — straightforward, legal, scalable. It is the **primary channel** for all clients.
 
-##### Q2.2 — Crypto на smart contract → admin wallets
+##### Q2.2 — Crypto to a smart contract → admin wallets
 
-**Цей розділ has overlap з предыдущей консультаціей.** Тут — integration в ТОВ-структуру.
+**This section has overlap with the previous consultation.** Here — integration into the TOV structure.
 
-**Поточна (2026-05-31) ситуація:**
+**The current (2026-05-31) situation:**
 
-- Закон 2074-IX «Про віртуальні активи» **не введений в дію** (чекає набрання чинності змін до ПКУ через законопроект 10225-д) — [деталі в попередній консультації Q1](./2026-05-31-usdt-payouts-phase8.md#q1--ua-crypto-law)
-- Поки 10225-д не пройде final reading + не введений в дію, ТОВ **не може legitимно вписати crypto receipt в bookkeeping як income directly** без проміжного банкінського events
-- Єдиний реальний flow поки: USDT приходить **на адресу директора ТОВ** (фізособи) → конвертація через ліцензовану біржу (Whitebit, Kuna) → UAH на банк → внесок до ТОВ через одне з:
-  - Договір позики засновника (повертати потім без оподаткування)
-  - Безповоротна фіндопомога (без процентів) — оподатковується як дохід ТОВ
-  - Внесок до статутного капіталу (потрібно регнія зміни до Статуту)
+- Law 2074-IX "On Virtual Assets" is **not in force** (awaiting the entry into force of the changes to the Tax Code via draft law 10225-d) — [details in the previous consultation Q1](./2026-05-31-usdt-payouts-phase8.md#q1--ua-crypto-law)
+- Until 10225-d passes the final reading + takes effect, the TOV **cannot legitimately record a crypto receipt in bookkeeping as income directly** without an intermediate banking event
+- The only real flow for now: USDT comes **to the address of the TOV's director** (an individual) → conversion via a licensed exchange (Whitebit, Kuna) → UAH to the bank → a deposit to the TOV via one of:
+  - A founder's loan agreement (to be repaid later without taxation)
+  - Irrevocable financial assistance (without interest) — taxed as the TOV's income
+  - A contribution to the statutory capital (requires registering changes to the Statute)
 
-**Це НЕ є clean revenue recognition.** ТОВ не може на bookkeeping показати «дохід у криптовалюті, отриманий 15 квітня 2026» — нема legal basis для accounting standard recognition.
+**This is NOT clean revenue recognition.** The TOV cannot show in bookkeeping "income in cryptocurrency received on 15 April 2026" — there is no legal basis for accounting standard recognition.
 
-**Що зміниться після введення 2074-IX:**
+**What will change after the introduction of 2074-IX:**
 
-- ТОВ зможе legitimно отримувати ВА як оплату послуг
-- Курс конверсії USDT→UAH буде фіксуватися за курсом НБУ на дату надходження або за market rate ліцензованої біржі (точну норму внесе 10225-д)
-- ТОВ-резидент Дія Сіті концептуально матиме спеціальні полегшені правила (детально буде в підзаконних актах НКЦПФР)
+- The TOV will be able to legitimately receive VA as payment for services
+- The USDT→UAH conversion rate will be fixed at the NBU rate on the date of receipt or at the market rate of a licensed exchange (the exact norm will be introduced by 10225-d)
+- A TOV Diia City resident will conceptually have special eased rules (in detail in the by-laws of the NSSMC)
 
-**Recommendation для Q2.2:** **Поки 2074-IX не введений — НЕ оформлюйте crypto як direct channel ТОВ.** Замість цього:
+**Recommendation for Q2.2:** **While 2074-IX is not introduced — do NOT arrange crypto as a direct channel of the TOV.** Instead:
 
-- Збережіть crypto-channel у CRM як **future feature** (фаза 8 за дорожньою картою)
-- Для current cash-flow client'ів які хочуть платити в USDT — або (a) перейти на bank rail з конвертацією USDT через біржу клієнта/виконавця, (b) у виключних випадках — приймати на личну адресу ADMIN з конвертацією та внеском у ТОВ як позики засновника (audit-OK, але **не дохід ТОВ** на bookkeeping)
+- Keep the crypto channel in the CRM as a **future feature** (phase 8 per the roadmap)
+- For current cash-flow clients who want to pay in USDT — either (a) move to the bank rail with conversion of USDT via the client's/executor's exchange, (b) in exceptional cases — accept to the ADMIN's personal address with conversion and a deposit to the TOV as a founder's loan (audit-OK, but **not the TOV's income** in bookkeeping)
 
-**Confidence Q2.2: LOW** — це legal vacuum, точна структура буде ясна тільки після 10225-д введення в дію.
+**Confidence Q2.2: LOW** — this is a legal vacuum, the exact structure will be clear only after 10225-d takes effect.
 
-##### Q2.3 — Cash к admin
+##### Q2.3 — Cash to the admin
 
-**Ліміти готівкових розрахунків ([Постанова НБУ № 148 від 29.12.2017](https://zakon.rada.gov.ua/laws/show/v0148500-17); WebSearch: [yankiv.com/limity-na-rozrahunky-gotivkoyu](https://yankiv.com/limity-na-rozrahunky-gotivkoyu/), дата сбора: 2026-05-31):**
+**Cash settlement limits ([NBU Resolution No. 148 dated 29.12.2017](https://zakon.rada.gov.ua/laws/show/v0148500-17); WebSearch: [yankiv.com/limity-na-rozrahunky-gotivkoyu](https://yankiv.com/limity-na-rozrahunky-gotivkoyu/), collection date: 2026-05-31):**
 
-| Сторони розрахунку                              | Денний ліміт                            |
-| ----------------------------------------------- | --------------------------------------- |
-| Юридична особа ↔ юридична особа (включаючи ФОП) | **₴10 000 / день з одним контрагентом** |
-| Юридична особа ↔ фізична особа                  | **₴50 000 / день з одним контрагентом** |
+| Parties to the settlement                     | Daily limit                             |
+| --------------------------------------------- | --------------------------------------- |
+| Legal entity ↔ legal entity (including a FOP) | **₴10 000 / day with one counterparty** |
+| Legal entity ↔ individual                     | **₴50 000 / day with one counterparty** |
 
-**Жоден з варіантів НЕ підходить для типових IT-outsource invoice'ів** ($3-5k+/місяць = ₴125-200k):
+**Neither option is suitable for typical IT-outsource invoices** ($3-5k+/month = ₴125-200k):
 
-- Якщо клієнт — юрособа: ліміт ₴10k/день виключає cash для нашого профілю
-- Якщо клієнт — фізособа: ліміт ₴50k/день; платіж $3k = ₴125k = потрібно **3 calendar days** окремих платежів = artificial splitting → це **ознака transactions structuring**, що ДПС/Фінмон може трактувати як умисний обхід ліміту → штрафи + ризик статті 212 ККУ
+- If the client is a legal entity: the ₴10k/day limit excludes cash for our profile
+- If the client is an individual: the ₴50k/day limit; a payment of $3k = ₴125k = requires **3 calendar days** of separate payments = artificial splitting → this is a **sign of transactions structuring**, which the DPS/Financial Monitoring may treat as an intentional circumvention of the limit → penalties + the risk of Art. 212 of the Criminal Code of Ukraine
 
-**Прийом готівки ТОВ — обов'язкові elements:**
+**Accepting cash by a TOV — mandatory elements:**
 
-1. **РРО/ПРРО** — за [Законом № 265/95-ВР «Про застосування реєстраторів розрахункових операцій»](https://zakon.rada.gov.ua/laws/show/265/95-вр) ТОВ зобов'язано застосовувати РРО/ПРРО при будь-якому розрахунку готівкою за товари/послуги (включаючи послуги нерезидентам у валюті) ([WebSearch: yankiv.com/rro-prro-2026-komu-oboviazkovo](https://yankiv.com/rro-prro-2026-komu-oboviazkovo/), дата сбора: 2026-05-31). Виняток: ФОП 1 групи + деякі specific.
-2. **Прибутковий касовий ордер (форма КО-1)** — оформлюється кожен прийом готівки, з відображенням у касовій книзі (форма КО-4) ([WebSearch: medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati](https://medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati-/), дата сбора: 2026-05-31)
-3. **Підпис відповідальних осіб** (касир + бухгалтер/директор)
-4. **Подальша здача готівки в банк** — згідно з умовами договору на касове обслуговування
+1. **RRO/PRRO** — per [Law No. 265/95-VR "On the Use of Payment Transaction Recorders"](https://zakon.rada.gov.ua/laws/show/265/95-вр) a TOV is obliged to use an RRO/PRRO for any cash settlement for goods/services (including services to non-residents in foreign currency) ([WebSearch: yankiv.com/rro-prro-2026-komu-oboviazkovo](https://yankiv.com/rro-prro-2026-komu-oboviazkovo/), collection date: 2026-05-31). Exception: a FOP of group 1 + some specific ones.
+2. **A cash receipt order (form KO-1)** — drawn up for each cash receipt, with reflection in the cash book (form KO-4) ([WebSearch: medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati](https://medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati-/), collection date: 2026-05-31)
+3. **The signature of the responsible persons** (the cashier + the accountant/director)
+4. **The subsequent deposit of cash to the bank** — according to the terms of the cash service agreement
 
-**Cash від нерезидента — окремий заборона:** [Постанова НБУ № 5 від 02.01.2019 «Про затвердження Положення про здійснення операцій із валютними цінностями»](https://bank.gov.ua/admin_uploads/law/02012019_5.pdf) забороняє розрахунки готівкою в іноземній валюті за зовнішньоекономічними договорами з нерезидентами, за виключенням дуже specific вузьких випадків (operational expenses транспорту тощо) ([WebSearch: help-biz.sensebank.com.ua](https://help-biz.sensebank.com.ua/hc/uk/articles/6441120324498), дата сбора: 2026-05-31). **Тобто клієнт-нерезидент НЕ МОЖЕ платити cash (USD/EUR) на ТОВ legaлlly.**
+**Cash from a non-resident — a separate ban:** [NBU Resolution No. 5 dated 02.01.2019 "On approval of the Regulation on carrying out operations with currency valuables"](https://bank.gov.ua/admin_uploads/law/02012019_5.pdf) prohibits cash settlements in foreign currency under foreign economic contracts with non-residents, except for very specific narrow cases (operational expenses of transport, etc.) ([WebSearch: help-biz.sensebank.com.ua](https://help-biz.sensebank.com.ua/hc/uk/articles/6441120324498), collection date: 2026-05-31). **That is, a non-resident client CANNOT pay cash (USD/EUR) to a TOV legally.**
 
-**Висновок Q2.3:** Cash channel для ТОВ-IT-outsource в нашому профілі (нерезиденти, $3k+ invoice'и) — **практично неможливий легально**. Якщо клієнт — резидент-фізособа і платить ₴50k/день — теоретично OK з РРО+ПКО. Але це rare edge-case, не business model.
+**Conclusion Q2.3:** The cash channel for a TOV IT outsource in our profile (non-residents, $3k+ invoices) is **practically impossible legally**. If the client is a resident individual and pays ₴50k/day — theoretically OK with an RRO+cash receipt order. But this is a rare edge case, not a business model.
 
-##### Q2.4 — Договорні вимоги (Services Agreement + Terms of Service)
+##### Q2.4 — Contractual requirements (Services Agreement + Terms of Service)
 
-**Services Agreement з клієнтом — обов'язкові clause'и для multi-payment-method support:**
+**Services Agreement with the client — mandatory clauses for multi-payment-method support:**
 
-1. **Payment methods clause** (Articles на вибір):
+1. **Payment methods clause** (Articles at choice):
 
    ```
    Article X. Payment Methods.
@@ -341,7 +341,7 @@ User хочет **сделать ТОВ основной entity** (не ФОП-c
         separately executed acceptance act.
    ```
 
-3. **Multi-method but single-issuer clause** (КРИТИЧНО для Q3):
+3. **Multi-method but single-issuer clause** (CRITICAL for Q3):
    ```
    Article Z. Single Counterparty.
    Z.1. All settlements under this Agreement, regardless of payment method
@@ -353,310 +353,310 @@ User хочет **сделать ТОВ основной entity** (не ФОП-c
         Provider is not Client's concern.
    ```
 
-**Terms of Service для CRM-платформи (внутрішні юзери):**
+**Terms of Service for the CRM platform (internal users):**
 
-Це **окремий документ** від Services Agreement. Регулює відносини між ТОВ як власником CRM-платформи та юзерами (співробітниками SENIOR/JUNIOR/HR/ACCOUNTANT). Має покривати:
+This is a **separate document** from the Services Agreement. It governs the relationship between the TOV as the owner of the CRM platform and the users (the SENIOR/JUNIOR/HR/ACCOUNTANT employees). It must cover:
 
-- Lawful basis обробки персональних даних ([ст. 6 GDPR](https://gdpr-info.eu/art-6-gdpr/) — для EU users, [ст. 11 Закону № 2297-VI «Про захист персональних даних»](https://zakon.rada.gov.ua/laws/show/2297-17) для UA users)
-- Wallet address handling, AML disclaimer для crypto-related fields
-- User'ска confidentiality / NDA-style provisions
+- The lawful basis for processing personal data ([Art. 6 GDPR](https://gdpr-info.eu/art-6-gdpr/) — for EU users, [Art. 11 of Law No. 2297-VI "On the Protection of Personal Data"](https://zakon.rada.gov.ua/laws/show/2297-17) for UA users)
+- Wallet address handling, an AML disclaimer for crypto-related fields
+- User confidentiality / NDA-style provisions
 - Termination clauses
 
-**Це окрема legal-consultation для деталізації** — нинішній фокус це Q1-Q3.
+**This is a separate legal consultation for elaboration** — the current focus is Q1-Q3.
 
-##### Q2.5 — Юр. вес invoice'у
+##### Q2.5 — The legal weight of the invoice
 
-Покрито в Q2.1 вище (стаття 9 № 996-XIV + Постанова КМУ № 1186). Резюме:
+Covered in Q2.1 above (Article 9 of No. 996-XIV + Cabinet of Ministers Resolution No. 1186). Summary:
 
-| Реквізит                       | Bank/UAH (резидент)            | Bank/FX (нерезидент)                                        | Crypto (post-2074-IX)                |
-| ------------------------------ | ------------------------------ | ----------------------------------------------------------- | ------------------------------------ |
-| Назва компанії, EDRPOU, адреса | Обов'язково                    | Обов'язково                                                 | Обов'язково                          |
-| Реквізити банку отримувача     | Обов'язково                    | Обов'язково (включаючи SWIFT, IBAN)                         | Адреса wallet'а замість банку        |
-| Підпис директора               | Обов'язково (мокра або КЕП)    | Обов'язково (мокра або КЕП; для нерезидента — facsimile OK) | Залежно від реалізації 2074-IX       |
-| Печатка                        | Не обов'язково (з 2018)        | Рекомендована для FX                                        | TBD                                  |
-| Податкова накладна в ЄРПН      | Так, якщо ПДВ-платник          | Так (0% ставка експорт послуг)                              | TBD                                  |
-| Реєстрація інвойсу в ДПС       | Ні (тільки податкова накладна) | Ні                                                          | TBD                                  |
-| Строк оплати                   | На розсуд (вказати в інвойсі)  | На розсуд (вказати)                                         | На розсуд                            |
-| Засіб ЕДО                      | НЕ обов'язково (паперовий OK)  | НЕ обов'язково                                              | Електронний (smart contract receipt) |
+| Detail                                   | Bank/UAH (resident)                    | Bank/FX (non-resident)                                    | Crypto (post-2074-IX)                      |
+| ---------------------------------------- | -------------------------------------- | --------------------------------------------------------- | ------------------------------------------ |
+| Company name, EDRPOU, address            | Mandatory                              | Mandatory                                                 | Mandatory                                  |
+| Recipient's bank details                 | Mandatory                              | Mandatory (including SWIFT, IBAN)                         | The wallet address instead of a bank       |
+| Director's signature                     | Mandatory (wet or KEP)                 | Mandatory (wet or KEP; for a non-resident — facsimile OK) | Depending on the implementation of 2074-IX |
+| Seal                                     | Not mandatory (since 2018)             | Recommended for FX                                        | TBD                                        |
+| Tax invoice in the ERPN                  | Yes, if a VAT payer                    | Yes (0% rate export of services)                          | TBD                                        |
+| Registration of the invoice with the DPS | No (only the tax invoice)              | No                                                        | TBD                                        |
+| Payment term                             | At discretion (specify in the invoice) | At discretion (specify)                                   | At discretion                              |
+| Electronic document tool                 | NOT mandatory (paper is OK)            | NOT mandatory                                             | Electronic (a smart contract receipt)      |
 
-#### Q3 — Cash/Crypto — issuer invoice'а ≠ CheekyCheeseIT?
+#### Q3 — Cash/Crypto — the invoice issuer ≠ CheekyCheeseIT?
 
-**КРИТИЧНО.** Ця секція потребує найбільшої обережності. User вже сказав «не шукаємо схему уклонення», і це правильна позиція — треба чітко показати **де проходить criminal red line** і чому **user assumption має бути переглянута**.
+**CRITICAL.** This section requires the greatest caution. The User has already said "we are not looking for an evasion scheme", and this is the correct position — one must clearly show **where the criminal red line runs** and why **the user assumption must be reconsidered**.
 
-##### Сценарій А — User assumption: «cash/crypto через інше entity (не ТОВ)»
+##### Scenario A — User assumption: "cash/crypto through a different entity (not the TOV)"
 
-**User formulation:** «якщо людина оплачує готівкою або криптою, то в інвойсі не повинно бути вказано, що оплата йде компанії CheekyCheeseIT».
+**User formulation:** "if a person pays in cash or crypto, then the invoice should not indicate that the payment goes to the company CheekyCheeseIT".
 
-**Аналіз цього як юридичної конструкції:**
+**Analysis of this as a legal construction:**
 
-Якщо CheekyCheeseIT (ТОВ) надає послуги клієнту (per Services Agreement) і клієнт хоче платити cash/crypto, але цей платіж оформлюється на **окрему фізичну особу або ФОП** (ADMIN, partner, або «service ФОП»), хоча реально це винагорода за послуги ТОВ — це класифікується як:
+If CheekyCheeseIT (the TOV) provides services to the client (per the Services Agreement) and the client wants to pay cash/crypto, but this payment is arranged on a **separate individual or FOP** (ADMIN, partner, or a "service FOP"), although it is really remuneration for the TOV's services — this is classified as:
 
-1. **«Дроблення доходу» (фактичний дохід ТОВ → штучно атрибутується іншій особі)** — це базовий patterns умисного ухилення від сплати податків ([Стаття 212 ККУ](https://zakon.rada.gov.ua/laws/show/2341-14#n1395)), особливо якщо метою є приховання частини обороту ТОВ (e.g., щоб залишитися під лімітом єдиного податку, або уникнути ПДВ-реєстрації, або просто зменшити effective tax).
+1. **"Income splitting" (the TOV's actual income → is artificially attributed to another person)** — this is a basic pattern of intentional tax evasion ([Article 212 of the Criminal Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2341-14#n1395)), especially if the goal is to hide part of the TOV's turnover (e.g., to stay under the single tax limit, or to avoid VAT registration, or simply to reduce the effective tax).
 
-2. **Поріг кримінальної відповідальності за ст. 212 ККУ у 2026 році** — ненадходження до бюджету ≥ **3000 неоподатковуваних мінімумів доходів громадян = ₴4 992 000** (значні розміри) ([WebSearch: smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv](https://smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv/), дата сбора: 2026-05-31). Для нашого scale (30-50 contributor'ов × $3-5k × 12 міс) — оборот ~₴50-90M/рік. Ухилення навіть на 5-10% доходу = легко перевищує поріг ст. 212.
-   - Значні розміри (≥₴4.99M): штраф ₴5k-10k НМДГ
-   - Великі розміри (≥₴8.32M = 5000 НМДГ): штраф ₴10k-15k НМДГ + позбавлення права обіймати посади
-   - Особливо великі (≥₴11.65M = 7000 НМДГ): штраф ₴15k-25k НМДГ + конфіскація
+2. **The threshold of criminal liability under Art. 212 of the Criminal Code of Ukraine in 2026** — a budget shortfall ≥ **3000 non-taxable minimum incomes of citizens = ₴4 992 000** (significant amounts) ([WebSearch: smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv](https://smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv/), collection date: 2026-05-31). For our scale (30-50 contributors × $3-5k × 12 months) — the turnover is ~₴50-90M/year. Evasion of even 5-10% of income = easily exceeds the threshold of Art. 212.
+   - Significant amounts (≥₴4.99M): a fine of ₴5k-10k non-taxable minimums
+   - Large amounts (≥₴8.32M = 5000 non-taxable minimums): a fine of ₴10k-15k non-taxable minimums + deprivation of the right to hold positions
+   - Especially large (≥₴11.65M = 7000 non-taxable minimums): a fine of ₴15k-25k non-taxable minimums + confiscation
 
-3. **Co-conspirator liability:** не лише ADMIN, але також partner і будь-яка особа що знала про схему (бухгалтер, юрист, інший співробітник) може бути притягнута до криминалу як **співучасники** ([ст. 27 ККУ](https://zakon.rada.gov.ua/laws/show/2341-14)).
+3. **Co-conspirator liability:** not only ADMIN, but also the partner and any person who knew about the scheme (an accountant, a lawyer, another employee) may be brought to criminal liability as **accomplices** ([Art. 27 of the Criminal Code of Ukraine](https://zakon.rada.gov.ua/laws/show/2341-14)).
 
-4. **AML вимір ([ст. 209 ККУ — легалізація (відмивання) доходів](https://zakon.rada.gov.ua/laws/show/2341-14#n1377))**: якщо ці cash/crypto доходи потім «легалізуються» через банкінські операції (внесок на ТОВ, конвертація на придбання активів) — це окремий corpus delicti, поверх ст. 212.
+4. **AML dimension ([Art. 209 of the Criminal Code of Ukraine — legalization (laundering) of proceeds](https://zakon.rada.gov.ua/laws/show/2341-14#n1377))**: if this cash/crypto income is then "legalized" through banking operations (a deposit to the TOV, conversion to acquire assets) — this is a separate corpus delicti, on top of Art. 212.
 
-**Verdict Сценарій А: КАТЕГОРИЧНО НЕ РЕКОМЕНДУЮ.** Це direct path до ст. 212 ККУ. User assumption тут принципово помилкова — issuer повинен співпадати з реальним economic beneficiary, не з payment channel.
+**Verdict Scenario A: CATEGORICALLY NOT RECOMMENDED.** This is a direct path to Art. 212 of the Criminal Code of Ukraine. The user assumption here is fundamentally mistaken — the issuer must coincide with the real economic beneficiary, not with the payment channel.
 
-##### Сценарій Б — Альтернатива: легітимна single-issuer структура
+##### Scenario B — The alternative: a legitimate single-issuer structure
 
-**Правильний підхід:**
+**The correct approach:**
 
-Усі платежі за послуги ТОВ — **інвойс від ТОВ**, незалежно від channel:
+All payments for the TOV's services — an **invoice from the TOV**, regardless of channel:
 
-- Bank → інвойс ТОВ → bank акаунт ТОВ
-- Crypto (post-2074-IX) → інвойс ТОВ → wallet ТОВ (або через ліцензовану VASP-біржу як conversion bridge)
-- Cash → інвойс ТОВ → каса ТОВ через РРО/ПКО (де legal — see Q2.3 — для нашого профілю практично неможливо)
+- Bank → invoice from the TOV → the TOV's bank account
+- Crypto (post-2074-IX) → invoice from the TOV → the TOV's wallet (or via a licensed VASP exchange as a conversion bridge)
+- Cash → invoice from the TOV → the TOV's cash desk via an RRO/cash receipt order (where legal — see Q2.3 — for our profile practically impossible)
 
-**Issuer = ТОВ завжди.** Channel — це property платежу, не identity отримувача.
+**Issuer = the TOV always.** The channel is a property of the payment, not the identity of the recipient.
 
-**Внутрішнє розподілення між ADMIN/partner/команда — окрема справа:**
+**The internal distribution among ADMIN/partner/team — a separate matter:**
 
-Після того як ТОВ отримала дохід (legitimно через invoice + channel), розподілення між учасниками робиться через:
+After the TOV has received the income (legitimately via invoice + channel), the distribution among the participants is done through:
 
-- **Зарплати/гіг-винагороди** працівникам/гіг-спецам (5% ПДФО + 5% ВЗ + 22% ЄСВ з мінзарплати — для Дія Сіті)
-- **Дивіденди** засновникам (9% ПнВК для резидента Дія Сіті)
-- **Договори про надання послуг** з ФОП-контрагентами (якщо partner — ФОП)
+- **Salaries/gig remuneration** to employees/gig specialists (5% PIT + 5% military levy + 22% USC of the minimum wage — for Diia City)
+- **Dividends** to the founders (9% exit-capital tax for a Diia City resident)
+- **Services agreements** with FOP counterparties (if the partner is a FOP)
 
-Кожен з цих flow'ів **legitimate і оподатковується відповідним податком**. Загальне навантаження — детально в розділі «Анализ Q1» — ~5% ПДФО на гіг + 9% ПнВК на дивіденди = **ефективно ~14%** від чистого прибутку при reinvest-friendly стратегії.
+Each of these flows is **legitimate and taxed by the corresponding tax**. The total burden — in detail in the "Analysis Q1" section — ~5% PIT on the gig + 9% exit-capital tax on dividends = **effectively ~14%** of the net profit with a reinvest-friendly strategy.
 
-##### Сценарій В — Окремі issuer'и легітимно (only якщо є substantive economic basis)
+##### Scenario C — Separate issuers legitimately (only if there is a substantive economic basis)
 
-Є **обмежений набір випадків** коли issuer ≠ ТОВ виправданий і **не є кримінальним ризиком**:
+There is a **limited set of cases** when issuer ≠ the TOV is justified and is **not a criminal risk**:
 
-1. **Partner надає клієнту окремі послуги особисто** (consulting, training, code review як independent contractor) — partner-ФОП виставляє інвойс **на свої окремі послуги**, не ті, що ТОВ. Це чисто distinct service exchange. Documentation: окремий договір між клієнтом і partner-ФОП, без перетину з ТОВ-послугами. Не для нашого «cash/crypto channel» use-case — це абсолютно різні бізнес-relations.
+1. **The partner provides the client with separate services personally** (consulting, training, code review as an independent contractor) — the partner-FOP issues an invoice **for their separate services**, not those of the TOV. This is a purely distinct service exchange. Documentation: a separate contract between the client and the partner-FOP, without overlap with the TOV's services. Not for our "cash/crypto channel" use-case — these are completely different business relations.
 
-2. **Subcontracting ТОВ на partner-ФОП:** ТОВ виставляє інвойс клієнту (за свою частину) → partner-ФОП виставляє інвойс ТОВ (за свою частину subcontract'у) → ТОВ платить partner-ФОП per договір субпідряду. Це **traceable double-flow** з consistent documentation на обох рівнях. Legitimate, але **не «issuer ≠ ТОВ для клієнта»** — клієнт все одно бачить ТОВ як свого contractor'а.
+2. **Subcontracting of the TOV to the partner-FOP:** the TOV issues an invoice to the client (for its part) → the partner-FOP issues an invoice to the TOV (for their part of the subcontract) → the TOV pays the partner-FOP per a subcontracting agreement. This is a **traceable double-flow** with consistent documentation at both levels. Legitimate, but **not "issuer ≠ the TOV for the client"** — the client still sees the TOV as their contractor.
 
-3. **Affiliate sales relationship:** окремий entity (partner-ФОП) діє як **sales agent** ТОВ, отримує commission. Клієнт платить ТОВ → ТОВ платить commission partner-ФОПу. Знову — issuer для клієнта = ТОВ.
+3. **An affiliate sales relationship:** a separate entity (the partner-FOP) acts as a **sales agent** of the TOV, receives a commission. The client pays the TOV → the TOV pays a commission to the partner-FOP. Again — the issuer for the client = the TOV.
 
-**У жодному з legitimate cases issuer для клієнта НЕ змінюється у залежності від payment method.**
+**In none of the legitimate cases does the issuer for the client change depending on the payment method.**
 
-##### Висновок Q3 (категоричний)
+##### Conclusion Q3 (categorical)
 
-**User assumption «cash/crypto через інший entity, не ТОВ» — це pattern налогового ухилення, який ДПС/слідство впізнає миттєво.** Ризик ст. 212 ККУ + ст. 209 ККУ + штрафи + конфіскація + кримінальне переслідування ADMIN, partner і всіх інформованих осіб.
+**The user assumption "cash/crypto through a different entity, not the TOV" is a pattern of tax evasion that the DPS/investigation recognizes instantly.** The risk of Art. 212 of the Criminal Code of Ukraine + Art. 209 of the Criminal Code of Ukraine + penalties + confiscation + criminal prosecution of ADMIN, the partner and all informed persons.
 
-**Правильне рішення:**
+**The correct solution:**
 
-- **Усі invoice'и — від ТОВ.** Channel — деталь payment'а, не identity issuer'а.
-- **Cash для нашого профілю — практично відсутній** (per Q2.3 NBU restrictions + ст. 212 ризик навіть при splitting через малих cash payments). Якщо клієнт пропонує cash — **відмова + редирект на bank**.
-- **Crypto — поки чекаємо 2074-IX активації.** До цього часу — конвертація через ліцензовану біржу + bank channel.
-- **Issuer = ТОВ ВСЕГДА.** Це non-negotiable архітектурне рішення.
+- **All invoices — from the TOV.** The channel is a detail of the payment, not the identity of the issuer.
+- **Cash for our profile is practically absent** (per Q2.3 NBU restrictions + the Art. 212 risk even when splitting through small cash payments). If the client offers cash — **a refusal + a redirect to the bank**.
+- **Crypto — while we wait for the activation of 2074-IX.** Until then — conversion via a licensed exchange + the bank channel.
+- **Issuer = the TOV ALWAYS.** This is a non-negotiable architectural decision.
 
-**Якщо user наполягає на cash/crypto з різним issuer'ом** — це територія де AI Legal **відмовляє в подальшій consultation** (§ 1 escalation-zones.md activated). Це потрібно адресувати з practicing criminal defense lawyer (НЕ tax consultant) для розуміння повного scope criminal exposure.
+**If the user insists on cash/crypto with a different issuer** — this is territory where AI Legal **refuses further consultation** (§ 1 escalation-zones.md activated). This needs to be addressed with a practicing criminal defense lawyer (NOT a tax consultant) to understand the full scope of the criminal exposure.
 
-### Риски
+### Risks
 
-| #   | Risk                                                                                                                                                                                                                | Severity     | Probability                              | Mitigation                                                                                                                                                                                                                                                                                                |
-| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **Кримінальна відповідальність ст. 212 ККУ** за structuring доходів через split issuer'ів (Q3 user assumption если її imple­ментировать). Поріг ₴4.99M ненадходження = легко перевищується при оборотах ₴50-90M/рік | **Critical** | High (якщо реально implement сценарій А) | (a) **Відмова від Сценарію А user assumption**: усі invoice'и issuer = ТОВ; (b) cash channel виключити з production architecture (per Q2.3); (c) crypto channel — `feature flag OFF` до активації 2074-IX; (d) consult з practicing criminal/tax lawyer **до** будь-якої спроби multi-issuer структури    |
-| 2   | **Кримінальна відповідальність ст. 209 ККУ (легалізація)** при cash flow → внесок до ТОВ як «позика засновника» без real economic substance                                                                         | **Critical** | Medium (залежить від документообігу)     | (a) Якщо internal flow USDT через ADMIN → конверсія через ліцензовану біржу → банк → внесок ТОВ як «позика засновника» — оформити **реальний договір позики** з графіком повернення, не fake; (b) **не використовувати «позику засновника»** для приховання real revenue ТОВ; (c) human compliance review |
-| 3   | **Перевищення ліміту 3 групи єдиного податку ТОВ** (₴10 091 049/рік) при scale → автоматичне позбавлення статусу спрощенця + штрафи                                                                                 | High         | High (при наших target scales)           | (a) НЕ використовувати ТОВ на 3 групі ЄП для запланованого scale; (b) обрати ТОВ загальна / Дія Сіті з самого початку; (c) якщо стартуємо на 3 групі ЄП для тесту — план переходу при досягненні 80% ліміту                                                                                               |
-| 4   | **AML/Фінмоніторинг блокування** при USDT→UAH конверсії великих сум через біржу, якщо нема consistent документообігу (договорная сітка)                                                                             | High         | Medium                                   | (a) Договорна сітка ДО першої crypto-конверсії: договір клієнт↔ТОВ, договір ТОВ↔partner-ФОП, договір ТОВ↔гіг-спец; (b) використовувати ліцензовані UA-біржі (Whitebit, Kuna) — вони СПФМ; (c) ведення internal AML-policy документу                                                                       |
-| 5   | **Невідповідність вимогам Дія Сіті** (мін. 9 спеців, €1200/міс кожному) → втрата резидентства, перехід на загальну 18%                                                                                              | High         | Medium                                   | (a) Розрахунок payroll budget ДО входу в режим — переконатися що зможемо стабільно тримати ≥9 спеців × €1200; (b) startup-резидент opção (більш relaxed thresholds) на перший рік; (c) щомісячний моніторинг compliance metrics                                                                           |
-| 6   | **Cash transaction structuring** (artificial splitting на subъ-лімітні платежі ₴10k/день між ТОВ і клієнтом) → структурування operations → ст. 212 ККУ                                                              | High         | Medium                                   | (a) Виключити cash channel з product roadmap взагалі; (b) якщо отрім cash платіж від клієнта-фізособи в межах ₴50k/день — повна РРО+ПКО документація + моніторинг patterns                                                                                                                                |
-| 7   | **Crypto-receipt в bookkeeping ТОВ** без legal basis на момент 2026-05-31 → ризик інспекції ДПС / коригування фінрезультату                                                                                         | High         | Medium                                   | (a) НЕ оформлювати USDT receipts directly як «дохід ТОВ» поки 2074-IX не введений; (b) використовувати proxy-flow через bank після конверсії; (c) ежеквартальний review legal-агентом + practicing lawyer на статус 10225-д                                                                               |
-| 8   | **Подвійне оподаткування партнёра-нерезидента** при виплаті дивідендів (15% ПДФО UA + tax in residence)                                                                                                             | Medium       | High                                     | (a) Перевірити existence convention про уникнення подвійного оподаткування з країною резидентства partner'a (для більшості EU/US — є); (b) при наявності — застосувати reduced rate (зазвичай 5-10%); (c) belastingdienst certification для partner'a                                                     |
-| 9   | **Невалідний invoice (відсутні обов'язкові реквізити ст. 9 № 996-XIV)** → клієнт-нерезидент відмова банку зачисляти платіж + ризик ДПС визнати дохід «несвоєчасним»                                                 | Medium       | Low-Medium                               | (a) Templates інвойсів з усіма реквізитами + review бухгалтера; (b) для нерезидентів — двомовний формат (UA/EN) + IBAN/SWIFT; (c) щомісячний audit invoice format у бухгалтерському модулі CRM                                                                                                            |
-| 10  | **Втрата статусу платника ПнВК (Дія Сіті)** при non-qualifying expenditures (виплати на нерезидентів-фізосіб без CCT, придбання активів за наявності пов'язаних осіб)                                               | Medium       | Medium                                   | (a) Освіта бухгалтера про правила ПнВК; (b) review кожної значущої виплати > ₴100k на відповідність ПнВК-критеріям; (c) consulting Дія Сіті compliance                                                                                                                                                    |
-| 11  | **GDPR/UA persona-data ризики** при зберіганні wallet-адрес користувачів у CRM (Q3 предыдущей консультаций)                                                                                                         | Medium       | Medium                                   | (a) Encryption-at-rest для wallet полів; (b) audit log на зміни wallet'а; (c) consent flow при онбординг spec'а; (d) DPA для всіх processor'ів (S3, email service)                                                                                                                                        |
-| 12  | **Регуляторний flux 10225-д до Q3 2026** — можливість зміни режиму оподаткування ВА для ТОВ → структура може потребувати re-architecture                                                                            | Medium       | High                                     | Ежеквартальний legal review + flexibility в CRM-architecture (crypto channel as feature flag, не hard-coded)                                                                                                                                                                                              |
+| #   | Risk                                                                                                                                                                                                                            | Severity     | Probability                                  | Mitigation                                                                                                                                                                                                                                                                                                                       |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Criminal liability Art. 212 of the Criminal Code of Ukraine** for structuring income through split issuers (Q3 user assumption if implemented). The threshold ₴4.99M shortfall = easily exceeded at turnovers of ₴50-90M/year | **Critical** | High (if Scenario A is actually implemented) | (a) **Reject the Scenario A user assumption**: all invoices issuer = the TOV; (b) exclude the cash channel from the production architecture (per Q2.3); (c) crypto channel — `feature flag OFF` until the activation of 2074-IX; (d) consult a practicing criminal/tax lawyer **before** any attempt at a multi-issuer structure |
+| 2   | **Criminal liability Art. 209 of the Criminal Code of Ukraine (legalization)** in a cash flow → a deposit to the TOV as a "founder's loan" without real economic substance                                                      | **Critical** | Medium (depends on the document flow)        | (a) If the internal flow USDT via ADMIN → conversion via a licensed exchange → bank → a deposit to the TOV as a "founder's loan" — arrange a **real loan agreement** with a repayment schedule, not fake; (b) **do not use a "founder's loan"** to hide the real revenue of the TOV; (c) a human compliance review               |
+| 3   | **Exceeding the TOV single-tax group 3 limit** (₴10 091 049/year) at scale → automatic loss of single-tax-payer status + penalties                                                                                              | High         | High (at our target scales)                  | (a) Do NOT use a TOV on single-tax group 3 for the planned scale; (b) choose a TOV general / Diia City from the very start; (c) if we start on single-tax group 3 for a test — a plan to transition upon reaching 80% of the limit                                                                                               |
+| 4   | **AML/Financial Monitoring block** on USDT→UAH conversion of large amounts via an exchange, if there is no consistent document flow (a contractual network)                                                                     | High         | Medium                                       | (a) A contractual network BEFORE the first crypto conversion: a client↔TOV contract, a TOV↔partner-FOP contract, a TOV↔gig-specialist contract; (b) use licensed UA exchanges (Whitebit, Kuna) — they are SPFM; (c) keeping an internal AML-policy document                                                                      |
+| 5   | **Non-compliance with Diia City requirements** (min. 9 specialists, €1200/month each) → loss of residency, transfer to the general 18%                                                                                          | High         | Medium                                       | (a) Calculate the payroll budget BEFORE entering the regime — make sure we can stably keep ≥9 specialists × €1200; (b) a startup-resident option (more relaxed thresholds) for the first year; (c) monthly monitoring of compliance metrics                                                                                      |
+| 6   | **Cash transaction structuring** (artificial splitting into sub-limit payments of ₴10k/day between the TOV and the client) → structuring of operations → Art. 212 of the Criminal Code of Ukraine                               | High         | Medium                                       | (a) Exclude the cash channel from the product roadmap altogether; (b) if a cash payment is received from an individual client within ₴50k/day — full RRO+cash receipt order documentation + monitoring of patterns                                                                                                               |
+| 7   | **A crypto receipt in TOV bookkeeping** without a legal basis as of 2026-05-31 → the risk of a DPS inspection / adjustment of the financial result                                                                              | High         | Medium                                       | (a) Do NOT arrange USDT receipts directly as "the TOV's income" while 2074-IX is not introduced; (b) use a proxy flow via the bank after conversion; (c) a quarterly review by the Legal agent + a practicing lawyer on the status of 10225-d                                                                                    |
+| 8   | **Double taxation of a non-resident partner** when paying dividends (15% PIT UA + tax in residence)                                                                                                                             | Medium       | High                                         | (a) Check the existence of a double-taxation treaty with the partner's country of residence (for most EU/US — there is one); (b) if present — apply a reduced rate (usually 5-10%); (c) a tax-authority certification for the partner                                                                                            |
+| 9   | **An invalid invoice (missing mandatory details of Art. 9 No. 996-XIV)** → a non-resident client's bank refuses to credit the payment + the risk of the DPS recognizing the income as "untimely"                                | Medium       | Low-Medium                                   | (a) Invoice templates with all details + an accountant's review; (b) for non-residents — a bilingual format (UA/EN) + IBAN/SWIFT; (c) a monthly audit of the invoice format in the CRM accounting module                                                                                                                         |
+| 10  | **Loss of exit-capital-tax-payer status (Diia City)** with non-qualifying expenditures (payments to non-resident individuals without a CCT, acquisition of assets in the presence of related parties)                           | Medium       | Medium                                       | (a) Educate the accountant on the exit-capital-tax rules; (b) review each significant payment > ₴100k for compliance with the exit-capital-tax criteria; (c) Diia City compliance consulting                                                                                                                                     |
+| 11  | **GDPR/UA personal-data risks** when storing users' wallet addresses in the CRM (Q3 of the previous consultation)                                                                                                               | Medium       | Medium                                       | (a) Encryption-at-rest for wallet fields; (b) an audit log on wallet changes; (c) a consent flow at the onboarding spec; (d) a DPA for all processors (S3, email service)                                                                                                                                                        |
+| 12  | **Regulatory flux of 10225-d before Q3 2026** — the possibility of a change in the VA taxation regime for a TOV → the structure may need re-architecture                                                                        | Medium       | High                                         | A quarterly legal review + flexibility in the CRM architecture (the crypto channel as a feature flag, not hard-coded)                                                                                                                                                                                                            |
 
-### Рекомендація (best for business, в priority order)
+### Recommendation (best for business, in priority order)
 
-#### 0. ОБОВ'ЯЗКОВО ПЕРЕД БУДЬ-ЯКИМ DECISION — human verification
+#### 0. MANDATORY BEFORE ANY DECISION — human verification
 
-Цю стратегічну консультацію треба верифікувати у **трьох** practising lawyer'ах ДО implementation:
+This strategic consultation must be verified with **three** practicing lawyers BEFORE implementation:
 
-1. **Tax-консультант з Дія Сіті спеціалізацією** — verify Q1 modeled cost per ТОВ-Дія Сіті structure для нашого conкретного profilу (30-50 спеців, $50-90M/рік), check для дивідендної політики, ПнВК vs 18% choice. Бюджет: ~₴30-50k initial consultation + ₴10-15k/квартал review.
+1. **A tax consultant with a Diia City specialization** — verify the Q1 modeled cost per the TOV Diia City structure for our specific profile (30-50 specialists, $50-90M/year), check for the dividend policy, the exit-capital-tax vs 18% choice. Budget: ~₴30-50k initial consultation + ₴10-15k/quarter review.
 
-2. **Криминальний defense lawyer / compliance lawyer** — verify Q3 розпушений Q3 анализ (issuer = ТОВ always rule), детально на user's specific cash/crypto idea. Бюджет: ~₴20-40k initial.
+2. **A criminal defense lawyer / compliance lawyer** — verify the expanded Q3 analysis (the issuer = the TOV always rule), in detail on the user's specific cash/crypto idea. Budget: ~₴20-40k initial.
 
-3. **Practising corporate lawyer для реєстрації ТОВ + входу в Дія Сіті + договорної сітки** — підготовка Statute, договорів з командою (трудові + гіг + ФОП-субпідряд), Services Agreement template з multi-payment clause (Q2.4). Бюджет: ~₴50-100k комплекс.
+3. **A practicing corporate lawyer for registering the TOV + entering Diia City + the contractual network** — preparing the Statute, contracts with the team (labor + gig + FOP subcontracting), a Services Agreement template with a multi-payment clause (Q2.4). Budget: ~₴50-100k complex.
 
-**Сумарно: ~₴100-200k initial compliance setup** — укладається в озвучений User'ом бюджет ₴200k.
+**In total: ~₴100-200k initial compliance setup** — fits within the budget of ₴200k voiced by the User.
 
-#### 1. Зареєструвати ТОВ → Дія Сіті startup-резидент → full-резидент
+#### 1. Register a TOV → a Diia City startup resident → a full resident
 
-**Покрокова roadmap:**
+**Step-by-step roadmap:**
 
-1. **Тиждень 1-4: Реєстрація ТОВ.**
-   - Засновники: ADMIN + partner (рекомендую частку 50/50 або 70/30 згідно з реальним distribution agreement)
-   - Статутний капітал: мінімальний ₴1 (за новими правилами LimitedLiability) або символічний — рекомендую ₴10 000-50 000 для credibility
-   - КВЕД: 62.01 «Комп'ютерне програмування» як основний + 62.02, 62.09, 63.11 — додаткові
-   - Загальна система оподаткування на старті (НЕ ЄП-3) — це передумова до Дія Сіті
-   - Відкриття банк-рахунків UAH + USD + EUR (мульти-валютний)
-   - **Бюджет: ₴5-15k (нотаріус + держреєстрація + банк)**
+1. **Week 1-4: Registration of the TOV.**
+   - Founders: ADMIN + partner (I recommend a share of 50/50 or 70/30 according to the real distribution agreement)
+   - Statutory capital: the minimum ₴1 (under the new LimitedLiability rules) or symbolic — I recommend ₴10 000-50 000 for credibility
+   - Business-activity codes: 62.01 "computer programming" as the main one + 62.02, 62.09, 63.11 — additional
+   - The general taxation system at the start (NOT single-tax group 3) — this is a prerequisite for Diia City
+   - Opening bank accounts UAH + USD + EUR (multi-currency)
+   - **Budget: ₴5-15k (notary + state registration + bank)**
 
-2. **Тиждень 5-12: Вступ в Дія Сіті startup-резидент.**
-   - Подача заявки через [city.diia.gov.ua](https://city.diia.gov.ua/) (WebSearch дата сбора: 2026-05-31)
-   - Startup-резидент: relaxed thresholds — можна почати з менш ніж 9 спецами
-   - Вибір ПнВК (9%) як preferred режим
-   - **Бюджет: ₴3-5k (administrative fees + consultation)**
+2. **Week 5-12: Entry into Diia City as a startup resident.**
+   - Filing the application via [city.diia.gov.ua](https://city.diia.gov.ua/) (WebSearch collection date: 2026-05-31)
+   - Startup resident: relaxed thresholds — one can start with fewer than 9 specialists
+   - Choosing the exit-capital tax (9%) as the preferred regime
+   - **Budget: ₴3-5k (administrative fees + consultation)**
 
-3. **Тиждень 13-26: Onboard команди на гіг-контракти.**
-   - Скласти template гіг-контракту з integration з CRM (роль = SENIOR/JUNIOR/HR/ACCOUNTANT, ставка = €1200-5000+/міс залежно від profilу, період звітування = quarterly)
-   - Перевести current SENIOR'ов (ФОП 3 група) на гіг-контракт: вони зберігають свій ФОП для якихось паралельних активностей, але основний дохід — через гіг
-   - Onboard JUNIOR'ов: новий contracting flow, нема потреби в ФОП
-   - HR/ACCOUNTANT — гіг або employee (трудовий договір) залежно від щоденності навантаження
-   - **Бюджет: ₴30-50k (legal review + template + переоформлення)**
+3. **Week 13-26: Onboard the team onto gig contracts.**
+   - Compile a gig-contract template with integration into the CRM (role = SENIOR/JUNIOR/HR/ACCOUNTANT, rate = €1200-5000+/month depending on the profile, reporting period = quarterly)
+   - Transfer the current SENIORs (FOP group 3) to a gig contract: they keep their FOP for some parallel activities, but the main income is via the gig
+   - Onboard JUNIORs: a new contracting flow, no need for a FOP
+   - HR/ACCOUNTANT — gig or employee (an employment contract) depending on the daily workload
+   - **Budget: ₴30-50k (legal review + template + re-arrangement)**
 
-4. **Тиждень 13+: Перехід на full-резидент Дія Сіті** при досягненні 9 спеців × €1200/міс.
+4. **Week 13+: Transition to a full Diia City resident** upon reaching 9 specialists × €1200/month.
 
-#### 2. Архітектура multi-channel revenue: **BANK-ONLY** з future crypto
+#### 2. Multi-channel revenue architecture: **BANK-ONLY** with future crypto
 
-**На 2026-2027:**
+**For 2026-2027:**
 
-- **Bank channel (UAH + USD + EUR)** — primary та єдиний production channel.
-  - Інвойси з усіма реквізитами per Q2.1
-  - Services Agreement з multi-payment clause (per Q2.4) — **reserved slot для crypto** (текстовий placeholder, не активний)
-  - Валютний рахунок ТОВ — для FX поступлень від нерезидентів
-  - Експорт послуг 0% ПДВ за ст. 195.1.1 ПКУ — clean position
+- **The bank channel (UAH + USD + EUR)** — the primary and only production channel.
+  - Invoices with all details per Q2.1
+  - A Services Agreement with a multi-payment clause (per Q2.4) — a **reserved slot for crypto** (a text placeholder, not active)
+  - The TOV's currency account — for FX receipts from non-residents
+  - The export of services 0% VAT per Art. 195.1.1 of the Tax Code of Ukraine — a clean position
 
-- **Cash channel — VIDEMNO ВИКЛЮЧЕНО з architecture.**
-  - У CRM **не реалізовувати** UI/backend для cash flow ТОВ
-  - У Services Agreement: явна заборона cash (`Article X.2. Cash settlements are not accepted under this Agreement`)
-  - Тренування sales/onboarding team: відмова + редирект на bank
+- **The cash channel — EXPLICITLY EXCLUDED from the architecture.**
+  - In the CRM **do not implement** the UI/backend for the TOV's cash flow
+  - In the Services Agreement: an explicit ban on cash (`Article X.2. Cash settlements are not accepted under this Agreement`)
+  - Training the sales/onboarding team: refusal + a redirect to the bank
 
-- **Crypto channel — `feature_flag: false` до Q3 2026.**
-  - Smart contract і CRM-integration з PHASE 8 продовжуються в development (testnet)
-  - **Production deployment** — тільки після 2074-IX введення в дію + practising lawyer verification of structure
-  - У Services Agreement: reserved slot з умовою «upon mutual written agreement and applicable Ukrainian law»
+- **The crypto channel — `feature_flag: false` until Q3 2026.**
+  - The smart contract and the CRM integration with PHASE 8 continue in development (testnet)
+  - **Production deployment** — only after 2074-IX takes effect + a practicing lawyer's verification of the structure
+  - In the Services Agreement: a reserved slot with the condition "upon mutual written agreement and applicable Ukrainian law"
 
-#### 3. Договорна сітка — підготувати ДО першого invoice
+#### 3. The contractual network — prepare it BEFORE the first invoice
 
-Templates у repo (під версією + sign-off practising lawyer'ом):
+Templates in the repo (under version + a sign-off by a practicing lawyer):
 
-1. **Master Services Agreement (з клієнтом)** — двомовний UA/EN, multi-payment clause, IP rights, NDA, governance law (Ukraine), dispute resolution (LCIA arbitration або UA commercial court).
-2. **Order Form / Statement of Work** — per-project addendum до MSA з specific scope, period, rate, deliverables.
-3. **Invoice template** — двомовний, з усіма обов'язковими реквізитами (Q2.1).
-4. **Гіг-контракт template** — для команди, з role-based варіаціями (SENIOR/JUNIOR/HR/ACCOUNTANT).
-5. **Договір про надання послуг ТОВ ↔ partner-ФОП** (якщо partner залишається ФОП-консультантом) — separate consulting relationship.
-6. **Засновницький договір ТОВ** — distribution 50/50 (або як domовлено) між ADMIN і partner.
-7. **NDA template** — для клієнтів, гіг-спеців, partner'ів.
-8. **Privacy Policy + Terms of Service для CRM-платформи** — GDPR-compliant, UA Закон 2297-VI compliant.
+1. **A Master Services Agreement (with the client)** — bilingual UA/EN, a multi-payment clause, IP rights, an NDA, governing law (Ukraine), dispute resolution (LCIA arbitration or a UA commercial court).
+2. **An Order Form / Statement of Work** — a per-project addendum to the MSA with a specific scope, period, rate, deliverables.
+3. **An invoice template** — bilingual, with all mandatory details (Q2.1).
+4. **A gig-contract template** — for the team, with role-based variations (SENIOR/JUNIOR/HR/ACCOUNTANT).
+5. **A services agreement TOV ↔ partner-FOP** (if the partner stays a FOP consultant) — a separate consulting relationship.
+6. **A TOV founding agreement** — distribution 50/50 (or as agreed) between ADMIN and the partner.
+7. **An NDA template** — for clients, gig specialists, partners.
+8. **A Privacy Policy + Terms of Service for the CRM platform** — GDPR-compliant, UA Law 2297-VI compliant.
 
 #### 4. Compliance & monitoring infrastructure
 
-- **Bookkeeping:** аутсорсити на практикуючу бухгалтерську фірму з Дія Сіті experience (бюджет: ₴5-15k/міс). DIY не рекомендую — ПнВК має нюанси що навіть досвідчені бухгалтери легко помиляються.
-- **AML policy документ** — internal procedure: KYC clients до підписання MSA, OFAC screening на startup (free tools є + paid services), monitoring транзакцій > ₴400k (порог поглибленої перевірки Фінмону).
-- **Quarterly legal review** — Mode D consultation legal-агентом + practising lawyer raz/квартал на status 10225-д, зміни в практиці ДПС, нові розяснення Дія Сіті.
+- **Bookkeeping:** outsource it to a practicing accounting firm with Diia City experience (budget: ₴5-15k/month). DIY is not recommended — the exit-capital tax has nuances that even experienced accountants easily get wrong.
+- **An AML policy document** — an internal procedure: KYC of clients before signing the MSA, OFAC screening at startup (free tools exist + paid services), monitoring of transactions > ₴400k (the deepened-check threshold of Financial Monitoring).
+- **A quarterly legal review** — a Mode D consultation by the Legal agent + a practicing lawyer once/quarter on the status of 10225-d, changes in the DPS practice, new Diia City clarifications.
 
-#### 5. CRM-specific changes (для integration з реальною business structure)
+#### 5. CRM-specific changes (for integration with the real business structure)
 
-**Поточна архітектура CRM** має кілька mismatches з recommended structure:
+**The current CRM architecture** has several mismatches with the recommended structure:
 
-1. **`users.role` enum** — додати `GIG_SPECIALIST` як комбінований role (поки нема — все під ADMIN/SENIOR/JUNIOR/HR/ACCOUNTANT). Гіг-контракт це окремий legal status, але для CRM functionality можна mappити на existing role + add `employmentType` поле (FOP / GIG_CONTRACT / EMPLOYMENT).
-2. **`projects` + `transactions` модель** — додати `companyEntityId` що референсить yur entity (зараз hardcoded як «CheekyCheeseIT»). На горизонті може з'явитися кілька entities (наприклад, EU branch).
-3. **`invoices` модель** — розширити `paymentMethod` enum: `BANK_UAH | BANK_USD | BANK_EUR | CRYPTO_USDT_ERC20` (без `CASH`). Хочемо зашити заборону cash на schema level.
-4. **`payouts` модель** — додати `payoutType: SALARY | GIG_REMUNERATION | DIVIDEND | CONTRACT_PAYMENT` для proper tax category classification.
-5. **`auditLog`** — обов'язково для wallet/bank/role changes. PII handling per Закон 2297-VI.
+1. **The `users.role` enum** — add `GIG_SPECIALIST` as a combined role (not there yet — everything is under ADMIN/SENIOR/JUNIOR/HR/ACCOUNTANT). A gig contract is a separate legal status, but for CRM functionality it can be mapped to an existing role + add an `employmentType` field (FOP / GIG_CONTRACT / EMPLOYMENT).
+2. **The `projects` + `transactions` model** — add a `companyEntityId` that references the legal entity (now hardcoded as "CheekyCheeseIT"). On the horizon several entities may appear (for example, an EU branch).
+3. **The `invoices` model** — extend the `paymentMethod` enum: `BANK_UAH | BANK_USD | BANK_EUR | CRYPTO_USDT_ERC20` (without `CASH`). We want to hardwire the cash ban at the schema level.
+4. **The `payouts` model** — add `payoutType: SALARY | GIG_REMUNERATION | DIVIDEND | CONTRACT_PAYMENT` for proper tax category classification.
+5. **The `auditLog`** — mandatory for wallet/bank/role changes. PII handling per Law 2297-VI.
 
-Ці changes — окремі technical tasks для PM → Coder після lock-in legal structure.
+These changes — separate technical tasks for PM → Coder after locking in the legal structure.
 
-#### 6. Quarterly cadence на 12 місяців
+#### 6. Quarterly cadence for 12 months
 
-| Період             | Action                                                                                                   |
-| ------------------ | -------------------------------------------------------------------------------------------------------- |
-| Q1 2026 (поточний) | Tax consultant + corporate lawyer engagement, ТОВ реєстрація, Дія Сіті startup-резидент                  |
-| Q2 2026            | Onboard команди на гіг-контракти, перші клієнтські MSAs, перші bank-invoice'и                            |
-| Q3 2026            | Status check 2074-IX (введений?), Дія Сіті full-резидент при threshold reach, перший quarterly review    |
-| Q4 2026            | Розширення команди до ~30 contributor'ов, формалізація AML policy, OFAC screening procedure              |
-| Q1 2027            | Перший рік review, optimization structure, готовність до PHASE 8 crypto activation якщо 2074-IX введений |
+| Period            | Action                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Q1 2026 (current) | Tax consultant + corporate lawyer engagement, TOV registration, Diia City startup resident                           |
+| Q2 2026           | Onboard the team onto gig contracts, the first client MSAs, the first bank invoices                                  |
+| Q3 2026           | Status check of 2074-IX (introduced?), Diia City full resident upon threshold reach, the first quarterly review      |
+| Q4 2026           | Expansion of the team to ~30 contributors, formalization of the AML policy, an OFAC screening procedure              |
+| Q1 2027           | A first-year review, optimization of the structure, readiness for PHASE 8 crypto activation if 2074-IX is introduced |
 
-### Источники
+### Sources
 
-**Первичные нормативные акты (UA):**
+**Primary regulatory acts (UA):**
 
-- [Закон України «Про стимулювання розвитку цифрової економіки в Україні» № 1667-IX від 15.07.2021](https://zakon.rada.gov.ua/laws/show/1667-20) — Дія Сіті режим.
-- [Податковий кодекс України, Стаття 134 (об'єкт оподаткування податком на прибуток)](https://zakon.rada.gov.ua/laws/show/2755-17#n3299) — 18% базова ставка ТОВ загальна.
-- [Податковий кодекс України, Стаття 137 (порядок обчислення податку на прибуток)](https://zakon.rada.gov.ua/laws/show/2755-17#n3373).
-- [Податковий кодекс України, Стаття 141.91 (особливі умови ПнВК для Дія Сіті)](https://zakon.rada.gov.ua/laws/show/2755-17) — 9% ПнВК.
-- [Податковий кодекс України, Стаття 291.4 (ліміти спрощеної системи)](https://zakon.rada.gov.ua/laws/show/2755-17#n4877) — ₴10 091 049 на 2026 для 3 групи.
-- [Податковий кодекс України, Стаття 195.1.1 (експорт послуг 0% ПДВ)](https://zakon.rada.gov.ua/laws/show/2755-17).
-- [Податковий кодекс України, Стаття 201 (податкова накладна)](https://zakon.rada.gov.ua/laws/show/2755-17#n5283) — обов'язкові реквізити, ЄРПН реєстрація.
-- [Кримінальний кодекс України, Стаття 212 (ухилення від сплати податків)](https://zakon.rada.gov.ua/laws/show/2341-14#n1395) — пороги відповідальності 2026.
-- [Кримінальний кодекс України, Стаття 209 (легалізація доходів)](https://zakon.rada.gov.ua/laws/show/2341-14#n1377).
-- [Кримінальний кодекс України, Стаття 27 (співучасть у кримінальному правопорушенні)](https://zakon.rada.gov.ua/laws/show/2341-14).
-- [Закон України «Про бухгалтерський облік та фінансову звітність в Україні» № 996-XIV, Стаття 9](https://zakon.rada.gov.ua/laws/show/996-14) — обов'язкові реквізити первинного документа.
-- [Закон України «Про застосування реєстраторів розрахункових операцій...» № 265/95-ВР](https://zakon.rada.gov.ua/laws/show/265/95-вр) — РРО/ПРРО.
-- [Закон України «Про валюту і валютні операції» № 2473-VIII](https://zakon.rada.gov.ua/laws/show/2473-19) — валютний контроль.
-- [Закон України «Про захист персональних даних» № 2297-VI](https://zakon.rada.gov.ua/laws/show/2297-17) — UA-аналог GDPR.
-- [Постанова НБУ № 148 від 29.12.2017 «Про затвердження Положення про ведення касових операцій»](https://zakon.rada.gov.ua/laws/show/v0148500-17) — ліміти готівкових розрахунків.
-- [Постанова НБУ № 5 від 02.01.2019 «Про здійснення операцій із валютними цінностями»](https://bank.gov.ua/admin_uploads/law/02012019_5.pdf) — заборона готівкових FX-розрахунків з нерезидентами.
-- [Постанова КМУ № 1186 від 15.09.2017 «Про затвердження порядку реєстрації зовнішньоекономічних договорів»](https://zakon.rada.gov.ua/laws/show/1186-2017-%D0%BF) — інвойс як еквівалент зовнішньоекономічного контракту.
+- [Law of Ukraine "On Stimulating the Development of the Digital Economy in Ukraine" No. 1667-IX dated 15.07.2021](https://zakon.rada.gov.ua/laws/show/1667-20) — the Diia City regime.
+- [The Tax Code of Ukraine, Article 134 (the object of taxation with profit tax)](https://zakon.rada.gov.ua/laws/show/2755-17#n3299) — the 18% base rate of a TOV on the general system.
+- [The Tax Code of Ukraine, Article 137 (the procedure for calculating profit tax)](https://zakon.rada.gov.ua/laws/show/2755-17#n3373).
+- [The Tax Code of Ukraine, Article 141.91 (special conditions of the exit-capital tax for Diia City)](https://zakon.rada.gov.ua/laws/show/2755-17) — 9% exit-capital tax.
+- [The Tax Code of Ukraine, Article 291.4 (limits of the simplified system)](https://zakon.rada.gov.ua/laws/show/2755-17#n4877) — ₴10 091 049 for 2026 for group 3.
+- [The Tax Code of Ukraine, Article 195.1.1 (export of services 0% VAT)](https://zakon.rada.gov.ua/laws/show/2755-17).
+- [The Tax Code of Ukraine, Article 201 (the tax invoice)](https://zakon.rada.gov.ua/laws/show/2755-17#n5283) — mandatory details, ERPN registration.
+- [The Criminal Code of Ukraine, Article 212 (tax evasion)](https://zakon.rada.gov.ua/laws/show/2341-14#n1395) — the liability thresholds 2026.
+- [The Criminal Code of Ukraine, Article 209 (legalization of proceeds)](https://zakon.rada.gov.ua/laws/show/2341-14#n1377).
+- [The Criminal Code of Ukraine, Article 27 (complicity in a criminal offense)](https://zakon.rada.gov.ua/laws/show/2341-14).
+- [Law of Ukraine "On Accounting and Financial Reporting in Ukraine" No. 996-XIV, Article 9](https://zakon.rada.gov.ua/laws/show/996-14) — the mandatory details of a primary document.
+- [Law of Ukraine "On the Use of Payment Transaction Recorders..." No. 265/95-VR](https://zakon.rada.gov.ua/laws/show/265/95-вр) — RRO/PRRO.
+- [Law of Ukraine "On Currency and Currency Operations" No. 2473-VIII](https://zakon.rada.gov.ua/laws/show/2473-19) — currency control.
+- [Law of Ukraine "On the Protection of Personal Data" No. 2297-VI](https://zakon.rada.gov.ua/laws/show/2297-17) — the UA analog of GDPR.
+- [NBU Resolution No. 148 dated 29.12.2017 "On approval of the Regulation on conducting cash operations"](https://zakon.rada.gov.ua/laws/show/v0148500-17) — cash settlement limits.
+- [NBU Resolution No. 5 dated 02.01.2019 "On carrying out operations with currency valuables"](https://bank.gov.ua/admin_uploads/law/02012019_5.pdf) — the ban on cash FX settlements with non-residents.
+- [Cabinet of Ministers Resolution No. 1186 dated 15.09.2017 "On approval of the procedure for registering foreign economic contracts"](https://zakon.rada.gov.ua/laws/show/1186-2017-%D0%BF) — an invoice as the equivalent of a foreign economic contract.
 
-**WebSearch результати (всі — дата сбора: 2026-05-31):**
+**WebSearch results (all — collection date: 2026-05-31):**
 
-- WebSearch: [BIP — Єдиний податок у 2026: правила для ФОП і ТОВ](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/) — ліміти ЄП, ставки.
-- WebSearch: [BIP — ТОВ на ЄП: види звітності, ліміти](https://bip.net.ua/articles/ooo-na-en/).
-- WebSearch: [BIP — Дія Сіті в 2026: умови, вимоги, переваги](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/) — гіг-контракт, 5%+5%+22% ЄСВ.
-- WebSearch: [BuhPlatforma — Податок на прибуток на загальних підставах](https://buhplatforma.com.ua/article/7206-platnik-podatku-na-pributok-na-zagalnih-pdstavah) — Стаття 134 ПКУ.
-- WebSearch: [Factor — Стаття 134 ПКУ Об'єкт оподаткування](https://i.factor.ua/ukr/law-24/section-517/article-39003/).
-- WebSearch: [DTKT — Послуги.dt — Ставки податку на прибуток](https://services.dtkt.ua/catalogues/tax_rates/67-stavki-podatku-na-pributok).
-- WebSearch: [Yankiv — Ліміти готівкових розрахунків 2026](https://yankiv.com/limity-na-rozrahunky-gotivkoyu/) — ₴10k / ₴50k.
-- WebSearch: [NBU — Зниження граничної суми готівкових розрахунків](https://bank.gov.ua/en/news/all/znijennya-granichnoyi-sumi-rozrahunkiv-gotivkoyu-za-uchastyu-fizichnih-osib-do-50-tis-grn-spriyatime-podalshomu-rozvitku-bezgotivkovih-rozrahunkiv--).
-- WebSearch: [Yankiv — РРО та ПРРО у 2026: хто зобов'язаний](https://yankiv.com/rro-prro-2026-komu-oboviazkovo/).
-- WebSearch: [SystemGroup — Штрафи 2025-2026 за відсутність касового апарату](https://systemgroup.com.ua/uk/o-kompanii/article/shtrafy-2025-2026-za-vidsutnist-kasovogo-aparatu-rro-chy-prro).
-- WebSearch: [Kodeksy — Ст. 9 ЗУ Про бухгалтерський облік](https://kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm).
-- WebSearch: [Mogol Alfa — Все про інвойс: зразок](https://www.mogol-alfa.com.ua/ua/buhgalterski-novini/invojs-zrazok/) — формат інвойсу UA.
-- WebSearch: [DPS Odesa — Про застосування рахунків-фактур (інвойсів)](https://od.tax.gov.ua/media-ark/news-ark/669798.html) — інвойс нерезиденту як зовнішньоекономічний договір.
-- WebSearch: [iBuhgalter — Стаття 201 ПКУ Податкова накладна](https://ibuhgalter.net/tax-codex/203).
-- WebSearch: [BuhPlatforma — Реєстрація податкових накладних 2026](https://buhplatforma.com.ua/article/7217-restratsya-podatkovih-nakladnih).
-- WebSearch: [KPMG — Дія Сіті та відстрочені податки](https://kpmg.com/ua/uk/blogs/home/posts/2024/03/diya-siti-ta-vidstrocheni-podatky.html) — ПнВК deep dive.
-- WebSearch: [Factor — Виплата дивідендів у Дія Сіті: як працює ПнВК](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html).
-- WebSearch: [Flex Partners — ПнВК для резидентів Дія Сіті](https://partnersflex.com/blog/pnvk-dlya-rezydentiv-diya-siti/).
-- WebSearch: [DTKT — Чи може фізособа-«єдинник» III групи укласти гіг-контракт](https://news.dtkt.ua/simple/individual-single-tax/88330-ci-moze-fizosoba-jedinnik-iii-grupi-uklasti-gig-kontrakt-na-vikonannia-robit-z-rezidentom-diia-siti) — суміщення ФОП + гіг-контракт.
-- WebSearch: [SmartSolutions — Ухилення від сплати податків 2026: пороги відповідальності](https://smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv/) — ст. 212 ККУ thresholds.
-- WebSearch: [Protocol — Стаття 212 ККУ Ухилення](https://protocol.ua/ua/kriminalniy_kodeks_ukraini_stattya_212/).
-- WebSearch: [Export.gov.ua — Валютний контроль при виконанні зовнішньоекономічних договорів](https://export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv).
-- WebSearch: [Sense Bank — Валютні контракти та імпортні операції під час воєнного стану](https://help-biz.sensebank.com.ua/hc/uk/articles/6441120324498) — cash з нерезидентом заборона.
-- WebSearch: [Medoc — Прибутковий касовий ордер](https://medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati-) — форма КО-1.
-- WebSearch: [DTKT — Як засновник має внести кошти готівкою](https://consulting.dtkt.ua/ru/state/cash-handling/10516) — внесок до ТОВ.
-- WebSearch: [Diia.City офіційний портал](https://city.diia.gov.ua/) — реєстрація резидентом.
-- WebSearch: [DKU — Дія Сіті 2026 переваги і правила](https://dku.in.ua/DiiaCity).
+- WebSearch: [BIP — The single tax in 2026: rules for FOPs and TOVs](https://bip.net.ua/articles/yedinij-podatok-dlya-fop-i-tov/) — single-tax limits, rates.
+- WebSearch: [BIP — A TOV on the single tax: types of reporting, limits](https://bip.net.ua/articles/ooo-na-en/).
+- WebSearch: [BIP — Diia City in 2026: conditions, requirements, advantages](https://bip.net.ua/articles/diya-siti-umovi-vimogi-perevagi-j-nedoliki/) — the gig contract, 5%+5%+22% USC.
+- WebSearch: [BuhPlatforma — Profit tax on general grounds](https://buhplatforma.com.ua/article/7206-platnik-podatku-na-pributok-na-zagalnih-pdstavah) — Article 134 of the Tax Code of Ukraine.
+- WebSearch: [Factor — Article 134 of the Tax Code of Ukraine, the object of taxation](https://i.factor.ua/ukr/law-24/section-517/article-39003/).
+- WebSearch: [DTKT — Posluhy.dt — Profit tax rates](https://services.dtkt.ua/catalogues/tax_rates/67-stavki-podatku-na-pributok).
+- WebSearch: [Yankiv — Cash settlement limits 2026](https://yankiv.com/limity-na-rozrahunky-gotivkoyu/) — ₴10k / ₴50k.
+- WebSearch: [NBU — Reducing the maximum amount of cash settlements](https://bank.gov.ua/en/news/all/znijennya-granichnoyi-sumi-rozrahunkiv-gotivkoyu-za-uchastyu-fizichnih-osib-do-50-tis-grn-spriyatime-podalshomu-rozvitku-bezgotivkovih-rozrahunkiv--).
+- WebSearch: [Yankiv — RRO and PRRO in 2026: who is obliged](https://yankiv.com/rro-prro-2026-komu-oboviazkovo/).
+- WebSearch: [SystemGroup — Penalties 2025-2026 for the absence of a cash register](https://systemgroup.com.ua/uk/o-kompanii/article/shtrafy-2025-2026-za-vidsutnist-kasovogo-aparatu-rro-chy-prro).
+- WebSearch: [Kodeksy — Art. 9 of the Law on Accounting](https://kodeksy.com.ua/pro_buhgalters_kij_oblik_ta_finansovu_zvitnist/statja-9.htm).
+- WebSearch: [Mogol Alfa — All about an invoice: a sample](https://www.mogol-alfa.com.ua/ua/buhgalterski-novini/invojs-zrazok/) — the invoice format UA.
+- WebSearch: [DPS Odesa — On the application of invoices-facturas (invoices)](https://od.tax.gov.ua/media-ark/news-ark/669798.html) — an invoice to a non-resident as a foreign economic contract.
+- WebSearch: [iBuhgalter — Article 201 of the Tax Code of Ukraine, the tax invoice](https://ibuhgalter.net/tax-codex/203).
+- WebSearch: [BuhPlatforma — Registration of tax invoices 2026](https://buhplatforma.com.ua/article/7217-restratsya-podatkovih-nakladnih).
+- WebSearch: [KPMG — Diia City and deferred taxes](https://kpmg.com/ua/uk/blogs/home/posts/2024/03/diya-siti-ta-vidstrocheni-podatky.html) — the exit-capital tax deep dive.
+- WebSearch: [Factor — Dividend payment in Diia City: how the exit-capital tax works](https://i.factor.ua/ukr/journals/nibu/2026/march/issue-18/article-136492.html).
+- WebSearch: [Flex Partners — The exit-capital tax for Diia City residents](https://partnersflex.com/blog/pnvk-dlya-rezydentiv-diya-siti/).
+- WebSearch: [DTKT — Can an individual single-tax payer of group III conclude a gig contract](https://news.dtkt.ua/simple/individual-single-tax/88330-ci-moze-fizosoba-jedinnik-iii-grupi-uklasti-gig-kontrakt-na-vikonannia-robit-z-rezidentom-diia-siti) — combining a FOP + a gig contract.
+- WebSearch: [SmartSolutions — Tax evasion 2026: liability thresholds](https://smartsolutions.ua/porohy-prytiahnennia-do-kryminalnoi-vidpovidalnosti-za-ukhylennia-vid-splaty-podatkiv/) — Art. 212 of the Criminal Code of Ukraine thresholds.
+- WebSearch: [Protocol — Article 212 of the Criminal Code of Ukraine, evasion](https://protocol.ua/ua/kriminalniy_kodeks_ukraini_stattya_212/).
+- WebSearch: [Export.gov.ua — Currency control in the performance of foreign economic contracts](https://export.gov.ua/138-valiutnii_kontrol_pri_vikonanni_zovnishnoekonomichnikh_dogovoriv).
+- WebSearch: [Sense Bank — Currency contracts and import operations during martial law](https://help-biz.sensebank.com.ua/hc/uk/articles/6441120324498) — the ban on cash with a non-resident.
+- WebSearch: [Medoc — The cash receipt order](https://medoc.ua/blog/pributkovij-kasovij-order-shho-slid-znati-) — form KO-1.
+- WebSearch: [DTKT — How a founder should deposit funds in cash](https://consulting.dtkt.ua/ru/state/cash-handling/10516) — a deposit to the TOV.
+- WebSearch: [Diia.City official portal](https://city.diia.gov.ua/) — registration as a resident.
+- WebSearch: [DKU — Diia City 2026 advantages and rules](https://dku.in.ua/DiiaCity).
 
-**Внутренняя knowledge base:**
+**Internal knowledge base:**
 
-- `docs/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability ст. 212), §4 (>100k грн), §5 (Sanctions) — застосовуються.
-- `docs/legal/cross-cutting/citation-rules.md` — формат цитації дотримано.
-- `docs/legal/ua-fop/`, `docs/legal/crypto-usdt/` — **пусті** (Phase 0).
-- [`docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](./2026-05-31-usdt-payouts-phase8.md) — crypto/USDT базовий аналіз (Q2.2 цієї консультації reference'ить).
-- `CLAUDE.md` (root) — секції «Бизнес-логика», «PHASE 5/8», «Финансовый флоу».
+- `docs/legal/cross-cutting/escalation-zones.md` — §1 (criminal liability Art. 212), §4 (>100k UAH), §5 (Sanctions) — apply.
+- `docs/legal/cross-cutting/citation-rules.md` — the citation format is followed.
+- `docs/legal/ua-fop/`, `docs/legal/crypto-usdt/` — **empty** (Phase 0).
+- [`docs/specs/legal-consultations/2026-05-31-usdt-payouts-phase8.md`](./2026-05-31-usdt-payouts-phase8.md) — the crypto/USDT base analysis (Q2.2 of this consultation references it).
+- `CLAUDE.md` (root) — the sections "Business logic", "PHASE 5/8", "Financial flow".
 
 ### Disclaimer
 
-**Confidence: MED (загальний).** Цей ответ — preliminary AI check, НЕ binding legal advice.
+**Confidence: MED (overall).** This answer is a preliminary AI check, NOT binding legal advice.
 
-**ОБОВ'ЯЗКОВА людська верифікація ПЕРЕД будь-яким implementation action:**
+**MANDATORY human verification BEFORE any implementation action:**
 
-1. **Practising tax consultant (Дія Сіті специализація)** — для верифікації Q1 рекомендацій (ТОВ + Дія Сіті + ПнВК для нашого specific scale + revenue mix). Перевірити що Дія Сіті є оптимальним vs ТОВ загальна для нашого profilу distribution/reinvest.
-2. **Practising corporate lawyer** — для підготовки Statute ТОВ, договорної сітки (MSA, гіг-контракт, ФОП-субпідряд), Privacy Policy, ToS платформи.
-3. **Practising criminal defense / compliance lawyer** — **обов'язково** для discussion Q3 (issuer ≠ ТОВ assumption). Якщо є будь-яка ідея implement сценарій А — це ПОТРЕБУЄ криминального юриста ДО action.
+1. **A practicing tax consultant (Diia City specialization)** — to verify the Q1 recommendations (TOV + Diia City + the exit-capital tax for our specific scale + revenue mix). Check that Diia City is optimal vs a TOV general for our profile's distribution/reinvest.
+2. **A practicing corporate lawyer** — to prepare the TOV Statute, the contractual network (MSA, gig contract, FOP subcontracting), the Privacy Policy, the platform ToS.
+3. **A practicing criminal defense / compliance lawyer** — **mandatory** for the discussion of Q3 (the issuer ≠ the TOV assumption). If there is any idea to implement Scenario A — this REQUIRES a criminal lawyer BEFORE action.
 
-**Цей ответ НЕ покриває (hard escalation per [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md)):**
+**This answer does NOT cover (hard escalation per [`docs/legal/cross-cutting/escalation-zones.md`](../../legal/cross-cutting/escalation-zones.md)):**
 
-- **§ 1 — Уголовно-правові ризики ст. 212 ККУ.** Q3 показує red line, але конкретна criminal defense / structuring procedure — за адвокатом по криминальним справам. AI відмовляє в подальшій consultation якщо user готується implement multi-issuer structure.
-- **§ 1 — Кримінальні ризики ст. 209 ККУ (легалізація).** Якщо є будь-який flow cash/crypto→bank ТОВ — обов'язково AML/compliance lawyer review documentation.
-- **§ 4 — Конкретні суми податків > ₴100k.** Точні розрахунки ефективного навантаження (5% ПДФО + 5% ВЗ + 22% ЄСВ + ПнВК 9%) для нашого specific revenue mix — за tax-консультантом. AI дав framework, не precise numbers.
-- **§ 5 — Sanctions/OFAC** для clients-нерезидентів — за specialized compliance consultant.
+- **§ 1 — Criminal-law risks of Art. 212 of the Criminal Code of Ukraine.** Q3 shows the red line, but the specific criminal defense / structuring procedure is for a criminal-law lawyer. AI refuses further consultation if the user is preparing to implement a multi-issuer structure.
+- **§ 1 — Criminal risks of Art. 209 of the Criminal Code of Ukraine (legalization).** If there is any flow of cash/crypto→the TOV's bank — an AML/compliance lawyer review of the documentation is mandatory.
+- **§ 4 — Specific tax amounts > ₴100k.** The exact calculations of the effective burden (5% PIT + 5% military levy + 22% USC + exit-capital tax 9%) for our specific revenue mix — for a tax consultant. AI gave a framework, not precise numbers.
+- **§ 5 — Sanctions/OFAC** for non-resident clients — for a specialized compliance consultant.
 
-**Використовувати цей ответ як:** decision framework + scope map для перемовин з practising lawyer'ами. **НЕ використовувати як:** основу для дії без human review. Особливо НЕ implement'увати Q3 Сценарій А (issuer ≠ ТОВ для cash/crypto) без criminal defense lawyer verification — це **red line** який AI Legal explicitly марks as criminal exposure.
+**Use this answer as:** a decision framework + a scope map for negotiations with practicing lawyers. **Do NOT use it as:** a basis for action without human review. Especially do NOT implement Q3 Scenario A (issuer ≠ the TOV for cash/crypto) without a criminal defense lawyer's verification — this is a **red line** which AI Legal explicitly marks as criminal exposure.
 
-**Додатково для PM/User:** ця консультація має direct strategic impact на:
+**Additionally for PM/User:** this consultation has a direct strategic impact on:
 
-- CRM architecture (recommendation #5 — schema changes для `companyEntityId`, `paymentMethod` без cash, `employmentType` enum) — потенційно нова Phase в roadmap
-- PHASE 8 timeline — Recommendation #2 (`feature_flag: false`) це **soft block** на implementation до 2074-IX активації
-- Business operations — recommendation #1 (ТОВ + Дія Сіті) це **рік setup work** з законним budgeting ₴100-200k
+- CRM architecture (recommendation #5 — schema changes for `companyEntityId`, `paymentMethod` without cash, the `employmentType` enum) — potentially a new Phase in the roadmap
+- The PHASE 8 timeline — Recommendation #2 (`feature_flag: false`) is a **soft block** on implementation until the activation of 2074-IX
+- Business operations — recommendation #1 (TOV + Diia City) is a **year of setup work** with legal budgeting ₴100-200k
 
-PM повинен зафіксувати lessons у `docs/agents/memory/legal/lessons.md`:
+PM must record lessons in `docs/agents/memory/legal/lessons.md`:
 
-- `2026-05-31 [P0] [tov-multi-channel] #tax #criminal-risk Multi-issuer structure для cash/crypto ≠ ТОВ — direct ст. 212 ККУ exposure. Always single-issuer (ТОВ) regardless of payment channel.`
-- `2026-05-31 [P0] [tov-multi-channel] #tax #diya-city Дія Сіті ПнВК 9% — game-changer для IT scale-ups в UA: 0% tax поки reinvest + 5% PIT для гіг-команди. Vs ТОВ загальна 18% — Дія Сіті виграє при будь-якому раціональному distribute/reinvest mix.`
-- `2026-05-31 [P1] [tov-multi-channel] #cash Cash для IT-outsource ТОВ практично неможливо legally: ліміт ₴10k/день B2B, ₴50k/день для фіз, плюс заборона FX-cash з нерезидентом. Архітектурно exclude.`
+- `2026-05-31 [P0] [tov-multi-channel] #tax #criminal-risk A multi-issuer structure for cash/crypto ≠ the TOV — direct Art. 212 of the Criminal Code of Ukraine exposure. Always single-issuer (the TOV) regardless of the payment channel.`
+- `2026-05-31 [P0] [tov-multi-channel] #tax #diya-city Diia City exit-capital tax 9% — a game-changer for IT scale-ups in UA: 0% tax while reinvesting + 5% PIT for the gig team. Vs a TOV general 18% — Diia City wins at any rational distribute/reinvest mix.`
+- `2026-05-31 [P1] [tov-multi-channel] #cash Cash for an IT-outsource TOV is practically impossible legally: a limit of ₴10k/day B2B, ₴50k/day for an individual, plus the ban on FX cash with a non-resident. Architecturally exclude.`
