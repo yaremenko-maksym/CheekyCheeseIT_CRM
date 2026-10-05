@@ -45,6 +45,7 @@
 | Развилка, которую не решить из task-файла (до `.blocked.md` / вопроса владельцу) | `decision-frontier`                          | All                                  |
 | Баг сопротивляется / E2E флакает / регрессия / «тормозит»                        | `diagnosing-bugs`                            | All                                  |
 | Проектирование интерфейса модуля / выбор шва / «нет шва под тест»                | `codebase-design`                            | Coder, Architect, code-reviewer      |
+| Безопасно расщепить гигантский файл/модуль (>800 строк, god file) — шов уже выбран | `decomposing-large-code`                     | Coder, Architect                     |
 | Идёт merge/rebase с конфликтом; стек на схлопнутой базе                          | `resolving-merge-conflicts`                  | Coder, Master, DevOps                |
 | Вопрос дизайна не решается на бумаге (как выглядит / как ведёт себя)             | `prototype`                                  | Coder, ui-ux-designer                |
 | Ответ лежит ВНЕ репозитория (библиотека / чужой API / спека / закон)             | `external-research`                          | All                                  |
@@ -78,6 +79,7 @@ Project-local + импортированные skills под `.claude/skills/` (
 | `prototype`                   | Одноразовый прототип на один вопрос: UI-варианты через `?variant=` либо HTML-демо логики. **(origin: mattpocock/skills, 2026-08-22)** |
 | `external-research`           | Разведка вовне по первоисточникам → цитируемый файл в репозитории со сроком годности. **(project-local, 2026-08-22)**                 |
 | `writing-for-agents`          | Письмо и прополка документов, которые читают агенты. **(origin: mattpocock/skills, 2026-08-22)**                                      |
+| `decomposing-large-code`      | Безопасный сплит гиганта (шов выбран): Mikado + characterization-тесты, листья снизу вверх, behavior-preserving. **(project-local, 2026-10-05)** |
 
 Phase 4 заложила 7 (`playwright-patterns` … `legal-escalation-patterns`); далее добавлены/импортированы:
 `claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
@@ -88,7 +90,7 @@ origin community); `codebase-audit` (project-local, 2026-06-22 — read-only aud
 `diagnosing-bugs`, `codebase-design`, `resolving-merge-conflicts`, `prototype`,
 `writing-for-agents` — адаптированы из `mattpocock/skills`, см.
 `docs/architecture/2026-08-22-afk-pipeline-migration.md`).
-**Итого 22 на диске** (`ls .claude/skills/`; скилл диспатча PM удалён 2026-10-05 вместе с PM-агентом); таблица выше —
+**Итого 23 на диске** (`ls .claude/skills/`; скилл диспатча PM удалён 2026-10-05 вместе с PM-агентом; `decomposing-large-code` добавлен 2026-10-05); таблица выше —
 источник истины. Каждый — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
 
 ## Дрейф таблицы относительно установленных паков (проверять при обновлении плагинов)
