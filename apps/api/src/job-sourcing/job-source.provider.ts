@@ -35,6 +35,14 @@ export interface NormalizedPosting {
   publishedAt: Date | null
   /** Dedupe key — see `computePostingFingerprint`. */
   fingerprint: string
+  /** Structured source flag; null/undefined = unknown. */
+  remote?: boolean | null
+  /** Raw, e.g. 'full_time' | 'Contract'. */
+  employmentType?: string | null
+  /** Raw, e.g. 'Senior'. */
+  seniorityHint?: string | null
+  /** Source stack tags (not persisted; used for matching). */
+  tags?: string[]
 }
 
 export interface JobSourceProvider {
@@ -48,8 +56,10 @@ export interface JobSourceProvider {
 }
 
 /**
- * Canonical form of a posting URL — `https://host/path` with query, fragment,
- * default port and trailing slash removed, host lowercased.
+ * Canonical form of a posting URL — `https://host/path` with fragment, default
+ * port and trailing slash removed, host lowercased. The query string is removed
+ * too, EXCEPT params named in `keepParams` (sorted, re-encoded) — for sources
+ * that identify items only by a param (HN: `?id=`).
  *
  * THIS IS THE DEDUPE SPINE (AC1). DOU's `<guid>` carries a FRESH TIMESTAMP
  * query on every fetch (`…/vacancies/356562/?1786092518`) and `<link>` carries
@@ -61,7 +71,10 @@ export interface JobSourceProvider {
  * `data:` URL from a hostile feed dies right here, before it can ever be
  * persisted and handed to `window.open`).
  */
-export function canonicalizePostingUrl(raw: string | null | undefined): string | null {
+export function canonicalizePostingUrl(
+  raw: string | null | undefined,
+  keepParams?: readonly string[],
+): string | null {
   if (!raw) return null
   let parsed: URL
   try {
@@ -73,7 +86,12 @@ export function canonicalizePostingUrl(raw: string | null | undefined): string |
   if (parsed.hostname.length === 0) return null
 
   const path = parsed.pathname.replace(/\/+$/, '')
-  return `https://${parsed.host.toLowerCase()}${path}`
+  const kept = (keepParams ?? [])
+    .filter((k) => parsed.searchParams.has(k))
+    .sort()
+    .map((k) => `${k}=${encodeURIComponent(parsed.searchParams.get(k) ?? '')}`)
+  const query = kept.length > 0 ? `?${kept.join('&')}` : ''
+  return `https://${parsed.host.toLowerCase()}${path}${query}`
 }
 
 /**
