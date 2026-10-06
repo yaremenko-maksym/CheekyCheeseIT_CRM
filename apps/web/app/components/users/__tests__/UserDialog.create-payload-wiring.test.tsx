@@ -218,4 +218,36 @@ describe('UserDialog — create payload wiring', () => {
       salaryCurrency: 'USD',
     })
   })
+
+  it('SENIOR create: the PATCH after going Back carries the selected HR + accountant and forced USDT', async () => {
+    const user = userEvent.setup()
+    render(<UserDialog mode="create" open={true} onClose={vi.fn()} />)
+
+    await user.type(screen.getByTestId('user-dialog-email'), 'senior@example.com')
+    await user.type(screen.getByTestId('user-dialog-name'), 'Senior Person')
+    await selectRole(user, 'Сеньйор')
+    await user.type(screen.getByTestId('user-dialog-legal-full-name'), 'Senior Legal Person')
+    await user.type(
+      screen.getByTestId('user-dialog-wallet'),
+      '0x1234567890abcdef1234567890abcdef12345678',
+    )
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-2')).toHaveAttribute('data-state', 'active'),
+    )
+    await user.click(screen.getByTestId('wizard-back-btn'))
+    await waitFor(() =>
+      expect(screen.getByTestId('wizard-step-1')).toHaveAttribute('data-state', 'active'),
+    )
+    await user.click(screen.getByTestId('wizard-next-btn'))
+
+    await waitFor(() => expect(mockPatch).toHaveBeenCalledTimes(1))
+    expect(mockPatch.mock.calls[0]?.[1]).toMatchObject({
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0x1234567890abcdef1234567890abcdef12345678',
+      hrIds: [HR_ID],
+      accountantId: ACCOUNTANT_ID,
+    })
+  })
 })

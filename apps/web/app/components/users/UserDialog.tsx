@@ -51,6 +51,7 @@ import { defaultPaymentMethod } from './user-dialog/validation'
 import {
   buildCreateDropPayload,
   buildCreateUserPayload,
+  buildWizardUpdatePayload,
   computeMonthlySalaryUsd as toMonthlySalaryUsd,
 } from './user-dialog/payloads'
 
@@ -251,40 +252,11 @@ export function UserDialog(props: UserDialogProps) {
         // successful POST), «Далее» from step 1 must PATCH — not POST again.
         // This handles the «Назад» → edit → «Далее» flow without 409 duplicate.
         if (createdUserId !== null) {
-          const paymentMethodUpdate: PaymentMethod =
-            isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
-          const updatePayload: AdminUpdateUserDto = {
-            displayName: value.displayName.trim(),
-            telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
-            phone: (value.phone as string) || null,
-            techStack: value.techStack.length > 0 ? value.techStack : null,
-            paymentMethod: paymentMethodUpdate,
-            ...(paymentMethodUpdate === 'USDT_ERC20' && {
-              walletUsdtErc20: value.walletUsdtErc20.trim() || null,
-              walletUsdtLabel: value.walletUsdtLabel.trim() || null,
-            }),
-            ...(paymentMethodUpdate === 'BANK_UAH_FOP' && {
-              bankUahRecipient: value.bankUahRecipient.trim() || null,
-              bankUahIban: value.bankUahIban.trim() || null,
-              bankUahRnokpp: value.bankUahRnokpp.trim() || null,
-              bankUahBankName: value.bankUahBankName.trim() || null,
-            }),
-            ...(isSenior && {
-              seniorSharePercent: value.seniorSharePercent,
-              hrIds,
-              accountantId: accountantId || null,
-            }),
-            ...(!isSenior && {
-              monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
-              salaryCurrency: 'USD',
-            }),
-            ...(value.legalFullName.trim() && {
-              legalFullName: value.legalFullName.trim(),
-            }),
-            ...(value.registrationAddress.trim() && {
-              registrationAddress: value.registrationAddress.trim(),
-            }),
-          }
+          const updatePayload = buildWizardUpdatePayload(value, {
+            hrIds,
+            accountantId,
+            exchangeRates,
+          })
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
           if (!updateResult.success) {
             const first = updateResult.error.issues[0]

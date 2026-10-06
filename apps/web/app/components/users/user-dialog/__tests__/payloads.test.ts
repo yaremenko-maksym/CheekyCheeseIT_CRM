@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCreateDropPayload,
   buildCreateUserPayload,
+  buildWizardUpdatePayload,
   computeMonthlySalaryUsd,
   type CreateDropFormValue,
   type CreateUserFormValue,
+  type WizardUpdateFormValue,
 } from '../payloads'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import type { ExchangeRates } from '../validation'
@@ -751,5 +753,226 @@ describe('buildCreateDropPayload', () => {
     const payload = buildCreateDropPayload(makeDropValue({ legalFullName: 'Only Name' }), DROP_DEPS)
     expect(payload.legalFullName).toBe('Only Name')
     expect('registrationAddress' in payload).toBe(false)
+  })
+})
+
+// ── buildWizardUpdatePayload ───────────────────────────────────────────────
+function makeWizardValue(overrides: Partial<WizardUpdateFormValue> = {}): WizardUpdateFormValue {
+  return {
+    role: 'JUNIOR',
+    displayName: 'Test User',
+    telegram: '',
+    phone: '',
+    techStack: [],
+    seniorSharePercent: 26,
+    monthlySalary: '',
+    salaryCurrency: 'USD',
+    paymentMethod: 'USDT_ERC20',
+    walletUsdtErc20: '',
+    walletUsdtLabel: '',
+    bankUahRecipient: '',
+    bankUahIban: '',
+    bankUahRnokpp: '',
+    bankUahBankName: '',
+    legalFullName: '',
+    registrationAddress: '',
+    ...overrides,
+  }
+}
+
+describe('buildWizardUpdatePayload', () => {
+  it('builds the minimal non-SENIOR payload: empty fields become null, salary block present', () => {
+    expect(buildWizardUpdatePayload(makeWizardValue(), NO_TEAM)).toStrictEqual({
+      displayName: 'Test User',
+      telegram: null,
+      phone: null,
+      techStack: null,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      monthlySalary: null,
+      salaryCurrency: 'USD',
+    })
+  })
+
+  it('SENIOR: forced USDT even if BANK selected, senior block with team, NO salary keys', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({
+        role: 'SENIOR',
+        paymentMethod: 'BANK_UAH_FOP',
+        walletUsdtErc20: ' 0xabc ',
+        walletUsdtLabel: ' main ',
+        bankUahIban: 'UA123',
+        seniorSharePercent: 30,
+        monthlySalary: '1000',
+      }),
+      { hrIds: ['hr-1', 'hr-2'], accountantId: 'acc-1', exchangeRates: RATES },
+    )
+    expect(payload).toStrictEqual({
+      displayName: 'Test User',
+      telegram: null,
+      phone: null,
+      techStack: null,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: '0xabc',
+      walletUsdtLabel: 'main',
+      seniorSharePercent: 30,
+      hrIds: ['hr-1', 'hr-2'],
+      accountantId: 'acc-1',
+    })
+  })
+
+  it('SENIOR with no accountant picked sends accountantId null and keeps empty hrIds', () => {
+    const payload = buildWizardUpdatePayload(makeWizardValue({ role: 'SENIOR' }), NO_TEAM)
+    expect(payload.accountantId).toBeNull()
+    expect(payload.hrIds).toStrictEqual([])
+    expect(payload.seniorSharePercent).toBe(26)
+  })
+
+  it('ADMIN: forced USDT even if BANK selected, salary block (non-SENIOR), no senior block', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ role: 'ADMIN', paymentMethod: 'BANK_UAH_FOP', bankUahIban: 'UA1' }),
+      { hrIds: ['hr-1'], accountantId: 'acc-1', exchangeRates: RATES },
+    )
+    expect(payload).toStrictEqual({
+      displayName: 'Test User',
+      telegram: null,
+      phone: null,
+      techStack: null,
+      paymentMethod: 'USDT_ERC20',
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      monthlySalary: null,
+      salaryCurrency: 'USD',
+    })
+  })
+
+  it('non-SENIOR keeps the chosen BANK method and trims/nulls the bank block (no USDT keys)', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({
+        role: 'HR',
+        paymentMethod: 'BANK_UAH_FOP',
+        walletUsdtErc20: '0xignored',
+        bankUahRecipient: ' FOP Ivanov ',
+        bankUahIban: ' UA213223130000026007233566001 ',
+        bankUahRnokpp: ' 1234567890 ',
+        bankUahBankName: '   ',
+      }),
+      NO_TEAM,
+    )
+    expect(payload).toStrictEqual({
+      displayName: 'Test User',
+      telegram: null,
+      phone: null,
+      techStack: null,
+      paymentMethod: 'BANK_UAH_FOP',
+      bankUahRecipient: 'FOP Ivanov',
+      bankUahIban: 'UA213223130000026007233566001',
+      bankUahRnokpp: '1234567890',
+      bankUahBankName: null,
+      monthlySalary: null,
+      salaryCurrency: 'USD',
+    })
+  })
+
+  it('bank name, when filled, is trimmed and kept', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({
+        role: 'HR',
+        paymentMethod: 'BANK_UAH_FOP',
+        bankUahBankName: ' Mono ',
+      }),
+      NO_TEAM,
+    )
+    expect(payload.bankUahBankName).toBe('Mono')
+    expect(payload.bankUahRecipient).toBeNull()
+    expect(payload.bankUahIban).toBeNull()
+    expect(payload.bankUahRnokpp).toBeNull()
+  })
+
+  it('non-SENIOR salary is converted to USD via the shared helper (UAH → USD, 2 dp)', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ monthlySalary: '4100', salaryCurrency: 'UAH' }),
+      NO_TEAM,
+    )
+    expect(payload.monthlySalary).toBe(100)
+    expect(payload.salaryCurrency).toBe('USD')
+  })
+
+  it('non-SENIOR salary in EUR converts through the passed exchange rates', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ monthlySalary: '100', salaryCurrency: 'EUR' }),
+      NO_TEAM,
+    )
+    expect(payload.monthlySalary).toBe(108.54)
+  })
+
+  it('non-SENIOR salary passes through unconverted when exchange rates are not loaded', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ monthlySalary: '1500.555', salaryCurrency: 'UAH' }),
+      { hrIds: [], accountantId: '', exchangeRates: undefined },
+    )
+    expect(payload.monthlySalary).toBe(1500.555)
+  })
+
+  it('non-SENIOR salary that is truthy but invalid resolves to null', () => {
+    const payload = buildWizardUpdatePayload(makeWizardValue({ monthlySalary: 'abc' }), NO_TEAM)
+    expect(payload.monthlySalary).toBeNull()
+    expect(payload.salaryCurrency).toBe('USD')
+  })
+
+  it('contact fields: displayName trimmed, telegram normalised, phone and techStack kept', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({
+        displayName: '  Ann  ',
+        telegram: '  ann_tg ',
+        phone: '+380501234567',
+        techStack: ['react', 'node'],
+      }),
+      NO_TEAM,
+    )
+    expect(payload.displayName).toBe('Ann')
+    expect(payload.telegram).toBe('@ann_tg')
+    expect(payload.phone).toBe('+380501234567')
+    expect(payload.techStack).toStrictEqual(['react', 'node'])
+  })
+
+  it('telegram already prefixed with @ is kept as-is; whitespace-only telegram becomes null', () => {
+    expect(
+      buildWizardUpdatePayload(makeWizardValue({ telegram: '@ann_tg' }), NO_TEAM).telegram,
+    ).toBe('@ann_tg')
+    expect(buildWizardUpdatePayload(makeWizardValue({ telegram: '   ' }), NO_TEAM).telegram).toBe(
+      null,
+    )
+  })
+
+  it('legal data: both filled are trimmed and included', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ legalFullName: '  Ivan Ivanov ', registrationAddress: ' Kyiv, 1 ' }),
+      NO_TEAM,
+    )
+    expect(payload.legalFullName).toBe('Ivan Ivanov')
+    expect(payload.registrationAddress).toBe('Kyiv, 1')
+  })
+
+  it('legal data: blank values are omitted entirely (keys absent, not null)', () => {
+    const payload = buildWizardUpdatePayload(
+      makeWizardValue({ legalFullName: '   ', registrationAddress: '   ' }),
+      NO_TEAM,
+    )
+    expect('legalFullName' in payload).toBe(false)
+    expect('registrationAddress' in payload).toBe(false)
+  })
+
+  it('legalFullName without registrationAddress carries only the former, and vice versa', () => {
+    const onlyName = buildWizardUpdatePayload(makeWizardValue({ legalFullName: 'N' }), NO_TEAM)
+    expect(onlyName.legalFullName).toBe('N')
+    expect('registrationAddress' in onlyName).toBe(false)
+    const onlyAddr = buildWizardUpdatePayload(
+      makeWizardValue({ registrationAddress: 'A' }),
+      NO_TEAM,
+    )
+    expect(onlyAddr.registrationAddress).toBe('A')
+    expect('legalFullName' in onlyAddr).toBe(false)
   })
 })
