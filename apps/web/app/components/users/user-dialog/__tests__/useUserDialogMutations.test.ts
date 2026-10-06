@@ -210,6 +210,45 @@ describe('useUserDialogMutations', () => {
       expect(args.onClose).toHaveBeenCalledOnce()
     })
 
+    it('survives the dialog closing mid-PATCH: onSuccess sees editingUser === null', async () => {
+      let resolvePatch: (v: { data: object }) => void = () => {}
+      patchMock.mockReturnValue(new Promise((r) => (resolvePatch = r)))
+      const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } })
+      const invalidate = vi.spyOn(client, 'invalidateQueries')
+      const base = {
+        queryClient: client,
+        createdUserId: null as string | null,
+        setCreatedUserId: vi.fn(),
+        setCurrentStep: vi.fn(),
+        setHasContract: vi.fn(),
+        onClose: vi.fn(),
+      }
+      const wrapper = ({ children }: { children: ReactNode }) =>
+        createElement(
+          I18nProvider,
+          { i18n },
+          createElement(QueryClientProvider, { client }, children),
+        )
+      const { result, rerender } = renderHook(
+        (editingUser: UserProfileDto | null) => useUserDialogMutations({ ...base, editingUser }),
+        { wrapper, initialProps: { id: 'edit-1' } as unknown as UserProfileDto | null },
+      )
+      let pending: Promise<unknown> = Promise.resolve()
+      act(() => {
+        pending = result.current.updateMutation.mutateAsync({ displayName: 'Y' } as never)
+      })
+      await waitFor(() =>
+        expect(patchMock).toHaveBeenCalledExactlyOnceWith('/users/edit-1', expect.anything()),
+      )
+      rerender(null)
+      await act(async () => {
+        resolvePatch({ data: {} })
+        await pending
+      })
+      expect(keys(invalidate)).toContainEqual(['user-profile', undefined])
+      expect(base.onClose).toHaveBeenCalledOnce()
+    })
+
     it('announces a pending senior-share proposal instead of the plain toast', async () => {
       patchMock.mockResolvedValue({
         data: { pendingSeniorShare: { percent: 40 }, seniorSharePercent: 30 },
