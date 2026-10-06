@@ -162,6 +162,49 @@ describe('PaymentRequisitesSection — wallet validators', () => {
   })
 })
 
+describe('PaymentRequisitesSection — error styling and visibility', () => {
+  const ERR_CLASS = 'border-destructive'
+
+  it.each([
+    ['wallet', {}, 'user-dialog-wallet', 'bad', VALID_WALLET],
+    ['recipient', BANK, 'user-dialog-bank-recipient', 'ab', 'abc'],
+    ['iban', BANK, 'user-dialog-bank-iban', 'UA1', VALID_IBAN],
+    ['rnokpp', BANK, 'user-dialog-bank-rnokpp', '123', '1234567890'],
+  ])('%s: red border only while invalid', async (_n, defaults, testId, bad, good) => {
+    render(<Harness defaults={defaults} />)
+    expect(screen.getByTestId(testId)).not.toHaveClass(ERR_CLASS)
+    type(testId, bad)
+    await waitFor(() => expect(screen.getByTestId(testId)).toHaveClass(ERR_CLASS))
+    type(testId, good)
+    await waitFor(() => expect(screen.getByTestId(testId)).not.toHaveClass(ERR_CLASS))
+  })
+
+  it('an edited-but-not-blurred field shows no error yet', async () => {
+    render(<Harness />)
+    fireEvent.change(screen.getByTestId('user-dialog-wallet'), { target: { value: 'bad' } })
+    await waitFor(() => expect(values().walletUsdtErc20).toBe('bad'))
+    expect(screen.getByTestId('user-dialog-wallet')).not.toHaveClass(ERR_CLASS)
+  })
+
+  it('pins the raw-input attributes of the sensitive fields', () => {
+    const { unmount } = render(<Harness />)
+    const wallet = screen.getByTestId('user-dialog-wallet')
+    expect(wallet).toHaveAttribute('autocomplete', 'off')
+    expect(wallet).toHaveAttribute('autocapitalize', 'off')
+    expect(wallet).toHaveAttribute('autocorrect', 'off')
+    expect(wallet).toHaveAttribute('spellcheck', 'false')
+    unmount()
+    render(<Harness defaults={BANK} />)
+    const iban = screen.getByTestId('user-dialog-bank-iban')
+    expect(iban).toHaveAttribute('autocorrect', 'off')
+    expect(iban).toHaveAttribute('spellcheck', 'false')
+    const recipient = screen.getByTestId('user-dialog-bank-recipient')
+    expect(recipient).toHaveAttribute('autocapitalize', 'words')
+    expect(recipient).toHaveAttribute('autocomplete', 'off')
+    expect(screen.getByTestId('user-dialog-bank-rnokpp')).toHaveAttribute('pattern', '[0-9]*')
+  })
+})
+
 describe('PaymentRequisitesSection — bank validators', () => {
   it('accepts a 3-char recipient, valid IBAN and 10-digit RNOKPP', async () => {
     render(<Harness defaults={BANK} />)
