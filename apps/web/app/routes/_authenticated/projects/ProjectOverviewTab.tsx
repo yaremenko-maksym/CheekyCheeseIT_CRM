@@ -80,10 +80,6 @@ export function ProjectOverviewTab({
           // null when backend masks it (admin-project + non-privileged viewer)
           userId: project.seniorId ?? null,
           displayName: project.seniorName ?? '',
-          // Stryker disable next-line StringLiteral: `role` is carried over verbatim from the page but never read by the render below
-          role: 'SENIOR',
-          avatarUrl: null as string | null,
-          avatarDocumentId: null as string | null,
         }
       : null
   // Drop member for display in Team card (Обзор tab). API masks drop=null for
