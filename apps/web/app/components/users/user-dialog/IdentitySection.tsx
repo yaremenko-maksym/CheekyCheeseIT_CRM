@@ -72,6 +72,7 @@ export function IdentitySection({
             // anywhere outside the empty input shouldn't ignite the
             // "Invalid email" hint.
             if (!fieldApi.state.meta.isDirty) return undefined
+            // Stryker disable next-line MethodExpression: the email input is type="email", whose HTML value-sanitization algorithm already strips leading/trailing whitespace before any typed value reaches the form state (WHATWG HTML §4.10.5.1.4, verified in jsdom), so dropping `.trim()` is unobservable through the UI
             const trimmed = value.trim()
             if (!trimmed) return translateZodCode('EMAIL_REQUIRED')
             const r = z.string().email('zod.EMAIL_INVALID').safeParse(trimmed)
@@ -84,6 +85,7 @@ export function IdentitySection({
           // ut-8: hide error until the field has been edited at least
           // once. `isDirty` flips after the first change — pure focus
           // + blur (no value change) keeps the error suppressed.
+          // Stryker disable next-line ConditionalExpression,LogicalOperator: unobservable — the only validators are onBlur, so `errors[0]` can exist only after a blur (isTouched) and the validator itself bails on !isDirty; the gate cannot change what is rendered
           const showError = field.state.meta.isTouched && field.state.meta.isDirty
           const err = showError ? field.state.meta.errors[0] : undefined
           return (
@@ -104,9 +106,12 @@ export function IdentitySection({
                   if (
                     isEdit &&
                     editingUser &&
+                    // Stryker disable next-line MethodExpression: the email input is type="email", whose HTML value-sanitization algorithm already strips leading/trailing whitespace before any typed value reaches the form state (WHATWG HTML §4.10.5.1.4, verified in jsdom), so dropping `.trim()` is unobservable through the UI
                     field.state.value.trim() !== originalEmail &&
+                    // Stryker disable next-line MethodExpression: the email input is type="email", whose HTML value-sanitization algorithm already strips leading/trailing whitespace before any typed value reaches the form state (WHATWG HTML §4.10.5.1.4, verified in jsdom), so dropping `.trim()` is unobservable through the UI
                     field.state.value.trim().length > 0
                   ) {
+                    // Stryker disable next-line MethodExpression: the email input is type="email", whose HTML value-sanitization algorithm already strips leading/trailing whitespace before any typed value reaches the form state (WHATWG HTML §4.10.5.1.4, verified in jsdom), so dropping `.trim()` is unobservable through the UI
                     onEmailChangeIntent(field.state.value.trim())
                   }
                 }}
@@ -221,6 +226,7 @@ export function IdentitySection({
         }}
       >
         {(field) => {
+          // Stryker disable next-line ConditionalExpression,LogicalOperator: unobservable — the only validators are onBlur, so `errors[0]` can exist only after a blur (isTouched) and the validator itself bails on !isDirty; the gate cannot change what is rendered
           const showError = field.state.meta.isTouched && field.state.meta.isDirty
           const err = showError ? field.state.meta.errors[0] : undefined
           return (

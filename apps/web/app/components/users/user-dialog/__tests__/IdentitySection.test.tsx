@@ -199,6 +199,16 @@ describe('IdentitySection — fields and validation', () => {
     fireEvent.change(input, { target: { value: '' } })
     fireEvent.blur(input)
     expect(await screen.findByText('Введіть email')).toBeInTheDocument()
+    expect(input).toHaveClass('border-destructive')
+  })
+
+  it('an edited-then-blurred malformed email shows the format error', async () => {
+    render(<Harness />)
+    const input = screen.getByTestId('user-dialog-email')
+    fireEvent.change(input, { target: { value: 'not-an-email' } })
+    fireEvent.blur(input)
+    expect(await screen.findByText('Введіть email у форматі name@domain')).toBeInTheDocument()
+    expect(input).toHaveClass('border-destructive')
   })
 
   it('an untouched email blur shows no error', async () => {
@@ -208,12 +218,53 @@ describe('IdentitySection — fields and validation', () => {
     expect(screen.getByTestId('user-dialog-email')).not.toHaveClass('border-destructive')
   })
 
+  it('an untouched blur of an empty email leaves no stale error once the user types', async () => {
+    // The validator bails while the field is pristine; otherwise this blur would
+    // store "required" and it would surface as soon as the field turned dirty.
+    render(<Harness email="" />)
+    const input = screen.getByTestId('user-dialog-email')
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: 'ok@example.com' } })
+    await screen.findByTestId('values')
+    expect(screen.queryByText('Введіть email')).toBeNull()
+    expect(input).not.toHaveClass('border-destructive')
+  })
+
+  it('the email input is configured for no autofill, correction or spellcheck', () => {
+    render(<Harness />)
+    const input = screen.getByTestId('user-dialog-email')
+    expect(input).toHaveAttribute('type', 'email')
+    expect(input).toHaveAttribute('spellcheck', 'false')
+    expect(input).toHaveAttribute('autocapitalize', 'off')
+    expect(input).toHaveAttribute('autocorrect', 'off')
+    expect(input).toHaveAttribute('autocomplete', 'off')
+  })
+
   it('a too-short display name shows the min error after edit + blur', async () => {
     render(<Harness />)
     const input = screen.getByTestId('user-dialog-name')
     fireEvent.change(input, { target: { value: 'А' } })
     fireEvent.blur(input)
-    await waitFor(() => expect(input).toHaveClass('border-destructive'))
+    expect(await screen.findByText('Ім’я — мінімум 2 символи')).toBeInTheDocument()
+    expect(input).toHaveClass('border-destructive')
+  })
+
+  it('a display name is trimmed before the length check', async () => {
+    render(<Harness />)
+    const input = screen.getByTestId('user-dialog-name')
+    fireEvent.change(input, { target: { value: ' А ' } })
+    fireEvent.blur(input)
+    expect(await screen.findByText('Ім’я — мінімум 2 символи')).toBeInTheDocument()
+  })
+
+  it('an untouched blur of the display name leaves no stale error once the user types', async () => {
+    render(<Harness />)
+    const input = screen.getByTestId('user-dialog-name')
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: 'Іван Петренко' } })
+    await screen.findByTestId('values')
+    expect(screen.queryByText('Ім’я — мінімум 2 символи')).toBeNull()
+    expect(input).not.toHaveClass('border-destructive')
   })
 
   it('personal email equal to the work email shows the must-differ error', async () => {
