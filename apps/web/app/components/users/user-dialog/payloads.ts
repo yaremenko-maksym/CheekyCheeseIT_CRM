@@ -1,4 +1,11 @@
-import type { CreateDropDto, CreateUserDto, Locale, PaymentMethod, TeamMode } from '@crm/shared'
+import type {
+  AdminUpdateUserDto,
+  CreateDropDto,
+  CreateUserDto,
+  Locale,
+  PaymentMethod,
+  TeamMode,
+} from '@crm/shared'
 import type { Currency } from '@/components/ui/amount-currency-input'
 import { parseStrictAmount } from '@/lib/utils'
 import { type Role, normalizeTelegram } from '../constants'
@@ -221,4 +228,78 @@ export function buildCreateDropPayload(
     }),
   }
   return payload
+}
+
+/** The slice of the form's values the wizard createdUserId-PATCH payload reads. */
+export type WizardUpdateFormValue = {
+  role: Role
+  displayName: string
+  telegram: string
+  phone: string
+  techStack: string[]
+  seniorSharePercent: number
+  monthlySalary: unknown
+  salaryCurrency: Currency
+  paymentMethod: PaymentMethod
+  walletUsdtErc20: string
+  walletUsdtLabel: string
+  bankUahRecipient: string
+  bankUahIban: string
+  bankUahRnokpp: string
+  bankUahBankName: string
+  legalFullName: string
+  registrationAddress: string
+}
+
+/**
+ * Wizard «Назад» → edit → «Далее» PATCH-on-create payload (A3-3 AC6). Verbatim
+ * move from `onSubmit`; `adminUpdateUserSchema.safeParse` and `mutate` stay in
+ * the caller.
+ */
+export function buildWizardUpdatePayload(
+  value: WizardUpdateFormValue,
+  { hrIds, accountantId, exchangeRates }: CreateUserPayloadDeps,
+): AdminUpdateUserDto {
+  const isSenior = value.role === 'SENIOR'
+  const paymentMethodUpdate: PaymentMethod =
+    isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
+  const updatePayload: AdminUpdateUserDto = {
+    displayName: value.displayName.trim(),
+    telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : null,
+    phone: value.phone || null,
+    techStack: value.techStack.length > 0 ? value.techStack : null,
+    paymentMethod: paymentMethodUpdate,
+    ...(paymentMethodUpdate === 'USDT_ERC20' && {
+      walletUsdtErc20: value.walletUsdtErc20.trim() || null,
+      walletUsdtLabel: value.walletUsdtLabel.trim() || null,
+    }),
+    ...(paymentMethodUpdate === 'BANK_UAH_FOP' && {
+      bankUahRecipient: value.bankUahRecipient.trim() || null,
+      bankUahIban: value.bankUahIban.trim() || null,
+      bankUahRnokpp: value.bankUahRnokpp.trim() || null,
+      bankUahBankName: value.bankUahBankName.trim() || null,
+    }),
+    ...(isSenior && {
+      seniorSharePercent: value.seniorSharePercent,
+      hrIds,
+      accountantId: accountantId || null,
+    }),
+    ...(!isSenior && {
+      monthlySalary: value.monthlySalary
+        ? computeMonthlySalaryUsd({
+            monthlySalary: value.monthlySalary,
+            salaryCurrency: value.salaryCurrency,
+            exchangeRates,
+          })
+        : null,
+      salaryCurrency: 'USD',
+    }),
+    ...(value.legalFullName.trim() && {
+      legalFullName: value.legalFullName.trim(),
+    }),
+    ...(value.registrationAddress.trim() && {
+      registrationAddress: value.registrationAddress.trim(),
+    }),
+  }
+  return updatePayload
 }
