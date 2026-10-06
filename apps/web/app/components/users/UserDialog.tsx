@@ -3,7 +3,7 @@ import { useForm } from '@tanstack/react-form'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Plural, Trans, useLingui } from '@lingui/react/macro'
 import { Coins, Landmark, Pencil, Percent, Send, UserPlus, Users, Sparkles } from 'lucide-react'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { Value as PhoneValue } from 'react-phone-number-input'
 import type { AxiosError } from 'axios'
 import type {
@@ -60,6 +60,7 @@ import { UserDialogFooter } from './user-dialog/UserDialogFooter'
 import { useCreateWizard } from './user-dialog/useCreateWizard'
 import { useEditingUser } from './user-dialog/useEditingUser'
 import { useUserDialogData } from './user-dialog/useUserDialogData'
+import { useTeamSelection } from './user-dialog/useTeamSelection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
@@ -149,68 +150,6 @@ export function UserDialog(props: UserDialogProps) {
     juniorActiveProjects,
     availableJuniorProjects,
   } = useUserDialogData({ open, isCreate, isEdit, editingUser })
-
-  // SENIOR-only team controls (HR multiselect + Accountant)
-  const [selectedHrIds, setSelectedHrIds] = useState<string[]>([])
-  const [selectedAccountantId, setSelectedAccountantId] = useState<string>('')
-  // Drop role - phase 1 fix (AC6): inline validation error shown under the
-  // HR multiselect. Set when submit fails the «HR ≥ 1» guard; cleared as
-  // soon as the user adds an HR (handled via `handleHrChange` below) so the
-  // red error message doesn't linger after the user fixed the issue.
-  const [hrError, setHrError] = useState<string | undefined>(undefined)
-  // Wrapping setter so we clear the error optimistically when the user
-  // edits the selection — matches `touched` semantics in TanStack Form.
-  const handleHrChange = (next: string[]) => {
-    setSelectedHrIds(next)
-    if (hrError && next.length > 0) setHrError(undefined)
-  }
-
-  // Refs to avoid stale-closure in onSubmit
-  const selectedHrIdsRef = useRef(selectedHrIds)
-  const selectedAccountantIdRef = useRef(selectedAccountantId)
-  useEffect(() => {
-    selectedHrIdsRef.current = selectedHrIds
-  }, [selectedHrIds])
-  useEffect(() => {
-    selectedAccountantIdRef.current = selectedAccountantId
-  }, [selectedAccountantId])
-
-  /**
-   * Senior's team is the team where the senior is an active member with role=SENIOR.
-   * Existing HR/Accountant in that team (with leftAt=NULL) seed selections.
-   * Also seeds `teamTelegramChannel` from the team row (ut-17).
-   */
-  useEffect(() => {
-    if (isEdit && editingUser && editingUser.role === 'SENIOR' && allTeams) {
-      const seniorsTeam = allTeams.find((t) =>
-        t.members.some((m) => m.userId === editingUser.id && m.role === 'SENIOR' && !m.leftAt),
-      )
-      if (seniorsTeam) {
-        const activeHrIds = seniorsTeam.members
-          .filter((m) => m.role === 'HR' && !m.leftAt)
-          .map((m) => m.userId)
-        const activeAccountant = seniorsTeam.members.find(
-          (m) => m.role === 'ACCOUNTANT' && !m.leftAt,
-        )
-        setSelectedHrIds(activeHrIds)
-        setSelectedAccountantId(activeAccountant?.userId ?? '')
-        form.setFieldValue('teamTelegramChannel', seniorsTeam.telegramChannel ?? '')
-      } else {
-        setSelectedHrIds([])
-        setSelectedAccountantId('')
-        form.setFieldValue('teamTelegramChannel', '')
-      }
-    } else if (isCreate && open) {
-      // For CREATE: defaults — pre-select if only one option exists
-      const initial = hrUsers.length === 1 && hrUsers[0] ? [hrUsers[0].id] : []
-      setSelectedHrIds(initial)
-      const accInitial =
-        accountantUsers.length === 1 && accountantUsers[0] ? accountantUsers[0].id : ''
-      setSelectedAccountantId(accInitial)
-    }
-    // form is stable but we intentionally exclude it from deps — re-running on
-    // every form-state change would clobber edits in progress.
-  }, [allTeams, editingUser?.id, hrUsers.length, accountantUsers.length, isEdit, isCreate, open])
 
   // ── Mutations ────────────────────────────────────────────────────────────
   // ut-40: invalidate the generic `['users']` cache as well — that's the
@@ -787,6 +726,27 @@ export function UserDialog(props: UserDialogProps) {
         updateMutation.mutate(result.data)
       }
     },
+  })
+
+  // ── Team selection (SENIOR/DROP HR + Accountant) ─────────────────────────
+  // Must stay after `useUserDialogData` (reads its lists) and `useForm` (takes `form`).
+  const {
+    selectedHrIds,
+    selectedAccountantId,
+    setSelectedAccountantId,
+    hrError,
+    setHrError,
+    handleHrChange,
+    selectedHrIdsRef,
+    selectedAccountantIdRef,
+  } = useTeamSelection(form, {
+    editingUser,
+    allTeams,
+    hrUsers,
+    accountantUsers,
+    isCreate,
+    isEdit,
+    open,
   })
 
   // ut-9: Email change warning. We delay the form-level update until the admin
