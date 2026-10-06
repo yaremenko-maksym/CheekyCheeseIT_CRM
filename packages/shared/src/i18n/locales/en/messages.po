@@ -856,7 +856,7 @@ msgstr "Log in as “{0}”?"
 
 #: apps/web/app/components/crm/nav-sidebar.tsx
 #: apps/web/app/components/user-profile/UserProfileShell.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/projects/$projectId.tsx
 #: apps/web/app/routes/_authenticated/stats.tsx
 msgid "Фінанси"
@@ -1032,7 +1032,7 @@ msgid "Видалити змінну {0}"
 msgstr "Delete variable {0}"
 
 #: apps/web/app/components/ui/amount-currency-input.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/FundingSourceFields.tsx
 #: apps/web/app/routes/_authenticated/vacancies/components/VacancySalaryFields.tsx
 msgid "Валюта"
@@ -1334,7 +1334,7 @@ msgstr "overridden at the team level"
 msgid "Перевірка в блокчейні…"
 msgstr "Checking on the blockchain…"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "Місячна зарплата"
 msgstr "Monthly salary"
 
@@ -1434,7 +1434,7 @@ msgstr "Breakdown by currency:"
 msgid "Скопіювати {label}"
 msgstr "Copy {label}"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "Скільки дроп залишає собі з кожної виплати"
 msgstr "How much the drop keeps from each payout"
 
@@ -3373,7 +3373,7 @@ msgstr "From validated income not yet included in a payout request"
 msgid "Команду оновлено"
 msgstr "Team updated"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 msgid "Частка дропа (%)"
 msgstr "Drop's share (%)"
@@ -5154,7 +5154,7 @@ msgstr "Members"
 msgid "Зображення PNG"
 msgstr "PNG image"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "За замовчуванням 5%"
 msgstr "5% by default"
 
@@ -6253,7 +6253,7 @@ msgstr "Compact"
 #: apps/web/app/components/ui/amount-currency-input.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
 #: apps/web/app/components/user-profile/tabs/FinanceTab.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/finance/components/ActiveTransactionsTable.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/SettleSeniorPayoutDialog.tsx
 #: apps/web/app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx
@@ -8709,7 +8709,7 @@ msgstr "No results"
 msgid "Сума перевищує баланс рахунку компанії"
 msgstr "The amount exceeds the company account balance"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 msgid "Те, що сеньйор залишає собі. Нове значення набуде чинності після підтвердження сеньйора."
 msgstr "What the senior keeps for themselves. The new value takes effect once the senior confirms it."
 
@@ -8754,7 +8754,7 @@ msgstr "Password *"
 msgid "Видалення…"
 msgstr "Deleting…"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/FinanceSection.tsx
 #: apps/web/app/routes/_authenticated/projects/ProjectEditFields.tsx
 #: apps/web/app/routes/_authenticated/team/index.tsx
 msgid "Частка сеньйора (%)"
