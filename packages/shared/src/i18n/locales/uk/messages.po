@@ -4387,7 +4387,7 @@ msgstr "Оновити"
 #: apps/web/app/routes/_authenticated/routing/components/DropDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/HRDashboard.tsx
 #: apps/web/app/routes/_authenticated/routing/components/SeniorDashboard.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Активні проєкти"
 msgstr "Активні проєкти"
 
@@ -4461,7 +4461,7 @@ msgstr "Архівувати користувача"
 msgid "Співбесіди"
 msgstr "Співбесіди"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Джуніора не призначено"
 msgstr "Джуніора не призначено"
 
@@ -6365,7 +6365,7 @@ msgstr "Шаблони договорів для кожної ролі. Нати
 #: apps/web/app/components/projects/ProjectStatusBadge.tsx
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/routes/_authenticated/project.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Активний"
 msgstr "Активний"
 
@@ -7073,7 +7073,7 @@ msgstr "Не вдалося відновити. Спробуйте ще раз"
 msgid "Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз"
 msgstr "Не вдалося створити користувача — дані залишилися у формі, спробуйте ще раз"
 
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Джуніора призначено"
 msgstr "Джуніора призначено"
 
@@ -8143,7 +8143,7 @@ msgstr "Завантажуємо контракт…"
 #: apps/web/app/components/user-profile/tabs/ProjectsTab.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/routing/components/EarningsStatsBlock.tsx
-#: apps/web/app/routes/_authenticated/team/$teamId.tsx
+#: apps/web/app/routes/_authenticated/team/team-detail/components/ActiveProjectsCard.tsx
 msgid "Немає активних проєктів"
 msgstr "Немає активних проєктів"
 
