@@ -20,8 +20,26 @@ interface Defaults {
   paymentMethod?: string
 }
 
-function Harness({ defaults = {} }: { defaults?: Defaults }) {
+const REQUIRED_FIELDS = [
+  'walletUsdtErc20',
+  'bankUahRecipient',
+  'bankUahIban',
+  'bankUahRnokpp',
+] as const
+
+/**
+ * Form-level onBlur validator that forces an error onto every required field. It
+ * produces an error for a field that is touched but PRISTINE, which the field-level
+ * validators never do on their own: exactly the state the `showError` gate in the
+ * component has to hide.
+ */
+function forcedFieldErrors() {
+  return { fields: Object.fromEntries(REQUIRED_FIELDS.map((f) => [f, 'forced error'])) }
+}
+
+function Harness({ defaults = {}, forceErrorOn }: { defaults?: Defaults; forceErrorOn?: 'blur' }) {
   const form = useForm({
+    ...(forceErrorOn === 'blur' ? { validators: { onBlur: forcedFieldErrors } } : {}),
     defaultValues: {
       role: 'JUNIOR',
       paymentMethod: 'USDT_ERC20',
@@ -39,6 +57,9 @@ function Harness({ defaults = {} }: { defaults?: Defaults }) {
       <PaymentRequisitesSection form={form} />
       <form.Subscribe selector={(s) => s.values}>
         {(v) => <output data-testid="values">{JSON.stringify(v)}</output>}
+      </form.Subscribe>
+      <form.Subscribe selector={(s) => s.canSubmit}>
+        {(ok) => <output data-testid="can-submit">{String(ok)}</output>}
       </form.Subscribe>
     </>
   )
@@ -185,6 +206,35 @@ describe('PaymentRequisitesSection — error styling and visibility', () => {
     await waitFor(() => expect(values().walletUsdtErc20).toBe('bad'))
     expect(screen.getByTestId('user-dialog-wallet')).not.toHaveClass(ERR_CLASS)
   })
+
+  it.each([
+    ['wallet', {}, 'user-dialog-wallet'],
+    ['recipient', BANK, 'user-dialog-bank-recipient'],
+    ['iban', BANK, 'user-dialog-bank-iban'],
+    ['rnokpp', BANK, 'user-dialog-bank-rnokpp'],
+  ])('%s: an error on a touched-but-pristine field stays hidden', async (_n, defaults, testId) => {
+    render(<Harness defaults={defaults} forceErrorOn="blur" />)
+    fireEvent.blur(screen.getByTestId(testId))
+    await waitFor(() => expect(screen.getByTestId('can-submit')).toHaveTextContent('false'))
+    expect(screen.getByTestId(testId)).not.toHaveClass(ERR_CLASS)
+    expect(screen.queryByText('forced error')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    ['wallet', {}, 'user-dialog-wallet'],
+    ['recipient', BANK, 'user-dialog-bank-recipient'],
+    ['iban', BANK, 'user-dialog-bank-iban'],
+    ['rnokpp', BANK, 'user-dialog-bank-rnokpp'],
+  ])(
+    '%s: blurring a pristine empty required field keeps the form submittable',
+    async (_n, defaults, testId) => {
+      render(<Harness defaults={defaults} />)
+      fireEvent.blur(screen.getByTestId(testId))
+      // Let the onBlur validation settle before asserting it recorded no error.
+      await new Promise((r) => setTimeout(r, 50))
+      expect(screen.getByTestId('can-submit')).toHaveTextContent('true')
+    },
+  )
 
   it('pins the raw-input attributes of the sensitive fields', () => {
     const { unmount } = render(<Harness />)
