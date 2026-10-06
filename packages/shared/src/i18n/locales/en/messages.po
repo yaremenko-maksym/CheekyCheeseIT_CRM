@@ -824,7 +824,7 @@ msgstr "Address for receiving payouts on the Ethereum network"
 msgid "contract-variable.companyAddress"
 msgstr "Counterparty company's address"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Адреса реєстрації (ФОП)"
 msgstr "Registration address (Sole proprietor)"
 
@@ -1972,7 +1972,7 @@ msgstr "A Ukrainian sole-proprietor bank account will be used."
 msgid "використовується {0}"
 msgstr "used {0}"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Використовується в MSA-контракті замість імені та прізвища. Формат: Прізвище Ім’я По батькові."
 msgstr "Used in the MSA contract instead of your first and last name — write it as in your passport."
 
@@ -2805,7 +2805,7 @@ msgstr "Details"
 msgid "Дані в контракті — ім’я, email і реквізити — задає адміністратор; якщо щось не так, напишіть йому"
 msgstr "The contract data — name, email and payout details — is set by an admin; if something is wrong, message them"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Дані для контракту"
 msgstr "Contract data"
 
@@ -4625,7 +4625,7 @@ msgstr "Ivan Ivanenko"
 
 #: apps/web/app/components/projects/ProjectLegendSection.tsx
 #: apps/web/app/components/user-profile/self-edit/RequisitesEditForm.tsx
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/components/users/UserDialog.tsx
 #: apps/web/app/routes/_authenticated/legend.tsx
@@ -5281,7 +5281,7 @@ msgstr "Company logo"
 msgid "invoicePdf.month.02"
 msgstr "February"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "м. Київ, вул. Хрещатик, 1"
 msgstr "1 Khreshchatyk St, Kyiv"
 
@@ -11020,7 +11020,7 @@ msgstr "This email is already linked to a different Google account"
 msgid "Ця адреса вже прив’язана до іншого облікового запису Google. Увійдіть через той обліковий запис, яким входили раніше, або напишіть адміністратору."
 msgstr "This email is already linked to a different Google account. Sign in with the account you used before, or contact an admin."
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Ця адреса підставляється в текст контракту"
 msgstr "This address is inserted into the contract text"
 
@@ -11420,7 +11420,7 @@ msgstr "Something went wrong"
 msgid "contract-variable.companyLegalName"
 msgstr "Counterparty company's legal name"
 
-#: apps/web/app/components/users/UserDialog.tsx
+#: apps/web/app/components/users/user-dialog/ContractDataSection.tsx
 msgid "Юридичне ПІБ"
 msgstr "Legal name"
 
