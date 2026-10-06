@@ -241,8 +241,9 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   // ---- routes/_authenticated/admin/ChangeWalletAddressDialog.tsx ----
   'app/routes/_authenticated/admin/ChangeWalletAddressDialog.tsx#2': 'WALLET_HASH', // "Новый адрес" — #1 (current, readOnly) is auto-exempt
 
-  // ---- routes/_authenticated/team/$teamId.tsx ----
-  'app/routes/_authenticated/team/$teamId.tsx#id:edit-telegram': 'URL', // validated as an https://t.me/... link, not a handle
+  // ---- routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx ----
+  'app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx#id:edit-telegram':
+    'URL', // validated as an https://t.me/... link, not a handle
 
   // ---- routes/_authenticated/finance/components/ReceiptInput.tsx ----
   'testid:receipt-input-url-field': 'URL',
@@ -436,9 +437,11 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'testid:senior-share-reject-reason':
     'Free-text rejection reason typed by the affected SENIOR declining a pending share change from the /pending screen — same shape as pending-share-reject-reason/pending-base-share-reject-reason above, this is the third mount point for the same action (design spec §5.2 п.1).',
 
-  // ---- routes/_authenticated/team/$teamId.tsx ----
-  'app/routes/_authenticated/team/$teamId.tsx#id:edit-name': 'Free-text team name.',
-  'app/routes/_authenticated/team/$teamId.tsx#id:edit-notes': 'Free-text internal team notes.',
+  // ---- routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx ----
+  'app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx#id:edit-name':
+    'Free-text team name.',
+  'app/routes/_authenticated/team/team-detail/components/EditTeamDialog.tsx#id:edit-notes':
+    'Free-text internal team notes.',
 
   // ---- finance dialogs — free-text notes ----
   'app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx#1':
