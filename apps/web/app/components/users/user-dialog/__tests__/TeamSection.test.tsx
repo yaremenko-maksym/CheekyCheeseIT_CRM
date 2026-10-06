@@ -78,6 +78,11 @@ const project = (id: string, name: string, companyName: string): ProjectDto =>
   ({ id, name, companyName, members: [] }) as unknown as ProjectDto
 
 interface Overrides {
+  defaults?: Partial<{
+    dropTeamId: string
+    teamTelegramChannel: string
+    teamTelegramChannelDrop: string
+  }>
   role?: string
   teamMode?: string
   isCreate?: boolean
@@ -106,6 +111,7 @@ function Harness({ o = {}, spies }: { o?: Overrides; spies: Spies }) {
       teamTelegramChannel: '',
       teamTelegramChannelDrop: '',
       projectId: '',
+      ...o.defaults,
     },
   })
   const isCreate = o.isCreate ?? true
@@ -127,6 +133,29 @@ function Harness({ o = {}, spies }: { o?: Overrides; spies: Spies }) {
         juniorActiveProjects={o.juniorActiveProjects ?? []}
         onClose={spies.onClose}
       />
+      <button
+        type="button"
+        data-testid="act-validate"
+        onClick={() => void form.validateAllFields('blur')}
+      />
+      <button
+        type="button"
+        data-testid="act-set-drop"
+        onClick={() => form.setFieldValue('dropTeamId', 't1')}
+      />
+      <button
+        type="button"
+        data-testid="act-clear-drop"
+        onClick={() => form.setFieldValue('dropTeamId', '')}
+      />
+      {(['dropTeamId', 'teamTelegramChannel', 'teamTelegramChannelDrop'] as const).map((name) => (
+        <button
+          key={name}
+          type="button"
+          data-testid={`act-untouch-${name}`}
+          onClick={() => form.setFieldMeta(name, (m) => ({ ...m, isTouched: false }))}
+        />
+      ))}
       <form.Subscribe selector={(s) => s.values}>
         {(v) => <output data-testid="values">{JSON.stringify(v)}</output>}
       </form.Subscribe>
@@ -409,20 +438,6 @@ describe('TeamSection — SENIOR', () => {
     await user.click(alpha)
     await waitFor(() => expect(values().dropTeamId).toBe('t1'))
   })
-
-  it('JOIN_DROP_TEAM: dropTeamId required error only after the field is dirtied then emptied', async () => {
-    const user = userEvent.setup()
-    setup({
-      teamMode: 'JOIN_DROP_TEAM',
-      vacantDropTeams: [dropTeam('t1', 'Alpha', true, [])],
-    })
-    // Pristine blur must not raise the error.
-    fireEvent.blur(screen.getByTestId('user-dialog-drop-team-trigger'))
-    expect(screen.queryByText('Оберіть команду дропа')).not.toBeInTheDocument()
-    await user.click(screen.getByTestId('user-dialog-drop-team-trigger'))
-    await user.click(await screen.findByRole('option', { name: /Alpha/ }))
-    await waitFor(() => expect(values().dropTeamId).toBe('t1'))
-  })
 })
 
 describe('TeamSection — JUNIOR', () => {
@@ -488,5 +503,191 @@ describe('TeamSection — JUNIOR', () => {
     expect(screen.queryByTestId('user-dialog-junior-projects')).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('link', { name: 'Керувати в розділі «Проєкти» →' }))
     expect(spies.onClose).toHaveBeenCalledTimes(1)
+  })
+})
+
+const CHANNEL_ERR = 'Канал у Telegram: 5–32 символи — латиниця, цифри або _'
+const DROP_TEAM_ERR = 'Оберіть команду дропа'
+
+describe.each([
+  ['DROP', { role: 'DROP' }, 'user-dialog-drop-team-telegram-channel', 'teamTelegramChannelDrop'],
+  ['SENIOR', {}, 'user-dialog-team-telegram-channel', 'teamTelegramChannel'],
+] as const)('TeamSection — %s team channel field', (_label, base, testId, fieldName) => {
+  it.each(['abcde!', '!abcde', 'ab', 'a'.repeat(33)])('rejects %j', (handle) => {
+    setup({ ...base })
+    typeChannel(testId, handle)
+    expect(screen.getByText(CHANNEL_ERR)).toBeInTheDocument()
+  })
+
+  it.each(['team_channel', '@team_channel', 'ABCDE', '12345', 'a_b_c'])('accepts %j', (handle) => {
+    setup({ ...base })
+    typeChannel(testId, handle)
+    expect(screen.queryByText(CHANNEL_ERR)).not.toBeInTheDocument()
+  })
+
+  it('input carries its layout class; error border only while an error shows', () => {
+    setup({ ...base })
+    const input = screen.getByTestId(testId)
+    expect(input).toHaveClass('pl-16')
+    expect(input).not.toHaveClass('border-destructive')
+    typeChannel(testId, 'ab')
+    expect(input).toHaveClass('pl-16', 'border-destructive')
+  })
+
+  it('a pristine pre-filled invalid value raises no error on blur (dirty guard)', () => {
+    setup({ ...base, defaults: { [fieldName]: 'ab' } })
+    fireEvent.blur(screen.getByTestId(testId))
+    expect(screen.queryByText(CHANNEL_ERR)).not.toBeInTheDocument()
+  })
+
+  it('a pristine blur leaves no stale error behind once the field is later edited', () => {
+    setup({ ...base, defaults: { [fieldName]: 'ab' } })
+    const input = screen.getByTestId(testId)
+    fireEvent.blur(input)
+    fireEvent.change(input, { target: { value: 'abc' } })
+    expect(screen.queryByText(CHANNEL_ERR)).not.toBeInTheDocument()
+  })
+
+  it('the error is shown only while the field is touched (and dirty)', () => {
+    setup({ ...base })
+    typeChannel(testId, 'ab')
+    expect(screen.getByText(CHANNEL_ERR)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId(`act-untouch-${fieldName}`))
+    expect(screen.queryByText(CHANNEL_ERR)).not.toBeInTheDocument()
+  })
+})
+
+describe('TeamSection — JOIN_DROP_TEAM picker', () => {
+  const teams = [dropTeam('t1', 'Alpha', true, ['Hanna'])]
+
+  it('shows the field label and the placeholder while nothing is chosen', () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    expect(screen.getByText('Команда дропа')).toBeInTheDocument()
+    // team-mode field + drop-team field are both required in create
+    expect(screen.getAllByText('*')).toHaveLength(2)
+    expect(screen.getByTestId('user-dialog-drop-team-trigger')).toHaveTextContent(
+      '— оберіть команду дропа —',
+    )
+  })
+
+  it('shows the chosen team in the trigger and marks it selected in the list', async () => {
+    const user = userEvent.setup()
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    fireEvent.click(screen.getByTestId('act-set-drop'))
+    const trigger = screen.getByTestId('user-dialog-drop-team-trigger')
+    await waitFor(() => expect(trigger).toHaveTextContent('Alpha'))
+    expect(trigger).not.toHaveTextContent('— оберіть команду дропа —')
+    await user.click(trigger)
+    expect(await screen.findByRole('option', { name: /Alpha/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+  })
+
+  it('the drop is the member with role DROP who has not left; HRs are only active HRs', async () => {
+    const user = userEvent.setup()
+    const team = {
+      id: 't1',
+      name: 'Alpha',
+      type: 'DROP',
+      members: [
+        { userId: 'h0', role: 'HR', leftAt: null, displayName: 'First HR' },
+        { userId: 'd0', role: 'DROP', leftAt: '2026-01-01', displayName: 'Old Drop' },
+        { userId: 'd1', role: 'DROP', leftAt: null, displayName: 'Current Drop' },
+      ],
+    } as unknown as TeamDto
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: [team] })
+    await user.click(screen.getByTestId('user-dialog-drop-team-trigger'))
+    const option = await screen.findByRole('option', { name: /Alpha/ })
+    expect(option).toHaveTextContent('AlphaCurrent Drop · HR: First HR')
+    expect(option).not.toHaveTextContent('Old Drop')
+  })
+
+  it('a team whose only DROP left shows "no drop assigned"; no HRs → no HR suffix', async () => {
+    const user = userEvent.setup()
+    const team = {
+      id: 't1',
+      name: 'Alpha',
+      type: 'DROP',
+      members: [{ userId: 'd0', role: 'DROP', leftAt: '2026-01-01', displayName: 'Old Drop' }],
+    } as unknown as TeamDto
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: [team] })
+    await user.click(screen.getByTestId('user-dialog-drop-team-trigger'))
+    const option = await screen.findByRole('option', { name: /Alpha/ })
+    expect(option).toHaveTextContent(/^AlphaДропа не призначено$/)
+  })
+
+  it('required error: a pristine validate is silent', async () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    fireEvent.click(screen.getByTestId('act-validate'))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(screen.queryByText(DROP_TEAM_ERR)).not.toBeInTheDocument()
+  })
+
+  it('required error: a pristine validate leaves no stale error once the field is later edited', async () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    fireEvent.click(screen.getByTestId('act-validate'))
+    await new Promise((r) => setTimeout(r, 30))
+    fireEvent.click(screen.getByTestId('act-set-drop'))
+    fireEvent.click(screen.getByTestId('act-clear-drop'))
+    expect(screen.queryByText(DROP_TEAM_ERR)).not.toBeInTheDocument()
+  })
+
+  it('required error: dirty + emptied + validated shows the message, hidden when untouched', async () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    fireEvent.click(screen.getByTestId('act-set-drop'))
+    fireEvent.click(screen.getByTestId('act-clear-drop'))
+    fireEvent.click(screen.getByTestId('act-validate'))
+    expect(await screen.findByText(DROP_TEAM_ERR)).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('act-untouch-dropTeamId'))
+    expect(screen.queryByText(DROP_TEAM_ERR)).not.toBeInTheDocument()
+  })
+
+  it('a chosen team raises no required error when validated', async () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: teams })
+    fireEvent.click(screen.getByTestId('act-set-drop'))
+    fireEvent.click(screen.getByTestId('act-validate'))
+    await new Promise((r) => setTimeout(r, 30))
+    expect(screen.queryByText(DROP_TEAM_ERR)).not.toBeInTheDocument()
+  })
+})
+
+describe('TeamSection — team-mode radio styling', () => {
+  // The radio card styling lives on the wrapping <label>; no accessible query reaches it.
+  const label = (testId: string) =>
+    // eslint-disable-next-line testing-library/no-node-access
+    screen.getByTestId(testId).closest('label') as HTMLElement
+
+  it('selected card is highlighted, the other is neutral; JOIN dims when no vacant teams', () => {
+    setup()
+    const createNew = label('user-dialog-team-mode-create-new')
+    const join = label('user-dialog-team-mode-join-drop')
+    expect(createNew).toHaveClass('cursor-pointer', 'border-primary/50', 'bg-primary/5')
+    expect(createNew).not.toHaveClass('border-input')
+    expect(join).toHaveClass('cursor-pointer', 'border-input', 'hover:bg-muted/40', 'opacity-60')
+    expect(join).not.toHaveClass('border-primary/50')
+  })
+
+  it('with vacant teams JOIN is not dimmed; selecting it swaps the highlight', () => {
+    setup({ teamMode: 'JOIN_DROP_TEAM', vacantDropTeams: [dropTeam('t1', 'Alpha', true, [])] })
+    const createNew = label('user-dialog-team-mode-create-new')
+    const join = label('user-dialog-team-mode-join-drop')
+    expect(join).toHaveClass('border-primary/50', 'bg-primary/5')
+    expect(join).not.toHaveClass('border-input')
+    expect(join).not.toHaveClass('opacity-60')
+    expect(createNew).toHaveClass('border-input', 'hover:bg-muted/40')
+    expect(createNew).not.toHaveClass('border-primary/50')
+  })
+})
+
+describe('TeamSection — JUNIOR create select sentinel', () => {
+  it('the "none" option is the selected one while projectId is empty', async () => {
+    const user = userEvent.setup()
+    setup({ role: 'JUNIOR', availableJuniorProjects: [project('p1', 'Website', 'Acme')] })
+    await user.click(screen.getByRole('combobox'))
+    expect(await screen.findByRole('option', { name: '— не обрано —' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
   })
 })

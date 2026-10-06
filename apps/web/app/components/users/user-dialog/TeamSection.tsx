@@ -405,7 +405,10 @@ export function TeamSection({
                           onValueChange={(v) => field.handleChange(v === 'none' ? '' : v)}
                         >
                           <SelectTrigger>
-                            <SelectValue placeholder={t`— не обрано —`} />
+                            <SelectValue
+                              // Stryker disable next-line StringLiteral: unobservable — the Select value is never empty (`|| 'none'`), so the sentinel 'none' item is always selected and its label is rendered instead of the placeholder
+                              placeholder={t`— не обрано —`}
+                            />
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="none">{t`— не обрано —`}</SelectItem>
