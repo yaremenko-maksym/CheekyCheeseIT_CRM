@@ -26,7 +26,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { type Currency } from '@/components/ui/amount-currency-input'
 import { translateZodCode, translateZodMessage } from '@/lib/axios-utils'
-import { cn, parseStrictAmount } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import { type Role, normalizeTelegram } from './constants'
 import { WizardStep2 } from './user-dialog/WizardStep2'
@@ -48,7 +48,11 @@ import { useTeamSelection } from './user-dialog/useTeamSelection'
 
 // Re-exported so existing test imports from '../UserDialog' keep resolving.
 export { WizardStep2 }
-import { defaultPaymentMethod, toUsd } from './user-dialog/validation'
+import { defaultPaymentMethod } from './user-dialog/validation'
+import {
+  buildCreateUserPayload,
+  computeMonthlySalaryUsd as toMonthlySalaryUsd,
+} from './user-dialog/payloads'
 
 type CommonProps = {
   mode: 'create' | 'edit'
@@ -206,15 +210,14 @@ export function UserDialog(props: UserDialogProps) {
       const hrIds = selectedHrIdsRef.current
       const accountantId = selectedAccountantIdRef.current
 
-      // Convert salary to USD if needed. Backend stores USD numeric.
-      const computeMonthlySalaryUsd = (): number | null => {
-        const raw = String(value.monthlySalary).trim()
-        if (!raw) return null
-        const num = parseStrictAmount(raw)
-        if (!isFinite(num) || num < 0) return null
-        if (!exchangeRates) return num // shouldn't happen — query enabled on open
-        return Number(toUsd(num, value.salaryCurrency, exchangeRates).toFixed(2))
-      }
+      // Wizard-PATCH / edit branches still call this closure; the normal CREATE
+      // payload goes through `buildCreateUserPayload` (user-dialog/payloads.ts).
+      const computeMonthlySalaryUsd = (): number | null =>
+        toMonthlySalaryUsd({
+          monthlySalary: value.monthlySalary,
+          salaryCurrency: value.salaryCurrency,
+          exchangeRates,
+        })
 
       if (isCreate && isDrop) {
         // DROP creation hits the dedicated endpoint which atomically
@@ -354,79 +357,11 @@ export function UserDialog(props: UserDialogProps) {
           return
         }
 
-        // Build payment-requisites slice. SENIOR/ADMIN are USDT-only; other
-        // roles use whatever the form's `paymentMethod` field says.
-        const paymentMethod: PaymentMethod =
-          isSenior || value.role === 'ADMIN' ? 'USDT_ERC20' : value.paymentMethod
-
-        const payload: CreateUserDto = {
-          email: value.email.trim(),
-          // §4.4 — optional, ADMIN-entered at creation only. Both `.trim()`
-          // calls are defensive-only for `type="email"`: the HTML value
-          // sanitization algorithm for the email state (WHATWG HTML §4.10.5.1.4)
-          // strips leading/trailing whitespace before `onChange` ever sees the
-          // value — confirmed empirically in jsdom, and it is spec behavior,
-          // not a jsdom quirk, so real browsers behave the same. No typed
-          // input can make `value.personalEmail` differ from its own
-          // `.trim()`, so no interaction test can distinguish either call
-          // being dropped. Kept for the same reason `email.trim()` above is
-          // kept: defense if this value is ever populated from something
-          // other than typing into this input (e.g. a future paste-from-
-          // clipboard-object path, or a programmatic `setFieldValue`).
-          // Stryker disable next-line MethodExpression: see the paragraph above — unreachable via any typed input on a type="email" field
-          ...(value.personalEmail.trim() && { personalEmail: value.personalEmail.trim() }),
-          displayName: value.displayName.trim(),
-          role: value.role,
-          telegram: value.telegram.trim() ? normalizeTelegram(value.telegram) : undefined,
-          phone: (value.phone as string) || undefined,
-          techStack: value.techStack.length > 0 ? value.techStack : undefined,
-          // task-i18n-stage2 (Task 3, Step 6) — interface language picked in
-          // the "Данные" step below.
-          locale: value.locale,
-          paymentMethod,
-          ...(paymentMethod === 'USDT_ERC20' && {
-            walletUsdtErc20: value.walletUsdtErc20.trim(),
-            ...(value.walletUsdtLabel.trim() && { walletUsdtLabel: value.walletUsdtLabel.trim() }),
-          }),
-          ...(paymentMethod === 'BANK_UAH_FOP' && {
-            bankUahRecipient: value.bankUahRecipient.trim(),
-            bankUahIban: value.bankUahIban.trim(),
-            bankUahRnokpp: value.bankUahRnokpp.trim(),
-            ...(value.bankUahBankName.trim() && { bankUahBankName: value.bankUahBankName.trim() }),
-          }),
-          ...(isSenior && {
-            seniorSharePercent: value.seniorSharePercent,
-            // Drop role - phase 1 (AC3): when JOIN_DROP_TEAM, omit HR /
-            // accountant — backend reads them from the chosen drop-team.
-            // Sending stale arrays would just be ignored, but omitting
-            // them keeps the payload truthful.
-            ...(!isJoinDropTeam && {
-              hrIds,
-              accountantId: accountantId || null,
-            }),
-            ...(value.teamMode === 'JOIN_DROP_TEAM' && {
-              teamMode: 'JOIN_DROP_TEAM' as TeamMode,
-              dropTeamId: value.dropTeamId,
-            }),
-          }),
-          ...(!isSenior &&
-            String(value.monthlySalary).trim() && {
-              monthlySalary: computeMonthlySalaryUsd() ?? undefined,
-              salaryCurrency: 'USD',
-            }),
-          // ut-13: project optional for JUNIOR. Only attach if explicitly chosen.
-          ...(value.role === 'JUNIOR' &&
-            value.projectId && {
-              projectId: value.projectId,
-            }),
-          // Contract data — legal full name for MSA contract (optional at create time).
-          ...(value.legalFullName.trim() && {
-            legalFullName: value.legalFullName.trim(),
-          }),
-          ...(value.registrationAddress.trim() && {
-            registrationAddress: value.registrationAddress.trim(),
-          }),
-        }
+        const payload: CreateUserDto = buildCreateUserPayload(value, {
+          hrIds,
+          accountantId,
+          exchangeRates,
+        })
         const result = createUserSchema.safeParse(payload)
         if (!result.success) {
           // Surface the first issue inline + as a single toast — the form
